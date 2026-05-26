@@ -1,0 +1,334 @@
+{
+  "slug": "convertible-v0-ships-point-it-at-a-repo-task-and-i",
+  "title": "Convertible v0 ships: point it at a repo task and it drives the work through a swappable coder engine behind one shared task contract \u2014 the first real engine is a local coding model served via a vLLM OpenAI-compatible API.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-26T23:20:12Z",
+  "updated": "2026-05-26T23:29:03Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible v0 ships: point it at a repo task and it drives the work through a swappable coder engine behind one shared task contract \u2014 the first real engine is a local coding model served via a vLLM OpenAI-compatible API.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "End-to-end proof: 'convertible drive' against the live vLLM server at localhost:8001 (Qwen3-32B) edits a real repo correctly AND opens a PR; the same task on the mock engine yields an identically-shaped result with no network \u2014 demonstrating one contract, swappable engines.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Culture/Guildmaster/Taskmaster operators who assign repo work without caring which coding engine runs it, plus Convertible developers who build engine wheels.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The audience is real and reachable: at least one concrete consumer (Guildmaster/Taskmaster/Steward, or a Convertible engine-wheel developer) can drive a task through v0 without bespoke per-backend integration.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Each coder backend (Codex, Claude Code, local models) has its own invocation, controls, and output shape; assigning repo work means coding against one specific backend, and swapping engines means rewriting the integration.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The pain is real today: adding a new coder backend currently requires backend-specific invocation and output handling \u2014 exactly what v0 removes behind one contract.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "An operator runs 'convertible drive' against a task + repo; Convertible executes it via a selected engine (mock or vLLM-OpenAI) and emits structured logs + a result artifact for handoff \u2014 the caller never needs to know which engine ran.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "After v0, 'convertible drive' produces the described handoff (logs + JSON result artifact + PR) for both engines, and the caller's invocation is identical regardless of which engine ran.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Culture can assign repo work behind one contract; the model becomes a swappable engine, not a hardwired dependency.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Swapping the engine (mock <-> vllm-openai) requires no change to the task contract or caller code \u2014 only --engine/config selects it.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "v0 is NOT a multi-engine router/policy selector, NOT a sandboxed execution environment, and NOT a daemon; it ships the chassis (task contract + lifecycle), the wheel/plugin discovery contract, and exactly two engine drivers \u2014 a mock/local wheel and a vLLM OpenAI-compatible wheel. No Codex/Claude/Gemini drivers in v0.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "v0 ships exactly the in-scope set (chassis + wheel discovery + 2 engines + PR handoff) and none of the excluded items (router/policy/sandbox/daemon); any excluded feature appearing means scope crept.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "'convertible drive' runs a task end-to-end against both a live vLLM OpenAI server and the mock engine, producing identically-shaped task results/artifacts; the engine is swappable via --engine/config with zero change to the task contract; wheels are discovered via Python entry points ('convertible wheels list').",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The success signal is observable: one test/demo runs the same task on both mock and vllm-openai and asserts identically-shaped results, a working --engine swap, and 'wheels list' showing both engines.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "R1 Task contract: a typed Task (id, repo path, instruction, optional context/constraints, engine selection) and typed TaskResult (status, summary, changed_files, step trace, usage, artifacts path) that every engine driver consumes/produces identically.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A Task and TaskResult round-trip through any engine unchanged in shape: the mock and vllm-openai engines both consume the same Task and produce a TaskResult with the same fields; serializing a TaskResult to JSON and reloading yields an identical object.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "R2 Engine driver protocol: an abstract Engine interface with a drive(task, repo, tools, budget) -> TaskResult; the vllm-openai driver implements it via an OpenAI-compatible /v1/chat/completions endpoint (configurable base_url, api_key, model) using tool/function calling.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The vllm-openai driver touches only the OpenAI-compatible surface (base_url/api_key/model + /v1/chat/completions with tools); pointing base_url at any OpenAI-compatible server is a config change, not a code change.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "R3 Agentic tool-loop: Convertible runs a bounded loop offering tools read_file, write_file, list_dir, run_command, finish; executes the model's tool_calls against the target repo working tree; feeds tool results back; terminates on finish() or a max_steps budget.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The agentic loop always terminates (model finish() OR max_steps reached), and write_file/run_command act only inside the target repo path \u2014 no writes escape it.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R4 Wheel/plugin discovery: engines register as Python entry points (group convertible.engines); 'convertible wheels list' enumerates discovered engines; --engine <name>/config selects one; bundled mock and vllm-openai engines register through the same mechanism an external wheel would.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "An engine shipped by an out-of-tree wheel installed in the same env appears in 'convertible wheels list' and is selectable via --engine with no core change, proven by the bundled engines using the identical entry-point mechanism.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R5 Dashboard/handoff output: each run writes structured logs + a result artifact (JSON) capturing status, changed_files, step trace, and usage, suitable for handoff back to Guildmaster/Taskmaster/Steward.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Every drive run writes a result artifact that is valid JSON with at least {status, changed_files, steps, usage}; a failed run still writes one with status=error and the failure reason.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "R6 Mock engine: a deterministic in-process engine that performs scripted tool calls (e.g. write a file) so 'drive' works in CI with no network, exercising the same task contract + tool-loop as the real engine.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The mock engine completes a drive run with zero network access and deterministic output, exercising the full task contract + tool-loop, so CI validates the chassis without a live model.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "D1 CLI-first for v0 with an importable core library; daemon/library-server mode is reserved, not built.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "D2 Wheels are trusted code only in v0, loaded via entry points; no untrusted-plugin sandboxing. run_command executes in the target repo with the operator's privileges.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "D3 vLLM is driven purely through its OpenAI-compatible API (no vLLM-specific SDK), so the same driver works against any OpenAI-compatible server; reference config = base_url http://localhost:8001/v1, model Qwen3-32B (NVFP4).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "D4 PyPI distribution = convertible-cli; command + import package = convertible; a single distribution ships core + bundled engines.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "decision",
+      "text": "D5 v0 mutates the target repo working tree in place and leaves git (branch/commit/PR) to the operator; the result artifact lists changed files.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "non_goal",
+      "text": "No gearbox in v0: no multi-engine routing/strategy/policy selection, no artifact-publisher/handoff-target wheels, and no repo-adapter abstraction beyond a local filesystem path.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c20",
+      "kind": "assumption",
+      "text": "The configured vLLM server is reachable and serves an OpenAI-compatible /v1/chat/completions with working tool/function calling for the model (Qwen3-32B may need vLLM's --enable-auto-tool-choice --tool-call-parser hermes).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "R7 Git/PR handoff: after a successful drive, Convertible edits the working tree, then creates a branch, commits, pushes, and opens a PR via the gh CLI; the result artifact records branch name + PR URL. PR creation is gated (a --no-pr flag or absent remote/auth) so the same drive completes edit+local-commit and records pr_url=null offline/in CI.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "A drive with a configured remote + gh auth ends with a pushed branch and an open PR whose URL is in the result artifact; a drive with --no-pr or no remote completes edit + local commit and records pr_url=null.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "D5 Handoff model: working-tree edits are the substrate; git capture (branch/commit/push) + 'gh pr create' is the default handoff. Requires a git remote + gh auth on the target repo; --no-pr or a missing remote degrades gracefully to a local commit so CI/offline runs never push.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Exact result-artifact JSON schema + versioning, and how it maps to the handoff shape Guildmaster/Taskmaster/Steward expect \u2014 aligned with those consumers after v0 lands a first shape.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Context-gathering strategy for large repos (how much file tree / which files to surface up front) beyond on-demand read_file/list_dir.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "run_command sandboxing / resource limits \u2014 v0 trusts the operator's environment (D2); isolation is a later sandbox wheel.",
+      "kind": "out_of_scope",
+      "claim_id": null
+    }
+  ]
+}
