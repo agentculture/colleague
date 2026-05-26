@@ -71,6 +71,37 @@ wheels = [
 ]
 
 [[package]]
+name = "convertible-cli"
+version = "0.1.2"
+source = { editable = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "bandit" },
+    { name = "black" },
+    { name = "flake8" },
+    { name = "isort" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-xdist" },
+    { name = "teken" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bandit", specifier = ">=1.7.5" },
+    { name = "black", specifier = ">=23.7.0" },
+    { name = "flake8", specifier = ">=6.1" },
+    { name = "isort", specifier = ">=5.12.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=4.1" },
+    { name = "pytest-xdist", specifier = ">=3.0" },
+    { name = "teken", specifier = ">=0.8" },
+]
+
+[[package]]
 name = "coverage"
 version = "7.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -152,37 +183,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/27/96/3acae5da0953be042c0b4dea6d6789d2f080701c77b88e44d5bd41b9219b/coverage-7.14.0-cp314-cp314t-win_amd64.whl", hash = "sha256:29943e552fdc08e082eb51400fb2f58e118a83b5542bd06531214e084399b644", size = 224680, upload-time = "2026-05-10T18:02:25.896Z" },
     { url = "https://files.pythonhosted.org/packages/93/3d/6ab5d2dd8325d838737c6f8d83d62eb6230e0d70b87b51b57bbfd08fa767/coverage-7.14.0-cp314-cp314t-win_arm64.whl", hash = "sha256:742a73ea621953b012f2c4c2219b512180dd84489acf5b1596b0aafc55b9100b", size = 222703, upload-time = "2026-05-10T18:02:27.822Z" },
     { url = "https://files.pythonhosted.org/packages/61/e8/cb8e80d6f9f55b99588625062822bf946cf03ed06315df4bd8397f5632a1/coverage-7.14.0-py3-none-any.whl", hash = "sha256:8de5b61163aee3d05c8a2beab6f47913df7981dad1baf82c414d99158c286ab1", size = 211764, upload-time = "2026-05-10T18:02:29.538Z" },
-]
-
-[[package]]
-name = "convertible"
-version = "0.1.1"
-source = { editable = "." }
-
-[package.dev-dependencies]
-dev = [
-    { name = "bandit" },
-    { name = "black" },
-    { name = "flake8" },
-    { name = "isort" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-xdist" },
-    { name = "teken" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "bandit", specifier = ">=1.7.5" },
-    { name = "black", specifier = ">=23.7.0" },
-    { name = "flake8", specifier = ">=6.1" },
-    { name = "isort", specifier = ">=5.12.0" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=4.1" },
-    { name = "pytest-xdist", specifier = ">=3.0" },
-    { name = "teken", specifier = ">=0.8" },
 ]
 
 [[package]]

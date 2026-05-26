@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-27
+
+### Changed
+
+- **Renamed the PyPI distribution from `convertible` to `convertible-cli`** — the
+  bare `convertible` name was unavailable/ambiguous on PyPI. Only the published
+  distribution name changes; the import package (`convertible/`), the `convertible`
+  CLI entry point, and the wheel build target are unchanged. Updated the TestPyPI
+  install hint in `.github/workflows/publish.yml` to match.
+
 ## [0.1.1] - 2026-05-26
 
 ### Changed
