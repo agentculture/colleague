@@ -1,7 +1,7 @@
 [project]
-name = "culture-agent-template"
+name = "convertible"
 version = "0.1.1"
-description = "culture-agent-template — a clonable template for AgentCulture mesh agents."
+description = "Convertible CLI is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -16,18 +16,18 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/agentculture/culture-agent-template"
-Issues = "https://github.com/agentculture/culture-agent-template/issues"
+Homepage = "https://github.com/agentculture/convertible"
+Issues = "https://github.com/agentculture/convertible/issues"
 
 [project.scripts]
-culture-agent-template = "culture_agent_template.cli:main"
+convertible = "convertible.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["culture_agent_template"]
+packages = ["convertible"]
 
 [dependency-groups]
 dev = [
@@ -42,8 +42,8 @@ dev = [
 ]
 
 [tool.coverage.run]
-source = ["culture_agent_template"]
-omit = ["culture_agent_template/__pycache__/*"]
+source = ["convertible"]
+omit = ["convertible/__pycache__/*"]
 
 [tool.coverage.report]
 fail_under = 60
@@ -57,7 +57,7 @@ exclude_lines = [
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["culture_agent_template"]
+known_first_party = ["convertible"]
 
 [tool.black]
 line-length = 100

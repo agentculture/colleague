@@ -1,4 +1,4 @@
-"""``culture-agent-template doctor`` — check the agent-identity invariants.
+"""``convertible doctor`` — check the agent-identity invariants.
 
 Mirrors the two invariants ``steward doctor`` verifies for a mesh agent:
 
@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import argparse
 
-from culture_agent_template.cli._commands.whoami import find_culture_yaml, read_agent_fields
-from culture_agent_template.cli._output import emit_result
+from convertible.cli._commands.whoami import find_culture_yaml, read_agent_fields
+from convertible.cli._output import emit_result
 
 # backend → required prompt file (the backend-consistency mapping).
 _PROMPT_FILE = {
@@ -103,7 +103,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         emit_result(report, json_mode=True)
     else:
         status = "healthy" if report["healthy"] else "unhealthy"
-        lines = [f"culture-agent-template doctor: {status}", ""]
+        lines = [f"convertible doctor: {status}", ""]
         for check in report["checks"]:
             mark = "ok" if check["passed"] else "FAIL"
             lines.append(f"[{mark}] {check['id']}: {check['message']}")

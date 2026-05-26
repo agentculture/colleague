@@ -1,7 +1,7 @@
-"""``culture-agent-template explain <path>...`` — global markdown catalog lookup (stable-contract).
+"""``convertible explain <path>...`` — global markdown catalog lookup (stable-contract).
 
 ``explain`` is global (not nested under a noun). It takes zero or more path
-tokens and resolves them via the catalog in :mod:`culture_agent_template.explain`.
+tokens and resolves them via the catalog in :mod:`convertible.explain`.
 Unknown paths raise :class:`CliError` with a remediation hint.
 """
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import argparse
 
-from culture_agent_template.cli._output import emit_result
-from culture_agent_template.explain import resolve
+from convertible.cli._output import emit_result
+from convertible.explain import resolve
 
 
 def cmd_explain(args: argparse.Namespace) -> int:
@@ -32,7 +32,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "path",
         nargs="*",
-        help="Command path tokens; empty = root (same as 'culture-agent-template').",
+        help="Command path tokens; empty = root (same as 'convertible').",
     )
     p.add_argument("--json", action="store_true", help="Emit structured JSON.")
     p.set_defaults(func=cmd_explain)

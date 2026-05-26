@@ -1,4 +1,4 @@
-# Per-machine config for culture-agent-template's skills.
+# Per-machine config for convertible's skills.
 # Copy this to skills.local.yaml (git-ignored) and adjust for your environment.
 # Skills read skills.local.yaml first, falling back to this example.
 

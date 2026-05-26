@@ -11,7 +11,7 @@ import json
 import sys
 from typing import Any, TextIO
 
-from culture_agent_template.cli._errors import CliError
+from convertible.cli._errors import CliError
 
 
 def emit_result(data: Any, *, json_mode: bool, stream: TextIO | None = None) -> None:

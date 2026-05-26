@@ -1,15 +1,15 @@
-"""Unified CLI entry point for culture-agent-template.
+"""Unified CLI entry point for convertible.
 
 The agent-first global verbs (``whoami``, ``learn``, ``explain``, ``overview``,
-``doctor``) are registered here under :mod:`culture_agent_template.cli._commands`,
+``doctor``) are registered here under :mod:`convertible.cli._commands`,
 alongside the ``cli`` noun group. Future noun groups register via their own
 ``register()`` functions following the same pattern.
 
 Error propagation contract
 --------------------------
-Every handler raises :class:`culture_agent_template.cli._errors.CliError` on
+Every handler raises :class:`convertible.cli._errors.CliError` on
 failure; ``main()`` catches it via :func:`_dispatch` and routes through
-:mod:`culture_agent_template.cli._output`. Unknown exceptions are wrapped into a
+:mod:`convertible.cli._output`. Unknown exceptions are wrapped into a
 ``CliError`` so no Python traceback leaks to stderr.
 
 Argparse errors (unknown verb, missing arg) also route through the structured
@@ -24,11 +24,11 @@ from __future__ import annotations
 import argparse
 import sys
 
-from culture_agent_template import __version__
-from culture_agent_template.cli._errors import EXIT_USER_ERROR, CliError
-from culture_agent_template.cli._output import emit_error
+from convertible import __version__
+from convertible.cli._errors import EXIT_USER_ERROR, CliError
+from convertible.cli._output import emit_error
 
-_ISSUES_URL = "https://github.com/agentculture/culture-agent-template/issues"
+_ISSUES_URL = "https://github.com/agentculture/convertible/issues"
 
 
 class _CliArgumentParser(argparse.ArgumentParser):
@@ -62,16 +62,16 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    from culture_agent_template.cli._commands import cli as _cli_group
-    from culture_agent_template.cli._commands import doctor as _doctor_cmd
-    from culture_agent_template.cli._commands import explain as _explain_cmd
-    from culture_agent_template.cli._commands import learn as _learn_cmd
-    from culture_agent_template.cli._commands import overview as _overview_cmd
-    from culture_agent_template.cli._commands import whoami as _whoami_cmd
+    from convertible.cli._commands import cli as _cli_group
+    from convertible.cli._commands import doctor as _doctor_cmd
+    from convertible.cli._commands import explain as _explain_cmd
+    from convertible.cli._commands import learn as _learn_cmd
+    from convertible.cli._commands import overview as _overview_cmd
+    from convertible.cli._commands import whoami as _whoami_cmd
 
     parser = _CliArgumentParser(
-        prog="culture-agent-template",
-        description="culture-agent-template — a clonable template for AgentCulture mesh agents.",
+        prog="convertible",
+        description="convertible — a clonable template for AgentCulture mesh agents.",
     )
     parser.add_argument(
         "--version",
@@ -89,7 +89,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
     # Register your own noun groups here:
-    #   from culture_agent_template.cli._commands import my_noun as _my_noun_group
+    #   from convertible.cli._commands import my_noun as _my_noun_group
     #   _my_noun_group.register(sub)
 
     return parser

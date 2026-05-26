@@ -1,4 +1,4 @@
-"""``culture-agent-template learn`` — the learnability affordance.
+"""``convertible learn`` — the learnability affordance.
 
 Prints a structured self-teaching prompt. Must satisfy the agent-first rubric:
 >=200 chars and mention purpose, command map, exit codes, --json, and explain.
@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import argparse
 
-from culture_agent_template import __version__
-from culture_agent_template.cli._output import emit_result
+from convertible import __version__
+from convertible.cli._output import emit_result
 
 _TEXT = """\
-culture-agent-template — a clonable template for AgentCulture mesh agents.
+convertible — a clonable template for AgentCulture mesh agents.
 
 Purpose
 -------
@@ -23,12 +23,12 @@ rename the package, and edit culture.yaml to mint a new agent.
 
 Commands
 --------
-  culture-agent-template whoami             Identity from culture.yaml.
-  culture-agent-template learn              This self-teaching prompt.
-  culture-agent-template explain <path>...  Markdown docs for any noun/verb path.
-  culture-agent-template overview           Descriptive snapshot of the agent.
-  culture-agent-template doctor             Check the agent-identity invariants.
-  culture-agent-template cli overview       Describe the CLI surface itself.
+  convertible whoami             Identity from culture.yaml.
+  convertible learn              This self-teaching prompt.
+  convertible explain <path>...  Markdown docs for any noun/verb path.
+  convertible overview           Descriptive snapshot of the agent.
+  convertible doctor             Check the agent-identity invariants.
+  convertible cli overview       Describe the CLI surface itself.
 
 Machine-readable output
 -----------------------
@@ -44,13 +44,13 @@ Exit-code policy
 
 More detail
 -----------
-  culture-agent-template explain culture-agent-template
+  convertible explain convertible
 """
 
 
 def _as_json_payload() -> dict[str, object]:
     return {
-        "tool": "culture-agent-template",
+        "tool": "convertible",
         "version": __version__,
         "purpose": "Clonable scaffold for a new AgentCulture mesh agent.",
         "commands": [
@@ -67,7 +67,7 @@ def _as_json_payload() -> dict[str, object]:
             "2": "environment/setup error",
         },
         "json_support": True,
-        "explain_pointer": "culture-agent-template explain <path>",
+        "explain_pointer": "convertible explain <path>",
     }
 
 

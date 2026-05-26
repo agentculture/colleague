@@ -1,4 +1,4 @@
-# markdownlint-cli2 config for culture-agent-template.
+# markdownlint-cli2 config for convertible.
 # markdownlint-cli2 stops walking at the git root, so a per-user global config
 # in the home directory isn't picked up from inside the repo.
 # Mirrors the guildmaster / steward / teken preset for workspace consistency.

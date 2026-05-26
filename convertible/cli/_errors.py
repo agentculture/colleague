@@ -1,7 +1,7 @@
 """CliError and exit-code policy (stable-contract).
 
-Every failure inside culture-agent-template raises :class:`CliError`. The
-top-level ``main()`` catches it, formats via :mod:`culture_agent_template.cli._output`,
+Every failure inside convertible raises :class:`CliError`. The
+top-level ``main()`` catches it, formats via :mod:`convertible.cli._output`,
 and exits with :attr:`CliError.code`. This guarantees:
 
 * no Python traceback leaks to stderr (the agent-first error contract);
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Exit-code policy. Documented in ``culture-agent-template learn`` output.
+# Exit-code policy. Documented in ``convertible learn`` output.
 # 0      = success
 # 1      = user-input error (bad flag, missing required arg, unknown path)
 # 2      = environment / setup error (tool not installed, file unreadable)

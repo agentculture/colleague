@@ -1,9 +1,9 @@
-"""``culture-agent-template overview`` — read-only descriptive snapshot of the agent.
+"""``convertible overview`` — read-only descriptive snapshot of the agent.
 
 Describes the agent to an agent reader: identity (from culture.yaml), the verb
 surface, and the sibling-pattern artifacts this template carries. The shared
 section/render helpers here are reused by the ``cli`` noun's ``overview`` (see
-:mod:`culture_agent_template.cli._commands.cli`).
+:mod:`convertible.cli._commands.cli`).
 
 Descriptive verbs never hard-fail on a missing target path — an optional
 positional ``target`` is accepted and ignored (overview describes this agent,
@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import argparse
 
-from culture_agent_template.cli._commands.whoami import report
-from culture_agent_template.cli._output import emit_result
+from convertible.cli._commands.whoami import report
+from convertible.cli._output import emit_result
 
 _ARTIFACTS = [
     "culture.yaml + CLAUDE.md — mesh identity (suffix + backend)",
@@ -90,7 +90,7 @@ def cmd_overview(args: argparse.Namespace) -> int:
     # `target` is accepted for rubric compatibility (descriptive verbs must not
     # hard-fail on a missing path) but overview describes this agent itself.
     emit_overview(
-        "culture-agent-template",
+        "convertible",
         agent_sections(),
         json_mode=bool(getattr(args, "json", False)),
     )
