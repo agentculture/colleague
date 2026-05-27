@@ -26,6 +26,7 @@ from pathlib import Path
 
 from convertible import registry
 from convertible.artifact import artifact_dir, failed_result, write
+from convertible.cli._banner import emit_banner
 from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import emit_diagnostic, emit_result
 from convertible.commands import CommandError, expand_command
@@ -139,6 +140,10 @@ def execute_drive(
 
 def cmd_drive(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
+
+    # Decorative startup banner — interactive TTY only, suppressed in --json so
+    # neither stdout (the result stream) nor agent-parsed stderr is polluted (issue #15).
+    emit_banner(emit_diagnostic, json_mode=json_mode)
 
     repo = Path(args.repo).expanduser()
     if not repo.is_dir():

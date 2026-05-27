@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
+from convertible.cli._banner import emit_banner
 from convertible.cli._commands.drive import execute_drive as _default_drive
 from convertible.cli._errors import CliError
 from convertible.commands import CommandError, discover_commands, expand_command, load_command
@@ -129,6 +130,10 @@ def run_session(
     # Interactive chrome (palette, prompts, summaries) goes to stdout in normal
     # mode, but to stderr in --json mode so stdout carries only JSON results.
     chrome: Callable[..., None] = err if json_mode else out
+
+    # Decorative startup banner — interactive TTY only, suppressed in --json (issue #15).
+    # Printed once here (not in the loop) so it greets the session, not each prompt.
+    emit_banner(err, json_mode=json_mode)
 
     config = EngineConfig.resolve(
         base_url=getattr(args, "base_url", None),
