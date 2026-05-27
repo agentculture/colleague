@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from convertible.contract import OK, Task
-from convertible.loop import CompleteFn, ModelResponse, ToolCall, run
+from convertible.loop import CompleteFn, ModelResponse, ToolCall, _assistant_message, run
 
 
 def scripted(responses: list[ModelResponse]) -> CompleteFn:
@@ -60,6 +61,22 @@ def test_loop_terminates_on_empty_tool_calls(tmp_path: Path) -> None:
     result = run(scripted([ModelResponse(content="nothing to do here")]), task, max_steps=5)
     assert result.summary == "nothing to do here"
     assert result.steps == []
+
+
+def test_assistant_message_serializes_arguments_as_json_string() -> None:
+    # OpenAI wire format: function.arguments must be a JSON *string*, not a dict,
+    # or strict servers reject replayed turns.
+    resp = ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "a", "content": "b"})])
+    msg = _assistant_message(resp)
+    args = msg["tool_calls"][0]["function"]["arguments"]
+    assert isinstance(args, str)
+    assert json.loads(args) == {"path": "a", "content": "b"}
+
+
+def test_assistant_message_passes_string_arguments_through() -> None:
+    resp = ModelResponse(tool_calls=[ToolCall("1", "finish", '{"summary": "done"}')])
+    args = _assistant_message(resp)["tool_calls"][0]["function"]["arguments"]
+    assert args == '{"summary": "done"}'
 
 
 def test_loop_records_tool_error_and_continues(tmp_path: Path) -> None:

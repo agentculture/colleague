@@ -5,6 +5,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from convertible import handoff as ho
 from convertible.handoff import handoff, has_remote, should_open_pr
 
 
@@ -72,3 +75,42 @@ def test_handoff_no_changes_short_circuits(tmp_path: Path) -> None:
     assert result.committed is False
     assert result.branch is None
     assert "no changes" in result.note
+
+
+def test_handoff_reports_changed_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "new.txt").write_text("hi\n")
+
+    result = handoff(repo, "abc", open_pr=False)
+    assert "new.txt" in result.changed_files
+
+
+def test_pushed_but_pr_failed_note_is_not_misleading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Push lands but gh pr create fails: the note must not say 'local commit only' (Qodo #4)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "feature.txt").write_text("work\n")
+
+    monkeypatch.setattr(ho, "should_open_pr", lambda repo, open_pr: True)
+
+    def boom(repo: Path, base: str, title: str) -> str:
+        raise ho.HandoffError("gh exploded")
+
+    monkeypatch.setattr(ho, "_gh_pr_create", boom)
+
+    real_git = ho._git
+
+    def fake_git(repo: Path, *args: str, check: bool = True):  # type: ignore[no-untyped-def]
+        if args and args[0] == "push":  # pretend the push succeeded (no real remote)
+            return subprocess.CompletedProcess(list(args), 0, "", "")
+        return real_git(repo, *args, check=check)
+
+    monkeypatch.setattr(ho, "_git", fake_git)
+
+    result = handoff(repo, "task1", open_pr=True)
+    assert result.pushed is True
+    assert "PR creation failed" in result.note
+    assert "local commit only" not in result.note

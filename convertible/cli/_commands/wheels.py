@@ -1,8 +1,11 @@
-"""``convertible wheels`` — the garage: discover installed engine wheels.
+"""``convertible wheels`` — discover installed engine plugins.
 
 ``wheels list`` enumerates the engines discovered via the ``convertible.engines``
-entry-point group; ``wheels overview`` describes the garage (and satisfies the
+entry-point group; ``wheels overview`` describes the noun (and satisfies the
 agent-first rubric: any noun with action-verbs must also expose ``overview``).
+
+("Wheel" is the internal term for a replaceable engine plugin; the user-facing
+surface stays engine-centric and serious — see issue #1's UX note.)
 """
 
 from __future__ import annotations

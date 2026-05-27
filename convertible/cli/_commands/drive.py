@@ -75,7 +75,10 @@ def cmd_drive(args: argparse.Namespace) -> int:
             "check the engine config / vLLM server; a result artifact was still written",
         ) from exc
 
-    if result.status == OK and result.changed_files:
+    if result.status == OK:
+        # Always attempt handoff on success: handoff() inspects `git status` and
+        # short-circuits when nothing changed, so edits made via run_command
+        # (which the loop's change-tracking doesn't record) still get committed.
         try:
             outcome = handoff(
                 repo,
@@ -86,6 +89,8 @@ def cmd_drive(args: argparse.Namespace) -> int:
             )
             result.branch = outcome.branch
             result.pr_url = outcome.pr_url
+            if not result.changed_files:
+                result.changed_files = outcome.changed_files
             if outcome.note:
                 emit_diagnostic(f"handoff: {outcome.note}")
         except HandoffError as exc:

@@ -145,7 +145,7 @@ A failed drive still writes a `status=error` artifact before exiting non-zero.
 _WHEELS = """\
 # convertible wheels
 
-The garage: discover the engine wheels installed in this environment. Engines
+Discover the engine plugins ("wheels") installed in this environment. Engines
 register under the `convertible.engines` entry-point group; bundled and
 out-of-tree wheels are discovered identically.
 

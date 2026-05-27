@@ -22,6 +22,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CLAUDE.md expanded from the /init seed into a full runtime prompt for the harness
 - README rewritten to document the engine/driver/chassis/wheels architecture and the v0 boundary
 
+### Fixed
+
+- Loop now serializes outbound tool-call `arguments` as a JSON string (OpenAI wire format), so multi-turn vLLM tool loops aren't rejected by strict servers (Qodo #1)
+- `drive` attempts handoff whenever the drive succeeds (not only when `write_file` ran), so edits made via `run_command` are committed/pushed; `changed_files` is backfilled from `git status` (Qodo #2)
+- Handoff note no longer claims "local commit only" when the push succeeded but `gh pr create` failed (Qodo #4)
+- Reduced the "wheel/garage" pun in the running CLI's user-facing output, keeping external messaging engine-centric (Qodo #3)
+
 ## [0.1.2] - 2026-05-27
 
 ### Changed

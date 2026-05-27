@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess  # nosec B404 - driving git/gh is the handoff's job
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -30,6 +30,7 @@ class HandoffResult:
     committed: bool = False
     pushed: bool = False
     pr_url: str | None = None
+    changed_files: list[str] = field(default_factory=list)
     note: str = ""
 
 
@@ -82,12 +83,15 @@ def handoff(
     branch = _branch_name(task_id)
     result = HandoffResult(branch=branch)
 
-    # Nothing staged or unstaged -> nothing to hand off.
+    # Nothing staged or unstaged -> nothing to hand off. This is the authority on
+    # whether work happened — so edits made via run_command (which the loop's
+    # change-tracking doesn't see) are still captured here.
     status = _git(repo, "status", "--porcelain")
     if not status.stdout.strip():
         result.branch = None
         result.note = "no changes to hand off"
         return result
+    result.changed_files = _changed_paths(status.stdout)
 
     _git(repo, "checkout", "-B", branch)
     _git(repo, "add", "-A")
@@ -105,8 +109,25 @@ def handoff(
         result.pr_url = _gh_pr_create(repo, base_branch, message)
         result.note = "pushed and opened PR"
     except HandoffError as exc:
-        result.note = f"local commit only (push/PR failed: {exc})"
+        # Distinguish a push that already landed from one that never left: the
+        # note must not contradict result.pushed (observability).
+        if result.pushed:
+            result.note = f"pushed branch; PR creation failed: {exc}"
+        else:
+            result.note = f"local commit only (push failed: {exc})"
     return result
+
+
+def _changed_paths(porcelain: str) -> list[str]:
+    """Extract file paths from `git status --porcelain` output (handles renames)."""
+    paths: list[str] = []
+    for line in porcelain.splitlines():
+        entry = line[3:].strip() if len(line) > 3 else line.strip()
+        if " -> " in entry:  # rename: "old -> new"
+            entry = entry.split(" -> ", 1)[1]
+        if entry:
+            paths.append(entry)
+    return sorted(set(paths))
 
 
 def _gh_pr_create(repo: Path, base_branch: str, title: str) -> str | None:

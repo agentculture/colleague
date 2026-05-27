@@ -15,6 +15,7 @@ that POSTs to an OpenAI-compatible endpoint. The loop never knows the difference
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -51,6 +52,18 @@ class ModelResponse:
 CompleteFn = Callable[[list[dict[str, Any]]], ModelResponse]
 
 
+def _arguments_json(arguments: Any) -> str:
+    """OpenAI wire format wants function.arguments as a JSON *string*.
+
+    The loop carries arguments as dicts for execution; serialize only on the way
+    back into the message list so strict OpenAI-compatible servers accept replayed
+    turns. A value that is already a string is passed through unchanged.
+    """
+    if isinstance(arguments, str):
+        return arguments
+    return json.dumps(arguments, ensure_ascii=False)
+
+
 def _assistant_message(resp: ModelResponse) -> dict[str, Any]:
     return {
         "role": "assistant",
@@ -59,7 +72,7 @@ def _assistant_message(resp: ModelResponse) -> dict[str, Any]:
             {
                 "id": tc.id,
                 "type": "function",
-                "function": {"name": tc.name, "arguments": tc.arguments},
+                "function": {"name": tc.name, "arguments": _arguments_json(tc.arguments)},
             }
             for tc in resp.tool_calls
         ],
