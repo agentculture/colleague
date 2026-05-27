@@ -19,6 +19,8 @@ argument (default: :func:`execute_drive`) is a test seam used to capture
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
@@ -38,6 +40,11 @@ _DriveFn = Callable[
 ]
 
 _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
+
+
+def _eprint(*args: object, **kwargs: object) -> None:
+    """Default diagnostics sink — writes to stderr (kept off stdout)."""
+    print(*args, file=sys.stderr, **kwargs)  # type: ignore[arg-type]
 
 
 def _render_palette(
@@ -82,20 +89,28 @@ def run_session(
     *,
     input_fn: Optional[Iterator[str]] = None,
     out: Callable[..., None] = print,
+    err: Optional[Callable[..., None]] = None,
     _drive_fn: _DriveFn = _default_drive,
 ) -> int:
     """Run the interactive session loop.
+
+    Output contract: results go to ``out`` (stdout) and all diagnostics —
+    errors, hints, and the interactive palette chrome in ``--json`` mode — go to
+    ``err`` (stderr), so the two streams are never mixed. With ``--json`` set,
+    ``out`` carries only one JSON object per completed drive.
 
     Parameters
     ----------
     args:
         Parsed CLI namespace (must carry ``repo``, ``engine``, ``no_pr``,
-        ``base``, ``base_url``, ``model``, ``api_key``, ``max_steps``).
+        ``base``, ``base_url``, ``model``, ``api_key``, ``max_steps``, ``json``).
     input_fn:
         Iterator of input lines (for testing).  When ``None`` the real
         :func:`input` builtin is used.
     out:
-        Output sink.  Defaults to :func:`print`.
+        Result sink (stdout).  Defaults to :func:`print`.
+    err:
+        Diagnostics sink (stderr).  Defaults to :func:`_eprint`.
     _drive_fn:
         Drive callable (test seam).  Defaults to :func:`execute_drive`.
 
@@ -108,6 +123,12 @@ def run_session(
     engine_name: str = args.engine
     open_pr: bool = not args.no_pr
     base: str = args.base
+    json_mode: bool = bool(getattr(args, "json", False))
+    if err is None:
+        err = _eprint
+    # Interactive chrome (palette, prompts, summaries) goes to stdout in normal
+    # mode, but to stderr in --json mode so stdout carries only JSON results.
+    chrome: Callable[..., None] = err if json_mode else out
 
     config = EngineConfig.resolve(
         base_url=getattr(args, "base_url", None),
@@ -137,19 +158,19 @@ def run_session(
             return None
 
     while True:
-        _render_palette(palette, out, engine_name, str(repo))
+        _render_palette(palette, chrome, engine_name, str(repo))
         raw = _next_line()
 
         # EOF or no input — treat as quit.
         if raw is None:
-            out("\n(session ended)")
+            chrome("\n(session ended)")
             break
 
         line = raw.strip()
 
         # Quit tokens.
         if line == "" or line.lower() in _QUIT_TOKENS:
-            out("\n(session ended)")
+            chrome("\n(session ended)")
             break
 
         # --- Resolve the selection ---
@@ -162,7 +183,7 @@ def run_session(
             if 1 <= idx <= len(palette):
                 command_name = palette[idx - 1][0]
             else:
-                out(f"  (no entry {idx} in the palette; type a number 1–{len(palette)})")
+                err(f"  (no entry {idx} in the palette; type a number 1–{len(palette)})")
                 continue
 
         # Check if it matches a command name directly.
@@ -177,12 +198,13 @@ def run_session(
             try:
                 task = expand_command(repo, command_name, [], engine_default=engine_name)
             except CommandError as exc:
-                out(f"  error: {exc}")
+                err(f"  error: {exc}")
                 continue
 
         assert task is not None  # mypy narrowing
 
-        # Run through the shared drive path.
+        # Run through the shared drive path. Passing command_name lets the
+        # helper persist the originating command in the artifact (R5 / c12).
         try:
             result, _artifact_path = _drive_fn(
                 repo=repo,
@@ -191,17 +213,23 @@ def run_session(
                 open_pr=open_pr,
                 base=base,
                 config=config,
+                command_name=command_name,
             )
         except CliError as exc:
-            out(f"  error: {exc.message}")
+            err(f"  error: {exc.message}")
             if exc.remediation:
-                out(f"  hint: {exc.remediation}")
+                err(f"  hint: {exc.remediation}")
             continue
         except Exception as exc:  # noqa: BLE001
-            out(f"  error: {type(exc).__name__}: {exc}")
+            err(f"  error: {type(exc).__name__}: {exc}")
             continue
 
-        _render_result_summary(result, out)
+        # Result → stdout: one JSON object per drive in --json mode, else a
+        # human summary as interactive chrome.
+        if json_mode:
+            out(json.dumps(result.to_dict(), ensure_ascii=False))
+        else:
+            _render_result_summary(result, chrome)
 
     return 0
 
@@ -227,4 +255,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--model", default=None, help="Override the engine model name.")
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit one JSON result object per drive to stdout; palette chrome goes to stderr.",
+    )
     p.set_defaults(func=cmd_session)

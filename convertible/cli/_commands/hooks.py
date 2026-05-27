@@ -59,11 +59,8 @@ def cmd_hooks_list(args: argparse.Namespace) -> int:
 
     hook_config = _hooks.load_hooks(repo)
 
-    # Flatten all entries across events
-    all_entries = []
-    for event in _hooks.VALID_EVENTS:
-        for entry in hook_config._entries.get(event, []):  # noqa: SLF001
-            all_entries.append(entry)
+    # Public accessor — never reach into the config's private mapping.
+    all_entries = hook_config.all_entries()
 
     if json_mode:
         items = [

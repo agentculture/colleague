@@ -57,6 +57,7 @@ def execute_drive(
     open_pr: bool,
     base: str,
     config: EngineConfig,
+    command_name: str | None = None,
 ) -> tuple[TaskResult, Path]:
     """Shared drive orchestration: load engine → loop → handoff → write artifact.
 
@@ -78,6 +79,10 @@ def execute_drive(
         Base branch for the PR (passed to :func:`~convertible.handoff.handoff`).
     config:
         Resolved :class:`~convertible.config.EngineConfig`.
+    command_name:
+        Originating command-template name (``None`` for a plain instruction).
+        Recorded on the result before *every* artifact write — including the
+        failure path — so the dashboard never loses the origin (R5 / c12).
 
     Returns
     -------
@@ -101,6 +106,7 @@ def execute_drive(
         result = engine.drive(task, config)
     except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
         result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
+        result.command = command_name
         write(result, artifact_dir(repo))
         raise CliError(
             EXIT_ENV_ERROR,
@@ -126,6 +132,7 @@ def execute_drive(
         except HandoffError as exc:
             emit_diagnostic(f"handoff skipped: {exc}")
 
+    result.command = command_name
     artifact_path = write(result, artifact_dir(repo))
     return result, artifact_path
 
@@ -190,7 +197,8 @@ def cmd_drive(args: argparse.Namespace) -> int:
         instruction = " ".join(instruction_tokens)
         task = Task.new(str(repo), instruction, engine=args.engine)
 
-    # Delegate the full drive orchestration to the shared helper.
+    # Delegate the full drive orchestration to the shared helper, which records
+    # the originating command on the result before every artifact write.
     result, artifact_path = execute_drive(
         repo=repo,
         engine_name=args.engine,
@@ -198,12 +206,8 @@ def cmd_drive(args: argparse.Namespace) -> int:
         open_pr=not args.no_pr,
         base=args.base,
         config=config,
+        command_name=command_name if has_command else None,
     )
-
-    # Record the originating command name (None for plain instructions).
-    result.command = command_name if has_command else None
-    # Re-write the artifact with the updated command field.
-    artifact_path = write(result, artifact_dir(repo))
 
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)

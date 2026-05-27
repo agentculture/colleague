@@ -115,6 +115,18 @@ class HookConfig:
 
     _entries: dict[str, list[HookEntry]] = field(default_factory=dict)
 
+    def all_entries(self) -> list[HookEntry]:
+        """Return every configured entry across all events, in event/declared order.
+
+        Public accessor for read-only enumeration (e.g. ``convertible hooks
+        list``), so callers never reach into the private ``_entries`` mapping.
+        Events are visited in :data:`VALID_EVENTS`-stable order.
+        """
+        out: list[HookEntry] = []
+        for event in ("task_start", "pre_tool", "post_tool", "finish"):
+            out.extend(self._entries.get(event, []))
+        return out
+
     def hooks_for(self, event: str, tool: str | None = None) -> list[HookEntry]:
         """Return all entries for *event* that match *tool*.
 
@@ -144,13 +156,20 @@ class HookConfig:
         if event in _NON_TOOL_EVENTS:
             return list(entries)
 
-        # Tool events — filter by matcher.
+        # Tool events — filter by matcher. An invalid matcher regex is an
+        # operator-config error, not a crash: treat it as non-matching (skip the
+        # entry) so a bad pattern can never abort the drive (reliability).
         result = []
         for entry in entries:
             if not entry.matcher:
                 result.append(entry)
-            elif tool and re.fullmatch(entry.matcher, tool):
-                result.append(entry)
+            elif tool:
+                try:
+                    matched = re.fullmatch(entry.matcher, tool)
+                except re.error:
+                    matched = None
+                if matched:
+                    result.append(entry)
         return result
 
 
@@ -245,15 +264,25 @@ def run_hook(
     """
     stdin_data = json.dumps(payload, default=str)
 
-    proc = subprocess.run(  # nosec B602 - hook commands run in a trusted operator env (D2)
-        entry.command,
-        shell=True,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        input=stdin_data,
-    )
+    # A hook that times out or cannot be launched is an expected operational
+    # failure, not a crash: map it to a fail-closed ``deny`` with the cause as
+    # the reason so the drive continues (the model receives the reason).
+    try:
+        proc = subprocess.run(  # nosec B602 - hook commands run in a trusted operator env (D2)
+            entry.command,
+            shell=True,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            input=stdin_data,
+        )
+    except subprocess.TimeoutExpired:
+        return HookDecision(
+            decision="deny", reason=f"hook timed out after {timeout}s", exit_code=None
+        )
+    except OSError as exc:
+        return HookDecision(decision="deny", reason=f"hook failed to run: {exc}", exit_code=None)
 
     exit_code = proc.returncode
 

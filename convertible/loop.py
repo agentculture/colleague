@@ -142,7 +142,15 @@ def _fire_hooks(
 
     decisive = None
     for entry in entries:
-        decision = run_hook(entry, payload, cwd=task.repo_path)
+        # A hook must never abort the drive. run_hook already maps timeouts /
+        # launch failures to a deny; this net catches any other unexpected error
+        # and records it as a fail-closed deny firing rather than propagating.
+        try:
+            decision = run_hook(entry, payload, cwd=task.repo_path)
+        except Exception as exc:  # noqa: BLE001 - a hook crash is contained, not fatal
+            decision = HookDecision(
+                decision=DECISION_DENY, reason=f"hook error: {exc}", exit_code=None
+            )
         result.hook_firings.append(
             HookFiring(
                 event=event,
