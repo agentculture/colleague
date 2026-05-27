@@ -18,9 +18,15 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert __version__ in capsys.readouterr().out
 
 
-def test_no_args_non_tty_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
-    # Under pytest, stdin/stdout are not TTYs, so bare invocation must fall back
-    # to usage (preserving the discoverable surface for scripts and agents).
+def test_no_args_non_tty_prints_help(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Force the non-interactive branch so this is deterministic regardless of
+    # pytest's capture mode: under `pytest -s` from a real terminal stdin/stdout
+    # would be TTYs and bare invocation would otherwise open the session loop
+    # (and block on input()). Non-interactive must fall back to usage, preserving
+    # the discoverable surface for scripts and agents.
+    monkeypatch.setattr("convertible.cli._stdio_is_interactive", lambda: False)
     rc = main([])
     assert rc == 0
     assert "usage: convertible" in capsys.readouterr().out
