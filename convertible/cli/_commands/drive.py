@@ -7,6 +7,11 @@ as a branch + PR. The *same* invocation works for every engine — only
 
 A failed drive still writes a result artifact (``status=error``) before exiting
 non-zero, so a crash never leaves an empty dashboard (h5).
+
+``--command NAME`` (and optional positional args) expands a saved command
+template into the Task via :func:`convertible.commands.expand_command` and
+records the originating command name on the result (``TaskResult.command``).
+Exactly one of a positional instruction or ``--command`` must be supplied.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from convertible import registry
 from convertible.artifact import artifact_dir, failed_result, write
 from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import emit_diagnostic, emit_result
+from convertible.commands import CommandError, expand_command
 from convertible.config import EngineConfig
 from convertible.contract import OK, Task, TaskResult
 from convertible.handoff import HandoffError, handoff
@@ -49,6 +55,25 @@ def cmd_drive(args: argparse.Namespace) -> int:
             "pass --repo pointing at an existing repository",
         )
 
+    # Resolve instruction vs. --command.
+    # ``args.instruction`` is a list (nargs="*") — positional tokens.
+    # When ``--command`` is supplied, positional tokens are template arguments.
+    # When ``--command`` is absent, positional tokens are the plain instruction.
+    positional_tokens: list[str] = getattr(args, "instruction", None) or []
+    command_name: str | None = getattr(args, "command_name", None)
+
+    has_command = bool(command_name)
+    # A plain instruction requires at least one non-empty token.
+    instruction_tokens: list[str] = positional_tokens if not has_command else []
+    has_instruction = not has_command and bool(positional_tokens)
+
+    if not has_instruction and not has_command:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "missing required argument: provide an instruction or --command <name>",
+            "run 'convertible drive --help' to see usage",
+        )
+
     try:
         engine = registry.load(args.engine)
     except registry.UnknownEngine as exc:
@@ -62,7 +87,29 @@ def cmd_drive(args: argparse.Namespace) -> int:
         api_key=args.api_key,
         max_steps=args.max_steps,
     )
-    task = Task.new(str(repo), args.instruction, engine=args.engine)
+
+    if has_command:
+        # Expand a saved command template.
+        assert command_name is not None  # narrowing
+        # Positional tokens are template arguments when --command is set.
+        cmd_args = positional_tokens
+        try:
+            task = expand_command(
+                repo,
+                command_name,
+                cmd_args,
+                engine_default=args.engine,
+            )
+        except CommandError as exc:
+            raise CliError(
+                EXIT_USER_ERROR,
+                str(exc),
+                "list available commands with: convertible commands list --repo <path>",
+            ) from exc
+    else:
+        # Plain instruction path (original behaviour).
+        instruction = " ".join(instruction_tokens)
+        task = Task.new(str(repo), instruction, engine=args.engine)
 
     try:
         result = engine.drive(task, config)
@@ -75,15 +122,19 @@ def cmd_drive(args: argparse.Namespace) -> int:
             "check the engine config / vLLM server; a result artifact was still written",
         ) from exc
 
+    # Record the originating command name (None for plain instructions).
+    result.command = command_name if has_command else None
+
     if result.status == OK:
         # Always attempt handoff on success: handoff() inspects `git status` and
         # short-circuits when nothing changed, so edits made via run_command
         # (which the loop's change-tracking doesn't record) still get committed.
+        instruction_text = task.instruction
         try:
             outcome = handoff(
                 repo,
                 task.id,
-                instruction=args.instruction,
+                instruction=instruction_text,
                 open_pr=not args.no_pr,
                 base_branch=args.base,
             )
@@ -110,7 +161,24 @@ def register(sub: argparse._SubParsersAction) -> None:
         "drive",
         help="Run a repo task through a coder engine and hand off the result.",
     )
-    p.add_argument("instruction", help="What the engine should do in the repo.")
+    # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
+    # ``--command`` can be the sole input without argparse raising an error.
+    p.add_argument(
+        "instruction",
+        nargs="*",
+        help=(
+            "What the engine should do in the repo.  "
+            "Mutually exclusive with --command.  "
+            "When --command is used, any positional tokens are passed as template arguments."
+        ),
+    )
+    p.add_argument(
+        "--command",
+        dest="command_name",
+        metavar="NAME",
+        default=None,
+        help="Expand a saved command template and drive it (mutually exclusive with instruction).",
+    )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument("--engine", default="mock", help="Engine wheel to drive (default: mock).")
     p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")

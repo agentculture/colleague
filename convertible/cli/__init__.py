@@ -63,9 +63,11 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 def _build_parser() -> argparse.ArgumentParser:
     from convertible.cli._commands import cli as _cli_group
+    from convertible.cli._commands import commands as _commands_group
     from convertible.cli._commands import doctor as _doctor_cmd
     from convertible.cli._commands import drive as _drive_cmd
     from convertible.cli._commands import explain as _explain_cmd
+    from convertible.cli._commands import hooks as _hooks_group
     from convertible.cli._commands import learn as _learn_cmd
     from convertible.cli._commands import overview as _overview_cmd
     from convertible.cli._commands import wheels as _wheels_group
@@ -93,6 +95,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # Convertible's working surface: assign repo work + inspect engine wheels.
     _drive_cmd.register(sub)
     _wheels_group.register(sub)
+    # Extensibility layer: command templates + lifecycle hooks.
+    _commands_group.register(sub)
+    _hooks_group.register(sub)
 
     return parser
 

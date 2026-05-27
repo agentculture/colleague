@@ -129,3 +129,167 @@ def test_drive_bad_repo_errors(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["drive", "x", "--repo", "/no/such/dir", "--engine", "mock"])
     assert rc == 1
     assert "not a directory" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# drive --command
+# ---------------------------------------------------------------------------
+
+
+def _make_command_template(repo: Path, name: str, content: str) -> None:
+    cmds_dir = repo / ".convertible" / "commands"
+    cmds_dir.mkdir(parents=True, exist_ok=True)
+    (cmds_dir / f"{name}.md").write_text(content)
+
+
+def test_drive_command_expands_template_and_runs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """drive --command <name> expands the template into a task and runs it."""
+    _make_command_template(tmp_path, "setup", "Set up the project.\n")
+    rc = main(
+        [
+            "drive",
+            "--command",
+            "setup",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+
+
+def test_drive_command_records_command_name_on_result(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """drive --command sets ``command`` field in the JSON result."""
+    _make_command_template(tmp_path, "lint", "---\ndescription: Fix lint\n---\nFix lint.\n")
+    rc = main(
+        [
+            "drive",
+            "--command",
+            "lint",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "lint"
+
+
+def test_drive_command_with_args(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """drive --command <name> [args...] passes args through substitution."""
+    _make_command_template(tmp_path, "greet", "Hello $1!\n")
+    rc = main(
+        [
+            "drive",
+            "--command",
+            "greet",
+            "world",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok"
+
+
+def test_drive_command_unknown_command_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """drive --command with an unknown name surfaces a CliError."""
+    rc = main(
+        [
+            "drive",
+            "--command",
+            "nonexistent",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+        ]
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "hint:" in err
+
+
+def test_drive_neither_instruction_nor_command_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Omitting both instruction and --command is a user error."""
+    rc = main(["drive", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+
+
+def test_drive_command_with_positional_arg_treated_as_template_arg(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When --command is set, positional tokens become template args (not an error)."""
+    _make_command_template(tmp_path, "build", "Build $1.\n")
+    rc = main(
+        [
+            "drive",
+            "--command",
+            "build",
+            "src/",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == "build"
+
+
+def test_drive_plain_instruction_still_works(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The existing plain-instruction path is unaffected by --command addition."""
+    rc = main(["drive", "set up the repo", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
+    assert rc == 0
+
+
+def test_drive_plain_instruction_command_field_is_none(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Plain instruction drive leaves TaskResult.command as None."""
+    rc = main(
+        [
+            "drive",
+            "do work",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] is None
