@@ -156,6 +156,73 @@ out-of-tree wheels are discovered identically.
     convertible wheels overview
 """
 
+_COMMANDS = """\
+# convertible commands
+
+Discover and list named command templates stored under `.convertible/commands/`
+in the target repository (or user home).  Templates are Markdown files with an
+optional YAML-like metadata block and a body using `$1`/`$2`/`$ARGUMENTS`
+substitution.
+
+## Usage
+
+    convertible commands list
+    convertible commands list --repo PATH
+    convertible commands list --repo PATH --json
+    convertible commands overview
+
+## Template format
+
+    ---
+    description: Fix lint errors in a path
+    engine: mock
+    constraints: keep diffs minimal, run the formatter
+    arg-hint: <path>
+    ---
+    Fix all lint errors under $1. Then run the formatter. $ARGUMENTS
+
+## Running a template
+
+    convertible drive --command <name> [args...]
+
+## See also
+
+- `convertible explain drive`
+- `convertible explain hooks`
+"""
+
+_HOOKS = """\
+# convertible hooks
+
+Inspect the lifecycle hook configuration loaded from `.convertible/hooks.json`
+(repo-level, falling back to user-level at `~/.convertible/hooks.json`).
+
+Hooks fire at four lifecycle events:
+- `task_start` — before the agentic loop starts.
+- `pre_tool` — before each tool call; can allow, deny, or rewrite arguments.
+- `post_tool` — after each tool call.
+- `finish` — after the loop ends.
+
+## Usage
+
+    convertible hooks list
+    convertible hooks list --repo PATH
+    convertible hooks list --repo PATH --json
+    convertible hooks overview
+
+## Hook decisions
+
+- **allow** — permit the tool call (default on exit 0 / empty stdout).
+- **deny** — block the tool call (non-zero exit or `{"decision":"deny"}`).
+- **rewrite** — replace tool arguments (`{"decision":"rewrite","arguments":{}}`).
+- Responses may include `"additionalContext"` for the model.
+
+## See also
+
+- `convertible explain commands`
+- `convertible explain drive`
+"""
+
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
@@ -171,4 +238,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("doctor",): _DOCTOR,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
+    ("commands",): _COMMANDS,
+    ("commands", "list"): _COMMANDS,
+    ("commands", "overview"): _COMMANDS,
+    ("hooks",): _HOOKS,
+    ("hooks", "list"): _HOOKS,
+    ("hooks", "overview"): _HOOKS,
 }
