@@ -18,9 +18,13 @@ A clonable template for AgentCulture mesh agents. It carries an agent-first CLI
 buildable/deployable package baseline. Clone it, rename the package, edit
 `culture.yaml`, and you have a new agent.
 
+Run `convertible` with no verb at a terminal to open the interactive harness (the
+`session` palette); piped or non-interactive, it prints this usage instead.
+
 ## Verbs
 
-- `convertible drive <instruction>` — run a repo task through a coder engine.
+- `convertible drive <goal>` — drive toward a goal/instruction; work autonomously
+  through a coder engine and hand off the result.
 - `convertible session` — foreground interactive palette over the drive path.
 - `convertible wheels list` — list discovered engine wheels.
 - `convertible whoami` — identity probe from `culture.yaml`.
@@ -122,10 +126,11 @@ itself (distinct from the global `overview`, which describes the agent).
 _DRIVE = """\
 # convertible drive
 
-Run a repo task through a coder engine: select an engine wheel, run the bounded
-agentic tool-loop against the repo, write a result artifact, and hand off the
-change as a branch + PR. The same invocation works for every engine — only
-`--engine` changes.
+Drive toward a goal: hand convertible a request or instruction and it works
+autonomously — selecting an engine wheel, running the bounded agentic tool-loop,
+writing a result artifact, and handing off the change as a branch + PR. The repo
+is the target (`--repo`, default cwd); the same invocation works for every
+engine — only `--engine` changes.
 
 ## Usage
 
