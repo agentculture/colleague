@@ -266,6 +266,66 @@ Hooks fire at four lifecycle events:
 """
 
 
+_AGENTS = """\
+# convertible agents
+
+Inspect the layered AGENTS instruction files resolved for a model. The cascade,
+read from the **repo root** with a `~/.convertible/` user-level fallback, is
+composed general → specific into the system prompt every drive sends:
+
+    AGENTS.md                       (shared base — sibling tools read this too)
+    AGENTS.convertible.md           (convertible overlay)
+    AGENTS.convertible.<model>.md   (model overlay)
+
+The `<model>` token is sanitized — every run of characters outside
+`[A-Za-z0-9._-]` collapses to a single `-` (e.g. `Qwen/Qwen3-32B` →
+`Qwen-Qwen3-32B`). The layer name is *constructed* for the named model, never
+globbed, so one model can never load another model's overlay (per-model
+isolation is structural). Note the asymmetry: the repo-level layer lives at the
+repo root, but the user-level fallback lives under `~/.convertible/`.
+
+## Usage
+
+    convertible agents list
+    convertible agents list --model Qwen/Qwen3-32B --repo PATH
+    convertible agents list --json
+    convertible agents overview
+
+## See also
+
+- `convertible explain skills`
+- `convertible explain drive`
+"""
+
+_SKILLS = """\
+# convertible skills
+
+Inspect the layered skill docs resolved for a model. Skills live under
+`.convertible/` (a convertible-internal concept):
+
+    .convertible/skills/*.md            (base)
+    .convertible/<model>/skills/*.md    (model overlay — shadows base by stem)
+
+Repo-level `.convertible/` shadows user-level `~/.convertible/` underneath (two
+orthogonal precedence axes). Resolved skills are folded into the system prompt as
+a compact name + one-line-summary catalog. A skill is **instructional text
+only** — there is no skill execution model in v0 (an execution sandbox is out of
+scope); invokable skills are a tracked follow-up.
+
+## Usage
+
+    convertible skills list
+    convertible skills list --model Qwen/Qwen3-32B --repo PATH
+    convertible skills list --json
+    convertible skills overview
+
+## See also
+
+- `convertible explain agents`
+- `convertible explain drive`
+"""
+
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
@@ -287,4 +347,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("hooks",): _HOOKS,
     ("hooks", "list"): _HOOKS,
     ("hooks", "overview"): _HOOKS,
+    ("agents",): _AGENTS,
+    ("agents", "list"): _AGENTS,
+    ("agents", "overview"): _AGENTS,
+    ("skills",): _SKILLS,
+    ("skills", "list"): _SKILLS,
+    ("skills", "overview"): _SKILLS,
 }

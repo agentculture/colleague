@@ -27,6 +27,8 @@ _ARTIFACTS = [
 _VERBS = [
     "drive <instruction> — run a repo task through a coder engine",
     "wheels list — list discovered engine wheels",
+    "agents list — inspect layered AGENTS instruction files for a model",
+    "skills list — inspect layered skill docs for a model",
     "whoami — identity probe (nick, version, backend, model)",
     "learn — structured self-teaching prompt",
     "explain <path> — markdown docs for a topic",

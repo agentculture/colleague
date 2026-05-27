@@ -313,6 +313,45 @@ The session loops until the user enters `q`, `quit`, or an empty line. Any
 driver flags accepted by `drive` (`--engine`, `--no-pr`, `--base-url`, etc.)
 are also accepted by `session`.
 
+## Per-model instructions & skills
+
+Convertible composes a model-specific **system prompt** for every drive from two
+layered families, resolved *relative to the model currently driving*. Strict
+per-model isolation: driving model X reads only X's overlay plus the shared base
+— it never even opens model Y's files (isolation is structural, built from exact
+paths, not filtered).
+
+**AGENTS instructions** cascade from the **repo root** (the cross-tool standard
+location — sibling agent tools read `AGENTS.md` there too), general → specific,
+with a `~/.convertible/` user-level fallback:
+
+```text
+AGENTS.md                       # shared base
+AGENTS.convertible.md           # convertible overlay
+AGENTS.convertible.<model>.md   # model overlay
+```
+
+**Skills** are markdown capability docs under `.convertible/`, folded into the
+prompt as a compact name + one-line-summary catalog (a skill is instructional
+text only — there is no skill *execution* in v0):
+
+```text
+.convertible/skills/*.md            # base
+.convertible/<model>/skills/*.md    # model overlay (shadows base by stem)
+```
+
+`<model>` is sanitized to a filename-safe token (e.g. `Qwen/Qwen3-32B` →
+`Qwen-Qwen3-32B`). Inspect what resolves for a model:
+
+```bash
+uv run convertible agents list --model Qwen/Qwen3-32B --repo .
+uv run convertible skills list --model Qwen/Qwen3-32B --repo .
+```
+
+> **MCP layering is not built yet.** Convertible does not read `mcp.json` or
+> connect to any MCP server today; a live MCP client needs its own spec. There
+> is no `mcp` verb — don't rely on a non-existent surface.
+
 ## ⚠ Security: repo-shipped hooks run by default
 
 > **This is a code-execution risk. Read before driving an untrusted repo.**
@@ -351,6 +390,10 @@ rely on a non-existent flag.
 | `commands overview` | Describe the commands surface. |
 | `hooks list` | List configured hook entries for a repo. |
 | `hooks overview` | Describe the hooks surface. |
+| `agents list` | List resolved AGENTS instruction layers for a model. |
+| `agents overview` | Describe the agents surface. |
+| `skills list` | List resolved skill docs for a model. |
+| `skills overview` | Describe the skills surface. |
 | `session` | Open a foreground interactive palette. |
 | `wheels list` | List discovered engine wheels (the garage). |
 | `whoami` | Report this agent's nick, version, backend, and model. |
