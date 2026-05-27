@@ -12,6 +12,11 @@ non-zero, so a crash never leaves an empty dashboard (h5).
 template into the Task via :func:`convertible.commands.expand_command` and
 records the originating command name on the result (``TaskResult.command``).
 Exactly one of a positional instruction or ``--command`` must be supplied.
+
+:func:`execute_drive` is the shared helper that performs the drive orchestration
+(load engine → run loop → handoff → write artifact) and returns the
+``(TaskResult, artifact_path)`` pair.  Both ``cmd_drive`` and the ``session``
+palette delegate to it so the drive path is never duplicated (honesty h11).
 """
 
 from __future__ import annotations
@@ -44,6 +49,87 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
     return "\n".join(lines)
 
 
+def execute_drive(
+    *,
+    repo: Path,
+    engine_name: str,
+    task: Task,
+    open_pr: bool,
+    base: str,
+    config: EngineConfig,
+) -> tuple[TaskResult, Path]:
+    """Shared drive orchestration: load engine → loop → handoff → write artifact.
+
+    This helper is the single implementation of the drive path.  Both
+    :func:`cmd_drive` and the ``session`` palette call it so the loop, hooks,
+    and artifact logic are never duplicated (honesty condition h11).
+
+    Parameters
+    ----------
+    repo:
+        Absolute path to the target repository.
+    engine_name:
+        Name of the engine wheel to load (e.g. ``"mock"``).
+    task:
+        A fully constructed :class:`~convertible.contract.Task`.
+    open_pr:
+        When ``True`` attempt to push and open a PR; ``False`` commits locally only.
+    base:
+        Base branch for the PR (passed to :func:`~convertible.handoff.handoff`).
+    config:
+        Resolved :class:`~convertible.config.EngineConfig`.
+
+    Returns
+    -------
+    tuple[TaskResult, Path]
+        The task result and the path of the written artifact JSON.
+
+    Raises
+    ------
+    :class:`~convertible.cli._errors.CliError`
+        On unknown engine or engine-level failure (artifact is still written
+        before the exception is raised — honesty h5).
+    """
+    try:
+        engine = registry.load(engine_name)
+    except registry.UnknownEngine as exc:
+        raise CliError(
+            EXIT_USER_ERROR, str(exc), "list engines with: convertible wheels list"
+        ) from exc
+
+    try:
+        result = engine.drive(task, config)
+    except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
+        result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
+        write(result, artifact_dir(repo))
+        raise CliError(
+            EXIT_ENV_ERROR,
+            f"engine '{engine_name}' failed: {exc}",
+            "check the engine config / vLLM server; a result artifact was still written",
+        ) from exc
+
+    if result.status == OK:
+        try:
+            outcome = handoff(
+                repo,
+                task.id,
+                instruction=task.instruction,
+                open_pr=open_pr,
+                base_branch=base,
+            )
+            result.branch = outcome.branch
+            result.pr_url = outcome.pr_url
+            if not result.changed_files:
+                result.changed_files = outcome.changed_files
+            if outcome.note:
+                emit_diagnostic(f"handoff: {outcome.note}")
+        except HandoffError as exc:
+            emit_diagnostic(f"handoff skipped: {exc}")
+
+    artifact_path = write(result, artifact_dir(repo))
+    return result, artifact_path
+
+
 def cmd_drive(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
 
@@ -73,13 +159,6 @@ def cmd_drive(args: argparse.Namespace) -> int:
             "missing required argument: provide an instruction or --command <name>",
             "run 'convertible drive --help' to see usage",
         )
-
-    try:
-        engine = registry.load(args.engine)
-    except registry.UnknownEngine as exc:
-        raise CliError(
-            EXIT_USER_ERROR, str(exc), "list engines with: convertible wheels list"
-        ) from exc
 
     config = EngineConfig.resolve(
         base_url=args.base_url,
@@ -111,42 +190,19 @@ def cmd_drive(args: argparse.Namespace) -> int:
         instruction = " ".join(instruction_tokens)
         task = Task.new(str(repo), instruction, engine=args.engine)
 
-    try:
-        result = engine.drive(task, config)
-    except Exception as exc:  # noqa: BLE001 - any engine/network failure still writes an artifact
-        result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
-        write(result, artifact_dir(repo))
-        raise CliError(
-            EXIT_ENV_ERROR,
-            f"engine '{args.engine}' failed: {exc}",
-            "check the engine config / vLLM server; a result artifact was still written",
-        ) from exc
+    # Delegate the full drive orchestration to the shared helper.
+    result, artifact_path = execute_drive(
+        repo=repo,
+        engine_name=args.engine,
+        task=task,
+        open_pr=not args.no_pr,
+        base=args.base,
+        config=config,
+    )
 
     # Record the originating command name (None for plain instructions).
     result.command = command_name if has_command else None
-
-    if result.status == OK:
-        # Always attempt handoff on success: handoff() inspects `git status` and
-        # short-circuits when nothing changed, so edits made via run_command
-        # (which the loop's change-tracking doesn't record) still get committed.
-        instruction_text = task.instruction
-        try:
-            outcome = handoff(
-                repo,
-                task.id,
-                instruction=instruction_text,
-                open_pr=not args.no_pr,
-                base_branch=args.base,
-            )
-            result.branch = outcome.branch
-            result.pr_url = outcome.pr_url
-            if not result.changed_files:
-                result.changed_files = outcome.changed_files
-            if outcome.note:
-                emit_diagnostic(f"handoff: {outcome.note}")
-        except HandoffError as exc:
-            emit_diagnostic(f"handoff skipped: {exc}")
-
+    # Re-write the artifact with the updated command field.
     artifact_path = write(result, artifact_dir(repo))
 
     if json_mode:

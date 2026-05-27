@@ -21,6 +21,7 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 ## Verbs
 
 - `convertible drive <instruction>` — run a repo task through a coder engine.
+- `convertible session` — foreground interactive palette over the drive path.
 - `convertible wheels list` — list discovered engine wheels.
 - `convertible whoami` — identity probe from `culture.yaml`.
 - `convertible learn` — structured self-teaching prompt.
@@ -191,6 +192,42 @@ substitution.
 - `convertible explain hooks`
 """
 
+_SESSION = """\
+# convertible session
+
+Open a foreground interactive palette that lists discovered command templates,
+accepts free-text ad-hoc instructions, and runs every selection through the
+**same drive path** as `convertible drive` (identical Task/loop/hooks/artifact).
+The loop continues until you enter `q`, an empty line, or EOF.
+
+## Usage
+
+    convertible session
+    convertible session --repo PATH --engine mock --no-pr
+
+## Interaction
+
+At the `>>>` prompt you can enter:
+
+- A **number** (e.g. `1`) — selects that template from the numbered palette.
+- A **template name** (e.g. `lint`) — runs that template directly.
+- A **free-text instruction** — treated as an ad-hoc task (like `drive "<text>"`).
+- `q`, `quit`, `exit`, or an **empty line** — ends the session.
+
+## Key flags
+
+- `--repo PATH` — target repository (default: cwd).
+- `--engine NAME` — engine wheel to drive (default: `mock`; see `wheels list`).
+- `--no-pr` — commit locally; do not push or open a PR.
+- `--base BRANCH` — base branch for the PR (default: `main`).
+- `--base-url / --model / --api-key / --max-steps` — engine overrides.
+
+## See also
+
+- `convertible explain drive`
+- `convertible explain commands`
+"""
+
 _HOOKS = """\
 # convertible hooks
 
@@ -228,6 +265,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
     ("drive",): _DRIVE,
+    ("session",): _SESSION,
     ("wheels",): _WHEELS,
     ("wheels", "list"): _WHEELS,
     ("wheels", "overview"): _WHEELS,
