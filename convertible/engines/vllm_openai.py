@@ -7,8 +7,10 @@ stdlib ``urllib`` rather than any vendor SDK — pointing :class:`EngineConfig` 
 any OpenAI-compatible server (vLLM, llama.cpp, an OpenAI proxy) is a config
 change, never a code change (honesty condition h2).
 
-vLLM note: Qwen-family tool calling needs the server started with
-``--enable-auto-tool-choice --tool-call-parser hermes``.
+vLLM note: tool calling needs the server started with ``--enable-auto-tool-choice``
+and a ``--tool-call-parser`` matching the model (e.g. ``hermes`` for many models,
+``qwen3_coder`` for some Qwen3 builds). The engine is parser-agnostic — it only
+needs the server to emit OpenAI-format tool calls.
 """
 
 from __future__ import annotations

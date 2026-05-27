@@ -75,7 +75,8 @@ uv run teken cli doctor . --strict        # agent-first rubric gate
 ```
 
 The live vLLM proof is opt-in (the reference rig must expose tool calling:
-`--enable-auto-tool-choice --tool-call-parser hermes`):
+`--enable-auto-tool-choice` plus a model-appropriate `--tool-call-parser`, e.g.
+`hermes` or `qwen3_coder`):
 
 ```bash
 CONVERTIBLE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
