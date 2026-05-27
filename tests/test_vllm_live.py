@@ -12,8 +12,8 @@ Run it (with the reference rig up) like::
     CONVERTIBLE_MODEL=Qwen/Qwen3-32B \\
     uv run pytest tests/test_vllm_live.py -v
 
-The server must expose tool calling (vLLM:
-``--enable-auto-tool-choice --tool-call-parser hermes``).
+The server must expose tool calling (vLLM: ``--enable-auto-tool-choice`` plus a
+``--tool-call-parser`` for the model, e.g. ``hermes`` or ``qwen3_coder``).
 """
 
 from __future__ import annotations
