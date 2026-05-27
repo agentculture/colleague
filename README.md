@@ -109,10 +109,13 @@ engine, so it binds equally to `mock`, `vllm-openai`, and any future wheel.
 uv sync
 uv run pytest -n auto                          # full suite, no network needed
 
+# Open the interactive harness (the session palette) at a terminal:
+uv run convertible
+
 # Discover the engines installed in this environment:
 uv run convertible wheels list
 
-# Drive a task with the deterministic mock engine (no model, no network):
+# Drive toward a goal with the deterministic mock engine (no model, no network):
 uv run convertible drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
 ```
 
@@ -300,6 +303,11 @@ loop, hooks, and artifact — no parallel code path):
 uv run convertible session --repo /path/to/repo --engine vllm-openai
 ```
 
+Running `convertible` with no arguments **at a terminal** opens this same palette
+(with the default engine and repo) — the natural "get in and drive" gesture.
+Piped, redirected, or otherwise non-interactive, bare `convertible` prints usage
+instead, so scripts and agents keep a discoverable surface.
+
 The session loops until the user enters `q`, `quit`, or an empty line. Any
 driver flags accepted by `drive` (`--engine`, `--no-pr`, `--base-url`, etc.)
 are also accepted by `session`.
@@ -336,7 +344,7 @@ rely on a non-existent flag.
 
 | Verb | What it does |
 |------|--------------|
-| `drive <instruction>` | Run a repo task through a coder engine; write the artifact; hand off. |
+| `drive <goal>` | Drive toward a goal/instruction: work autonomously through a coder engine; write the artifact; hand off. |
 | `drive --command <name> [args…]` | Expand a saved command template and drive it. |
 | `commands list` | List discovered command templates for a repo. |
 | `commands overview` | Describe the commands surface. |

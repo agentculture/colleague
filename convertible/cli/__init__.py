@@ -61,6 +61,17 @@ def _argv_has_json(argv: list[str] | None) -> bool:
     return any(t == "--json" or t.startswith("--json=") for t in tokens)
 
 
+def _stdio_is_interactive() -> bool:
+    """Whether stdin and stdout are both interactive terminals.
+
+    Bare ``convertible`` opens the interactive harness only at a real terminal;
+    isolated as a module function so tests can force the interactive branch
+    without a TTY (mirrors :func:`convertible.cli._banner._isatty`). Both streams
+    must be a TTY: the palette reads from stdin and renders its chrome to stdout.
+    """
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     from convertible.cli._commands import cli as _cli_group
     from convertible.cli._commands import commands as _commands_group
@@ -136,6 +147,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command is None:
+        # Bare `convertible` opens the interactive harness at a terminal; piped /
+        # redirected / non-interactive it prints usage so scripts and agents keep
+        # a discoverable surface. `-h/--help` is handled by argparse before here,
+        # so the help surface (and the teken rubric, which probes --help) stay
+        # available either way. Re-parsing ["session"] reuses the session
+        # subparser's defaults and func wiring — no parallel code path.
+        if _stdio_is_interactive():
+            return _dispatch(parser.parse_args(["session"]))
         parser.print_help()
         return 0
 

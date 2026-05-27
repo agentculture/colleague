@@ -18,10 +18,26 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
     assert __version__ in capsys.readouterr().out
 
 
-def test_no_args_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+def test_no_args_non_tty_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+    # Under pytest, stdin/stdout are not TTYs, so bare invocation must fall back
+    # to usage (preserving the discoverable surface for scripts and agents).
     rc = main([])
     assert rc == 0
     assert "usage: convertible" in capsys.readouterr().out
+
+
+def test_no_args_tty_opens_session(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # At an interactive terminal, bare `convertible` opens the session harness.
+    # Force the interactive branch via the isolated seam, and stub input() to a
+    # quit token so the session renders its palette header then exits cleanly.
+    monkeypatch.setattr("convertible.cli._stdio_is_interactive", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a, **k: "q")
+    rc = main([])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "convertible session" in out
 
 
 def test_unknown_command_errors(capsys: pytest.CaptureFixture[str]) -> None:

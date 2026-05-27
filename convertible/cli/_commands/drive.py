@@ -224,7 +224,10 @@ def cmd_drive(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "drive",
-        help="Run a repo task through a coder engine and hand off the result.",
+        help=(
+            "Drive toward a goal: work autonomously on a request or instruction "
+            "through a coder engine, then hand off the result."
+        ),
     )
     # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
     # ``--command`` can be the sole input without argparse raising an error.
@@ -232,7 +235,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "instruction",
         nargs="*",
         help=(
-            "What the engine should do in the repo.  "
+            "A goal or instruction to pursue autonomously.  "
             "Mutually exclusive with --command.  "
             "When --command is used, any positional tokens are passed as template arguments."
         ),
