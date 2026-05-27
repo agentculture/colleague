@@ -22,6 +22,13 @@ Issues = "https://github.com/agentculture/convertible/issues"
 [project.scripts]
 convertible = "convertible.cli:main"
 
+# Engine wheels register here. The two bundled engines use the exact same
+# mechanism an out-of-tree wheel would (R4): a package advertising this
+# entry-point group is discovered by `convertible wheels list`.
+[project.entry-points."convertible.engines"]
+mock = "convertible.engines.mock:MockEngine"
+vllm-openai = "convertible.engines.vllm_openai:VllmOpenAIEngine"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
