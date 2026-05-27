@@ -21,3 +21,9 @@ ignores:
   - ".teken/**"
   # Vendored skills are cited verbatim from guildmaster — do not reformat them.
   - ".claude/skills/**"
+  # devague artifacts (frames, exported specs/plans) are generated verbatim from
+  # the convergence engine — the auto-generated H1 mirrors the announcement
+  # sentence and bodies carry bare URLs by design; treated like vendored content.
+  - ".devague/**"
+  - "docs/specs/**"
+  - "docs/plans/**"

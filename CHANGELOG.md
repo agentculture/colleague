@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-27
+
+### Added
+
+- convertible drive: run a repo task through a swappable coder engine (bounded agentic tool-loop: read_file/write_file/list_dir/run_command/finish, repo-confined)
+- convertible wheels list: discover engine wheels via the convertible.engines entry-point group
+- Shared task contract (Task/TaskResult) with lossless JSON round-trip
+- Two bundled engines: deterministic networkless mock, and vllm-openai driving any OpenAI-compatible /v1/chat/completions endpoint with tool calling (stdlib urllib, no SDK)
+- Git/PR handoff: branch/commit/push + gh pr create, gated by --no-pr/no-remote for offline/CI
+- JSON result artifact + step-trace dashboard under .convertible/
+- Opt-in live vLLM end-to-end test (CONVERTIBLE_VLLM_E2E=1)
+
+### Changed
+
+- CLAUDE.md expanded from the /init seed into a full runtime prompt for the harness
+- README rewritten to document the engine/driver/chassis/wheels architecture and the v0 boundary
+
 ## [0.1.2] - 2026-05-27
 
 ### Changed
