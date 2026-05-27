@@ -37,7 +37,20 @@ def _isatty() -> bool:
 
 
 def emit_banner(emit: Callable[[str], None], *, json_mode: bool) -> None:
-    """Emit the banner via ``emit`` — only on an interactive TTY, never in ``--json``."""
+    """Emit the banner via ``emit`` — only on an interactive TTY, never in ``--json``.
+
+    The banner is decorative, so two robustness rules apply:
+
+    * A missing/unreadable resource is swallowed — a packaging glitch must never
+      break a real drive (only the art is lost, the task still runs).
+    * Trailing newlines are stripped and each sink adds its own, so rendering is
+      identical whether ``emit`` always appends a newline (``print`` in
+      ``session``) or only when absent (``emit_diagnostic`` in ``drive``).
+    """
     if json_mode or not _isatty():
         return
-    emit(banner())
+    try:
+        art = banner()
+    except OSError:
+        return
+    emit(art.rstrip("\n"))

@@ -48,6 +48,10 @@ which one ran.
 - **Interactive palette** — `convertible session` opens a foreground command
   browser so operators can select templates and run ad-hoc instructions without
   leaving the shell.
+- **Startup banner** — `convertible drive` and `convertible session` greet an
+  interactive terminal with an ASCII banner. It's decorative chrome: written to
+  stderr, shown only on a TTY, and suppressed under `--json`, so it never
+  pollutes the stdout result stream or agent-parsed output.
 
 **Not in v0** (by design): a multi-engine router/policy gearbox, an execution
 sandbox, a daemon mode, and Codex/Claude/Gemini drivers. The runtime package has

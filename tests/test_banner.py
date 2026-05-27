@@ -15,12 +15,17 @@ from pathlib import Path
 import pytest
 
 from convertible.cli import main
-from convertible.cli._banner import banner
+from convertible.cli._banner import banner, emit_banner
 
 
 def _force_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the banner think stderr is interactive (capsys/pipes are not)."""
     monkeypatch.setattr("convertible.cli._banner._isatty", lambda: True)
+
+
+def _art() -> str:
+    """The banner as ``emit_banner`` renders it (trailing newlines normalized off)."""
+    return banner().rstrip("\n")
 
 
 class _CollectingOut:
@@ -74,8 +79,8 @@ def test_drive_banner_on_tty(
     rc = main(["drive", "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
     assert rc == 0
     captured = capsys.readouterr()
-    assert banner() in captured.err, "banner should print to stderr on an interactive drive"
-    assert banner() not in captured.out, "banner must never reach the stdout result stream"
+    assert _art() in captured.err, "banner should print to stderr on an interactive drive"
+    assert _art() not in captured.out, "banner must never reach the stdout result stream"
 
 
 def test_drive_no_banner_when_not_a_tty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -83,8 +88,8 @@ def test_drive_no_banner_when_not_a_tty(tmp_path: Path, capsys: pytest.CaptureFi
     rc = main(["drive", "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
     assert rc == 0
     captured = capsys.readouterr()
-    assert banner() not in captured.err
-    assert banner() not in captured.out
+    assert _art() not in captured.err
+    assert _art() not in captured.out
 
 
 def test_drive_json_suppresses_banner(
@@ -96,20 +101,45 @@ def test_drive_json_suppresses_banner(
     )
     assert rc == 0
     captured = capsys.readouterr()
-    assert banner() not in captured.err, "--json must suppress the banner entirely"
-    assert banner() not in captured.out
+    assert _art() not in captured.err, "--json must suppress the banner entirely"
+    assert _art() not in captured.out
     assert json.loads(captured.out)["status"] == "ok", "stdout is still pure JSON"
 
 
 def test_session_banner_on_tty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _force_tty(monkeypatch)
     out, err = _run_session(_session_args(tmp_path, json_mode=False))
-    assert banner() in err.text(), "banner should greet the session on stderr"
-    assert banner() not in out.text()
+    assert _art() in err.text(), "banner should greet the session on stderr"
+    assert _art() not in out.text()
 
 
 def test_session_json_suppresses_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _force_tty(monkeypatch)
     out, err = _run_session(_session_args(tmp_path, json_mode=True))
-    assert banner() not in err.text(), "--json must suppress the banner in session too"
-    assert banner() not in out.text()
+    assert _art() not in err.text(), "--json must suppress the banner in session too"
+    assert _art() not in out.text()
+
+
+def test_drive_and_session_banner_render_identically(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No trailing-blank-line mismatch between drive (emit_diagnostic) and session (print)."""
+    _force_tty(monkeypatch)
+    main(["drive", "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
+    drive_err = capsys.readouterr().err
+    # Drive emits the art followed by exactly one newline (no trailing blank line).
+    assert _art() + "\n" in drive_err
+    assert _art() + "\n\n" not in drive_err
+
+
+def test_emit_banner_swallows_missing_resource(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing/unreadable resource must never break a drive — the banner is decorative."""
+    _force_tty(monkeypatch)
+
+    def _boom() -> str:
+        raise FileNotFoundError("_banner.txt")
+
+    monkeypatch.setattr("convertible.cli._banner.banner", _boom)
+    emitted: list[str] = []
+    emit_banner(emitted.append, json_mode=False)  # must not raise
+    assert emitted == [], "no art emitted when the resource is missing"
