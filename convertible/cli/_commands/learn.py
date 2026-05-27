@@ -23,6 +23,8 @@ rename the package, and edit culture.yaml to mint a new agent.
 
 Commands
 --------
+  convertible drive <task>       Run a repo task through a coder engine.
+  convertible wheels list        List discovered engine wheels.
   convertible whoami             Identity from culture.yaml.
   convertible learn              This self-teaching prompt.
   convertible explain <path>...  Markdown docs for any noun/verb path.
@@ -54,6 +56,8 @@ def _as_json_payload() -> dict[str, object]:
         "version": __version__,
         "purpose": "Clonable scaffold for a new AgentCulture mesh agent.",
         "commands": [
+            {"path": ["drive"], "summary": "Run a repo task through a coder engine."},
+            {"path": ["wheels", "list"], "summary": "List discovered engine wheels."},
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},

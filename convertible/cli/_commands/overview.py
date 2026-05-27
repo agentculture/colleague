@@ -25,6 +25,8 @@ _ARTIFACTS = [
 ]
 
 _VERBS = [
+    "drive <instruction> — run a repo task through a coder engine",
+    "wheels list — list discovered engine wheels",
     "whoami — identity probe (nick, version, backend, model)",
     "learn — structured self-teaching prompt",
     "explain <path> — markdown docs for a topic",
