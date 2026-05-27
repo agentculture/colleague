@@ -16,12 +16,24 @@ The car metaphor *is* the architecture:
   `TaskResult`) and lifecycle.
 - **Tool-loop** — the bounded agentic loop (`convertible/loop.py`) the engine
   drives the repo through (`read_file`/`write_file`/`list_dir`/`run_command`/
-  `finish`, confined to the repo by `convertible/tools.py`).
+  `finish`, confined to the repo by `convertible/tools.py`). Hook firing lives
+  here — every engine inherits lifecycle behavior automatically.
 - **Wheels** — engines are plugins discovered via the `convertible.engines`
   Python entry-point group (`convertible/registry.py`).
 - **Dashboard** — the JSON result artifact + step trace (`convertible/artifact.py`).
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`convertible/handoff.py`).
+- **Command templates** — named, parameterized task recipes in
+  `.convertible/commands/*.md` (`convertible/commands.py`); expanded into a
+  `Task` via `drive --command <name> [args…]`.
+- **Hooks** — operator-authored shell commands in `.convertible/hooks.json`
+  (`convertible/hooks.py`) that fire at `task_start`/`pre_tool`/`post_tool`/
+  `finish`; a `pre_tool` hook can allow, deny, or rewrite a tool call.
+- **Interactive palette** — `convertible session` (`convertible/cli/_commands/
+  session.py`): a foreground TTY loop over the same drive path; no parallel
+  code path, no daemon.
+- **Config resolution** — `convertible/configdir.py`: repo-level
+  `.convertible/` overrides user-level `~/.convertible/`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
@@ -30,11 +42,15 @@ The buildable spec and plan this implementation converged from live in
 ## v0 scope (hold this line)
 
 In scope: the chassis, the entry-point wheel contract, exactly two engines
-(`mock`, `vllm-openai`), and the git/PR handoff.
+(`mock`, `vllm-openai`), the git/PR handoff, command templates, lifecycle
+hooks, and the foreground interactive palette.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
-router/policy "gearbox", an execution sandbox, a daemon/server mode, and
-Codex/Claude/Gemini drivers. Adding an excluded feature means scope crept.
+router/policy "gearbox", an execution sandbox, a daemon/server mode,
+Codex/Claude/Gemini drivers, and a per-repo hook trust gate / `--no-hooks`
+escape hatch (planned follow-up hardening — not yet built; document this gap
+honestly, never invent a `--no-hooks` flag). Adding an excluded feature means
+scope crept.
 
 ## The all-engines rule
 
@@ -47,8 +63,9 @@ test (`tests/test_e2e_mock.py`) is the guard.
 ## Conventions
 
 - **No runtime dependencies.** `pyproject.toml` keeps `dependencies = []`; the
-  vLLM driver speaks the OpenAI wire format over stdlib `urllib`. Don't add a
-  runtime dep without a strong reason — dev-only deps go in the `dev` group.
+  vLLM driver speaks the OpenAI wire format over stdlib `urllib`; commands and
+  hooks use only stdlib (`json`, `subprocess`, `pathlib`). Don't add a runtime
+  dep without a strong reason — dev-only deps go in the `dev` group.
 - **Agent-first CLI.** New verbs are `convertible/cli/_commands/` modules with a
   `register(sub)`, wired in `convertible/cli/__init__.py`. Results to stdout,
   diagnostics/errors to stderr (never mixed); every command supports `--json`;
@@ -57,6 +74,17 @@ test (`tests/test_e2e_mock.py`) is the guard.
 - **The vLLM driver only touches the OpenAI surface** — `base_url`/`api_key`/
   `model` config, `/v1/chat/completions` with tools. Retargeting any
   OpenAI-compatible server must stay a config change, never a code change.
+- **Hook commands run as subprocesses, never imported.** `convertible/hooks.py`
+  uses `subprocess.run` (shell=True) in the repo working directory. Command
+  templates are Markdown text files, never executed as Python. No code path
+  opens a socket or forks a daemon.
+- **Hooks belong to the chassis, not to engines.** `convertible/loop.py` owns
+  hook firing — new engine wheels inherit the full lifecycle layer automatically
+  and must not duplicate it. The all-engines rule applies: a hook config that
+  fires on `mock` must fire identically on `vllm-openai`.
+- **Repo-shipped hooks run by default (trusted-operator-env model D2).** There
+  is no `--no-hooks` flag today. A per-repo trust gate is a tracked follow-up.
+  Document this gap clearly; never document a non-existent flag.
 
 ## Commands
 
@@ -65,6 +93,14 @@ uv sync                                   # install (incl. dev group)
 uv run pytest -n auto                     # tests (parallel)
 uv run convertible wheels list            # discovered engines
 uv run convertible drive "<task>" --repo . --engine mock --no-pr
+
+# Extensibility layer:
+uv run convertible drive --command <name> [args…] --repo . --engine mock --no-pr
+uv run convertible commands list --repo .          # list discovered templates
+uv run convertible commands overview               # surface description
+uv run convertible hooks list --repo .             # list configured hooks
+uv run convertible hooks overview                  # surface description
+uv run convertible session --repo . --engine mock  # interactive palette
 
 # Lint + gates CI enforces:
 uv run black --check convertible tests
