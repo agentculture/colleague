@@ -204,6 +204,61 @@ def test_empty_repo_resolves_to_nothing(tmp_path: Path) -> None:
     assert resolve_skills(repo, _MODEL_X, user_home=home) == {}
 
 
+# --- symlink confinement (security: layer reads stay in repo/config roots) --
+
+
+def test_agents_symlink_escape_is_ignored(tmp_path: Path) -> None:
+    """A repo AGENTS.md symlinked outside the repo is not read into the prompt."""
+    repo = _repo(tmp_path)
+    home = _home(tmp_path)
+    secret = tmp_path / "secret.md"  # outside the repo root
+    secret.write_text("TOP SECRET", encoding="utf-8")
+    (repo / "AGENTS.md").symlink_to(secret)
+
+    assert resolve_agents(repo, _MODEL_X, user_home=home) == []
+    assert system_prompt_for(repo, _MODEL_X, user_home=home, base=_BASE_PROMPT) is None
+
+
+def test_agents_symlink_within_repo_is_allowed(tmp_path: Path) -> None:
+    """A symlink that stays inside the repo is followed (matches tool reads)."""
+    repo = _repo(tmp_path)
+    home = _home(tmp_path)
+    target = repo / "docs.md"
+    target.write_text("in-repo rules", encoding="utf-8")
+    (repo / "AGENTS.md").symlink_to(target)
+
+    layers = resolve_agents(repo, _MODEL_X, user_home=home)
+    assert [layer.text for layer in layers] == ["in-repo rules"]
+
+
+def test_skills_symlink_escape_is_ignored(tmp_path: Path) -> None:
+    """A skill doc symlinked outside the .convertible roots is skipped."""
+    repo = _repo(tmp_path)
+    home = _home(tmp_path)
+    secret = tmp_path / "secret.md"  # outside any .convertible root
+    secret.write_text("# secret\nleak", encoding="utf-8")
+    skills_dir = repo / ".convertible" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "evil.md").symlink_to(secret)
+
+    assert resolve_skills(repo, _MODEL_X, user_home=home) == {}
+
+
+def test_skills_symlink_within_config_is_allowed(tmp_path: Path) -> None:
+    """A skill symlink that stays inside .convertible is followed."""
+    repo = _repo(tmp_path)
+    home = _home(tmp_path)
+    conv = repo / ".convertible"
+    target = conv / "shared" / "real.md"
+    _write(target, "# real\nuse me")
+    skills_dir = conv / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "link.md").symlink_to(target)
+
+    skills = resolve_skills(repo, _MODEL_X, user_home=home)
+    assert "link" in skills
+
+
 # --- system_prompt_for composition ------------------------------------------
 
 

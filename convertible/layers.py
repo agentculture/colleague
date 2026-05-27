@@ -38,12 +38,35 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from convertible.configdir import collect_files
+from convertible.configdir import collect_files, config_roots
 
 #: Repo-root-resolved config (AGENTS) falls back to this user-level home subdir.
 _USER_CONFIG_SUBDIR = ".convertible"
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _within(path: Path, root: Path) -> bool:
+    """True if *path* resolves to *root* or somewhere beneath it.
+
+    Both sides are fully resolved (symlinks included), mirroring
+    :meth:`convertible.tools.ToolExecutor._safe_path`. A repo-authored symlink
+    whose target escapes the allowed root is rejected, so a layer file can never
+    pull an arbitrary local file (``/etc/passwd``, ``~/.ssh/…``) into the system
+    prompt that is then sent verbatim to a remote engine — the same confinement
+    the tool loop enforces for file reads.
+    """
+    try:
+        resolved = path.resolve()
+        base = root.resolve()
+    except OSError:
+        return False
+    return resolved == base or base in resolved.parents
+
+
+def _within_any(path: Path, roots: list[Path]) -> bool:
+    """True if *path* is confined to at least one of *roots*."""
+    return any(_within(path, root) for root in roots)
 
 
 def sanitize_model(model: str) -> str:
@@ -78,15 +101,22 @@ def resolve_root_file(
     if the file exists in neither. This is the repo-root analog of
     :func:`convertible.configdir.resolve_file`, kept here so configdir's
     documented ``.convertible/``-only contract stays intact.
+
+    A candidate whose resolved target escapes the root it was found under (e.g.
+    a symlink pointing outside the repo) is skipped — layer files are confined
+    just like tool reads, so they cannot smuggle external file contents into the
+    system prompt.
     """
     repo_path = Path(repo_path)
     user_home = Path.home() if user_home is None else Path(user_home)
+    user_root = user_home / _USER_CONFIG_SUBDIR
 
-    for candidate in (
-        repo_path / relative,
-        user_home / _USER_CONFIG_SUBDIR / relative,
+    # Each candidate must stay within the root it is found under.
+    for candidate, root in (
+        (repo_path / relative, repo_path),
+        (user_root / relative, user_root),
     ):
-        if candidate.is_file():
+        if candidate.is_file() and _within(candidate, root):
             return candidate
     return None
 
@@ -174,16 +204,23 @@ def resolve_skills(
     two orthogonal precedence axes, both structural. The ``<model>`` directory
     name is constructed from :func:`sanitize_model`; sibling model dirs are never
     iterated.
+
+    A skill file whose resolved target escapes every ``.convertible/`` root (e.g.
+    a symlink pointing outside the config dirs) is skipped, so a repo cannot
+    smuggle external file contents into the system prompt via a skill doc.
     """
     safe = sanitize_model(model)
+    roots = config_roots(repo_path, user_home=user_home)
     base = collect_files(repo_path, "skills", suffix=".md", user_home=user_home)
     overlay = collect_files(repo_path, f"{safe}/skills", suffix=".md", user_home=user_home)
 
-    skills: dict[str, Skill] = {
-        name: Skill(name=name, path=path, scope=SKILL_BASE) for name, path in base.items()
-    }
+    skills: dict[str, Skill] = {}
+    for name, path in base.items():
+        if _within_any(path, roots):
+            skills[name] = Skill(name=name, path=path, scope=SKILL_BASE)
     for name, path in overlay.items():
-        skills[name] = Skill(name=name, path=path, scope=SKILL_MODEL)
+        if _within_any(path, roots):
+            skills[name] = Skill(name=name, path=path, scope=SKILL_MODEL)
     return skills
 
 
