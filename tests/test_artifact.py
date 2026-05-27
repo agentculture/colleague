@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from convertible.artifact import failed_result, write
-from convertible.contract import ERROR, OK, Step, Task, TaskResult, Usage
+from convertible.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage
 from convertible.loop import ModelResponse, ToolCall, run
 
 
@@ -69,3 +69,90 @@ def test_real_drive_artifact_round_trips(tmp_path: Path) -> None:
     path = write(result, tmp_path / ".convertible")
     reloaded = TaskResult.from_dict(json.loads(path.read_text()))
     assert reloaded.changed_files == ["x"]
+
+
+# ---------------------------------------------------------------------------
+# t2: denied tool call — hook_firings + non-ok step persisted in artifact
+# ---------------------------------------------------------------------------
+
+
+def test_denied_tool_call_written_to_artifact(tmp_path: Path) -> None:
+    """A TaskResult with a denied (ok=False) step and a deny HookFiring
+    round-trips fully through artifact.write → JSON reload."""
+    deny_firing = HookFiring(
+        event="pre_tool",
+        tool="run_command",
+        command="security-check.sh",
+        decision="deny",
+        exit_code=1,
+        reason="command blocked: rm -rf pattern",
+    )
+    result = TaskResult(
+        task_id="denied1",
+        status=ERROR,
+        summary="drive blocked by hook",
+        steps=[
+            Step(
+                index=0,
+                tool="run_command",
+                arguments={"command": "rm -rf /tmp"},
+                result="hook denied: command blocked: rm -rf pattern",
+                ok=False,
+            )
+        ],
+        hook_firings=[deny_firing],
+        command="clean",
+        error="hook denied the tool call",
+    )
+
+    out_dir = tmp_path / ".convertible"
+    path = write(result, out_dir)
+    payload = json.loads(path.read_text())
+
+    # --- new fields present ---
+    assert "hook_firings" in payload
+    assert "command" in payload
+    assert payload["command"] == "clean"
+
+    firings = payload["hook_firings"]
+    assert len(firings) == 1
+    f = firings[0]
+    assert f["event"] == "pre_tool"
+    assert f["decision"] == "deny"
+    assert f["exit_code"] == 1
+    assert "rm -rf pattern" in f["reason"]
+
+    # --- non-ok step present ---
+    steps = payload["steps"]
+    assert len(steps) == 1
+    assert steps[0]["ok"] is False
+    assert "hook denied" in steps[0]["result"]
+
+    # --- full round-trip equality ---
+    reloaded = TaskResult.from_dict(payload)
+    assert reloaded.hook_firings == [deny_firing]
+    assert reloaded.command == "clean"
+    assert reloaded.steps[0].ok is False
+
+
+def test_artifact_without_new_fields_loads_with_defaults(tmp_path: Path) -> None:
+    """An artifact written without hook_firings/command (old format) loads cleanly."""
+    old_payload = {
+        "task_id": "old1",
+        "status": OK,
+        "summary": "legacy result",
+        "changed_files": ["README.md"],
+        "steps": [],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        "artifacts_path": None,
+        "error": None,
+        "branch": None,
+        "pr_url": None,
+    }
+    artifact_file = tmp_path / "old1.json"
+    artifact_file.write_text(json.dumps(old_payload) + "\n", encoding="utf-8")
+
+    reloaded = TaskResult.from_dict(json.loads(artifact_file.read_text()))
+    assert reloaded.hook_firings == []
+    assert reloaded.command is None
+    assert reloaded.changed_files == ["README.md"]

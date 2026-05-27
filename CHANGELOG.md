@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-27
+
+### Added
+
+- Command templates discovered under .convertible/commands/*.md, expanded into a Task via `drive --command <name> [args]` ($ARGUMENTS / $1 substitution).
+- Lifecycle hooks (.convertible/hooks.json): operator shell commands fired at task_start/pre_tool/post_tool/finish; a pre_tool hook can allow, deny, or rewrite a tool call (Claude-Code-style stdin-JSON + exit-code/structured-stdout I/O contract).
+- Interactive foreground palette: `convertible session` over the shared drive path.
+- Agent-first CLI: `convertible commands list/overview` and `convertible hooks list/overview`.
+- Result artifact now records every hook firing and the originating command.
+
+### Changed
+
+- Hook lifecycle is wired into the engine-agnostic loop, so it binds every engine (all-engines rule); the chassis is no longer purely one-shot.
+- Repo-shipped hooks run by default under the trusted-operator-env model (a per-repo trust gate / opt-out is a documented follow-up, not yet built).
+
+### Fixed
+
+- Hook execution and matching failures (subprocess timeout, launch error, invalid matcher regex) now map to a structured fail-closed decision instead of crashing the drive.
+- The originating command is persisted in the result artifact on the failure path and for session-run templates (previously recorded as null).
+- `convertible session` routes errors/diagnostics to stderr and honors `--json` (one JSON result per drive on stdout, palette chrome to stderr).
+- `hooks list` reads entries via the public `HookConfig.all_entries` accessor (removed an unjustified lint suppression).
+
 ## [0.2.2] - 2026-05-27
 
 ### Added

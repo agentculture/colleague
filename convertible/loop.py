@@ -11,6 +11,22 @@ Termination is guaranteed (honesty condition h3): every path out of the loop is
 either a model-signalled finish, an empty tool-call turn, or the step budget.
 The mock engine supplies a scripted ``complete``; the vLLM engine supplies one
 that POSTs to an OpenAI-compatible endpoint. The loop never knows the difference.
+
+Hook lifecycle (R4). The loop fires repo-shipped hooks at four lifecycle events
+— ``task_start`` (once, before the loop), ``pre_tool`` (before each tool
+executes), ``post_tool`` (after a tool executes), and ``finish`` (once, on any
+loop exit). The config is loaded by default from ``task.repo_path`` via
+:func:`convertible.hooks.load_hooks`, so *every* engine inherits the lifecycle
+for free — engines call :func:`run` unchanged (the all-engines rule). With no
+hooks config nothing fires and behavior is byte-identical to a hook-free loop.
+
+Only ``pre_tool`` is control-bearing: the first decisive decision wins — ``deny``
+skips the tool (the reason is fed back to the model as the tool result) and
+``rewrite`` swaps the call's arguments before execution. ``task_start`` /
+``post_tool`` / ``finish`` are observe-only this increment (they run side-effects
+and are recorded, but never alter control flow). Every firing is appended to
+``TaskResult.hook_firings`` in order. Termination is unaffected: hooks add no new
+exit path and cannot extend the step budget.
 """
 
 from __future__ import annotations
@@ -19,7 +35,16 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from convertible.contract import OK, Step, Task, TaskResult
+from convertible.contract import (
+    DECISION_DENY,
+    DECISION_REWRITE,
+    OK,
+    HookFiring,
+    Step,
+    Task,
+    TaskResult,
+)
+from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
 from convertible.tools import ToolError, ToolExecutor
 
 _DEFAULT_SYSTEM = (
@@ -83,6 +108,68 @@ def _tool_message(call_id: str, content: str) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
+def _fire_hooks(
+    hooks: HookConfig,
+    result: TaskResult,
+    *,
+    event: str,
+    task: Task,
+    tool: str | None = None,
+    arguments: dict[str, Any] | None = None,
+) -> HookDecision | None:
+    """Run every matching hook for *event*, record a firing per hook, in order.
+
+    Returns the first control-bearing :class:`HookDecision` (a ``deny`` or
+    ``rewrite``) seen, or ``None``. Only ``pre_tool`` callers act on the return;
+    for the observe-only events (``task_start`` / ``post_tool`` / ``finish``) the
+    caller ignores it. ``allow`` / ``observe`` decisions are recorded but never
+    control-bearing, so scanning continues past them.
+
+    A firing is appended for *every* hook that runs — including the allow/observe
+    ones leading up to a decisive one — so the dashboard sees the full sequence.
+    """
+    entries = hooks.hooks_for(event, tool=tool)
+    if not entries:
+        return None
+
+    payload = {
+        "event": event,
+        "tool": tool,
+        "arguments": arguments,
+        "task_id": task.id,
+        "repo_path": task.repo_path,
+    }
+
+    decisive = None
+    for entry in entries:
+        # A hook must never abort the drive. run_hook already maps timeouts /
+        # launch failures to a deny; this net catches any other unexpected error
+        # and records it as a fail-closed deny firing rather than propagating.
+        try:
+            decision = run_hook(entry, payload, cwd=task.repo_path)
+        except Exception as exc:  # noqa: BLE001 - a hook crash is contained, not fatal
+            decision = HookDecision(
+                decision=DECISION_DENY, reason=f"hook error: {exc}", exit_code=None
+            )
+        result.hook_firings.append(
+            HookFiring(
+                event=event,
+                tool=tool,
+                command=entry.command,
+                decision=decision.decision,
+                exit_code=decision.exit_code,
+                reason=decision.reason,
+            )
+        )
+        # The first deny/rewrite wins; allow/observe are non-decisive — keep going.
+        if decisive is None and decision.decision in (DECISION_DENY, DECISION_REWRITE):
+            decisive = decision
+            # A decisive pre_tool verdict short-circuits the rest of the chain.
+            if event == "pre_tool":
+                break
+    return decisive
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -90,14 +177,20 @@ def run(
     max_steps: int,
     executor: ToolExecutor | None = None,
     system_prompt: str | None = None,
+    hooks: HookConfig | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
-    ``executor`` defaults to one confined to ``task.repo_path``. Returns a uniform
-    :class:`TaskResult` with the per-step trace and accumulated usage. The tool
+    ``executor`` defaults to one confined to ``task.repo_path``. ``hooks``
+    defaults to the config loaded from ``task.repo_path`` (so engines that call
+    :func:`run` unchanged still get the lifecycle); pass an explicit
+    :class:`~convertible.hooks.HookConfig` (e.g. an empty one) to override or
+    suppress repo loading. Returns a uniform :class:`TaskResult` with the
+    per-step trace, accumulated usage, and every hook firing in order. The tool
     schemas live with each engine's ``complete`` closure, not here.
     """
     executor = executor or ToolExecutor(task.repo_path)
+    hooks = hooks if hooks is not None else load_hooks(task.repo_path)
 
     user = task.instruction
     if task.context:
@@ -113,6 +206,9 @@ def run(
     result = TaskResult(task_id=task.id, status=OK)
     finished = False
 
+    # task_start — once, before the loop. Observe-only: side-effects only.
+    _fire_hooks(hooks, result, event="task_start", task=task)
+
     for _ in range(max(1, max_steps)):
         resp = complete(messages)
         result.usage.add(resp.prompt_tokens, resp.completion_tokens)
@@ -127,24 +223,75 @@ def run(
         messages.append(_assistant_message(resp))
         for call in resp.tool_calls:
             step_index = len(result.steps)
+
+            # pre_tool — the only control-bearing event. The first deny/rewrite
+            # wins; allow/observe pass through. arguments may be swapped here.
+            arguments = call.arguments
+            verdict = _fire_hooks(
+                hooks,
+                result,
+                event="pre_tool",
+                task=task,
+                tool=call.name,
+                arguments=arguments,
+            )
+            if verdict is not None and verdict.decision == DECISION_DENY:
+                # Skip execution entirely; feed the reason back so the model
+                # can adapt. Recorded as a non-ok Step (the firing is already
+                # recorded by _fire_hooks).
+                reason = verdict.reason or "denied by a pre_tool hook"
+                result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
+                messages.append(_tool_message(call.id, reason))
+                continue
+            if (
+                verdict is not None
+                and verdict.decision == DECISION_REWRITE
+                and verdict.arguments is not None
+            ):
+                # Execute with the hook-supplied arguments instead.
+                arguments = verdict.arguments
+
             try:
-                outcome = executor.execute(call.name, call.arguments)
+                outcome = executor.execute(call.name, arguments)
             except ToolError as exc:
                 result.steps.append(
-                    Step(step_index, call.name, call.arguments, f"error: {exc}", ok=False)
+                    Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
                 )
                 messages.append(_tool_message(call.id, f"error: {exc}"))
+                # post_tool still fires after a tool *attempt*; observe-only.
+                _fire_hooks(
+                    hooks,
+                    result,
+                    event="post_tool",
+                    task=task,
+                    tool=call.name,
+                    arguments=arguments,
+                )
                 continue
 
-            result.steps.append(
-                Step(step_index, call.name, call.arguments, outcome.result, ok=True)
-            )
+            result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
             messages.append(_tool_message(call.id, outcome.result))
+
+            # post_tool — after the tool executed. Observe-only: the decision
+            # does not alter the already-executed result this increment.
+            _fire_hooks(
+                hooks,
+                result,
+                event="post_tool",
+                task=task,
+                tool=call.name,
+                arguments=arguments,
+            )
+
             if outcome.finished:
                 result.summary = outcome.finish_summary or result.summary
                 finished = True
         if finished:
             break
+
+    # finish — once, on every loop exit (model finish / empty turn / budget).
+    # Observe-only this increment; requeue/re-drive is out of scope.
+    _fire_hooks(hooks, result, event="finish", task=task)
 
     result.changed_files = sorted(executor.changed)
     if not finished:

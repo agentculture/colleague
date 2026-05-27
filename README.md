@@ -39,11 +39,45 @@ which one ran.
   `--no-pr` (or no remote) stays a local commit and CI never pushes.
 - A **result artifact** (`.convertible/<task-id>.json`) for handoff back to
   Guildmaster / Taskmaster / Steward.
+- **Command templates** — reusable, parameterized task recipes stored under
+  `.convertible/commands/*.md`, invoked with `drive --command <name> [args…]`
+  or selected in the interactive palette.
+- **Lifecycle hooks** — operator-authored shell commands that fire at
+  `task_start`, `pre_tool`, `post_tool`, and `finish` events; a `pre_tool` hook
+  can allow, deny, or rewrite tool calls before the engine executes them.
+- **Interactive palette** — `convertible session` opens a foreground command
+  browser so operators can select templates and run ad-hoc instructions without
+  leaving the shell.
 
 **Not in v0** (by design): a multi-engine router/policy gearbox, an execution
 sandbox, a daemon mode, and Codex/Claude/Gemini drivers. The runtime package has
 **no third-party dependencies** — the vLLM driver speaks the OpenAI wire format
 over the standard library.
+
+## Before → after: the extensibility layer
+
+**Before** this layer, `convertible drive` accepted one raw instruction string
+and ran the tool-loop with no operator gate and no saved recipes: `run_command`
+and `write_file` executed unconditionally, and every task had to be typed from
+scratch.
+
+**After**, operators drop files into `.convertible/` and gain three things that
+work identically across every engine (the all-engines rule):
+
+1. **Command templates** — author a recipe once, invoke it by name with
+   positional arguments; `drive --command <name> [args…]` expands it into the
+   same `Task` shape a raw `drive "…"` produces.
+2. **Lifecycle hooks** — `pre_tool` hooks can allow, deny (reason fed back to
+   the model), or rewrite tool arguments before they execute; `post_tool` hooks
+   run formatters or linters after; `task_start` and `finish` hooks bracket the
+   whole drive. Every firing is recorded in the result artifact.
+3. **Interactive palette** — `convertible session` lists discovered templates,
+   accepts a selection (by number or name) plus optional arguments, and runs the
+   chosen task through the same drive path, loop, hooks, and artifact — no
+   parallel code path.
+
+This extensibility lives in the chassis (`convertible/loop.py`), not in any one
+engine, so it binds equally to `mock`, `vllm-openai`, and any future wheel.
 
 ## Quickstart
 
@@ -103,11 +137,188 @@ The opt-in live end-to-end test proves this against a real server:
 CONVERTIBLE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
+## Command templates
+
+Operators save reusable task recipes as Markdown files under
+`.convertible/commands/<name>.md` (repo-level or `~/.convertible/commands/` for
+user-level; repo-level shadows user-level by stem).
+
+### Template file format
+
+A template may open with an optional `---` metadata block:
+
+```markdown
+---
+description: Fix lint errors under a path
+engine: mock
+constraints: keep diffs minimal, run the formatter
+arg-hint: <path>
+---
+Fix all lint errors under $1. Then run the formatter. $ARGUMENTS
+```
+
+Supported metadata keys:
+
+| Key | Meaning |
+|-----|---------|
+| `description` | One-line description shown in listings |
+| `engine` | Engine to use when running this command (overridden by `--engine`) |
+| `constraints` | Comma-separated constraints added to the `Task` |
+| `arg-hint` | Short argument hint shown in `commands list` |
+
+If no `---` block is present, the entire file content is the body.
+
+### Argument substitution
+
+| Placeholder | Expands to |
+|-------------|------------|
+| `$ARGUMENTS` | All arguments joined by a space |
+| `$1`, `$2`, … | The N-th positional argument (empty string if not supplied) |
+
+### Running a command template
+
+```bash
+# One-shot via drive:
+uv run convertible drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
+
+# List all discovered templates:
+uv run convertible commands list --repo .
+
+# Surface overview:
+uv run convertible commands overview
+```
+
+The `--command` flag and a positional instruction are mutually exclusive; any
+tokens after `--command <name>` are passed as template arguments (`$1`, `$2`,
+`$ARGUMENTS`).
+
+## Lifecycle hooks
+
+Hooks are operator-authored shell commands registered in
+`.convertible/hooks.json` (repo-level or `~/.convertible/hooks.json` for
+user-level; repo-level wins).
+
+### Config format
+
+```json
+{
+  "hooks": {
+    "pre_tool":  [{ "matcher": "run_command", "command": "my-policy-gate.sh" }],
+    "post_tool": [{ "matcher": "write_file",  "command": "black $file 2>/dev/null; true" }],
+    "task_start":[{ "command": "echo task starting" }],
+    "finish":    [{ "command": "echo done" }]
+  }
+}
+```
+
+Each entry has:
+
+| Field | Meaning |
+|-------|---------|
+| `matcher` | Regex (`re.fullmatch`) tested against the tool name. Absent or empty matches every tool. Ignored for `task_start` / `finish` events. |
+| `command` | Shell command run in the target repo directory. |
+
+### Lifecycle events
+
+| Event | When it fires | Pre/post effect |
+|-------|--------------|-----------------|
+| `task_start` | Before the first tool call | Observe only |
+| `pre_tool` | Before each tool call | Can allow, deny, or rewrite |
+| `post_tool` | After each tool call | Observe only (side-effects OK) |
+| `finish` | After the loop ends | Observe only |
+
+### Hook I/O contract
+
+The hook receives a JSON payload on **stdin**:
+
+```json
+{
+  "event": "pre_tool",
+  "tool": "run_command",
+  "arguments": { "command": "pytest" },
+  "task_id": "<uuid>",
+  "repo_path": "/path/to/repo"
+}
+```
+
+The hook signals its decision via **exit code** and optional **structured stdout**:
+
+| Exit code | Stdout | Decision |
+|-----------|--------|----------|
+| non-zero | any | **deny** — stderr (fallback: stdout) is fed back to the model as the tool result |
+| 0 | empty or non-JSON | **allow** — tool runs as-is |
+| 0 | `{"decision":"allow", ...}` | **allow** |
+| 0 | `{"decision":"deny", "reason":"..."}` | **deny** — reason fed back to model |
+| 0 | `{"decision":"rewrite","arguments":{...}}` | **rewrite** — tool runs with the supplied replacement arguments |
+
+Any response may carry an `"additionalContext"` string. Every firing (event,
+matched command, decision, exit code) is recorded in `TaskResult.hook_firings`
+and appears in the result artifact JSON.
+
+`post_tool`, `task_start`, and `finish` hooks are observe-only: a deny from
+these events is recorded but does not halt the loop.
+
+### Inspecting hooks
+
+```bash
+uv run convertible hooks list --repo .
+uv run convertible hooks overview
+```
+
+## Interactive palette
+
+`convertible session` opens a foreground interactive palette. It lists
+discovered command templates, accepts a number, a name, or a free-text
+instruction, and runs the selection through the same `drive` path (same `Task`,
+loop, hooks, and artifact — no parallel code path):
+
+```bash
+uv run convertible session --repo /path/to/repo --engine vllm-openai
+```
+
+The session loops until the user enters `q`, `quit`, or an empty line. Any
+driver flags accepted by `drive` (`--engine`, `--no-pr`, `--base-url`, etc.)
+are also accepted by `session`.
+
+## ⚠ Security: repo-shipped hooks run by default
+
+> **This is a code-execution risk. Read before driving an untrusted repo.**
+
+When you run `convertible drive` (or `convertible session`) against a repo that
+contains a `.convertible/hooks.json`, **those hooks execute automatically** with
+your operating-system privileges. There is no confirmation prompt and no
+sandboxing. Cloning a malicious repository and pointing Convertible at it will
+run whatever shell commands that repository's hooks.json specifies.
+
+This behavior is intentional under Convertible's **trusted-operator-env model**
+(D2): the same design tradeoff Claude Code and Codex make for their `.claude/`
+and `.codex/` hook configs. You are expected to trust (or audit) the repos you
+drive.
+
+**What is NOT yet implemented:** a per-repo trust gate, a `--no-hooks` escape
+hatch, or any other mechanism to disable repo-shipped hooks without editing the
+`.convertible/hooks.json` file yourself. A follow-up hardening increment is
+planned and tracked, but it has **not shipped** in the current version. Do not
+rely on a non-existent flag.
+
+**Safe practices until the trust gate ships:**
+
+- Only drive repos you own or have audited.
+- Review `.convertible/hooks.json` before running `drive` in an unfamiliar repo.
+- Use user-level (`~/.convertible/hooks.json`) hooks as an allow-list approach
+  if you want hooks without trusting any repo's config.
+
 ## CLI
 
 | Verb | What it does |
 |------|--------------|
 | `drive <instruction>` | Run a repo task through a coder engine; write the artifact; hand off. |
+| `drive --command <name> [args…]` | Expand a saved command template and drive it. |
+| `commands list` | List discovered command templates for a repo. |
+| `commands overview` | Describe the commands surface. |
+| `hooks list` | List configured hook entries for a repo. |
+| `hooks overview` | Describe the hooks surface. |
+| `session` | Open a foreground interactive palette. |
 | `wheels list` | List discovered engine wheels (the garage). |
 | `whoami` | Report this agent's nick, version, backend, and model. |
 | `learn` | Print a structured self-teaching prompt. |
@@ -132,7 +343,9 @@ my-engine = "my_package.engine:MyEngine"
 ```
 
 Most engines never re-implement the loop — they delegate to
-`convertible.loop.run` and only supply *how the model is called*.
+`convertible.loop.run` and only supply *how the model is called*. Because the
+loop owns hook firing, a custom engine inherits the full lifecycle extensibility
+layer for free.
 
 ## License
 

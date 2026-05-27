@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from convertible.contract import OK, Step, Task, TaskResult, Usage
+from convertible.contract import OK, HookFiring, Step, Task, TaskResult, Usage
 
 
 def test_task_new_assigns_id_and_fields() -> None:
@@ -52,3 +52,121 @@ def test_task_result_defaults_are_independent() -> None:
     b = TaskResult(task_id="2", status=OK)
     a.changed_files.append("x")
     assert b.changed_files == []
+
+
+# ---------------------------------------------------------------------------
+# t2: HookFiring dataclass and new TaskResult fields (hook_firings, command)
+# ---------------------------------------------------------------------------
+
+
+def test_hook_firing_defaults() -> None:
+    """HookFiring has sensible defaults for optional fields."""
+    hf = HookFiring(event="task_start")
+    assert hf.event == "task_start"
+    assert hf.tool is None
+    assert hf.command is None
+    assert hf.decision == "observe"
+    assert hf.exit_code is None
+    assert hf.reason == ""
+
+
+def test_hook_firing_round_trips() -> None:
+    """HookFiring serializes to dict and reconstructs identically."""
+    hf = HookFiring(
+        event="pre_tool",
+        tool="write_file",
+        command="echo pre",
+        decision="allow",
+        exit_code=0,
+        reason="",
+    )
+    assert HookFiring.from_dict(hf.to_dict()) == hf
+
+
+def test_hook_firing_deny_round_trips() -> None:
+    """A deny firing with a reason round-trips correctly."""
+    hf = HookFiring(
+        event="post_tool",
+        tool="run_command",
+        command="validate.sh",
+        decision="deny",
+        exit_code=1,
+        reason="forbidden pattern detected",
+    )
+    reloaded = HookFiring.from_dict(json.loads(json.dumps(hf.to_dict())))
+    assert reloaded == hf
+    assert reloaded.decision == "deny"
+    assert reloaded.reason == "forbidden pattern detected"
+
+
+def test_hook_firing_from_dict_tolerates_missing_optional_keys() -> None:
+    """from_dict must apply defaults when optional keys are absent (back-compat)."""
+    hf = HookFiring.from_dict({"event": "finish"})
+    assert hf.event == "finish"
+    assert hf.tool is None
+    assert hf.command is None
+    assert hf.decision == "observe"
+    assert hf.exit_code is None
+    assert hf.reason == ""
+
+
+def test_task_result_hook_firings_and_command_round_trip() -> None:
+    """TaskResult with hook_firings + command set round-trips through to_dict/from_dict."""
+    firings = [
+        HookFiring(event="pre_tool", tool="write_file", decision="allow", exit_code=0),
+        HookFiring(event="post_tool", tool="write_file", decision="observe"),
+    ]
+    result = TaskResult(
+        task_id="xyz789",
+        status=OK,
+        summary="ran with hooks",
+        hook_firings=firings,
+        command="scaffold",
+    )
+    reloaded = TaskResult.from_dict(json.loads(json.dumps(result.to_dict())))
+    assert reloaded == result
+    assert len(reloaded.hook_firings) == 2
+    assert reloaded.hook_firings[0].decision == "allow"
+    assert reloaded.hook_firings[1].event == "post_tool"
+    assert reloaded.command == "scaffold"
+
+
+def test_task_result_from_dict_defaults_new_fields_when_absent() -> None:
+    """from_dict tolerates absence of hook_firings + command (old payloads / other engines)."""
+    old_payload = {
+        "task_id": "legacy1",
+        "status": OK,
+        "summary": "",
+        "changed_files": [],
+        "steps": [],
+        "usage": {},
+    }
+    result = TaskResult.from_dict(old_payload)
+    assert result.hook_firings == []
+    assert result.command is None
+
+
+def test_task_result_full_round_trip_with_hooks_and_command() -> None:
+    """Full round-trip: existing fields + new fields serialize/deserialize to equal object."""
+    result = TaskResult(
+        task_id="full1",
+        status=OK,
+        summary="full test",
+        changed_files=["f.py"],
+        steps=[Step(index=0, tool="read_file", arguments={"path": "f.py"}, result="ok")],
+        usage=Usage(prompt_tokens=3, completion_tokens=1, total_tokens=4),
+        branch="convertible/full1",
+        hook_firings=[
+            HookFiring(
+                event="pre_tool",
+                tool="read_file",
+                command="pre-hook.sh",
+                decision="allow",
+                exit_code=0,
+                reason="",
+            )
+        ],
+        command="review",
+    )
+    reloaded = TaskResult.from_dict(json.loads(json.dumps(result.to_dict())))
+    assert reloaded == result

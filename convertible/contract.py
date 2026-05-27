@@ -15,11 +15,77 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 # TaskResult.status values.
 OK = "ok"
 ERROR = "error"
+
+# HookFiring.decision values.
+DECISION_ALLOW = "allow"
+DECISION_DENY = "deny"
+DECISION_REWRITE = "rewrite"
+DECISION_OBSERVE = "observe"
+
+
+@dataclass
+class HookFiring:
+    """A record of one hook invocation during a drive.
+
+    Hooks fire at lifecycle events (e.g. "pre_tool", "post_tool",
+    "task_start", "finish").  The loop populates these; the contract
+    defines the shape only.
+
+    Fields
+    ------
+    event:
+        The lifecycle event that triggered the hook.  Conventional values:
+        ``"task_start"``, ``"pre_tool"``, ``"post_tool"``, ``"finish"``.
+    tool:
+        The tool the hook fired around, if applicable (``None`` for
+        non-tool events such as ``"task_start"``).
+    command:
+        The shell command the hook ran (``None`` when the hook did not
+        execute a subprocess, e.g. an in-process observe hook).
+    decision:
+        The outcome of the hook.  One of ``"allow"``, ``"deny"``,
+        ``"rewrite"``, ``"observe"`` (default).
+    exit_code:
+        The exit code of the hook subprocess (``None`` when no subprocess
+        was run).
+    reason:
+        Human-readable explanation — populated with the deny reason,
+        stderr, or rewrite description; empty string for plain observe/allow.
+    """
+
+    event: str
+    tool: Optional[str] = None
+    command: Optional[str] = None
+    decision: str = DECISION_OBSERVE
+    exit_code: Optional[int] = None
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event": self.event,
+            "tool": self.tool,
+            "command": self.command,
+            "decision": self.decision,
+            "exit_code": self.exit_code,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "HookFiring":
+        raw_exit = data.get("exit_code")
+        return cls(
+            event=str(data["event"]),
+            tool=data.get("tool") or None,
+            command=data.get("command") or None,
+            decision=str(data.get("decision", DECISION_OBSERVE)),
+            exit_code=int(raw_exit) if raw_exit is not None else None,
+            reason=str(data.get("reason", "")),
+        )
 
 
 @dataclass
@@ -154,10 +220,17 @@ class TaskResult:
     changed_files: list[str] = field(default_factory=list)
     steps: list[Step] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
-    artifacts_path: str | None = None
-    error: str | None = None
-    branch: str | None = None
-    pr_url: str | None = None
+    artifacts_path: Optional[str] = None
+    error: Optional[str] = None
+    branch: Optional[str] = None
+    pr_url: Optional[str] = None
+    hook_firings: list[HookFiring] = field(default_factory=list)
+    """Every hook invocation that fired during this drive (populated by the loop)."""
+    command: Optional[str] = None
+    """The command-template name that originated this task, or ``None`` for
+    an ad-hoc instruction (e.g. plain ``convertible drive "<text>"``).
+    Populated by the CLI driver; ``None`` when the task was constructed
+    programmatically without a named command."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -171,6 +244,8 @@ class TaskResult:
             "error": self.error,
             "branch": self.branch,
             "pr_url": self.pr_url,
+            "hook_firings": [h.to_dict() for h in self.hook_firings],
+            "command": self.command,
         }
 
     @classmethod
@@ -186,4 +261,6 @@ class TaskResult:
             error=data.get("error"),
             branch=data.get("branch"),
             pr_url=data.get("pr_url"),
+            hook_firings=[HookFiring.from_dict(h) for h in data.get("hook_firings", [])],
+            command=data.get("command"),
         )
