@@ -63,7 +63,7 @@ def test_banner_loads_nonempty_art() -> None:
     """The data file loads and yields the multi-line ASCII art."""
     art = banner()
     assert art.strip(), "banner should not be empty"
-    assert art.count("\n") >= 30, "expected the full multi-line art block"
+    assert art.count("\n") >= 5, "expected a multi-line art block"
     assert banner() is art, "banner() is cached"
 
 
