@@ -69,9 +69,11 @@ vllm serve Qwen/Qwen3-32B \
   --tool-call-parser hermes
 ```
 
-The `--tool-call-parser` is model-specific (`hermes` suits many models;
-some Qwen3 builds want `qwen3_coder`). The engine is parser-agnostic — any
-parser that makes the server emit OpenAI-format tool calls works.
+The right `--tool-call-parser` depends on the model **and** the vLLM build:
+`hermes` works for many models (including `Qwen/Qwen3-32B` above), while other
+builds need a different one — e.g. an NVFP4 Qwen3 checkpoint served via vLLM may
+want `qwen3_coder`. The engine itself is parser-agnostic — any parser that makes
+the server emit OpenAI-format tool calls works.
 
 Then point Convertible at it (defaults already target `localhost:8001`):
 
