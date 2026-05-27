@@ -75,6 +75,13 @@ builds need a different one — e.g. an NVFP4 Qwen3 checkpoint served via vLLM m
 want `qwen3_coder`. The engine itself is parser-agnostic — any parser that makes
 the server emit OpenAI-format tool calls works.
 
+> **Tip (anecdotal).** With an NVFP4 Qwen3 checkpoint, `qwen3_coder` handled
+> tool-argument escaping more reliably than `hermes` in our testing: a `hermes`
+> run over-escaped the triple-quotes in a generated docstring (writing `\"\"\"`
+> instead of `"""`), producing a `SyntaxError`, where `qwen3_coder` wrote the
+> same file cleanly. This is a single observation, not a benchmark — but if a
+> parser garbles quote-heavy edits, trying the other one is worth a shot.
+
 Then point Convertible at it (defaults already target `localhost:8001`):
 
 ```bash
