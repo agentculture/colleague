@@ -1,55 +1,125 @@
 # convertible
 
-Convertible CLI is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract.
+> Convertible CLI is a swappable coder-agent harness that turns different models
+> into repo workers behind one shared task contract.
+>
+> **One harness, many engines.**
 
-## What you get
+Convertible is the **car around the model**. The model is the engine;
+Convertible is the chassis, controls, task contract, and handoff that turn that
+engine into a usable repo worker. Point it at a repo task and it drives the work
+through whichever coder engine you select — and the caller never has to care
+which one ran.
 
-- **An agent-first CLI** cited from [teken](https://github.com/agentculture/teken)
-  (`afi-cli`) — the runtime package has no third-party dependencies.
-- **A mesh identity** — `culture.yaml` (`suffix` + `backend`) and the matching
-  prompt file (`CLAUDE.md` for `backend: claude`).
-- **The canonical guildmaster skill kit** (11 skills) under `.claude/skills/`,
-  vendored cite-don't-import. See [`docs/skill-sources.md`](docs/skill-sources.md).
-- **A build + deploy baseline** — pytest, lint, the agent-first rubric gate, and
-  PyPI Trusted Publishing wired into GitHub Actions.
+## The metaphor, as architecture
+
+| Part | In Convertible |
+|------|----------------|
+| **Engine** | the model/coder backend (a local vLLM model, …) |
+| **Driver** | the adapter that invokes and controls one engine (`convertible/engines/`) |
+| **Chassis** | the shared task contract + lifecycle (`Task` → `TaskResult`) |
+| **Tool-loop** | the bounded agentic loop the engine drives the repo through |
+| **Wheels** | replaceable engine plugins, discovered via Python entry points |
+| **Dashboard** | the JSON result artifact + step trace each run writes |
+| **Garage** | `convertible wheels list` — the engines installed in this env |
+
+## What ships in v0
+
+- A **shared task contract** — a typed `Task` and `TaskResult` that every engine
+  consumes and produces identically.
+- A **bounded agentic tool-loop** — the engine calls `read_file`, `write_file`,
+  `list_dir`, `run_command`, and `finish`, confined to the target repo, until it
+  finishes or hits the step budget.
+- **Two engines**, both registered through the same `convertible.engines`
+  entry-point group an out-of-tree wheel would use:
+  - `mock` — deterministic and networkless; the CI workhorse.
+  - `vllm-openai` — drives any **OpenAI-compatible** `/v1/chat/completions`
+    endpoint with tool calling (the reference rig: Qwen3-32B on a vLLM server).
+- **Git/PR handoff** — branch → commit → push → `gh pr create`, gated so
+  `--no-pr` (or no remote) stays a local commit and CI never pushes.
+- A **result artifact** (`.convertible/<task-id>.json`) for handoff back to
+  Guildmaster / Taskmaster / Steward.
+
+**Not in v0** (by design): a multi-engine router/policy gearbox, an execution
+sandbox, a daemon mode, and Codex/Claude/Gemini drivers. The runtime package has
+**no third-party dependencies** — the vLLM driver speaks the OpenAI wire format
+over the standard library.
 
 ## Quickstart
 
 ```bash
 uv sync
-uv run pytest -n auto                 # run the test suite
-uv run convertible whoami  # identity from culture.yaml
-uv run convertible learn   # self-teaching prompt (add --json)
-uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
+uv run pytest -n auto                          # full suite, no network needed
+
+# Discover the engines installed in this environment:
+uv run convertible wheels list
+
+# Drive a task with the deterministic mock engine (no model, no network):
+uv run convertible drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
+```
+
+### Driving a real model (vLLM)
+
+Start an OpenAI-compatible vLLM server with tool calling enabled:
+
+```bash
+vllm serve Qwen/Qwen3-32B \
+  --port 8001 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes
+```
+
+Then point Convertible at it (defaults already target `localhost:8001`):
+
+```bash
+uv run convertible drive "fix the typo in the README title" \
+  --repo /path/to/target/repo \
+  --engine vllm-openai \
+  --base-url http://localhost:8001/v1 \
+  --model Qwen/Qwen3-32B
+```
+
+Configuration resolves in the order: explicit flag → `CONVERTIBLE_*` env →
+`OPENAI_*` env → default. Because the driver only touches the OpenAI surface,
+pointing `--base-url` at any compatible server (llama.cpp, an OpenAI proxy) needs
+no code change.
+
+The opt-in live end-to-end test proves this against a real server:
+
+```bash
+CONVERTIBLE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
 ## CLI
 
 | Verb | What it does |
 |------|--------------|
-| `whoami` | Report this agent's nick, version, backend, and model from `culture.yaml`. |
+| `drive <instruction>` | Run a repo task through a coder engine; write the artifact; hand off. |
+| `wheels list` | List discovered engine wheels (the garage). |
+| `whoami` | Report this agent's nick, version, backend, and model. |
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
-| `doctor` | Check the agent-identity invariants (prompt-file-present, backend-consistency). |
+| `doctor` | Check the agent-identity invariants. |
 | `cli overview` | Describe the CLI surface itself. |
 
 Every command supports `--json`. Results go to stdout, errors/diagnostics to
 stderr (never mixed). Exit codes: `0` success, `1` user error, `2` environment
 error, `3+` reserved.
 
-## Make it your own
+## Writing your own engine wheel
 
-1. Rename the package `convertible/` and the `convertible`
-   CLI/dist name throughout `pyproject.toml`, the package, `tests/`, and
-   `sonar-project.properties`.
-2. Edit `culture.yaml` with your `suffix` and `backend`.
-3. Rewrite `CLAUDE.md` for your agent and run `/init`.
-4. Re-vendor only the skills you need from guildmaster (see
-   [`docs/skill-sources.md`](docs/skill-sources.md)).
+An engine is a class implementing `convertible.engine.Engine` (one method:
+`drive(task, config) -> TaskResult`). Advertise it under the entry-point group
+and `convertible wheels list` discovers it — no change to Convertible core:
 
-See [`CLAUDE.md`](CLAUDE.md) for the full conventions (version-bump-every-PR,
-the `cicd` PR lane, deploy setup).
+```toml
+[project.entry-points."convertible.engines"]
+my-engine = "my_package.engine:MyEngine"
+```
+
+Most engines never re-implement the loop — they delegate to
+`convertible.loop.run` and only supply *how the model is called*.
 
 ## License
 

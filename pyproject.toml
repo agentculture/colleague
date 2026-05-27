@@ -1,6 +1,6 @@
 [project]
 name = "convertible-cli"
-version = "0.1.2"
+version = "0.2.0"
 description = "Convertible CLI is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "MIT"
@@ -21,6 +21,13 @@ Issues = "https://github.com/agentculture/convertible/issues"
 
 [project.scripts]
 convertible = "convertible.cli:main"
+
+# Engine wheels register here. The two bundled engines use the exact same
+# mechanism an out-of-tree wheel would (R4): a package advertising this
+# entry-point group is discovered by `convertible wheels list`.
+[project.entry-points."convertible.engines"]
+mock = "convertible.engines.mock:MockEngine"
+vllm-openai = "convertible.engines.vllm_openai:VllmOpenAIEngine"
 
 [build-system]
 requires = ["hatchling"]

@@ -20,6 +20,8 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 
 ## Verbs
 
+- `convertible drive <instruction>` — run a repo task through a coder engine.
+- `convertible wheels list` — list discovered engine wheels.
 - `convertible whoami` — identity probe from `culture.yaml`.
 - `convertible learn` — structured self-teaching prompt.
 - `convertible explain <path>` — markdown docs for any noun/verb.
@@ -36,8 +38,9 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 
 ## See also
 
+- `convertible explain drive`
+- `convertible explain wheels`
 - `convertible explain whoami`
-- `convertible explain doctor`
 """
 
 _WHOAMI = """\
@@ -115,10 +118,52 @@ itself (distinct from the global `overview`, which describes the agent).
     convertible cli overview --json
 """
 
+_DRIVE = """\
+# convertible drive
+
+Run a repo task through a coder engine: select an engine wheel, run the bounded
+agentic tool-loop against the repo, write a result artifact, and hand off the
+change as a branch + PR. The same invocation works for every engine — only
+`--engine` changes.
+
+## Usage
+
+    convertible drive "add a CONTRIBUTING.md" --repo . --engine mock
+    convertible drive "fix the typo in README" --engine vllm-openai --no-pr
+    convertible drive "..." --engine vllm-openai --base-url http://localhost:8001/v1 --json
+
+## Key flags
+
+- `--repo PATH` — target repository (default: cwd).
+- `--engine NAME` — engine wheel to drive (default: `mock`; see `wheels list`).
+- `--no-pr` — commit locally; do not push or open a PR.
+- `--base-url / --model / --api-key / --max-steps` — engine overrides.
+
+A failed drive still writes a `status=error` artifact before exiting non-zero.
+"""
+
+_WHEELS = """\
+# convertible wheels
+
+Discover the engine plugins ("wheels") installed in this environment. Engines
+register under the `convertible.engines` entry-point group; bundled and
+out-of-tree wheels are discovered identically.
+
+## Usage
+
+    convertible wheels list
+    convertible wheels list --json
+    convertible wheels overview
+"""
+
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
+    ("drive",): _DRIVE,
+    ("wheels",): _WHEELS,
+    ("wheels", "list"): _WHEELS,
+    ("wheels", "overview"): _WHEELS,
     ("whoami",): _WHOAMI,
     ("learn",): _LEARN,
     ("explain",): _EXPLAIN,
