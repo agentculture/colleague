@@ -1,0 +1,380 @@
+{
+  "slug": "convertible-gains-an-extensibility-layer-like-clau",
+  "title": "Convertible gains an extensibility layer like Claude Code and Codex: reusable custom commands (named, parameterized task templates discovered from the repo/user config) plus hooks (operator-configured shell commands that fire at tool-loop lifecycle events \u2014 task start, pre-tool-call, post-tool-call, finish \u2014 and can gate, deny, or augment a tool call), both layered on the shared chassis so they fire identically for every engine.",
+  "frame_slug": "convertible-gains-an-extensibility-layer-like-clau",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-27T16:29:13Z",
+  "updated": "2026-05-27T16:33:06Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible gains an extensibility layer like Claude Code and Codex: reusable custom commands (named, parameterized task templates discovered from the repo/user config) plus hooks (operator-configured shell commands that fire at tool-loop lifecycle events \u2014 task start, pre-tool-call, post-tool-call, finish \u2014 and can gate, deny, or augment a tool call), both layered on the shared chassis so they fire identically for every engine."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "One drive run on each engine exercises both halves: a saved command template expands into a Task AND a configured hook fires during that run's loop, with both visible in the result artifact \u2014 demonstrating commands+hooks on the shared chassis."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Convertible operators who drive repos with models and want a safety/policy gate plus reusable task recipes, and engine-wheel developers who need lifecycle behavior to live in the chassis (not per-engine)."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "A concrete operator can name a recurring task they'd save as a command and a tool call they'd want gated by a hook; the engine-wheel-developer benefit holds because lifecycle behavior lives in the chassis, not in each wheel."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today 'convertible drive' takes one raw instruction string and runs the tool-loop with no operator-authored gate: run_command/write_file execute whatever the model emits (D2 trusts the operator env), and every task must be retyped from scratch \u2014 there is no way to deny a tool call by policy or save a reusable recipe."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "On main today, 'convertible drive' exposes no command-template flag and no hook config, and run_command/write_file execute unconditionally \u2014 verifiable by inspecting drive.py / loop.py / tools.py."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Running models against repos needs an operator-owned gate (the parked sandbox is still deferred; hooks are deterministic policy, not isolation) and recurring repo chores need reusable recipes \u2014 both are exactly the extensibility Claude Code and Codex ship, and putting them in the chassis means they bind every engine under the all-engines rule."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The operator gate and reusable recipes cannot be had with today's convertible without editing source; Claude Code and Codex both ship exactly these two mechanisms, confirming the need is real."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "On both mock and vllm-openai engines: a saved command expands into the same Task shape, a pre-tool deny-hook blocks a run_command and the artifact records the denial + the model's continuation, and a post-tool hook's effect is observable \u2014 proving the lifecycle is chassis-level and engine-agnostic."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "A single test/demo runs the same command + hook config on mock and vllm-openai and asserts identical result shape, a working pre-tool deny, and an observable post-tool effect."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "R1 Commands: named task templates discovered from convertible config (repo-level and user-level), each a file with optional metadata (description, engine, constraints, arg-hint) and a body that becomes the instruction with positional/$ARGUMENTS substitution; 'convertible drive --command <name> [args...]' expands it into the same Task the contract already defines."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A command template round-trips into a Task: 'drive --command <name> args' produces the identical Task shape (id/repo/instruction/context/constraints/engine) that a raw 'drive \"...\"' produces, with args substituted, and runs unchanged on both engines."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R4 Lifecycle integration in the chassis: the events fire inside convertible/loop.py (and the drive boundary) so they apply to every engine identically; the mock engine is the reference and a hook firing on mock vs vllm-openai must be indistinguishable in the result shape (all-engines rule; guarded by the e2e shape test)."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The same hook config produces the same firings and same artifact entries whether --engine is mock or vllm-openai; the e2e shape test asserts a hook-driven run is identically shaped across both engines."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R5 Dashboard honesty: the result artifact records every hook firing (event, matched command, decision, exit code) and which command template (if any) produced the Task, so the JSON dashboard stays a faithful trace; a denied tool call appears as a non-ok step with the hook's reason."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Every hook firing and the originating command appear in the result artifact JSON (valid, with event/command/decision fields), and a denied tool call is recorded as a non-ok step carrying the hook's reason."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "R6 Agent-first CLI surface: new verbs 'convertible commands list/overview' and 'convertible hooks list/overview' follow the conventions (register(sub), --json, noun-groups expose overview, an explain catalog entry each) and pass 'teken cli doctor . --strict'."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "'convertible commands list --json' and 'convertible hooks list --json' emit structured output, the noun groups expose 'overview', each has an explain entry, and 'teken cli doctor . --strict' passes."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "R7 Zero runtime deps preserved: command/hook discovery, config parsing, and hook execution use only the stdlib (subprocess, json, and a config format with a stdlib reader) \u2014 pyproject 'dependencies' stays []."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "After the feature, 'pip show convertible-cli' / pyproject shows dependencies = [] and the test suite runs with no third-party runtime import added."
+    },
+    {
+      "id": "c20",
+      "kind": "after_state",
+      "text": "An operator drops command templates and a hooks config under .convertible/; they can run 'convertible drive --command <name> [args]' (one-shot) OR open an interactive palette session that browses/selects discovered commands and accepts ad-hoc tasks. During every loop, hooks fire at task-start / pre-tool / post-tool / finish: a pre-tool hook can ALLOW, DENY (reason fed back to the model), or REWRITE the tool arguments in-flight; a post-tool hook runs formatters/linters; repo-shipped hooks run by default. Every hook firing and the originating command are recorded in the result artifact."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "After the feature the described flow works end-to-end: a command file expands into a Task, a configured hook fires mid-loop, and both appear in the artifact \u2014 on both engines, with no per-engine code."
+    },
+    {
+      "id": "c21",
+      "kind": "boundary",
+      "text": "NOT a sandbox / resource-isolation layer (D2's trusted-operator-env model is unchanged; hooks are operator-authored policy gates, not confinement). NOT a long-running daemon/server or networked control plane (the interactive palette is a FOREGROUND TTY session, not a background service). NOT a plugin marketplace or MCP transport. Commands are Task templates, not arbitrary importable code."
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "No code path opens a socket, forks a daemon, or imports a command file as Python; hooks are only ever executed as subprocesses and the palette runs in the foreground \u2014 verifiable by review."
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "R2 Hooks (revised): a hooks config maps lifecycle events (task-start, pre-tool, post-tool, finish) to matcher+command entries; a matching event runs the operator's shell command. A pre-tool hook returns one of ALLOW (run as-is), DENY (skip the tool; feed the reason back to the model as the tool result), or REWRITE (run with hook-supplied replacement arguments). Post-tool hooks observe and run side-effects (formatters/linters); task-start/finish bracket the drive."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "A pre-tool hook proves all three outcomes: a deny-hook on run_command stops the command and the model receives the reason; a rewrite-hook on write_file changes the path/content actually written; an allow-hook is a no-op \u2014 each observable in the artifact and identical on mock and vllm-openai."
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "R3 Hook I/O contract (revised): a hook receives a JSON event payload on stdin (event, tool, arguments, task id, repo path); it signals outcome by exit code (0=allow, non-zero=deny with stderr fed back to the model) PLUS optional structured JSON stdout carrying decision (allow|deny|rewrite), replacement arguments (for rewrite), and additionalContext \u2014 mirroring Claude Code's hook protocol. The contract is identical across all events."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The hook reads the documented JSON payload on stdin and the loop honors exit code AND structured stdout: exit!=0 denies with stderr fed back; stdout {decision:'rewrite', arguments:{...}} replaces the tool arguments; the same payload schema is sent for every event."
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "R8 Interactive palette: a foreground session verb (e.g. 'convertible session') opens an interactive palette that lists discovered commands, takes a selection + args (or an ad-hoc instruction), and runs it through the chassis. It is a front-end over 'drive' \u2014 identical Task, loop, hooks, and artifact \u2014 never a parallel code path, and adds no engine-specific behavior."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Running a command via the interactive palette yields a TaskResult + artifact byte-identical in shape to 'drive --command <name>'; the palette imports and calls the same drive path (no duplicated loop), proven by a test that drives one command both ways and asserts identical result shape."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Config-dir resolution: a .convertible/ loader (repo-level then user-level)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "load_config_dirs() returns repo then user .convertible/ in precedence order; a fixture with both present asserts repo entries shadow user entries",
+        "an absent .convertible/ returns no entries and never raises"
+      ],
+      "deps": [],
+      "covers": []
+    },
+    {
+      "id": "t2",
+      "summary": "Contract+artifact: record hook firings and the originating command",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult gains a hook_firings list and records the originating command; to_dict/from_dict round-trips the new fields (extends the existing round-trip test)",
+        "a denied tool call serializes as a non-ok Step carrying the hook reason and the artifact JSON validates with the new fields present"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h5"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Command templates: discover under .convertible/commands and expand into a Task",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "discover_commands() finds template files under .convertible/commands; a fixture command expands with positional/$ARGUMENTS substitution",
+        "expand_command(name,args) yields a Task whose shape (id/repo/instruction/context/constraints/engine) matches Task.new(...), proven by a field-by-field test"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c8",
+        "h1"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Hook config + runner: load hooks JSON, match events, run the I/O contract",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "load_hooks() parses the .convertible hooks JSON into event->matcher->command entries and selects the right hook by tool-name match",
+        "run_hook() sends the documented JSON payload on stdin and maps outcome: exit!=0 -> deny(reason=stderr); stdout {decision:rewrite,arguments} -> rewrite; else allow \u2014 table-driven tests with stub hook scripts cover all three"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c26",
+        "c27",
+        "h10"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Lifecycle integration in loop.py: fire task-start/pre-tool/post-tool/finish",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the loop fires pre-tool/post-tool hooks around executor.execute and brackets the run with task-start/finish; a deny-hook on run_command prevents execution and feeds the reason back as the tool result so the model continues",
+        "a rewrite-hook on write_file changes the path/content actually written, an allow-hook is a no-op, and each firing is recorded in TaskResult.hook_firings identically for mock and a stub engine"
+      ],
+      "deps": [
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c11",
+        "h4",
+        "h9"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Agent-first CLI surface: commands/hooks noun groups + drive --command + explain",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "convertible commands list --json and hooks list --json emit structured output, both noun groups expose overview, and drive --command <name> [args] expands a template into the Task",
+        "the explain catalog has entries for commands/hooks/session and 'teken cli doctor . --strict' passes"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c13",
+        "h6"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Interactive palette: a foreground 'session' verb over the drive path",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "convertible session opens a foreground palette listing discovered commands; selecting one runs it through the same drive path with no duplicated loop",
+        "a test drives one command via the palette and via drive --command and asserts identical TaskResult shape"
+      ],
+      "deps": [
+        "t6",
+        "t3"
+      ],
+      "covers": [
+        "c28",
+        "h11"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Zero-runtime-deps guard test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test asserts pyproject [project].dependencies == [] and that importing convertible.commands / convertible.hooks introduces no third-party top-level import"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c14",
+        "h7"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Boundary guard test: subprocess-only hooks, no socket/daemon, no import-as-Python",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test asserts hooks are executed only via subprocess (hook files are never imported as Python), command files are read as text not imported, and no code path opens a socket or forks a daemon"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t7"
+      ],
+      "covers": [
+        "c21",
+        "h17"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "Docs: commands/hooks/palette + before-after + loud repo-hooks-by-default trust warning",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "README + CLAUDE.md document commands, hooks, and the palette, the before->after, and the rationale; repo-hooks-run-by-default is documented prominently with the --no-hooks / trust-gate follow-up",
+        "doc examples match the shipped CLI surface (verified against commands/hooks/session --help)"
+      ],
+      "deps": [
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c2",
+        "c3",
+        "c5",
+        "h12",
+        "h13",
+        "h14"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Capstone cross-engine e2e: same command+hook config, identical result shape on both engines",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an e2e test runs the same command + hook config on mock and a second engine path and asserts identical result shape, a working pre-tool deny, and an observable post-tool effect",
+        "the test exercises the full after-state flow: a command file expands into a Task, a hook fires mid-loop, and both appear in the result artifact"
+      ],
+      "deps": [
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "c7",
+        "c20",
+        "h8",
+        "h15",
+        "h16"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Per-repo trust gate / --no-hooks escape hatch for repo-shipped hooks (which run by default) \u2014 carried from the spec as hardening",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "cli/__init__.py and explain/catalog.py are shared edit points for every new verb; t7 (palette) depends on t6 (CLI surface) specifically so they never land in the same wave and collide at merge",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7"
+    },
+    {
+      "id": "r3",
+      "text": "finish-event hook requeueing the loop (re-drive) is out of scope this increment; hooks observe + may fail the run only",
+      "kind": "follow_up",
+      "task_id": "t5"
+    }
+  ]
+}
