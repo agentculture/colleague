@@ -316,14 +316,16 @@ class TestNoNetworkingOrDaemonMachinery:
 # ---------------------------------------------------------------------------
 
 # Files that are explicitly permitted to import subprocess, with justification:
-#   hooks.py    — runs hook commands as subprocesses (the point of hooks)
-#   tools.py    — run_command tool; executing model-issued commands is by design
-#   handoff.py  — drives git + gh CLI; subprocess is the transport
+#   hooks.py      — runs hook commands as subprocesses (the point of hooks)
+#   tools.py      — run_command tool; executing model-issued commands is by design
+#   handoff.py    — drives git + gh CLI; subprocess is the transport
+#   neighbours.py — drives git clone/pull for read-only neighbour clones; subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "convertible/hooks.py",
         "convertible/tools.py",
         "convertible/handoff.py",
+        "convertible/neighbours.py",
     }
 )
 
