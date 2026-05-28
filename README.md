@@ -440,7 +440,7 @@ rely on a non-existent flag.
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
-| `doctor` | Check the agent-identity invariants. |
+| `doctor` | Configuration-readiness health check (convertible's oilcheck): identity, provider, engines, otel, environment. |
 | `cli overview` | Describe the CLI surface itself. |
 
 Every command supports `--json`. Results go to stdout, errors/diagnostics to

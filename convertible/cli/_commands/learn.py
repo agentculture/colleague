@@ -29,7 +29,7 @@ Commands
   convertible learn              This self-teaching prompt.
   convertible explain <path>...  Markdown docs for any noun/verb path.
   convertible overview           Descriptive snapshot of the agent.
-  convertible doctor             Check the agent-identity invariants.
+  convertible doctor             Check configuration readiness (oilcheck).
   convertible cli overview       Describe the CLI surface itself.
 
 Machine-readable output
@@ -62,7 +62,7 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},
-            {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
+            {"path": ["doctor"], "summary": "Check configuration readiness: identity, provider, engines, otel, environment."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
         ],
         "exit_codes": {
