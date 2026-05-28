@@ -19,6 +19,11 @@ from convertible.cli import main
 from convertible.config import EngineConfig
 from convertible.contract import OK, Task
 from convertible.engines import vllm_openai
+from convertible.tools import SCHEMAS
+
+# The base tool surface every engine inherits, plus the curated culture tool (t3).
+_BASE_TOOLS = {"read_file", "write_file", "list_dir", "run_command", "finish"}
+_CULTURE_TOOLS = {"culture"}
 
 
 def _key_shape(value: Any) -> Any:
@@ -117,6 +122,25 @@ def test_engine_swap_needs_no_task_change(tmp_path: Path) -> None:
     b_fields.pop("engine")
     b_fields.pop("id")
     assert a_fields == b_fields  # everything but the engine name is the same
+
+
+def test_every_engine_exposes_the_culture_tools_identically() -> None:
+    """All-engines rule (t3): the curated culture tool lives on the *shared* tool
+    surface, beyond the five base tools, so every engine exposes it identically.
+
+    The surface is a single shared ``SCHEMAS`` list: the vLLM engine hands it to
+    the model verbatim, and the loop's ``ToolExecutor`` dispatches the same tool
+    names for the mock engine. There is no per-engine tool surface — so asserting
+    on ``SCHEMAS`` is the honest all-engines guard.
+    """
+    exposed = {s["function"]["name"] for s in SCHEMAS}
+    # Base five remain, the culture tool is added, and nothing else creeps in.
+    assert _BASE_TOOLS <= exposed, "the five base tools must remain exposed"
+    assert _CULTURE_TOOLS <= exposed, "every engine must expose the culture tool"
+    assert exposed == _BASE_TOOLS | _CULTURE_TOOLS, "the tool surface is base-five + culture"
+
+    # The vLLM engine literally hands this shared surface to the model.
+    assert vllm_openai.SCHEMAS is SCHEMAS
 
 
 def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

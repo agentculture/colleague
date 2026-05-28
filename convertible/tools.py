@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from convertible import culture
+
 FINISH = "finish"
 
 # Cap tool output fed back to the model so a huge file/command can't blow the
@@ -104,6 +106,35 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "culture",
+            "description": (
+                "Run an operator-installed AgentCulture CLI, with the agent's "
+                "identity injected and the working directory at the repo root. "
+                "'agtag' works the mesh issue tracker (e.g. issue post/fetch/reply); "
+                "'agex' inspects a repo's agent-first surface (e.g. explain/overview/"
+                "learn). Only these two CLIs are permitted."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cli": {
+                        "type": "string",
+                        "enum": sorted(culture.ALLOWED_CLIS),
+                        "description": "Which AgentCulture CLI to run.",
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Argument vector passed to the CLI (after its name).",
+                    },
+                },
+                "required": ["cli"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -148,6 +179,8 @@ class ToolExecutor:
             return self._list_dir(arguments)
         if name == "run_command":
             return self._run_command(arguments)
+        if name == "culture":
+            return self._culture(arguments)
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -195,3 +228,21 @@ class ToolExecutor:
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
         return ToolOutcome(result=_truncate(result))
+
+    def _culture(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch the shared ``culture`` tool to an allow-listed AgentCulture CLI.
+
+        The subprocess launch, identity injection, and absent-CLI handling live
+        in :mod:`convertible.culture`; here we just translate its error type into
+        the loop's :class:`ToolError` so a bad CLI name or an uninstalled CLI
+        becomes a clean string fed back to the model, never a crash.
+        """
+        cli = arguments.get("cli")
+        if not cli or not isinstance(cli, str):
+            raise ToolError("culture tool requires a 'cli' name (agtag or agex)")
+        args = culture.normalize_args(arguments.get("args"))
+        try:
+            output = culture.run_culture(cli, args, root=self.root)
+        except culture.CultureToolError as exc:
+            raise ToolError(str(exc)) from exc
+        return ToolOutcome(result=output)
