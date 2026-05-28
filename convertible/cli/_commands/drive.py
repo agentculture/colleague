@@ -33,6 +33,7 @@ from convertible.commands import CommandError, expand_command
 from convertible.config import EngineConfig
 from convertible.contract import OK, Task, TaskResult
 from convertible.handoff import HandoffError, handoff
+from convertible.telemetry import load_telemetry
 
 
 def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
@@ -103,39 +104,69 @@ def execute_drive(
             EXIT_USER_ERROR, str(exc), "list engines with: convertible wheels list"
         ) from exc
 
+    # GPS: the root span wraps engine.drive() + handoff() + the artifact write, so
+    # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
+    # The same shared path serves `drive` and `session`, so both are instrumented.
+    telemetry = load_telemetry()
     try:
-        result = engine.drive(task, config)
-    except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
-        result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
-        result.command = command_name
-        write(result, artifact_dir(repo))
-        raise CliError(
-            EXIT_ENV_ERROR,
-            f"engine '{engine_name}' failed: {exc}",
-            "check the engine config / vLLM server; a result artifact was still written",
-        ) from exc
+        with telemetry.drive_span(
+            task_id=task.id,
+            engine=engine_name,
+            model=config.model,
+            max_steps=config.max_steps,
+        ) as drive_span:
+            trace_id = telemetry.trace_id_hex()
+            if trace_id:
+                emit_diagnostic(f"trace: {trace_id}")
 
-    if result.status == OK:
-        try:
-            outcome = handoff(
-                repo,
-                task.id,
-                instruction=task.instruction,
-                open_pr=open_pr,
-                base_branch=base,
+            try:
+                result = engine.drive(task, config)
+            except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
+                result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
+                result.command = command_name
+                drive_span.set(status=result.status)
+                write(result, artifact_dir(repo))
+                raise CliError(
+                    EXIT_ENV_ERROR,
+                    f"engine '{engine_name}' failed: {exc}",
+                    "check the engine config / vLLM server; a result artifact was still written",
+                ) from exc
+
+            if result.status == OK:
+                with telemetry.handoff_span() as handoff_span:
+                    try:
+                        outcome = handoff(
+                            repo,
+                            task.id,
+                            instruction=task.instruction,
+                            open_pr=open_pr,
+                            base_branch=base,
+                        )
+                        result.branch = outcome.branch
+                        result.pr_url = outcome.pr_url
+                        if not result.changed_files:
+                            result.changed_files = outcome.changed_files
+                        handoff_span.set(
+                            branch=outcome.branch,
+                            committed=outcome.committed,
+                            pushed=outcome.pushed,
+                            pr_url=outcome.pr_url,
+                        )
+                        if outcome.note:
+                            emit_diagnostic(f"handoff: {outcome.note}")
+                    except HandoffError as exc:
+                        emit_diagnostic(f"handoff skipped: {exc}")
+
+            drive_span.set(
+                status=result.status,
+                step_count=len(result.steps),
+                pr_url=result.pr_url,
             )
-            result.branch = outcome.branch
-            result.pr_url = outcome.pr_url
-            if not result.changed_files:
-                result.changed_files = outcome.changed_files
-            if outcome.note:
-                emit_diagnostic(f"handoff: {outcome.note}")
-        except HandoffError as exc:
-            emit_diagnostic(f"handoff skipped: {exc}")
-
-    result.command = command_name
-    artifact_path = write(result, artifact_dir(repo))
-    return result, artifact_path
+            result.command = command_name
+            artifact_path = write(result, artifact_dir(repo))
+            return result, artifact_path
+    finally:
+        telemetry.flush()
 
 
 def cmd_drive(args: argparse.Namespace) -> int:

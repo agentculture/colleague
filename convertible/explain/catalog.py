@@ -326,6 +326,56 @@ scope); invokable skills are a tracked follow-up.
 """
 
 
+_TELEMETRY = """\
+# convertible telemetry
+
+GPS for a drive: opt-in OpenTelemetry **traces + metrics** over OTLP. Telemetry
+belongs to the chassis — it is instrumented once in the loop and the shared drive
+path, so *every* engine emits identical signals (the all-engines rule), exactly
+like lifecycle hooks.
+
+Off by default. The OpenTelemetry SDK is an **optional extra** (the base install
+keeps zero runtime dependencies); enable it with the env var and install the
+extra:
+
+    pip install 'convertible-cli[otel]'
+    export CONVERTIBLE_OTEL_ENABLED=1
+    export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # OTLP/HTTP collector
+
+When requested without the extra installed, convertible degrades to a no-op with
+a one-line stderr notice — it never fails the drive.
+
+## Signals
+
+- spans: `convertible.drive` (root) -> `convertible.tool.*` (per tool call) plus
+  `convertible.handoff`.
+- metrics: `convertible.steps`, `convertible.tokens` (attr `kind`),
+  `convertible.tool.latency`, `convertible.tool.calls`, `convertible.hook.denials`,
+  `convertible.drive.duration` (attr `status`).
+
+## Configuration
+
+Precedence (highest first): explicit > `CONVERTIBLE_OTEL_*` > standard `OTEL_*` >
+default. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
+
+- `CONVERTIBLE_OTEL_ENABLED` — turn telemetry on (default: off).
+- `CONVERTIBLE_OTEL_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` — collector URL.
+- `CONVERTIBLE_OTEL_SERVICE_NAME` / `OTEL_SERVICE_NAME` — resource `service.name`.
+- `CONVERTIBLE_OTEL_METRICS_ENABLED` — toggle metric emission (default: on).
+
+## Usage
+
+    convertible telemetry status
+    convertible telemetry status --json
+    convertible telemetry overview
+
+## See also
+
+- `convertible explain drive`
+- `convertible explain hooks`
+"""
+
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
@@ -353,4 +403,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("skills",): _SKILLS,
     ("skills", "list"): _SKILLS,
     ("skills", "overview"): _SKILLS,
+    ("telemetry",): _TELEMETRY,
+    ("telemetry", "status"): _TELEMETRY,
+    ("telemetry", "overview"): _TELEMETRY,
 }
