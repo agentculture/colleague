@@ -62,7 +62,10 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},
-            {"path": ["doctor"], "summary": "Check configuration readiness: identity, provider, engines, otel, environment."},
+            {
+                "path": ["doctor"],
+                "summary": "Check configuration readiness across all check-groups.",
+            },
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
         ],
         "exit_codes": {
