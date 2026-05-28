@@ -10,8 +10,10 @@ narrative overview and quickstart, see the top-level [`README.md`](../../README.
 for the design specs and plans these features converged from, see
 [`docs/specs/`](../specs/) and [`docs/plans/`](../plans/).
 
-All features below ship in **v0** (currently `0.8.0`). The hard v0 boundary —
-what is deliberately *not* built — is restated under [Scope](#scope-the-v0-line).
+All features below ship in **v0** (see [`pyproject.toml`](../../pyproject.toml) /
+[`CHANGELOG.md`](../../CHANGELOG.md) for the current release). The hard v0
+boundary — what is deliberately *not* built — is restated under
+[Scope](#scope-the-v0-line).
 
 ## The features
 

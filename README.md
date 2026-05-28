@@ -396,7 +396,7 @@ rubric-shaped `{healthy, checks[]}` report across five ordered check-groups:
 
 | Group | Checks (severity) |
 |-------|-------------------|
-| **identity** | prompt-file-present / backend-consistency (error), skills-present (warning) |
+| **identity** | `prompt_file_present` / `backend_consistency` (error), `skills_present` (warning) |
 | **provider** | resolved `base_url`/`model` with redacted `api_key` (info); credentials + budget advisories (warning) on a non-default provider |
 | **engines** | engines discovered + both bundled engines present + each wheel loads (error; all-engines rule) |
 | **otel** | telemetry enabled / SDK importable / endpoint configured (info; error only when enabled but the `[otel]` extra is missing) |
