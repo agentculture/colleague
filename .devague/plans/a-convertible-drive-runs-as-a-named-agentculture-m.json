@@ -1,0 +1,265 @@
+{
+  "slug": "a-convertible-drive-runs-as-a-named-agentculture-m",
+  "title": "A convertible drive runs as a named AgentCulture mesh member: it acts under a specific mesh identity and natively reaches the sibling agent-ops CLIs \u2014 agtag (file/fetch/reply to mesh issues), agex/devex (inspect a repo's agent-first surface), culture (mesh presence) \u2014 so a worker both contributes to and learns from the agents around it, instead of being a sealed single-repo box.",
+  "frame_slug": "a-convertible-drive-runs-as-a-named-agentculture-m",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-28T18:31:51Z",
+  "updated": "2026-05-28T18:42:13Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "A convertible drive runs as a named AgentCulture mesh member: it acts under a specific mesh identity and natively reaches the sibling agent-ops CLIs \u2014 agtag (file/fetch/reply to mesh issues), agex/devex (inspect a repo's agent-first surface), culture (mesh presence) \u2014 so a worker both contributes to and learns from the agents around it, instead of being a sealed single-repo box."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a drive run under identity X yields mesh artifacts (issue posts, replies) attributed to X, with zero new runtime deps and the zero-deps + e2e-shape guards still green"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators running convertible workers inside an AgentCulture workspace, and the mesh agents/humans those workers coordinate with"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "an operator already running convertible in a workspace can use this by installing only the culture CLIs they want \u2014 no bespoke wiring"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "a convertible drive is a sealed single-repo box: it can shell out to agtag/agex via run_command or the communicate/cicd skills, but there is no first-class identity, no native verb, and nothing it learns from sibling agents flows back into the drive"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "verifiable at HEAD: convertible today has no identity concept and no native culture surface \u2014 only generic run_command and the communicate/cicd skills"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "a drive can be attributed to a specific mesh identity, and convertible exposes the sibling CLIs through its own agent-first surface so reaching them is structural, not an ad-hoc shell string"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "after shipping, reaching a culture tool is a declared capability the model sees, not an ad-hoc run_command string it improvises"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "convertible's value is one harness across many engines; if a worker can be a real mesh participant (attributed, coordinating, learning) it becomes a peer in the Organic Development system instead of an isolated tool"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "an attributed, neighbour-aware worker completes at least one real cross-repo mesh task (e.g. file an issue as itself, informed by a neighbour clone) that a sealed drive cannot"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "convertible does NOT become a live mesh client: no IRC socket, no daemon, no long-lived presence, no MCP runtime, no runtime dependency on culture/agtag/agex \u2014 integration is shelling out to operator-installed CLIs from within convertible's existing subprocess/conventions"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "no new code path opens a socket, forks a daemon, or adds a runtime dep; existing zero-deps + e2e-shape guards stay green and a no-socket/no-daemon check holds"
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "a drive run as identity X produces issue posts / mesh artifacts attributed to X, and convertible can inspect a sibling repo's agent-first surface, with zero new runtime deps and the zero-deps + e2e-shape guards still green"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "an e2e test shows a drive-as-X producing an X-attributed artifact and reading a neighbour clone, guards green"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "the new loop tools shell out to operator-installed CLIs (agtag/agex/culture) only \u2014 no socket, no daemon, no runtime dep; this stays an explicit re-spec of the loop's tool surface, not an MCP runtime"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "every culture integration shells out to an operator-installed CLI via subprocess \u2014 no socket, no daemon, no import; convertible reads no mcp.json and adds no live client"
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "clones live in a gitignored path UNDER the working repo (e.g. .convertible/neighbours/) so the existing read_file confinement naturally permits reading them; the read-only rule must be enforced/honoured so a drive never writes into or pushes a clone"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "clones resolve under the gitignored path; the read path permits them while writes/commits/pushes into a clone are prevented or provably never occur"
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "the neighbour set is operator-configured (a .convertible/ allow-list of repos/remotes), not auto-discovered \u2014 convertible clones only what the operator lists"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "with no operator allow-list configured, convertible clones nothing \u2014 the neighbour set defaults to empty"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Process-level identity resolution module (convertible/identity.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "resolve_identity() returns the culture.yaml nick when present, falls back to a .convertible identity field, and returns None when neither is set",
+        "the resolved identity is exposed to the drive path for downward propagation to subcommands \u2014 no per-call flag"
+      ],
+      "deps": [],
+      "covers": [
+        "c4"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Neighbour clone manager (convertible/neighbours.py): allow-list, shallow clone, refresh, read-only",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with no .convertible neighbour allow-list configured, the manager clones nothing (neighbour set defaults to empty)",
+        "an allow-listed repo is shallow-cloned into a gitignored path UNDER the repo root and resolves there for reading",
+        "refresh re-runs git pull/fetch on demand; no clone is ever committed or pushed by a drive"
+      ],
+      "deps": [],
+      "covers": [
+        "c17",
+        "c18",
+        "h12",
+        "h13"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Curated culture loop tools (convertible/culture.py): agtag + agex as identity-injected tools, registered into the loop",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the loop exposes curated culture tools (agtag, agex) as declared tool schemas beyond the five base tools, and tests/test_e2e_mock.py is updated so every engine exposes them identically (all-engines rule)",
+        "a culture tool invocation shells out to the installed CLI via subprocess with the resolved identity injected \u2014 no socket, no daemon, no import; an absent CLI yields a clean tool error, not a crash"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c10",
+        "c4",
+        "h3",
+        "h8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Clone lifecycle wiring: cleanup at finish (loop.py) + never-execute confinement (tools.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "neighbour clones are removed on the finish lifecycle event (fires on every loop exit), leaving no residue between drives",
+        "run_command never executes anything inside a clone path (clones are inert) while read_file still permits reading a clone"
+      ],
+      "deps": [
+        "t3",
+        "t2"
+      ],
+      "covers": [
+        "c17",
+        "h12"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Feature docs + before/after + operator onboarding (docs/, README, CLAUDE.md)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs state the before-state (sealed box: only run_command + communicate/cicd skills, no identity, no native surface) and after-state, and the before-state is verifiable against HEAD",
+        "docs show an operator already running convertible enables this by installing only the culture CLIs they want \u2014 no bespoke wiring"
+      ],
+      "deps": [
+        "t3",
+        "t2"
+      ],
+      "covers": [
+        "c2",
+        "c3",
+        "h6",
+        "h7"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Boundary guards stay green: zero-deps + no-socket/no-daemon checks (tests/)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_zero_deps.py stays green with the feature present: importing loop/culture/neighbours leaks no third-party module",
+        "a no-socket/no-daemon check asserts no new code path opens a socket or forks a daemon, and convertible reads no mcp.json"
+      ],
+      "deps": [
+        "t3",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c6",
+        "h10"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "End-to-end proof (tests/test_e2e_mesh.py): drive-as-X attributed + reads a neighbour clone",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an e2e test drives the mock engine as identity X and asserts the produced mesh artifact is attributed to X, with all guards green",
+        "the same e2e reads a neighbour clone mid-drive and demonstrates a cross-repo task a sealed drive could not complete"
+      ],
+      "deps": [
+        "t1",
+        "t3",
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c5",
+        "c7",
+        "h1",
+        "h9",
+        "h11"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "exact identity-propagation mechanism to subcommands: env var vs relying on the repo's cwd culture.yaml (agtag already auto-signs from it) vs an explicit flag",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r2",
+      "text": "zehut sub-identity resolution details \u2014 zehut CLI surface not yet studied",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r3",
+      "text": "which culture tools beyond agtag/agex to curate (builder judgment; deferred)",
+      "kind": "follow_up",
+      "task_id": "t3"
+    }
+  ]
+}
