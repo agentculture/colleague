@@ -36,3 +36,21 @@ class Engine(abc.ABC):
         same result shape regardless of the model underneath.
         """
         raise NotImplementedError
+
+    def system_prompt(self, task: Task, config: EngineConfig) -> str | None:
+        """Compose the model-specific system prompt (AGENTS + skills layers).
+
+        Resolved here on the base class — not in each ``drive`` — so *every*
+        engine wheel inherits the layered instruction injection for free (the
+        all-engines rule), mirroring how hooks are inherited via the loop.
+        Subclasses pass the return value as ``system_prompt=`` to
+        :func:`convertible.loop.run`. Returns ``None`` when no AGENTS/skills
+        layers exist for ``config.model``, so the loop falls back to its own
+        default and behavior is byte-identical to a layer-free run.
+        """
+        # Imported lazily to keep this module's import surface minimal and avoid
+        # pulling the whole loop in at engine import time.
+        from convertible.layers import system_prompt_for
+        from convertible.loop import _DEFAULT_SYSTEM
+
+        return system_prompt_for(task.repo_path, config.model, base=_DEFAULT_SYSTEM)

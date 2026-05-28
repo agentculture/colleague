@@ -94,4 +94,9 @@ class VllmOpenAIEngine(Engine):
         return complete
 
     def drive(self, task: Task, config: EngineConfig) -> TaskResult:
-        return run(self._make_complete(config), task, max_steps=config.max_steps)
+        return run(
+            self._make_complete(config),
+            task,
+            max_steps=config.max_steps,
+            system_prompt=self.system_prompt(task, config),
+        )

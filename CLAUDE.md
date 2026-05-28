@@ -34,6 +34,16 @@ The car metaphor *is* the architecture:
   code path, no daemon.
 - **Config resolution** — `convertible/configdir.py`: repo-level
   `.convertible/` overrides user-level `~/.convertible/`.
+- **Layered per-model config** — `convertible/layers.py`: AGENTS instructions
+  (`AGENTS.md` → `AGENTS.convertible.md` → `AGENTS.convertible.<model>.md`, at
+  the repo root with a `~/.convertible/` fallback) and skills
+  (`.convertible/skills/*.md` → `.convertible/<model>/skills/*.md`) compose into
+  the engine system prompt. Resolution builds exact paths for the current model
+  and never globs sibling models — per-model isolation is structural. Injected
+  once on the `Engine` base class (`system_prompt()`), so every engine inherits
+  it (all-engines rule). Surfaced via the `agents` / `skills` introspection
+  nouns. **MCP layering is not built** — convertible reads no `mcp.json` and has
+  no `mcp` verb; a live MCP client is a re-spec (see scope below).
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
@@ -43,14 +53,20 @@ The buildable spec and plan this implementation converged from live in
 
 In scope: the chassis, the entry-point wheel contract, exactly two engines
 (`mock`, `vllm-openai`), the git/PR handoff, command templates, lifecycle
-hooks, and the foreground interactive palette.
+hooks, the foreground interactive palette, and layered per-model AGENTS/skills
+config (`convertible/layers.py`).
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
 router/policy "gearbox", an execution sandbox, a daemon/server mode,
-Codex/Claude/Gemini drivers, and a per-repo hook trust gate / `--no-hooks`
+Codex/Claude/Gemini drivers, a per-repo hook trust gate / `--no-hooks`
 escape hatch (planned follow-up hardening — not yet built; document this gap
-honestly, never invent a `--no-hooks` flag). Adding an excluded feature means
-scope crept.
+honestly, never invent a `--no-hooks` flag), and an **MCP execution runtime**
+(a live MCP client — stdio/socket transport, tool discovery, dynamic tool
+registration). The layered config ships AGENTS + skills only; `mcp.json` is
+**not** read and there is no `mcp` verb. A live MCP client would breach the
+no-deps / no-socket / no-daemon conventions and needs its own spec — document
+this gap honestly, never invent an `mcp` surface. Adding an excluded feature
+means scope crept.
 
 ## The all-engines rule
 

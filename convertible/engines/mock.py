@@ -51,4 +51,9 @@ class MockEngine(Engine):
     name = "mock"
 
     def drive(self, task: Task, config: EngineConfig) -> TaskResult:
-        return run(_script(task), task, max_steps=config.max_steps)
+        return run(
+            _script(task),
+            task,
+            max_steps=config.max_steps,
+            system_prompt=self.system_prompt(task, config),
+        )

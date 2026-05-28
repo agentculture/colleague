@@ -73,6 +73,7 @@ def _stdio_is_interactive() -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from convertible.cli._commands import agents as _agents_group
     from convertible.cli._commands import cli as _cli_group
     from convertible.cli._commands import commands as _commands_group
     from convertible.cli._commands import doctor as _doctor_cmd
@@ -82,6 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from convertible.cli._commands import learn as _learn_cmd
     from convertible.cli._commands import overview as _overview_cmd
     from convertible.cli._commands import session as _session_cmd
+    from convertible.cli._commands import skills as _skills_group
     from convertible.cli._commands import wheels as _wheels_group
     from convertible.cli._commands import whoami as _whoami_cmd
 
@@ -110,6 +112,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # Extensibility layer: command templates + lifecycle hooks.
     _commands_group.register(sub)
     _hooks_group.register(sub)
+    # Layered per-model config: AGENTS instructions + skills.
+    _agents_group.register(sub)
+    _skills_group.register(sub)
     # Interactive foreground palette (c28/R8).
     _session_cmd.register(sub)
 
