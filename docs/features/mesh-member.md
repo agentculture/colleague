@@ -153,10 +153,16 @@ repo-confined read zone.
 - **No new runtime dependency.** `identity.py`, `neighbours.py`, and
   `culture.py` are all stdlib-only. The zero-deps guard and the
   `dependencies = []` invariant still hold.
-- **Clones are strictly read-only.** `NeighbourManager` never commits or pushes.
-  Clone paths fall inside the existing `read_file` confinement zone so the model
-  can read them. (`run_command` confinement away from clone paths and full loop
-  wiring of clone lifecycle are tracked follow-up work.)
+- **Clones are strictly read-only and inert.** `NeighbourManager` never commits
+  or pushes. Clone paths fall inside the existing `read_file` confinement zone so
+  the model can read them, while `run_command` refuses any command that targets a
+  path under `.convertible/neighbours/` — clones are never executed. (That guard
+  is a best-effort substring check on the command string, not an airtight sandbox;
+  an execution sandbox remains out of v0 scope.)
+- **Clone lifecycle is wired into the loop.** The loop clones the allow-listed
+  neighbours at drive start and removes the whole tree on the `finish` lifecycle
+  event — which fires on every loop exit (model finish, empty turn, or step-budget
+  exhaustion) — so clones are ephemeral and leave no residue between drives.
 - **The allow-list is fixed by the builder.** The curated set (`agtag`, `agex`)
   is hardcoded in `ALLOWED_CLIS`. Adding further culture tools is a builder
   decision, not an operator config option.
