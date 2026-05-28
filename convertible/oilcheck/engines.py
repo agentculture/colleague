@@ -1,33 +1,137 @@
-"""Engines check-group — STUB.
+"""Engines check-group — engine-wheel discovery and loadability (all-engines rule).
 
-Spec for the sibling agent who fills this in. This group verifies the **engine
-wheels** discovered via the ``convertible.engines`` entry-point group, honouring
-the all-engines rule: every engine is probed **uniformly**, with no special-case
-code per engine. It must:
+Probes every engine discovered via the ``convertible.engines`` entry-point group
+uniformly. No engine is special-cased; behaviour must be symmetric across all
+engines including out-of-tree wheels.
 
-* Enumerate every discovered wheel via :func:`convertible.registry.catalog`
-  (and/or ``names()``), and report what was found as an ``info`` check.
-* Emit an ``error`` if **fewer than one** engine is registered (a convertible
-  install with no engines cannot drive anything).
-* Emit an ``error`` if either bundled engine — ``mock`` or ``vllm-openai`` — is
-  missing from the catalog, or is present but **unloadable** (its entry point
-  fails to import / instantiate). Probe loadability with
-  :func:`convertible.registry.load`, catching the failure and turning it into a
-  failed ``error`` check naming the engine and the import error.
-* Probe out-of-tree engines uniformly too: a third-party wheel that registers
-  but fails to load should surface as a failed check, not a crash.
+Checks emitted (in order):
+1. ``engines_discovered`` (error) — fails if fewer than one engine is registered.
+2. ``bundled_engines_present`` (error) — fails if either ``mock`` or
+   ``vllm-openai`` is absent from the catalog. Remediation points toward
+   ``pyproject.toml``'s ``[project.entry-points."convertible.engines"]`` table.
+3. One ``engine_load_<name>`` (error) per discovered engine — fails if
+   instantiating the engine raises any exception. The failure message names the
+   engine and the error; remediation guides the operator to check the wheel's
+   entry-point target.
 
-Read-only: importing an entry-point target executes its module-load side
-effects, which the contract treats as acceptable (the same import the loop does)
-— but this group must not *drive* anything. Catch every per-engine error and
-return it as a failed check; never raise.
+Read-only: importing an entry-point target executes module-load side effects
+(the same import the tool-loop does), which the contract accepts. This group
+never drives a task, writes a file, or opens a socket.
 
-Until implemented, returns ``[]``.
+Never raises: every per-engine error is caught and turned into a failed check.
 """
 
 from __future__ import annotations
 
+from convertible import registry
+from convertible.oilcheck import make_check
+
+#: The two engines that ship with this repo and must always be present.
+_BUNDLED_ENGINES = ("mock", "vllm-openai")
+
 
 def checks() -> list[dict]:
-    """STUB — returns no checks yet. See module docstring for the spec."""
-    return []
+    """Return engine-wheel health checks (see module docstring)."""
+    out: list[dict] = []
+
+    # 1. Discover all registered engines.
+    try:
+        discovered = registry.catalog()
+    except Exception as exc:  # noqa: BLE001
+        out.append(
+            make_check(
+                "engines_discovered",
+                False,
+                "error",
+                f"failed to enumerate engines: {exc}",
+                remediation=(
+                    "check that the package is installed correctly and "
+                    "convertible.engines entry points are registered"
+                ),
+            )
+        )
+        return out
+
+    engine_names = [w.name for w in discovered]
+    n = len(engine_names)
+
+    # Check 1: at least one engine must be present.
+    if n < 1:
+        out.append(
+            make_check(
+                "engines_discovered",
+                False,
+                "error",
+                "no engines discovered in the convertible.engines entry-point group",
+                remediation=(
+                    "ensure convertible is installed (uv sync) so the bundled "
+                    "mock and vllm-openai entry points are registered"
+                ),
+            )
+        )
+    else:
+        out.append(
+            make_check(
+                "engines_discovered",
+                True,
+                "error",
+                f"{n} engine(s) discovered: {', '.join(sorted(engine_names))}",
+            )
+        )
+
+    # Check 2: both bundled engines must be present.
+    missing_bundled = [name for name in _BUNDLED_ENGINES if name not in engine_names]
+    if missing_bundled:
+        out.append(
+            make_check(
+                "bundled_engines_present",
+                False,
+                "error",
+                f"bundled engine(s) missing from catalog: {', '.join(missing_bundled)}",
+                remediation=(
+                    "ensure the missing engines are declared in "
+                    'pyproject.toml under [project.entry-points."convertible.engines"] '
+                    "and the package is reinstalled (uv sync)"
+                ),
+            )
+        )
+    else:
+        out.append(
+            make_check(
+                "bundled_engines_present",
+                True,
+                "error",
+                f"bundled engines present: {', '.join(_BUNDLED_ENGINES)}",
+            )
+        )
+
+    # Check 3: attempt to load (instantiate) every discovered engine uniformly.
+    for wheel in discovered:
+        name = wheel.name
+        check_id = f"engine_load_{name.replace('-', '_')}"
+        try:
+            registry.load(name)
+            out.append(
+                make_check(
+                    check_id,
+                    True,
+                    "error",
+                    f"engine '{name}' loaded and instantiated successfully",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            out.append(
+                make_check(
+                    check_id,
+                    False,
+                    "error",
+                    f"engine '{name}' failed to load: {exc}",
+                    remediation=(
+                        f"check the entry-point target for '{name}' in pyproject.toml "
+                        "or the wheel's metadata; ensure the engine class can be "
+                        "imported and instantiated without arguments"
+                    ),
+                )
+            )
+
+    return out
