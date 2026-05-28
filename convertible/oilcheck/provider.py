@@ -1,34 +1,111 @@
-"""Provider check-group — STUB.
+"""Provider check-group — reports on the resolved engine provider config.
 
-Spec for the sibling agent who fills this in. This group reports on the
-**provider config** the engine drivers resolve through
-:class:`convertible.config.EngineConfig`. It must:
+This group calls :meth:`convertible.config.EngineConfig.resolve` (read-only,
+no network) and emits:
 
-* Resolve an ``EngineConfig`` (via ``EngineConfig.resolve()``) and report the
-  effective ``base_url`` and ``model`` as ``info`` checks (``passed=True``;
-  these are observations, not gates). The ``api_key`` MUST be **redacted** —
-  never put a secret in a message; mirror ``EngineConfig.to_dict()``, which
-  deliberately omits ``api_key``.
-* Emit a ``warning`` when a third-party provider credential looks unset — i.e.
-  ``base_url`` points at a non-local OpenAI-compatible host but the resolved
-  ``api_key`` is still the placeholder default (``"EMPTY"``) and no
-  ``OPENAI_API_KEY`` / ``CONVERTIBLE_API_KEY`` is set. (A local vLLM rig needs
-  no key, so a local ``base_url`` must NOT warn.)
-* Emit an advisory ``provider_budget`` ``warning`` (info-level guidance about
-  cost/usage budget) per the doctor spec — never an ``error`` (it is advisory).
+``provider_config`` (info, always)
+    Reports the effective ``base_url`` and ``model``. The ``api_key`` is
+    **redacted** — it never appears in any check message.
 
-All checks here are ``info`` or ``warning``; this group has **no** ``error``
-checks (a missing provider key is advisory, not fatal — the drive will surface
-the real failure). Read-only: resolves config from env + defaults only; opens no
-connection to the provider. Catch any unexpected error and return it as a single
-failed ``warning`` check rather than raising.
+``provider_credentials`` (warning, non-default base_url only)
+    Fires when ``base_url`` points at a non-local / third-party host *and*
+    the resolved ``api_key`` is still the placeholder default ``"EMPTY"``.
+    Silent on the default localhost rig (a local vLLM server needs no key).
 
-Until implemented, returns ``[]``.
+``provider_budget`` (warning, non-default base_url only)
+    Fires when ``base_url`` points at a third-party host *and* no
+    ``CONVERTIBLE_BUDGET`` env var is set (advisory spend-cap reminder).
+    Silent on the default localhost rig.
+
+All checks here are ``info`` or ``warning``; no ``error`` is ever emitted.
+Read-only: resolves config from env + defaults only; opens no connection.
+Catches any unexpected error and returns it as a single failed ``warning``
+check rather than raising.
 """
 
 from __future__ import annotations
 
+import os
+
+from convertible.config import _DEFAULT_API_KEY, _DEFAULT_BASE_URL, EngineConfig
+from convertible.oilcheck import make_check
+
 
 def checks() -> list[dict]:
-    """STUB — returns no checks yet. See module docstring for the spec."""
-    return []
+    """Return provider-config checks (see module docstring)."""
+    try:
+        return _checks()
+    except Exception as exc:  # pragma: no cover — safety net; normal paths don't raise
+        return [
+            make_check(
+                "provider_config",
+                False,
+                "warning",
+                f"provider config resolution failed: {exc}",
+                remediation="check CONVERTIBLE_* / OPENAI_* env vars and re-run doctor",
+            )
+        ]
+
+
+def _checks() -> list[dict]:
+    cfg = EngineConfig.resolve()
+    out: list[dict] = []
+
+    # 1. provider_config — always emitted; api_key is redacted.
+    out.append(
+        make_check(
+            "provider_config",
+            True,
+            "info",
+            f"provider base_url={cfg.base_url!r} model={cfg.model!r} api_key=<redacted>",
+        )
+    )
+
+    # For checks 2 and 3, only fire on a non-default (third-party) base_url.
+    # A local vLLM rig (default base_url) needs no credentials or budget cap.
+    is_third_party = cfg.base_url != _DEFAULT_BASE_URL
+
+    if not is_third_party:
+        return out
+
+    # 2. provider_credentials — warn when key is still the placeholder default.
+    key_is_default = cfg.api_key == _DEFAULT_API_KEY
+    # Also check whether the operator set any key-related env var (belt-and-
+    # suspenders: EngineConfig.resolve() would have picked it up already, but
+    # we only need to fire when the resolved key is still EMPTY).
+    if key_is_default:
+        out.append(
+            make_check(
+                "provider_credentials",
+                False,
+                "warning",
+                (
+                    f"base_url is set to a non-default provider ({cfg.base_url!r}) "
+                    "but api_key is still the placeholder default — credentials likely unset"
+                ),
+                remediation=(
+                    "set CONVERTIBLE_API_KEY or OPENAI_API_KEY to your provider's API key"
+                ),
+            )
+        )
+
+    # 3. provider_budget — advisory: warn when no spend-cap env var is set.
+    budget_set = bool(os.environ.get("CONVERTIBLE_BUDGET", "").strip())
+    if not budget_set:
+        out.append(
+            make_check(
+                "provider_budget",
+                False,
+                "warning",
+                (
+                    f"base_url is set to a non-default provider ({cfg.base_url!r}) "
+                    "but CONVERTIBLE_BUDGET is not set — no spend cap configured"
+                ),
+                remediation=(
+                    "set CONVERTIBLE_BUDGET to a spend cap (e.g. '10' for $10) "
+                    "or confirm your provider quota/billing limits are in place"
+                ),
+            )
+        )
+
+    return out
