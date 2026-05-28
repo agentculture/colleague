@@ -179,12 +179,23 @@ _NOOP = Telemetry()
 
 
 def sdk_available() -> bool:
-    """Whether the ``[otel]`` extra (the ``opentelemetry`` package) is importable.
+    """Whether the full ``[otel]`` extra is importable — not just the API package.
 
-    Uses :func:`importlib.util.find_spec` so it never actually imports the SDK
-    (keeping :mod:`convertible.telemetry` clean for the zero-deps guard).
+    Probes the specific modules :mod:`convertible.telemetry._otel` actually needs
+    (`opentelemetry.sdk` and the OTLP/HTTP exporter), not the bare ``opentelemetry``
+    namespace — which can be present with only ``opentelemetry-api`` installed,
+    in which case loading would still fail. Uses :func:`importlib.util.find_spec`
+    so it never imports the SDK (keeping this module clean for the zero-deps guard).
     """
-    return importlib.util.find_spec("opentelemetry") is not None
+    required = (
+        "opentelemetry.sdk",
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+    )
+    try:
+        return all(importlib.util.find_spec(name) is not None for name in required)
+    except ModuleNotFoundError:
+        # find_spec raises (not returns None) when a *parent* package is absent.
+        return False
 
 
 def _import_otel():

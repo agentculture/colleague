@@ -231,3 +231,40 @@ def test_metrics_recorded(tmp_path: Path, otel_capture) -> None:
     assert "convertible.tokens" in names
     assert "convertible.tool.calls" in names
     assert "convertible.tool.latency" in names
+
+
+def test_metrics_disabled_suppresses_metrics(tmp_path: Path) -> None:
+    # CONVERTIBLE_OTEL_METRICS_ENABLED=false must actually suppress emission, not
+    # just hide the flag — no meter provider, no instruments, no recording.
+    _otel.reset_for_tests()
+    span_exporter = InMemorySpanExporter()
+    cfg = tel.TelemetryConfig(enabled=True, metrics_enabled=False)
+    t = tel.load_telemetry(cfg, span_exporter=span_exporter)
+    assert t._s.meter_provider is None  # type: ignore[attr-defined]
+    assert t._s.steps is None  # type: ignore[attr-defined]
+
+    responses = [ModelResponse(tool_calls=[ToolCall("1", "finish", {"summary": "x"})])]
+    run(_scripted(responses), Task.new(str(tmp_path), "x"), max_steps=5, telemetry=t)
+    t.flush()  # must not raise with no meter provider
+    # Traces are unaffected — only metrics are off.
+    assert any(s.name.startswith("convertible.tool.") for s in span_exporter.get_finished_spans())
+    _otel.reset_for_tests()
+
+
+def test_otlp_protocol_grpc_falls_back_to_http(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The lean [otel] extra ships HTTP only; otlp_protocol=grpc without the grpc
+    # exporter package falls back to HTTP with a one-time notice (never silently
+    # ignored — the config field is honored).
+    monkeypatch.setattr(_otel, "_warned_protocol", False)
+    assert _otel._use_grpc(tel.TelemetryConfig(enabled=True, otlp_protocol="grpc")) is False
+    assert "grpc" in capsys.readouterr().err
+    assert (
+        _otel._use_grpc(tel.TelemetryConfig(enabled=True, otlp_protocol="http/protobuf")) is False
+    )
+
+
+def test_sdk_available_true_with_extra() -> None:
+    # The probe checks the SDK + exporter modules, not just the API namespace.
+    assert tel.sdk_available() is True
