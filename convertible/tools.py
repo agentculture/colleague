@@ -215,8 +215,39 @@ class ToolExecutor:
         entries = sorted(p.name + ("/" if p.is_dir() else "") for p in path.iterdir())
         return ToolOutcome(result=_truncate("\n".join(entries)))
 
+    # Relative path prefix used by the never-execute guard below.
+    _CLONE_SUBDIR = ".convertible/neighbours"
+
     def _run_command(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Execute a shell command with cwd pinned to the repo root.
+
+        Never-execute confinement (AC2, best-effort): this guard refuses any
+        command string that contains the clone subdirectory path
+        (``.convertible/neighbours``), which is the read-only source tree for
+        neighbour clones. Clones exist only to be *read*; executing scripts or
+        binaries from them is not part of the contract.
+
+        Honest limitation: the guard is a substring check on the raw command
+        string. A sufficiently obfuscated command (e.g. variable expansion,
+        concatenation, here-docs) could bypass it. It is best-effort — an
+        airtight sandbox is out of v0 scope (see CLAUDE.md). The guard covers
+        the obvious / accidental case; document rather than overclaim.
+        """
         command = str(arguments["command"])
+
+        # Best-effort guard: refuse commands that reference the clone dir.
+        # Checks both the canonical relative prefix and the absolute path so
+        # that both "sh .convertible/neighbours/foo/bar.sh" and
+        # "sh /abs/path/.convertible/neighbours/foo/bar.sh" are blocked.
+        clone_rel = self._CLONE_SUBDIR
+        clone_abs = str(self.root / clone_rel)
+        if clone_rel in command or clone_abs in command:
+            raise ToolError(
+                f"run_command refused: commands must not execute paths inside the "
+                f"neighbour clone directory ('{clone_rel}'). "
+                f"Clone files are read-only source — use read_file to inspect them."
+            )
+
         proc = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
             command,
             shell=True,
