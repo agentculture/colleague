@@ -191,9 +191,10 @@ def test_check_groups_registered_in_order() -> None:
 
 
 def test_stub_groups_return_empty_lists() -> None:
-    from convertible.oilcheck import engines, environment, otel, provider
+    # environment is now implemented (t5); only the remaining stubs are tested here.
+    from convertible.oilcheck import engines, otel, provider
 
-    for group in (provider, engines, otel, environment):
+    for group in (provider, engines, otel):
         result = group.checks()
         assert result == [], f"{group.__name__}.checks() should be a [] stub for now"
 
