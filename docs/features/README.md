@@ -30,6 +30,7 @@ boundary — what is deliberately *not* built — is restated under
 | GPS: OpenTelemetry | [telemetry.md](telemetry.md) | GPS | `telemetry` |
 | `doctor` (oilcheck) | [doctor.md](doctor.md) | Oilcheck | `doctor` |
 | Agent-first CLI | [agent-cli.md](agent-cli.md) | Controls/dashboard | `whoami`, `learn`, `explain`, `overview`, `cli` |
+| Mesh-member integration | [mesh-member.md](mesh-member.md) | Chassis (identity + culture tool + neighbours) | `culture` loop tool |
 
 ## How the features fit together
 
