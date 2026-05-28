@@ -32,6 +32,7 @@ exit path and cannot extend the step budget.
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -227,7 +228,12 @@ def run(
     # on EVERY exit path (model finish, empty turn, step-budget) to leave no
     # residue between drives.
     neighbours = NeighbourManager(task.repo_path)
-    neighbours.clone_all()
+    # A neighbour clone failure (unreachable remote, bad URL, timeout, bad name)
+    # must never abort the drive — the loop proceeds without that neighbour. This
+    # mirrors the "a hook must never abort the drive" fail-safe: neighbour clones
+    # are best-effort context, not a precondition for the task.
+    with suppress(Exception):
+        neighbours.clone_all()
 
     # task_start — once, before the loop. Observe-only: side-effects only.
     _fire_hooks(hooks, result, event="task_start", task=task)
@@ -331,7 +337,9 @@ def run(
     # Neighbour cleanup — runs on every loop exit, after the finish hook, so
     # no clone directory persists between drives. Safe even when no clones exist
     # (NeighbourManager.cleanup() is a no-op if the neighbours dir is absent).
-    neighbours.cleanup()
+    # Like clone_all above, a cleanup failure must never mask the task result.
+    with suppress(Exception):
+        neighbours.cleanup()
 
     result.changed_files = sorted(executor.changed)
     if not finished:

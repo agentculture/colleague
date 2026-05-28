@@ -120,9 +120,13 @@ def _read_culture_yaml_nick(repo_path: Path) -> str | None:
         return None
 
     for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(_NICK_PREFIX):
-            value = stripped[len(_NICK_PREFIX) :].strip()
+        # Only a TOP-LEVEL ``nick:`` counts — a line with leading whitespace is
+        # nested under some other key (e.g. ``agents:\n  - nick: other``) and must
+        # not be misread as the document's nick. Match the raw (un-stripped) line.
+        if line != line.lstrip():
+            continue
+        if line.startswith(_NICK_PREFIX):
+            value = line[len(_NICK_PREFIX) :].strip()
             return value if value else None
 
     return None

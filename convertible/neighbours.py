@@ -49,6 +49,9 @@ class NeighbourManager:
 
     _CONFIG_RELPATH = ".convertible/neighbours.json"
     _CLONE_SUBDIR = ".convertible/neighbours"
+    # Cap each git operation so a slow/unreachable remote cannot hang the drive
+    # indefinitely (mirrors the run_command timeout in tools.py).
+    _GIT_TIMEOUT_SECONDS = 300
 
     def __init__(self, repo_path: str | Path) -> None:
         self._repo = Path(repo_path).resolve()
@@ -81,7 +84,7 @@ class NeighbourManager:
         for entry in entries:
             name = entry["name"]
             url = entry["url"]
-            dest = clone_root / name
+            dest = self._dest_for(name)
 
             if dest.is_dir():
                 # Already cloned; skip to keep clone_all() idempotent.
@@ -99,7 +102,7 @@ class NeighbourManager:
         names = {e["name"] for e in self._load_config()}
         if name not in names:
             return None
-        return self._repo / self._CLONE_SUBDIR / name
+        return self._dest_for(name)
 
     def refresh(self, name: str) -> None:
         """Re-fetch the latest state of the *name* clone from upstream.
@@ -111,7 +114,7 @@ class NeighbourManager:
         Raises:
             NeighbourError: if the clone does not exist or the git call fails.
         """
-        dest = self._repo / self._CLONE_SUBDIR / name
+        dest = self._dest_for(name)
         if not dest.is_dir():
             raise NeighbourError(
                 f"Cannot refresh '{name}': clone directory does not exist at {dest}"
@@ -135,6 +138,32 @@ class NeighbourManager:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _dest_for(self, name: str) -> Path:
+        """Resolve the clone dir for *name*, refusing any name that escapes the clone root.
+
+        Neighbour names come from operator config, but a hostile or typo'd entry
+        (``../escape``, an absolute path, an empty string) must never let a clone
+        land outside ``.convertible/neighbours/``. Rejects path separators, the
+        ``.``/``..`` specials, and absolute paths, then verifies the resolved
+        destination is contained under the clone root.
+        """
+        if (
+            not name
+            or name in (".", "..")
+            or "/" in name
+            or "\\" in name
+            or Path(name).is_absolute()
+        ):
+            raise NeighbourError(
+                f"invalid neighbour name {name!r}: must be a bare directory name "
+                "(no path separators, '.', '..', or absolute paths)"
+            )
+        clone_root = (self._repo / self._CLONE_SUBDIR).resolve()
+        dest = (clone_root / name).resolve()
+        if dest != clone_root and clone_root not in dest.parents:
+            raise NeighbourError(f"neighbour name {name!r} escapes the clone root {clone_root}")
+        return dest
+
     def _load_config(self) -> list[dict]:
         """Load and return the allow-list; returns [] when absent or empty."""
         config_path = self._repo / self._CONFIG_RELPATH
@@ -149,24 +178,36 @@ class NeighbourManager:
         return data
 
     def _git(self, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-        """Run a git sub-command in *cwd*; raises NeighbourError on failure."""
-        proc = subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
-            ["git", *args],
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-        )
+        """Run a git sub-command in *cwd*; raises NeighbourError on failure or timeout."""
+        try:
+            proc = subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
+                ["git", *args],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=self._GIT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise NeighbourError(
+                f"git {' '.join(args)} in {cwd} timed out after {self._GIT_TIMEOUT_SECONDS}s"
+            ) from exc
         if proc.returncode != 0:
             raise NeighbourError(f"git {' '.join(args)} failed in {cwd}: {proc.stderr.strip()}")
         return proc
 
     def _git_clone(self, url: str, dest: Path) -> None:
         """Shallow-clone *url* into *dest* (``git clone --depth 1``)."""
-        proc = subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
-            ["git", "clone", "--depth", "1", url, str(dest)],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            proc = subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
+                ["git", "clone", "--depth", "1", url, str(dest)],
+                capture_output=True,
+                text=True,
+                timeout=self._GIT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise NeighbourError(
+                f"git clone {url} → {dest} timed out after {self._GIT_TIMEOUT_SECONDS}s"
+            ) from exc
         if proc.returncode != 0:
             raise NeighbourError(
                 f"git clone --depth 1 {url} → {dest} failed: {proc.stderr.strip()}"

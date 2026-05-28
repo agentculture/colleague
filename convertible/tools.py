@@ -202,6 +202,16 @@ class ToolExecutor:
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         rel = str(arguments["path"])
         path = self._safe_path(rel)
+        # Neighbour clones are read-only source (honesty condition h12): the model
+        # may read them but never write into them. _safe_path only confines to the
+        # repo root, which includes the clone tree — so guard writes explicitly.
+        clone_root = (self.root / self._CLONE_SUBDIR).resolve()
+        if path == clone_root or clone_root in path.parents:
+            raise ToolError(
+                f"write refused: '{rel}' is inside the neighbour clone directory "
+                f"('{self._CLONE_SUBDIR}'), which is read-only source. "
+                "Clones are inert — they may be read, never written."
+            )
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
