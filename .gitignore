@@ -226,3 +226,6 @@ skills.local.yaml
 
 # devague working state (not committed by default)
 .devague/reviews/
+
+# Neighbour clone manager — ephemeral shallow clones, never committed (t2)
+/.convertible/neighbours/
