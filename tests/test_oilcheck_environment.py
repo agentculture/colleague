@@ -329,3 +329,22 @@ def test_commands_parse_error_on_unreadable_template(
         assert c["remediation"] != ""
     finally:
         bad_file.chmod(0o644)  # restore so tmp_path cleanup works
+
+
+# --- config_dir probe failure surfaces, not masked (PR #29 review, finding 4) -
+
+
+def test_config_dir_probe_failure_surfaces_as_failed_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A config_roots() exception must become a failed check, not a passing info."""
+    import convertible.configdir as configdir
+
+    def _boom(_repo: Path) -> object:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(configdir, "config_roots", _boom)
+    c = _check_by_id(env_mod.checks(), "config_dir")
+    assert c["passed"] is False
+    assert c["severity"] == "warning"  # config is optional → warning, not error
+    assert c["remediation"] != ""

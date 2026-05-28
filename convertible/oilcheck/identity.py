@@ -30,7 +30,33 @@ _PROMPT_FILE = {
 
 
 def checks() -> list[dict]:
-    """Return the agent-identity checks (see module docstring)."""
+    """Return the agent-identity checks (see module docstring).
+
+    Never raises: the contract (see :mod:`convertible.oilcheck`) requires a
+    check-group to absorb its own errors, and the aggregator does not wrap
+    groups. Filesystem probes here (``find_culture_yaml``/``read_agent_fields``/
+    ``iterdir``) can raise ``OSError``/``PermissionError`` on a hostile tree, so
+    the whole body is guarded and any escape becomes a failed ``error`` check.
+    """
+    try:
+        return _checks()
+    except Exception as exc:  # noqa: BLE001 - contract: never raise; surface as a check.
+        return [
+            make_check(
+                "identity_checks_error",
+                False,
+                "error",
+                f"identity check-group failed unexpectedly: {exc}",
+                remediation=(
+                    "ensure culture.yaml and the prompt/skills files under the repo "
+                    "root are readable (check permissions/symlinks under .claude/skills)"
+                ),
+            )
+        ]
+
+
+def _checks() -> list[dict]:
+    """Inner implementation — exceptions propagate to the :func:`checks` guard."""
     cfg = find_culture_yaml()
     if cfg is None:
         return [

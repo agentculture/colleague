@@ -21,8 +21,37 @@ info.  Never raises; unexpected errors are caught and returned as failed checks.
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 from convertible.oilcheck import make_check
+
+# Truthy strings mirror telemetry's ``_as_bool`` so the kill-switch is read the
+# same way the resolver reads it.
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def _truthy(value: str | None) -> bool:
+    return value is not None and value.strip().lower() in _TRUTHY
+
+
+def _redact_endpoint(url: str) -> str:
+    """Strip any ``user:password@`` userinfo from an OTLP endpoint URL.
+
+    The endpoint is operator-facing diagnostic output; basic-auth credentials
+    embedded in the URL must not leak into the report (mirrors the api_key
+    redaction in the provider group). Non-URL / unparseable values pass through
+    unchanged.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if not (parts.username or parts.password):
+        return url
+    netloc = parts.hostname or ""
+    if parts.port is not None:
+        netloc = f"{netloc}:{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 def checks() -> list[dict]:
@@ -61,6 +90,18 @@ def _checks() -> list[dict]:
                 True,
                 "info",
                 "telemetry enabled (CONVERTIBLE_OTEL_ENABLED)",
+            )
+        )
+    elif _truthy(os.environ.get("OTEL_SDK_DISABLED")):
+        # The standard OTel kill-switch forces telemetry off even if
+        # CONVERTIBLE_OTEL_ENABLED=1, so don't advise an action that won't work.
+        result.append(
+            make_check(
+                "otel_enabled",
+                True,
+                "info",
+                "telemetry disabled by the OTEL_SDK_DISABLED kill-switch "
+                "(unset it, then set CONVERTIBLE_OTEL_ENABLED=1, to enable GPS)",
             )
         )
     else:
@@ -126,7 +167,7 @@ def _checks() -> list[dict]:
                 "otel_endpoint",
                 True,
                 "info",
-                f"OTLP endpoint configured: {explicit_endpoint}",
+                f"OTLP endpoint configured: {_redact_endpoint(explicit_endpoint)}",
             )
         )
     else:

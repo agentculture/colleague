@@ -97,6 +97,8 @@ def make_check(
     """
     if severity not in _SEVERITIES:
         raise ValueError(f"invalid severity {severity!r}; expected one of {sorted(_SEVERITIES)}")
+    if passed and remediation:
+        raise ValueError("remediation must be empty when passed is True")
     return {
         "id": id,
         "passed": passed,

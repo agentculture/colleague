@@ -231,3 +231,35 @@ def test_no_error_when_sdk_missing_but_disabled(monkeypatch: pytest.MonkeyPatch)
     assert sdk_check is not None
     assert sdk_check["passed"] is True  # advisory / info when disabled
     assert sdk_check["severity"] == "info"
+
+
+# ---------------------------------------------------------------------------
+# OTEL_SDK_DISABLED kill-switch messaging (PR #29 review, finding 6)
+# ---------------------------------------------------------------------------
+
+
+def test_kill_switch_message_mentions_otel_sdk_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # OTEL_SDK_DISABLED forces telemetry off even with CONVERTIBLE_OTEL_ENABLED=1,
+    # so the disabled message must not advise re-setting CONVERTIBLE_OTEL_ENABLED.
+    monkeypatch.setenv("CONVERTIBLE_OTEL_ENABLED", "1")
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+    enabled = _by_id(otel_group.checks(), "otel_enabled")
+    assert enabled is not None
+    assert "OTEL_SDK_DISABLED" in enabled["message"]
+
+
+# ---------------------------------------------------------------------------
+# OTLP endpoint credential redaction (PR #29 review, security suggestion)
+# ---------------------------------------------------------------------------
+
+
+def test_endpoint_credentials_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CONVERTIBLE_OTEL_ENDPOINT", raising=False)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://user:s3cret@otlp.example.com:4318")
+    endpoint = _by_id(otel_group.checks(), "otel_endpoint")
+    assert endpoint is not None
+    assert "s3cret" not in endpoint["message"]  # password stripped
+    assert "user:" not in endpoint["message"]  # userinfo stripped
+    assert "otlp.example.com" in endpoint["message"]  # host still reported

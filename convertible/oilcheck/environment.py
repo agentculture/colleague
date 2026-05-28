@@ -49,9 +49,20 @@ def _check_config_dir(repo: Path) -> dict:
             else:
                 msg = "no .convertible/ config dir (repo-level or user-level) — config is optional"
         _ = roots  # used to confirm the resolver does not raise
+        return make_check("config_dir", True, "info", msg)
     except Exception as exc:  # noqa: BLE001
-        msg = f"config_roots probe failed: {exc}"
-    return make_check("config_dir", True, "info", msg)
+        # Contract: an unexpected probe error is surfaced as a failed check, not
+        # masked behind a passing info. Config is optional, so this is a warning.
+        return make_check(
+            "config_dir",
+            False,
+            "warning",
+            f"config_roots probe failed: {exc}",
+            remediation=(
+                "check filesystem permissions; ensure .convertible/ and "
+                "~/.convertible are accessible"
+            ),
+        )
 
 
 def _check_hooks_valid(repo: Path) -> dict:

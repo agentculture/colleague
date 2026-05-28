@@ -197,3 +197,33 @@ def test_identity_group_is_non_empty() -> None:
     assert isinstance(checks, list) and checks
     for check in checks:
         assert set(check) == _CHECK_KEYS
+
+
+# --- make_check invariant: remediation empty when passed (PR #29 review) -----
+
+
+def test_make_check_rejects_remediation_when_passed() -> None:
+    # The contract says remediation MUST be "" when passed is True; the factory
+    # now enforces it so a group cannot silently violate the invariant.
+    with pytest.raises(ValueError):
+        make_check("x", True, "info", "all good", remediation="nothing to do")
+
+
+# --- identity group never raises (PR #29 review: contract is "never raise") --
+
+
+def test_identity_group_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from convertible.oilcheck import identity
+
+    def _boom() -> object:
+        raise PermissionError("denied")
+
+    # A filesystem/permission error inside the group must become a failed check,
+    # not crash convertible doctor (the aggregator does not wrap groups).
+    monkeypatch.setattr(identity, "find_culture_yaml", _boom)
+    checks = identity.checks()  # must not raise
+    assert any(c["id"] == "identity_checks_error" for c in checks)
+    err = next(c for c in checks if c["id"] == "identity_checks_error")
+    assert err["passed"] is False
+    assert err["severity"] == "error"
+    assert err["remediation"]
