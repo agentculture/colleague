@@ -49,8 +49,9 @@ execute each requested tool against the repo, feed the result back, repeat. The
 mock engine supplies a scripted `complete`; the vLLM engine supplies one that
 POSTs to an OpenAI-compatible endpoint. The loop never knows the difference.
 
-The model is offered exactly **five tools** (`convertible/tools.py`), handed to
-it as OpenAI function schemas:
+The model is offered **six tools** (`convertible/tools.py`), handed to it as
+OpenAI function schemas — the original five base tools plus one curated
+`culture` tool added via the mesh-member re-spec:
 
 | Tool | What it does |
 |------|--------------|
@@ -58,6 +59,7 @@ it as OpenAI function schemas:
 | `write_file` | Create/overwrite a UTF-8 file, relative to the repo root. |
 | `list_dir` | List a directory's entries, relative to the repo root. |
 | `run_command` | Run a shell command with `cwd` pinned to the repo root. |
+| `culture` | Run an allow-listed AgentCulture CLI (`agtag` / `agex`) with the agent's identity injected. See [mesh-member.md](mesh-member.md). |
 | `finish` | Signal completion with a short summary. |
 
 ### Confinement
@@ -108,7 +110,7 @@ change.
 
 - `convertible/contract.py` — `Task`, `TaskResult`, `Step`, `Usage`, `HookFiring`.
 - `convertible/loop.py` — the bounded loop, hook firing, telemetry.
-- `convertible/tools.py` — the five tools and the repo-confined `ToolExecutor`.
+- `convertible/tools.py` — the six tools (five base + `culture`) and the repo-confined `ToolExecutor`.
 - `convertible/config.py` — `EngineConfig` resolution.
 
 ## See also
