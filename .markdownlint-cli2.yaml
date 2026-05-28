@@ -19,6 +19,9 @@ ignores:
   - ".local/**"
   - ".afi/**"
   - ".teken/**"
+  # The virtualenv — installed packages (e.g. the [otel] extra's opentelemetry,
+  # idna) ship their own non-conformant Markdown; never lint dependencies.
+  - ".venv/**"
   # Vendored skills are cited verbatim from guildmaster — do not reformat them.
   - ".claude/skills/**"
   # devague artifacts (frames, exported specs/plans) are generated verbatim from
