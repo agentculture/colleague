@@ -43,6 +43,8 @@ which one ran.
 | **Wheels** | replaceable engine plugins, discovered via Python entry points |
 | **Dashboard** | the JSON result artifact + step trace each run writes |
 | **GPS** | opt-in OpenTelemetry traces + metrics (`convertible/telemetry/`) |
+| **Handoff** | branch/commit/push + `gh pr create`, gated for offline/CI (`convertible/handoff.py`) |
+| **Oilcheck** | `convertible doctor` — read-only configuration-readiness health check (`convertible/oilcheck/`) |
 | **Garage** | `convertible wheels list` — the engines installed in this env |
 
 ## What ships in v0
@@ -70,15 +72,49 @@ which one ran.
 - **Interactive palette** — `convertible session` opens a foreground command
   browser so operators can select templates and run ad-hoc instructions without
   leaving the shell.
+- **Layered per-model config** — AGENTS instructions
+  (`AGENTS.md` → `AGENTS.convertible.md` → `AGENTS.convertible.<model>.md`) and
+  skills (`.convertible/skills/*.md` → `.convertible/<model>/skills/*.md`)
+  compose into a model-specific system prompt, with strict per-model isolation;
+  inspect them with `convertible agents list` / `convertible skills list`.
+- **GPS: OpenTelemetry observability** — opt-in traces + metrics over OTLP,
+  emitted identically by every engine; off by default and a strict no-op, with
+  the SDK as an optional `[otel]` extra so the base install stays dep-free.
+- **`doctor` (oilcheck)** — a read-only configuration-readiness health check
+  across identity, provider, engines, otel-readiness, and environment; emits a
+  rubric-shaped report and exits non-zero when unhealthy.
 - **Startup banner** — `convertible drive` and `convertible session` greet an
   interactive terminal with an ASCII banner. It's decorative chrome: written to
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
   pollutes the stdout result stream or agent-parsed output.
 
 **Not in v0** (by design): a multi-engine router/policy gearbox, an execution
-sandbox, a daemon mode, and Codex/Claude/Gemini drivers. The runtime package has
-**no third-party dependencies** — the vLLM driver speaks the OpenAI wire format
-over the standard library.
+sandbox, a daemon mode, Codex/Claude/Gemini drivers, a per-repo hook trust gate
+(`--no-hooks`), and a live MCP runtime (no `mcp.json`, no `mcp` verb). The
+runtime package has **no third-party dependencies** — the vLLM driver speaks the
+OpenAI wire format over the standard library.
+
+## Feature docs
+
+Each shipped feature has a focused page under [`docs/features/`](docs/features/)
+— start at the [feature index](docs/features/README.md):
+
+| Feature | Doc |
+|---------|-----|
+| Drive & the tool-loop | [drive-and-loop.md](docs/features/drive-and-loop.md) |
+| Engines & wheels | [engines.md](docs/features/engines.md) |
+| Git/PR handoff | [handoff.md](docs/features/handoff.md) |
+| Result artifact | [artifact.md](docs/features/artifact.md) |
+| Command templates | [command-templates.md](docs/features/command-templates.md) |
+| Lifecycle hooks | [hooks.md](docs/features/hooks.md) |
+| Interactive palette | [session.md](docs/features/session.md) |
+| Layered per-model config | [layered-config.md](docs/features/layered-config.md) |
+| GPS: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
+| `doctor` (oilcheck) | [doctor.md](docs/features/doctor.md) |
+| Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
+
+The detailed sections below remain the canonical reference; the feature pages add
+per-feature source pointers and cross-links.
 
 ## Before → after: the extensibility layer
 
@@ -349,6 +385,33 @@ default): `CONVERTIBLE_OTEL_ENABLED`, `CONVERTIBLE_OTEL_ENDPOINT` /
 ```bash
 uv run convertible telemetry status      # resolved config + whether the SDK is installed
 uv run convertible telemetry overview    # describe the surface
+```
+
+## Configuration readiness: `doctor` (the oilcheck)
+
+Before you hand convertible work, `convertible doctor` answers "is this install
+actually ready to drive?" It is convertible's **oilcheck**: a **read-only**,
+diagnose-only health check (no `--fix`, zero new runtime deps) that emits a
+rubric-shaped `{healthy, checks[]}` report across five ordered check-groups:
+
+| Group | Checks (severity) |
+|-------|-------------------|
+| **identity** | `prompt_file_present` / `backend_consistency` (error), `skills_present` (warning) |
+| **provider** | resolved `base_url`/`model` with redacted `api_key` (info); credentials + budget advisories (warning) on a non-default provider |
+| **engines** | engines discovered + both bundled engines present + each wheel loads (error; all-engines rule) |
+| **otel** | telemetry enabled / SDK importable / endpoint configured (info; error only when enabled but the `[otel]` extra is missing) |
+| **environment** | `.convertible/` config, `hooks.json` validity, command-template parsing, AGENTS/skills layering, `git` (error) + `gh` (warning) on PATH, CLI integrity |
+
+Only a **failed `error`** check flips the report unhealthy; warnings and info are
+advisory. `doctor` exits `1` when unhealthy, else `0`. The diagnostic logic lives
+in the chassis-level `convertible/oilcheck/` package (like telemetry); the verb
+is a thin renderer. Add a check-group by appending a read-only `checks()` callable
+to `CHECK_GROUPS` — see `convertible explain doctor` and
+[`docs/features/doctor.md`](docs/features/doctor.md).
+
+```bash
+uv run convertible doctor          # human-readable rubric; exit 1 if unhealthy
+uv run convertible doctor --json   # structured {healthy, checks[]}
 ```
 
 ## Per-model instructions & skills
