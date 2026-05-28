@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from convertible import culture
+
 FINISH = "finish"
 
 # Cap tool output fed back to the model so a huge file/command can't blow the
@@ -104,6 +106,35 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "culture",
+            "description": (
+                "Run an operator-installed AgentCulture CLI, with the agent's "
+                "identity injected and the working directory at the repo root. "
+                "'agtag' works the mesh issue tracker (e.g. issue post/fetch/reply); "
+                "'agex' inspects a repo's agent-first surface (e.g. explain/overview/"
+                "learn). Only these two CLIs are permitted."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cli": {
+                        "type": "string",
+                        "enum": sorted(culture.ALLOWED_CLIS),
+                        "description": "Which AgentCulture CLI to run.",
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Argument vector passed to the CLI (after its name).",
+                    },
+                },
+                "required": ["cli"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -148,6 +179,8 @@ class ToolExecutor:
             return self._list_dir(arguments)
         if name == "run_command":
             return self._run_command(arguments)
+        if name == "culture":
+            return self._culture(arguments)
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -169,6 +202,16 @@ class ToolExecutor:
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         rel = str(arguments["path"])
         path = self._safe_path(rel)
+        # Neighbour clones are read-only source (honesty condition h12): the model
+        # may read them but never write into them. _safe_path only confines to the
+        # repo root, which includes the clone tree — so guard writes explicitly.
+        clone_root = (self.root / self._CLONE_SUBDIR).resolve()
+        if path == clone_root or clone_root in path.parents:
+            raise ToolError(
+                f"write refused: '{rel}' is inside the neighbour clone directory "
+                f"('{self._CLONE_SUBDIR}'), which is read-only source. "
+                "Clones are inert — they may be read, never written."
+            )
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
@@ -182,8 +225,39 @@ class ToolExecutor:
         entries = sorted(p.name + ("/" if p.is_dir() else "") for p in path.iterdir())
         return ToolOutcome(result=_truncate("\n".join(entries)))
 
+    # Relative path prefix used by the never-execute guard below.
+    _CLONE_SUBDIR = ".convertible/neighbours"
+
     def _run_command(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Execute a shell command with cwd pinned to the repo root.
+
+        Never-execute confinement (AC2, best-effort): this guard refuses any
+        command string that contains the clone subdirectory path
+        (``.convertible/neighbours``), which is the read-only source tree for
+        neighbour clones. Clones exist only to be *read*; executing scripts or
+        binaries from them is not part of the contract.
+
+        Honest limitation: the guard is a substring check on the raw command
+        string. A sufficiently obfuscated command (e.g. variable expansion,
+        concatenation, here-docs) could bypass it. It is best-effort — an
+        airtight sandbox is out of v0 scope (see CLAUDE.md). The guard covers
+        the obvious / accidental case; document rather than overclaim.
+        """
         command = str(arguments["command"])
+
+        # Best-effort guard: refuse commands that reference the clone dir.
+        # Checks both the canonical relative prefix and the absolute path so
+        # that both "sh .convertible/neighbours/foo/bar.sh" and
+        # "sh /abs/path/.convertible/neighbours/foo/bar.sh" are blocked.
+        clone_rel = self._CLONE_SUBDIR
+        clone_abs = str(self.root / clone_rel)
+        if clone_rel in command or clone_abs in command:
+            raise ToolError(
+                f"run_command refused: commands must not execute paths inside the "
+                f"neighbour clone directory ('{clone_rel}'). "
+                f"Clone files are read-only source — use read_file to inspect them."
+            )
+
         proc = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
             command,
             shell=True,
@@ -195,3 +269,21 @@ class ToolExecutor:
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
         return ToolOutcome(result=_truncate(result))
+
+    def _culture(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch the shared ``culture`` tool to an allow-listed AgentCulture CLI.
+
+        The subprocess launch, identity injection, and absent-CLI handling live
+        in :mod:`convertible.culture`; here we just translate its error type into
+        the loop's :class:`ToolError` so a bad CLI name or an uninstalled CLI
+        becomes a clean string fed back to the model, never a crash.
+        """
+        cli = arguments.get("cli")
+        if not cli or not isinstance(cli, str):
+            raise ToolError("culture tool requires a 'cli' name (agtag or agex)")
+        args = culture.normalize_args(arguments.get("args"))
+        try:
+            output = culture.run_culture(cli, args, root=self.root)
+        except culture.CultureToolError as exc:
+            raise ToolError(str(exc)) from exc
+        return ToolOutcome(result=output)

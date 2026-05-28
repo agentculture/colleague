@@ -16,8 +16,10 @@ The car metaphor *is* the architecture:
   `TaskResult`) and lifecycle.
 - **Tool-loop** — the bounded agentic loop (`convertible/loop.py`) the engine
   drives the repo through (`read_file`/`write_file`/`list_dir`/`run_command`/
-  `finish`, confined to the repo by `convertible/tools.py`). Hook firing lives
-  here — every engine inherits lifecycle behavior automatically.
+  `culture`/`finish`, confined to the repo by `convertible/tools.py`). The base
+  five tools plus one curated `culture` tool (allow-list: `agtag`, `agex`) —
+  added via the mesh-member re-spec (spec/plan committed on this branch). Hook
+  firing lives here — every engine inherits lifecycle behavior automatically.
 - **Wheels** — engines are plugins discovered via the `convertible.engines`
   Python entry-point group (`convertible/registry.py`).
 - **Dashboard** — the JSON result artifact + step trace (`convertible/artifact.py`).
@@ -26,6 +28,20 @@ The car metaphor *is* the architecture:
   (all-engines rule), exactly like hooks. Off by default; the OpenTelemetry SDK
   is an optional `[otel]` extra, imported lazily, so the base install stays
   dep-free. Surfaced via the `telemetry` introspection noun.
+- **Identity** — process-level identity resolution (`convertible/identity.py`):
+  `culture.yaml` nick → `.convertible/identity.json` `as` → None; propagated to
+  every culture-CLI subprocess via `CONVERTIBLE_IDENTITY` (no per-call flag).
+  Part of the chassis; inherited by every engine (all-engines rule).
+- **Neighbours** — operator-configured read-only neighbour clones
+  (`convertible/neighbours.py`): a `.convertible/neighbours.json` allow-list of
+  `{name, url}` entries; shallow-cloned on demand into
+  `.convertible/neighbours/<name>/` (gitignored); refresh-on-demand, ephemeral
+  (cleaned up on drive finish). Defaults to empty when no config is present.
+- **Culture tool** — one curated loop tool (`convertible/culture.py` +
+  `convertible/tools.py`) that shells out to the allow-listed AgentCulture CLIs
+  (`agtag`, `agex`) with the resolved identity injected; no socket, no daemon,
+  no runtime dep. Lives in the chassis tool surface so every engine exposes it
+  identically.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`convertible/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
@@ -59,8 +75,15 @@ The buildable spec and plan this implementation converged from live in
 In scope: the chassis, the entry-point wheel contract, exactly two engines
 (`mock`, `vllm-openai`), the git/PR handoff, command templates, lifecycle
 hooks, the foreground interactive palette, layered per-model AGENTS/skills
-config (`convertible/layers.py`), and GPS — opt-in OpenTelemetry traces +
-metrics (`convertible/telemetry/`), with the SDK as an optional `[otel]` extra.
+config (`convertible/layers.py`), GPS — opt-in OpenTelemetry traces +
+metrics (`convertible/telemetry/`), with the SDK as an optional `[otel]` extra —
+and the **mesh-member integration**: process-level identity (`convertible/identity.py`),
+read-only neighbour clones (`convertible/neighbours.py`), and the curated
+`culture` loop tool (`convertible/culture.py`; allow-list: `agtag`, `agex`).
+This last item was added via an explicit re-spec (spec + plan committed on this
+branch under `docs/specs/` / `docs/plans/`); it extends the tool surface beyond
+the original five tools but does so within the zero-deps / no-socket / no-daemon
+conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
 router/policy "gearbox", an execution sandbox, a daemon/server mode,
@@ -93,9 +116,10 @@ test (`tests/test_e2e_mock.py`) is the guard.
   imported **lazily** inside `convertible/telemetry/_otel.py` (only when
   telemetry is enabled), so `dependencies = []` and the zero-deps guard
   (`tests/test_zero_deps.py`) still hold — the guard imports `convertible.loop`
-  / `convertible.telemetry` / `convertible.cli` and asserts no third-party leak
-  even with the extra installed. Keep the SDK confined to `_otel.py`; never
-  import `opentelemetry` from any other convertible module.
+  / `convertible.telemetry` / `convertible.cli` / `convertible.culture` /
+  `convertible.neighbours` and asserts no third-party leak even with the extra
+  installed. Keep the SDK confined to `_otel.py`; never import `opentelemetry`
+  from any other convertible module.
 - **Agent-first CLI.** New verbs are `convertible/cli/_commands/` modules with a
   `register(sub)`, wired in `convertible/cli/__init__.py`. Results to stdout,
   diagnostics/errors to stderr (never mixed); every command supports `--json`;
@@ -120,6 +144,12 @@ test (`tests/test_e2e_mock.py`) is the guard.
 - **Repo-shipped hooks run by default (trusted-operator-env model D2).** There
   is no `--no-hooks` flag today. A per-repo trust gate is a tracked follow-up.
   Document this gap clearly; never document a non-existent flag.
+- **The `culture` tool belongs to the chassis, not to engines.** `convertible/tools.py`
+  owns the tool schema and the `ToolExecutor._culture` dispatch; `convertible/culture.py`
+  owns the subprocess launch and identity injection. No engine module touches either.
+  The all-engines rule applies: the culture tool is offered to every engine identically.
+  Every culture integration shells out to an operator-installed CLI — no socket, no
+  daemon, no import; `convertible` reads no `mcp.json` and adds no live MCP client.
 - **The `doctor` verb is convertible's oilcheck.** It emits a configuration-readiness
   health check across identity, provider, engines, otel-readiness, and environment
   check-groups, in a rubric shape with exit-1-on-unhealthy semantics. See

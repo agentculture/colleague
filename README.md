@@ -52,8 +52,8 @@ which one ran.
 - A **shared task contract** — a typed `Task` and `TaskResult` that every engine
   consumes and produces identically.
 - A **bounded agentic tool-loop** — the engine calls `read_file`, `write_file`,
-  `list_dir`, `run_command`, and `finish`, confined to the target repo, until it
-  finishes or hits the step budget.
+  `list_dir`, `run_command`, `culture` (AgentCulture CLIs), and `finish`,
+  confined to the target repo, until it finishes or hits the step budget.
 - **Two engines**, both registered through the same `convertible.engines`
   entry-point group an out-of-tree wheel would use:
   - `mock` — deterministic and networkless; the CI workhorse.
@@ -83,6 +83,13 @@ which one ran.
 - **`doctor` (oilcheck)** — a read-only configuration-readiness health check
   across identity, provider, engines, otel-readiness, and environment; emits a
   rubric-shaped report and exits non-zero when unhealthy.
+- **Mesh-member integration** — a drive resolves a process-level identity (the
+  repo's `culture.yaml` nick or `.convertible/identity.json`) and propagates it
+  to subcommands via `CONVERTIBLE_IDENTITY`. The loop exposes one curated
+  `culture` tool (allow-list: `agtag`, `agex`) that shells out to the
+  operator-installed CLIs with the identity injected. Operators opt into
+  read-only ephemeral neighbour clones via `.convertible/neighbours.json`
+  (defaults to empty; no new runtime dependency).
 - **Startup banner** — `convertible drive` and `convertible session` greet an
   interactive terminal with an ASCII banner. It's decorative chrome: written to
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
@@ -90,7 +97,8 @@ which one ran.
 
 **Not in v0** (by design): a multi-engine router/policy gearbox, an execution
 sandbox, a daemon mode, Codex/Claude/Gemini drivers, a per-repo hook trust gate
-(`--no-hooks`), and a live MCP runtime (no `mcp.json`, no `mcp` verb). The
+(`--no-hooks`), and a live MCP runtime (no `mcp.json`, no `mcp` verb; the curated
+`culture` tool shells out to operator CLIs — no socket, no MCP transport). The
 runtime package has **no third-party dependencies** — the vLLM driver speaks the
 OpenAI wire format over the standard library.
 
@@ -112,6 +120,7 @@ Each shipped feature has a focused page under [`docs/features/`](docs/features/)
 | GPS: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
 | `doctor` (oilcheck) | [doctor.md](docs/features/doctor.md) |
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
+| Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.

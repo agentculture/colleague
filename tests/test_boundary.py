@@ -316,14 +316,20 @@ class TestNoNetworkingOrDaemonMachinery:
 # ---------------------------------------------------------------------------
 
 # Files that are explicitly permitted to import subprocess, with justification:
-#   hooks.py    — runs hook commands as subprocesses (the point of hooks)
-#   tools.py    — run_command tool; executing model-issued commands is by design
-#   handoff.py  — drives git + gh CLI; subprocess is the transport
+#   hooks.py      — runs hook commands as subprocesses (the point of hooks)
+#   tools.py      — run_command tool; executing model-issued commands is by design
+#   handoff.py    — drives git + gh CLI; subprocess is the transport
+#   neighbours.py — drives git clone/pull for read-only neighbour clones;
+#                   subprocess is the transport
+#   culture.py    — launches allow-listed AgentCulture CLIs (agtag/agex);
+#                   subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "convertible/hooks.py",
         "convertible/tools.py",
         "convertible/handoff.py",
+        "convertible/neighbours.py",
+        "convertible/culture.py",
     }
 )
 
@@ -403,4 +409,123 @@ class TestNoDynamicCommandImport:
             "Dynamic import (import_module / __import__) found in package source — "
             "command/hook files must be read as text, not imported as Python:\n"
             + "\n".join(violations)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Structural check 6 — no mcp.json reference in any convertible source
+# ---------------------------------------------------------------------------
+
+# The CLAUDE.md v0 scope is explicit: convertible reads no mcp.json and has no
+# mcp verb.  Any source-level reference to the filename (other than in a
+# comment that documents the gap) would signal scope-creep.  We assert that no
+# *executable* reference to "mcp.json" appears — i.e., no open/read/Path call
+# whose string argument contains "mcp.json".  A documentary string in a comment
+# or docstring is acceptable; an actual Path/open call is not.
+_MCP_JSON_CODE_RE = re.compile(
+    r"""(?x)
+    (?:open|Path|read_text|load)\s*\(   # a file-opening call ...
+    [^)]*                               # ... with any arguments ...
+    mcp\.json                           # ... that contains "mcp.json"
+    """,
+)
+
+
+class TestNoMcpJsonReference:
+    """No convertible source may open or read an mcp.json file."""
+
+    @pytest.mark.parametrize(
+        "py_file",
+        _all_py_sources(),
+        ids=lambda p: str(p.relative_to(_PACKAGE_DIR.parent)),
+    )
+    def test_no_mcp_json_open_or_read(self, py_file: Path) -> None:
+        """Assert *py_file* contains no code that opens/reads an mcp.json file.
+
+        The v0 spec explicitly excludes an MCP execution runtime.  Any
+        ``open(...mcp.json...)``, ``Path(...mcp.json...)``, or similar call
+        signals that an excluded feature has been added without re-speccing.
+        Documentary comments that mention the gap are fine — only executable
+        file-open patterns are flagged.
+        """
+        source = py_file.read_text(encoding="utf-8")
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+
+        violations: list[str] = []
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            # Skip comment lines — documentary references are fine.
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if _MCP_JSON_CODE_RE.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()!r}")
+
+        assert not violations, (
+            "Executable mcp.json reference found in package source — "
+            "convertible reads no mcp.json (v0 scope); re-spec before adding MCP support:\n"
+            + "\n".join(violations)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Structural check 7 — mesh-member feature modules use no daemon primitives
+# ---------------------------------------------------------------------------
+
+# The culture / neighbours modules shell out to operator CLIs — they must
+# never spawn a long-lived background process or start a server.  Concretely:
+# no threading.Thread / threading.daemon, no socketserver, no os.fork.
+# (multiprocessing and asyncio server patterns are already blocked by check 3.)
+_MESH_MODULES: list[str] = [
+    "convertible/culture.py",
+    "convertible/neighbours.py",
+    "convertible/identity.py",
+]
+
+_DAEMON_PRIMITIVE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "threading import",
+        re.compile(r"^\s*import threading\b|^\s*from threading\b", re.MULTILINE),
+    ),
+    (
+        "threading.Thread / threading.Timer",
+        re.compile(r"\bthreading\.(Thread|Timer|daemon)\b"),
+    ),
+    (
+        "socketserver import",
+        re.compile(r"^\s*import socketserver\b|^\s*from socketserver\b", re.MULTILINE),
+    ),
+    (
+        "os.fork",
+        re.compile(r"\bos\.fork\(\)"),
+    ),
+]
+
+
+class TestMeshModulesNoDaemonPrimitives:
+    """culture.py, neighbours.py, and identity.py must not spawn daemon processes."""
+
+    @pytest.mark.parametrize("rel_path", _MESH_MODULES)
+    def test_no_daemon_primitives(self, rel_path: str) -> None:
+        """Assert the mesh-member module *rel_path* imports no daemon primitive.
+
+        These modules may only shell out to operator CLIs via ``subprocess.run``
+        (the sanctioned transport).  Any use of threading, socketserver, or
+        os.fork would indicate an undocumented daemon — a boundary violation.
+        """
+        py_file = _PACKAGE_DIR.parent / rel_path
+        assert py_file.is_file(), f"Expected source file not found: {py_file}"
+
+        source = py_file.read_text(encoding="utf-8")
+        lines = source.splitlines()
+
+        violations: list[str] = []
+        for description, pattern in _DAEMON_PRIMITIVE_PATTERNS:
+            for lineno, line in enumerate(lines, start=1):
+                if pattern.search(line):
+                    violations.append(f"  {rel_path}:{lineno}: [{description}] {line.rstrip()!r}")
+
+        assert not violations, (
+            f"Daemon primitive found in mesh-member module {rel_path} — "
+            "these modules must only shell out via subprocess.run, never spawn "
+            "threads or background processes:\n" + "\n".join(violations)
         )

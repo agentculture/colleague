@@ -49,9 +49,11 @@ def test_no_third_party_imports():
     import convertible.cli._commands.telemetry  # noqa: F401
     import convertible.commands  # noqa: F401
     import convertible.configdir  # noqa: F401
+    import convertible.culture  # noqa: F401
     import convertible.hooks  # noqa: F401
     import convertible.layers  # noqa: F401
     import convertible.loop  # noqa: F401
+    import convertible.neighbours  # noqa: F401
     import convertible.telemetry  # noqa: F401
 
     # Diff and extract top-level module names.
