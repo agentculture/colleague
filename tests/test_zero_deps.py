@@ -39,11 +39,20 @@ def test_no_third_party_imports():
 
     # Import the modules as specified in the task.
     import convertible  # noqa: F401
+    import convertible.cli  # noqa: F401
+
+    # GPS (issue #22): the telemetry facade and the loop/CLI that use it must
+    # stay import-clean — the OpenTelemetry SDK is imported lazily inside
+    # convertible.telemetry._otel, never at module load. This assertion holds
+    # even when the [otel] extra IS installed (as it is in dev/CI): it is the
+    # guard that the deferral is real.
+    import convertible.cli._commands.telemetry  # noqa: F401
     import convertible.commands  # noqa: F401
     import convertible.configdir  # noqa: F401
     import convertible.hooks  # noqa: F401
     import convertible.layers  # noqa: F401
     import convertible.loop  # noqa: F401
+    import convertible.telemetry  # noqa: F401
 
     # Diff and extract top-level module names.
     after = set(sys.modules.keys())

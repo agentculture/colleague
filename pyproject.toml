@@ -1,6 +1,6 @@
 [project]
 name = "convertible-cli"
-version = "0.6.0"
+version = "0.7.0"
 description = "Convertible CLI is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "MIT"
@@ -18,6 +18,18 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/agentculture/convertible"
 Issues = "https://github.com/agentculture/convertible/issues"
+
+# GPS (issue #22): OpenTelemetry is an opt-in *extra*, never a runtime dependency.
+# The base install keeps `dependencies = []` (enforced by tests/test_zero_deps.py);
+# convertible/telemetry/_otel.py imports these lazily, only when telemetry is
+# enabled. Install with: pip install "convertible-cli[otel]".
+[project.optional-dependencies]
+otel = [
+    "opentelemetry-api>=1.25",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
+    "opentelemetry-semantic-conventions>=0.46b0",
+]
 
 [project.scripts]
 convertible = "convertible.cli:main"
@@ -46,6 +58,12 @@ dev = [
     "isort>=5.12.0",
     "black>=23.7.0",
     "teken>=0.8",
+    # The [otel] extra, installed in dev/CI so the telemetry tests run. The base
+    # package keeps zero runtime deps; this only affects the dev environment.
+    "opentelemetry-api>=1.25",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
+    "opentelemetry-semantic-conventions>=0.46b0",
 ]
 
 [tool.coverage.run]

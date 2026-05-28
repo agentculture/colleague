@@ -21,6 +21,11 @@ The car metaphor *is* the architecture:
 - **Wheels** — engines are plugins discovered via the `convertible.engines`
   Python entry-point group (`convertible/registry.py`).
 - **Dashboard** — the JSON result artifact + step trace (`convertible/artifact.py`).
+- **GPS** — opt-in OpenTelemetry traces + metrics (`convertible/telemetry/`).
+  Instrumented in the loop + the shared drive path so every engine emits it
+  (all-engines rule), exactly like hooks. Off by default; the OpenTelemetry SDK
+  is an optional `[otel]` extra, imported lazily, so the base install stays
+  dep-free. Surfaced via the `telemetry` introspection noun.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`convertible/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
@@ -53,8 +58,9 @@ The buildable spec and plan this implementation converged from live in
 
 In scope: the chassis, the entry-point wheel contract, exactly two engines
 (`mock`, `vllm-openai`), the git/PR handoff, command templates, lifecycle
-hooks, the foreground interactive palette, and layered per-model AGENTS/skills
-config (`convertible/layers.py`).
+hooks, the foreground interactive palette, layered per-model AGENTS/skills
+config (`convertible/layers.py`), and GPS — opt-in OpenTelemetry traces +
+metrics (`convertible/telemetry/`), with the SDK as an optional `[otel]` extra.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
 router/policy "gearbox", an execution sandbox, a daemon/server mode,
@@ -81,7 +87,15 @@ test (`tests/test_e2e_mock.py`) is the guard.
 - **No runtime dependencies.** `pyproject.toml` keeps `dependencies = []`; the
   vLLM driver speaks the OpenAI wire format over stdlib `urllib`; commands and
   hooks use only stdlib (`json`, `subprocess`, `pathlib`). Don't add a runtime
-  dep without a strong reason — dev-only deps go in the `dev` group.
+  dep without a strong reason — dev-only deps go in the `dev` group. The one
+  documented exception is **GPS**: the OpenTelemetry SDK ships as an optional
+  `[project.optional-dependencies] otel` extra, never a base dependency. It is
+  imported **lazily** inside `convertible/telemetry/_otel.py` (only when
+  telemetry is enabled), so `dependencies = []` and the zero-deps guard
+  (`tests/test_zero_deps.py`) still hold — the guard imports `convertible.loop`
+  / `convertible.telemetry` / `convertible.cli` and asserts no third-party leak
+  even with the extra installed. Keep the SDK confined to `_otel.py`; never
+  import `opentelemetry` from any other convertible module.
 - **Agent-first CLI.** New verbs are `convertible/cli/_commands/` modules with a
   `register(sub)`, wired in `convertible/cli/__init__.py`. Results to stdout,
   diagnostics/errors to stderr (never mixed); every command supports `--json`;
@@ -98,6 +112,11 @@ test (`tests/test_e2e_mock.py`) is the guard.
   hook firing — new engine wheels inherit the full lifecycle layer automatically
   and must not duplicate it. The all-engines rule applies: a hook config that
   fires on `mock` must fire identically on `vllm-openai`.
+- **Telemetry belongs to the chassis too.** `convertible/loop.py` (per tool
+  call) and the shared `execute_drive` path (root + handoff spans) own all
+  telemetry; no engine module touches the `telemetry` package. Off by default it
+  is a strict no-op (no spans, no SDK import, `TaskResult` unchanged) — protect
+  that so the e2e shape test and zero-deps guard keep passing.
 - **Repo-shipped hooks run by default (trusted-operator-env model D2).** There
   is no `--no-hooks` flag today. A per-repo trust gate is a tracked follow-up.
   Document this gap clearly; never document a non-existent flag.
@@ -117,6 +136,13 @@ uv run convertible commands overview               # surface description
 uv run convertible hooks list --repo .             # list configured hooks
 uv run convertible hooks overview                  # surface description
 uv run convertible session --repo . --engine mock  # interactive palette
+
+# GPS / telemetry (opt-in; needs the [otel] extra):
+uv run convertible telemetry status                # resolved telemetry config
+uv run convertible telemetry overview              # surface description
+uv sync --extra otel                               # install the OpenTelemetry SDK
+CONVERTIBLE_OTEL_ENABLED=1 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+  uv run convertible drive "<task>" --repo . --engine mock --no-pr  # emits a trace
 
 # Lint + gates CI enforces:
 uv run black --check convertible tests

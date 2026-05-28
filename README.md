@@ -42,6 +42,7 @@ which one ran.
 | **Tool-loop** | the bounded agentic loop the engine drives the repo through |
 | **Wheels** | replaceable engine plugins, discovered via Python entry points |
 | **Dashboard** | the JSON result artifact + step trace each run writes |
+| **GPS** | opt-in OpenTelemetry traces + metrics (`convertible/telemetry/`) |
 | **Garage** | `convertible wheels list` — the engines installed in this env |
 
 ## What ships in v0
@@ -313,6 +314,43 @@ The session loops until the user enters `q`, `quit`, or an empty line. Any
 driver flags accepted by `drive` (`--engine`, `--no-pr`, `--base-url`, etc.)
 are also accepted by `session`.
 
+## GPS: OpenTelemetry observability
+
+A drive can emit **OpenTelemetry traces + metrics** so it's observable against an
+OTLP collector — not just the per-run JSON artifact. Telemetry lives in the
+chassis (the loop + the shared drive path), so **every engine** emits it
+identically, exactly like lifecycle hooks.
+
+It is **off by default** and a strict no-op when off (no spans, no SDK import,
+the result artifact unchanged). The OpenTelemetry SDK is an **optional extra** —
+the base install keeps zero runtime dependencies:
+
+```bash
+pip install 'convertible-cli[otel]'                 # or: uv sync --extra otel
+export CONVERTIBLE_OTEL_ENABLED=1
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # OTLP/HTTP collector
+uv run convertible drive "<task>" --repo . --engine mock --no-pr
+#   -> stderr prints "trace: <id>"; the collector receives the spans + metrics
+```
+
+Requested without the extra installed, convertible degrades to a no-op with a
+one-line stderr notice — it never fails the drive.
+
+**Signals.** Spans: `convertible.drive` (root) → `convertible.tool.*` (per tool
+call) → `convertible.handoff`. Metrics: `convertible.steps`, `convertible.tokens`,
+`convertible.tool.latency`, `convertible.tool.calls`, `convertible.hook.denials`,
+`convertible.drive.duration`.
+
+**Config** (precedence: explicit > `CONVERTIBLE_OTEL_*` > standard `OTEL_*` >
+default): `CONVERTIBLE_OTEL_ENABLED`, `CONVERTIBLE_OTEL_ENDPOINT` /
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVERTIBLE_OTEL_SERVICE_NAME` /
+`OTEL_SERVICE_NAME`. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
+
+```bash
+uv run convertible telemetry status      # resolved config + whether the SDK is installed
+uv run convertible telemetry overview    # describe the surface
+```
+
 ## Per-model instructions & skills
 
 Convertible composes a model-specific **system prompt** for every drive from two
@@ -394,6 +432,8 @@ rely on a non-existent flag.
 | `agents overview` | Describe the agents surface. |
 | `skills list` | List resolved skill docs for a model. |
 | `skills overview` | Describe the skills surface. |
+| `telemetry status` | Show the resolved GPS / OpenTelemetry config + whether the SDK is installed. |
+| `telemetry overview` | Describe the telemetry surface. |
 | `session` | Open a foreground interactive palette. |
 | `wheels list` | List discovered engine wheels (the garage). |
 | `whoami` | Report this agent's nick, version, backend, and model. |

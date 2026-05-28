@@ -45,6 +45,7 @@ from convertible.contract import (
     TaskResult,
 )
 from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
+from convertible.telemetry import Telemetry, load_telemetry
 from convertible.tools import ToolError, ToolExecutor
 
 _DEFAULT_SYSTEM = (
@@ -178,6 +179,7 @@ def run(
     executor: ToolExecutor | None = None,
     system_prompt: str | None = None,
     hooks: HookConfig | None = None,
+    telemetry: Telemetry | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -188,9 +190,20 @@ def run(
     suppress repo loading. Returns a uniform :class:`TaskResult` with the
     per-step trace, accumulated usage, and every hook firing in order. The tool
     schemas live with each engine's ``complete`` closure, not here.
+
+    ``telemetry`` likewise defaults to :func:`~convertible.telemetry.load_telemetry`
+    (a no-op unless ``CONVERTIBLE_OTEL_ENABLED`` is set). When enabled, every
+    tool call becomes a ``convertible.tool.*`` span and the loop records the
+    per-step metrics (steps, tokens, tool latency, hook denials). This lives in
+    the loop so *every* engine inherits it (the all-engines rule), exactly like
+    hook firing.
     """
     executor = executor or ToolExecutor(task.repo_path)
     hooks = hooks if hooks is not None else load_hooks(task.repo_path)
+    # Telemetry defaults like hooks do: resolved from the environment, a no-op
+    # unless explicitly enabled. Tool spans auto-nest under the drive span the
+    # shared drive path opens (via the SDK's context propagation).
+    telemetry = telemetry if telemetry is not None else load_telemetry()
 
     user = task.instruction
     if task.context:
@@ -212,6 +225,7 @@ def run(
     for _ in range(max(1, max_steps)):
         resp = complete(messages)
         result.usage.add(resp.prompt_tokens, resp.completion_tokens)
+        telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
 
         if not resp.tool_calls:
             # Model answered without requesting a tool — treat as done.
@@ -224,41 +238,66 @@ def run(
         for call in resp.tool_calls:
             step_index = len(result.steps)
 
-            # pre_tool — the only control-bearing event. The first deny/rewrite
-            # wins; allow/observe pass through. arguments may be swapped here.
-            arguments = call.arguments
-            verdict = _fire_hooks(
-                hooks,
-                result,
-                event="pre_tool",
-                task=task,
-                tool=call.name,
-                arguments=arguments,
-            )
-            if verdict is not None and verdict.decision == DECISION_DENY:
-                # Skip execution entirely; feed the reason back so the model
-                # can adapt. Recorded as a non-ok Step (the firing is already
-                # recorded by _fire_hooks).
-                reason = verdict.reason or "denied by a pre_tool hook"
-                result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
-                messages.append(_tool_message(call.id, reason))
-                continue
-            if (
-                verdict is not None
-                and verdict.decision == DECISION_REWRITE
-                and verdict.arguments is not None
-            ):
-                # Execute with the hook-supplied arguments instead.
-                arguments = verdict.arguments
-
-            try:
-                outcome = executor.execute(call.name, arguments)
-            except ToolError as exc:
-                result.steps.append(
-                    Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
+            # One span per tool-call iteration, auto-nesting under the drive
+            # span. ``continue`` still runs the span's exit (so its metrics —
+            # one step + one tool call — are recorded for deny/error paths too).
+            with telemetry.tool_span(tool=call.name, step_index=step_index) as span:
+                # pre_tool — the only control-bearing event. The first
+                # deny/rewrite wins; allow/observe pass through. arguments may
+                # be swapped here.
+                arguments = call.arguments
+                verdict = _fire_hooks(
+                    hooks,
+                    result,
+                    event="pre_tool",
+                    task=task,
+                    tool=call.name,
+                    arguments=arguments,
                 )
-                messages.append(_tool_message(call.id, f"error: {exc}"))
-                # post_tool still fires after a tool *attempt*; observe-only.
+                if verdict is not None and verdict.decision == DECISION_DENY:
+                    # Skip execution entirely; feed the reason back so the model
+                    # can adapt. Recorded as a non-ok Step (the firing is
+                    # already recorded by _fire_hooks).
+                    reason = verdict.reason or "denied by a pre_tool hook"
+                    span.set(ok=False, denied=True, reason=reason)
+                    telemetry.on_hook_denial()
+                    result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
+                    messages.append(_tool_message(call.id, reason))
+                    continue
+                if (
+                    verdict is not None
+                    and verdict.decision == DECISION_REWRITE
+                    and verdict.arguments is not None
+                ):
+                    # Execute with the hook-supplied arguments instead.
+                    arguments = verdict.arguments
+
+                try:
+                    outcome = executor.execute(call.name, arguments)
+                except ToolError as exc:
+                    span.set(ok=False, error=str(exc))
+                    result.steps.append(
+                        Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
+                    )
+                    messages.append(_tool_message(call.id, f"error: {exc}"))
+                    # post_tool still fires after a tool *attempt*; observe-only.
+                    _fire_hooks(
+                        hooks,
+                        result,
+                        event="post_tool",
+                        task=task,
+                        tool=call.name,
+                        arguments=arguments,
+                    )
+                    continue
+
+                span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
+                result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
+                messages.append(_tool_message(call.id, outcome.result))
+
+                # post_tool — after the tool executed. Observe-only: the
+                # decision does not alter the already-executed result this
+                # increment.
                 _fire_hooks(
                     hooks,
                     result,
@@ -267,25 +306,11 @@ def run(
                     tool=call.name,
                     arguments=arguments,
                 )
-                continue
 
-            result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
-            messages.append(_tool_message(call.id, outcome.result))
-
-            # post_tool — after the tool executed. Observe-only: the decision
-            # does not alter the already-executed result this increment.
-            _fire_hooks(
-                hooks,
-                result,
-                event="post_tool",
-                task=task,
-                tool=call.name,
-                arguments=arguments,
-            )
-
-            if outcome.finished:
-                result.summary = outcome.finish_summary or result.summary
-                finished = True
+                if outcome.finished:
+                    span.set(finished=True)
+                    result.summary = outcome.finish_summary or result.summary
+                    finished = True
         if finished:
             break
 
