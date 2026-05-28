@@ -120,6 +120,10 @@ test (`tests/test_e2e_mock.py`) is the guard.
 - **Repo-shipped hooks run by default (trusted-operator-env model D2).** There
   is no `--no-hooks` flag today. A per-repo trust gate is a tracked follow-up.
   Document this gap clearly; never document a non-existent flag.
+- **The `doctor` verb is convertible's oilcheck.** It emits a configuration-readiness
+  health check across identity, provider, engines, otel-readiness, and environment
+  check-groups, in a rubric shape with exit-1-on-unhealthy semantics. See
+  `convertible explain doctor` for details.
 
 ## Commands
 
