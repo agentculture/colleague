@@ -190,15 +190,6 @@ def test_check_groups_registered_in_order() -> None:
     ]
 
 
-def test_stub_groups_return_empty_lists() -> None:
-    # provider is now implemented (t2); only the remaining stubs are checked here.
-    from convertible.oilcheck import engines, environment, otel
-
-    for group in (engines, otel, environment):
-        result = group.checks()
-        assert result == [], f"{group.__name__}.checks() should be a [] stub for now"
-
-
 def test_identity_group_is_non_empty() -> None:
     from convertible.oilcheck import identity
 
