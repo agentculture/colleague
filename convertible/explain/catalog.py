@@ -31,7 +31,7 @@ Run `convertible` with no verb at a terminal to open the interactive harness (th
 - `convertible learn` — structured self-teaching prompt.
 - `convertible explain <path>` — markdown docs for any noun/verb.
 - `convertible overview` — descriptive snapshot of the agent.
-- `convertible doctor` — check the agent-identity invariants.
+- `convertible doctor` — configuration-readiness health check (oilcheck).
 - `convertible cli overview` — describe the CLI surface.
 
 ## Exit-code policy
@@ -101,9 +101,14 @@ ignored `target` so a stray path never hard-fails.
 _DOCTOR = """\
 # convertible doctor
 
-Checks the agent-identity invariants `steward doctor` verifies:
-prompt-file-present and backend-consistency (`claude` → `CLAUDE.md`), plus a
-skills-present check. Exits 1 when unhealthy.
+Convertible's oilcheck: a configuration-readiness health check emitting a
+rubric-shaped report across ordered check-groups: **identity**, **provider**
+(config + budget), **engines** (all installed wheels), **otel-readiness**, and
+**environment** (repo config / layering / handoff prereqs / CLI integrity).
+
+Exits 1 when unhealthy (when any error-severity check fails). Only
+error-severity failures make the report unhealthy; warnings and info are
+advisory.
 
 ## Usage
 

@@ -1,0 +1,317 @@
+{
+  "slug": "convertible-gains-an-oilcheck-command-one-read-onl",
+  "title": "Convertible gains an 'oilcheck' command \u2014 one read-only health check that verifies the CLI is functional, the engine wheels are discoverable, and the repo config is sound, with rubric-shaped pass/fail and remediation hints, so you catch a broken install or misconfig before a drive fails mysteriously.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-28T05:02:28Z",
+  "updated": "2026-05-28T05:16:31Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible gains an 'oilcheck' command \u2014 one read-only health check that verifies the CLI is functional, the engine wheels are discoverable, and the repo config is sound, with rubric-shaped pass/fail and remediation hints, so you catch a broken install or misconfig before a drive fails mysteriously.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "oilcheck ships as a discoverable global verb: 'convertible oilcheck' and 'convertible oilcheck --json' both run and appear in overview/learn/explain.",
+          "status": "rejected"
+        },
+        {
+          "id": "h13",
+          "text": "the health-check capability (the 'oilcheck' in docs) is invoked via 'convertible doctor' (+ --json), is listed in overview/learn/explain, and runs without error on a clean clone.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "convertible operators setting up the CLI in a repo, and agents verifying their environment is sound before issuing a 'drive'.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "both audiences are served by one invocation: an operator reads the text report; an agent parses the --json payload and branches on 'healthy'.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "to know if convertible is correctly installed and configured you must run several separate introspection verbs (wheels list, hooks list, telemetry status, doctor) and eyeball each; a broken engine wheel, malformed hooks.json, or missing git/gh only surfaces as a confusing failure mid-drive.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "the gap is real today: there is no single command that rolls up wheels/hooks/telemetry/config health \u2014 confirmed by the current verb list.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "one command \u2014 'convertible oilcheck' \u2014 runs a battery of read-only checks across CLI integrity, engine-wheel discovery, and repo config, and prints a single rubric-shaped report ({healthy, checks:[{id,passed,severity,message,remediation}]}) with per-check remediation hints, exiting non-zero if anything is unhealthy.",
+      "origin": "user",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "the report aggregates at least the CLI-integrity, engine-wheel, and repo-config check groups into one {healthy, checks[]} payload in a single run.",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "fail-fast: catching a broken install or misconfig in one explicit health check is far cheaper than debugging a mid-drive failure, and gives agents a single machine-readable gate to assert their environment before working.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "a failing check returns before a drive would start, so the operator/agent sees the problem from oilcheck rather than from a mid-drive traceback.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "oilcheck is read-only diagnosis: it reports problems and prints remediation hints, but does NOT mutate anything (no auto-fix / --fix / --apply) and opens no socket/daemon. Network reachability probes (vLLM endpoint, gh auth) are not run by default.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "oilcheck performs no writes and no network I/O on the default path; a test asserts it mutates no files and opens no socket.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "on a clean convertible clone 'oilcheck' exits 0 and reports healthy; with an injected fault (e.g. malformed .convertible/hooks.json or a missing bundled engine wheel) it exits non-zero and the failing check names the problem + a remediation hint; the --json payload matches the established doctor rubric shape.",
+      "origin": "user",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "an injected-fault test (bad hooks.json or removed bundled wheel) makes oilcheck exit non-zero with the offending check failed; the clean-clone test makes it exit 0.",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "non_goal",
+      "text": "oilcheck does not replace or rename the existing 'doctor' verb (rubric-required); doctor keeps its narrow agent-identity role and oilcheck reuses it as one check-group rather than duplicating it.",
+      "origin": "user",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "engine-wheel checks honor the all-engines rule: oilcheck probes EVERY discovered engine uniformly (each entry-point in convertible.engines loads/instantiates), and asserts the two bundled engines (mock, vllm-openai) are present; it never special-cases one engine.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "an out-of-tree engine wheel registered under convertible.engines is probed by oilcheck with no change to oilcheck code; adding/removing a bundled engine changes the report symmetrically (the e2e shape test stays the guard).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "oilcheck adds zero runtime dependencies: every check uses only stdlib (importlib.metadata for wheels, shutil.which for git/gh, json for hooks.json, pathlib for config/layers), matching the project's dependencies=[] convention.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "the zero-deps guard test (tests/test_zero_deps.py) still passes after oilcheck lands \u2014 importing the oilcheck module pulls in no third-party package.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "oilcheck emits the exact established rubric shape {healthy, checks:[{id,passed,severity(error|warning|info),message,remediation}]}, supports --json, writes results to stdout and diagnostics to stderr, and is registered as a global verb with an explain catalog entry + learn entry (agent-first CLI convention).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "oilcheck --json round-trips through the same emit_result path as doctor and validates against the identical rubric schema; a test asserts the shape matches doctor's.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "v1 check battery (proposed): (a) CLI integrity \u2014 package imports, __version__ resolves, parser builds; (b) engine wheels \u2014 >=1 discovered, mock + vllm-openai loadable; (c) repo config \u2014 .convertible/ resolves, hooks.json is valid JSON if present, command templates parse if present; (d) layering \u2014 AGENTS/skills resolution does not error; (e) handoff prereqs \u2014 git on PATH (error), gh on PATH (warning, PR-only); (f) telemetry \u2014 report whether [otel] extra is importable (info/warning); (g) identity \u2014 reuse doctor's checks.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "each check in the battery is independently verifiable: a test can inject a fault for that check (missing wheel, bad hooks.json, absent git) and assert exactly that check flips to failed with a non-empty remediation.",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "exit code on unhealthy = 1, mirroring the existing 'doctor' verb (errors fail; warnings/info do not), rather than the '2 environment error' code, for cross-verb consistency.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "The health check ships as the EXISTING 'doctor' verb, broadened from identity-only to the full battery \u2014 there is NO new 'oilcheck' CLI verb. 'oilcheck' is the car-metaphor name used only in docs/README/wording (e.g. 'doctor is convertible's oilcheck'). Identity invariants remain one check-group inside doctor; the existing doctor tests and the agent-first rubric's 'doctor' requirement keep passing.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "after the change 'convertible doctor' and 'convertible doctor --json' run the full battery; the existing test_cli_introspection doctor tests still pass, the agent-first rubric (teken cli doctor --strict) still finds the 'doctor' verb, and no 'oilcheck' subparser is registered.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "after_state",
+      "text": "one command \u2014 'convertible doctor' (convertible's 'oilcheck') \u2014 runs a battery of read-only checks across CLI integrity, engine-wheel discovery, repo config, layering, handoff prereqs and telemetry, and prints a single rubric-shaped report ({healthy, checks:[{id,passed,severity,message,remediation}]}) with per-check remediation hints, exiting non-zero if anything is unhealthy.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "the report aggregates at least the CLI-integrity, engine-wheel, and repo-config check groups into one {healthy, checks[]} payload from a single 'convertible doctor' run.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "on a clean convertible clone 'convertible doctor' exits 0 and reports healthy; with an injected fault (e.g. malformed .convertible/hooks.json or a missing bundled engine wheel) it exits non-zero and the failing check names the problem + a remediation hint; the --json payload matches the established doctor rubric shape.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "an injected-fault test (bad hooks.json or removed bundled wheel) makes 'convertible doctor' exit non-zero with the offending check failed; the clean-clone test makes it exit 0.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "v1 doctor battery, CONFIGURATION-READINESS focused (the issue's emphasis): (a) PROVIDER CONFIG \u2014 resolve EngineConfig (base_url/api_key/model via CONVERTIBLE_*/OPENAI_* env + defaults) and report it with api_key redacted; warn when an engine is pointed at a non-default/3rd-party base_url while api_key is still the 'EMPTY' default (credentials likely unset); (b) OTEL \u2014 when telemetry is enabled (CONVERTIBLE_OTEL_ENABLED) report whether the [otel] extra imports and whether OTEL_EXPORTER_OTLP_ENDPOINT is set (error if enabled-but-SDK-missing; info otherwise); (c) ENGINE WHEELS \u2014 >=1 discovered, mock + vllm-openai loadable (all-engines, uniform); (d) REPO CONFIG \u2014 .convertible/ resolves, hooks.json valid JSON if present, command templates parse if present; (e) LAYERING \u2014 AGENTS/skills resolution does not raise; (f) HANDOFF PREREQS \u2014 git on PATH (error), gh on PATH (warning, PR-only); (g) CLI INTEGRITY \u2014 package imports, __version__ resolves, parser builds; (h) IDENTITY \u2014 reuse doctor's existing checks.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "each check is independently verifiable: a test injects a fault (a non-default base_url with the EMPTY api_key; CONVERTIBLE_OTEL_ENABLED with the [otel] extra absent; malformed hooks.json; absent git) and asserts exactly that check flips to its expected severity with a non-empty remediation.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "decision",
+      "text": "doctor's provider-config group includes an ADVISORY 'provider_budget' check (severity=warning, never error): when an engine resolves to a non-default/3rd-party base_url and no spend-guard env (e.g. CONVERTIBLE_BUDGET) is set, doctor warns with a remediation hint to set a cap / confirm provider quota. v1 adds NO budget config field to EngineConfig and enforces NO budget \u2014 purely advisory, read-only.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "the provider_budget check is warning-only and never flips 'healthy' to false: with a non-default base_url and no budget env it emits a warning + hint; with the default localhost vLLM rig (or no provider configured) it stays silent/passes; no budget field is added to EngineConfig.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether oilcheck should auto-RESOLVE issues (a --fix/--apply mode) \u2014 the issue body says 'system issue resolutions'. Stronger reading = mutate/repair. Convertible is heavily read-only; auto-fix is a side-effecting re-spec (cf. steward 'doctor --apply'). Proposed: v1 = diagnose + remediation hints only; --fix is a separate follow-up spec.",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether oilcheck runs network reachability probes (vLLM /v1/models, gh auth status) behind an opt-in --probe/--online flag. Default off to stay offline/CI-safe and avoid the no-socket convention; opt-in surface is a follow-up.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Whether oilcheck is also surfaced inside the interactive 'session' palette as a slash-style health command, or stays CLI-only for v1.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "A real budget/spend-cap config field + enforcement (e.g. CONVERTIBLE_BUDGET or a .convertible budget setting that the loop/driver respects) \u2014 beyond v1's advisory warning; needs its own spec leg (new config surface + enforcement semantics).",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
