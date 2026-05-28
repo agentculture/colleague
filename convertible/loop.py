@@ -45,6 +45,7 @@ from convertible.contract import (
     TaskResult,
 )
 from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
+from convertible.neighbours import NeighbourManager
 from convertible.telemetry import Telemetry, load_telemetry
 from convertible.tools import ToolError, ToolExecutor
 
@@ -219,6 +220,15 @@ def run(
     result = TaskResult(task_id=task.id, status=OK)
     finished = False
 
+    # Neighbour clone lifecycle — chassis-owned (all-engines rule).
+    # clone_all() runs before the loop so allow-listed neighbours are available
+    # to read during the drive. With no allow-list this is a safe no-op (verified
+    # by NeighbourManager itself). cleanup() runs unconditionally after the loop
+    # on EVERY exit path (model finish, empty turn, step-budget) to leave no
+    # residue between drives.
+    neighbours = NeighbourManager(task.repo_path)
+    neighbours.clone_all()
+
     # task_start — once, before the loop. Observe-only: side-effects only.
     _fire_hooks(hooks, result, event="task_start", task=task)
 
@@ -317,6 +327,11 @@ def run(
     # finish — once, on every loop exit (model finish / empty turn / budget).
     # Observe-only this increment; requeue/re-drive is out of scope.
     _fire_hooks(hooks, result, event="finish", task=task)
+
+    # Neighbour cleanup — runs on every loop exit, after the finish hook, so
+    # no clone directory persists between drives. Safe even when no clones exist
+    # (NeighbourManager.cleanup() is a no-op if the neighbours dir is absent).
+    neighbours.cleanup()
 
     result.changed_files = sorted(executor.changed)
     if not finished:
