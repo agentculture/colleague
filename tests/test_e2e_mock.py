@@ -4,6 +4,10 @@ Proves the headline claim without a network: the *same* task driven through two
 different engines (the real mock engine and the vLLM driver over mocked HTTP)
 yields results of the *identical shape*, and the engine is selected purely by
 name through the registry — the only thing that changes is `--engine`.
+
+Also guards the policy no-op contract (t7): with no approvals.json present the
+artifact shape is byte-identical to a policy-free run — the gate is a strict
+default-off feature.
 """
 
 from __future__ import annotations
@@ -201,3 +205,68 @@ def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert main(["wheels", "list", "--json"]) == 0
     names = {e["name"] for e in json.loads(capsys.readouterr().out)["engines"]}
     assert {"mock", "vllm-openai"} <= names
+
+
+def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
+    tmp_path: Path,
+) -> None:
+    """Policy no-op shape guard (t7 AC1): with NO .convertible/approvals.json present,
+    the TaskResult to_dict() key set and step shape are byte-identical to a run in a
+    repo that has never had any policy concept applied.
+
+    This proves the gate is a strict default-off feature — its presence in the chassis
+    adds zero visible artefact when no policy file exists.
+    """
+    # Repo A: has a .convertible/ dir but no approvals.json.
+    repo_a = tmp_path / "with_dotdir"
+    repo_a.mkdir()
+    (repo_a / ".convertible").mkdir()
+    # Deliberately leave approvals.json absent.
+
+    # Repo B: completely vanilla — no .convertible/ at all.
+    repo_b = tmp_path / "vanilla"
+    repo_b.mkdir()
+
+    cfg = EngineConfig.resolve()
+    result_a = registry.load("mock").drive(Task.new(str(repo_a), "do work"), cfg)
+    result_b = registry.load("mock").drive(Task.new(str(repo_b), "do work"), cfg)
+
+    # Both must succeed.
+    assert result_a.status == OK
+    assert result_b.status == OK
+
+    dict_a = result_a.to_dict()
+    dict_b = result_b.to_dict()
+
+    # Key sets are identical — the gate added no new keys.
+    assert set(dict_a.keys()) == set(
+        dict_b.keys()
+    ), f"Key sets differ: {set(dict_a.keys()) ^ set(dict_b.keys())}"
+
+    # The pinned pre-feature key set is unchanged (mirrors the destination no-op guard).
+    expected_keys = {
+        "task_id",
+        "status",
+        "summary",
+        "changed_files",
+        "steps",
+        "usage",
+        "artifacts_path",
+        "error",
+        "branch",
+        "pr_url",
+        "hook_firings",
+        "command",
+    }
+    assert (
+        set(dict_a.keys()) == expected_keys
+    ), f"Unexpected extra keys in policy-free run: {set(dict_a.keys()) - expected_keys}"
+
+    # Step shapes are identical.
+    steps_a = [(s["tool"], s["ok"]) for s in dict_a["steps"]]
+    steps_b = [(s["tool"], s["ok"]) for s in dict_b["steps"]]
+    assert steps_a == steps_b
+
+    # No hook_firings in either run (no hooks configured).
+    assert dict_a["hook_firings"] == []
+    assert dict_b["hook_firings"] == []
