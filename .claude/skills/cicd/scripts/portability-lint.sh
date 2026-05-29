@@ -18,7 +18,7 @@ case "$mode" in
     *) echo "Usage: $(basename "$0") [--all]" >&2; exit 2 ;;
 esac
 
-[ -z "$files" ] && { echo "(no files to check)"; exit 0; }
+[[ -z "$files" ]] && { echo "(no files to check)"; exit 0; }
 
 # ----- Check 1: hard-coded /home/<user>/... paths -----
 hits1=$(echo "$files" | xargs -r grep -nE '/home/[a-z][a-z0-9_-]+/' 2>/dev/null || true)
@@ -28,7 +28,7 @@ hits1=$(echo "$files" | xargs -r grep -nE '/home/[a-z][a-z0-9_-]+/' 2>/dev/null 
 #   - ~/.claude/skills/<x>/scripts/   vendored tool calls
 #   - ~/.culture/                     Culture mesh data this skill is supposed to read
 md_yaml=$(echo "$files" | grep -E '\.(md|ya?ml|toml|json|jsonc)$' || true)
-if [ -n "$md_yaml" ]; then
+if [[ -n "$md_yaml" ]]; then
     hits2=$(echo "$md_yaml" | xargs -r grep -nE '~/\.[A-Za-z]' 2>/dev/null \
         | grep -vE '~/\.claude/skills/[^[:space:]"]+/scripts/' \
         | grep -vE '~/\.culture/' \
@@ -38,14 +38,14 @@ else
 fi
 
 fail=0
-if [ -n "$hits1" ]; then
+if [[ -n "$hits1" ]]; then
     echo "❌ Hard-coded /home/<user>/ paths:"
     echo "$hits1" | sed 's/^/    /'
     echo "   Fix: use ../sibling, repo URL, or \$WORKSPACE/sibling instead."
     fail=1
 fi
-if [ -n "$hits2" ]; then
-    [ "$fail" -eq 1 ] && echo
+if [[ -n "$hits2" ]]; then
+    [[ "$fail" -eq 1 ]] && echo
     echo "❌ Per-user ~/.<dotfile> config refs in committed doc/config:"
     echo "$hits2" | sed 's/^/    /'
     echo "   Allowed carve-outs: ~/.claude/skills/.../scripts/ (tool calls), ~/.culture/ (mesh data)."
@@ -53,5 +53,5 @@ if [ -n "$hits2" ]; then
     fail=1
 fi
 
-[ "$fail" -eq 0 ] && echo "✓ portability lint clean ($(echo "$files" | wc -l | tr -d ' ') files checked)"
+[[ "$fail" -eq 0 ]] && echo "✓ portability lint clean ($(echo "$files" | wc -l | tr -d ' ') files checked)"
 exit $fail

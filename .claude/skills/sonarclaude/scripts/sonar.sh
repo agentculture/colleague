@@ -139,13 +139,14 @@ cmd_issues() {
 
 # Convert SonarCloud numeric rating to letter grade
 rating_letter() {
-  case "$1" in
+  local rating="$1"
+  case "$rating" in
     1|1.0) echo "A" ;;
     2|2.0) echo "B" ;;
     3|3.0) echo "C" ;;
     4|4.0) echo "D" ;;
     5|5.0) echo "E" ;;
-    *) echo "$1" ;;
+    *) echo "$rating" ;;
   esac
 }
 

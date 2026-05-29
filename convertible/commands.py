@@ -79,7 +79,7 @@ class Command:
 
 
 # Regex matching a ``$N`` positional placeholder (``$1`` ... ``$99``).
-_POSITIONAL_RE = re.compile(r"\$([1-9][0-9]?)")
+_POSITIONAL_RE = re.compile(r"\$([1-9]\d?)")
 
 
 def discover_commands(
@@ -249,7 +249,7 @@ def expand_command(
     discovered = discover_commands(repo_path, user_home=user_home)
     if name not in discovered:
         raise CommandError(
-            f"Unknown command {name!r}. " f"Available: {sorted(discovered.keys()) or '(none)'}"
+            f"Unknown command {name!r}. Available: {sorted(discovered.keys()) or '(none)'}"
         )
 
     cmd = load_command(discovered[name])

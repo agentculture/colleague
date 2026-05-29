@@ -30,8 +30,8 @@ resolve_devague() {
     fi
     # Local-dev fallback: inside the devague checkout, run via uv.
     local dir="$PWD"
-    while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-        if [ -f "$dir/pyproject.toml" ] \
+    while [[ -n "$dir" ]] && [[ "$dir" != "/" ]]; do
+        if [[ -f "$dir/pyproject.toml" ]] \
             && grep -q '^name = "devague"' "$dir/pyproject.toml" 2>/dev/null; then
             if command -v uv >/dev/null 2>&1; then
                 DEVAGUE=(uv run devague)
@@ -85,8 +85,9 @@ EOF
 cmd_split_plan() {
     local extra_args=()
     # Forward any --plan flag so waves targets the right plan.
-    while [ $# -gt 0 ]; do
-        extra_args+=("$1")
+    while [[ $# -gt 0 ]]; do
+        local arg="$1"
+        extra_args+=("$arg")
         shift
     done
 
@@ -111,7 +112,7 @@ cmd_split_plan() {
     trap - EXIT
     eval "${old_exit_trap}"  # empty string is a no-op; re-installs a prior trap if any
 
-    if [ "$waves_rc" -ne 0 ]; then
+    if [[ "$waves_rc" -ne 0 ]]; then
         printf '%s\n' "$waves_err" >&2
         return "$waves_rc"
     fi
@@ -186,7 +187,8 @@ PY
 }
 
 main() {
-    case "${1:-help}" in
+    local subcommand="${1:-help}"
+    case "$subcommand" in
         help | -h | --help)
             usage
             return 0
@@ -202,7 +204,7 @@ main() {
             exec "${DEVAGUE[@]}" plan waves "$@"
             ;;
         *)
-            printf 'error: unknown subcommand: %s\n' "$1" >&2
+            printf 'error: unknown subcommand: %s\n' "$subcommand" >&2
             printf 'hint: run `assign-to-workforce.sh help` for usage\n' >&2
             return 1
             ;;

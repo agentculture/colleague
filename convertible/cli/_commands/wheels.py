@@ -14,7 +14,7 @@ import argparse
 
 from convertible import registry
 from convertible.cli._commands.overview import emit_overview
-from convertible.cli._output import emit_result
+from convertible.cli._output import JSON_HELP, emit_result
 
 
 def wheels_sections() -> list[dict[str, object]]:
@@ -65,14 +65,14 @@ def register(sub: argparse._SubParsersAction) -> None:
         "wheels",
         help="Discover installed engine wheels (see 'convertible wheels overview').",
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="wheels_command", parser_class=type(p))
 
     lst = noun_sub.add_parser("list", help="List discovered engine wheels.")
-    lst.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_wheels_list)
 
     ov = noun_sub.add_parser("overview", help="Describe the wheels garage.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_wheels_overview)

@@ -26,8 +26,8 @@ resolve_devague() {
     fi
     # Local-dev fallback: inside the devague checkout, run via uv.
     local dir="$PWD"
-    while [ -n "$dir" ] && [ "$dir" != "/" ]; do
-        if [ -f "$dir/pyproject.toml" ] \
+    while [[ -n "$dir" ]] && [[ "$dir" != "/" ]]; do
+        if [[ -f "$dir/pyproject.toml" ]] \
             && grep -q '^name = "devague"' "$dir/pyproject.toml" 2>/dev/null; then
             if command -v uv >/dev/null 2>&1; then
                 DEVAGUE=(uv run devague)

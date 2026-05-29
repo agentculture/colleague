@@ -21,7 +21,7 @@ from pathlib import Path
 
 from convertible import hooks as _hooks
 from convertible.cli._commands.overview import emit_overview
-from convertible.cli._output import emit_result
+from convertible.cli._output import JSON_HELP, emit_result
 
 
 def _hooks_sections() -> list[dict[str, object]]:
@@ -158,7 +158,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "hooks",
         help="Inspect configured lifecycle hooks (see 'convertible hooks overview').",
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="hooks_command", parser_class=type(p))
 
@@ -176,9 +176,9 @@ def register(sub: argparse._SubParsersAction) -> None:
             "base entries follow (scope=base)."
         ),
     )
-    lst.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_hooks_list)
 
     ov = noun_sub.add_parser("overview", help="Describe the hooks surface.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_hooks_overview)

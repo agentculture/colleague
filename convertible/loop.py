@@ -160,7 +160,7 @@ def _fire_hooks(
         # and records it as a fail-closed deny firing rather than propagating.
         try:
             decision = run_hook(entry, payload, cwd=task.repo_path)
-        except Exception as exc:  # noqa: BLE001 - a hook crash is contained, not fatal
+        except Exception as exc:  # noqa: BLE001
             decision = HookDecision(
                 decision=DECISION_DENY, reason=f"hook error: {exc}", exit_code=None
             )

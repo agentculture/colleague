@@ -30,9 +30,9 @@ def test_write_produces_valid_json_with_required_keys(tmp_path: Path) -> None:
     assert payload["changed_files"] == ["a.txt"]
 
 
-def test_write_sets_artifacts_path() -> None:
+def test_write_sets_artifacts_path(tmp_path: Path) -> None:
     result = TaskResult(task_id="t2", status=OK)
-    path = write(result, "/tmp/conv-test-artifact")
+    path = write(result, tmp_path / "conv-test-artifact")
     assert result.artifacts_path == str(path)
 
 
