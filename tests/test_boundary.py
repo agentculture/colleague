@@ -323,6 +323,8 @@ class TestNoNetworkingOrDaemonMachinery:
 #                   subprocess is the transport
 #   culture.py    — launches allow-listed AgentCulture CLIs (agtag/agex);
 #                   subprocess is the transport
+#   devague.py    — launches the allow-listed devague CLI (the destination tool);
+#                   subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "convertible/hooks.py",
@@ -330,6 +332,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "convertible/handoff.py",
         "convertible/neighbours.py",
         "convertible/culture.py",
+        "convertible/devague.py",
     }
 )
 
@@ -479,6 +482,7 @@ _MESH_MODULES: list[str] = [
     "convertible/culture.py",
     "convertible/neighbours.py",
     "convertible/identity.py",
+    "convertible/devague.py",
 ]
 
 _DAEMON_PRIMITIVE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
