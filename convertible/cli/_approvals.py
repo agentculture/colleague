@@ -23,29 +23,22 @@ from convertible.configdir import CONFIG_DIR_NAME
 from convertible.policy import POLICY_FILENAME
 
 
-def approvals_path(repo: Path) -> Path:
-    """Resolved, repo-confined path to ``<repo>/.convertible/approvals.json``.
-
-    The ledger lives at the fixed sub-path ``.convertible/approvals.json`` under
-    *repo*; the result is resolved and confined to the resolved repo root — the
-    same defense :meth:`convertible.tools.ToolExecutor._safe_path` applies — so
-    the operator-supplied ``--repo`` can never steer the write outside the
-    repository tree (e.g. via ``..`` segments or a symlinked root).
-    """
-    base = Path(repo).resolve()
-    target = (base / CONFIG_DIR_NAME / POLICY_FILENAME).resolve()
-    if target != base and base not in target.parents:
-        raise ValueError(f"approvals path escapes the repo root: {target}")
-    return target
-
-
 def write_approval(repo: Path, category: str, name: str, checksum: str) -> None:
     """Merge a single ``{name: checksum}`` approval into *category* of the ledger.
 
-    Creates ``.convertible/`` and the ledger on first write; preserves every
-    other section. A malformed existing ledger is replaced rather than raising.
+    The ledger lives at the fixed sub-path ``.convertible/approvals.json`` under
+    *repo*. The target is resolved and **confined to the resolved repo root** —
+    the same defense :meth:`convertible.tools.ToolExecutor._safe_path` applies —
+    so the operator-supplied ``--repo`` can never steer the write outside the
+    repository tree (``..`` segments, a symlinked root). Creates ``.convertible/``
+    and the ledger on first write; preserves every other section; a malformed
+    existing ledger is replaced rather than raising.
     """
-    path = approvals_path(repo)
+    base = Path(repo).resolve()
+    path = (base / CONFIG_DIR_NAME / POLICY_FILENAME).resolve()
+    if path != base and base not in path.parents:
+        raise ValueError(f"approvals path escapes the repo root: {path}")
+
     path.parent.mkdir(parents=True, exist_ok=True)
 
     existing: dict = {}

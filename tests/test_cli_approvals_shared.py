@@ -33,24 +33,17 @@ def _write_raw(repo, obj) -> None:
     )
 
 
-# --- _approvals.approvals_path (resolve + confine) --------------------------
-
-
-def test_approvals_path_normal(tmp_path):
-    assert _approvals.approvals_path(tmp_path) == (
-        tmp_path.resolve() / ".convertible" / "approvals.json"
-    )
-
-
-def test_approvals_path_rejects_escape(tmp_path, monkeypatch):
-    # A repo whose resolved .convertible escapes the root would raise; we simulate
-    # by pointing CONFIG_DIR_NAME at a traversal — guard is the confinement check.
-    monkeypatch.setattr(_approvals, "CONFIG_DIR_NAME", "../evil")
-    with pytest.raises(ValueError):
-        _approvals.approvals_path(tmp_path / "repo")
-
-
 # --- _approvals.write_approval ----------------------------------------------
+
+
+def test_write_approval_confined_to_repo_root(tmp_path, monkeypatch):
+    # The write target is confined to the resolved repo root; a config dir name
+    # that would escape via traversal is rejected rather than written out of tree.
+    monkeypatch.setattr(_approvals, "CONFIG_DIR_NAME", "../evil")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    with pytest.raises(ValueError):
+        _approvals.write_approval(repo, "commands", "a", "sha256:1")
 
 
 def test_write_approval_fresh(tmp_path):
