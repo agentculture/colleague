@@ -1,8 +1,10 @@
-"""``convertible hooks`` — inspect configured lifecycle hooks.
+"""``convertible hooks`` — inspect and approve configured lifecycle hooks.
 
 ``hooks list`` enumerates hook entries loaded from ``.convertible/hooks.json``
-for the target repo; ``hooks overview`` describes the noun (satisfying the
-agent-first rubric: any noun with action-verbs must also expose ``overview``).
+for the target repo; ``hooks approve`` records a checksum approval for a hook
+script file into ``<repo>/.convertible/approvals.json``; ``hooks overview``
+describes the noun (satisfying the agent-first rubric: any noun with
+action-verbs must also expose ``overview``).
 
 When ``--model <m>`` is given, per-model entries from
 ``.convertible/<m>/hooks.json`` are composed ahead of (and tagged
@@ -17,11 +19,14 @@ is injected.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from convertible import hooks as _hooks
 from convertible.cli._commands.overview import emit_overview
+from convertible.cli._errors import EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
+from convertible.policy import POLICY_FILENAME, file_checksum, load_policy, verify_checksum
 
 
 def _hooks_sections() -> list[dict[str, object]]:
@@ -35,6 +40,7 @@ def _hooks_sections() -> list[dict[str, object]]:
                 "Per-model overlays at .convertible/<model>/hooks.json (the model "
                 "id sanitized to a filename-safe token) are composed ahead of (and "
                 "take priority over) base entries when --model is given",
+                "Approval gate: operator can approve hook scripts by checksum (approvals.json)",
             ],
         },
         {
@@ -61,7 +67,8 @@ def _hooks_sections() -> list[dict[str, object]]:
         {
             "title": "Verbs",
             "items": [
-                "hooks list [--repo PATH] [--model NAME] — list configured hook entries",
+                "hooks list [--repo PATH] [--model NAME] — list configured hook entries + status",
+                "hooks approve <name> [--repo PATH] [--algo sha256|md5] — record script approval",
                 "hooks overview — describe the hooks surface (this command)",
             ],
         },
@@ -115,27 +122,121 @@ def _resolve_scoped_entries(
     return scoped
 
 
+def _hook_approval_status(command: str, repo: Path) -> str:
+    """Determine the approval status of a hook's command string.
+
+    For hook entries, the approval key is the repo-relative script path
+    referenced in the command. We look for the command token in the hooks
+    approvals section. Returns 'approved', 'drifted', 'unapproved', or 'ungated'.
+    """
+    policy = load_policy(repo)
+    # Check if hooks section is present in the policy
+    if "hooks" not in policy._present:  # noqa: SLF001
+        return "ungated"
+
+    approvals_path = repo / ".convertible" / POLICY_FILENAME
+    if not approvals_path.is_file():
+        return "ungated"
+
+    try:
+        raw = json.loads(approvals_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return "ungated"
+
+    hooks_section = raw.get("hooks")
+    if not isinstance(hooks_section, dict):
+        return "ungated"
+
+    # Try to match command (or first token) against the hooks approval keys
+    import shlex
+
+    try:
+        tokens = shlex.split(command)
+        cmd_token = tokens[0] if tokens else command
+    except ValueError:
+        cmd_token = command
+
+    # Check the command itself as a key, and also the first token
+    for key in (command, cmd_token):
+        entry = hooks_section.get(key)
+        if entry is not None:
+            # We need the actual file path — it's the key as a repo-relative path
+            candidate = repo / key
+            if candidate.is_file():
+                return "approved" if verify_checksum(candidate, entry) else "drifted"
+            return "drifted"
+
+    return "unapproved"
+
+
+def _load_run_command_policy(repo: Path) -> dict | None:
+    """Load the run_command section from approvals.json, or None if absent."""
+    approvals_path = repo / ".convertible" / POLICY_FILENAME
+    if not approvals_path.is_file():
+        return None
+    try:
+        raw = json.loads(approvals_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    rc = raw.get("run_command")
+    if not isinstance(rc, dict):
+        return None
+    return rc
+
+
 def _emit_hook_entries(
-    scoped: list[tuple[_hooks.HookEntry, str | None]], *, json_mode: bool
+    scoped: list[tuple[_hooks.HookEntry, str | None]],
+    *,
+    json_mode: bool,
+    repo: Path,
 ) -> None:
-    """Render scoped entries; a ``None`` scope is omitted (base-only mode)."""
+    """Render scoped entries; a ``None`` scope is omitted (base-only mode).
+
+    Adds ``approval_status`` to each entry and includes ``run_command_policy``
+    in the JSON output when present in approvals.json.
+    """
+    run_cmd_policy = _load_run_command_policy(repo)
+
     if json_mode:
         items: list[dict[str, str]] = []
         for entry, scope in scoped:
-            item = {"event": entry.event, "matcher": entry.matcher, "command": entry.command}
+            approval_status = _hook_approval_status(entry.command, repo)
+            item: dict[str, str] = {
+                "event": entry.event,
+                "matcher": entry.matcher,
+                "command": entry.command,
+                "approval_status": approval_status,
+            }
             if scope is not None:
                 item["scope"] = scope
             items.append(item)
-        emit_result({"hooks": items}, json_mode=True)
+        payload: dict = {"hooks": items}
+        if run_cmd_policy is not None:
+            payload["run_command_policy"] = run_cmd_policy
+        emit_result(payload, json_mode=True)
         return
+
     if not scoped:
-        emit_result("(no hooks configured)", json_mode=False)
+        lines = ["(no hooks configured)"]
+        if run_cmd_policy is not None:
+            allow = run_cmd_policy.get("allow", [])
+            deny = run_cmd_policy.get("deny", [])
+            lines.append(f"run_command: allow={allow} deny={deny}")
+        emit_result("\n".join(lines), json_mode=False)
         return
+
     lines = []
     for entry, scope in scoped:
         matcher_str = entry.matcher if entry.matcher else "(any)"
         prefix = f"[{scope}]\t" if scope is not None else ""
-        lines.append(f"{prefix}{entry.event}\t{matcher_str}\t{entry.command}")
+        approval_status = _hook_approval_status(entry.command, repo)
+        lines.append(f"{prefix}{entry.event}\t{matcher_str}\t{entry.command}\t[{approval_status}]")
+    if run_cmd_policy is not None:
+        allow = run_cmd_policy.get("allow", [])
+        deny = run_cmd_policy.get("deny", [])
+        lines.append(f"run_command allow={allow} deny={deny}")
     emit_result("\n".join(lines), json_mode=False)
 
 
@@ -145,7 +246,72 @@ def cmd_hooks_list(args: argparse.Namespace) -> int:
     model: str | None = getattr(args, "model", None) or None
 
     scoped = _resolve_scoped_entries(repo, model)
-    _emit_hook_entries(scoped, json_mode=json_mode)
+    _emit_hook_entries(scoped, json_mode=json_mode, repo=repo)
+    return 0
+
+
+def _write_approval(repo: Path, category: str, name: str, checksum: str) -> None:
+    """Merge a single approval entry into <repo>/.convertible/approvals.json."""
+    dotdir = repo / ".convertible"
+    dotdir.mkdir(parents=True, exist_ok=True)
+    approvals_path = dotdir / POLICY_FILENAME
+
+    if approvals_path.is_file():
+        try:
+            existing = json.loads(approvals_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    else:
+        existing = {}
+
+    section = existing.get(category)
+    if not isinstance(section, dict):
+        section = {}
+    section[name] = checksum
+    existing[category] = section
+
+    approvals_path.write_text(
+        json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def cmd_hooks_approve(args: argparse.Namespace) -> int:
+    name: str = args.name  # repo-relative path to the hook script
+    repo = Path(getattr(args, "repo", ".")).expanduser()
+    algo: str = getattr(args, "algo", "sha256") or "sha256"
+    json_mode = bool(getattr(args, "json", False))
+
+    # Resolve the hook script file (repo-relative path)
+    script_path = repo / name
+    if not script_path.is_file():
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"hook script file not found: {script_path}",
+            remediation=(
+                "ensure the file exists at the given repo-relative path; "
+                "hooks are keyed by the repo-relative path of their script file"
+            ),
+        )
+
+    try:
+        checksum = file_checksum(script_path, algo)
+    except (OSError, ValueError) as exc:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"could not checksum {script_path}: {exc}",
+            remediation="ensure the file exists and is readable",
+        ) from exc
+
+    _write_approval(repo, "hooks", name, checksum)
+
+    result = {"name": name, "category": "hooks", "checksum": checksum, "path": str(script_path)}
+    emit_result(
+        result if json_mode else f"approved hooks/{name}  {checksum}",
+        json_mode=json_mode,
+    )
     return 0
 
 
@@ -178,6 +344,21 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_hooks_list)
+
+    apr = noun_sub.add_parser("approve", help="Record a checksum approval for a hook script file.")
+    apr.add_argument(
+        "name",
+        help="Repo-relative path to the hook script file (used as the approval key).",
+    )
+    apr.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
+    apr.add_argument(
+        "--algo",
+        default="sha256",
+        choices=["sha256", "md5"],
+        help="Checksum algorithm (default: sha256).",
+    )
+    apr.add_argument("--json", action="store_true", help=JSON_HELP)
+    apr.set_defaults(func=cmd_hooks_approve)
 
     ov = noun_sub.add_parser("overview", help="Describe the hooks surface.")
     ov.add_argument("--json", action="store_true", help=JSON_HELP)
