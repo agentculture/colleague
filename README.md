@@ -68,7 +68,11 @@ which one ran.
   or selected in the interactive palette.
 - **Lifecycle hooks** — operator-authored shell commands that fire at
   `task_start`, `pre_tool`, `post_tool`, and `finish` events; a `pre_tool` hook
-  can allow, deny, or rewrite tool calls before the engine executes them.
+  can allow, deny, or rewrite tool calls before the engine executes them. A
+  **per-model hooks overlay** (`.convertible/<model>/hooks.json`) layers
+  model-specific fixes **ahead of** the base hooks, giving the operator a
+  precision tool for recurring model biases — applied only for the targeted
+  model, a strict no-op for all others; no new runtime dep, socket, or daemon.
 - **Interactive palette** — `convertible session` opens a foreground command
   browser so operators can select templates and run ad-hoc instructions without
   leaving the shell.
@@ -129,6 +133,7 @@ Each shipped feature has a focused page under [`docs/features/`](docs/features/)
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 | Destination | [destination.md](docs/features/destination.md) |
+| Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.

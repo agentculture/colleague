@@ -105,6 +105,9 @@ want hooks without trusting any repo's config.
 
 ## See also
 
+- [per-model-configuration.md](per-model-configuration.md) — per-model hooks
+  overlay: add model-specific entries that fire ahead of the base hooks for one
+  targeted model only.
 - [command-templates.md](command-templates.md) — the other half of the
   extensibility layer.
 - [drive-and-loop.md](drive-and-loop.md) — the tool-loop that fires hooks.
