@@ -43,6 +43,7 @@ from typing import Callable, Optional
 
 from convertible.configdir import collect_files
 from convertible.contract import Task
+from convertible.policy import load_policy
 
 
 class CommandError(Exception):
@@ -230,6 +231,7 @@ def expand_command(
     args: list[str],
     *,
     engine_default: str = "mock",
+    model: Optional[str] = None,
     user_home: str | Path | None = None,
 ) -> Task:
     """Expand a named command template into a :class:`~convertible.contract.Task`.
@@ -239,6 +241,14 @@ def expand_command(
     :class:`~convertible.contract.Task` built through
     :meth:`~convertible.contract.Task.new` so the shape is guaranteed identical
     to any other task in the system.
+
+    Before building the task the resolved template path is checked against the
+    operator-declared approval policy (``approvals.json`` via
+    :func:`~convertible.policy.load_policy`).  When the policy's ``commands``
+    section is **absent** the gate is a strict no-op and the call proceeds
+    exactly as before.  When the section is **present** the named template must
+    have a recorded and matching checksum; a mismatch, drift, or unlisted name
+    raises :class:`CommandError` before any engine runs.
 
     Parameters
     ----------
@@ -250,6 +260,9 @@ def expand_command(
         Positional arguments for ``$1`` / ``$2`` / ``$ARGUMENTS`` substitution.
     engine_default:
         Engine to use when the command file does not specify one.
+    model:
+        Optional engine model identifier; passed to :func:`~convertible.policy.load_policy`
+        so a per-model overlay can be consulted for the approval gate.
     user_home:
         (test fixture) Inject an alternative home directory.
 
@@ -261,13 +274,23 @@ def expand_command(
     Raises
     ------
     CommandError
-        When *name* does not match any discovered command template.
+        When *name* does not match any discovered command template, or when the
+        approval policy denies the template (drift / tamper / unapproved).
     """
     discovered = discover_commands(repo_path, user_home=user_home)
     if name not in discovered:
         raise CommandError(
             f"Unknown command {name!r}. Available: {sorted(discovered.keys()) or '(none)'}"
         )
+
+    # --- Approval gate ---
+    # Consult the policy BEFORE parsing or running the template.  When no
+    # ``commands`` section is present in approvals.json the policy is a strict
+    # no-op and check_file returns Verdict(True) unchanged.
+    policy = load_policy(repo_path, model=model, user_home=user_home)
+    verdict = policy.check_file("commands", name, discovered[name])
+    if not verdict.allowed:
+        raise CommandError(f"command {name!r} refused by approval policy: {verdict.reason}")
 
     cmd = load_command(discovered[name])
     instruction = _substitute(cmd.body, args)

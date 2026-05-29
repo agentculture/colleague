@@ -1,0 +1,392 @@
+{
+  "slug": "convertible-only-runs-the-executables-you-ve-appro",
+  "title": "Convertible only runs the executables you've approved: a declarative policy allow/deny-lists run_command CLIs by name and pins lifecycle hook scripts and command templates to an approved version or checksum, while declarative skills and AGENTS instructions keep loading freely \u2014 and with no policy file present, behaviour is byte-identical to today.",
+  "frame_slug": "convertible-only-runs-the-executables-you-ve-appro",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-29T20:34:37Z",
+  "updated": "2026-05-29T20:39:55Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible only runs the executables you've approved: a declarative policy allow/deny-lists run_command CLIs by name and pins lifecycle hook scripts and command templates to an approved version or checksum, while declarative skills and AGENTS instructions keep loading freely \u2014 and with no policy file present, behaviour is byte-identical to today."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Shipped behaviour matches the announcement: with a policy present an unapproved/tampered run_command CLI or hook is refused and recorded; skills + AGENTS still load; with no policy file nothing changes \u2014 each proven by a test."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators running convertible against a repo who want to constrain what the harness executes without hand-writing a pre_tool hook; plus every engine, which inherits the gate via the chassis (all-engines rule)."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The audience is real: an operator can constrain execution with a declarative config edit instead of a hand-rolled pre_tool hook, and every engine inherits the gate because it lives in the chassis (loop/tools/hooks/commands), not in any engine module."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "run_command is ungated by design (D2, trusted-operator) so every command is auto-approved; the only narrowing today is a hand-rolled pre_tool hook script; repo-shipped hooks and command templates run with content nobody pinned (no integrity/drift check); the per-repo hook trust gate is tracked but unbuilt."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The gap is real in today's code: run_command is ungated (tools.py, D2), the only narrowing is a hand-written pre_tool hook, and shipped hooks/templates have no content-integrity check \u2014 all verifiable in the current tree."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "An operator drops a declarative policy into .convertible/ that (a) allow/deny-lists run_command program tokens by name and (b) pins each lifecycle hook script and command template to an approved version or content checksum; only approved executables run, unapproved ones are denied + fed back to the model + recorded; declarative skills and AGENTS stay ungated and load freely."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The after-state is buildable with stdlib only: one JSON policy drives name-gating (shlex) + checksum/version approval (hashlib), denials are recorded, and skills/AGENTS stay ungated \u2014 each leg proven by a test."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Turns 'give convertible a list of what it may run, and refuse what I did not approve' into a two-line config edit with one well-tested implementation, instead of pushing parse/decide logic onto every operator's hand-rolled script; and adds content-integrity (drift detection) for the executables the harness ships with."
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The value holds: one well-tested implementation replaces every operator's hand-rolled hook script, and content-drift detection is genuinely new; the README/CLAUDE.md framing matches what ships."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a sandbox: token/hash matching is bypassable by sh -c, pipelines, and shell expansion; an airtight execution sandbox stays out of v0. No daemon, no socket, no new runtime dep, no MCP client. Declarative config (skills/AGENTS) is never gated by design."
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The non-goals are honest: the bypass vectors (sh -c, pipelines, shell expansion) are documented as such in code+docs, and no daemon/socket/runtime-dep/MCP is added \u2014 the zero-deps guard enforces the last part."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "With no policy file, behaviour is byte-identical to today (e2e shape + zero-deps guards pass). With a policy, an unapproved CLI / drifted hook / drifted command template is denied identically on mock and vllm-openai, recorded in the result, and inspectable via 'convertible <noun> list --json'."
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The success signals are observable: a no-policy run is byte-identical (e2e shape test), and an unapproved/drifted-artifact denial is identical across mock + vllm-openai and inspectable via the list verb (--json)."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "R2 Strict no-op default: absent any policy file in .convertible/, no gating occurs and TaskResult is unchanged (back-compat)."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "With no .convertible/ policy file, the JSON artifact is byte-identical to a policy-free run and the zero-deps + e2e shape tests pass."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "R3 run_command name gate: program token extracted with shlex; an allow-list denies tokens not listed, a deny-list blocks listed tokens (issue #55)."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "shlex.split yields the program token; an allow-list denies a token not listed and a deny-list blocks a listed token; documented plainly as bypassable (sh -c, pipes) \u2014 a policy gate, not a sandbox."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R4 Content-integrity gate: each hook script and command template is pinned by an approval entry keyed by version OR checksum; a file whose current version/hash does not match its approval is refused + recorded."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Checksum is computed with hashlib over the file bytes; a changed file fails to match its approval and is denied + recorded; the honest limit is documented \u2014 md5 catches accidental drift, adversarial tampering needs a collision-resistant hash."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R5 Declarative carve-out: skills and AGENTS instructions are never gated; resolve_skills/resolve_agents stay unchanged and still load under an active policy."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A test asserts skills + AGENTS still load and fold into the system prompt while a policy is active; the gate code path is never reached for declarative config."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "R6 Per-model overlay: .convertible/<sanitize_model(model)>/ policy composes ahead of base with exact-path isolation and no sibling globbing, mirroring hooks/AGENTS/skills layering (layers.py)."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The overlay path is built by exact construction via sanitize_model; a test proves model X never loads model Y's policy (no glob over sibling .convertible/*/ dirs)."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "R8 Deny feedback: a denied executable is fed back to the model as the tool result and recorded in the step trace / result, mirroring the pre_tool deny path; it never crashes the drive."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The deny path mirrors the existing pre_tool deny in loop.py: the reason is fed back as the tool result, recorded as a non-ok Step / firing, and the drive continues to the next turn."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "R9 Zero-deps convention: stdlib only (json, shlex, hashlib, pathlib); no socket, no daemon, hook/CLI code never imported; the zero-deps guard imports the new module and asserts no third-party leak."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The zero-deps guard (tests/test_zero_deps.py) imports the new policy module and asserts no third-party import leaks, even with the [otel] extra installed."
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "R10 Enforcement mode: a category (run_command / hooks / commands) is gated only when its section is present in the policy; once present, only approved (hash/version-matching) entries are permitted and unapproved-or-tampered ones are denied + recorded; with no policy file (or no section for a category) that category is a strict no-op (back-compat)."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A test proves: with no policy file the artifact is byte-identical (no-op); with a 'hooks' approval section present, an approved hook runs and an unapproved/tampered one is denied + recorded, while run_command stays ungated until its section is added."
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "R1 Chassis-owned enforcement at the EXISTING control points: run_command and hook execution are gated in the loop's pre_tool / hook-firing path (loop.py / tools.py / hooks.py); command-template approval is checked at expansion (commands.py, before the drive starts). All are chassis-owned so every engine inherits them identically (all-engines rule); no engine module touches the policy."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "One test drives mock and vllm-openai through the same policy and sees identical run_command + hook denials; a separate test shows a drifted command template is refused at expand time, before any engine runs."
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "R7 Surface on EXISTING nouns (no new 'approvals' noun): 'commands' and 'hooks' gain an 'approve <name>' write-verb that records a version/checksum approval into the policy file; 'commands' / 'hooks' / 'skills' 'list' shows approval + accessibility status; 'hooks list' also shows the run_command allow/deny policy. Every verb supports --json, failures raise CliError, each noun keeps 'overview', and explain catalog entries are updated for the new verb."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "teken cli doctor . --strict stays green: each noun carrying the new 'approve' action-verb still exposes 'overview', every verb supports --json, 'approve' writes the policy file, and an 'explain' catalog entry exists for 'approve'."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Policy core module convertible/policy.py: load .convertible/<policy>.json (repo+user via configdir, per-model overlay via layers.sanitize_model, exact-path isolation); data model for run_command allow/deny + hooks/commands content-approvals; check functions (shlex program-token gate; hashlib checksum verify, algo-prefixed sha256-default + md5; version match). Stdlib only.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with no policy file present, the loader returns an empty policy and all check functions are pass-through no-ops (byte-identical behavior)",
+        "checksum verification uses hashlib over file bytes; values are algorithm-prefixed ('sha256:<hex>' default, 'md5:<hex>' honored); a changed file fails to match",
+        "run_command check: shlex extracts the program token; allow-list denies a token not listed, deny-list blocks a listed token",
+        "per-model overlay path built by exact construction via layers.sanitize_model; a test proves model X never loads model Y's policy (no sibling glob)",
+        "module imports stdlib only (json/shlex/hashlib/pathlib); no third-party import"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h3",
+        "c11",
+        "h4",
+        "c13",
+        "h6",
+        "c16",
+        "h9",
+        "c23",
+        "h10",
+        "c4",
+        "h16"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "run_command name-gate enforcement in convertible/loop.py: in the pre_tool control path, extract the program token (shlex) of a run_command call and consult the policy; a denied token skips execution, feeds the reason back as the tool result, and is recorded as a non-ok Step (mirrors the pre_tool deny path).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a run_command whose program token is denied is not executed; the reason is fed back as the tool result and recorded as a non-ok Step; the drive continues",
+        "behavior is identical on mock and vllm-openai for the same policy (all-engines rule); no engine module imports the policy",
+        "with no run_command section in the policy, run_command is ungated (strict no-op)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c25",
+        "h12",
+        "c15",
+        "h8",
+        "c9",
+        "h2"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Hook approval enforcement in convertible/hooks.py: consult the policy when loading/firing hooks; a hook whose referenced script's checksum/version does not match its approval is denied (skipped) and recorded; chassis-owned.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an approved hook fires; a hook whose referenced script is tampered/unapproved is denied (skipped) and recorded; with no hooks-approval section all hooks fire as today",
+        "the approval check is consulted in the chassis hook path; no engine module touches it"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11",
+        "h4",
+        "c25",
+        "c23"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Command-template approval enforcement in convertible/commands.py: expand_command consults the policy and refuses (CliError) a template whose checksum/version does not match its approval, before expansion / before the drive starts.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an approved command template expands; a drifted/unapproved template is refused with a CliError at expand time, before any engine runs",
+        "with no commands-approval section, templates expand exactly as today (strict no-op)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11",
+        "c25",
+        "h12",
+        "c23"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "CLI surface on existing nouns: add 'approve <name>' write-verb to the commands + hooks nouns (records a version/checksum approval into the policy file); extend commands/hooks/skills 'list' with approval+accessibility status; 'hooks list' also shows the run_command allow/deny policy; add an explain catalog entry for 'approve'.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'commands approve <name>' and 'hooks approve <name>' write a version/checksum approval into the policy file",
+        "'commands|hooks|skills list' shows approval/accessibility status; 'hooks list' also shows run_command allow/deny",
+        "every verb supports --json, failures raise CliError, each noun retains 'overview', an 'explain' entry exists for 'approve'; teken cli doctor . --strict stays green"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c26",
+        "h13"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Declarative carve-out test (tests/): assert skills + AGENTS still load and fold into the system prompt while a policy is active, and that the gate code path is never reached for declarative config (resolve_skills/resolve_agents unchanged).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with a policy active, resolve_skills and resolve_agents are unchanged and skills + AGENTS still fold into the system prompt; the gate code path is never reached for declarative config"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c12",
+        "h5"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Cross-cutting guards (tests/): e2e shape no-op + zero-deps + all-engines deny parity. Update tests/test_e2e_mock.py (no-policy byte-identical) and tests/test_zero_deps.py (import the policy module, assert no third-party leak); add an all-engines parity test (mock + vllm-openai identical run_command + hook denials for the same policy).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "e2e shape: with no policy file the JSON artifact is byte-identical to a policy-free run",
+        "zero-deps guard imports the new policy module and asserts no third-party import leak, even with the [otel] extra installed",
+        "all-engines parity: mock and vllm-openai produce identical run_command + hook denials for the same policy",
+        "announcement honesty: with a policy an unapproved/tampered CLI or hook is refused and recorded, skills+AGENTS still load, and no-policy changes nothing"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c9",
+        "h2",
+        "c16",
+        "h9",
+        "c1",
+        "h11",
+        "c7",
+        "h19",
+        "c2",
+        "h14",
+        "c25",
+        "h12"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Documentation (README.md + CLAUDE.md): document the approval gate, the policy-file shape, the new noun verbs, and the honest limits; align the before->after framing with what ships.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "README + CLAUDE.md document the approval gate, the policy-file shape, and the new noun verbs (commands/hooks approve, list status)",
+        "honest limits documented: policy gate not a sandbox (bypassable by sh -c/pipes), md5 = accidental-drift-only, no daemon/socket/runtime-dep/MCP",
+        "the before->after framing in docs matches what ships"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c3",
+        "h15",
+        "c5",
+        "h17",
+        "c6",
+        "h18",
+        "c4"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Version bump + CHANGELOG (pyproject.toml + convertible/__init__.py + CHANGELOG.md): minor bump for the new feature, Keep-a-Changelog entry (satisfies the version-check CI gate before PR).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "version bumped (minor) in pyproject.toml and convertible/__init__.py; CHANGELOG.md gets a Keep-a-Changelog entry; the version-check CI job passes"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": []
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "What exactly is hashed for a hook? hooks.json entries are shell command strings; the spec config example keys hooks by a script filename (lint.sh), implying the referenced script *file* is checksummed. Inline hooks (echo done) have no file. Build decision: checksum the referenced repo-relative script file; inline/no-file hooks fall back to command-string hashing or name-only.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r2",
+      "text": "Version-pinning needs a version source: command templates have no 'version:' frontmatter key today (commands.py metadata = description/engine/constraints/arg-hint), and hooks have none either. Build decision: ship checksum-only for v0 with 'version:' as a documented follow-up, OR add a version metadata key.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r3",
+      "text": "Concrete policy filename/location under .convertible/ (spec uses a generic <policy>.json placeholder): pick the filename in build (e.g. approvals.json), composed via configdir (repo+user) and layers (per-model overlay), consistent with hooks.json.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    }
+  ]
+}

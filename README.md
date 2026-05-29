@@ -46,6 +46,7 @@ which one ran.
 | **Handoff** | branch/commit/push + `gh pr create`, gated for offline/CI (`convertible/handoff.py`) |
 | **Oilcheck** | `convertible doctor` — read-only configuration-readiness health check (`convertible/oilcheck/`) |
 | **Garage** | `convertible wheels list` — the engines installed in this env |
+| **Approval gate** | `convertible/policy.py` — operator-declared `.convertible/approvals.json` that controls what the harness executes |
 
 ## What ships in v0
 
@@ -101,17 +102,27 @@ which one ran.
   curated allow-list excludes `confirm`/`reject` (user-only) and `export`
   (operator-only), and convergence is advisory — only human-confirmed claims are
   authoritative. Setting a destination is optional and engine-judged.
+- **Approval gate** — an operator-declared `.convertible/approvals.json` that
+  gates what the harness *executes*. Approval is tamper-protection, not just a
+  name list: `approve` records a file's content checksum; if the file changes
+  later the approval is void. Three categories are gated, each opt-in by presence
+  of its section: `run_command` CLIs by program token (allow/deny lists),
+  lifecycle hook scripts by checksum, and command templates by checksum. Skills
+  and AGENTS instructions load freely — they are never gated. See the
+  [Approval gate](#approval-gate) section below for the full config shape and
+  usage.
 - **Startup banner** — `convertible drive` and `convertible session` greet an
   interactive terminal with an ASCII banner. It's decorative chrome: written to
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
   pollutes the stdout result stream or agent-parsed output.
 
 **Not in v0** (by design): a multi-engine router/policy gearbox, an execution
-sandbox, a daemon mode, Codex/Claude/Gemini drivers, a per-repo hook trust gate
-(`--no-hooks`), and a live MCP runtime (no `mcp.json`, no `mcp` verb; the curated
-`culture` tool shells out to operator CLIs — no socket, no MCP transport). The
-runtime package has **no third-party dependencies** — the vLLM driver speaks the
-OpenAI wire format over the standard library.
+sandbox, a daemon mode, Codex/Claude/Gemini drivers, a `--no-hooks` escape hatch
+(there is no such flag; the approval gate is the landed hook-trust increment —
+a policy gate, not a sandbox), and a live MCP runtime (no `mcp.json`, no `mcp`
+verb; the curated `culture` tool shells out to operator CLIs — no socket, no MCP
+transport). The runtime package has **no third-party dependencies** — the vLLM
+driver speaks the OpenAI wire format over the standard library.
 
 ## Feature docs
 
@@ -134,6 +145,7 @@ Each shipped feature has a focused page under [`docs/features/`](docs/features/)
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 | Destination | [destination.md](docs/features/destination.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
+| Approval gate | [See Approval gate section below](#approval-gate) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.
@@ -478,6 +490,99 @@ uv run convertible skills list --model Qwen/Qwen3-32B --repo .
 > connect to any MCP server today; a live MCP client needs its own spec. There
 > is no `mcp` verb — don't rely on a non-existent surface.
 
+## Approval gate
+
+The approval gate is an operator-declared allow-list that controls what the
+harness **executes** — not just what it discovers. Approval is tamper-protection:
+`approve` records the file's current content checksum; if the file changes after
+approval, the checksum no longer matches and the approval is void.
+
+### Config shape
+
+```json
+{
+  "run_command": { "allow": ["git", "pytest", "uv"], "deny": [] },
+  "hooks":       { ".convertible/lint.sh": "sha256:<hex>" },
+  "commands":    { "fix-lint": "sha256:<hex>" }
+}
+```
+
+Place this file at `.convertible/approvals.json` in the target repo (or
+`~/.convertible/approvals.json` for user-level defaults; repo-level wins). A
+per-model overlay at `.convertible/<sanitized-model>/approvals.json` is composed
+ahead — per-model keys replace base keys for the same section; no sibling model
+is ever read.
+
+### What is gated (and what is not)
+
+| Category | Gated by | Absent section |
+|----------|----------|----------------|
+| `run_command` | Program token (`shlex` first token): allow/deny lists | No-op (all commands allowed) |
+| `hooks` | Content checksum of the referenced hook script file | No-op (all hooks run) |
+| `commands` | Content checksum of the template `.md` file (checked at expansion) | No-op (all templates expand) |
+| Skills / AGENTS | **Never gated** — declarative, load freely | — |
+
+A section is gated only when it is **present** in `approvals.json`. An absent
+section is a strict no-op: byte-identical to behavior before the gate existed.
+When a section is present, allow-list semantics apply: anything unlisted,
+unapproved, or tampered is denied.
+
+### Approving files
+
+```bash
+# Approve a command template by checksum (default: sha256):
+uv run convertible commands approve fix-lint --repo .
+
+# Approve a hook script by repo-relative path:
+uv run convertible hooks approve .convertible/lint.sh --repo .
+
+# Use md5 instead (drift detection; not recommended for integrity):
+uv run convertible commands approve fix-lint --repo . --algo md5
+
+# Both commands support --json for machine-readable output.
+```
+
+### Inspecting approval status
+
+```bash
+# commands list shows: approved | drifted | unapproved | ungated
+uv run convertible commands list --repo .
+
+# hooks list shows approval status per entry + the run_command policy if present
+uv run convertible hooks list --repo .
+
+# skills list always shows: accessible (never gated)
+uv run convertible skills list --repo .
+```
+
+Status values:
+
+| Status | Meaning |
+|--------|---------|
+| `approved` | Entry present, checksum matches current file content |
+| `drifted` | Entry present, but file changed since approval — approval void |
+| `unapproved` | Section present but no entry for this name |
+| `ungated` | Section absent from `approvals.json` — gate not active |
+| `accessible` | Skills / AGENTS — never gated, always accessible |
+
+### Honest limits
+
+> **This is a policy gate, not a sandbox.**
+
+- The `run_command` check inspects the **first shell token** only. It is trivially
+  bypassable by `sh -c '...'`, shell pipelines, command substitution, shell
+  expansion, or an absolute path to a renamed binary. The gate encodes operator
+  **intent**; it does not contain a hostile process. An airtight execution sandbox
+  is explicitly out of v0 scope.
+- `md5` detects **accidental drift** (file edited by mistake), not a deliberate
+  attacker who can recompute a hash. Use `sha256` when integrity matters.
+- **Checksum-only in v0.** There is no `version`-based pinning. Approvals are
+  recorded and verified by content hash only. Version pinning is a documented
+  follow-up that is **not yet built** — do not rely on it.
+- This is the landed increment of the tracked "per-repo hook trust gate" from
+  the security section below. There is still **no `--no-hooks` flag** — that
+  remains a future follow-up.
+
 ## ⚠ Security: repo-shipped hooks run by default
 
 > **This is a code-execution risk. Read before driving an untrusted repo.**
@@ -493,11 +598,16 @@ This behavior is intentional under Convertible's **trusted-operator-env model**
 and `.codex/` hook configs. You are expected to trust (or audit) the repos you
 drive.
 
-**What is NOT yet implemented:** a per-repo trust gate, a `--no-hooks` escape
-hatch, or any other mechanism to disable repo-shipped hooks without editing the
-`.convertible/hooks.json` file yourself. A follow-up hardening increment is
-planned and tracked, but it has **not shipped** in the current version. Do not
-rely on a non-existent flag.
+**What is implemented:** the [approval gate](#approval-gate) lets you gate hook
+scripts by checksum — an unapproved or tampered hook script is skipped (not a
+hard deny of the tool call; it fires a `skipped` firing in the artifact). The
+`run_command` allow/deny list gates which CLI programs the loop may invoke.
+
+**What is NOT yet implemented:** a `--no-hooks` escape hatch or any other
+mechanism to disable repo-shipped hooks without editing `.convertible/hooks.json`
+yourself. The approval gate is a **policy gate, not a sandbox** — see its honest
+limits above. A further hardening increment is tracked but has **not shipped**
+in the current version. Do not rely on a non-existent flag.
 
 **Safe practices until the trust gate ships:**
 
@@ -512,9 +622,11 @@ rely on a non-existent flag.
 |------|--------------|
 | `drive <goal>` | Drive toward a goal/instruction: work autonomously through a coder engine; write the artifact; hand off. |
 | `drive --command <name> [args…]` | Expand a saved command template and drive it. |
-| `commands list` | List discovered command templates for a repo. |
+| `commands list` | List discovered command templates for a repo (shows approval status). |
+| `commands approve <name>` | Record a checksum approval for a command template. |
 | `commands overview` | Describe the commands surface. |
-| `hooks list` | List configured hook entries for a repo. |
+| `hooks list` | List configured hook entries for a repo (shows approval status + run_command policy). |
+| `hooks approve <script>` | Record a checksum approval for a hook script file (repo-relative path). |
 | `hooks overview` | Describe the hooks surface. |
 | `agents list` | List resolved AGENTS instruction layers for a model. |
 | `agents overview` | Describe the agents surface. |

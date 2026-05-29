@@ -376,6 +376,60 @@ scope); invokable skills are a tracked follow-up.
 """
 
 
+_APPROVE = """\
+# convertible approve
+
+The ``approve`` verb is available on both the ``commands`` and ``hooks`` nouns.
+It records a checksum approval for a command template file or a hook script file
+into ``<repo>/.convertible/approvals.json``.
+
+## Usage
+
+    convertible commands approve <name> [--repo PATH] [--algo sha256|md5] [--json]
+    convertible hooks approve <name>    [--repo PATH] [--algo sha256|md5] [--json]
+
+## What it does
+
+1. For **commands**: resolves the template file for ``<name>`` under
+   ``.convertible/commands/<name>.md``; computes a checksum; writes it into
+   ``approvals.json`` under the ``"commands"`` section.
+2. For **hooks**: ``<name>`` is the **repo-relative path** of the hook script
+   file (the same key used in the hooks approval section); the file must exist
+   at ``<repo>/<name>``; its checksum is written into the ``"hooks"`` section.
+
+Both operations **merge** into existing ``approvals.json`` without clobbering
+other sections (``run_command``, ``hooks``, ``commands`` each live in their own
+key). The file is created if it does not exist. Re-running with the same
+unchanged file is idempotent (same checksum recorded).
+
+## Approval policy semantics
+
+When an ``approvals.json`` section is **present**, the approval gate is active:
+only entries with matching checksums are allowed. When a section is **absent**,
+the gate is a no-op (everything allowed — preserves back-compat for repos with
+no approval config).
+
+Status values shown by ``commands list`` and ``hooks list``:
+
+- ``approved``   — entry exists and checksum matches the current file.
+- ``drifted``    — entry exists but checksum mismatches (file changed after approval).
+- ``unapproved`` — section present but no entry for this name.
+- ``ungated``    — section absent from policy (gate not active).
+
+Skills are never approval-gated (they are always ``accessible``).
+
+## Checksum algorithms
+
+- ``sha256`` (default) — ``sha256:<hex>`` format.
+- ``md5`` — ``md5:<hex>`` format (weaker; use sha256 for new approvals).
+
+## See also
+
+- ``convertible explain commands``
+- ``convertible explain hooks``
+- ``convertible explain drive``
+"""
+
 _TELEMETRY = """\
 # convertible telemetry
 
@@ -444,15 +498,18 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("commands",): _COMMANDS,
     ("commands", "list"): _COMMANDS,
     ("commands", "overview"): _COMMANDS,
+    ("commands", "approve"): _APPROVE,
     ("hooks",): _HOOKS,
     ("hooks", "list"): _HOOKS,
     ("hooks", "overview"): _HOOKS,
+    ("hooks", "approve"): _APPROVE,
     ("agents",): _AGENTS,
     ("agents", "list"): _AGENTS,
     ("agents", "overview"): _AGENTS,
     ("skills",): _SKILLS,
     ("skills", "list"): _SKILLS,
     ("skills", "overview"): _SKILLS,
+    ("approve",): _APPROVE,
     ("telemetry",): _TELEMETRY,
     ("telemetry", "status"): _TELEMETRY,
     ("telemetry", "overview"): _TELEMETRY,

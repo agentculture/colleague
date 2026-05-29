@@ -46,8 +46,9 @@ from convertible.contract import (
     Task,
     TaskResult,
 )
-from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
+from convertible.hooks import HookConfig, HookDecision, hook_approval_verdict, load_hooks, run_hook
 from convertible.neighbours import NeighbourManager
+from convertible.policy import Policy, load_policy
 from convertible.telemetry import Telemetry, load_telemetry
 from convertible.tools import ToolError, ToolExecutor, ToolOutcome
 
@@ -152,6 +153,7 @@ def _fire_hooks(
     task: Task,
     tool: str | None = None,
     arguments: dict[str, Any] | None = None,
+    policy: Policy | None = None,
 ) -> HookDecision | None:
     """Run every matching hook for *event*, record a firing per hook, in order.
 
@@ -163,6 +165,13 @@ def _fire_hooks(
 
     A firing is appended for *every* hook that runs — including the allow/observe
     ones leading up to a decisive one — so the dashboard sees the full sequence.
+
+    When *policy* is given and its ``hooks`` section is present, each entry's
+    command is checked via :func:`~convertible.hooks.hook_approval_verdict` before
+    being run.  An unapproved entry is recorded as a ``HookFiring(decision=
+    "skipped")`` and skipped — it does NOT set the decisive deny/rewrite and does
+    NOT block the tool for ``pre_tool``.  With no ``hooks`` section (the default)
+    every entry fires exactly as before (strict no-op).
     """
     entries = hooks.hooks_for(event, tool=tool)
     if not entries:
@@ -178,6 +187,25 @@ def _fire_hooks(
 
     decisive = None
     for entry in entries:
+        # --- Content-approval gate (r1) ---
+        # Check the hook's referenced repo files against the policy before running.
+        # A skip is NON-control-bearing: it does NOT set decisive and does NOT
+        # block the tool for pre_tool.  With no hooks section this is a strict no-op.
+        if policy is not None:
+            approval = hook_approval_verdict(entry.command, policy, task.repo_path)
+            if not approval.allowed:
+                result.hook_firings.append(
+                    HookFiring(
+                        event=event,
+                        tool=tool,
+                        command=entry.command,
+                        decision="skipped",
+                        exit_code=None,
+                        reason=approval.reason,
+                    )
+                )
+                continue
+
         # A hook must never abort the drive. run_hook already maps timeouts /
         # launch failures to a deny; this net catches any other unexpected error
         # and records it as a fail-closed deny firing rather than propagating.
@@ -223,6 +251,7 @@ class _Drive:
     task: Task
     result: TaskResult
     messages: list[dict[str, Any]]
+    policy: Policy = field(default_factory=Policy)
     progress: ProgressFn | None = None
 
 
@@ -266,6 +295,26 @@ def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: 
         ctx.progress(step_index, tool, _progress_target(arguments), ok)
 
 
+def _deny_by_policy(ctx: _Drive, call: ToolCall, span: Any, step_index: int) -> bool:
+    """Check the approval policy for ``run_command``; record and return True on deny.
+
+    Returns ``True`` when the call is denied (the caller must return False from
+    the tool-call helper). Returns ``False`` when the policy allows the call.
+    Only ``run_command`` is gated — all other tools pass through unchanged.
+    """
+    if call.name != "run_command":
+        return False
+    verdict = ctx.policy.check_run_command(str(call.arguments.get("command", "")))
+    if verdict.allowed:
+        return False
+    # Denied — mirror the pre_tool DENY shape (span, Step, tool message, progress).
+    span.set(ok=False, denied=True, reason=verdict.reason)
+    ctx.result.steps.append(Step(step_index, call.name, call.arguments, verdict.reason, ok=False))
+    ctx.messages.append(_tool_message(call.id, verdict.reason))
+    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
+    return True
+
+
 def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
     """Run one tool call inside its own telemetry span; return whether it finished.
 
@@ -291,6 +340,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
             task=ctx.task,
             tool=call.name,
             arguments=arguments,
+            policy=ctx.policy,
         )
         kind = decision.decision if decision is not None else None
         if kind == DECISION_DENY:
@@ -307,6 +357,14 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
         if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
             # Execute with the hook-supplied arguments instead.
             arguments = decision.arguments
+
+        # Policy gate: check run_command against the operator-declared allow/deny
+        # policy AFTER hooks (so a hook rewrite is still gated), BEFORE execution.
+        # All other tools pass through unchanged. When denied, mirrors the hook-deny
+        # shape — non-ok Step + tool message — but does NOT increment the hook-denial
+        # telemetry counter (this is a policy denial, not a hook denial).
+        if _deny_by_policy(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
+            return False
 
         try:
             outcome = ctx.executor.execute(call.name, arguments)
@@ -325,6 +383,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
                 task=ctx.task,
                 tool=call.name,
                 arguments=arguments,
+                policy=ctx.policy,
             )
             return False
 
@@ -342,6 +401,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
             task=ctx.task,
             tool=call.name,
             arguments=arguments,
+            policy=ctx.policy,
         )
 
         if not outcome.finished:
@@ -404,6 +464,7 @@ def run(
     telemetry: Telemetry | None = None,
     model: str | None = None,
     progress: ProgressFn | None = None,
+    policy: Policy | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -446,6 +507,10 @@ def run(
     # unless explicitly enabled. Tool spans auto-nest under the drive span the
     # shared drive path opens (via the SDK's context propagation).
     telemetry = telemetry if telemetry is not None else load_telemetry()
+    # Policy defaults like hooks: loaded from task.repo_path when not injected.
+    # An absent or malformed approvals.json returns an empty Policy (no-op), so
+    # callers that never set policy= keep byte-identical behavior.
+    policy = policy if policy is not None else load_policy(task.repo_path, model=model)
 
     user = task.instruction
     if task.context:
@@ -476,7 +541,7 @@ def run(
         neighbours.clone_all()
 
     # task_start — once, before the loop. Observe-only: side-effects only.
-    _fire_hooks(hooks, result, event="task_start", task=task)
+    _fire_hooks(hooks, result, event="task_start", task=task, policy=policy)
 
     # The fixed collaborators for this drive — passed as one ``ctx`` to the
     # per-turn / per-call helpers so the loop body stays shallow.
@@ -487,6 +552,7 @@ def run(
         task=task,
         result=result,
         messages=messages,
+        policy=policy,
         progress=progress,
     )
 
@@ -504,7 +570,7 @@ def run(
 
     # finish — once, on every loop exit (model finish / empty turn / budget / error).
     # Observe-only this increment; requeue/re-drive is out of scope.
-    _fire_hooks(hooks, result, event="finish", task=task)
+    _fire_hooks(hooks, result, event="finish", task=task, policy=policy)
 
     # Neighbour cleanup — runs on every loop exit, after the finish hook, so
     # no clone directory persists between drives. Safe even when no clones exist

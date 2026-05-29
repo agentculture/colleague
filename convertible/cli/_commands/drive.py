@@ -263,6 +263,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
                 command_name,
                 cmd_args,
                 engine_default=engine,
+                model=config.model,
             )
         except CommandError as exc:
             raise CliError(

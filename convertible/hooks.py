@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess  # nosec B404 - hook commands run in a trusted operator env (D2)
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -277,6 +278,90 @@ def load_hooks(
         cfg._entries[event] = merged  # noqa: SLF001
 
     return cfg
+
+
+def hook_approval_verdict(command: str, policy: Any, repo_root: Path | str) -> Any:
+    """Check whether *command*'s referenced repo files are approved by *policy*.
+
+    Implements the r1 design decision: shlex-split *command*, take every token
+    that resolves to an existing file under *repo_root*, and for each call
+    ``policy.check_file("hooks", <repo-relative-path>, <abs-path>)``.  The
+    **first denial wins** and is returned immediately.  When no token resolves to
+    a repo file (a pure inline command like ``echo done``), no content-approval
+    is required and ``Verdict(True)`` is returned.  A policy with no ``hooks``
+    section is a strict no-op — ``check_file`` returns ``Verdict(True)``.
+
+    Never raises: a malformed *command* (shlex error) is treated as no-file
+    references → allowed (fail-open for inline, conservative for operator).
+
+    Args:
+        command: The hook shell command string.
+        policy:  A :class:`~convertible.policy.Policy` instance.
+        repo_root: The root of the repo being driven.
+
+    Returns:
+        A :class:`~convertible.policy.Verdict` — ``allowed=True`` when all
+        referenced files pass (or there are none), ``allowed=False`` (with a
+        reason) on the first denial.
+    """
+    # Import here to avoid a circular import; policy imports nothing from hooks.
+    from convertible.policy import Verdict  # noqa: PLC0415
+
+    for rel, candidate in referenced_repo_files(command, repo_root):
+        verdict = policy.check_file("hooks", rel, candidate)
+        if not verdict.allowed:
+            return verdict
+
+    return Verdict(True)
+
+
+def referenced_repo_files(command: str, repo_root: Path | str) -> list[tuple[str, Path]]:
+    """``(repo-relative key, absolute path)`` for each existing file *command* references.
+
+    The single source of truth for how a hook command maps to approval keys:
+    shlex-split *command*; for every token that resolves to an existing file
+    **under** *repo_root*, yield its canonical repo-relative key and absolute
+    path. Tokens that don't resolve to a repo file (flags, inline builtins,
+    paths outside the tree) are skipped. Never raises — a shlex error (unbalanced
+    quote) yields no references.
+
+    Enforcement (:func:`hook_approval_verdict`), the ``hooks approve`` verb, and
+    the ``hooks list`` status display all derive keys through this function, so a
+    file approved by one is recognised by the others (no raw-vs-canonical drift).
+    """
+    root = Path(repo_root).resolve()
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return []
+    refs: list[tuple[str, Path]] = []
+    for token in tokens:
+        candidate = (root / token).resolve()
+        if not candidate.is_file():
+            continue
+        try:
+            rel = candidate.relative_to(root)
+        except ValueError:
+            continue  # outside repo root — not a repo file reference
+        refs.append((str(rel), candidate))
+    return refs
+
+
+def canonical_hook_key(repo_root: Path | str, name: str) -> str | None:
+    """Canonical repo-relative approval key for a single hook-script path *name*.
+
+    Resolves *name* under *repo_root* and returns the repo-relative key that
+    matches what :func:`referenced_repo_files` derives for a command referencing
+    that file (so ``hooks approve ./x.sh`` and a hook running ``bash ./x.sh``
+    agree on the key ``x.sh``). Returns ``None`` if the resolved path escapes the
+    repo root — the caller rejects it rather than writing an out-of-tree key.
+    """
+    root = Path(repo_root).resolve()
+    candidate = (root / name).resolve()
+    try:
+        return str(candidate.relative_to(root))
+    except ValueError:
+        return None
 
 
 def run_hook(

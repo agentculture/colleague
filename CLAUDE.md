@@ -55,6 +55,32 @@ The car metaphor *is* the architecture:
   forced gate; convergence is ADVISORY, and only operator-confirmed claims are
   authoritative. Specification + plan: `docs/specs/2026-05-29-convertible-knows-its-destination-before-it-drives.md`
   and `docs/plans/2026-05-29-convertible-knows-its-destination-before-it-drives.md`.
+- **Approval gate** — operator-declared allow-list that controls what the
+  harness *executes* (`convertible/policy.py`). The policy lives in
+  `.convertible/approvals.json` (repo-level, resolved via `configdir`; a
+  per-model overlay at `.convertible/<sanitized-model>/approvals.json` is
+  composed ahead via exact-path construction — no sibling globbing). Three
+  gated categories, each opt-in via presence of its section:
+  - `run_command` — gates CLI invocations by program token (`shlex` first
+    token); allow/deny lists; absent section is a strict no-op.
+  - `hooks` — gates lifecycle hook script files by content checksum; a
+    section present but listing no entry is still a gate (allow-list
+    semantics: unlisted = denied).
+  - `commands` — gates command template files by content checksum at
+    expansion time.
+  Skills and AGENTS instructions are **never gated** — they are declarative
+  and load freely. Approval values are algorithm-prefixed strings
+  `"sha256:<hex>"` (default) or `"md5:<hex>"` (honored). `approve` records
+  the file's current checksum; a subsequent content change voids the approval
+  (checksum mismatch → denied). Absent or malformed `approvals.json` is a
+  strict no-op. Spec + plan: `docs/specs/2026-05-29-convertible-only-runs-the-executables-you-ve-appro.md`
+  and `docs/plans/2026-05-29-convertible-only-runs-the-executables-you-ve-appro.md`.
+  **Honest limits:** this is a policy gate, not a sandbox — the token check
+  is bypassable by `sh -c`, pipelines, and shell expansion; `md5` detects
+  accidental drift, not a malicious editor (use `sha256` for integrity);
+  v0 is checksum-only (`version` pinning is a documented follow-up, not
+  built). This is the tracked "per-repo hook trust gate" from the conventions
+  section, now partially landed; there is still no `--no-hooks` flag.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`convertible/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
@@ -107,16 +133,19 @@ read-only neighbour clones (`convertible/neighbours.py`), and the curated
 and the **destination/`devague` tool** (`convertible/devague.py`; curated allow-list
 excluding `confirm`/`reject`/`export`), which lets an engine set and converge a
 goal-frame when a task warrants one, drive toward it, and declare the announcement
-on arrival. All three integrated features (mesh-member, culture tool, and destination)
-were added via explicit re-specs (spec + plan committed on this branch under
-`docs/specs/` / `docs/plans/`); they extend the tool surface and contract within
-the zero-deps / no-socket / no-daemon conventions.
+on arrival — and the **approval gate** (`convertible/policy.py`):
+`.convertible/approvals.json` gating `run_command` CLIs by program token and
+hook/command files by checksum. All four integrated features (mesh-member, culture
+tool, destination, and approval gate) were added via explicit re-specs (spec + plan
+committed on this branch under `docs/specs/` / `docs/plans/`); they extend the
+chassis within the zero-deps / no-socket / no-daemon conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
 router/policy "gearbox", an execution sandbox, a daemon/server mode,
-Codex/Claude/Gemini drivers, a per-repo hook trust gate / `--no-hooks`
-escape hatch (planned follow-up hardening — not yet built; document this gap
-honestly, never invent a `--no-hooks` flag), and an **MCP execution runtime**
+Codex/Claude/Gemini drivers, a `--no-hooks` escape hatch (there is still no
+such flag — the approval gate's checksum-based trust model is the landed
+increment of the planned hook trust gate, but it is a policy gate, not a
+sandbox; document this gap honestly, never invent a `--no-hooks` flag), and an **MCP execution runtime**
 (a live MCP client — stdio/socket transport, tool discovery, dynamic tool
 registration). The layered config ships AGENTS + skills only; `mcp.json` is
 **not** read and there is no `mcp` verb. A live MCP client would breach the
@@ -169,8 +198,12 @@ test (`tests/test_e2e_mock.py`) is the guard.
   is a strict no-op (no spans, no SDK import, `TaskResult` unchanged) — protect
   that so the e2e shape test and zero-deps guard keep passing.
 - **Repo-shipped hooks run by default (trusted-operator-env model D2).** There
-  is no `--no-hooks` flag today. A per-repo trust gate is a tracked follow-up.
-  Document this gap clearly; never document a non-existent flag.
+  is no `--no-hooks` flag today. The approval gate (`convertible/policy.py`)
+  is the landed increment of the per-repo hook trust gate: it gates hook
+  scripts by checksum and `run_command` CLIs by token. It is a **policy gate,
+  not a sandbox** — it is bypassable by `sh -c`, pipelines, and shell
+  expansion. Document this gap clearly; never document a non-existent
+  `--no-hooks` flag.
 - **Per-model hooks overlay belongs to the chassis, not to engines.**
   `convertible/loop.py` passes `model=config.model` to `load_hooks` — both
   bundled engines do this. New engine wheels inherit the per-model overlay for
@@ -193,6 +226,18 @@ test (`tests/test_e2e_mock.py`) is the guard.
   (operator-only — arrival is recorded as a lightweight announcement, not a spec file).
   Every devague integration shells out to an operator-installed CLI — no socket, no
   daemon, no import.
+- **The approval gate belongs to the chassis, not to engines.**
+  `convertible/policy.py` is loaded once in `convertible/loop.py` (via
+  `load_policy(task.repo_path, model=model)`) and consulted at two points:
+  `_deny_by_policy` (for `run_command` calls) and `_fire_hooks` (for hook
+  script files before they run). `convertible/commands.py` consults it at
+  command-template expansion time. No engine module touches `policy.py`
+  directly. The all-engines rule applies: the gate fires identically for
+  `mock` and `vllm-openai`. Absent or malformed `approvals.json` is a strict
+  no-op — byte-identical to pre-gate behavior. Zero new runtime deps (stdlib
+  `json`/`shlex`/`hashlib`/`hmac`). **Checksum-only in v0** — `version`
+  pinning is a documented follow-up, not built; do not document it as
+  existing.
 - **The `doctor` verb is convertible's oilcheck.** It emits a configuration-readiness
   health check across identity, provider, usage, engines, otel-readiness, and
   environment check-groups, in a rubric shape with exit-1-on-unhealthy semantics. The
@@ -215,8 +260,11 @@ uv run convertible drive "<task>" --repo . --engine mock --no-pr
 uv run convertible drive --command <name> [args…] --repo . --engine mock --no-pr
 uv run convertible commands list --repo .          # list discovered templates
 uv run convertible commands overview               # surface description
-uv run convertible hooks list --repo .             # list configured hooks
+uv run convertible hooks list --repo .             # list configured hooks (shows run_command policy + approval status)
 uv run convertible hooks overview                  # surface description
+uv run convertible hooks approve <script> --repo . # record checksum approval for a hook script (repo-relative path)
+uv run convertible commands approve <name> --repo . # record checksum approval for a command template
+# Both approve commands accept --algo sha256|md5 (default: sha256) and --json.
 uv run convertible session --repo . --engine mock  # interactive palette (commits locally, no PR; --pr to push+PR)
 
 # GPS / telemetry (opt-in; needs the [otel] extra):

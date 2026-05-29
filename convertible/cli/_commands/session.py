@@ -109,6 +109,7 @@ def _resolve_selection(
     repo: Path,
     engine_name: str,
     err: Callable[..., None],
+    model: str | None = None,
 ) -> Optional[tuple[Task, Optional[str]]]:
     """Resolve a palette input line to a ``(task, command_name)`` pair.
 
@@ -134,7 +135,7 @@ def _resolve_selection(
 
     # A command was selected (by number or name) — expand it into a Task.
     try:
-        task = expand_command(repo, command_name, [], engine_default=engine_name)
+        task = expand_command(repo, command_name, [], engine_default=engine_name, model=model)
     except CommandError as exc:
         err(f"  error: {exc}")
         return None
@@ -275,7 +276,9 @@ def run_session(
             break
 
         # Resolve the line to a task (None → already reported; prompt again).
-        resolved = _resolve_selection(line, palette, discovered, repo, engine_name, err)
+        resolved = _resolve_selection(
+            line, palette, discovered, repo, engine_name, err, model=config.model
+        )
         if resolved is None:
             continue
         task, command_name = resolved
