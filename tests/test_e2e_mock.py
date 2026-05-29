@@ -146,6 +146,52 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     assert vllm_openai.SCHEMAS is SCHEMAS
 
 
+def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Path) -> None:
+    """A normal mock drive that sets NO destination serializes byte-identically to
+    the pre-feature shape (c8/h8): ``to_dict()`` must NOT contain ``destination``
+    or ``announcement`` keys.
+
+    The mock engine is the contract reference (the all-engines rule). Its scripted
+    finish carries no destination/announcement, so the serialized result must be
+    indistinguishable from the result a pre-feature convertible produced — the
+    destination concept is additive and default-off, never a null-padded key.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = EngineConfig.resolve()
+
+    result = registry.load("mock").drive(Task.new(str(repo), "do work"), cfg)
+
+    assert result.status == OK
+    # The drive really ran (it edited the repo), so this is a live, not-empty result.
+    assert result.changed_files
+    # The destination concept stayed off — the fields are None on the object …
+    assert result.destination is None
+    assert result.announcement is None
+    # … and the serialized shape OMITS both keys entirely (not present-as-null).
+    serialized = result.to_dict()
+    assert "destination" not in serialized
+    assert "announcement" not in serialized
+
+    # Byte-identical guard: the exact key set is the pre-feature key set. Pin it
+    # explicitly so any future field addition that leaks into the no-destination
+    # path is caught here.
+    assert set(serialized.keys()) == {
+        "task_id",
+        "status",
+        "summary",
+        "changed_files",
+        "steps",
+        "usage",
+        "artifacts_path",
+        "error",
+        "branch",
+        "pr_url",
+        "hook_firings",
+        "command",
+    }
+
+
 def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["drive", "go", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"])
     assert rc == 0
