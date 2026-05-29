@@ -54,6 +54,16 @@ _DEFAULT_SYSTEM = (
     "You are a coding agent working inside a repository. Use the provided tools "
     "to inspect and edit files, then call finish with a short summary. Make the "
     "smallest change that satisfies the task."
+    "\n\n"
+    "Destination (optional). When a task is vague or new enough to benefit from a "
+    "clear goal-frame, you MAY use the devague tool to open or update one — this is "
+    "advisory and entirely your own judgement. A clear, well-scoped task needs no "
+    "destination; never set one just to set one. Convergence is advisory: you can "
+    "call converge or status to see gaps, but you CANNOT confirm or reject your own "
+    "claims (those are user-only moves the tool does not offer). Authoritative "
+    "convergence belongs to the operator, not to you. When the work reaches the "
+    "goal, declare arrival by passing destination (the frame slug) and announcement "
+    "(the goal-frame's arrival announcement) to the finish tool."
 )
 
 
@@ -326,6 +336,10 @@ def run(
                 if outcome.finished:
                     span.set(finished=True)
                     result.summary = outcome.finish_summary or result.summary
+                    if outcome.destination:
+                        result.destination = outcome.destination
+                    if outcome.announcement:
+                        result.announcement = outcome.announcement
                     finished = True
         if finished:
             break
