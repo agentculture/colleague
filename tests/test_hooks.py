@@ -21,6 +21,7 @@ from convertible.hooks import (
     load_hooks,
     run_hook,
 )
+from convertible.layers import sanitize_model
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -189,6 +190,237 @@ class TestLoadHooks:
         entries = cfg.hooks_for("task_start")
         assert len(entries) == 1
         assert entries[0].command == "echo repo-start"
+
+
+# ---------------------------------------------------------------------------
+# 1b. Per-model hooks overlay (t1)
+# ---------------------------------------------------------------------------
+
+
+def _write_hooks(dotdir: Path, relative: str, payload: dict) -> Path:
+    """Write a hooks.json under *dotdir*/*relative* and return its path."""
+    path = dotdir / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+class TestPerModelHooksOverlay:
+    """Per-model overlay composition for ``load_hooks(repo, model=...)`` (t1).
+
+    Before-state baseline (the gap t1 closes): pre-change ``load_hooks`` had no
+    ``model`` parameter — its signature was ``load_hooks(repo_path, *,
+    user_home=None)``. There was no way to layer a model-specific
+    ``.convertible/<model>/hooks.json`` ahead of the base ``.convertible/
+    hooks.json``. t1 adds the keyword-only ``model`` parameter and the
+    per-model-first composition exercised below.
+    """
+
+    # --- Criterion 1: per-model entries merge BEFORE base entries -----------
+
+    def test_per_model_entries_prepended_before_base(self, repo_with_hooks: Path) -> None:
+        """`.convertible/<model>/hooks.json` entries come before base entries.
+
+        The base fixture has one ``pre_tool`` ``run_command`` entry
+        (``echo pre-run``). A per-model overlay adds another ``run_command``
+        entry; ``hooks_for`` must return the per-model entry first so the
+        loop's "first deny/rewrite wins" gives the per-model fix priority.
+        """
+        model = "Qwen/Qwen3-32B"
+        safe = sanitize_model(model)
+        overlay = {
+            "hooks": {
+                "pre_tool": [
+                    {"matcher": "run_command", "command": "echo model-run"},
+                ],
+            }
+        }
+        _write_hooks(repo_with_hooks / ".convertible", f"{safe}/hooks.json", overlay)
+
+        cfg = load_hooks(repo_with_hooks, model=model)
+        entries = cfg.hooks_for("pre_tool", tool="run_command")
+        assert [e.command for e in entries] == ["echo model-run", "echo pre-run"]
+        # The per-model match is first.
+        assert entries[0].command == "echo model-run"
+
+    def test_per_model_first_across_events(self, repo_with_hooks: Path) -> None:
+        """Per-model-first holds for every event, not just pre_tool."""
+        model = "myco/Model-X"
+        safe = sanitize_model(model)
+        overlay = {
+            "hooks": {
+                "task_start": [{"command": "echo model-start"}],
+                "finish": [{"command": "echo model-done"}],
+            }
+        }
+        _write_hooks(repo_with_hooks / ".convertible", f"{safe}/hooks.json", overlay)
+
+        cfg = load_hooks(repo_with_hooks, model=model)
+
+        start = cfg.hooks_for("task_start")
+        assert start[0].command == "echo model-start"
+        assert start[-1].command == "echo start"  # base entry still present, after
+
+        finish = cfg.hooks_for("finish")
+        assert finish[0].command == "echo model-done"
+        # Base finish entries (2) still follow the per-model one.
+        assert [e.command for e in finish[1:]] == ["echo done", "echo done-matcher"]
+
+    def test_per_model_only_event_present(self, repo_with_hooks: Path) -> None:
+        """An event present only in the overlay is exposed too."""
+        model = "solo"
+        overlay = {"hooks": {"post_tool": [{"matcher": "", "command": "echo model-post"}]}}
+        _write_hooks(
+            repo_with_hooks / ".convertible", f"{sanitize_model(model)}/hooks.json", overlay
+        )
+
+        cfg = load_hooks(repo_with_hooks, model=model)
+        entries = cfg.hooks_for("post_tool", tool="read_file")
+        # Per-model catch-all first, then base catch-all (echo post-all).
+        assert entries[0].command == "echo model-post"
+        assert "echo post-all" in [e.command for e in entries]
+
+    # --- Criterion 2: exact-construction via sanitize_model, no sibling glob -
+
+    def test_sibling_model_overlay_never_loaded(self, repo_with_hooks: Path) -> None:
+        """A fix under `.convertible/Y/hooks.json` is invisible when model='X'.
+
+        The per-model path is exact-constructed via ``sanitize_model`` — sibling
+        ``.convertible/*/`` directories are never globbed. We place an overlay
+        under model ``Y`` and drive with model ``X``; the overlay must NOT load.
+        """
+        # Overlay belongs to a *different* model "other-model".
+        _write_hooks(
+            repo_with_hooks / ".convertible",
+            f"{sanitize_model('other-model')}/hooks.json",
+            {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo SIBLING"}]}},
+        )
+
+        cfg = load_hooks(repo_with_hooks, model="my-model")
+        entries = cfg.hooks_for("pre_tool", tool="run_command")
+        # Only the base entry — the sibling overlay must never leak in.
+        assert [e.command for e in entries] == ["echo pre-run"]
+        assert "echo SIBLING" not in [e.command for e in entries]
+
+    def test_model_path_uses_sanitize_model(self, repo_with_hooks: Path) -> None:
+        """The overlay dir name is the sanitized token, not the raw model id."""
+        model = "Qwen/Qwen3-32B"
+        safe = sanitize_model(model)
+        assert safe == "Qwen-Qwen3-32B"  # constructed token, slash collapsed
+        # Write at the sanitized path — this is the only path that should load.
+        _write_hooks(
+            repo_with_hooks / ".convertible",
+            f"{safe}/hooks.json",
+            {"hooks": {"finish": [{"command": "echo model-done"}]}},
+        )
+        cfg = load_hooks(repo_with_hooks, model=model)
+        assert cfg.hooks_for("finish")[0].command == "echo model-done"
+
+    # --- Criterion 3: strict no-op (model=None or no overlay file) ----------
+
+    def test_model_none_is_byte_identical_to_base(self, repo_with_hooks: Path) -> None:
+        """`load_hooks(repo)` and `load_hooks(repo, model=None)` are identical."""
+        base = load_hooks(repo_with_hooks)
+        with_none = load_hooks(repo_with_hooks, model=None)
+        assert with_none == base
+
+    def test_model_with_no_overlay_is_byte_identical_to_base(self, repo_with_hooks: Path) -> None:
+        """A model whose overlay file is absent yields the base-only config."""
+        base = load_hooks(repo_with_hooks)
+        # No `.convertible/<model>/hooks.json` exists for this model.
+        with_model = load_hooks(repo_with_hooks, model="model-without-overlay")
+        assert with_model == base
+
+    def test_default_signature_unchanged_for_existing_callers(self, repo_with_hooks: Path) -> None:
+        """Existing positional/keyword call shape still works (no behavior change)."""
+        cfg = load_hooks(repo_with_hooks)
+        # Same selection an existing caller would observe today.
+        entries = cfg.hooks_for("pre_tool", tool="run_command")
+        assert [e.command for e in entries] == ["echo pre-run"]
+
+    def test_per_model_overlay_respects_repo_over_user_precedence(self, tmp_path: Path) -> None:
+        """Per-model overlay resolves repo-over-user via the same configdir path."""
+        model = "my-model"
+        safe = sanitize_model(model)
+
+        user_home = tmp_path / "home"
+        user_dotdir = user_home / ".convertible"
+        _write_hooks(
+            user_dotdir,
+            f"{safe}/hooks.json",
+            {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo user-model"}]}},
+        )
+
+        repo = tmp_path / "myrepo"
+        repo_dotdir = repo / ".convertible"
+        # Base repo hooks present so we can observe ordering.
+        _write_hooks(
+            repo_dotdir,
+            "hooks.json",
+            {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo base"}]}},
+        )
+        _write_hooks(
+            repo_dotdir,
+            f"{safe}/hooks.json",
+            {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo repo-model"}]}},
+        )
+
+        cfg = load_hooks(repo, model=model, user_home=user_home)
+        entries = cfg.hooks_for("pre_tool", tool="run_command")
+        # Repo overlay shadows the user overlay (resolve_file precedence), and
+        # the per-model overlay is prepended before the base repo entry.
+        assert [e.command for e in entries] == ["echo repo-model", "echo base"]
+        assert "echo user-model" not in [e.command for e in entries]
+
+    def test_per_model_user_level_fallback(self, tmp_path: Path) -> None:
+        """When no repo overlay exists, the user-level per-model overlay loads."""
+        model = "my-model"
+        safe = sanitize_model(model)
+
+        user_home = tmp_path / "home"
+        _write_hooks(
+            user_home / ".convertible",
+            f"{safe}/hooks.json",
+            {"hooks": {"task_start": [{"command": "echo user-model-start"}]}},
+        )
+
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+
+        cfg = load_hooks(repo, model=model, user_home=user_home)
+        entries = cfg.hooks_for("task_start")
+        assert [e.command for e in entries] == ["echo user-model-start"]
+
+    # --- Criterion 4: malformed per-model hooks.json is skipped -------------
+
+    def test_malformed_per_model_json_is_skipped(self, repo_with_hooks: Path) -> None:
+        """A malformed per-model hooks.json is skipped, never raises.
+
+        The result must degrade to the base-only config (the broken overlay
+        contributes nothing), mirroring the base loader's try/except resilience.
+        """
+        model = "broken-model"
+        safe = sanitize_model(model)
+        path = repo_with_hooks / ".convertible" / safe / "hooks.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("not valid json {{", encoding="utf-8")
+
+        base = load_hooks(repo_with_hooks)
+        cfg = load_hooks(repo_with_hooks, model=model)  # must not raise
+        assert cfg == base
+
+    def test_malformed_per_model_json_with_no_base_returns_empty(self, tmp_path: Path) -> None:
+        """Malformed overlay + no base → empty config, no raise."""
+        model = "broken-model"
+        safe = sanitize_model(model)
+        repo = tmp_path / "myrepo"
+        path = repo / ".convertible" / safe / "hooks.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{ broken", encoding="utf-8")
+
+        cfg = load_hooks(repo, model=model)
+        assert isinstance(cfg, HookConfig)
+        assert cfg.hooks_for("pre_tool", tool="run_command") == []
 
 
 # ---------------------------------------------------------------------------
