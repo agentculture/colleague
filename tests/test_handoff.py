@@ -143,11 +143,60 @@ def test_handoff_only_bookkeeping_output_is_a_no_op(tmp_path: Path) -> None:
     _init_repo(repo)
     (repo / ".convertible").mkdir()
     (repo / ".convertible" / "x.json").write_text("{}\n")
+    before = _current_branch(repo)
 
     result = handoff(repo, "abc123", open_pr=False)
     assert result.committed is False
     assert result.branch is None
-    assert "no changes to hand off" in result.note
+    assert "hand off" in result.note
+    # No-op must not strand the operator on a freshly-created task branch (Qodo).
+    assert _current_branch(repo) == before
+
+
+def test_handoff_no_op_preserves_current_branch(tmp_path: Path) -> None:
+    """When only pre-existing untracked files exist, handoff is a true no-op (Qodo)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "operator_wip.txt").write_text("do not commit me\n")
+    before = _current_branch(repo)
+
+    # The drive produced nothing of its own; operator_wip predates it (baseline).
+    result = handoff(repo, "abc123", baseline_untracked=["operator_wip.txt"], open_pr=False)
+    assert result.committed is False
+    assert result.branch is None
+    assert _current_branch(repo) == before
+
+
+def test_handoff_does_not_sweep_preexisting_untracked(tmp_path: Path) -> None:
+    """A pre-existing untracked file (operator WIP) is never swept into the commit (#39, Qodo)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "operator_wip.txt").write_text("do not commit me\n")  # predates the drive
+    (repo / "drive_output.txt").write_text("task work\n")  # produced by the drive
+
+    result = handoff(
+        repo,
+        "t1",
+        changed_files=["drive_output.txt"],
+        baseline_untracked=["operator_wip.txt"],
+        open_pr=False,
+    )
+
+    committed = _committed_files(repo)
+    assert "drive_output.txt" in committed
+    assert "operator_wip.txt" not in committed
+    assert result.changed_files == ["drive_output.txt"]
+
+
+def test_handoff_commits_run_command_tracked_edit(tmp_path: Path) -> None:
+    """A modification to an already-tracked file (e.g. a run_command edit) is committed."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)  # seeds + commits README.md
+    (repo / "README.md").write_text("seed\nedited by the drive\n")  # modify a tracked file
+
+    result = handoff(repo, "t1", open_pr=False)
+    assert "README.md" in _committed_files(repo)
+    assert result.changed_files == ["README.md"]
 
 
 def test_handoff_commit_subject_is_short_with_full_body(tmp_path: Path) -> None:

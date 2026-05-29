@@ -72,6 +72,7 @@ def handoff(
     *,
     instruction: str = "",
     changed_files: list[str] | None = None,
+    baseline_untracked: list[str] | None = None,
     open_pr: bool = True,
     base_branch: str = "main",
 ) -> HandoffResult:
@@ -80,11 +81,19 @@ def handoff(
     Returns a :class:`HandoffResult`; ``pr_url`` is ``None`` whenever the run
     stays local (gating off, no remote, no gh, or a push/PR failure).
 
-    Staging excludes convertible's own ``.convertible/`` bookkeeping dir so a
-    handoff never sweeps prior runs' result artifacts / traces into the commit
-    (#39).  ``changed_files`` is the loop-tracked set; any of those paths that
-    are gitignored (so they can't land in the commit) are surfaced in
+    Staging commits **only the task's own work** (#39): all tracked
+    modifications (so ``run_command`` edits to tracked files are captured) plus
+    the new untracked files the *drive itself* produced — i.e. untracked files
+    that were **not** present before the drive (``baseline_untracked``) and are
+    not under convertible's own ``.convertible/`` bookkeeping dir. Pre-existing
+    untracked files (operator work-in-progress) and prior runs' artifacts are
+    never swept in. ``changed_files`` is the loop-tracked set; any of those paths
+    that are gitignored (so they can't land in the commit) are surfaced in
     :attr:`HandoffResult.note` rather than dropped silently.
+
+    ``baseline_untracked`` is the set of untracked paths captured *before* the
+    drive (see :func:`untracked_snapshot`); when ``None`` no baseline filtering
+    is applied (every drive-produced untracked file is a candidate).
     """
     repo = Path(repo_path).resolve()
     branch = _branch_name(task_id)
@@ -100,24 +109,35 @@ def handoff(
         result.note = _with_ignored("no changes to hand off", ignored)
         return result
 
-    _git(repo, "checkout", "-B", branch)
-    # Stage everything *except* convertible's own bookkeeping dir. The plain
-    # ``-A`` this replaced swept in prior runs' untracked ``.convertible/*.json``
-    # / ``*.trace.jsonl`` artifacts (#39); the exclude pathspec keeps the
-    # run_command-edits-still-captured behaviour while committing only the task's
-    # own work.
-    _git(repo, "add", "-A", "--", ".", ":(exclude).convertible")
+    # Stage BEFORE switching branches: a no-op must never leave the operator
+    # checked out on a freshly-created task branch (the index built here is
+    # carried into the `checkout -B` below when we do commit).
+    #   1. tracked modifications/deletions (run_command + write_file edits to
+    #      already-tracked files), never sweeping untracked files;
+    #   2. the new untracked files the drive produced — excluding pre-existing
+    #      operator work-in-progress and `.convertible/` bookkeeping (#39).
+    _git(repo, "add", "-u", "--", ".", ":(exclude).convertible")
+    baseline = set(baseline_untracked or [])
+    produced = [
+        path
+        for path in _untracked_paths(repo)
+        if path not in baseline and not path.startswith(".convertible/")
+    ]
+    if produced:
+        _git(repo, "add", "--", *produced)
+
     # The committed set is exactly what is now staged — derive changed_files from
     # it (not from the pre-stage porcelain) so the artifact agrees with the commit.
     staged = _staged_paths(repo)
     if not staged:
-        # Everything was excluded (.convertible bookkeeping) or gitignored — no
-        # task output of our own to commit.
+        # Only excluded/ignored/pre-existing output — nothing of the task's own
+        # to commit. We have NOT switched branches, so operator state is intact.
         result.branch = None
-        result.note = _with_ignored("no changes to hand off (only harness/ignored output)", ignored)
+        result.note = _with_ignored("no task changes to hand off", ignored)
         return result
     result.changed_files = staged
 
+    _git(repo, "checkout", "-B", branch)
     subject = _commit_subject(instruction, task_id)
     body = (instruction or "").strip()
     commit_args = ["commit", "-m", subject]
@@ -171,11 +191,44 @@ def _staged_paths(repo: Path) -> list[str]:
     return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
 
 
+def _untracked_paths(repo: Path) -> list[str]:
+    """Untracked, non-gitignored paths in the work tree (``git status`` ``??``)."""
+    proc = _git(repo, "status", "--porcelain", "--untracked-files=all")
+    return [line[3:] for line in proc.stdout.splitlines() if line.startswith("?? ")]
+
+
+def untracked_snapshot(repo_path: str | Path) -> list[str]:
+    """Untracked paths *now* — captured before a drive as the handoff baseline.
+
+    Returns ``[]`` outside a git repo (or on any git error) so the caller can
+    pass it through unconditionally; a missing baseline just means no filtering.
+    """
+    try:
+        return _untracked_paths(Path(repo_path).resolve())
+    except HandoffError:
+        return []
+
+
 def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
-    """Subset of ``paths`` that git ignores (so they cannot land in a commit)."""
+    """Subset of ``paths`` that git ignores (so they cannot land in a commit).
+
+    Uses ``check-ignore --stdin`` so the path list never becomes argv (no
+    ``ARG_MAX`` blow-up for a large changed_files set) and leading-dash paths are
+    never mistaken for flags.
+    """
     if not paths:
         return []
-    proc = _git(repo, "check-ignore", *paths, check=False)
+    proc = subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
+        ["git", "check-ignore", "--stdin"],
+        cwd=str(repo),
+        input="\n".join(paths),
+        capture_output=True,
+        text=True,
+    )
+    # 0 = some ignored, 1 = none ignored; anything else (128 = not a git repo) ->
+    # surface nothing rather than raising.
+    if proc.returncode not in (0, 1):
+        return []
     return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
 
 
