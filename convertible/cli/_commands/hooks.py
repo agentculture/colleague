@@ -6,7 +6,10 @@ agent-first rubric: any noun with action-verbs must also expose ``overview``).
 
 When ``--model <m>`` is given, per-model entries from
 ``.convertible/<m>/hooks.json`` are composed ahead of (and tagged
-``per-model``), and base entries are tagged ``base``.  Without ``--model``
+``per-model``), and base entries are tagged ``base``.  The ``<m>`` token is
+passed through :func:`convertible.layers.sanitize_model` before the path is
+built (e.g. ``Qwen/Qwen3-32B`` -> ``Qwen-Qwen3-32B``), so a model id containing
+``/`` resolves to one safe directory, never a nested path.  Without ``--model``
 the output is byte-identical to the pre-model baseline — no ``scope`` key
 is injected.
 """
@@ -29,16 +32,18 @@ def _hooks_sections() -> list[dict[str, object]]:
                 "Loads hook configuration from .convertible/hooks.json",
                 "Hooks fire at lifecycle events: task_start, pre_tool, post_tool, finish",
                 "Each entry maps an event + optional matcher regex to a shell command",
-                "Per-model overlays at .convertible/<model>/hooks.json are composed "
-                "ahead of (and take priority over) base entries when --model is given",
+                "Per-model overlays at .convertible/<model>/hooks.json (the model "
+                "id sanitized to a filename-safe token) are composed ahead of (and "
+                "take priority over) base entries when --model is given",
             ],
         },
         {
             "title": "Per-model overlay (--model)",
             "items": [
                 "Pass --model <name> to include per-model hook entries",
-                "Per-model entries (from .convertible/<model>/hooks.json) are listed "
-                "first with scope=per-model; base entries follow with scope=base",
+                "Per-model entries (from .convertible/<model>/hooks.json, where the "
+                "model id is sanitized, e.g. Qwen/Qwen3-32B -> Qwen-Qwen3-32B) are "
+                "listed first with scope=per-model; base entries follow with scope=base",
                 "Per-model-first precedence: the loop's first-deny/rewrite-wins "
                 "semantics give per-model hooks priority over base hooks",
                 "Without --model the output is identical to the base-only baseline",
@@ -120,6 +125,12 @@ def cmd_hooks_list(args: argparse.Namespace) -> int:
     for entry in base_entries:
         base_counts[entry.event] = base_counts.get(entry.event, 0) + 1
 
+    # Composed counts per event (same idiom as base_counts), precomputed once so
+    # scope assignment stays O(n) instead of rescanning composed_entries per entry.
+    composed_counts: dict[str, int] = {}
+    for entry in composed_entries:
+        composed_counts[entry.event] = composed_counts.get(entry.event, 0) + 1
+
     # Walk the composed entries and assign scopes.
     # Within each event, composed entries are: [per-model..., base...].
     # Track how many per-event entries we've seen to identify the boundary.
@@ -128,9 +139,7 @@ def cmd_hooks_list(args: argparse.Namespace) -> int:
     for entry in composed_entries:
         ev = entry.event
         idx = per_event_seen.get(ev, 0)
-        base_count = base_counts.get(ev, 0)
-        composed_total = sum(1 for e in composed_entries if e.event == ev)
-        model_count = composed_total - base_count
+        model_count = composed_counts.get(ev, 0) - base_counts.get(ev, 0)
         scope = "per-model" if idx < model_count else "base"
         scoped.append((entry, scope))
         per_event_seen[ev] = idx + 1
@@ -178,7 +187,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         metavar="MODEL",
         help=(
             "Include per-model overlay entries from "
-            ".convertible/<model>/hooks.json. "
+            ".convertible/<model>/hooks.json (the <model> token is sanitized, "
+            "e.g. Qwen/Qwen3-32B -> Qwen-Qwen3-32B). "
             "Per-model entries are listed first (scope=per-model); "
             "base entries follow (scope=base)."
         ),
