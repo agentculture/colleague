@@ -16,7 +16,8 @@ pointing ``base_url`` elsewhere is a config change, never a code change (h2).
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
@@ -47,6 +48,14 @@ class EngineConfig:
     max_steps: int = _DEFAULT_MAX_STEPS
     temperature: float = _DEFAULT_TEMPERATURE
     timeout: float = _DEFAULT_TIMEOUT
+
+    # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
+    # the loop fires per tool call (#38). Set by the CLI drive path, not by
+    # ``resolve()``; excluded from eq/repr and from ``to_dict`` (it is behavior,
+    # not serializable config).
+    progress: Optional[Callable[[int, str, str, bool], None]] = field(
+        default=None, compare=False, repr=False
+    )
 
     @classmethod
     def resolve(

@@ -39,6 +39,7 @@ from typing import Any, Callable
 from convertible.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
+    ERROR,
     OK,
     HookFiring,
     Step,
@@ -88,6 +89,28 @@ class ModelResponse:
 
 # A ``complete`` performs one model turn given the running message list.
 CompleteFn = Callable[[list[dict[str, Any]]], ModelResponse]
+
+# A progress sink: (step_index, tool, target, ok) -> None. Default ``None`` in the
+# loop is a strict no-op; the CLI wires one that writes a line per step to stderr
+# (#38). Lives in the loop, fired per tool call, so every engine inherits it
+# identically (the all-engines rule), exactly like hooks and telemetry.
+ProgressFn = Callable[[int, str, str, bool], None]
+
+
+class DriveAborted(Exception):
+    """An engine raised mid-loop; carries the partial result (#37).
+
+    The bounded loop catches the engine's exception, finalizes the partial
+    :class:`~convertible.contract.TaskResult` (``status=error`` plus the
+    ``steps`` / ``usage`` / ``changed_files`` accumulated so far) and raises this
+    so the shared drive path can persist that partial artifact + non-empty trace
+    before surfacing the error to the operator. The original exception is the
+    ``__cause__``.
+    """
+
+    def __init__(self, result: TaskResult) -> None:
+        super().__init__(result.error or "drive aborted")
+        self.result = result
 
 
 def _arguments_json(arguments: Any) -> str:
@@ -200,6 +223,7 @@ class _Drive:
     task: Task
     result: TaskResult
     messages: list[dict[str, Any]]
+    progress: ProgressFn | None = None
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -215,6 +239,31 @@ def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
         result.destination = outcome.destination
     if outcome.announcement:
         result.announcement = outcome.announcement
+
+
+def _progress_target(arguments: Any) -> str:
+    """A short human hint for a tool call's subject (its path / command / name)."""
+    if not isinstance(arguments, dict):
+        return ""
+    for key in ("path", "command", "name", "summary", "subcommand"):
+        value = arguments.get(key)
+        if value:
+            text = str(value).splitlines()[0].strip()
+            return text if len(text) <= 48 else text[:45] + "..."
+    return ""
+
+
+def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: bool) -> None:
+    """Fire the per-step progress sink, if one is wired (#38). No-op otherwise.
+
+    A progress sink is observability, never control: a raising sink must never
+    abort the drive, so its failure is suppressed (the same fail-safe as hooks
+    and neighbour clones).
+    """
+    if ctx.progress is None:
+        return
+    with suppress(Exception):
+        ctx.progress(step_index, tool, _progress_target(arguments), ok)
 
 
 def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
@@ -253,6 +302,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
             ctx.telemetry.on_hook_denial()
             ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
             ctx.messages.append(_tool_message(call.id, reason))
+            _emit_progress(ctx, step_index, call.name, arguments, ok=False)
             return False
         if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
             # Execute with the hook-supplied arguments instead.
@@ -266,6 +316,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
                 Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
             )
             ctx.messages.append(_tool_message(call.id, f"error: {exc}"))
+            _emit_progress(ctx, step_index, call.name, arguments, ok=False)
             # post_tool still fires after a tool *attempt*; observe-only.
             _fire_hooks(
                 ctx.hooks,
@@ -280,6 +331,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
         span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
         ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
         ctx.messages.append(_tool_message(call.id, outcome.result))
+        _emit_progress(ctx, step_index, call.name, arguments, ok=True)
 
         # post_tool — after the tool executed. Observe-only: the decision does
         # not alter the already-executed result this increment.
@@ -313,6 +365,34 @@ def _run_tool_calls(ctx: _Drive, calls: list[ToolCall]) -> bool:
     return finished
 
 
+def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> bool:
+    """Run the bounded turn loop; return whether the model finished.
+
+    Each turn: call ``complete``, account usage, then either finish (no tool
+    calls) or run the turn's tool calls. Whatever ``complete`` raises propagates
+    to :func:`run`, which turns it into a preserved partial result (#37). Pulled
+    out of :func:`run` so the loop body lives in one focused function and ``run``
+    keeps its cognitive complexity under the threshold (SonarCloud S3776).
+    """
+    for _ in range(max(1, max_steps)):
+        resp = complete(ctx.messages)
+        ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
+        ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
+
+        if not resp.tool_calls:
+            # Model answered without requesting a tool — treat as done.
+            if resp.content:
+                ctx.result.summary = resp.content
+            return True
+
+        ctx.messages.append(_assistant_message(resp))
+        # Run the turn's tool calls; a finish on any of them ends the drive once
+        # the turn completes (the remaining calls in the turn still run).
+        if _run_tool_calls(ctx, resp.tool_calls):
+            return True
+    return False
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -323,6 +403,7 @@ def run(
     hooks: HookConfig | None = None,
     telemetry: Telemetry | None = None,
     model: str | None = None,
+    progress: ProgressFn | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -347,6 +428,17 @@ def run(
     per-step metrics (steps, tokens, tool latency, hook denials). This lives in
     the loop so *every* engine inherits it (the all-engines rule), exactly like
     hook firing.
+
+    ``progress`` is an optional per-step sink ``(step_index, tool, target, ok)``
+    fired after each tool call (#38); ``None`` (the default) is a strict no-op.
+    Like hooks/telemetry it is chassis-owned — every engine forwards
+    ``config.progress`` so the behavior is identical across engines.
+
+    If ``complete`` raises mid-loop (e.g. a per-request timeout), the partial
+    work is *preserved*: the accumulated ``steps`` / ``usage`` / ``changed_files``
+    are finalized onto the result with ``status=error`` and re-raised as
+    :class:`DriveAborted` carrying that result, so the drive path can write a
+    non-empty artifact + trace before surfacing the error (#37).
     """
     executor = executor or ToolExecutor(task.repo_path)
     hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
@@ -395,28 +487,22 @@ def run(
         task=task,
         result=result,
         messages=messages,
+        progress=progress,
     )
 
-    for _ in range(max(1, max_steps)):
-        resp = complete(messages)
-        result.usage.add(resp.prompt_tokens, resp.completion_tokens)
-        telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
+    # The engine call (`complete`) may raise mid-loop. Catch it here so the
+    # partial work accumulated on `result` is preserved rather than discarded
+    # (#37); the finish hook + neighbour cleanup + changed_files snapshot below
+    # then run on *every* exit path, including this one.
+    aborted: Exception | None = None
+    try:
+        finished = _drive_loop(ctx, complete, max_steps)
+    except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
+        aborted = exc
+        result.status = ERROR
+        result.error = f"{type(exc).__name__}: {exc}"
 
-        if not resp.tool_calls:
-            # Model answered without requesting a tool — treat as done.
-            if resp.content:
-                result.summary = resp.content
-            finished = True
-            break
-
-        messages.append(_assistant_message(resp))
-        # Run the turn's tool calls; a finish on any of them ends the drive once
-        # the turn completes (the remaining calls in the turn still run).
-        if _run_tool_calls(ctx, resp.tool_calls):
-            finished = True
-            break
-
-    # finish — once, on every loop exit (model finish / empty turn / budget).
+    # finish — once, on every loop exit (model finish / empty turn / budget / error).
     # Observe-only this increment; requeue/re-drive is out of scope.
     _fire_hooks(hooks, result, event="finish", task=task)
 
@@ -428,6 +514,16 @@ def run(
         neighbours.cleanup()
 
     result.changed_files = sorted(executor.changed)
+
+    if aborted is not None:
+        # Carry the populated partial result out via DriveAborted; the drive path
+        # writes it (non-empty steps/usage/changed_files + trace) then re-surfaces
+        # the failure to the operator (#37).
+        result.summary = result.summary or (
+            f"aborted after {len(result.steps)} step(s): {result.error}"
+        )
+        raise DriveAborted(result) from aborted
+
     if not finished:
         result.summary = result.summary or f"stopped at the {max_steps}-step budget"
     elif not result.summary:

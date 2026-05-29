@@ -117,6 +117,112 @@ def test_drive_hands_off_run_command_edits(
     assert "made_by_cmd.txt" in payload["changed_files"]  # backfilled from git status
 
 
+class _FlakyEngine(Engine):
+    """Engine that writes one file then raises mid-loop (a per-request timeout)."""
+
+    name = "flaky"
+
+    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+        first = ModelResponse(
+            tool_calls=[ToolCall("1", "write_file", {"path": "partial.txt", "content": "wip"})]
+        )
+        state = {"i": 0}
+
+        def complete(_m: list[dict]) -> ModelResponse:
+            if state["i"] > 0:
+                raise TimeoutError("timed out")
+            state["i"] += 1
+            return first
+
+        return run(complete, task, max_steps=config.max_steps, progress=config.progress)
+
+
+def test_drive_preserves_partial_artifact_on_engine_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A drive that raises mid-loop still writes steps/usage/changed_files + trace (#37)."""
+    monkeypatch.setattr(registry, "load", lambda name: _FlakyEngine())
+
+    rc = main(
+        ["drive", "write then time out", "--repo", str(tmp_path), "--engine", "flaky", "--no-pr"]
+    )
+    assert rc == 2  # EXIT_ENV_ERROR — the failure is still surfaced
+
+    artifacts = list((tmp_path / ".convertible").glob("*.json"))
+    assert len(artifacts) == 1
+    payload = json.loads(artifacts[0].read_text())
+    assert payload["status"] == "error"
+    assert "TimeoutError" in payload["error"]
+    # Partial work is preserved (this is the bug #37 fixes — was [] / 0 before).
+    assert payload["changed_files"] == ["partial.txt"]
+    assert len(payload["steps"]) == 1
+    assert (tmp_path / "partial.txt").read_text() == "wip"
+
+    # The trace is derived from steps -> non-empty (was 0 bytes before).
+    trace = artifacts[0].with_name(artifacts[0].stem + ".trace.jsonl")
+    assert trace.exists()
+    trace_lines = [ln for ln in trace.read_text().splitlines() if ln.strip()]
+    assert len(trace_lines) == 1
+
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "flaky" in err
+    assert "partial trace" in err  # the hint reflects that a partial trace was written
+
+
+class _BrokenEngine(Engine):
+    """Engine that fails before producing any partial result (e.g. a setup error)."""
+
+    name = "broken"
+
+    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+        raise RuntimeError("kaboom before the loop")
+
+
+def test_drive_no_partial_hint_omits_partial_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failure with no partial result must not claim a partial trace was written (Qodo)."""
+    monkeypatch.setattr(registry, "load", lambda name: _BrokenEngine())
+
+    rc = main(["drive", "x", "--repo", str(tmp_path), "--engine", "broken", "--no-pr"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "a result artifact was still written" in err
+    assert "partial trace" not in err  # there is no partial trace on this path
+
+    artifacts = list((tmp_path / ".convertible").glob("*.json"))
+    payload = json.loads(artifacts[0].read_text())
+    assert payload["status"] == "error"
+    assert payload["steps"] == []  # fresh failed_result, no accumulated steps
+
+
+def test_drive_emits_step_progress_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A drive reports per-step progress on stderr while stdout stays clean JSON (#38)."""
+    rc = main(
+        [
+            "drive",
+            "set up the repo",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    # stdout is still the single parseable JSON result.
+    payload = json.loads(captured.out)
+    assert payload["status"] == "ok"
+    # stderr carries a progress line per step.
+    assert "step 0:" in captured.err
+    assert "[ok]" in captured.err
+
+
 def test_drive_does_not_commit_preexisting_untracked(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

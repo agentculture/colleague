@@ -6,8 +6,17 @@ import json
 import stat
 from pathlib import Path
 
-from convertible.contract import OK, Task
-from convertible.loop import CompleteFn, ModelResponse, ToolCall, _assistant_message, run
+import pytest
+
+from convertible.contract import ERROR, OK, Task
+from convertible.loop import (
+    CompleteFn,
+    DriveAborted,
+    ModelResponse,
+    ToolCall,
+    _assistant_message,
+    run,
+)
 
 
 def scripted(responses: list[ModelResponse]) -> CompleteFn:
@@ -92,6 +101,81 @@ def test_loop_records_tool_error_and_continues(tmp_path: Path) -> None:
     assert result.steps[0].ok is False
     assert "error:" in result.steps[0].result
     assert result.summary == "gave up reading"
+
+
+def test_loop_preserves_partial_result_when_complete_raises(tmp_path: Path) -> None:
+    """An engine that raises mid-loop -> DriveAborted carrying the partial result (#37)."""
+    calls = {"n": 0}
+
+    def flaky(_messages: list[dict]) -> ModelResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ModelResponse(
+                tool_calls=[ToolCall("1", "write_file", {"path": "out.txt", "content": "hi"})],
+                prompt_tokens=7,
+                completion_tokens=3,
+            )
+        raise TimeoutError("timed out")
+
+    task = Task.new(str(tmp_path), "write then time out")
+    with pytest.raises(DriveAborted) as excinfo:
+        run(flaky, task, max_steps=10)
+
+    result = excinfo.value.result
+    assert result.status == ERROR
+    assert "TimeoutError" in (result.error or "")
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    # Work done up to the failure is preserved, not discarded.
+    assert result.changed_files == ["out.txt"]
+    assert len(result.steps) == 1
+    assert result.usage.total_tokens == 10
+    assert (tmp_path / "out.txt").read_text() == "hi"  # the file really landed on disk
+
+
+def test_loop_emits_progress_per_step(tmp_path: Path) -> None:
+    """The progress sink fires once per tool call with (index, tool, target, ok) (#38)."""
+    events: list[tuple] = []
+    responses = [
+        ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "a.txt", "content": "x"})]),
+        ModelResponse(tool_calls=[ToolCall("2", "read_file", {"path": "missing.txt"})]),  # errors
+        ModelResponse(tool_calls=[ToolCall("3", "finish", {"summary": "done"})]),
+    ]
+    task = Task.new(str(tmp_path), "two steps then finish")
+    run(scripted(responses), task, max_steps=10, progress=lambda *a: events.append(a))
+
+    assert [e[0] for e in events] == [0, 1, 2]  # step indices, in order
+    assert [e[1] for e in events] == ["write_file", "read_file", "finish"]
+    assert events[0][2] == "a.txt"  # target hint = the path
+    assert events[0][3] is True  # write ok
+    assert events[1][3] is False  # read of a missing file is not ok
+    assert events[2][3] is True  # finish ok
+
+
+def test_loop_progress_default_is_noop(tmp_path: Path) -> None:
+    """No progress sink -> behavior is byte-identical to before (#38)."""
+    responses = [ModelResponse(tool_calls=[ToolCall("1", "finish", {"summary": "ok"})])]
+    task = Task.new(str(tmp_path), "finish immediately")
+    result = run(scripted(responses), task, max_steps=5)  # no progress=
+    assert result.status == OK
+    assert result.summary == "ok"
+
+
+def test_loop_progress_sink_failure_does_not_abort(tmp_path: Path) -> None:
+    """A raising progress sink is observability, not control — the drive still completes (Qodo)."""
+
+    def boom(*_args: object) -> None:
+        raise RuntimeError("progress sink blew up")
+
+    responses = [
+        ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "a.txt", "content": "x"})]),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    task = Task.new(str(tmp_path), "write then finish")
+    result = run(scripted(responses), task, max_steps=10, progress=boom)
+
+    assert result.status == OK  # the sink failure was suppressed, not propagated
+    assert result.summary == "done"
+    assert (tmp_path / "a.txt").read_text() == "x"
 
 
 # ---------------------------------------------------------------------------
