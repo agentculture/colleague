@@ -61,7 +61,10 @@ def _checks() -> list[dict]:
     except urllib.error.HTTPError:
         # The server responded (e.g. 401/404) — it is up, just not at /models.
         reachable, reason = True, ""
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except OSError as exc:
+        # OSError covers URLError (connection refused), TimeoutError, and the
+        # socket-level connection errors — all subclasses (S5713: no redundant
+        # subclasses in the tuple). HTTPError is handled above, before this.
         reachable, reason = False, str(getattr(exc, "reason", exc))
 
     if reachable:
