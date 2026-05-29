@@ -10,10 +10,10 @@ AC2 — a culture tool invocation shells out to the installed CLI via subprocess
       with the resolved identity injected (``CONVERTIBLE_IDENTITY`` visible to
       the child), runs with cwd at the repo root, NEVER imports the CLI, and:
         * an ABSENT CLI yields a clean tool-error string (no traceback/crash);
-        * the allow-list rejects any CLI name outside {agtag, agex} cleanly.
+        * the allow-list rejects any CLI name outside {agtag, devex} cleanly.
 
 Tests stub the CLI with a tiny fake executable in ``tmp_path`` so neither agtag
-nor agex needs to be installed.
+nor devex needs to be installed.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class TestCultureToolExposed:
         assert "cli" in params
         assert "args" in params
         # The allow-list is advertised to the model via the enum.
-        assert set(params["cli"]["enum"]) == {"agtag", "agex"}
+        assert set(params["cli"]["enum"]) == {"agtag", "devex"}
 
     def test_executor_dispatches_culture(self, tmp_path: Path, monkeypatch) -> None:
         """The executor routes the ``culture`` tool name to the culture module."""
@@ -102,11 +102,11 @@ class TestCultureShellOut:
     def test_identity_injected_into_child(self, tmp_path: Path, monkeypatch) -> None:
         """CONVERTIBLE_IDENTITY resolved from culture.yaml reaches the child."""
         (tmp_path / "culture.yaml").write_text("nick: spark\n", encoding="utf-8")
-        _make_fake_cli(tmp_path, "agex")
+        _make_fake_cli(tmp_path, "devex")
         monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
 
         ex = ToolExecutor(tmp_path)
-        outcome = ex.execute("culture", {"cli": "agex", "args": ["overview"]})
+        outcome = ex.execute("culture", {"cli": "devex", "args": ["overview"]})
         assert "IDENTITY: spark" in outcome.result
         assert "ARGV: overview" in outcome.result
 
@@ -121,7 +121,7 @@ class TestCultureShellOut:
 
     def test_absent_cli_clean_error_not_crash(self, tmp_path: Path, monkeypatch) -> None:
         """An uninstalled CLI yields a clean ToolError, not a traceback."""
-        # Point PATH somewhere with no agtag/agex so the lookup fails cleanly.
+        # Point PATH somewhere with no agtag/devex so the lookup fails cleanly.
         empty = tmp_path / "emptybin"
         empty.mkdir()
         monkeypatch.setenv("PATH", str(empty))
@@ -154,7 +154,7 @@ class TestCultureShellOut:
 
 class TestCultureModule:
     def test_allow_list_constant(self) -> None:
-        assert culture.ALLOWED_CLIS == frozenset({"agtag", "agex"})
+        assert culture.ALLOWED_CLIS == frozenset({"agtag", "devex"})
 
     def test_run_culture_returns_string(self, tmp_path: Path, monkeypatch) -> None:
         _make_fake_cli(tmp_path, "agtag")

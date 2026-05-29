@@ -17,7 +17,7 @@ The car metaphor *is* the architecture:
 - **Tool-loop** — the bounded agentic loop (`convertible/loop.py`) the engine
   drives the repo through (`read_file`/`write_file`/`list_dir`/`run_command`/
   `culture`/`finish`, confined to the repo by `convertible/tools.py`). The base
-  five tools plus one curated `culture` tool (allow-list: `agtag`, `agex`) —
+  five tools plus one curated `culture` tool (allow-list: `agtag`, `devex`) —
   added via the mesh-member re-spec (spec/plan committed on this branch). Hook
   firing lives here — every engine inherits lifecycle behavior automatically.
 - **Wheels** — engines are plugins discovered via the `convertible.engines`
@@ -39,7 +39,7 @@ The car metaphor *is* the architecture:
   (cleaned up on drive finish). Defaults to empty when no config is present.
 - **Culture tool** — one curated loop tool (`convertible/culture.py` +
   `convertible/tools.py`) that shells out to the allow-listed AgentCulture CLIs
-  (`agtag`, `agex`) with the resolved identity injected; no socket, no daemon,
+  (`agtag`, `devex`) with the resolved identity injected; no socket, no daemon,
   no runtime dep. Lives in the chassis tool surface so every engine exposes it
   identically.
 - **Destination** — the car-metaphor sibling to GPS. GPS tells convertible where
@@ -92,7 +92,7 @@ config (`convertible/layers.py`), GPS — opt-in OpenTelemetry traces +
 metrics (`convertible/telemetry/`), with the SDK as an optional `[otel]` extra —
 the **mesh-member integration**: process-level identity (`convertible/identity.py`),
 read-only neighbour clones (`convertible/neighbours.py`), and the curated
-`culture` loop tool (`convertible/culture.py`; allow-list: `agtag`, `agex`) —
+`culture` loop tool (`convertible/culture.py`; allow-list: `agtag`, `devex`) —
 and the **destination/`devague` tool** (`convertible/devague.py`; curated allow-list
 excluding `confirm`/`reject`/`export`), which lets an engine set and converge a
 goal-frame when a task warrants one, drive toward it, and declare the announcement

@@ -321,7 +321,7 @@ class TestNoNetworkingOrDaemonMachinery:
 #   handoff.py    — drives git + gh CLI; subprocess is the transport
 #   neighbours.py — drives git clone/pull for read-only neighbour clones;
 #                   subprocess is the transport
-#   culture.py    — launches allow-listed AgentCulture CLIs (agtag/agex);
+#   culture.py    — launches allow-listed AgentCulture CLIs (agtag/devex);
 #                   subprocess is the transport
 #   devague.py    — launches the allow-listed devague CLI (the destination tool);
 #                   subprocess is the transport

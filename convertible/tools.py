@@ -117,7 +117,7 @@ SCHEMAS: list[dict[str, Any]] = [
                 "Run an operator-installed AgentCulture CLI, with the agent's "
                 "identity injected and the working directory at the repo root. "
                 "'agtag' works the mesh issue tracker (e.g. issue post/fetch/reply); "
-                "'agex' inspects a repo's agent-first surface (e.g. explain/overview/"
+                "'devex' inspects a repo's agent-first surface (e.g. explain/overview/"
                 "learn). Only these two CLIs are permitted."
             ),
             "parameters": {
@@ -340,7 +340,7 @@ class ToolExecutor:
         """
         cli = arguments.get("cli")
         if not cli or not isinstance(cli, str):
-            raise ToolError("culture tool requires a 'cli' name (agtag or agex)")
+            raise ToolError("culture tool requires a 'cli' name (agtag or devex)")
         args = culture.normalize_args(arguments.get("args"))
         try:
             output = culture.run_culture(cli, args, root=self.root)

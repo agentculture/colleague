@@ -4,8 +4,8 @@ The chassis offers the model a *single* shared ``culture`` tool (registered into
 the closed tool surface in :mod:`convertible.tools`) rather than one tool per CLI.
 A single tool keeps the surface minimal — "less tools is good" — while an
 allow-list (:data:`ALLOWED_CLIS`) restricts which CLI it may launch: exactly
-``agtag`` (mesh issues — ``agtag issue post/fetch/reply``) and ``agex``
-(inspect a repo's agent-first surface — ``agex explain/overview/learn``).
+``agtag`` (mesh issues — ``agtag issue post/fetch/reply``) and ``devex``
+(inspect a repo's agent-first surface — ``devex explain/overview/learn``).
 
 These tools are UNGATED: they execute like ``run_command`` does (trusted-operator
 environment, decision D2) — no special gating, no trust prompt.
@@ -32,7 +32,7 @@ from convertible.identity import identity_env, resolve_identity
 
 #: The curated allow-list. Any CLI name outside this set is rejected with a
 #: clean error before any subprocess is spawned.
-ALLOWED_CLIS: frozenset[str] = frozenset({"agtag", "agex"})
+ALLOWED_CLIS: frozenset[str] = frozenset({"agtag", "devex"})
 
 #: Cap child output fed back to the model (mirrors tools._MAX_OUTPUT_CHARS intent).
 _MAX_OUTPUT_CHARS = 20_000
@@ -64,7 +64,7 @@ def run_culture(
     """Launch an allow-listed AgentCulture CLI as a subprocess and return its output.
 
     Args:
-        cli: The CLI name — must be in :data:`ALLOWED_CLIS` (``agtag`` / ``agex``).
+        cli: The CLI name — must be in :data:`ALLOWED_CLIS` (``agtag`` / ``devex``).
         args: The argv to forward to the CLI (everything after the program name).
         root: The repo root; the child runs with ``cwd`` pinned here and the
             resolved identity is injected into its environment.
