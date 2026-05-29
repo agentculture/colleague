@@ -192,6 +192,7 @@ def run(
     system_prompt: str | None = None,
     hooks: HookConfig | None = None,
     telemetry: Telemetry | None = None,
+    model: str | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -203,6 +204,13 @@ def run(
     per-step trace, accumulated usage, and every hook firing in order. The tool
     schemas live with each engine's ``complete`` closure, not here.
 
+    ``model`` threads into per-model hook resolution: when given,
+    :func:`~convertible.hooks.load_hooks` additionally loads the per-model
+    overlay ``.convertible/<model>/hooks.json`` and prepends its entries ahead
+    of the base entries (per-model fix takes priority). When ``None`` (the
+    default) the call is identical to the base-only load — no behavior change
+    for callers that do not pass a model.
+
     ``telemetry`` likewise defaults to :func:`~convertible.telemetry.load_telemetry`
     (a no-op unless ``CONVERTIBLE_OTEL_ENABLED`` is set). When enabled, every
     tool call becomes a ``convertible.tool.*`` span and the loop records the
@@ -211,7 +219,7 @@ def run(
     hook firing.
     """
     executor = executor or ToolExecutor(task.repo_path)
-    hooks = hooks if hooks is not None else load_hooks(task.repo_path)
+    hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
     # Telemetry defaults like hooks do: resolved from the environment, a no-op
     # unless explicitly enabled. Tool spans auto-nest under the drive span the
     # shared drive path opens (via the SDK's context propagation).

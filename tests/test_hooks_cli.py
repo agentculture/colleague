@@ -1,10 +1,18 @@
-"""``convertible hooks`` CLI noun group — list and overview (t6).
+"""``convertible hooks`` CLI noun group — list and overview (t6) + per-model (t5).
 
-Acceptance criteria:
+Acceptance criteria (original, t6):
 1. ``convertible hooks list --json`` emits structured JSON with a ``hooks`` key.
 2. ``convertible hooks overview`` exits 0 and describes the noun.
 3. ``convertible hooks overview --json`` has the expected subject.
 4. Bare ``convertible hooks`` falls back to overview (non-empty output, exit 0).
+
+Acceptance criteria (t5 — per-model --model option):
+5. ``convertible hooks list --model X --json`` lists per-model entries before base
+   entries, each tagged with a ``scope`` key (``per-model`` or ``base``).
+6. ``convertible hooks list`` (no ``--model``) is byte-identical to today — JSON
+   output unchanged, no ``scope`` key injected.
+7. ``convertible explain hooks`` documents the per-model overlay path and
+   per-model-first precedence.
 """
 
 from __future__ import annotations
@@ -118,3 +126,168 @@ def test_hooks_bare_noun_prints_overview(capsys: pytest.CaptureFixture[str]) -> 
     rc = main(["hooks"])
     assert rc == 0
     assert capsys.readouterr().out.strip()
+
+
+# ---------------------------------------------------------------------------
+# t5: hooks list --model <m>
+# ---------------------------------------------------------------------------
+
+
+def _make_per_model_hooks_json(repo: Path, model_slug: str, hooks: dict) -> None:
+    """Write a per-model hooks.json under .convertible/<model_slug>/hooks.json."""
+    dotdir = repo / ".convertible" / model_slug
+    dotdir.mkdir(parents=True, exist_ok=True)
+    (dotdir / "hooks.json").write_text(json.dumps(hooks))
+
+
+def test_hooks_list_model_json_per_model_first(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--model X: per-model entries appear before base entries; scope tags present."""
+    # Base hooks
+    _make_hooks_json(
+        tmp_path,
+        {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo base"}]}},
+    )
+    # Per-model hooks for model "mymodel"
+    _make_per_model_hooks_json(
+        tmp_path,
+        "mymodel",
+        {"hooks": {"pre_tool": [{"matcher": "write_file", "command": "echo model"}]}},
+    )
+
+    rc = main(["hooks", "list", "--repo", str(tmp_path), "--model", "mymodel", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    hooks = payload["hooks"]
+    assert len(hooks) == 2  # 1 per-model + 1 base
+
+    # Per-model entry is first
+    assert hooks[0]["scope"] == "per-model"
+    assert hooks[0]["command"] == "echo model"
+    assert hooks[0]["event"] == "pre_tool"
+
+    # Base entry is second
+    assert hooks[1]["scope"] == "base"
+    assert hooks[1]["command"] == "echo base"
+    assert hooks[1]["event"] == "pre_tool"
+
+
+def test_hooks_list_model_scope_tags_present(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every entry in --model output has a ``scope`` key."""
+    _make_hooks_json(
+        tmp_path,
+        {"hooks": {"finish": [{"command": "echo done"}]}},
+    )
+    _make_per_model_hooks_json(
+        tmp_path,
+        "somemodel",
+        {"hooks": {"task_start": [{"command": "echo start"}]}},
+    )
+
+    rc = main(["hooks", "list", "--repo", str(tmp_path), "--model", "somemodel", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    for entry in payload["hooks"]:
+        assert "scope" in entry, f"Missing scope on {entry}"
+        assert entry["scope"] in ("per-model", "base")
+
+
+def test_hooks_list_model_base_only_fallback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--model X with no per-model file: all entries get scope=base."""
+    _make_hooks_json(
+        tmp_path,
+        {"hooks": {"finish": [{"command": "echo done"}]}},
+    )
+
+    rc = main(["hooks", "list", "--repo", str(tmp_path), "--model", "unknown-model", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert len(payload["hooks"]) == 1
+    assert payload["hooks"][0]["scope"] == "base"
+
+
+def test_hooks_list_no_model_no_scope_key(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without --model, JSON output has NO ``scope`` key (byte-identical to today)."""
+    _make_hooks_json(
+        tmp_path,
+        {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo pre"}]}},
+    )
+
+    rc = main(["hooks", "list", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert "hooks" in payload
+    for entry in payload["hooks"]:
+        assert "scope" not in entry, "scope must not appear when --model is omitted"
+
+
+def test_hooks_list_model_text_mode_shows_scope(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--model in text mode: output includes per-model label."""
+    _make_hooks_json(
+        tmp_path,
+        {"hooks": {"finish": [{"command": "echo done"}]}},
+    )
+    _make_per_model_hooks_json(
+        tmp_path,
+        "mymodel",
+        {"hooks": {"finish": [{"command": "echo override"}]}},
+    )
+
+    rc = main(["hooks", "list", "--repo", str(tmp_path), "--model", "mymodel"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "per-model" in out
+    assert "base" in out
+
+
+def test_hooks_list_model_sanitized_slug(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Model names with / or special chars are sanitized to the right directory."""
+    from convertible.layers import sanitize_model
+
+    model = "Qwen/Qwen3-32B"
+    slug = sanitize_model(model)
+
+    _make_per_model_hooks_json(
+        tmp_path,
+        slug,
+        {"hooks": {"task_start": [{"command": "echo qwen"}]}},
+    )
+
+    rc = main(["hooks", "list", "--repo", str(tmp_path), "--model", model, "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert any(e["scope"] == "per-model" for e in payload["hooks"])
+
+
+# ---------------------------------------------------------------------------
+# t5: explain hooks documents per-model overlay
+# ---------------------------------------------------------------------------
+
+
+def test_explain_hooks_documents_per_model_overlay(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``convertible explain hooks`` mentions the per-model overlay path and precedence."""
+    rc = main(["explain", "hooks"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Must mention the per-model overlay path pattern
+    assert ".convertible/<model>/hooks.json" in out
+    # Must mention per-model-first precedence
+    assert "per-model" in out.lower()

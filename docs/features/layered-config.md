@@ -91,5 +91,8 @@ surface.
 
 ## See also
 
+- [per-model-configuration.md](per-model-configuration.md) — per-model hooks
+  overlay: the same per-model isolation principle applied to the hooks layer
+  (`.convertible/<model>/hooks.json`).
 - [engines.md](engines.md) — every engine inherits the layered prompt.
 - [command-templates.md](command-templates.md) — also resolved via `.convertible/`.

@@ -63,6 +63,15 @@ The car metaphor *is* the architecture:
 - **Hooks** — operator-authored shell commands in `.convertible/hooks.json`
   (`convertible/hooks.py`) that fire at `task_start`/`pre_tool`/`post_tool`/
   `finish`; a `pre_tool` hook can allow, deny, or rewrite a tool call.
+  A **per-model hooks overlay** at `.convertible/<model>/hooks.json`
+  (`<model>` sanitized via `convertible.layers.sanitize_model`, e.g.
+  `mmangkad/Qwen3.6-27B-NVFP4` → `mmangkad-Qwen3.6-27B-NVFP4`) is composed
+  **ahead of** the base entries for each event — per-model-first precedence
+  gives operator-declared model fixes priority via the loop's existing
+  first-deny/rewrite-wins rule. Exact-path isolation: model X never loads model
+  Y's overlay (no sibling globbing). Strict no-op with no overlay file present.
+  No new runtime dep, socket, or daemon. Inspect via
+  `convertible hooks list --model <m>` (per-model entries tagged `per-model`).
 - **Interactive palette** — `convertible session` (`convertible/cli/_commands/
   session.py`): a foreground TTY loop over the same drive path; no parallel
   code path, no daemon.
@@ -76,7 +85,9 @@ The car metaphor *is* the architecture:
   and never globs sibling models — per-model isolation is structural. Injected
   once on the `Engine` base class (`system_prompt()`), so every engine inherits
   it (all-engines rule). Surfaced via the `agents` / `skills` introspection
-  nouns. **MCP layering is not built** — convertible reads no `mcp.json` and has
+  nouns. The companion **per-model hooks overlay** (`.convertible/<model>/hooks.json`)
+  extends this isolation to the hooks layer — see the Hooks bullet above.
+  **MCP layering is not built** — convertible reads no `mcp.json` and has
   no `mcp` verb; a live MCP client is a re-spec (see scope below).
 
 The buildable spec and plan this implementation converged from live in
@@ -160,6 +171,12 @@ test (`tests/test_e2e_mock.py`) is the guard.
 - **Repo-shipped hooks run by default (trusted-operator-env model D2).** There
   is no `--no-hooks` flag today. A per-repo trust gate is a tracked follow-up.
   Document this gap clearly; never document a non-existent flag.
+- **Per-model hooks overlay belongs to the chassis, not to engines.**
+  `convertible/loop.py` passes `model=config.model` to `load_hooks` — both
+  bundled engines do this. New engine wheels inherit the per-model overlay for
+  free (all-engines rule). The overlay is operator-declared and file-based;
+  convertible does not auto-detect model biases. Exact-path isolation and strict
+  no-op match the AGENTS/skills layering conventions (`convertible/layers.py`).
 - **The `culture` tool belongs to the chassis, not to engines.** `convertible/tools.py`
   owns the tool schema and the `ToolExecutor._culture` dispatch; `convertible/culture.py`
   owns the subprocess launch and identity injection. No engine module touches either.

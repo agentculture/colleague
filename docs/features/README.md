@@ -32,6 +32,7 @@ boundary — what is deliberately *not* built — is restated under
 | Agent-first CLI | [agent-cli.md](agent-cli.md) | Controls/dashboard | `whoami`, `learn`, `explain`, `overview`, `cli` |
 | Mesh-member integration | [mesh-member.md](mesh-member.md) | Chassis (identity + culture tool + neighbours) | `culture` loop tool |
 | Destination | [destination.md](destination.md) | Destination (goal-frame + arrival) | `devague` loop tool |
+| Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Chassis (per-model hooks overlay) | `hooks list --model` |
 
 ## How the features fit together
 
@@ -40,7 +41,8 @@ A single `drive` call exercises most of the car at once:
 1. **Engines & wheels** resolve `--engine <name>` to a driver via the
    `convertible.engines` entry-point group.
 2. **Layered per-model config** composes a model-specific system prompt
-   (AGENTS + skills) on the `Engine` base class.
+   (AGENTS + skills) on the `Engine` base class; **per-model configuration**
+   additionally layers a per-model hooks overlay ahead of the base hooks.
 3. **Drive & the tool-loop** runs the bounded agentic loop, where every tool
    call fires **lifecycle hooks** and emits **GPS** telemetry.
 4. **Command templates** (and the **interactive palette**) are alternative

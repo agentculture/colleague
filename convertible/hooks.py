@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any
 
 from convertible.configdir import resolve_file
+from convertible.layers import sanitize_model
 
 # Non-tool events: matcher is irrelevant; every entry fires unconditionally.
 _NON_TOOL_EVENTS = frozenset({"task_start", "finish"})
@@ -178,39 +179,27 @@ class HookConfig:
 # ---------------------------------------------------------------------------
 
 
-def load_hooks(
-    repo_path: str | Path,
-    *,
-    user_home: str | Path | None = None,
-) -> HookConfig:
-    """Load ``.convertible/hooks.json`` for *repo_path*.
+def _parse_hooks_file(hooks_path: Path | None) -> dict[str, list[HookEntry]]:
+    """Parse one ``hooks.json`` into an event → entries mapping.
 
-    Resolves the file using :func:`convertible.configdir.resolve_file` (repo
-    over user).  Returns an empty :class:`HookConfig` when the file is absent
-    or malformed — never raises.
-
-    Args:
-        repo_path: Path to the repo being driven.
-        user_home: (test fixture) Override for the user home directory.
-
-    Returns:
-        Parsed :class:`HookConfig`.
+    Returns an empty mapping when *hooks_path* is ``None``, unreadable, not
+    valid JSON, or has no ``hooks`` object — never raises. This is the shared
+    parsing core used for both the base file and any per-model overlay, so both
+    inherit identical malformed-file resilience.
     """
-    cfg = HookConfig()
-
-    hooks_path = resolve_file(repo_path, "hooks.json", user_home=user_home)
     if hooks_path is None:
-        return cfg
+        return {}
 
     try:
         raw = json.loads(hooks_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return cfg
+        return {}
 
     hooks_section = raw.get("hooks")
     if not isinstance(hooks_section, dict):
-        return cfg
+        return {}
 
+    parsed: dict[str, list[HookEntry]] = {}
     for event, raw_entries in hooks_section.items():
         if not isinstance(raw_entries, list):
             continue
@@ -225,7 +214,67 @@ def load_hooks(
                     command=str(raw_entry.get("command", "")),
                 )
             )
-        cfg._entries[event] = entries  # noqa: SLF001  (private field, same module)
+        parsed[event] = entries
+
+    return parsed
+
+
+def load_hooks(
+    repo_path: str | Path,
+    *,
+    model: str | None = None,
+    user_home: str | Path | None = None,
+) -> HookConfig:
+    """Load ``.convertible/hooks.json`` for *repo_path*, optional per-model overlay.
+
+    Resolves the base file using :func:`convertible.configdir.resolve_file` (repo
+    over user).  When *model* is given, additionally resolves the per-model
+    overlay ``.convertible/<sanitize_model(model)>/hooks.json`` via the **same**
+    configdir machinery (same repo-over-user precedence, same within-root
+    confinement). The overlay path is built by **exact construction** through
+    :func:`convertible.layers.sanitize_model` — sibling ``.convertible/*/``
+    directories are never globbed, so model X can never load model Y's overlay.
+
+    Composition / precedence: per-model entries are **prepended ahead of** the
+    base entries for each event, so the loop's existing "first deny/rewrite
+    wins" semantics give the per-model fix priority. :meth:`HookConfig.hooks_for`
+    then returns per-model matches first.
+
+    Strict no-op: with ``model=None`` (the default), OR a model whose overlay
+    file is absent, the returned :class:`HookConfig` is identical to the
+    base-only load — existing callers see no behavior change.
+
+    Returns an empty :class:`HookConfig` when the file is absent or malformed —
+    never raises (a malformed per-model overlay is skipped the same way).
+
+    Args:
+        repo_path: Path to the repo being driven.
+        model: (optional) Model id driving the load. When given, layers the
+            per-model overlay ahead of the base config. Keyword-only.
+        user_home: (test fixture) Override for the user home directory.
+
+    Returns:
+        Parsed :class:`HookConfig`.
+    """
+    cfg = HookConfig()
+
+    base_path = resolve_file(repo_path, "hooks.json", user_home=user_home)
+    base_entries = _parse_hooks_file(base_path)
+
+    overlay_entries: dict[str, list[HookEntry]] = {}
+    if model is not None:
+        safe = sanitize_model(model)
+        overlay_path = resolve_file(repo_path, f"{safe}/hooks.json", user_home=user_home)
+        overlay_entries = _parse_hooks_file(overlay_path)
+
+    # Compose per-model-first: for each event, overlay entries precede base
+    # entries, so hooks_for returns the per-model fix ahead of the base hook.
+    # cfg._entries is this module's own private field; direct access is intentional.
+    for event in (*overlay_entries, *base_entries):
+        if event in cfg._entries:  # noqa: SLF001
+            continue
+        merged = overlay_entries.get(event, []) + base_entries.get(event, [])
+        cfg._entries[event] = merged  # noqa: SLF001
 
     return cfg
 
