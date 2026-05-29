@@ -48,6 +48,7 @@ from convertible.contract import (
 )
 from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
 from convertible.neighbours import NeighbourManager
+from convertible.policy import Policy, load_policy
 from convertible.telemetry import Telemetry, load_telemetry
 from convertible.tools import ToolError, ToolExecutor, ToolOutcome
 
@@ -223,6 +224,7 @@ class _Drive:
     task: Task
     result: TaskResult
     messages: list[dict[str, Any]]
+    policy: Policy = field(default_factory=Policy)
     progress: ProgressFn | None = None
 
 
@@ -266,6 +268,26 @@ def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: 
         ctx.progress(step_index, tool, _progress_target(arguments), ok)
 
 
+def _deny_by_policy(ctx: _Drive, call: ToolCall, span: Any, step_index: int) -> bool:
+    """Check the approval policy for ``run_command``; record and return True on deny.
+
+    Returns ``True`` when the call is denied (the caller must return False from
+    the tool-call helper). Returns ``False`` when the policy allows the call.
+    Only ``run_command`` is gated — all other tools pass through unchanged.
+    """
+    if call.name != "run_command":
+        return False
+    verdict = ctx.policy.check_run_command(str(call.arguments.get("command", "")))
+    if verdict.allowed:
+        return False
+    # Denied — mirror the pre_tool DENY shape (span, Step, tool message, progress).
+    span.set(ok=False, denied=True, reason=verdict.reason)
+    ctx.result.steps.append(Step(step_index, call.name, call.arguments, verdict.reason, ok=False))
+    ctx.messages.append(_tool_message(call.id, verdict.reason))
+    _emit_progress(ctx, step_index, call.name, call.arguments, ok=False)
+    return True
+
+
 def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
     """Run one tool call inside its own telemetry span; return whether it finished.
 
@@ -307,6 +329,14 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
         if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
             # Execute with the hook-supplied arguments instead.
             arguments = decision.arguments
+
+        # Policy gate: check run_command against the operator-declared allow/deny
+        # policy AFTER hooks (so a hook rewrite is still gated), BEFORE execution.
+        # All other tools pass through unchanged. When denied, mirrors the hook-deny
+        # shape — non-ok Step + tool message — but does NOT increment the hook-denial
+        # telemetry counter (this is a policy denial, not a hook denial).
+        if _deny_by_policy(ctx, ToolCall(call.id, call.name, arguments), span, step_index):
+            return False
 
         try:
             outcome = ctx.executor.execute(call.name, arguments)
@@ -404,6 +434,7 @@ def run(
     telemetry: Telemetry | None = None,
     model: str | None = None,
     progress: ProgressFn | None = None,
+    policy: Policy | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -446,6 +477,10 @@ def run(
     # unless explicitly enabled. Tool spans auto-nest under the drive span the
     # shared drive path opens (via the SDK's context propagation).
     telemetry = telemetry if telemetry is not None else load_telemetry()
+    # Policy defaults like hooks: loaded from task.repo_path when not injected.
+    # An absent or malformed approvals.json returns an empty Policy (no-op), so
+    # callers that never set policy= keep byte-identical behavior.
+    policy = policy if policy is not None else load_policy(task.repo_path, model=model)
 
     user = task.instruction
     if task.context:
@@ -487,6 +522,7 @@ def run(
         task=task,
         result=result,
         messages=messages,
+        policy=policy,
         progress=progress,
     )
 
