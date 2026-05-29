@@ -6,6 +6,7 @@ Written test-first (TDD): tests define the contract, implementation follows.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -290,8 +291,54 @@ def test_arbitrary_disallowed_move_no_subprocess(repo_root: Path) -> None:
     assert mock_run.call_count == 0
 
 
-def test_devague_not_imported_as_module() -> None:
-    """The devague module must never be imported as Python (shell-out only)."""
-    import sys
+def test_timeout_maps_to_devague_tool_error(repo_root: Path) -> None:
+    """A devague CLI timeout becomes a clean DevagueToolError, not an escape.
 
-    assert "devague" not in sys.modules
+    Guards the reliability contract: an uncaught subprocess.TimeoutExpired would
+    bubble out of ToolExecutor and crash the drive (the loop only catches
+    ToolError around tool execution).
+    """
+    with patch(
+        "subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="devague", timeout=1),
+    ):
+        with pytest.raises(DevagueToolError) as excinfo:
+            run_devague("status", [], root=repo_root)
+
+    assert "timed out" in str(excinfo.value)
+
+
+def test_oserror_maps_to_devague_tool_error(repo_root: Path) -> None:
+    """Any other launch failure (OSError) becomes a clean DevagueToolError."""
+    with patch("subprocess.run", side_effect=PermissionError("denied")):
+        with pytest.raises(DevagueToolError) as excinfo:
+            run_devague("status", [], root=repo_root)
+
+    assert "failed to launch" in str(excinfo.value)
+
+
+def test_convertible_never_imports_devague_as_python() -> None:
+    """Convertible shells out to the devague CLI; it must never import it as Python.
+
+    Deterministic source scan rather than a ``sys.modules`` check (which reflects
+    global interpreter state and is sensitive to unrelated imports / test order).
+    ``import convertible.devague`` is fine — that is convertible's own module,
+    distinguished by the ``convertible.`` prefix.
+    """
+    import re
+
+    import convertible
+
+    pkg_dir = Path(convertible.__file__).parent
+    # A top-level import of the *bare* third-party ``devague`` package:
+    #   import devague | from devague import ... | from devague.frame import ...
+    # (but NOT ``import convertible.devague`` / ``from convertible.devague``).
+    bare_import = re.compile(r"^\s*(?:import|from)\s+devague\b")
+    offenders = [
+        f"{py.relative_to(pkg_dir.parent)}:{n}: {line.strip()}"
+        for py in pkg_dir.rglob("*.py")
+        for n, line in enumerate(py.read_text(encoding="utf-8").splitlines(), start=1)
+        if bare_import.search(line)
+    ]
+    detail = "\n".join(offenders)
+    assert not offenders, f"convertible must not import the devague package:\n{detail}"

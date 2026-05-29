@@ -1,6 +1,6 @@
 """The tool surface the agentic loop offers an engine, plus a repo-confined executor.
 
-Six tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
+Seven tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
 ``culture``, ``devague``, and ``finish`` — are exposed to the model as OpenAI
 function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor` runs a requested
 call against a fixed repo root.
@@ -185,7 +185,9 @@ SCHEMAS: list[dict[str, Any]] = [
                         "type": "string",
                         "description": (
                             "Optional. The devague goal-frame slug the drive aimed at "
-                            "(e.g. 'converge', 'park'). Omit when no destination was set."
+                            "(e.g. 'ship-core-widget', 'improve-test-suite') — match the "
+                            "frame slug created/used during the drive. Omit when no "
+                            "destination was set."
                         ),
                     },
                     "announcement": {

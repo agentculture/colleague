@@ -119,8 +119,9 @@ The JSON artifact then records:
 }
 ```
 
-Without a destination, both fields are `null` — the artifact is byte-identical to
-drives without the feature.
+Without a destination, both keys are **omitted entirely** (not `null`) —
+`TaskResult.to_dict()` drops them when unset, so the artifact is byte-identical
+to drives without the feature.
 
 ## Enabling it
 

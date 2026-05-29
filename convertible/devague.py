@@ -19,8 +19,10 @@ into the child via :func:`convertible.identity.identity_env` so the CLI
 inherits ``CONVERTIBLE_IDENTITY``, and runs with ``cwd`` pinned at the repo
 root so devague that auto-signs from ``culture.yaml`` sees it.  The CLI is
 *launched as a subprocess*, never imported as Python — no socket, no daemon.
-A missing CLI (``FileNotFoundError``) is mapped to a clean
-:class:`DevagueToolError`, never a traceback.
+A missing CLI (``FileNotFoundError``), a timeout (``subprocess.TimeoutExpired``),
+or any other launch failure (``OSError``) is mapped to a clean
+:class:`DevagueToolError`, never a traceback — so a hung or broken CLI returns a
+tool-error string to the model instead of crashing the drive.
 """
 
 from __future__ import annotations
@@ -79,9 +81,10 @@ def run_devague(
         A string of the form ``exit=<code>\\n<combined stdout+stderr>``, truncated.
 
     Raises:
-        DevagueToolError: if *move* is outside the allow-list, or the ``devague``
-            binary is not installed (``FileNotFoundError``) — a clean error,
-            never a traceback.
+        DevagueToolError: if *move* is outside the allow-list, the ``devague``
+            binary is not installed (``FileNotFoundError``), the move times out
+            (``subprocess.TimeoutExpired``), or it otherwise fails to launch
+            (``OSError``) — always a clean error, never a traceback.
     """
     if move not in ALLOWED_MOVES:
         allowed = ", ".join(sorted(ALLOWED_MOVES))
@@ -103,6 +106,16 @@ def run_devague(
         )
     except FileNotFoundError as exc:
         raise DevagueToolError("devague CLI not found — is it installed and on PATH?") from exc
+    except subprocess.TimeoutExpired as exc:
+        # A hung CLI must surface as a clean tool error, not an uncaught
+        # exception that escapes ToolExecutor and crashes the drive (the loop
+        # only catches ToolError around tool execution).
+        raise DevagueToolError(
+            f"devague move '{move}' timed out after {_TIMEOUT_SECONDS}s"
+        ) from exc
+    except OSError as exc:
+        # Any other launch/IO failure (e.g. permission denied) → clean error.
+        raise DevagueToolError(f"devague move '{move}' failed to launch: {exc}") from exc
 
     body = (proc.stdout or "") + (proc.stderr or "")
     return _truncate(f"exit={proc.returncode}\n{body}")

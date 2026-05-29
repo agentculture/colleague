@@ -19,7 +19,9 @@ nor agex needs to be installed.
 from __future__ import annotations
 
 import stat
+import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -160,3 +162,18 @@ class TestCultureModule:
         out = culture.run_culture("agtag", ["issue", "post", "hi"], root=tmp_path)
         assert isinstance(out, str)
         assert "ARGV: issue post hi" in out
+
+    def test_run_culture_timeout_maps_to_tool_error(self, tmp_path: Path) -> None:
+        """A culture CLI timeout becomes a clean CultureToolError, not an escape.
+
+        Parity with the devague transport: an uncaught subprocess.TimeoutExpired
+        would bubble out of ToolExecutor and crash the drive.
+        """
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="agtag", timeout=1),
+        ):
+            with pytest.raises(culture.CultureToolError) as excinfo:
+                culture.run_culture("agtag", [], root=tmp_path)
+
+        assert "timed out" in str(excinfo.value)
