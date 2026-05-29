@@ -28,7 +28,7 @@ from convertible.cli._banner import emit_banner
 from convertible.cli._commands.drive import execute_drive as _default_drive
 from convertible.cli._errors import CliError
 from convertible.commands import CommandError, discover_commands, expand_command, load_command
-from convertible.config import EngineConfig
+from convertible.config import EngineConfig, resolve_engine
 from convertible.contract import Task, TaskResult
 
 # ---------------------------------------------------------------------------
@@ -206,8 +206,9 @@ def run_session(
     Parameters
     ----------
     args:
-        Parsed CLI namespace (must carry ``repo``, ``engine``, ``no_pr``,
-        ``base``, ``base_url``, ``model``, ``api_key``, ``max_steps``, ``json``).
+        Parsed CLI namespace (must carry ``repo``, ``engine``, ``base``,
+        ``base_url``, ``model``, ``api_key``, ``max_steps``, ``json``; ``pr`` is
+        read via ``getattr`` and defaults to ``False`` — commit-local, no PR).
     input_fn:
         Iterator of input lines (for testing).  When ``None`` the real
         :func:`input` builtin is used.
@@ -224,8 +225,12 @@ def run_session(
         Exit code (always ``0`` — the session exits cleanly on quit/EOF).
     """
     repo = Path(args.repo).expanduser()
-    engine_name: str = args.engine
-    open_pr: bool = not args.no_pr
+    # Resolve the engine like ``drive`` (explicit > CONVERTIBLE_ENGINE >
+    # vllm-openai); a bare session never silently drives the no-op mock (#53).
+    engine_name: str = resolve_engine(args.engine)
+    # Session is a "talk + iterate" loop: by default it commits locally but does
+    # NOT push/open a PR per typed line (#53). ``--pr`` opts back into handoff.
+    open_pr: bool = bool(getattr(args, "pr", False))
     base: str = args.base
     json_mode: bool = bool(getattr(args, "json", False))
     if err is None:
@@ -307,8 +312,16 @@ def register(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
-    p.add_argument("--engine", default="mock", help="Engine wheel to drive (default: mock).")
-    p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")
+    p.add_argument(
+        "--engine",
+        default=None,
+        help="Engine wheel to drive (default: CONVERTIBLE_ENGINE or vllm-openai).",
+    )
+    p.add_argument(
+        "--pr",
+        action="store_true",
+        help="Push and open a PR after each drive (default: commit locally only, no PR).",
+    )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
     p.add_argument("--model", default=None, help="Override the engine model name.")

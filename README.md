@@ -364,13 +364,16 @@ uv run convertible session --repo /path/to/repo --engine vllm-openai
 ```
 
 Running `convertible` with no arguments **at a terminal** opens this same palette
-(with the default engine and repo) — the natural "get in and drive" gesture.
+(resolving the engine like `drive`: `--engine` > `CONVERTIBLE_ENGINE` >
+`vllm-openai`, never a silent `mock`) — the natural "get in and drive" gesture.
 Piped, redirected, or otherwise non-interactive, bare `convertible` prints usage
 instead, so scripts and agents keep a discoverable surface.
 
-The session loops until the user enters `q`, `quit`, or an empty line. Any
-driver flags accepted by `drive` (`--engine`, `--no-pr`, `--base-url`, etc.)
-are also accepted by `session`.
+The session loops until the user enters `q`, `quit`, or an empty line. By
+default it is a "talk + iterate" loop: each drive commits locally but does **not**
+push or open a PR — pass `--pr` to opt back into push + PR per drive (unlike
+`drive`, which opens a PR by default). Other driver flags accepted by `drive`
+(`--engine`, `--base-url`, etc.) are also accepted by `session`.
 
 ## GPS: OpenTelemetry observability
 

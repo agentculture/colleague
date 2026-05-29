@@ -194,9 +194,13 @@ test (`tests/test_e2e_mock.py`) is the guard.
   Every devague integration shells out to an operator-installed CLI — no socket, no
   daemon, no import.
 - **The `doctor` verb is convertible's oilcheck.** It emits a configuration-readiness
-  health check across identity, provider, engines, otel-readiness, and environment
-  check-groups, in a rubric shape with exit-1-on-unhealthy semantics. See
-  `convertible explain doctor` for details.
+  health check across identity, provider, usage, engines, otel-readiness, and
+  environment check-groups, in a rubric shape with exit-1-on-unhealthy semantics. The
+  **usage** group warns (advisory — stays healthy) when a bare drive would pick the
+  no-op `mock` engine. `doctor --probe` adds an opt-in `provider_reachable` ping —
+  the one check that opens a network connection, so it is gated behind the flag and
+  invoked outside the (no-network) registered check-groups. See `convertible explain
+  doctor` for details.
 
 ## Commands
 
@@ -205,6 +209,7 @@ uv sync                                   # install (incl. dev group)
 uv run pytest -n auto                     # tests (parallel)
 uv run convertible wheels list            # discovered engines
 uv run convertible drive "<task>" --repo . --engine mock --no-pr
+# Engine resolution: --engine > CONVERTIBLE_ENGINE > vllm-openai (never silent mock, #53).
 
 # Extensibility layer:
 uv run convertible drive --command <name> [args…] --repo . --engine mock --no-pr
@@ -212,7 +217,7 @@ uv run convertible commands list --repo .          # list discovered templates
 uv run convertible commands overview               # surface description
 uv run convertible hooks list --repo .             # list configured hooks
 uv run convertible hooks overview                  # surface description
-uv run convertible session --repo . --engine mock  # interactive palette
+uv run convertible session --repo . --engine mock  # interactive palette (commits locally, no PR; --pr to push+PR)
 
 # GPS / telemetry (opt-in; needs the [otel] extra):
 uv run convertible telemetry status                # resolved telemetry config

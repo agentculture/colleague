@@ -25,11 +25,19 @@ The loop continues until you quit or hit EOF.
 ## Bare `convertible` opens it
 
 Running `convertible` with no arguments **at a terminal** opens this same palette
-(with the default engine and repo) — the natural "get in and drive" gesture.
-Piped, redirected, or otherwise non-interactive, bare `convertible` prints usage
-instead, so scripts and agents keep a discoverable surface. Both stdin and
-stdout must be a TTY for the palette to open (`-h/--help` is unaffected either
-way).
+— the natural "get in and drive" gesture. The engine is resolved like `drive`
+(`--engine` > `CONVERTIBLE_ENGINE` > `vllm-openai`); it never silently falls back
+to the no-op `mock`. Piped, redirected, or otherwise non-interactive, bare
+`convertible` prints usage instead, so scripts and agents keep a discoverable
+surface. Both stdin and stdout must be a TTY for the palette to open (`-h/--help`
+is unaffected either way).
+
+## Handoff: commit-local by default
+
+A session is a "talk + iterate" loop: by default each drive commits locally on a
+`convertible/<task_id>` branch but does **not** push or open a PR (so chatting
+with the palette never opens surprise PRs). Pass `--pr` to push and open a PR
+after every drive. This differs from `drive`, which opens a PR by default.
 
 ## Usage
 
@@ -39,9 +47,10 @@ convertible                       # at a terminal: opens the palette
 convertible | cat                 # piped: prints usage instead
 ```
 
-Any driver flag accepted by `drive` (`--engine`, `--no-pr`, `--base`,
-`--base-url`, `--model`, `--api-key`, `--max-steps`) is also accepted by
-`session`. Errors/diagnostics route to stderr and `--json` is honored (one JSON
+Driver flags accepted by `drive` (`--engine`, `--base`, `--base-url`, `--model`,
+`--api-key`, `--max-steps`) are also accepted by `session`; in place of `drive`'s
+`--no-pr`, session takes `--pr` (handoff is opt-in here — commit-local is the
+default). Errors/diagnostics route to stderr and `--json` is honored (one JSON
 result per drive on stdout, palette chrome to stderr).
 
 ## Key files

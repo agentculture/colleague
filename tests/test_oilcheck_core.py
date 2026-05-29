@@ -178,12 +178,14 @@ def test_diagnose_opens_no_socket(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_check_groups_registered_in_order() -> None:
-    # The canonical group order; sibling agents fill these in.
-    from convertible.oilcheck import engines, environment, identity, otel, provider
+    # The canonical group order. Note: the opt-in reachability probe is
+    # deliberately NOT registered here (it is invoked only by diagnose(probe=True)).
+    from convertible.oilcheck import engines, environment, identity, otel, provider, usage
 
     assert oilcheck.CHECK_GROUPS == [
         identity.checks,
         provider.checks,
+        usage.checks,
         engines.checks,
         otel.checks,
         environment.checks,

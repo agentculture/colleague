@@ -118,21 +118,27 @@ from convertible.oilcheck import (  # noqa: E402 - must follow make_check (see a
     identity,
     otel,
     provider,
+    usage,
 )
 
 # Ordered registry of check-groups. Identity first (who am I), then the
-# engine/provider plumbing, then observability, then the broader environment.
-# Sibling agents fill in the stub groups; the order here is the report order.
+# engine/provider plumbing (provider config, usage-readiness, engine wheels),
+# then observability, then the broader environment. The order here is the report
+# order. Every group registered here is contractually read-only and opens no
+# socket / makes no network call (see the check-group contract above) — the
+# opt-in reachability probe (``diagnose(probe=True)``) is deliberately NOT a
+# registered group for exactly that reason.
 CHECK_GROUPS: List[CheckGroup] = [
     identity.checks,
     provider.checks,
+    usage.checks,
     engines.checks,
     otel.checks,
     environment.checks,
 ]
 
 
-def diagnose() -> dict:
+def diagnose(probe: bool = False) -> dict:
     """Run every registered check-group and aggregate one health report.
 
     Runs the groups in :data:`CHECK_GROUPS` order, concatenates their checks
@@ -140,12 +146,26 @@ def diagnose() -> dict:
     least one check has ``severity == "error"`` and ``passed is False``.
     Warnings and info never flip health, even when they fail.
 
+    When ``probe`` is ``True`` (``convertible doctor --probe``), the opt-in
+    :mod:`convertible.oilcheck.reachability` group is appended *after* the
+    registered groups. It is the deliberate, documented exception to the
+    "groups open no socket / make no network call" rule — a live provider ping —
+    so it is invoked here explicitly rather than being registered in
+    :data:`CHECK_GROUPS`. Off by default the diagnosis stays fully no-network.
+
     Returns the rubric shape ``{"healthy": bool, "checks": list[dict]}``.
-    Read-only: it neither writes files nor opens sockets (each group is
-    contractually read-only, and the aggregator only concatenates).
+    Read-only by default: it neither writes files nor opens sockets (each
+    registered group is contractually read-only, and the aggregator only
+    concatenates); only the opt-in ``probe`` path touches the network.
     """
     checks: List[dict] = []
     for group in CHECK_GROUPS:
         checks.extend(group())
+    if probe:
+        # Imported lazily so the no-network default path never even loads the
+        # module that knows how to open a connection.
+        from convertible.oilcheck import reachability
+
+        checks.extend(reachability.checks())
     healthy = not any(c["severity"] == "error" and not c["passed"] for c in checks)
     return {"healthy": healthy, "checks": checks}
