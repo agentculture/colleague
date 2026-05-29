@@ -213,7 +213,7 @@ def test_task_has_no_destination_or_goal_field() -> None:
     assert leaked == set(), f"Task gained a goal-ish field: {sorted(leaked)} — must stay additive"
 
     # The instruction is, and remains, a plain string.
-    task = Task.new("/tmp", "just an instruction")
+    task = Task.new("/repo", "just an instruction")
     assert isinstance(task.instruction, str)
     # Task.to_dict() likewise carries no destination/goal keys.
     serialized = task.to_dict()

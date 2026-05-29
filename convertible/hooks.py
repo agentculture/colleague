@@ -349,7 +349,7 @@ def run_hook(
     # Try to parse as JSON.
     try:
         parsed: dict[str, Any] = json.loads(stdout)
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:  # JSONDecodeError is a ValueError subclass
         # Non-JSON stdout with exit 0 → allow (observe/no-op).
         return HookDecision(decision="allow", exit_code=exit_code)
 

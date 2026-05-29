@@ -79,7 +79,9 @@ class Command:
 
 
 # Regex matching a ``$N`` positional placeholder (``$1`` ... ``$99``).
-_POSITIONAL_RE = re.compile(r"\$([1-9][0-9]?)")
+# re.ASCII keeps ``\d`` to ASCII 0-9 — without it ``\d`` also matches Unicode
+# digits (e.g. Arabic-Indic), which would mis-parse a placeholder index.
+_POSITIONAL_RE = re.compile(r"\$([1-9]\d?)", re.ASCII)
 
 
 def discover_commands(
@@ -249,7 +251,7 @@ def expand_command(
     discovered = discover_commands(repo_path, user_home=user_home)
     if name not in discovered:
         raise CommandError(
-            f"Unknown command {name!r}. " f"Available: {sorted(discovered.keys()) or '(none)'}"
+            f"Unknown command {name!r}. Available: {sorted(discovered.keys()) or '(none)'}"
         )
 
     cmd = load_command(discovered[name])

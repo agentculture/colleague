@@ -13,7 +13,7 @@ from pathlib import Path
 
 from convertible import commands as _cmds
 from convertible.cli._commands.overview import emit_overview
-from convertible.cli._output import emit_result
+from convertible.cli._output import JSON_HELP, emit_result
 
 
 def _commands_sections() -> list[dict[str, object]]:
@@ -80,15 +80,15 @@ def register(sub: argparse._SubParsersAction) -> None:
         "commands",
         help="Discover command templates (see 'convertible commands overview').",
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="commands_command", parser_class=type(p))
 
     lst = noun_sub.add_parser("list", help="List discovered command templates.")
     lst.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
-    lst.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_commands_list)
 
     ov = noun_sub.add_parser("overview", help="Describe the commands surface.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_commands_overview)

@@ -134,7 +134,7 @@ class _NoopSpan:
     """A span handle that drops every attribute. Returned when telemetry is off."""
 
     def set(self, **_attrs: object) -> None:
-        pass
+        """No-op: the disabled span drops every attribute."""
 
 
 class Telemetry:
@@ -162,10 +162,10 @@ class Telemetry:
         yield _NoopSpan()
 
     def on_completion(self, prompt_tokens: int, completion_tokens: int) -> None:
-        pass
+        """No-op: token counts are dropped when telemetry is disabled."""
 
     def on_hook_denial(self) -> None:
-        pass
+        """No-op: hook-denial counts are dropped when telemetry is disabled."""
 
     def trace_id_hex(self) -> str | None:
         return None

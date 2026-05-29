@@ -347,9 +347,9 @@ def test_capstone_cross_engine_e2e(tmp_path: Path) -> None:  # noqa: PLR0914
         assert (
             len(denied_steps) >= 1
         ), f"{label}: expected a non-ok run_command step; steps={result.steps}"
-        assert "blocked" in denied_steps[0].result, (
-            f"{label}: step result should carry the deny reason; " f"got {denied_steps[0].result!r}"
-        )
+        assert (
+            "blocked" in denied_steps[0].result
+        ), f"{label}: step result should carry the deny reason; got {denied_steps[0].result!r}"
 
     # -----------------------------------------------------------------------
     # A6 — post_tool hook's marker file IS present

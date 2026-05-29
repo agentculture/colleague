@@ -51,8 +51,8 @@ def test_run_command_runs_in_root(tmp_path: Path) -> None:
     assert "exit=0" in out.result
 
 
-def test_finish_signals_completion() -> None:
-    out = ToolExecutor("/tmp").execute(FINISH, {"summary": "all done"})
+def test_finish_signals_completion(tmp_path: Path) -> None:
+    out = ToolExecutor(tmp_path).execute(FINISH, {"summary": "all done"})
     assert out.finished is True
     assert out.finish_summary == "all done"
 

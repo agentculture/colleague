@@ -228,7 +228,7 @@ class _Span:
     """A span handle exposing ``.set(**attrs)`` over an OTel span."""
 
     def __init__(self, span: Any) -> None:
-        self._span = span
+        self._otel_span = span
         self.ok = True
         self._status = "unknown"
 
@@ -240,7 +240,7 @@ class _Span:
                 self.ok = bool(value)
             if key == "status":
                 self._status = str(value)
-            self._span.set_attribute(key, value)
+            self._otel_span.set_attribute(key, value)
 
 
 class _OtelTelemetry(Telemetry):

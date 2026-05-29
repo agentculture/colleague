@@ -19,13 +19,14 @@ SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SKILL_DIR/../../.." && pwd)"
 
 CFG="$REPO_ROOT/.claude/skills.local.yaml"
-[ -f "$CFG" ] || CFG="$REPO_ROOT/.claude/skills.local.yaml.example"
+[[ -f "$CFG" ]] || CFG="$REPO_ROOT/.claude/skills.local.yaml.example"
 
 # Read a top-level YAML scalar from CFG. Schema is intentionally tiny:
 #   key: value     (with optional surrounding quotes / trailing comment)
 # No PyYAML dependency.
 read_cfg() {
-    awk -v key="$1" '
+    local key="$1"
+    awk -v key="$key" '
         $0 ~ ("^" key ":[[:space:]]*") {
             sub("^" key ":[[:space:]]*", "")
             sub(/[[:space:]]*#.*$/, "")
@@ -38,17 +39,17 @@ read_cfg() {
 }
 
 target="${1:-}"
-if [ -z "$target" ]; then
+if [[ -z "$target" ]]; then
     echo "Usage: $(basename "$0") <path-or-agent-suffix>" >&2
     exit 2
 fi
 
-if [ -d "$target" ]; then
+if [[ -d "$target" ]]; then
     DIR="$target"
 else
     SERVER_YAML_RAW="$(read_cfg culture_server_yaml)"
     SERVER_YAML="${SERVER_YAML_RAW/#\~/$HOME}"
-    if [ ! -f "$SERVER_YAML" ]; then
+    if [[ ! -f "$SERVER_YAML" ]]; then
         echo "no server manifest at $SERVER_YAML — set culture_server_yaml in $CFG" >&2
         echo "or pass an explicit path instead of suffix '$target'" >&2
         exit 1
@@ -88,34 +89,34 @@ DIR="${DIR/#\~/$HOME}"
 # registry isn't present (e.g. skill vendored without the data file).
 REGISTRY="$SKILL_DIR/data/backend-fingerprints.yaml"
 prompt_files=()
-if [ -f "$REGISTRY" ]; then
+if [[ -f "$REGISTRY" ]]; then
     while IFS= read -r pf; do
-        [ -n "$pf" ] && prompt_files+=("$pf")
+        [[ -n "$pf" ]] && prompt_files+=("$pf")
     done < <(grep -oE 'prompt:[[:space:]]*[^,}[:space:]]+' "$REGISTRY" | awk '{print $NF}' | sort -u)
 fi
-[ ${#prompt_files[@]} -eq 0 ] && prompt_files=(CLAUDE.md AGENTS.md GEMINI.md)
+[[ ${#prompt_files[@]} -eq 0 ]] && prompt_files=(CLAUDE.md AGENTS.md GEMINI.md)
 
 shown=0
 for pf in "${prompt_files[@]}"; do
-    if [ -f "$DIR/$pf" ]; then
+    if [[ -f "$DIR/$pf" ]]; then
         echo "=== $DIR/$pf ==="
         cat "$DIR/$pf"
         echo
         shown=1
     fi
 done
-if [ "$shown" -eq 0 ]; then
+if [[ "$shown" -eq 0 ]]; then
     echo "=== $DIR (system prompt) ==="
     echo "(no recognized prompt file: ${prompt_files[*]})"
     echo
 fi
 echo "=== $DIR/culture.yaml ==="
-if [ -f "$DIR/culture.yaml" ]; then cat "$DIR/culture.yaml"; else echo "(missing)"; fi
+if [[ -f "$DIR/culture.yaml" ]]; then cat "$DIR/culture.yaml"; else echo "(missing)"; fi
 echo
 echo "=== $DIR/.claude/skills/ ==="
 found=0
 for s in "$DIR"/.claude/skills/*/SKILL.md; do
-    [ -f "$s" ] || continue
+    [[ -f "$s" ]] || continue
     found=1
     name=$(awk '/^name:/{print $2; exit}' "$s")
     desc=$(awk '
@@ -131,6 +132,6 @@ for s in "$DIR"/.claude/skills/*/SKILL.md; do
     ' "$s")
     printf "  %-30s %s\n" "$name" "${desc:0:120}"
 done
-if [ "$found" -eq 0 ]; then
+if [[ "$found" -eq 0 ]]; then
     echo "  (no skills)"
 fi

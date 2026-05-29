@@ -14,6 +14,7 @@ import json
 import shutil
 from pathlib import Path
 
+from convertible.configdir import CONFIG_DIR_NAME
 from convertible.oilcheck import make_check
 
 
@@ -38,12 +39,12 @@ def _check_config_dir(repo: Path) -> dict:
         from convertible.configdir import config_roots
 
         roots = config_roots(repo)
-        repo_config = repo / ".convertible"
+        repo_config = repo / CONFIG_DIR_NAME
         present = repo_config.is_dir()
         if present:
             msg = f".convertible/ config dir present at {repo_config}"
         else:
-            user_config = Path.home() / ".convertible"
+            user_config = Path.home() / CONFIG_DIR_NAME
             if user_config.is_dir():
                 msg = f"no repo-level .convertible/; user-level {user_config} resolves"
             else:
@@ -68,7 +69,7 @@ def _check_config_dir(repo: Path) -> dict:
 def _check_hooks_valid(repo: Path) -> dict:
     """Check 2: if hooks.json exists, it must parse as valid JSON."""
     try:
-        hooks_path = repo / ".convertible" / "hooks.json"
+        hooks_path = repo / CONFIG_DIR_NAME / "hooks.json"
         if not hooks_path.is_file():
             return make_check(
                 "hooks_valid",
@@ -171,9 +172,7 @@ def _check_layering(repo: Path) -> dict:
         skills = resolve_skills(repo, _model)
         n_agents = len(agents)
         n_skills = len(skills)
-        msg = (
-            f"AGENTS/skills layering resolved: {n_agents} AGENTS layer(s), " f"{n_skills} skill(s)"
-        )
+        msg = f"AGENTS/skills layering resolved: {n_agents} AGENTS layer(s), {n_skills} skill(s)"
         return make_check("layering", True, "info", msg)
     except Exception as exc:  # noqa: BLE001
         return make_check(
@@ -235,9 +234,7 @@ def _check_cli_integrity() -> dict:
                 False,
                 "error",
                 "convertible.__version__ is absent or empty",
-                remediation=(
-                    "ensure convertible is installed correctly; " "try `uv sync` and re-run"
-                ),
+                remediation="ensure convertible is installed correctly; try `uv sync` and re-run",
             )
         from convertible.cli import _build_parser
 

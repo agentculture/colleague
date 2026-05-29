@@ -13,6 +13,11 @@ from typing import Any, TextIO
 
 from convertible.cli._errors import CliError
 
+# Shared help text for the ``--json`` flag every command exposes (agent-first
+# convention: every verb supports ``--json``). One definition keeps the wording
+# identical across the CLI surface.
+JSON_HELP = "Emit structured JSON."
+
 
 def emit_result(data: Any, *, json_mode: bool, stream: TextIO | None = None) -> None:
     """Write a command result to stdout (or ``stream``)."""

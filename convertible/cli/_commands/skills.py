@@ -17,7 +17,7 @@ import argparse
 from pathlib import Path
 
 from convertible.cli._commands.overview import emit_overview
-from convertible.cli._output import emit_result
+from convertible.cli._output import JSON_HELP, emit_result
 from convertible.config import EngineConfig
 from convertible.layers import resolve_skills
 
@@ -88,7 +88,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "skills",
         help="Inspect layered skill docs (see 'convertible skills overview').",
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="skills_command", parser_class=type(p))
 
@@ -99,9 +99,9 @@ def register(sub: argparse._SubParsersAction) -> None:
         default=None,
         help="Model to resolve skills for (default: the resolved engine model).",
     )
-    lst.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_skills_list)
 
     ov = noun_sub.add_parser("overview", help="Describe the skills surface.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_skills_overview)

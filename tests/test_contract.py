@@ -8,11 +8,9 @@ from convertible.contract import OK, HookFiring, Step, Task, TaskResult, Usage
 
 
 def test_task_new_assigns_id_and_fields() -> None:
-    task = Task.new(
-        "/tmp/repo", "add a README", engine="mock", context="ctx", constraints=["no deps"]
-    )
+    task = Task.new("/repo", "add a README", engine="mock", context="ctx", constraints=["no deps"])
     assert task.id
-    assert task.repo_path == "/tmp/repo"
+    assert task.repo_path == "/repo"
     assert task.instruction == "add a README"
     assert task.engine == "mock"
     assert task.constraints == ["no deps"]

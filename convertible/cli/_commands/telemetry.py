@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 
 from convertible.cli._commands.overview import emit_overview
-from convertible.cli._output import emit_result
+from convertible.cli._output import JSON_HELP, emit_result
 from convertible.telemetry import TelemetryConfig, sdk_available
 
 
@@ -102,14 +102,14 @@ def register(sub: argparse._SubParsersAction) -> None:
         "telemetry",
         help="Inspect the GPS / OpenTelemetry config (see 'convertible telemetry overview').",
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="telemetry_command", parser_class=type(p))
 
     st = noun_sub.add_parser("status", help="Show the resolved telemetry configuration.")
-    st.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    st.add_argument("--json", action="store_true", help=JSON_HELP)
     st.set_defaults(func=cmd_telemetry_status)
 
     ov = noun_sub.add_parser("overview", help="Describe the telemetry surface.")
-    ov.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_telemetry_overview)

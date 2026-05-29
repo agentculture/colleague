@@ -17,8 +17,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# Module-level constant: the user-level config directory.
-USER_CONFIG_DIR = Path.home() / ".convertible"
+# Module-level constants: the config directory name and the user-level path.
+CONFIG_DIR_NAME = ".convertible"
+USER_CONFIG_DIR = Path.home() / CONFIG_DIR_NAME
 
 
 def config_roots(repo_path: str | Path, *, user_home: str | Path | None = None) -> list[Path]:
@@ -42,11 +43,11 @@ def config_roots(repo_path: str | Path, *, user_home: str | Path | None = None) 
     repo_path = Path(repo_path)
     roots = []
 
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / CONFIG_DIR_NAME
     if repo_config.is_dir():
         roots.append(repo_config)
 
-    user_config = user_home / ".convertible"
+    user_config = user_home / CONFIG_DIR_NAME
     if user_config.is_dir():
         roots.append(user_config)
 
