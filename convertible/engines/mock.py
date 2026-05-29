@@ -56,4 +56,5 @@ class MockEngine(Engine):
             task,
             max_steps=config.max_steps,
             system_prompt=self.system_prompt(task, config),
+            model=config.model,
         )

@@ -447,3 +447,181 @@ def test_lifecycle_is_engine_agnostic(tmp_path: Path) -> None:
         ("post_tool", "write_file", "allow"),
         ("finish", None, "allow"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Per-model hook wiring (t2): run() accepts model= and threads it into
+# load_hooks so per-model overlays fire during a real drive.
+# ---------------------------------------------------------------------------
+
+
+def _write_per_model_hooks(repo: Path, model: str, config: dict) -> None:
+    """Write .convertible/<sanitized-model>/hooks.json under *repo*."""
+    from convertible.layers import sanitize_model
+
+    safe = sanitize_model(model)
+    dotdir = repo / ".convertible" / safe
+    dotdir.mkdir(parents=True, exist_ok=True)
+    (dotdir / "hooks.json").write_text(json.dumps(config), encoding="utf-8")
+
+
+def test_per_model_hook_fires_when_model_passed_to_run(tmp_path: Path) -> None:
+    """Criterion 1a: run(model=<model>) causes the per-model overlay hooks.json
+    to be loaded.  A per_tool deny in the overlay blocks the write; the deny is
+    recorded in the result."""
+    model = "test-model-v1"
+
+    # Only the per-model overlay has a deny hook; no base hooks.json is present.
+    _write_per_model_hooks(
+        tmp_path,
+        model,
+        {
+            "hooks": {
+                "pre_tool": [
+                    {
+                        "matcher": "write_file",
+                        "command": "sh -c 'echo per-model-deny >&2; exit 1'",
+                    }
+                ]
+            }
+        },
+    )
+
+    responses = [
+        ModelResponse(
+            tool_calls=[ToolCall("1", "write_file", {"path": "out.txt", "content": "data"})]
+        ),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    task = Task.new(str(tmp_path), "write a file")
+    result = run(scripted(responses), task, max_steps=10, model=model)
+
+    # The per-model deny hook blocked the write; the file must not exist.
+    assert not (tmp_path / "out.txt").exists()
+    # A deny firing was recorded from the per-model overlay.
+    deny_firings = [f for f in result.hook_firings if f.decision == "deny"]
+    assert len(deny_firings) == 1
+    assert deny_firings[0].event == "pre_tool"
+    assert "per-model-deny" in deny_firings[0].reason
+    # The loop still finished.
+    assert result.status == OK
+    assert result.summary == "done"
+
+
+def test_per_model_hook_does_not_fire_when_model_not_passed(tmp_path: Path) -> None:
+    """Criterion 1b / criterion 2a: when run() is called without model=, the
+    per-model overlay is NOT loaded; a deny in the overlay does NOT fire; the
+    write succeeds; behavior is identical to a hook-free drive."""
+    model = "test-model-v1"
+
+    # Write the deny only in the per-model overlay — no base hooks.json.
+    _write_per_model_hooks(
+        tmp_path,
+        model,
+        {
+            "hooks": {
+                "pre_tool": [
+                    {
+                        "matcher": "write_file",
+                        "command": "sh -c 'echo should-not-fire >&2; exit 1'",
+                    }
+                ]
+            }
+        },
+    )
+
+    responses = [
+        ModelResponse(
+            tool_calls=[ToolCall("1", "write_file", {"path": "ok.txt", "content": "hi"})]
+        ),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    task = Task.new(str(tmp_path), "write ok.txt")
+    # No model= kwarg — base-only load, overlay is invisible.
+    result = run(scripted(responses), task, max_steps=10)
+
+    assert (tmp_path / "ok.txt").read_text() == "hi"
+    assert result.hook_firings == []
+    assert result.summary == "done"
+
+
+def test_per_model_overlay_takes_priority_over_base_hook(tmp_path: Path) -> None:
+    """Criterion 1c: per-model overlay entries are prepended ahead of base entries;
+    the per-model deny wins before the base allow even runs."""
+    model = "test-model-v2"
+
+    # Base hook: allow (exit 0).
+    _write_hooks(
+        tmp_path,
+        {
+            "hooks": {
+                "pre_tool": [
+                    {
+                        "matcher": "write_file",
+                        "command": "sh -c 'exit 0'",
+                    }
+                ]
+            }
+        },
+    )
+    # Per-model overlay: deny.
+    _write_per_model_hooks(
+        tmp_path,
+        model,
+        {
+            "hooks": {
+                "pre_tool": [
+                    {
+                        "matcher": "write_file",
+                        "command": "sh -c 'echo model-priority-deny >&2; exit 1'",
+                    }
+                ]
+            }
+        },
+    )
+
+    responses = [
+        ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "x.txt", "content": "v"})]),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "ok"})]),
+    ]
+    task = Task.new(str(tmp_path), "write x.txt")
+    result = run(scripted(responses), task, max_steps=10, model=model)
+
+    # Per-model deny fires first; the write does not happen.
+    assert not (tmp_path / "x.txt").exists()
+    deny_firings = [f for f in result.hook_firings if f.decision == "deny"]
+    assert len(deny_firings) == 1
+    assert "model-priority-deny" in deny_firings[0].reason
+
+
+def test_run_model_none_is_identical_to_no_model_kwarg(tmp_path: Path) -> None:
+    """Criterion 2b: run(model=None) is identical to run() — base-only load,
+    per-model overlay untouched."""
+    model = "test-model-v1"
+
+    # Only per-model overlay — base is empty.
+    _write_per_model_hooks(
+        tmp_path,
+        model,
+        {
+            "hooks": {
+                "pre_tool": [
+                    {
+                        "matcher": "write_file",
+                        "command": "sh -c 'echo overlay >&2; exit 1'",
+                    }
+                ]
+            }
+        },
+    )
+
+    responses = [
+        ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "nm.txt", "content": "x"})]),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    task = Task.new(str(tmp_path), "write nm.txt")
+    # model=None: overlay must be invisible.
+    result = run(scripted(responses), task, max_steps=10, model=None)
+
+    assert (tmp_path / "nm.txt").read_text() == "x"
+    assert result.hook_firings == []
