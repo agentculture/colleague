@@ -51,10 +51,19 @@ def resolve_engine(explicit: str | None) -> str:
     Precedence, highest first: an explicit value (the ``--engine`` flag), the
     ``CONVERTIBLE_ENGINE`` environment variable, then the built-in default
     (:data:`_DEFAULT_ENGINE`). Engine selection is config too, so it mirrors the
-    :func:`_pick` precedence used for the provider fields — but it is a separate
-    concern (the ``mock`` engine never reads provider config).
+    provider-field precedence — but it is a separate concern (the ``mock`` engine
+    never reads provider config).
+
+    An empty or whitespace-only candidate is treated as *absent*, not as a valid
+    override: ``--engine ''`` (or ``--engine "$VAR"`` with ``VAR`` unset, or a
+    blank ``CONVERTIBLE_ENGINE``) falls through to the next source rather than
+    resolving to an invalid engine name that would later raise ``UnknownEngine``.
+    A non-blank value is returned stripped of surrounding whitespace.
     """
-    return _pick(explicit, "CONVERTIBLE_ENGINE", default=_DEFAULT_ENGINE)
+    for candidate in (explicit, os.environ.get("CONVERTIBLE_ENGINE")):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return _DEFAULT_ENGINE
 
 
 @dataclass
