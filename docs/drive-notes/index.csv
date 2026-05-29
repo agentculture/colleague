@@ -1,0 +1,2 @@
+date,experiment,engine,model,attempts,nudges,guidance_rewrites,final_status,success_timeout_s,success_wall_clock_s,success_steps,model_self_revisions,prompt_tokens,completion_tokens,total_tokens,index_html_bytes,style_css_bytes,html_valid,css_undefined,external_refs,findings,preflight_s,run_dir
+2026-05-29,website-self-build,vllm-openai,mmangkad/Qwen3.6-27B-NVFP4,3,2,1,ok,900,578,8,1,72523,4108,76631,5582,9016,yes,0,0,8,16.83,2026-05-29-website-self-build
