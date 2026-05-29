@@ -1,0 +1,18 @@
+{
+  "task_id": "4639d5ab4871",
+  "status": "error",
+  "summary": "drive failed",
+  "changed_files": [],
+  "steps": [],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "artifacts_path": ".convertible/4639d5ab4871.json",
+  "error": "TimeoutError: timed out",
+  "branch": null,
+  "pr_url": null,
+  "hook_firings": [],
+  "command": null
+}

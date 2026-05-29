@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "experiment": "website-self-build",
+  "date": "2026-05-29",
+  "objective": "Have convertible build a static website for itself. Only the engine does the website work; the operator guides (instruction + config), runs the drive, observes, and records. No website files authored by the operator.",
+  "harness": {
+    "engine": "vllm-openai",
+    "model": "mmangkad/Qwen3.6-27B-NVFP4",
+    "server": "http://localhost:8001/v1",
+    "model_max_len": 32768,
+    "guidance_style": "pointers-only",
+    "target_dir": "site/",
+    "constant_flags": ["--max-steps 50", "--no-pr", "--json"]
+  },
+  "preflight": {
+    "command": "CONVERTIBLE_VLLM_E2E=1 CONVERTIBLE_BASE_URL=http://localhost:8001/v1 CONVERTIBLE_MODEL=mmangkad/Qwen3.6-27B-NVFP4 uv run pytest tests/test_vllm_live.py -v",
+    "result": "passed",
+    "wall_clock_s": 16.83,
+    "measured_by": "pytest"
+  },
+  "totals": {
+    "drive_attempts": 3,
+    "attempts_error": 2,
+    "attempts_ok": 1,
+    "operator_nudges": 2,
+    "config_changes": 2,
+    "guidance_rewrites": 1,
+    "drive_wall_clock_s_sum": 1828,
+    "drive_wall_clock_s_sum_human": "~30.5 min",
+    "timing_source": "derived from background-task file birth times and drive artifact mtimes (second resolution); not wrapped in `time`"
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "task_id": "b196789edc2f",
+      "timeout_s": 120,
+      "status": "error",
+      "error": "TimeoutError: timed out",
+      "wall_clock_s": 121,
+      "wall_clock_source": "site/ mkdir 09:20:48 -> error artifact 09:22:49",
+      "loop_steps_recorded": 0,
+      "tokens": {"prompt": 0, "completion": 0, "total": 0},
+      "tokens_note": "artifact rebuilt fresh on exception; real usage discarded (finding F1)",
+      "on_disk_after": "site/ created, empty",
+      "guidance": "original pointers-only: read README.md + docs/features/; build index.html + features page + stylesheet"
+    },
+    {
+      "n": 2,
+      "task_id": "4639d5ab4871",
+      "timeout_s": 600,
+      "status": "error",
+      "error": "TimeoutError: timed out",
+      "wall_clock_s": 1129,
+      "wall_clock_source": "task start 09:26:09 -> error artifact 09:44:58",
+      "final_completion_s": 600,
+      "final_completion_note": "style.css written 09:34:58 -> error 09:44:58 = one completion ran the full 600s",
+      "loop_steps_recorded": 0,
+      "tokens": {"prompt": 0, "completion": 0, "total": 0},
+      "tokens_note": "discarded on exception (finding F1)",
+      "on_disk_after": "site/style.css (9016 bytes)",
+      "guidance": "unchanged from attempt 1"
+    },
+    {
+      "n": 3,
+      "task_id": "bdd455519da0",
+      "timeout_s": 900,
+      "status": "ok",
+      "wall_clock_s": 578,
+      "wall_clock_source": "task start 09:47:26 -> success artifact 09:57:04",
+      "loop_steps": 8,
+      "tool_tally": {"read_file": 2, "write_file": 2, "list_dir": 1, "run_command": 2, "finish": 1},
+      "model_self_revisions": 1,
+      "model_self_revision_note": "wrote site/index.html, ran `wc -l`, rewrote it, ran `wc -l`, then finished",
+      "failed_steps": 0,
+      "tokens": {"prompt": 72523, "completion": 4108, "total": 76631},
+      "tokens_note": "prompt tokens cumulative across 8 completions (the 20KB README rides in context each turn) (finding F7)",
+      "changed_files": ["site/index.html"],
+      "guidance": "refined: read only site/style.css + README.md (NOT docs/features/); car-metaphor parts given inline; 'target about 150 lines, avoid long prose'; build a single concise index.html; keep the existing style.css"
+    }
+  ],
+  "nudges": [
+    {
+      "after_attempt": 1,
+      "type": "config",
+      "change": "CONVERTIBLE_TIMEOUT 120 -> 600",
+      "reason_observed": "attempt 1 raised TimeoutError on the first completion (default 120s per-request HTTP timeout)"
+    },
+    {
+      "after_attempt": 2,
+      "type": "config+guidance",
+      "change": "CONVERTIBLE_TIMEOUT 600 -> 900; instruction narrowed (read fewer files, car-metaphor inline, cap length, single concise index.html)",
+      "reason_observed": "attempt 2's final completion ran the full 600s and timed out; only style.css was produced"
+    }
+  ],
+  "output": {
+    "files": [
+      {"path": "site/index.html", "bytes": 5582, "lines": 143},
+      {"path": "site/style.css", "bytes": 9016}
+    ],
+    "validation": {
+      "html_parse": "ok",
+      "unclosed_tags": 0,
+      "css_classes_used": 24,
+      "css_classes_undefined": 0,
+      "external_http_refs": 0,
+      "rendered": "headless chromium (~/.cache/ms-playwright/chromium-1208) over http://127.0.0.1:8777 -> displays as built (see output/render.png)"
+    }
+  },
+  "findings": [
+    {"id": "F1", "category": "observability", "title": "Timeout error-path discards the partial result", "evidence": "loop.py:252 (no try/except around complete()); drive.py:124-125 (failed_result rebuilt fresh)", "observation": "attempts 1 & 2 recorded steps=[], usage=0, changed_files=[] while site/ (a1) and site/style.css 9016B (a2) existed on disk", "status": "observed"},
+    {"id": "F2", "category": "observability", "title": "Failed-run trace.jsonl is 0 bytes", "evidence": "artifacts/fail-*.json have empty companion trace.jsonl", "status": "observed"},
+    {"id": "F3", "category": "observability", "title": "No per-step progress output during a drive", "evidence": "drive stderr/stdout carried only the final line", "status": "observed"},
+    {"id": "F4", "category": "handoff", "title": "/site is gitignored", "evidence": ".gitignore:168 (mkdocs template section); git check-ignore confirms site/index.html and site/style.css", "observation": "the built website was not committed by the handoff", "status": "observed"},
+    {"id": "F5", "category": "handoff", "title": "handoff `git add -A` commits unrelated untracked files", "evidence": "handoff.py:96-99", "observation": "commit 6818f55 contained two prior failed-run artifacts; the reported changed_files (site/index.html) was gitignored and absent from the commit", "status": "observed"},
+    {"id": "F6", "category": "handoff", "title": "Commit message is the full instruction verbatim", "evidence": "handoff.py:98 message = f'convertible: {instruction or task_id}'", "status": "observed"},
+    {"id": "F7", "category": "cost", "title": "Cumulative prompt tokens grow with re-sent context", "evidence": "success usage prompt=72523 over 8 completions; 20031-byte README read at step 1 rides in context for every later completion", "status": "observed"},
+    {"id": "F8", "category": "observability", "title": "site/ created during a zero-step run; creating tool not identifiable", "evidence": "tools.py:276 path.parent.mkdir(parents=True); steps discarded per F1", "status": "observed"},
+    {"id": "F9", "category": "output-quality", "title": "Generated index.html links ../README.md (404 when served)", "evidence": "output/index.html:140 footer <a href=\"../README.md\">", "observation": "the model-authored footer points outside the served site/ docroot; resolves only via local relative file access, 404s over HTTP, and is raw markdown even if served. Surfaced by Qodo on PR #36. Output preserved exactly as produced (not edited).", "status": "observed"}
+  ]
+}

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>convertible — swappable coder-agent harness</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <nav class="nav-inner">
+      <div class="nav-brand"><span class="dot"></span> convertible</div>
+      <ul class="nav-links">
+        <li><a href="#metaphor">Metaphor</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#quickstart">Quickstart</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="hero">
+      <h1><span class="accent">convertible</span></h1>
+      <p class="tagline">One harness, many engines. A swappable coder-agent harness that turns any model into a repo worker behind a shared task contract.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#metaphor">How it works</a>
+        <a class="btn btn-secondary" href="#features">Features</a>
+      </div>
+    </section>
+
+    <!-- Car metaphor -->
+    <section class="section" id="metaphor">
+      <div class="section-heading">
+        <h2>The car around the model</h2>
+        <p>Convertible is the chassis, controls, and handoff. The model is just the engine.</p>
+      </div>
+      <div class="metaphor-grid">
+        <div class="metaphor-card">
+          <span class="part">Engine</span>
+          <h3>Model backend</h3>
+          <p>The LLM or coder model — local vLLM, OpenAI, or any compatible endpoint.</p>
+        </div>
+        <div class="metaphor-card">
+          <span class="part">Driver</span>
+          <h3>Per-engine adapter</h3>
+          <p>The code that invokes and controls one specific engine type.</p>
+        </div>
+        <div class="metaphor-card">
+          <span class="part">Chassis</span>
+          <h3>Shared task contract</h3>
+          <p>Typed <code>Task</code> → <code>TaskResult</code> lifecycle every engine shares.</p>
+        </div>
+        <div class="metaphor-card">
+          <span class="part">Tool-loop</span>
+          <h3>Bounded agentic loop</h3>
+          <p>The engine drives the repo through read/write/command tools until done or budget hit.</p>
+        </div>
+        <div class="metaphor-card">
+          <span class="part">Wheels</span>
+          <h3>Pluggable engines</h3>
+          <p>Replaceable engine plugins discovered via Python entry points.</p>
+        </div>
+        <div class="metaphor-card">
+          <span class="part">Dashboard</span>
+          <h3>JSON result artifact</h3>
+          <p>Every run writes a structured result with step trace for downstream handoff.</p>
+        </div>
+        <div class="metaphor-card">
+          <span class="part">GPS</span>
+          <h3>OpenTelemetry</h3>
+          <p>Opt-in traces and metrics over OTLP — off by default, strict no-op when disabled.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="section" id="features">
+      <div class="section-heading">
+        <h2>Key features</h2>
+        <p>Everything ships in the chassis — no engine-specific code paths.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">⇄</div>
+          <h3>Swappable engines</h3>
+          <p>Swap <code>mock</code> for <code>vllm-openai</code> or any future wheel — same CLI, same contract.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⎇</div>
+          <h3>Git / PR handoff</h3>
+          <p>Branch → commit → push → <code>gh pr create</code>, gated for offline and CI.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📜</div>
+          <h3>Command templates</h3>
+          <p>Reusable, parameterized task recipes under <code>.convertible/commands/*.md</code>.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🪝</div>
+          <h3>Lifecycle hooks</h3>
+          <p>Shell commands at <code>task_start</code>, <code>pre_tool</code>, <code>post_tool</code>, and <code>finish</code> — allow, deny, or rewrite.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🧅</div>
+          <h3>Layered per-model config</h3>
+          <p>AGENTS instructions and skills compose per model with strict isolation.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">0️⃣</div>
+          <h3>Zero runtime dependencies</h3>
+          <p>The base install has no third-party deps. Optional <code>[otel]</code> extra for telemetry.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quickstart -->
+    <section class="section" id="quickstart">
+      <div class="section-heading">
+        <h2>Quickstart</h2>
+        <p>Drive a task with the deterministic mock engine — no model, no network.</p>
+      </div>
+      <div class="code-block">
+        <pre><span class="comment"># Discover installed engines</span>
+uv run convertible wheels list
+
+<span class="comment"># Run a task with the mock engine</span>
+uv run convertible drive "add a CONTRIBUTING.md stub" \
+  --repo . --engine mock --no-pr
+
+<span class="comment"># Open the interactive palette</span>
+uv run convertible session</pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>convertible — the car around the model. <a href="../README.md">Read the docs</a>.</p>
+  </footer>
+</body>
+</html>
