@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-05-29
+
+### Changed
+
+- Refactored `loop.run`, `session.run_session`, and `commands.load_command` into focused helpers to bring cognitive complexity under the threshold (SonarCloud S3776); behavior-preserving (all 799 tests pass).
+- Collapsed `telemetry status` to a single return path (SonarCloud S3516 BLOCKER).
+
 ## [0.12.1] - 2026-05-29
 
 ### Changed

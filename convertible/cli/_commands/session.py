@@ -85,6 +85,109 @@ def _render_result_summary(result: TaskResult, out: Callable[..., None]) -> None
     out("")
 
 
+def _read_line(input_fn: Optional[Iterator[str]]) -> Optional[str]:
+    """Return the next input line, or None on EOF / StopIteration.
+
+    With ``input_fn`` (test seam) the next item is pulled from the iterator;
+    otherwise the real :func:`input` builtin reads from stdin.
+    """
+    if input_fn is not None:
+        try:
+            return next(input_fn)  # type: ignore[call-overload]
+        except StopIteration:
+            return None
+    try:
+        return input()
+    except EOFError:
+        return None
+
+
+def _resolve_selection(
+    line: str,
+    palette: list[tuple[str, str]],
+    discovered: dict[str, Path],
+    repo: Path,
+    engine_name: str,
+    err: Callable[..., None],
+) -> Optional[tuple[Task, Optional[str]]]:
+    """Resolve a palette input line to a ``(task, command_name)`` pair.
+
+    A bare number selects a palette entry; an exact name selects a command
+    template; anything else is a free-text ad-hoc instruction (``command_name``
+    is ``None``). Returns ``None`` when the line cannot be resolved (out-of-range
+    number, or an unknown/erroring command) — the reason is already written to
+    ``err`` and the caller should simply prompt again.
+    """
+    command_name: Optional[str] = None
+
+    if line.isdigit():
+        idx = int(line)
+        if not 1 <= idx <= len(palette):
+            err(f"  (no entry {idx} in the palette; type a number 1–{len(palette)})")
+            return None
+        command_name = palette[idx - 1][0]
+    elif line in discovered:
+        command_name = line
+    else:
+        # Free-text ad-hoc instruction — no originating command.
+        return Task.new(str(repo), line, engine=engine_name), None
+
+    # A command was selected (by number or name) — expand it into a Task.
+    try:
+        task = expand_command(repo, command_name, [], engine_default=engine_name)
+    except CommandError as exc:
+        err(f"  error: {exc}")
+        return None
+    return task, command_name
+
+
+def _run_one(
+    task: Task,
+    command_name: Optional[str],
+    *,
+    repo: Path,
+    engine_name: str,
+    open_pr: bool,
+    base: str,
+    config: EngineConfig,
+    drive_fn: _DriveFn,
+    json_mode: bool,
+    out: Callable[..., None],
+    chrome: Callable[..., None],
+    err: Callable[..., None],
+) -> None:
+    """Run one resolved task through the shared drive path and render the result.
+
+    Errors go to ``err`` (stderr); the result goes to ``out`` as one JSON object
+    in ``--json`` mode, else a human summary as interactive chrome. Passing
+    ``command_name`` lets the drive helper persist the originating command in the
+    artifact (R5 / c12).
+    """
+    try:
+        result, _artifact_path = drive_fn(
+            repo=repo,
+            engine_name=engine_name,
+            task=task,
+            open_pr=open_pr,
+            base=base,
+            config=config,
+            command_name=command_name,
+        )
+    except CliError as exc:
+        err(f"  error: {exc.message}")
+        if exc.remediation:
+            err(f"  hint: {exc.remediation}")
+        return
+    except Exception as exc:  # noqa: BLE001
+        err(f"  error: {type(exc).__name__}: {exc}")
+        return
+
+    if json_mode:
+        out(json.dumps(result.to_dict(), ensure_ascii=False))
+    else:
+        _render_result_summary(result, chrome)
+
+
 def run_session(
     args: argparse.Namespace,
     *,
@@ -150,21 +253,9 @@ def run_session(
         cmd = load_command(discovered[name])
         palette.append((name, cmd.description))
 
-    def _next_line() -> Optional[str]:
-        """Return the next input line, or None on EOF / StopIteration."""
-        if input_fn is not None:
-            try:
-                return next(input_fn)  # type: ignore[call-overload]
-            except StopIteration:
-                return None
-        try:
-            return input()
-        except EOFError:
-            return None
-
     while True:
         _render_palette(palette, chrome, engine_name, str(repo))
-        raw = _next_line()
+        raw = _read_line(input_fn)
 
         # EOF or no input — treat as quit.
         if raw is None:
@@ -178,63 +269,26 @@ def run_session(
             chrome("\n(session ended)")
             break
 
-        # --- Resolve the selection ---
-        task: Optional[Task] = None
-        command_name: Optional[str] = None
-
-        # Check if it's a number selecting a palette entry.
-        if line.isdigit():
-            idx = int(line)
-            if 1 <= idx <= len(palette):
-                command_name = palette[idx - 1][0]
-            else:
-                err(f"  (no entry {idx} in the palette; type a number 1–{len(palette)})")
-                continue
-
-        # Check if it matches a command name directly.
-        elif line in discovered:
-            command_name = line
-
-        # Free-text ad-hoc instruction.
-        else:
-            task = Task.new(str(repo), line, engine=engine_name)
-
-        if command_name is not None:
-            try:
-                task = expand_command(repo, command_name, [], engine_default=engine_name)
-            except CommandError as exc:
-                err(f"  error: {exc}")
-                continue
-
-        assert task is not None  # mypy narrowing
-
-        # Run through the shared drive path. Passing command_name lets the
-        # helper persist the originating command in the artifact (R5 / c12).
-        try:
-            result, _artifact_path = _drive_fn(
-                repo=repo,
-                engine_name=engine_name,
-                task=task,
-                open_pr=open_pr,
-                base=base,
-                config=config,
-                command_name=command_name,
-            )
-        except CliError as exc:
-            err(f"  error: {exc.message}")
-            if exc.remediation:
-                err(f"  hint: {exc.remediation}")
+        # Resolve the line to a task (None → already reported; prompt again).
+        resolved = _resolve_selection(line, palette, discovered, repo, engine_name, err)
+        if resolved is None:
             continue
-        except Exception as exc:  # noqa: BLE001
-            err(f"  error: {type(exc).__name__}: {exc}")
-            continue
+        task, command_name = resolved
 
-        # Result → stdout: one JSON object per drive in --json mode, else a
-        # human summary as interactive chrome.
-        if json_mode:
-            out(json.dumps(result.to_dict(), ensure_ascii=False))
-        else:
-            _render_result_summary(result, chrome)
+        _run_one(
+            task,
+            command_name,
+            repo=repo,
+            engine_name=engine_name,
+            open_pr=open_pr,
+            base=base,
+            config=config,
+            drive_fn=_drive_fn,
+            json_mode=json_mode,
+            out=out,
+            chrome=chrome,
+            err=err,
+        )
 
     return 0
 
