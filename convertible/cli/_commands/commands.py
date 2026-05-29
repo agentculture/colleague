@@ -10,14 +10,15 @@ action-verbs must also expose ``overview``).
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from convertible import commands as _cmds
+from convertible.cli import _approvals
 from convertible.cli._commands.overview import emit_overview
 from convertible.cli._errors import EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
-from convertible.policy import POLICY_FILENAME, file_checksum, load_policy
+from convertible.configdir import CONFIG_DIR_NAME
+from convertible.policy import file_checksum
 
 
 def _commands_sections() -> list[dict[str, object]]:
@@ -59,35 +60,13 @@ def _compute_approval_status(name: str, path: Path, repo: Path) -> str:
     - 'drifted'    — entry exists but checksum mismatches current file.
     - 'approved'   — entry exists and checksum matches.
     """
-    policy = load_policy(repo)
-    # Check whether the commands section is present at all
-    if "commands" not in policy._present:  # noqa: SLF001 — accessing internal for status
+    section = _approvals.read_section(repo, "commands")
+    if section is None:
         return "ungated"
-
-    approvals_path = repo / ".convertible" / POLICY_FILENAME
-    if not approvals_path.is_file():
-        # No file at all — treat as ungated (nothing present)
-        return "ungated"
-
-    try:
-        raw = json.loads(approvals_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return "ungated"
-
-    commands_section = raw.get("commands")
-    if not isinstance(commands_section, dict):
-        return "ungated"
-
-    entry = commands_section.get(name)
+    entry = section.get(name)
     if entry is None:
         return "unapproved"
-
-    # Compare checksum
-    from convertible.policy import verify_checksum
-
-    if verify_checksum(path, entry):
-        return "approved"
-    return "drifted"
+    return _approvals.verify_status(path, entry)
 
 
 def cmd_commands_list(args: argparse.Namespace) -> int:
@@ -124,35 +103,6 @@ def cmd_commands_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _write_approval(repo: Path, category: str, name: str, checksum: str) -> None:
-    """Merge a single approval entry into <repo>/.convertible/approvals.json."""
-    dotdir = repo / ".convertible"
-    dotdir.mkdir(parents=True, exist_ok=True)
-    approvals_path = dotdir / POLICY_FILENAME
-
-    if approvals_path.is_file():
-        try:
-            existing = json.loads(approvals_path.read_text(encoding="utf-8"))
-            if not isinstance(existing, dict):
-                existing = {}
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-    else:
-        existing = {}
-
-    # Merge: create or update the category section only
-    section = existing.get(category)
-    if not isinstance(section, dict):
-        section = {}
-    section[name] = checksum
-    existing[category] = section
-
-    approvals_path.write_text(
-        json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-
 def cmd_commands_approve(args: argparse.Namespace) -> int:
     name: str = args.name
     repo = Path(getattr(args, "repo", ".")).expanduser()
@@ -164,7 +114,7 @@ def cmd_commands_approve(args: argparse.Namespace) -> int:
     if name not in discovered:
         raise CliError(
             code=EXIT_USER_ERROR,
-            message=f"command template {name!r} not found in {repo / '.convertible' / 'commands'}",
+            message=f"command template {name!r} not found in {repo / CONFIG_DIR_NAME / 'commands'}",
             remediation="run 'convertible commands list --repo PATH' to see available commands",
         )
 
@@ -178,7 +128,7 @@ def cmd_commands_approve(args: argparse.Namespace) -> int:
             remediation="ensure the file exists and is readable",
         ) from exc
 
-    _write_approval(repo, "commands", name, checksum)
+    _approvals.write_approval(repo, "commands", name, checksum)
 
     result = {"name": name, "category": "commands", "checksum": checksum, "path": str(path)}
     text = f"approved commands/{name}  {checksum}"
