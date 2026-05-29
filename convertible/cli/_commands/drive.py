@@ -36,6 +36,19 @@ from convertible.handoff import HandoffError, handoff, untracked_snapshot
 from convertible.telemetry import load_telemetry
 
 
+def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
+    """Per-step progress line to stderr during a drive (#38).
+
+    stdout carries only the result stream (the ``--json`` ``TaskResult``), so a
+    progress line here never pollutes the parseable output — it is emitted in all
+    modes. Wired onto :class:`~convertible.config.EngineConfig` by
+    :func:`execute_drive`, so both ``drive`` and ``session`` (and every engine)
+    report progress identically.
+    """
+    detail = f" {target}" if target else ""
+    emit_diagnostic(f"step {step_index}: {tool}{detail} [{'ok' if ok else 'err'}]")
+
+
 def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
     lines = [
         f"task: {result.task_id}",
@@ -124,17 +137,32 @@ def execute_drive(
             # work-in-progress (#39).
             baseline_untracked = untracked_snapshot(repo)
 
+            # Per-step progress to stderr (#38) — wired here so both `drive` and
+            # `session`, and every engine (which forwards `config.progress`),
+            # report identically.
+            config.progress = _step_progress
             try:
                 result = engine.drive(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
-                result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
+                # Prefer the partial result the loop preserved on an engine raise
+                # (#37): its steps / usage / changed_files + trace reflect the work
+                # done up to the failure. Fall back to a fresh failed_result for a
+                # failure with no partial (e.g. an error before the loop starts).
+                partial = getattr(exc, "result", None)
+                if isinstance(partial, TaskResult):
+                    result = partial
+                    original: BaseException = exc.__cause__ or exc
+                else:
+                    result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
+                    original = exc
                 result.command = command_name
                 drive_span.set(status=result.status)
                 write(result, artifact_dir(repo))
                 raise CliError(
                     EXIT_ENV_ERROR,
-                    f"engine '{engine_name}' failed: {exc}",
-                    "check the engine config / vLLM server; a result artifact was still written",
+                    f"engine '{engine_name}' failed: {original}",
+                    "check the engine config / vLLM server; a result artifact "
+                    "(with the partial trace) was still written",
                 ) from exc
 
             if result.status == OK:
