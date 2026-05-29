@@ -1,9 +1,9 @@
 """The tool surface the agentic loop offers an engine, plus a repo-confined executor.
 
-Five tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
-``finish`` — are exposed to the model as OpenAI function/tool schemas
-(:data:`SCHEMAS`). :class:`ToolExecutor` runs a requested call against a fixed
-repo root.
+Six tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
+``culture``, ``devague``, and ``finish`` — are exposed to the model as OpenAI
+function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor` runs a requested
+call against a fixed repo root.
 
 Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``list_dir``
 resolve their path against the root and refuse anything that escapes it (``..``
@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from convertible import culture
+from convertible import culture, devague
 
 FINISH = "finish"
 
@@ -40,6 +40,12 @@ class ToolOutcome:
     changed_file: str | None = None
     finished: bool = False
     finish_summary: str = ""
+    destination: str | None = None
+    """The devague goal-frame slug the drive aimed at, or ``None`` when the
+    engine did not declare a destination on finish."""
+    announcement: str | None = None
+    """The announcement text declared on arrival at the destination, or ``None``
+    when the engine did not declare one."""
 
 
 # OpenAI tool/function schemas — handed to the model verbatim in the loop.
@@ -135,12 +141,60 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "devague",
+            "description": (
+                "Run a curated devague move against the operator-installed devague CLI. "
+                "Use this to set or check a goal-frame (destination) for the current task — "
+                "e.g. 'new' to open a fresh frame, 'capture' to record a claim, "
+                "'interrogate' to probe a claim, 'park' to defer a thread, "
+                "'converge' to signal the frame is ready to converge, "
+                "'status' to inspect the current frame, or 'show' to display it. "
+                "Convergence is *advisory* — the final confirm/reject decision belongs "
+                "to the user, and export is operator-only. "
+                "confirm, reject, and export are intentionally NOT available through "
+                "this tool."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "move": {
+                        "type": "string",
+                        "enum": sorted(devague.ALLOWED_MOVES),
+                        "description": "The devague move to execute.",
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Argument vector passed to the CLI (after the move name).",
+                    },
+                },
+                "required": ["move"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "summary": {"type": "string", "description": "Summary of the work done."}
+                    "summary": {"type": "string", "description": "Summary of the work done."},
+                    "destination": {
+                        "type": "string",
+                        "description": (
+                            "Optional. The devague goal-frame slug the drive aimed at "
+                            "(e.g. 'converge', 'park'). Omit when no destination was set."
+                        ),
+                    },
+                    "announcement": {
+                        "type": "string",
+                        "description": (
+                            "Optional. The announcement text declared on arrival at the "
+                            "destination. Omit when not applicable."
+                        ),
+                    },
                 },
             },
         },
@@ -181,11 +235,15 @@ class ToolExecutor:
             return self._run_command(arguments)
         if name == "culture":
             return self._culture(arguments)
+        if name == "devague":
+            return self._devague(arguments)
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
                 finished=True,
                 finish_summary=str(arguments.get("summary", "")),
+                destination=arguments.get("destination") or None,
+                announcement=arguments.get("announcement") or None,
             )
         raise ToolError(f"unknown tool '{name}'")
 
@@ -285,5 +343,21 @@ class ToolExecutor:
         try:
             output = culture.run_culture(cli, args, root=self.root)
         except culture.CultureToolError as exc:
+            raise ToolError(str(exc)) from exc
+        return ToolOutcome(result=output)
+
+    def _devague(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch the shared ``devague`` tool to the operator-installed devague CLI.
+
+        The subprocess launch, identity injection, and allow-list enforcement live
+        in :mod:`convertible.devague`; here we translate its error type into the
+        loop's :class:`ToolError` so a disallowed move or an uninstalled CLI
+        becomes a clean string fed back to the model, never a crash.
+        """
+        move = str(arguments.get("move", ""))
+        args = devague.normalize_args(arguments.get("args"))
+        try:
+            output = devague.run_devague(move, args, root=self.root)
+        except devague.DevagueToolError as exc:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
