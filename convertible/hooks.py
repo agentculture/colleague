@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess  # nosec B404 - hook commands run in a trusted operator env (D2)
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -277,6 +278,59 @@ def load_hooks(
         cfg._entries[event] = merged  # noqa: SLF001
 
     return cfg
+
+
+def hook_approval_verdict(command: str, policy: Any, repo_root: Path | str) -> Any:
+    """Check whether *command*'s referenced repo files are approved by *policy*.
+
+    Implements the r1 design decision: shlex-split *command*, take every token
+    that resolves to an existing file under *repo_root*, and for each call
+    ``policy.check_file("hooks", <repo-relative-path>, <abs-path>)``.  The
+    **first denial wins** and is returned immediately.  When no token resolves to
+    a repo file (a pure inline command like ``echo done``), no content-approval
+    is required and ``Verdict(True)`` is returned.  A policy with no ``hooks``
+    section is a strict no-op — ``check_file`` returns ``Verdict(True)``.
+
+    Never raises: a malformed *command* (shlex error) is treated as no-file
+    references → allowed (fail-open for inline, conservative for operator).
+
+    Args:
+        command: The hook shell command string.
+        policy:  A :class:`~convertible.policy.Policy` instance.
+        repo_root: The root of the repo being driven.
+
+    Returns:
+        A :class:`~convertible.policy.Verdict` — ``allowed=True`` when all
+        referenced files pass (or there are none), ``allowed=False`` (with a
+        reason) on the first denial.
+    """
+    # Import here to avoid a circular import; policy imports nothing from hooks.
+    from convertible.policy import Verdict  # noqa: PLC0415
+
+    repo_root = Path(repo_root).resolve()
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # Unbalanced quote or other shlex error — treat as no file references.
+        return Verdict(True)
+
+    for token in tokens:
+        # Resolve the token relative to the repo root.
+        candidate = (repo_root / token).resolve()
+        # Only check tokens that resolve to existing files under repo_root.
+        if not candidate.is_file():
+            continue
+        try:
+            candidate.relative_to(repo_root)
+        except ValueError:
+            continue  # outside repo root — skip (not a repo file reference)
+        rel = str(candidate.relative_to(repo_root))
+        verdict = policy.check_file("hooks", rel, candidate)
+        if not verdict.allowed:
+            return verdict
+
+    return Verdict(True)
 
 
 def run_hook(
