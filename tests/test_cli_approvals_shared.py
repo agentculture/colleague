@@ -1,14 +1,18 @@
-"""Tests for the shared CLI approval helpers and the commands/hooks status + display.
+"""Tests for the shared approval-ledger writer and the commands/hooks status display.
 
-Covers ``convertible/cli/_approvals.py`` (the read/write/verify primitives shared
-by the ``commands`` and ``hooks`` nouns) plus the previously-thin status and
-run_command-policy-display branches in the two command modules.
+Covers ``convertible/cli/_approvals.py`` (the repo-confined merge-and-write shared
+by both ``approve`` verbs) and the ``list`` status branches, which now read the
+*merged* policy (repo-over-user + per-model overlay) via ``load_policy`` and
+derive hook keys via ``convertible.hooks.referenced_repo_files`` — so display
+agrees with enforcement.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+
+import pytest
 
 from convertible.cli import _approvals
 from convertible.cli._commands import commands as commands_cli
@@ -29,35 +33,21 @@ def _write_raw(repo, obj) -> None:
     )
 
 
-# --- _approvals.approvals_path / read_section -------------------------------
+# --- _approvals.approvals_path (resolve + confine) --------------------------
 
 
-def test_approvals_path(tmp_path):
-    assert _approvals.approvals_path(tmp_path) == tmp_path / ".convertible" / "approvals.json"
+def test_approvals_path_normal(tmp_path):
+    assert _approvals.approvals_path(tmp_path) == (
+        tmp_path.resolve() / ".convertible" / "approvals.json"
+    )
 
 
-def test_read_section_absent_file(tmp_path):
-    assert _approvals.read_section(tmp_path, "commands") is None
-
-
-def test_read_section_malformed_json(tmp_path):
-    _write_raw(tmp_path, "{not valid json")
-    assert _approvals.read_section(tmp_path, "commands") is None
-
-
-def test_read_section_root_not_object(tmp_path):
-    _write_raw(tmp_path, [1, 2, 3])
-    assert _approvals.read_section(tmp_path, "commands") is None
-
-
-def test_read_section_section_not_object(tmp_path):
-    _write_raw(tmp_path, {"commands": "oops"})
-    assert _approvals.read_section(tmp_path, "commands") is None
-
-
-def test_read_section_valid(tmp_path):
-    _write_raw(tmp_path, {"commands": {"a": "sha256:abc"}})
-    assert _approvals.read_section(tmp_path, "commands") == {"a": "sha256:abc"}
+def test_approvals_path_rejects_escape(tmp_path, monkeypatch):
+    # A repo whose resolved .convertible escapes the root would raise; we simulate
+    # by pointing CONFIG_DIR_NAME at a traversal — guard is the confinement check.
+    monkeypatch.setattr(_approvals, "CONFIG_DIR_NAME", "../evil")
+    with pytest.raises(ValueError):
+        _approvals.approvals_path(tmp_path / "repo")
 
 
 # --- _approvals.write_approval ----------------------------------------------
@@ -99,62 +89,90 @@ def test_write_approval_section_not_object_is_reset(tmp_path):
     }
 
 
-# --- _approvals.verify_status -----------------------------------------------
+# --- hooks status (merged policy + shared key derivation) --------------------
 
 
-def test_verify_status_approved(tmp_path):
-    f = tmp_path / "x.md"
-    f.write_text("hello")
-    assert _approvals.verify_status(f, file_checksum(f)) == "approved"
-
-
-def test_verify_status_drifted_on_mismatch(tmp_path):
-    f = tmp_path / "x.md"
-    f.write_text("hello")
-    assert _approvals.verify_status(f, "sha256:deadbeef") == "drifted"
-
-
-def test_verify_status_drifted_on_missing_file(tmp_path):
-    assert _approvals.verify_status(tmp_path / "nope.md", "sha256:x") == "drifted"
-
-
-# --- hooks status helpers ---------------------------------------------------
-
-
-def test_candidate_keys_normal():
-    assert hooks_cli._candidate_keys("bash lint.sh") == ("bash lint.sh", "bash")
-
-
-def test_candidate_keys_unbalanced_quote_falls_back():
-    # shlex raises ValueError on an unbalanced quote → single-key tuple.
-    assert hooks_cli._candidate_keys('echo "oops') == ('echo "oops',)
+def _make_hook_repo(repo, command, *, hooks_json=True):
+    """A repo with a hooks.json that runs *command* (so it shows in `hooks list`)."""
+    dotdir = repo / ".convertible"
+    dotdir.mkdir(parents=True, exist_ok=True)
+    if hooks_json:
+        (dotdir / "hooks.json").write_text(
+            json.dumps({"hooks": {"pre_tool": [{"matcher": "run_command", "command": command}]}})
+        )
 
 
 def test_hook_status_ungated_when_no_section(tmp_path):
-    assert hooks_cli._hook_approval_status("echo hi", tmp_path) == "ungated"
+    script = tmp_path / "lint.sh"
+    script.write_text("echo")
+    assert hooks_cli._hook_approval_status("bash lint.sh", tmp_path) == "ungated"
 
 
-def test_hook_status_unapproved_when_section_present_no_entry(tmp_path):
+def test_hook_status_exempt_for_inline_command(tmp_path):
+    # Section present, but the command references no repo file → nothing to approve.
     _approvals.write_approval(tmp_path, "hooks", "other.sh", "sha256:x")
-    assert hooks_cli._hook_approval_status("echo hi", tmp_path) == "unapproved"
+    assert hooks_cli._hook_approval_status("echo hi", tmp_path) == "exempt"
 
 
-def test_hook_status_approved_then_drifted_first_token_key(tmp_path):
+def test_hook_status_unapproved_for_referenced_unapproved_file(tmp_path):
+    script = tmp_path / "lint.sh"
+    script.write_text("echo")
+    _approvals.write_approval(tmp_path, "hooks", "other.sh", "sha256:x")  # section present
+    assert hooks_cli._hook_approval_status("bash lint.sh", tmp_path) == "unapproved"
+
+
+def test_hook_status_approved_then_drifted(tmp_path):
     script = tmp_path / "lint.sh"
     script.write_text("echo lint")
     _approvals.write_approval(tmp_path, "hooks", "lint.sh", file_checksum(script))
-    # command's first token ('lint.sh') is the approval key
     assert hooks_cli._hook_approval_status("lint.sh --fix", tmp_path) == "approved"
     script.write_text("tampered")
     assert hooks_cli._hook_approval_status("lint.sh --fix", tmp_path) == "drifted"
 
 
-def test_hook_status_drifted_when_key_matches_but_file_missing(tmp_path):
-    _approvals.write_approval(tmp_path, "hooks", "gone.sh", "sha256:x")
-    assert hooks_cli._hook_approval_status("gone.sh", tmp_path) == "drifted"
+def test_hook_status_honors_per_model_overlay(tmp_path):
+    script = tmp_path / "lint.sh"
+    script.write_text("echo lint")
+    # base: unapproved; per-model overlay: approved
+    _approvals.write_approval(tmp_path, "hooks", "other.sh", "sha256:x")
+    model_dir = tmp_path / ".convertible" / "m"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "approvals.json").write_text(
+        json.dumps({"hooks": {"lint.sh": file_checksum(script)}})
+    )
+    assert hooks_cli._hook_approval_status("bash lint.sh", tmp_path) == "unapproved"
+    assert hooks_cli._hook_approval_status("bash lint.sh", tmp_path, "m") == "approved"
 
 
-# --- hooks list: run_command policy display ---------------------------------
+# --- hooks approve: canonical key normalization (qodo #4) -------------------
+
+
+def test_hooks_approve_normalizes_key_to_repo_relative(tmp_path, capsys):
+    script = tmp_path / "scripts" / "lint.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("echo")
+    # Approve via a non-canonical path; the stored key must be canonical.
+    hooks_cli.cmd_hooks_approve(
+        _ns(name="./scripts/lint.sh", repo=str(tmp_path), algo="sha256", json=False)
+    )
+    out = capsys.readouterr().out
+    assert "approved hooks/scripts/lint.sh" in out  # normalized, no leading ./
+    data = json.loads((tmp_path / ".convertible" / "approvals.json").read_text())
+    assert "scripts/lint.sh" in data["hooks"]
+    # And a hook command referencing the same file is now seen as approved.
+    assert hooks_cli._hook_approval_status("bash scripts/lint.sh", tmp_path) == "approved"
+
+
+def test_hooks_approve_rejects_escape(tmp_path):
+    from convertible.cli._errors import CliError
+
+    with pytest.raises(CliError):
+        hooks_cli.cmd_hooks_approve(
+            _ns(name="../outside.sh", repo=str(tmp_path), algo="sha256", json=False)
+        )
+
+
+# --- hooks list: run_command policy display (merged) ------------------------
 
 
 def test_hooks_list_run_command_text_no_hooks(tmp_path, capsys):
@@ -165,23 +183,6 @@ def test_hooks_list_run_command_text_no_hooks(tmp_path, capsys):
     assert "run_command: allow=['git'] deny=['rm']" in out  # colon form (empty hooks)
 
 
-def test_hooks_list_run_command_text_with_hooks(tmp_path, capsys):
-    (tmp_path / ".convertible").mkdir()
-    (tmp_path / ".convertible" / "hooks.json").write_text(
-        json.dumps({"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo hi"}]}})
-    )
-    _write_raw(
-        tmp_path,
-        {
-            "hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo hi"}]},
-            "run_command": {"allow": ["git"], "deny": []},
-        },
-    )
-    hooks_cli.cmd_hooks_list(_ns(repo=str(tmp_path), json=False, model=None))
-    out = capsys.readouterr().out
-    assert "run_command allow=['git'] deny=[]" in out  # no-colon form (with hooks)
-
-
 def test_hooks_list_run_command_json(tmp_path, capsys):
     _write_raw(tmp_path, {"run_command": {"allow": ["git"], "deny": []}})
     hooks_cli.cmd_hooks_list(_ns(repo=str(tmp_path), json=True, model=None))
@@ -190,24 +191,41 @@ def test_hooks_list_run_command_json(tmp_path, capsys):
     assert payload["hooks"] == []
 
 
-# --- commands list: status display branches ---------------------------------
+def test_hooks_list_with_hooks_text_no_colon(tmp_path, capsys):
+    _make_hook_repo(tmp_path, "echo hi")
+    _write_raw(
+        tmp_path,
+        {
+            "hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo hi"}]},
+            "run_command": {"allow": ["git"], "deny": []},
+        },
+    )
+    # rewrite hooks.json (clobbered by _write_raw on approvals only; ensure present)
+    _make_hook_repo(tmp_path, "echo hi")
+    hooks_cli.cmd_hooks_list(_ns(repo=str(tmp_path), json=False, model=None))
+    out = capsys.readouterr().out
+    assert "run_command allow=['git'] deny=[]" in out  # no-colon form (with hooks)
+
+
+# --- commands list: status display branches (merged policy) -----------------
 
 
 def _make_command(repo, name, body, description=None):
     cdir = repo / ".convertible" / "commands"
     cdir.mkdir(parents=True, exist_ok=True)
-    if description is not None:
-        text = f"---\ndescription: {description}\n---\n{body}\n"
-    else:
-        text = body + "\n"
+    text = (
+        f"---\ndescription: {description}\n---\n{body}\n"
+        if description is not None
+        else body + "\n"
+    )
     (cdir / f"{name}.md").write_text(text)
     return cdir / f"{name}.md"
 
 
 def test_commands_list_status_text_with_and_without_description(tmp_path, capsys):
     _make_command(tmp_path, "withdesc", "Do $1", description="Has a description")
-    _make_command(tmp_path, "nodesc", "Do $1")  # no metadata block
-    commands_cli.cmd_commands_list(_ns(repo=str(tmp_path), json=False))
+    _make_command(tmp_path, "nodesc", "Do $1")
+    commands_cli.cmd_commands_list(_ns(repo=str(tmp_path), json=False, model=None))
     out = capsys.readouterr().out
     assert "withdesc\tHas a description\t[ungated]" in out
     assert "nodesc\t[ungated]" in out  # no-description branch
@@ -217,10 +235,25 @@ def test_commands_list_drifted_status_json(tmp_path, capsys):
     path = _make_command(tmp_path, "demo", "Do $1", description="d")
     _approvals.write_approval(tmp_path, "commands", "demo", file_checksum(path))
     path.write_text("tampered")  # drift
-    commands_cli.cmd_commands_list(_ns(repo=str(tmp_path), json=True))
+    commands_cli.cmd_commands_list(_ns(repo=str(tmp_path), json=True, model=None))
     payload = json.loads(capsys.readouterr().out)
     statuses = {c["name"]: c["status"] for c in payload["commands"]}
     assert statuses["demo"] == "drifted"
+
+
+def test_commands_list_honors_per_model_overlay(tmp_path, capsys):
+    path = _make_command(tmp_path, "demo", "Do $1", description="d")
+    model_dir = tmp_path / ".convertible" / "m"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "approvals.json").write_text(
+        json.dumps({"commands": {"demo": file_checksum(path)}})
+    )
+    commands_cli.cmd_commands_list(_ns(repo=str(tmp_path), json=True, model=None))
+    base = {c["name"]: c["status"] for c in json.loads(capsys.readouterr().out)["commands"]}
+    assert base["demo"] == "ungated"  # base: no commands section
+    commands_cli.cmd_commands_list(_ns(repo=str(tmp_path), json=True, model="m"))
+    overlaid = {c["name"]: c["status"] for c in json.loads(capsys.readouterr().out)["commands"]}
+    assert overlaid["demo"] == "approved"  # per-model overlay recognized
 
 
 # --- skills list: empty branch ----------------------------------------------

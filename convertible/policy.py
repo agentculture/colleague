@@ -176,6 +176,26 @@ class Policy:
         """
         return not self._present
 
+    def section_present(self, category: str) -> bool:
+        """Whether *category* was present in any contributing config (gating active)."""
+        return category in self._present
+
+    def file_approval(self, category: str, name: str) -> str | None:
+        """The recorded approval string for ``(category, name)`` in the *merged* policy.
+
+        Returns ``None`` when the category is absent or has no entry for *name*.
+        Read-only view for introspection (the ``list`` verbs) so the displayed
+        status reflects the same repo-over-user + per-model merge that enforcement
+        uses — not a raw single-file read.
+        """
+        return self._files.get(category, {}).get(name)
+
+    def run_command_config(self) -> dict | None:
+        """The merged ``run_command`` allow/deny config, or ``None`` when absent."""
+        if "run_command" not in self._present:
+            return None
+        return self._run_command
+
     def check_run_command(self, command: str) -> Verdict:
         """Gate a ``run_command`` invocation by its program token.
 

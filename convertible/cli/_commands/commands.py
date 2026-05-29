@@ -18,7 +18,7 @@ from convertible.cli._commands.overview import emit_overview
 from convertible.cli._errors import EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
 from convertible.configdir import CONFIG_DIR_NAME
-from convertible.policy import file_checksum
+from convertible.policy import file_checksum, load_policy, verify_checksum
 
 
 def _commands_sections() -> list[dict[str, object]]:
@@ -52,26 +52,30 @@ def cmd_commands_overview(args: argparse.Namespace) -> int:
     return 0
 
 
-def _compute_approval_status(name: str, path: Path, repo: Path) -> str:
+def _compute_approval_status(name: str, path: Path, repo: Path, model: str | None = None) -> str:
     """Return 'approved', 'drifted', 'unapproved', or 'ungated'.
 
-    - 'ungated'    — no commands section in approvals.json (gate not active).
+    Reflects the *merged* policy (repo-over-user + per-model overlay), the same
+    source enforcement uses — not a raw single-file read:
+
+    - 'ungated'    — no commands section in the merged policy (gate not active).
     - 'unapproved' — commands section present but no entry for this name.
     - 'drifted'    — entry exists but checksum mismatches current file.
     - 'approved'   — entry exists and checksum matches.
     """
-    section = _approvals.read_section(repo, "commands")
-    if section is None:
+    policy = load_policy(repo, model=model)
+    if not policy.section_present("commands"):
         return "ungated"
-    entry = section.get(name)
-    if entry is None:
+    approval = policy.file_approval("commands", name)
+    if approval is None:
         return "unapproved"
-    return _approvals.verify_status(path, entry)
+    return "approved" if verify_checksum(path, approval) else "drifted"
 
 
 def cmd_commands_list(args: argparse.Namespace) -> int:
     repo = Path(getattr(args, "repo", ".")).expanduser()
     json_mode = bool(getattr(args, "json", False))
+    model: str | None = getattr(args, "model", None) or None
 
     discovered = _cmds.discover_commands(repo)
 
@@ -79,7 +83,7 @@ def cmd_commands_list(args: argparse.Namespace) -> int:
         entries = []
         for name, path in sorted(discovered.items()):
             cmd = _cmds.load_command(path)
-            status = _compute_approval_status(name, path, repo)
+            status = _compute_approval_status(name, path, repo, model)
             entries.append(
                 {
                     "name": cmd.name,
@@ -94,7 +98,7 @@ def cmd_commands_list(args: argparse.Namespace) -> int:
         lines = []
         for name, path in sorted(discovered.items()):
             cmd = _cmds.load_command(path)
-            status = _compute_approval_status(name, path, repo)
+            status = _compute_approval_status(name, path, repo, model)
             if cmd.description:
                 lines.append(f"{name}\t{cmd.description}\t[{status}]")
             else:
@@ -151,6 +155,16 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     lst = noun_sub.add_parser("list", help="List discovered command templates.")
     lst.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
+    lst.add_argument(
+        "--model",
+        default=None,
+        metavar="MODEL",
+        help=(
+            "Resolve approval status against the per-model overlay "
+            ".convertible/<model>/approvals.json (the <model> token is sanitized), "
+            "matching how enforcement merges policy for that model."
+        ),
+    )
     lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_commands_list)
 

@@ -307,30 +307,61 @@ def hook_approval_verdict(command: str, policy: Any, repo_root: Path | str) -> A
     # Import here to avoid a circular import; policy imports nothing from hooks.
     from convertible.policy import Verdict  # noqa: PLC0415
 
-    repo_root = Path(repo_root).resolve()
-
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        # Unbalanced quote or other shlex error — treat as no file references.
-        return Verdict(True)
-
-    for token in tokens:
-        # Resolve the token relative to the repo root.
-        candidate = (repo_root / token).resolve()
-        # Only check tokens that resolve to existing files under repo_root.
-        if not candidate.is_file():
-            continue
-        try:
-            candidate.relative_to(repo_root)
-        except ValueError:
-            continue  # outside repo root — skip (not a repo file reference)
-        rel = str(candidate.relative_to(repo_root))
+    for rel, candidate in referenced_repo_files(command, repo_root):
         verdict = policy.check_file("hooks", rel, candidate)
         if not verdict.allowed:
             return verdict
 
     return Verdict(True)
+
+
+def referenced_repo_files(command: str, repo_root: Path | str) -> list[tuple[str, Path]]:
+    """``(repo-relative key, absolute path)`` for each existing file *command* references.
+
+    The single source of truth for how a hook command maps to approval keys:
+    shlex-split *command*; for every token that resolves to an existing file
+    **under** *repo_root*, yield its canonical repo-relative key and absolute
+    path. Tokens that don't resolve to a repo file (flags, inline builtins,
+    paths outside the tree) are skipped. Never raises — a shlex error (unbalanced
+    quote) yields no references.
+
+    Enforcement (:func:`hook_approval_verdict`), the ``hooks approve`` verb, and
+    the ``hooks list`` status display all derive keys through this function, so a
+    file approved by one is recognised by the others (no raw-vs-canonical drift).
+    """
+    root = Path(repo_root).resolve()
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return []
+    refs: list[tuple[str, Path]] = []
+    for token in tokens:
+        candidate = (root / token).resolve()
+        if not candidate.is_file():
+            continue
+        try:
+            rel = candidate.relative_to(root)
+        except ValueError:
+            continue  # outside repo root — not a repo file reference
+        refs.append((str(rel), candidate))
+    return refs
+
+
+def canonical_hook_key(repo_root: Path | str, name: str) -> str | None:
+    """Canonical repo-relative approval key for a single hook-script path *name*.
+
+    Resolves *name* under *repo_root* and returns the repo-relative key that
+    matches what :func:`referenced_repo_files` derives for a command referencing
+    that file (so ``hooks approve ./x.sh`` and a hook running ``bash ./x.sh``
+    agree on the key ``x.sh``). Returns ``None`` if the resolved path escapes the
+    repo root — the caller rejects it rather than writing an out-of-tree key.
+    """
+    root = Path(repo_root).resolve()
+    candidate = (root / name).resolve()
+    try:
+        return str(candidate.relative_to(root))
+    except ValueError:
+        return None
 
 
 def run_hook(

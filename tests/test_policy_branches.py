@@ -7,6 +7,8 @@ allow/deny shapes, an unparseable run_command string, and a non-object ledger.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from convertible import policy
@@ -56,3 +58,33 @@ def test_parse_policy_file_drops_non_object_sections(tmp_path):
     parsed = policy._parse_policy_file(p)
     assert "commands" in parsed
     assert "junk" not in parsed and "more" not in parsed
+
+
+# --- public introspection accessors (used by the list verbs) ----------------
+
+
+def _policy_with(tmp_path, obj):
+    dotdir = tmp_path / ".convertible"
+    dotdir.mkdir(exist_ok=True)
+    (dotdir / "approvals.json").write_text(json.dumps(obj))
+    return policy.load_policy(tmp_path)
+
+
+def test_section_present(tmp_path):
+    pol = _policy_with(tmp_path, {"commands": {"a": "sha256:x"}})
+    assert pol.section_present("commands") is True
+    assert pol.section_present("hooks") is False
+
+
+def test_file_approval(tmp_path):
+    pol = _policy_with(tmp_path, {"commands": {"a": "sha256:x"}})
+    assert pol.file_approval("commands", "a") == "sha256:x"
+    assert pol.file_approval("commands", "missing") is None
+    assert pol.file_approval("hooks", "a") is None
+
+
+def test_run_command_config_present_and_absent(tmp_path):
+    pol = _policy_with(tmp_path, {"run_command": {"allow": ["git"], "deny": []}})
+    assert pol.run_command_config() == {"allow": ["git"], "deny": []}
+    empty = policy.load_policy(tmp_path / "nope")
+    assert empty.run_command_config() is None

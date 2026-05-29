@@ -19,7 +19,6 @@ is injected.
 from __future__ import annotations
 
 import argparse
-import shlex
 from pathlib import Path
 
 from convertible import hooks as _hooks
@@ -27,7 +26,7 @@ from convertible.cli import _approvals
 from convertible.cli._commands.overview import emit_overview
 from convertible.cli._errors import EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
-from convertible.policy import file_checksum
+from convertible.policy import file_checksum, load_policy, verify_checksum
 
 
 def _hooks_sections() -> list[dict[str, object]]:
@@ -123,31 +122,39 @@ def _resolve_scoped_entries(
     return scoped
 
 
-def _candidate_keys(command: str) -> tuple[str, ...]:
-    """Approval keys to try for a hook command: the whole command and its first token."""
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return (command,)
-    first = tokens[0] if tokens else command
-    return (command, first)
+def _file_status(policy, rel: str, candidate: Path) -> str:
+    """Approval status of one referenced hook file under an active hooks section."""
+    approval = policy.file_approval("hooks", rel)
+    if approval is None:
+        return "unapproved"
+    return "approved" if verify_checksum(candidate, approval) else "drifted"
 
 
-def _hook_approval_status(command: str, repo: Path) -> str:
-    """Approval status of a hook command: 'approved'/'drifted'/'unapproved'/'ungated'.
+def _hook_approval_status(command: str, repo: Path, model: str | None = None) -> str:
+    """Approval status of a hook command, reflecting the *merged* policy.
 
-    Hooks are keyed in the ledger by the repo-relative path referenced in the
-    command. An absent hooks section is 'ungated'; a present section with no
-    matching key is 'unapproved'.
+    Uses :func:`convertible.policy.load_policy` (repo-over-user + per-model
+    overlay) — the same source enforcement uses — and derives keys via
+    :func:`convertible.hooks.referenced_repo_files`, so the displayed status
+    agrees with what the gate actually does. Returns:
+
+    - ``ungated``     — no hooks section in the merged policy;
+    - ``exempt``      — section present but the command references no repo file
+      (a pure inline hook needs no content-approval; enforcement allows it);
+    - ``approved`` / ``drifted`` / ``unapproved`` — aggregated worst-case across
+      the command's referenced files (drifted beats unapproved beats approved).
     """
-    section = _approvals.read_section(repo, "hooks")
-    if section is None:
+    policy = load_policy(repo, model=model)
+    if not policy.section_present("hooks"):
         return "ungated"
-    for key in _candidate_keys(command):
-        entry = section.get(key)
-        if entry is not None:
-            return _approvals.verify_status(repo / key, entry)
-    return "unapproved"
+    refs = _hooks.referenced_repo_files(command, repo)
+    if not refs:
+        return "exempt"
+    statuses = {_file_status(policy, rel, candidate) for rel, candidate in refs}
+    for worst in ("drifted", "unapproved", "approved"):
+        if worst in statuses:
+            return worst
+    return "approved"
 
 
 def _run_command_line(run_cmd_policy: dict, *, colon: bool) -> str:
@@ -158,24 +165,28 @@ def _run_command_line(run_cmd_policy: dict, *, colon: bool) -> str:
     return f"run_command{sep} allow={allow} deny={deny}"
 
 
-def _hook_json_item(entry: _hooks.HookEntry, scope: str | None, repo: Path) -> dict[str, str]:
+def _hook_json_item(
+    entry: _hooks.HookEntry, scope: str | None, repo: Path, model: str | None
+) -> dict[str, str]:
     """One hook entry as a JSON dict (with approval status; scope only when set)."""
     item: dict[str, str] = {
         "event": entry.event,
         "matcher": entry.matcher,
         "command": entry.command,
-        "approval_status": _hook_approval_status(entry.command, repo),
+        "approval_status": _hook_approval_status(entry.command, repo, model),
     }
     if scope is not None:
         item["scope"] = scope
     return item
 
 
-def _hook_text_line(entry: _hooks.HookEntry, scope: str | None, repo: Path) -> str:
+def _hook_text_line(
+    entry: _hooks.HookEntry, scope: str | None, repo: Path, model: str | None
+) -> str:
     """One hook entry as a tab-separated text line (with approval status)."""
     matcher_str = entry.matcher if entry.matcher else "(any)"
     prefix = f"[{scope}]\t" if scope is not None else ""
-    status = _hook_approval_status(entry.command, repo)
+    status = _hook_approval_status(entry.command, repo, model)
     return f"{prefix}{entry.event}\t{matcher_str}\t{entry.command}\t[{status}]"
 
 
@@ -184,16 +195,19 @@ def _emit_hook_entries(
     *,
     json_mode: bool,
     repo: Path,
+    model: str | None = None,
 ) -> None:
     """Render scoped entries; a ``None`` scope is omitted (base-only mode).
 
     Adds ``approval_status`` to each entry and includes ``run_command_policy``
-    in the JSON output (or a summary line in text output) when present.
+    in the JSON output (or a summary line in text output) when present. The
+    run_command policy and per-file status come from the *merged* policy
+    (repo-over-user + per-model overlay), matching enforcement.
     """
-    run_cmd_policy = _approvals.read_section(repo, "run_command")
+    run_cmd_policy = load_policy(repo, model=model).run_command_config()
 
     if json_mode:
-        payload: dict = {"hooks": [_hook_json_item(e, s, repo) for e, s in scoped]}
+        payload: dict = {"hooks": [_hook_json_item(e, s, repo, model) for e, s in scoped]}
         if run_cmd_policy is not None:
             payload["run_command_policy"] = run_cmd_policy
         emit_result(payload, json_mode=True)
@@ -206,7 +220,7 @@ def _emit_hook_entries(
         emit_result("\n".join(lines), json_mode=False)
         return
 
-    lines = [_hook_text_line(e, s, repo) for e, s in scoped]
+    lines = [_hook_text_line(e, s, repo, model) for e, s in scoped]
     if run_cmd_policy is not None:
         lines.append(_run_command_line(run_cmd_policy, colon=False))
     emit_result("\n".join(lines), json_mode=False)
@@ -218,18 +232,28 @@ def cmd_hooks_list(args: argparse.Namespace) -> int:
     model: str | None = getattr(args, "model", None) or None
 
     scoped = _resolve_scoped_entries(repo, model)
-    _emit_hook_entries(scoped, json_mode=json_mode, repo=repo)
+    _emit_hook_entries(scoped, json_mode=json_mode, repo=repo, model=model)
     return 0
 
 
 def cmd_hooks_approve(args: argparse.Namespace) -> int:
-    name: str = args.name  # repo-relative path to the hook script
+    name: str = args.name  # path to the hook script (repo-relative or otherwise)
     repo = Path(getattr(args, "repo", ".")).expanduser()
     algo: str = getattr(args, "algo", "sha256") or "sha256"
     json_mode = bool(getattr(args, "json", False))
 
-    # Resolve the hook script file (repo-relative path)
-    script_path = repo / name
+    # Normalize to the canonical repo-relative key — the SAME key hook
+    # enforcement derives from a command referencing this file (so
+    # 'hooks approve ./x.sh' and a hook running 'bash ./x.sh' agree on 'x.sh').
+    key = _hooks.canonical_hook_key(repo, name)
+    if key is None:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"hook script path escapes the repo root: {name}",
+            remediation="approve a script that lives inside the repository tree",
+        )
+
+    script_path = repo.resolve() / key
     if not script_path.is_file():
         raise CliError(
             code=EXIT_USER_ERROR,
@@ -249,11 +273,11 @@ def cmd_hooks_approve(args: argparse.Namespace) -> int:
             remediation="ensure the file exists and is readable",
         ) from exc
 
-    _approvals.write_approval(repo, "hooks", name, checksum)
+    _approvals.write_approval(repo, "hooks", key, checksum)
 
-    result = {"name": name, "category": "hooks", "checksum": checksum, "path": str(script_path)}
+    result = {"name": key, "category": "hooks", "checksum": checksum, "path": str(script_path)}
     emit_result(
-        result if json_mode else f"approved hooks/{name}  {checksum}",
+        result if json_mode else f"approved hooks/{key}  {checksum}",
         json_mode=json_mode,
     )
     return 0
