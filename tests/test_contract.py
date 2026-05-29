@@ -170,3 +170,97 @@ def test_task_result_full_round_trip_with_hooks_and_command() -> None:
     )
     reloaded = TaskResult.from_dict(json.loads(json.dumps(result.to_dict())))
     assert reloaded == result
+
+
+# ---------------------------------------------------------------------------
+# t3: destination / announcement fields (omit-when-None, byte-identical guard)
+# ---------------------------------------------------------------------------
+
+
+def test_destination_announcement_round_trip() -> None:
+    """TaskResult with destination + announcement set round-trips through to_dict/from_dict."""
+    result = TaskResult(
+        task_id="dest1",
+        status=OK,
+        summary="reached the goal",
+        destination="my-goal-frame",
+        announcement="I have arrived at my-goal-frame.",
+    )
+    reloaded = TaskResult.from_dict(json.loads(json.dumps(result.to_dict())))
+    assert reloaded == result
+    assert reloaded.destination == "my-goal-frame"
+    assert reloaded.announcement == "I have arrived at my-goal-frame."
+
+
+def test_destination_omitted_when_none() -> None:
+    """to_dict() OMITS 'destination' and 'announcement' when they are None.
+
+    This is the byte-identical guard: a drive with no destination must produce
+    the exact same key set as before the t3 change (honesty conditions c8/h8).
+    """
+    result = TaskResult(task_id="nodest1", status=OK, summary="plain drive")
+    serialized = result.to_dict()
+    assert "destination" not in serialized
+    assert "announcement" not in serialized
+    # Strongest form: assert the exact key set matches pre-t3 contract exactly.
+    expected_keys = {
+        "task_id",
+        "status",
+        "summary",
+        "changed_files",
+        "steps",
+        "usage",
+        "artifacts_path",
+        "error",
+        "branch",
+        "pr_url",
+        "hook_firings",
+        "command",
+    }
+    assert set(serialized.keys()) == expected_keys
+
+
+def test_destination_present_but_announcement_none_omits_only_announcement() -> None:
+    """If destination is set but announcement is None, only 'announcement' is omitted."""
+    result = TaskResult(
+        task_id="dest2",
+        status=OK,
+        destination="goal-slug",
+        announcement=None,
+    )
+    serialized = result.to_dict()
+    assert "destination" in serialized
+    assert serialized["destination"] == "goal-slug"
+    assert "announcement" not in serialized
+
+
+def test_from_dict_tolerates_missing_destination_and_announcement() -> None:
+    """from_dict defaults both fields to None when absent (back-compat with today's artifacts)."""
+    old_payload = {
+        "task_id": "back1",
+        "status": OK,
+        "summary": "",
+        "changed_files": [],
+        "steps": [],
+        "usage": {},
+    }
+    result = TaskResult.from_dict(old_payload)
+    assert result.destination is None
+    assert result.announcement is None
+
+
+def test_from_dict_reads_destination_and_announcement_when_present() -> None:
+    """from_dict correctly reads both keys when they exist in the dict."""
+    payload = {
+        "task_id": "dest3",
+        "status": OK,
+        "summary": "arrived",
+        "changed_files": [],
+        "steps": [],
+        "usage": {},
+        "destination": "frame-42",
+        "announcement": "Task complete at frame-42.",
+    }
+    result = TaskResult.from_dict(payload)
+    assert result.destination == "frame-42"
+    assert result.announcement == "Task complete at frame-42."

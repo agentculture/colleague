@@ -231,9 +231,15 @@ class TaskResult:
     an ad-hoc instruction (e.g. plain ``convertible drive "<text>"``).
     Populated by the CLI driver; ``None`` when the task was constructed
     programmatically without a named command."""
+    destination: Optional[str] = None
+    """The devague goal-frame slug the drive aimed at, or ``None`` when no
+    destination was set (plain ``convertible drive`` without ``--destination``)."""
+    announcement: Optional[str] = None
+    """The announcement text declared on arrival at the destination, or ``None``
+    when no destination was set or no announcement was produced."""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "task_id": self.task_id,
             "status": self.status,
             "summary": self.summary,
@@ -247,6 +253,17 @@ class TaskResult:
             "hook_firings": [h.to_dict() for h in self.hook_firings],
             "command": self.command,
         }
+        # destination and announcement are OMITTED (not emitted as null) when
+        # None.  This preserves byte-identical output for the no-destination
+        # path — a drive without a destination must serialize identically to
+        # today (honesty conditions c8/h8).  This intentionally deviates from
+        # the convention used by command/pr_url/etc. which always emit their
+        # key even as null; only these two new keys get omit-when-None treatment.
+        if self.destination is not None:
+            d["destination"] = self.destination
+        if self.announcement is not None:
+            d["announcement"] = self.announcement
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TaskResult":
@@ -263,4 +280,6 @@ class TaskResult:
             pr_url=data.get("pr_url"),
             hook_firings=[HookFiring.from_dict(h) for h in data.get("hook_firings", [])],
             command=data.get("command"),
+            destination=data.get("destination"),
+            announcement=data.get("announcement"),
         )
