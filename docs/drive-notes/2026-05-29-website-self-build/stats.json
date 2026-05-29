@@ -114,6 +114,7 @@
     {"id": "F5", "category": "handoff", "title": "handoff `git add -A` commits unrelated untracked files", "evidence": "handoff.py:96-99", "observation": "commit 6818f55 contained two prior failed-run artifacts; the reported changed_files (site/index.html) was gitignored and absent from the commit", "status": "observed"},
     {"id": "F6", "category": "handoff", "title": "Commit message is the full instruction verbatim", "evidence": "handoff.py:98 message = f'convertible: {instruction or task_id}'", "status": "observed"},
     {"id": "F7", "category": "cost", "title": "Cumulative prompt tokens grow with re-sent context", "evidence": "success usage prompt=72523 over 8 completions; 20031-byte README read at step 1 rides in context for every later completion", "status": "observed"},
-    {"id": "F8", "category": "observability", "title": "site/ created during a zero-step run; creating tool not identifiable", "evidence": "tools.py:276 path.parent.mkdir(parents=True); steps discarded per F1", "status": "observed"}
+    {"id": "F8", "category": "observability", "title": "site/ created during a zero-step run; creating tool not identifiable", "evidence": "tools.py:276 path.parent.mkdir(parents=True); steps discarded per F1", "status": "observed"},
+    {"id": "F9", "category": "output-quality", "title": "Generated index.html links ../README.md (404 when served)", "evidence": "output/index.html:140 footer <a href=\"../README.md\">", "observation": "the model-authored footer points outside the served site/ docroot; resolves only via local relative file access, 404s over HTTP, and is raw markdown even if served. Surfaced by Qodo on PR #36. Output preserved exactly as produced (not edited).", "status": "observed"}
   ]
 }

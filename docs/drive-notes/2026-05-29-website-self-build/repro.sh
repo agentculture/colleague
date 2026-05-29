@@ -12,6 +12,15 @@
 export CONVERTIBLE_BASE_URL CONVERTIBLE_MODEL CONVERTIBLE_TIMEOUT
 
 set -euo pipefail
+
+# Required tooling — fail early with a clear message rather than a cryptic one.
+for _cmd in git uv; do
+  command -v "$_cmd" >/dev/null 2>&1 || {
+    echo "repro.sh: required command '$_cmd' not found on PATH" >&2
+    exit 1
+  }
+done
+
 cd "$(git rev-parse --show-toplevel)"
 
 # Pre-flight: confirm the server emits tool calls (uses its own temp repo).

@@ -102,6 +102,10 @@ assessments or recommendations.
   tags; 24 distinct CSS classes are referenced in the HTML and all 24 are defined
   in `style.css`; no `http(s)://` references in the HTML; the only `<link>` is
   `./style.css`.
+- Finding **F9** (output quality): the footer links `../README.md`, which points
+  outside the served `site/` docroot — it 404s over HTTP and is raw markdown even
+  if served (surfaced by Qodo on PR #36). The output is preserved exactly as the
+  engine produced it; not edited.
 - Live browser render: captured. Served `site/` over `python3 -m http.server
   8777` (HTTP 200) and screenshotted with headless chromium
   (`~/.cache/ms-playwright/chromium-1208`); the page displays as built — header
