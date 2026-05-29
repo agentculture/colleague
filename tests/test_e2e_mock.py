@@ -125,8 +125,9 @@ def test_engine_swap_needs_no_task_change(tmp_path: Path) -> None:
 
 
 def test_every_engine_exposes_the_culture_tools_identically() -> None:
-    """All-engines rule (t3): the curated culture tool lives on the *shared* tool
-    surface, beyond the five base tools, so every engine exposes it identically.
+    """All-engines rule (t3/t2): the curated culture and devague tools live on the
+    *shared* tool surface, beyond the five base tools, so every engine exposes them
+    identically.
 
     The surface is a single shared ``SCHEMAS`` list: the vLLM engine hands it to
     the model verbatim, and the loop's ``ToolExecutor`` dispatches the same tool
@@ -134,13 +135,61 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     on ``SCHEMAS`` is the honest all-engines guard.
     """
     exposed = {s["function"]["name"] for s in SCHEMAS}
-    # Base five remain, the culture tool is added, and nothing else creeps in.
+    _CHASSIS_TOOLS = {"culture", "devague"}
+    # Base five remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the five base tools must remain exposed"
     assert _CULTURE_TOOLS <= exposed, "every engine must expose the culture tool"
-    assert exposed == _BASE_TOOLS | _CULTURE_TOOLS, "the tool surface is base-five + culture"
+    assert _CHASSIS_TOOLS <= exposed, "every engine must expose all chassis tools"
+    assert exposed == _BASE_TOOLS | _CHASSIS_TOOLS, "the tool surface is base-five + chassis"
 
     # The vLLM engine literally hands this shared surface to the model.
     assert vllm_openai.SCHEMAS is SCHEMAS
+
+
+def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Path) -> None:
+    """A normal mock drive that sets NO destination serializes byte-identically to
+    the pre-feature shape (c8/h8): ``to_dict()`` must NOT contain ``destination``
+    or ``announcement`` keys.
+
+    The mock engine is the contract reference (the all-engines rule). Its scripted
+    finish carries no destination/announcement, so the serialized result must be
+    indistinguishable from the result a pre-feature convertible produced — the
+    destination concept is additive and default-off, never a null-padded key.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = EngineConfig.resolve()
+
+    result = registry.load("mock").drive(Task.new(str(repo), "do work"), cfg)
+
+    assert result.status == OK
+    # The drive really ran (it edited the repo), so this is a live, not-empty result.
+    assert result.changed_files
+    # The destination concept stayed off — the fields are None on the object …
+    assert result.destination is None
+    assert result.announcement is None
+    # … and the serialized shape OMITS both keys entirely (not present-as-null).
+    serialized = result.to_dict()
+    assert "destination" not in serialized
+    assert "announcement" not in serialized
+
+    # Byte-identical guard: the exact key set is the pre-feature key set. Pin it
+    # explicitly so any future field addition that leaks into the no-destination
+    # path is caught here.
+    assert set(serialized.keys()) == {
+        "task_id",
+        "status",
+        "summary",
+        "changed_files",
+        "steps",
+        "usage",
+        "artifacts_path",
+        "error",
+        "branch",
+        "pr_url",
+        "hook_firings",
+        "command",
+    }
 
 
 def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

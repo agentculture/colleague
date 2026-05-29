@@ -229,3 +229,5 @@ skills.local.yaml
 
 # Neighbour clone manager — ephemeral shallow clones, never committed (t2)
 /.convertible/neighbours/
+
+.devague/questions/

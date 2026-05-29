@@ -9,8 +9,9 @@ import pytest
 from convertible.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
 
-def test_schemas_cover_base_five_plus_culture() -> None:
-    # The five base tools, plus the curated shared culture tool (t3).
+def test_schemas_cover_base_five_plus_culture_and_devague() -> None:
+    # The five base tools, plus the curated shared culture tool (t3) and the
+    # curated shared devague tool (t2).
     assert set(TOOL_NAMES) == {
         "read_file",
         "write_file",
@@ -18,6 +19,7 @@ def test_schemas_cover_base_five_plus_culture() -> None:
         "run_command",
         "finish",
         "culture",
+        "devague",
     }
     for schema in SCHEMAS:
         assert schema["type"] == "function"

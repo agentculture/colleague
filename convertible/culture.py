@@ -15,8 +15,10 @@ the child via :func:`convertible.identity.identity_env` so the CLI inherits
 ``CONVERTIBLE_IDENTITY``, and runs with ``cwd`` pinned at the repo root so a CLI
 like ``agtag`` that auto-signs from ``culture.yaml`` sees it. The CLI is *launched
 as a subprocess*, never imported as Python — no socket, no daemon. An absent CLI
-(``FileNotFoundError``) is mapped to a clean :class:`~convertible.tools.ToolError`
-string fed back to the model, never a traceback.
+(``FileNotFoundError``), a timeout (``subprocess.TimeoutExpired``), or any other
+launch failure (``OSError``) is mapped to a clean
+:class:`~convertible.tools.ToolError` string fed back to the model, never a
+traceback — so a hung or broken CLI cannot crash the drive.
 """
 
 from __future__ import annotations
@@ -71,8 +73,10 @@ def run_culture(
         A string of the form ``exit=<code>\\n<combined stdout+stderr>``, truncated.
 
     Raises:
-        CultureToolError: if *cli* is outside the allow-list, or the CLI is not
-            installed (``FileNotFoundError``) — a clean error, never a traceback.
+        CultureToolError: if *cli* is outside the allow-list, the CLI is not
+            installed (``FileNotFoundError``), it times out
+            (``subprocess.TimeoutExpired``), or it otherwise fails to launch
+            (``OSError``) — always a clean error, never a traceback.
     """
     if cli not in ALLOWED_CLIS:
         allowed = ", ".join(sorted(ALLOWED_CLIS))
@@ -96,6 +100,14 @@ def run_culture(
         raise CultureToolError(
             f"culture CLI '{cli}' not found — is it installed and on PATH?"
         ) from exc
+    except subprocess.TimeoutExpired as exc:
+        # A hung CLI must surface as a clean tool error, not an uncaught
+        # exception that escapes ToolExecutor and crashes the drive (the loop
+        # only catches ToolError around tool execution).
+        raise CultureToolError(f"culture CLI '{cli}' timed out after {_TIMEOUT_SECONDS}s") from exc
+    except OSError as exc:
+        # Any other launch/IO failure (e.g. permission denied) → clean error.
+        raise CultureToolError(f"culture CLI '{cli}' failed to launch: {exc}") from exc
 
     body = (proc.stdout or "") + (proc.stderr or "")
     return _truncate(f"exit={proc.returncode}\n{body}")

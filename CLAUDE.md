@@ -42,6 +42,19 @@ The car metaphor *is* the architecture:
   (`agtag`, `agex`) with the resolved identity injected; no socket, no daemon,
   no runtime dep. Lives in the chassis tool surface so every engine exposes it
   identically.
+- **Destination** — the car-metaphor sibling to GPS. GPS tells convertible where
+  it *is* (telemetry); the destination is where it's *going*. An engine MAY,
+  when a task is vague/new enough to warrant a clear goal, use a curated
+  **`devague` loop tool** to open/converge a devague goal-frame, drive toward it,
+  and declare the announcement on arrival. The destination is recorded lightweight
+  in the JSON artifact (`TaskResult.destination` + `announcement`), not a per-drive
+  spec file. The `devague` tool shells out to the operator-installed `devague` CLI
+  with cwd + resolved identity injected (like the culture tool); the curated
+  allow-list excludes `confirm`/`reject` (user-only moves) and `export`
+  (operator-only). Setting a destination is OPTIONAL and engine-judged, never a
+  forced gate; convergence is ADVISORY, and only operator-confirmed claims are
+  authoritative. Specification + plan: `docs/specs/2026-05-29-convertible-knows-its-destination-before-it-drives.md`
+  and `docs/plans/2026-05-29-convertible-knows-its-destination-before-it-drives.md`.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`convertible/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
@@ -77,13 +90,16 @@ In scope: the chassis, the entry-point wheel contract, exactly two engines
 hooks, the foreground interactive palette, layered per-model AGENTS/skills
 config (`convertible/layers.py`), GPS — opt-in OpenTelemetry traces +
 metrics (`convertible/telemetry/`), with the SDK as an optional `[otel]` extra —
-and the **mesh-member integration**: process-level identity (`convertible/identity.py`),
+the **mesh-member integration**: process-level identity (`convertible/identity.py`),
 read-only neighbour clones (`convertible/neighbours.py`), and the curated
-`culture` loop tool (`convertible/culture.py`; allow-list: `agtag`, `agex`).
-This last item was added via an explicit re-spec (spec + plan committed on this
-branch under `docs/specs/` / `docs/plans/`); it extends the tool surface beyond
-the original five tools but does so within the zero-deps / no-socket / no-daemon
-conventions.
+`culture` loop tool (`convertible/culture.py`; allow-list: `agtag`, `agex`) —
+and the **destination/`devague` tool** (`convertible/devague.py`; curated allow-list
+excluding `confirm`/`reject`/`export`), which lets an engine set and converge a
+goal-frame when a task warrants one, drive toward it, and declare the announcement
+on arrival. All three integrated features (mesh-member, culture tool, and destination)
+were added via explicit re-specs (spec + plan committed on this branch under
+`docs/specs/` / `docs/plans/`); they extend the tool surface and contract within
+the zero-deps / no-socket / no-daemon conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
 router/policy "gearbox", an execution sandbox, a daemon/server mode,
@@ -150,6 +166,16 @@ test (`tests/test_e2e_mock.py`) is the guard.
   The all-engines rule applies: the culture tool is offered to every engine identically.
   Every culture integration shells out to an operator-installed CLI — no socket, no
   daemon, no import; `convertible` reads no `mcp.json` and adds no live MCP client.
+- **The `devague` tool belongs to the chassis, not to engines.** `convertible/tools.py`
+  owns the tool schema and the `ToolExecutor._devague` dispatch; `convertible/devague.py`
+  owns the subprocess launch, identity injection, and allow-list enforcement.
+  No engine module touches either. The all-engines rule applies: the devague tool is
+  offered to every engine identically. The curated allow-list (`new`, `capture`,
+  `interrogate`, `park`, `converge`, `status`, `show`) structurally excludes
+  `confirm`/`reject` (user-only moves — the engine cannot self-confirm) and `export`
+  (operator-only — arrival is recorded as a lightweight announcement, not a spec file).
+  Every devague integration shells out to an operator-installed CLI — no socket, no
+  daemon, no import.
 - **The `doctor` verb is convertible's oilcheck.** It emits a configuration-readiness
   health check across identity, provider, engines, otel-readiness, and environment
   check-groups, in a rubric shape with exit-1-on-unhealthy semantics. See
