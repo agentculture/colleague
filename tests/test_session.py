@@ -286,7 +286,9 @@ def test_session_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert exc_info.value.code == 0
     assert "--engine" in out
     assert "--repo" in out
-    assert "--no-pr" in out
+    # Session no longer auto-PRs per line (#53): handoff is opt-in via --pr.
+    assert "--pr" in out
+    assert "--no-pr" not in out
 
 
 # ---------------------------------------------------------------------------

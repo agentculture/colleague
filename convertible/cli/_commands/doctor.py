@@ -21,7 +21,7 @@ from convertible.oilcheck import diagnose
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    report = diagnose()
+    report = diagnose(probe=bool(getattr(args, "probe", False)))
     json_mode = bool(getattr(args, "json", False))
     if json_mode:
         emit_result(report, json_mode=True)
@@ -40,7 +40,15 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "doctor",
-        help="Check configuration readiness (identity, provider, engines, otel, environment).",
+        help=(
+            "Check configuration readiness (identity, provider, usage, engines, "
+            "otel, environment)."
+        ),
     )
     p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument(
+        "--probe",
+        action="store_true",
+        help="Also ping the provider server for reachability (opens a network connection).",
+    )
     p.set_defaults(func=cmd_doctor)

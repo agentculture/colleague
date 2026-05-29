@@ -30,7 +30,7 @@ from convertible.cli._banner import emit_banner
 from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import emit_diagnostic, emit_result
 from convertible.commands import CommandError, expand_command
-from convertible.config import EngineConfig
+from convertible.config import EngineConfig, resolve_engine
 from convertible.contract import OK, Task, TaskResult
 from convertible.handoff import HandoffError, handoff, untracked_snapshot
 from convertible.telemetry import load_telemetry
@@ -241,6 +241,10 @@ def cmd_drive(args: argparse.Namespace) -> int:
             "run 'convertible drive --help' to see usage",
         )
 
+    # Resolve the engine: explicit --engine > CONVERTIBLE_ENGINE > vllm-openai.
+    # A bare drive never silently falls through to the no-op mock (#53).
+    engine = resolve_engine(args.engine)
+
     config = EngineConfig.resolve(
         base_url=args.base_url,
         model=args.model,
@@ -258,7 +262,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
                 repo,
                 command_name,
                 cmd_args,
-                engine_default=args.engine,
+                engine_default=engine,
             )
         except CommandError as exc:
             raise CliError(
@@ -269,13 +273,13 @@ def cmd_drive(args: argparse.Namespace) -> int:
     else:
         # Plain instruction path (original behaviour).
         instruction = " ".join(instruction_tokens)
-        task = Task.new(str(repo), instruction, engine=args.engine)
+        task = Task.new(str(repo), instruction, engine=engine)
 
     # Delegate the full drive orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
     result, artifact_path = execute_drive(
         repo=repo,
-        engine_name=args.engine,
+        engine_name=engine,
         task=task,
         open_pr=not args.no_pr,
         base=args.base,
@@ -286,7 +290,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)
     else:
-        emit_result(_render(result, args.engine, artifact_path), json_mode=False)
+        emit_result(_render(result, engine, artifact_path), json_mode=False)
     return 0 if result.status == OK else 1
 
 
@@ -317,7 +321,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="Expand a saved command template and drive it (mutually exclusive with instruction).",
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
-    p.add_argument("--engine", default="mock", help="Engine wheel to drive (default: mock).")
+    p.add_argument(
+        "--engine",
+        default=None,
+        help="Engine wheel to drive (default: CONVERTIBLE_ENGINE or vllm-openai).",
+    )
     p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")

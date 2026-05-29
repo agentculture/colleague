@@ -27,6 +27,13 @@ _DEFAULT_MAX_STEPS = 25
 _DEFAULT_TEMPERATURE = 0.0
 _DEFAULT_TIMEOUT = 120.0
 
+# Engine SELECTION default (distinct from the provider config below — mock
+# ignores provider config entirely). The default is the real bundled engine,
+# never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
+# not silently fake work (issue #53, "Mock shouldn't be default"). ``mock`` is
+# reachable only by an explicit ``--engine mock`` / ``CONVERTIBLE_ENGINE=mock``.
+_DEFAULT_ENGINE = "vllm-openai"
+
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
     if explicit is not None:
@@ -36,6 +43,18 @@ def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
         if value:
             return value
     return default
+
+
+def resolve_engine(explicit: str | None) -> str:
+    """Resolve the engine wheel name to drive.
+
+    Precedence, highest first: an explicit value (the ``--engine`` flag), the
+    ``CONVERTIBLE_ENGINE`` environment variable, then the built-in default
+    (:data:`_DEFAULT_ENGINE`). Engine selection is config too, so it mirrors the
+    :func:`_pick` precedence used for the provider fields — but it is a separate
+    concern (the ``mock`` engine never reads provider config).
+    """
+    return _pick(explicit, "CONVERTIBLE_ENGINE", default=_DEFAULT_ENGINE)
 
 
 @dataclass

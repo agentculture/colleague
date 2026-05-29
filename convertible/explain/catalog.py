@@ -103,17 +103,25 @@ _DOCTOR = """\
 
 Convertible's oilcheck: a configuration-readiness health check emitting a
 rubric-shaped report across ordered check-groups: **identity**, **provider**
-(config + budget), **engines** (all installed wheels), **otel-readiness**, and
-**environment** (repo config / layering / handoff prereqs / CLI integrity).
+(config + budget), **usage** (which engine a bare drive actually picks),
+**engines** (all installed wheels), **otel-readiness**, and **environment**
+(repo config / layering / handoff prereqs / CLI integrity).
 
 Exits 1 when unhealthy (when any error-severity check fails). Only
 error-severity failures make the report unhealthy; warnings and info are
-advisory.
+advisory — e.g. `usage_effective_engine` warns (but stays healthy) when a bare
+run would drive the no-op `mock` engine.
+
+`--probe` adds an opt-in `provider_reachable` check that pings the provider
+server (`{base_url}/models`). It is the one check that opens a network
+connection, so it is off by default; an unreachable server is reported as a
+warning, not an error.
 
 ## Usage
 
     convertible doctor
     convertible doctor --json
+    convertible doctor --probe
 """
 
 _CLI = """\
@@ -139,14 +147,21 @@ engine — only `--engine` changes.
 
 ## Usage
 
-    convertible drive "add a CONTRIBUTING.md" --repo . --engine mock
+    convertible drive "add a CONTRIBUTING.md" --repo . --engine mock --no-pr
     convertible drive "fix the typo in README" --engine vllm-openai --no-pr
     convertible drive "..." --engine vllm-openai --base-url http://localhost:8001/v1 --json
+
+## Engine selection
+
+Resolved highest-first: the `--engine` flag, then the `CONVERTIBLE_ENGINE` env
+var, then the built-in default `vllm-openai` (the real bundled engine). A bare
+`drive` never silently falls back to the no-op `mock` reference — use
+`--engine mock` (or `CONVERTIBLE_ENGINE=mock`) when you explicitly want it.
 
 ## Key flags
 
 - `--repo PATH` — target repository (default: cwd).
-- `--engine NAME` — engine wheel to drive (default: `mock`; see `wheels list`).
+- `--engine NAME` — engine wheel (default: `CONVERTIBLE_ENGINE` env, else `vllm-openai`).
 - `--no-pr` — commit locally; do not push or open a PR.
 - `--base-url / --model / --api-key / --max-steps` — engine overrides.
 
@@ -213,7 +228,8 @@ The loop continues until you enter `q`, an empty line, or EOF.
 ## Usage
 
     convertible session
-    convertible session --repo PATH --engine mock --no-pr
+    convertible session --repo PATH --engine mock
+    convertible session --pr            # opt back into push + PR per drive
 
 ## Interaction
 
@@ -224,11 +240,19 @@ At the `>>>` prompt you can enter:
 - A **free-text instruction** — treated as an ad-hoc task (like `drive "<text>"`).
 - `q`, `quit`, `exit`, or an **empty line** — ends the session.
 
+## Handoff
+
+By default a session is a "talk + iterate" loop: each drive commits locally on a
+`convertible/<task_id>` branch but does **not** push or open a PR. Pass `--pr` to
+push and open a PR after every drive. (This differs from `drive`, which opens a
+PR by default.) Engine selection matches `drive`: `--engine` > `CONVERTIBLE_ENGINE`
+> `vllm-openai`.
+
 ## Key flags
 
 - `--repo PATH` — target repository (default: cwd).
-- `--engine NAME` — engine wheel to drive (default: `mock`; see `wheels list`).
-- `--no-pr` — commit locally; do not push or open a PR.
+- `--engine NAME` — engine wheel (default: `CONVERTIBLE_ENGINE` env, else `vllm-openai`).
+- `--pr` — push and open a PR after each drive (default: commit locally only, no PR).
 - `--base BRANCH` — base branch for the PR (default: `main`).
 - `--base-url / --model / --api-key / --max-steps` — engine overrides.
 
