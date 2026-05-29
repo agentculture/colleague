@@ -46,7 +46,7 @@ from convertible.contract import (
     Task,
     TaskResult,
 )
-from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
+from convertible.hooks import HookConfig, HookDecision, hook_approval_verdict, load_hooks, run_hook
 from convertible.neighbours import NeighbourManager
 from convertible.policy import Policy, load_policy
 from convertible.telemetry import Telemetry, load_telemetry
@@ -153,6 +153,7 @@ def _fire_hooks(
     task: Task,
     tool: str | None = None,
     arguments: dict[str, Any] | None = None,
+    policy: Policy | None = None,
 ) -> HookDecision | None:
     """Run every matching hook for *event*, record a firing per hook, in order.
 
@@ -164,6 +165,13 @@ def _fire_hooks(
 
     A firing is appended for *every* hook that runs — including the allow/observe
     ones leading up to a decisive one — so the dashboard sees the full sequence.
+
+    When *policy* is given and its ``hooks`` section is present, each entry's
+    command is checked via :func:`~convertible.hooks.hook_approval_verdict` before
+    being run.  An unapproved entry is recorded as a ``HookFiring(decision=
+    "skipped")`` and skipped — it does NOT set the decisive deny/rewrite and does
+    NOT block the tool for ``pre_tool``.  With no ``hooks`` section (the default)
+    every entry fires exactly as before (strict no-op).
     """
     entries = hooks.hooks_for(event, tool=tool)
     if not entries:
@@ -179,6 +187,25 @@ def _fire_hooks(
 
     decisive = None
     for entry in entries:
+        # --- Content-approval gate (r1) ---
+        # Check the hook's referenced repo files against the policy before running.
+        # A skip is NON-control-bearing: it does NOT set decisive and does NOT
+        # block the tool for pre_tool.  With no hooks section this is a strict no-op.
+        if policy is not None:
+            approval = hook_approval_verdict(entry.command, policy, task.repo_path)
+            if not approval.allowed:
+                result.hook_firings.append(
+                    HookFiring(
+                        event=event,
+                        tool=tool,
+                        command=entry.command,
+                        decision="skipped",
+                        exit_code=None,
+                        reason=approval.reason,
+                    )
+                )
+                continue
+
         # A hook must never abort the drive. run_hook already maps timeouts /
         # launch failures to a deny; this net catches any other unexpected error
         # and records it as a fail-closed deny firing rather than propagating.
@@ -313,6 +340,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
             task=ctx.task,
             tool=call.name,
             arguments=arguments,
+            policy=ctx.policy,
         )
         kind = decision.decision if decision is not None else None
         if kind == DECISION_DENY:
@@ -355,6 +383,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
                 task=ctx.task,
                 tool=call.name,
                 arguments=arguments,
+                policy=ctx.policy,
             )
             return False
 
@@ -372,6 +401,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
             task=ctx.task,
             tool=call.name,
             arguments=arguments,
+            policy=ctx.policy,
         )
 
         if not outcome.finished:
@@ -511,7 +541,7 @@ def run(
         neighbours.clone_all()
 
     # task_start — once, before the loop. Observe-only: side-effects only.
-    _fire_hooks(hooks, result, event="task_start", task=task)
+    _fire_hooks(hooks, result, event="task_start", task=task, policy=policy)
 
     # The fixed collaborators for this drive — passed as one ``ctx`` to the
     # per-turn / per-call helpers so the loop body stays shallow.
@@ -540,7 +570,7 @@ def run(
 
     # finish — once, on every loop exit (model finish / empty turn / budget / error).
     # Observe-only this increment; requeue/re-drive is out of scope.
-    _fire_hooks(hooks, result, event="finish", task=task)
+    _fire_hooks(hooks, result, event="finish", task=task, policy=policy)
 
     # Neighbour cleanup — runs on every loop exit, after the finish hook, so
     # no clone directory persists between drives. Safe even when no clones exist
