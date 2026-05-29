@@ -255,7 +255,26 @@ Hooks fire at four lifecycle events:
     convertible hooks list
     convertible hooks list --repo PATH
     convertible hooks list --repo PATH --json
+    convertible hooks list --repo PATH --model <model> --json
     convertible hooks overview
+
+## Per-model overlay (--model)
+
+Pass `--model <name>` to `hooks list` to include per-model hook entries loaded
+from `.convertible/<model>/hooks.json` (repo-level, falling back to
+`~/.convertible/<model>/hooks.json`).
+
+**Per-model-first precedence**: per-model entries are composed *ahead of* the
+base entries for each event — so the loop's "first deny/rewrite wins" semantics
+give the per-model hook priority. In the output, each entry carries a `scope`
+tag (`per-model` or `base`) so you can see exactly which layer each hook comes
+from. Without `--model`, output is identical to the base-only baseline (no
+`scope` key is added).
+
+The `<model>` token is sanitized the same way as in `agents list` and
+`skills list` — runs of characters outside `[A-Za-z0-9._-]` collapse to a
+single `-` (e.g. `Qwen/Qwen3-32B` → `Qwen-Qwen3-32B`). The overlay path is
+constructed exactly, never globbed, so model X can never load model Y's overlay.
 
 ## Hook decisions
 
@@ -268,6 +287,8 @@ Hooks fire at four lifecycle events:
 
 - `convertible explain commands`
 - `convertible explain drive`
+- `convertible explain agents`
+- `convertible explain skills`
 """
 
 
