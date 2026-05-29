@@ -117,6 +117,45 @@ def test_drive_hands_off_run_command_edits(
     assert "made_by_cmd.txt" in payload["changed_files"]  # backfilled from git status
 
 
+def test_drive_does_not_commit_preexisting_untracked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Operator work-in-progress present before a drive must not be swept into the commit (#39)."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@e.com")
+    _git(tmp_path, "config", "user.name", "T")
+    (tmp_path / "seed").write_text("x")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    (tmp_path / "operator_wip.txt").write_text("uncommitted work, not the drive's")  # pre-existing
+
+    rc = main(
+        [
+            "drive",
+            "set up the repo",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert OUTPUT_FILE in committed  # the drive's own output landed
+    assert "operator_wip.txt" not in committed  # the pre-existing WIP did not
+    # The WIP is still in the work tree, untouched.
+    assert (tmp_path / "operator_wip.txt").exists()
+
+
 def test_drive_unknown_engine_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["drive", "x", "--repo", str(tmp_path), "--engine", "nope"])
     assert rc == 1

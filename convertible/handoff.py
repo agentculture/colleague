@@ -71,6 +71,8 @@ def handoff(
     task_id: str,
     *,
     instruction: str = "",
+    changed_files: list[str] | None = None,
+    baseline_untracked: list[str] | None = None,
     open_pr: bool = True,
     base_branch: str = "main",
 ) -> HandoffResult:
@@ -78,10 +80,25 @@ def handoff(
 
     Returns a :class:`HandoffResult`; ``pr_url`` is ``None`` whenever the run
     stays local (gating off, no remote, no gh, or a push/PR failure).
+
+    Staging commits **only the task's own work** (#39): all tracked
+    modifications (so ``run_command`` edits to tracked files are captured) plus
+    the new untracked files the *drive itself* produced — i.e. untracked files
+    that were **not** present before the drive (``baseline_untracked``) and are
+    not under convertible's own ``.convertible/`` bookkeeping dir. Pre-existing
+    untracked files (operator work-in-progress) and prior runs' artifacts are
+    never swept in. ``changed_files`` is the loop-tracked set; any of those paths
+    that are gitignored (so they can't land in the commit) are surfaced in
+    :attr:`HandoffResult.note` rather than dropped silently.
+
+    ``baseline_untracked`` is the set of untracked paths captured *before* the
+    drive (see :func:`untracked_snapshot`); when ``None`` no baseline filtering
+    is applied (every drive-produced untracked file is a candidate).
     """
     repo = Path(repo_path).resolve()
     branch = _branch_name(task_id)
     result = HandoffResult(branch=branch)
+    ignored = _ignored_paths(repo, changed_files or [])
 
     # Nothing staged or unstaged -> nothing to hand off. This is the authority on
     # whether work happened — so edits made via run_command (which the loop's
@@ -89,45 +106,138 @@ def handoff(
     status = _git(repo, "status", "--porcelain")
     if not status.stdout.strip():
         result.branch = None
-        result.note = "no changes to hand off"
+        result.note = _with_ignored("no changes to hand off", ignored)
         return result
-    result.changed_files = _changed_paths(status.stdout)
+
+    # Stage BEFORE switching branches: a no-op must never leave the operator
+    # checked out on a freshly-created task branch (the index built here is
+    # carried into the `checkout -B` below when we do commit).
+    #   1. tracked modifications/deletions (run_command + write_file edits to
+    #      already-tracked files), never sweeping untracked files;
+    #   2. the new untracked files the drive produced — excluding pre-existing
+    #      operator work-in-progress and `.convertible/` bookkeeping (#39).
+    _git(repo, "add", "-u", "--", ".", ":(exclude).convertible")
+    baseline = set(baseline_untracked or [])
+    produced = [
+        path
+        for path in _untracked_paths(repo)
+        if path not in baseline and not path.startswith(".convertible/")
+    ]
+    if produced:
+        _git(repo, "add", "--", *produced)
+
+    # The committed set is exactly what is now staged — derive changed_files from
+    # it (not from the pre-stage porcelain) so the artifact agrees with the commit.
+    staged = _staged_paths(repo)
+    if not staged:
+        # Only excluded/ignored/pre-existing output — nothing of the task's own
+        # to commit. We have NOT switched branches, so operator state is intact.
+        result.branch = None
+        result.note = _with_ignored("no task changes to hand off", ignored)
+        return result
+    result.changed_files = staged
 
     _git(repo, "checkout", "-B", branch)
-    _git(repo, "add", "-A")
-    message = f"convertible: {instruction or task_id}".strip()
-    _git(repo, "commit", "-m", message)
+    subject = _commit_subject(instruction, task_id)
+    body = (instruction or "").strip()
+    commit_args = ["commit", "-m", subject]
+    # Preserve the full instruction in the commit body when it carries more than
+    # the (possibly truncated, single-line) subject already shows (#40).
+    if body and f"convertible: {body}" != subject:
+        commit_args += ["-m", body]
+    _git(repo, *commit_args)
     result.committed = True
 
     if not should_open_pr(repo, open_pr):
-        result.note = "local commit only (--no-pr, no remote, or gh unavailable)"
+        result.note = _with_ignored(
+            "local commit only (--no-pr, no remote, or gh unavailable)", ignored
+        )
         return result
 
     try:
         _git(repo, "push", "-u", "origin", branch)
         result.pushed = True
-        result.pr_url = _gh_pr_create(repo, base_branch, message)
-        result.note = "pushed and opened PR"
+        result.pr_url = _gh_pr_create(repo, base_branch, subject)
+        result.note = _with_ignored("pushed and opened PR", ignored)
     except HandoffError as exc:
         # Distinguish a push that already landed from one that never left: the
         # note must not contradict result.pushed (observability).
         if result.pushed:
-            result.note = f"pushed branch; PR creation failed: {exc}"
+            result.note = _with_ignored(f"pushed branch; PR creation failed: {exc}", ignored)
         else:
-            result.note = f"local commit only (push failed: {exc})"
+            result.note = _with_ignored(f"local commit only (push failed: {exc})", ignored)
     return result
 
 
-def _changed_paths(porcelain: str) -> list[str]:
-    """Extract file paths from `git status --porcelain` output (handles renames)."""
-    paths: list[str] = []
-    for line in porcelain.splitlines():
-        entry = line[3:].strip() if len(line) > 3 else line.strip()
-        if " -> " in entry:  # rename: "old -> new"
-            entry = entry.split(" -> ", 1)[1]
-        if entry:
-            paths.append(entry)
-    return sorted(set(paths))
+def _commit_subject(instruction: str, task_id: str) -> str:
+    """A single short commit subject: ``convertible: <first line | task_id>`` (#40).
+
+    The full instruction goes in the commit *body*; the subject takes the first
+    line truncated to a git-friendly length so ``git log --oneline`` / PR titles
+    stay readable.
+    """
+    stripped = (instruction or "").strip()
+    if not stripped:
+        return f"convertible: {task_id}"
+    first = stripped.splitlines()[0].strip()
+    if len(first) > 64:
+        first = first[:61].rstrip() + "..."
+    return f"convertible: {first}"
+
+
+def _staged_paths(repo: Path) -> list[str]:
+    """The paths staged for commit (index vs HEAD) — the committed set (#39)."""
+    proc = _git(repo, "diff", "--cached", "--name-only")
+    return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
+
+
+def _untracked_paths(repo: Path) -> list[str]:
+    """Untracked, non-gitignored paths in the work tree (``git status`` ``??``)."""
+    proc = _git(repo, "status", "--porcelain", "--untracked-files=all")
+    return [line[3:] for line in proc.stdout.splitlines() if line.startswith("?? ")]
+
+
+def untracked_snapshot(repo_path: str | Path) -> list[str]:
+    """Untracked paths *now* — captured before a drive as the handoff baseline.
+
+    Returns ``[]`` outside a git repo (or on any git error) so the caller can
+    pass it through unconditionally; a missing baseline just means no filtering.
+    """
+    try:
+        return _untracked_paths(Path(repo_path).resolve())
+    except HandoffError:
+        return []
+
+
+def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
+    """Subset of ``paths`` that git ignores (so they cannot land in a commit).
+
+    Uses ``check-ignore --stdin`` so the path list never becomes argv (no
+    ``ARG_MAX`` blow-up for a large changed_files set) and leading-dash paths are
+    never mistaken for flags.
+    """
+    if not paths:
+        return []
+    proc = subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
+        ["git", "check-ignore", "--stdin"],
+        cwd=str(repo),
+        input="\n".join(paths),
+        capture_output=True,
+        text=True,
+    )
+    # 0 = some ignored, 1 = none ignored; anything else (128 = not a git repo) ->
+    # surface nothing rather than raising.
+    if proc.returncode not in (0, 1):
+        return []
+    return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
+
+
+def _with_ignored(note: str, ignored: list[str]) -> str:
+    """Append a gitignored-output advisory to ``note`` (surfaced, not dropped — #39)."""
+    if not ignored:
+        return note
+    listed = ", ".join(ignored)
+    return f"{note}; {len(ignored)} file(s) produced but not committed (gitignored): {listed}"
 
 
 def _gh_pr_create(repo: Path, base_branch: str, title: str) -> str | None:

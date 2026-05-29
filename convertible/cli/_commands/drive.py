@@ -32,7 +32,7 @@ from convertible.cli._output import emit_diagnostic, emit_result
 from convertible.commands import CommandError, expand_command
 from convertible.config import EngineConfig
 from convertible.contract import OK, Task, TaskResult
-from convertible.handoff import HandoffError, handoff
+from convertible.handoff import HandoffError, handoff, untracked_snapshot
 from convertible.telemetry import load_telemetry
 
 
@@ -119,6 +119,11 @@ def execute_drive(
             if trace_id:
                 emit_diagnostic(f"trace: {trace_id}")
 
+            # Snapshot untracked files BEFORE the drive so the handoff stages only
+            # the files the drive itself produces — never pre-existing operator
+            # work-in-progress (#39).
+            baseline_untracked = untracked_snapshot(repo)
+
             try:
                 result = engine.drive(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
@@ -139,6 +144,8 @@ def execute_drive(
                             repo,
                             task.id,
                             instruction=task.instruction,
+                            changed_files=result.changed_files,
+                            baseline_untracked=baseline_untracked,
                             open_pr=open_pr,
                             base_branch=base,
                         )
