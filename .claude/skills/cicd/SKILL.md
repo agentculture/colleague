@@ -2,32 +2,38 @@
 name: cicd
 type: command
 description: >
-  convertible's CI/CD lane, layered on `agex pr`. Delegates lint / open /
-  read / reply / delta to agex; adds two extensions — `status`
+  convertible's CI/CD lane, layered on `devex pr` (the same PR-lifecycle
+  CLI as `agex`, invoked under the `devex` name). Delegates lint / open /
+  read / reply / delta to devex; adds two extensions — `status`
   (SonarCloud quality gate + hotspots + unresolved-thread tally) and
   `await` (read --wait + status with non-zero exit on Sonar ERROR or
   unresolved threads). Use when: creating PRs in convertible, handling
   review feedback, polling CI status, or the user says "create PR",
   "review comments", "address feedback", "resolve threads". Renamed
-  from `pr-review` in steward 0.7.0; rebased on agex in 0.12.0.
+  from `pr-review` in steward 0.7.0; rebased on agex/devex in 0.12.0.
 ---
 
 # CI/CD — convertible edition
 
-`agex pr` (in `agentculture/agex-cli`) is the upstream for the
-five core PR-lifecycle verbs — `lint`, `open`, `read`, `reply`,
-`delta`. Steward used to vendor parallel scripts for each; in 0.12.0
-those vendored copies were dropped in favor of delegating to `agex`.
-What's left in this skill is **the steward-specific gating layer**:
+This skill drives **`devex pr`** — the agentculture PR-lifecycle CLI,
+invoked under the `devex` name. `devex` is the **same tool as `agex`**
+(upstream `agentculture/agex-cli`); convertible standardizes on the
+`devex` name and never shells out to `gh` directly to open a PR.
+
+`devex pr` provides the five core PR-lifecycle verbs — `lint`, `open`,
+`read`, `reply`, `delta`. Steward used to vendor parallel scripts for
+each; in 0.12.0 those vendored copies were dropped in favor of
+delegating to the CLI. What's left in this skill is **the
+steward-specific gating layer**:
 
 - `status` — SonarCloud quality gate, OPEN issues, hotspots, deploy
   preview URL, unresolved-inline-thread tally.
-- `await` — composes `agex pr read --wait` with `status` and gates on
+- `await` — composes `devex pr read --wait` with `status` and gates on
   Sonar `ERROR` / unresolved threads. The single command to run after
   pushing a fix when you want "wake me when this PR is triage-able."
 
 Those two are the steward unique surface today. The `await` combo verb
-landed natively in agex
+landed natively in the CLI
 ([agex-cli#41](https://github.com/agentculture/agex-cli/issues/41), now
 closed); the gate extras that aren't yet native — SonarCloud hotspots,
 deploy-preview URL, an explicit resolved/unresolved thread tally — are
@@ -36,17 +42,18 @@ tracked upstream in
 migrate out of this skill once they land.
 
 The workflow is encapsulated in `scripts/workflow.sh` — follow that
-(or call `agex pr` directly).
+(or call `devex pr` directly).
 
 ## The agex-cli inversion (upstream-as-consumer)
 
-One consumer is special: **agex-cli itself**, the repo that owns `agex pr`.
-Vendoring this skill there verbatim would re-vendor bash that just wraps the
-Python agex-cli already ships, so agex-cli vendors it **adapted-thin**
+One consumer is special: **agex-cli itself**, the repo that owns the
+`pr` CLI (`agex`/`devex` are the same tool). Vendoring this skill there
+verbatim would re-vendor bash that just wraps the Python CLI it already
+ships, so agex-cli vendors it **adapted-thin**
 ([agex-cli#53](https://github.com/agentculture/agex-cli/pull/53)):
 `workflow.sh` is the only script and it forwards
 `lint | open | read | reply | delta | await` straight to the native
-`agex pr <verb>` — including the native `agex pr await` combo verb (agex-cli
+`pr <verb>` — including the native `pr await` combo verb (agex-cli
 0.21.0). The steward `status` / `await` shell extensions and the vendored
 helpers (`pr-reply.sh`, `_resolve-nick.sh`, `portability-lint.sh`) are all
 redundant there, each superseded by a native verb. For that one consumer the
@@ -57,7 +64,7 @@ The only gate bits not yet native are SonarCloud **hotspots**, the
 tracked upstream in
 [agex-cli#52](https://github.com/agentculture/agex-cli/issues/52). Once those
 land, steward retires `pr-status.sh` too and `workflow.sh status/await`
-delegates to native `agex pr` everywhere.
+delegates to the native CLI everywhere.
 
 **For broadcasts:** a skill-update brief to agex-cli should expect this thin
 `workflow.sh`-only shape, not steward's five-file layout. (Ref:
@@ -65,13 +72,15 @@ delegates to native `agex pr` everywhere.
 
 ## Prerequisites
 
-Hard requirements: `agex` (>=0.1), `gh` (GitHub CLI), `jq`, `bash`,
-`python3` (stdlib only), `curl` (used by `pr-status.sh`).
+Hard requirements: `devex` (the agentculture PR CLI; same tool as
+`agex`), `gh` (GitHub CLI — used only by the `status` / `reply` gating
+helpers, never to open a PR), `jq`, `bash`, `python3` (stdlib only),
+`curl` (used by `pr-status.sh`).
 
-Install agex once:
+Install devex once:
 
 ```bash
-uv tool install agex-cli   # or: pip install --user agex-cli
+uv tool install devex   # or: pip install --user devex
 ```
 
 Soft requirement: `PyYAML` is needed **only for suffix mode** of the
@@ -81,7 +90,7 @@ clear install hint when invoked without it.
 
 Per-machine paths (sibling-project layout) live in
 `.claude/skills.local.yaml`; see the committed `.example` for the
-schema. `agex pr delta` reads the same file.
+schema. `devex pr delta` reads the same file.
 
 ## How to run
 
@@ -89,16 +98,16 @@ schema. `agex pr delta` reads the same file.
 
 | Command | What it does |
 |---------|--------------|
-| `workflow.sh lint` | `agex pr lint --exit-on-violation` — portability + alignment-trigger check. |
-| `workflow.sh open [gh-flags]` | `agex pr open --delayed-read`. Creates the PR, then polls 180s for an initial briefing. `--title TITLE` required; body via `--body-file PATH` or stdin. |
-| `workflow.sh read [PR] [--wait N]` | `agex pr read`. One-shot briefing (CI checks, SonarCloud gate + new issues, all comments, next-step footer). Pass `--wait N` to poll up to N seconds for required reviewers. |
-| `workflow.sh reply <PR>` | `agex pr reply <PR>` — batch JSONL replies (stdin) + thread resolve. agex auto-signs from `culture.yaml`. |
-| `workflow.sh delta` | `agex pr delta` — sibling alignment dump. |
+| `workflow.sh lint` | `devex pr lint --exit-on-violation` — portability + alignment-trigger check. |
+| `workflow.sh open [pr-flags]` | `devex pr open --delayed-read`. Creates the PR, then polls 180s for an initial briefing. `--title TITLE` required; body via `--body-file PATH` or stdin. |
+| `workflow.sh read [PR] [--wait N]` | `devex pr read`. One-shot briefing (CI checks, SonarCloud gate + new issues, all comments, next-step footer). Pass `--wait N` to poll up to N seconds for required reviewers. |
+| `workflow.sh reply <PR>` | `devex pr reply <PR>` — batch JSONL replies (stdin) + thread resolve. devex auto-signs from `culture.yaml`. |
+| `workflow.sh delta` | `devex pr delta` — sibling alignment dump. |
 | `workflow.sh status <PR>` | **Steward extension.** `pr-status.sh` — Sonar gate, OPEN issues, hotspots, unresolved-thread breakdown, deploy preview URL. Authoritative gate for `await`. |
-| `workflow.sh await <PR>` | **Steward extension.** `agex pr read --wait` then `status`. Exits non-zero on Sonar ERROR or unresolved threads. Tunables: `STEWARD_PR_AWAIT_WAIT` (default 1800s passed to `--wait`), `STEWARD_PR_AWAIT_SECONDS` (legacy fixed pre-sleep, deprecated). |
+| `workflow.sh await <PR>` | **Steward extension.** `devex pr read --wait` then `status`. Exits non-zero on Sonar ERROR or unresolved threads. Tunables: `STEWARD_PR_AWAIT_WAIT` (default 1800s passed to `--wait`), `STEWARD_PR_AWAIT_SECONDS` (legacy fixed pre-sleep, deprecated). |
 | `workflow.sh help` | Print the list. |
 
-You can also call `agex pr <verb>` directly — `workflow.sh` is a
+You can also call `devex pr <verb>` directly — `workflow.sh` is a
 typing-saver around the same verbs. The steward `status` and `await`
 extensions only have shell entry points.
 
@@ -109,21 +118,20 @@ and useful when a one-off reply doesn't merit batch JSONL. It is not
 called by `workflow.sh` anymore. The vendored `portability-lint.sh`
 is also still shipped — `steward doctor`'s portability check runs it
 directly against target repos. Both are scheduled for follow-up
-migration to agex.
+migration to the CLI.
 
 ## Long waits (background polling)
 
-`agex pr read --wait N` polls in-session for up to N seconds. The
+`devex pr read --wait N` polls in-session for up to N seconds. The
 Anthropic prompt cache has a 5-minute TTL; sleeping past it burns
 context every cache miss. Two ways to drive the wait:
 
-- **Synchronous** — `workflow.sh await <PR>` after `gh pr create` /
-  `workflow.sh open`. Fine when readiness is expected within ~5
-  minutes.
-- **Asynchronous** — for longer waits, run `agex pr read --wait NNN`
+- **Synchronous** — `workflow.sh await <PR>` after `workflow.sh open`.
+  Fine when readiness is expected within ~5 minutes.
+- **Asynchronous** — for longer waits, run `devex pr read --wait NNN`
   inside a background subagent (Agent tool, `run_in_background: true`)
   so the main session only pays the cache cost when readiness fires.
-  The subagent's only job is to invoke `agex pr read --wait` and echo
+  The subagent's only job is to invoke `devex pr read --wait` and echo
   its headline back. The parent triages with `workflow.sh await`
   when the notification arrives. The user can interrupt with
   TaskStop.
@@ -135,16 +143,16 @@ skill. The async guidance is also filed upstream
 
 ## Conventions
 
-`agex pr` emits a **"Next step:"** footer at the end of every command
-that names the right next verb (the same chain `agex learn cicd`
+`devex pr` emits a **"Next step:"** footer at the end of every command
+that names the right next verb (the same chain `devex learn cicd`
 documents) — follow that rather than memorizing an order. `workflow.sh
 help` mirrors the verb table when you need the steward-flavored
 extensions (`status`, `await`) on top.
 
 Branch naming: `fix/<desc>`, `feat/<desc>`, `docs/<desc>`,
 `skill/<name>`. PR / comment signature: `- <nick> (Claude)`, where
-`<nick>` is resolved by `agex` from the agent's own `culture.yaml`
-(first agent's `suffix`), falling back to the git-repo basename. agex
+`<nick>` is resolved by `devex` from the agent's own `culture.yaml`
+(first agent's `suffix`), falling back to the git-repo basename. devex
 auto-appends the signature on `pr open` and `pr reply` only when the
 body isn't already signed.
 
@@ -196,13 +204,13 @@ A `pr lint --extra=tests,version,markdown` ask is filed upstream
 
 ## Reply etiquette
 
-Every comment must get a reply — no silent fixes. `agex pr reply`
+Every comment must get a reply — no silent fixes. `devex pr reply`
 includes thread-resolve by default. Reference the review-comment IDs
 in the fix-up commit message.
 
 The `status` extension queries SonarCloud directly (it predates the
-upstream Sonar integration in `agex pr read`). Both surfaces are
-trustworthy — `agex pr read` for display in the briefing, `status` for
+upstream Sonar integration in `devex pr read`). Both surfaces are
+trustworthy — `devex pr read` for display in the briefing, `status` for
 the gate. Steward isn't yet a registered mesh agent, so the
 post-merge IRC ping that Culture's `pr-review` includes is still
 skipped — that returns when Steward joins the mesh.
