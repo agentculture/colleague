@@ -139,6 +139,7 @@ def execute_drive(
                             repo,
                             task.id,
                             instruction=task.instruction,
+                            changed_files=result.changed_files,
                             open_pr=open_pr,
                             base_branch=base,
                         )
