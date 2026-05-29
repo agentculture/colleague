@@ -31,6 +31,7 @@ def _skills_sections() -> list[dict[str, object]]:
                 "base: .convertible/skills/*.md",
                 "model overlay: .convertible/<model>/skills/*.md (shadows base by stem)",
                 "Folded into the system prompt as a name + one-line-summary catalog",
+                "Skills are declarative/instructional — never approval-gated (status=accessible)",
             ],
         },
         {
@@ -38,13 +39,14 @@ def _skills_sections() -> list[dict[str, object]]:
             "items": [
                 "A skill is instructional text only — no execution model in v0",
                 "<model> is sanitized; only the named model's overlay is read",
+                "Skills load freely; they are never blocked by the approval gate",
                 "Invokable skills (skills as procedures) are a tracked follow-up",
             ],
         },
         {
             "title": "Verbs",
             "items": [
-                "skills list [--model M] [--repo PATH] — list resolved skills",
+                "skills list [--model M] [--repo PATH] — list resolved skills (all accessible)",
                 "skills overview — describe the skills surface (this command)",
             ],
         },
@@ -69,12 +71,12 @@ def cmd_skills_list(args: argparse.Namespace) -> int:
     ordered = [skills[name] for name in sorted(skills)]
 
     if json_mode:
-        items = [{"name": s.name, "scope": s.scope} for s in ordered]
+        items = [{"name": s.name, "scope": s.scope, "status": "accessible"} for s in ordered]
         emit_result({"model": model, "skills": items}, json_mode=True)
     elif not ordered:
         emit_result("(no skills found)", json_mode=False)
     else:
-        lines = [f"{s.scope}\t{s.name}" for s in ordered]
+        lines = [f"{s.scope}\t{s.name}\t[accessible]" for s in ordered]
         emit_result("\n".join(lines), json_mode=False)
     return 0
 

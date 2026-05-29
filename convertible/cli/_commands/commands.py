@@ -1,19 +1,23 @@
-"""``convertible commands`` — discover and list command templates.
+"""``convertible commands`` — discover, list, and approve command templates.
 
 ``commands list`` enumerates the command templates discovered under
-``.convertible/commands/`` for the target repo; ``commands overview`` describes
-the noun (satisfying the agent-first rubric: any noun with action-verbs must
-also expose ``overview``).
+``.convertible/commands/`` for the target repo; ``commands approve`` records a
+checksum approval into ``<repo>/.convertible/approvals.json``; ``commands
+overview`` describes the noun (satisfying the agent-first rubric: any noun with
+action-verbs must also expose ``overview``).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from convertible import commands as _cmds
 from convertible.cli._commands.overview import emit_overview
+from convertible.cli._errors import EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
+from convertible.policy import POLICY_FILENAME, file_checksum, load_policy
 
 
 def _commands_sections() -> list[dict[str, object]]:
@@ -24,12 +28,14 @@ def _commands_sections() -> list[dict[str, object]]:
                 "Discovers named command templates under .convertible/commands/*.md",
                 "Templates support $1/$2/$ARGUMENTS substitution and optional metadata",
                 "Use 'convertible drive --command <name>' to expand and run a template",
+                "Approval gate: operator can approve templates by checksum (approvals.json)",
             ],
         },
         {
             "title": "Verbs",
             "items": [
-                "commands list [--repo PATH] — list discovered command templates",
+                "commands list [--repo PATH] — list discovered templates + approval status",
+                "commands approve <name> [--repo PATH] [--algo sha256|md5] — record approval",
                 "commands overview — describe the commands surface (this command)",
             ],
         },
@@ -45,6 +51,45 @@ def cmd_commands_overview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _compute_approval_status(name: str, path: Path, repo: Path) -> str:
+    """Return 'approved', 'drifted', 'unapproved', or 'ungated'.
+
+    - 'ungated'    — no commands section in approvals.json (gate not active).
+    - 'unapproved' — commands section present but no entry for this name.
+    - 'drifted'    — entry exists but checksum mismatches current file.
+    - 'approved'   — entry exists and checksum matches.
+    """
+    policy = load_policy(repo)
+    # Check whether the commands section is present at all
+    if "commands" not in policy._present:  # noqa: SLF001 — accessing internal for status
+        return "ungated"
+
+    approvals_path = repo / ".convertible" / POLICY_FILENAME
+    if not approvals_path.is_file():
+        # No file at all — treat as ungated (nothing present)
+        return "ungated"
+
+    try:
+        raw = json.loads(approvals_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return "ungated"
+
+    commands_section = raw.get("commands")
+    if not isinstance(commands_section, dict):
+        return "ungated"
+
+    entry = commands_section.get(name)
+    if entry is None:
+        return "unapproved"
+
+    # Compare checksum
+    from convertible.policy import verify_checksum
+
+    if verify_checksum(path, entry):
+        return "approved"
+    return "drifted"
+
+
 def cmd_commands_list(args: argparse.Namespace) -> int:
     repo = Path(getattr(args, "repo", ".")).expanduser()
     json_mode = bool(getattr(args, "json", False))
@@ -55,7 +100,14 @@ def cmd_commands_list(args: argparse.Namespace) -> int:
         entries = []
         for name, path in sorted(discovered.items()):
             cmd = _cmds.load_command(path)
-            entries.append({"name": cmd.name, "description": cmd.description})
+            status = _compute_approval_status(name, path, repo)
+            entries.append(
+                {
+                    "name": cmd.name,
+                    "description": cmd.description,
+                    "status": status,
+                }
+            )
         emit_result({"commands": entries}, json_mode=True)
     elif not discovered:
         emit_result("(no command templates found)", json_mode=False)
@@ -63,11 +115,74 @@ def cmd_commands_list(args: argparse.Namespace) -> int:
         lines = []
         for name, path in sorted(discovered.items()):
             cmd = _cmds.load_command(path)
+            status = _compute_approval_status(name, path, repo)
             if cmd.description:
-                lines.append(f"{name}\t{cmd.description}")
+                lines.append(f"{name}\t{cmd.description}\t[{status}]")
             else:
-                lines.append(name)
+                lines.append(f"{name}\t[{status}]")
         emit_result("\n".join(lines), json_mode=False)
+    return 0
+
+
+def _write_approval(repo: Path, category: str, name: str, checksum: str) -> None:
+    """Merge a single approval entry into <repo>/.convertible/approvals.json."""
+    dotdir = repo / ".convertible"
+    dotdir.mkdir(parents=True, exist_ok=True)
+    approvals_path = dotdir / POLICY_FILENAME
+
+    if approvals_path.is_file():
+        try:
+            existing = json.loads(approvals_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    else:
+        existing = {}
+
+    # Merge: create or update the category section only
+    section = existing.get(category)
+    if not isinstance(section, dict):
+        section = {}
+    section[name] = checksum
+    existing[category] = section
+
+    approvals_path.write_text(
+        json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def cmd_commands_approve(args: argparse.Namespace) -> int:
+    name: str = args.name
+    repo = Path(getattr(args, "repo", ".")).expanduser()
+    algo: str = getattr(args, "algo", "sha256") or "sha256"
+    json_mode = bool(getattr(args, "json", False))
+
+    # Resolve the command template file
+    discovered = _cmds.discover_commands(repo)
+    if name not in discovered:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"command template {name!r} not found in {repo / '.convertible' / 'commands'}",
+            remediation="run 'convertible commands list --repo PATH' to see available commands",
+        )
+
+    path = discovered[name]
+    try:
+        checksum = file_checksum(path, algo)
+    except (OSError, ValueError) as exc:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"could not checksum {path}: {exc}",
+            remediation="ensure the file exists and is readable",
+        ) from exc
+
+    _write_approval(repo, "commands", name, checksum)
+
+    result = {"name": name, "category": "commands", "checksum": checksum, "path": str(path)}
+    text = f"approved commands/{name}  {checksum}"
+    emit_result(result if json_mode else text, json_mode=json_mode)
     return 0
 
 
@@ -88,6 +203,18 @@ def register(sub: argparse._SubParsersAction) -> None:
     lst.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     lst.add_argument("--json", action="store_true", help=JSON_HELP)
     lst.set_defaults(func=cmd_commands_list)
+
+    apr = noun_sub.add_parser("approve", help="Record a checksum approval for a command template.")
+    apr.add_argument("name", help="Command template name (without .md extension).")
+    apr.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
+    apr.add_argument(
+        "--algo",
+        default="sha256",
+        choices=["sha256", "md5"],
+        help="Checksum algorithm (default: sha256).",
+    )
+    apr.add_argument("--json", action="store_true", help=JSON_HELP)
+    apr.set_defaults(func=cmd_commands_approve)
 
     ov = noun_sub.add_parser("overview", help="Describe the commands surface.")
     ov.add_argument("--json", action="store_true", help=JSON_HELP)
