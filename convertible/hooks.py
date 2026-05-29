@@ -269,11 +269,12 @@ def load_hooks(
 
     # Compose per-model-first: for each event, overlay entries precede base
     # entries, so hooks_for returns the per-model fix ahead of the base hook.
+    # cfg._entries is this module's own private field; direct access is intentional.
     for event in (*overlay_entries, *base_entries):
-        if event in cfg._entries:  # noqa: SLF001  (private field, same module)
+        if event in cfg._entries:  # noqa: SLF001
             continue
         merged = overlay_entries.get(event, []) + base_entries.get(event, [])
-        cfg._entries[event] = merged  # noqa: SLF001  (private field, same module)
+        cfg._entries[event] = merged  # noqa: SLF001
 
     return cfg
 

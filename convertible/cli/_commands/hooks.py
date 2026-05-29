@@ -77,92 +77,75 @@ def cmd_hooks_overview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _count_by_event(entries: list[_hooks.HookEntry]) -> dict[str, int]:
+    """Per-event entry counts."""
+    counts: dict[str, int] = {}
+    for entry in entries:
+        counts[entry.event] = counts.get(entry.event, 0) + 1
+    return counts
+
+
+def _resolve_scoped_entries(
+    repo: Path, model: str | None
+) -> list[tuple[_hooks.HookEntry, str | None]]:
+    """Entries to display, each paired with its scope.
+
+    Without a model the scope is ``None`` (base-only; no scope is surfaced).
+    With a model, base + per-model overlays are composed and each entry is tagged
+    ``per-model`` or ``base``: per-model entries are prepended ahead of base ones
+    per event, so for each event the first ``composed - base`` entries are the
+    per-model overlay and the remainder are base.
+    """
+    if model is None:
+        return [(entry, None) for entry in _hooks.load_hooks(repo).all_entries()]
+
+    base_entries = _hooks.load_hooks(repo).all_entries()
+    composed_entries = _hooks.load_hooks(repo, model=model).all_entries()
+    base_counts = _count_by_event(base_entries)
+    composed_counts = _count_by_event(composed_entries)
+
+    per_event_seen: dict[str, int] = {}
+    scoped: list[tuple[_hooks.HookEntry, str | None]] = []
+    for entry in composed_entries:
+        ev = entry.event
+        idx = per_event_seen.get(ev, 0)
+        model_count = composed_counts.get(ev, 0) - base_counts.get(ev, 0)
+        scoped.append((entry, "per-model" if idx < model_count else "base"))
+        per_event_seen[ev] = idx + 1
+    return scoped
+
+
+def _emit_hook_entries(
+    scoped: list[tuple[_hooks.HookEntry, str | None]], *, json_mode: bool
+) -> None:
+    """Render scoped entries; a ``None`` scope is omitted (base-only mode)."""
+    if json_mode:
+        items: list[dict[str, str]] = []
+        for entry, scope in scoped:
+            item = {"event": entry.event, "matcher": entry.matcher, "command": entry.command}
+            if scope is not None:
+                item["scope"] = scope
+            items.append(item)
+        emit_result({"hooks": items}, json_mode=True)
+        return
+    if not scoped:
+        emit_result("(no hooks configured)", json_mode=False)
+        return
+    lines = []
+    for entry, scope in scoped:
+        matcher_str = entry.matcher if entry.matcher else "(any)"
+        prefix = f"[{scope}]\t" if scope is not None else ""
+        lines.append(f"{prefix}{entry.event}\t{matcher_str}\t{entry.command}")
+    emit_result("\n".join(lines), json_mode=False)
+
+
 def cmd_hooks_list(args: argparse.Namespace) -> int:
     repo = Path(getattr(args, "repo", ".")).expanduser()
     json_mode = bool(getattr(args, "json", False))
     model: str | None = getattr(args, "model", None) or None
 
-    if model is None:
-        # No --model: base-only load; output is byte-identical to the pre-model
-        # baseline — no scope key injected.
-        hook_config = _hooks.load_hooks(repo)
-        all_entries = hook_config.all_entries()
-
-        if json_mode:
-            items = [
-                {"event": e.event, "matcher": e.matcher, "command": e.command} for e in all_entries
-            ]
-            emit_result({"hooks": items}, json_mode=True)
-        elif not all_entries:
-            emit_result("(no hooks configured)", json_mode=False)
-        else:
-            lines = []
-            for entry in all_entries:
-                if entry.matcher:
-                    lines.append(f"{entry.event}\t{entry.matcher}\t{entry.command}")
-                else:
-                    lines.append(f"{entry.event}\t(any)\t{entry.command}")
-            emit_result("\n".join(lines), json_mode=False)
-        return 0
-
-    # --model given: load base and composed configs, derive scope by comparing
-    # lengths per event.  Per-model entries are the ones prepended ahead of base —
-    # for each event, the first (len(composed[event]) - len(base[event])) entries
-    # in the composed list are per-model; the rest are base.
-    base_config = _hooks.load_hooks(repo)
-    composed_config = _hooks.load_hooks(repo, model=model)
-
-    base_entries = base_config.all_entries()
-    composed_entries = composed_config.all_entries()
-
-    # Build a per-event length map for the base so we can determine the cutoff.
-    # _hooks.HookConfig.all_entries() visits events in stable order:
-    #   task_start, pre_tool, post_tool, finish.
-
-    # Collect base counts per event (using all_entries, which we can reconstruct
-    # from the stable ordering).
-    base_counts: dict[str, int] = {}
-    for entry in base_entries:
-        base_counts[entry.event] = base_counts.get(entry.event, 0) + 1
-
-    # Composed counts per event (same idiom as base_counts), precomputed once so
-    # scope assignment stays O(n) instead of rescanning composed_entries per entry.
-    composed_counts: dict[str, int] = {}
-    for entry in composed_entries:
-        composed_counts[entry.event] = composed_counts.get(entry.event, 0) + 1
-
-    # Walk the composed entries and assign scopes.
-    # Within each event, composed entries are: [per-model..., base...].
-    # Track how many per-event entries we've seen to identify the boundary.
-    per_event_seen: dict[str, int] = {}
-    scoped: list[tuple[_hooks.HookEntry, str]] = []
-    for entry in composed_entries:
-        ev = entry.event
-        idx = per_event_seen.get(ev, 0)
-        model_count = composed_counts.get(ev, 0) - base_counts.get(ev, 0)
-        scope = "per-model" if idx < model_count else "base"
-        scoped.append((entry, scope))
-        per_event_seen[ev] = idx + 1
-
-    if json_mode:
-        items = [
-            {
-                "event": e.event,
-                "matcher": e.matcher,
-                "command": e.command,
-                "scope": scope,
-            }
-            for e, scope in scoped
-        ]
-        emit_result({"hooks": items}, json_mode=True)
-    elif not scoped:
-        emit_result("(no hooks configured)", json_mode=False)
-    else:
-        lines = []
-        for entry, scope in scoped:
-            matcher_str = entry.matcher if entry.matcher else "(any)"
-            lines.append(f"[{scope}]\t{entry.event}\t{matcher_str}\t{entry.command}")
-        emit_result("\n".join(lines), json_mode=False)
+    scoped = _resolve_scoped_entries(repo, model)
+    _emit_hook_entries(scoped, json_mode=json_mode)
     return 0
 
 
