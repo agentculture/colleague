@@ -90,6 +90,13 @@ which one ran.
   operator-installed CLIs with the identity injected. Operators opt into
   read-only ephemeral neighbour clones via `.convertible/neighbours.json`
   (defaults to empty; no new runtime dependency).
+- **Destination** — convertible's sibling to GPS. When a task warrants it, an
+  engine can set a curated `devague` loop tool to open and converge a goal-frame
+  before driving the repo, and declare the announcement on arrival. The
+  destination (frame slug + announcement) is recorded in the JSON artifact; the
+  curated allow-list excludes `confirm`/`reject` (user-only) and `export`
+  (operator-only), and convergence is advisory — only human-confirmed claims are
+  authoritative. Setting a destination is optional and engine-judged.
 - **Startup banner** — `convertible drive` and `convertible session` greet an
   interactive terminal with an ASCII banner. It's decorative chrome: written to
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
@@ -121,6 +128,7 @@ Each shipped feature has a focused page under [`docs/features/`](docs/features/)
 | `doctor` (oilcheck) | [doctor.md](docs/features/doctor.md) |
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
+| Destination | [destination.md](docs/features/destination.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.
