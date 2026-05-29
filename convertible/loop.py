@@ -254,8 +254,15 @@ def _progress_target(arguments: Any) -> str:
 
 
 def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: bool) -> None:
-    """Fire the per-step progress sink, if one is wired (#38). No-op otherwise."""
-    if ctx.progress is not None:
+    """Fire the per-step progress sink, if one is wired (#38). No-op otherwise.
+
+    A progress sink is observability, never control: a raising sink must never
+    abort the drive, so its failure is suppressed (the same fail-safe as hooks
+    and neighbour clones).
+    """
+    if ctx.progress is None:
+        return
+    with suppress(Exception):
         ctx.progress(step_index, tool, _progress_target(arguments), ok)
 
 

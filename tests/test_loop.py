@@ -160,6 +160,24 @@ def test_loop_progress_default_is_noop(tmp_path: Path) -> None:
     assert result.summary == "ok"
 
 
+def test_loop_progress_sink_failure_does_not_abort(tmp_path: Path) -> None:
+    """A raising progress sink is observability, not control — the drive still completes (Qodo)."""
+
+    def boom(*_args: object) -> None:
+        raise RuntimeError("progress sink blew up")
+
+    responses = [
+        ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "a.txt", "content": "x"})]),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    task = Task.new(str(tmp_path), "write then finish")
+    result = run(scripted(responses), task, max_steps=10, progress=boom)
+
+    assert result.status == OK  # the sink failure was suppressed, not propagated
+    assert result.summary == "done"
+    assert (tmp_path / "a.txt").read_text() == "x"
+
+
 # ---------------------------------------------------------------------------
 # Hook lifecycle wiring (t5 — R4): task_start / pre_tool / post_tool / finish.
 #

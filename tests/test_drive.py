@@ -167,6 +167,34 @@ def test_drive_preserves_partial_artifact_on_engine_raise(
     err = capsys.readouterr().err
     assert "error:" in err
     assert "flaky" in err
+    assert "partial trace" in err  # the hint reflects that a partial trace was written
+
+
+class _BrokenEngine(Engine):
+    """Engine that fails before producing any partial result (e.g. a setup error)."""
+
+    name = "broken"
+
+    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+        raise RuntimeError("kaboom before the loop")
+
+
+def test_drive_no_partial_hint_omits_partial_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failure with no partial result must not claim a partial trace was written (Qodo)."""
+    monkeypatch.setattr(registry, "load", lambda name: _BrokenEngine())
+
+    rc = main(["drive", "x", "--repo", str(tmp_path), "--engine", "broken", "--no-pr"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "a result artifact was still written" in err
+    assert "partial trace" not in err  # there is no partial trace on this path
+
+    artifacts = list((tmp_path / ".convertible").glob("*.json"))
+    payload = json.loads(artifacts[0].read_text())
+    assert payload["status"] == "error"
+    assert payload["steps"] == []  # fresh failed_result, no accumulated steps
 
 
 def test_drive_emits_step_progress_to_stderr(

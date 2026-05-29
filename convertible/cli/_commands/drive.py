@@ -152,17 +152,20 @@ def execute_drive(
                 if isinstance(partial, TaskResult):
                     result = partial
                     original: BaseException = exc.__cause__ or exc
+                    # A partial run has accumulated steps -> the trace is non-empty.
+                    artifact_note = "a result artifact (with the partial trace) was still written"
                 else:
                     result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
                     original = exc
+                    # No partial result -> the trace is empty; don't claim otherwise.
+                    artifact_note = "a result artifact was still written"
                 result.command = command_name
                 drive_span.set(status=result.status)
                 write(result, artifact_dir(repo))
                 raise CliError(
                     EXIT_ENV_ERROR,
                     f"engine '{engine_name}' failed: {original}",
-                    "check the engine config / vLLM server; a result artifact "
-                    "(with the partial trace) was still written",
+                    f"check the engine config / vLLM server; {artifact_note}",
                 ) from exc
 
             if result.status == OK:
