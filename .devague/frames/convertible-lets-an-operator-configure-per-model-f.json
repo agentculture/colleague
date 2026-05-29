@@ -1,0 +1,178 @@
+{
+  "slug": "convertible-lets-an-operator-configure-per-model-f",
+  "title": "Convertible lets an operator configure per-model fixes that adapt the harness to a model's known biases, so a recurring defect from one model is corrected only when that model is driving and never leaks to other models.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-29T09:40:06Z",
+  "updated": "2026-05-29T10:20:17Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible lets an operator configure per-model fixes that adapt the harness to a model's known biases, so a recurring defect from one model is corrected only when that model is driving and never leaks to other models.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "a fix configured for model X demonstrably does not alter a drive of model Y \u2014 the 'never leaks to other models' guarantee is backed by a passing per-model isolation test, mirroring the layers.py isolation pattern",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators running convertible against a specific model (or small fixed set) whose output has known, recurring biases \u2014 e.g. always linking outside the served docroot (finding F9), or chronically over-long output",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "the targeted bias is operator-declared and recurring/reproducible across drives, not a one-off \u2014 the audience is operators who can name a model's failure mode, not users expecting automatic detection",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "an operator declares a fix per model and the harness applies it only when that model drives \u2014 a prompt-level steer, a deterministic tool-call rewrite/deny, or both \u2014 mitigating that model's known bias automatically across every drive of that model",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "when driving model X the harness builds X's exact fix path and never loads model Y's fix \u2014 exact-path construction, no sibling globbing (the same isolation guarantee layers.py provides)",
+          "status": "confirmed"
+        },
+        {
+          "id": "h2",
+          "text": "a model with no configured fix sees byte-identical behavior to a fix-free run \u2014 strict no-op; the mock engine reference and the e2e shape test still pass",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "per-model adaptation today is prompt-only (AGENTS.convertible.<model>.md, structurally isolated in layers.py); deterministic fixes exist as hooks (pre_tool deny/rewrite, hooks.py) but hooks match only on a tool-name regex and carry no model dimension (.convertible/hooks.json) \u2014 so the two mechanisms do not compose and no fix can be scoped to a single model",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "verifiable in code: load_hooks (hooks.py:181) reads .convertible/hooks.json with a tool-name matcher and no model parameter, and HookEntry carries no model field",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "one harness, many engines: each model fails differently; the harness should adapt to the model rather than force every model to be perfect or pollute shared config with one model's quirks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "adding a per-model fix for model X neither requires editing nor degrades the shared model-blind .convertible/hooks.json that other models rely on \u2014 shared config stays usable by all models",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "non_goal",
+      "text": "convertible does not auto-detect biases \u2014 the operator declares both the bias and the fix; not model fine-tuning; adds no runtime dependency, no socket, no daemon, no live MCP client, no execution sandbox, and no new engine drivers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "the mechanism reuses subprocess-based hooks plus file-based layered config only \u2014 no runtime dependency, no socket, no daemon, no mcp.json read",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "a configured per-model fix changes behavior for that model only (verified by an isolation test like layers'), is a strict no-op for models with no fix (the mock engine reference + the e2e shape test stay unchanged), and the F9 footer-link bias can be expressed and corrected as a worked example",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "there is an isolation test proving a fix configured for model X does not fire for model Y, mirroring the layers per-model isolation test",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "decision",
+      "text": "leading shape: a per-model hooks overlay \u2014 .convertible/<model>/hooks.json resolved by the same sanitize_model + configdir path-construction layers.py already uses, composed with the base model-blind .convertible/hooks.json \u2014 reusing subprocess hooks plus file-based layered config, adding no new subsystem",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "precedence: when both a per-model fix and a base model-blind hook match the same tool call, does the per-model fix override, run-before, or merge with the base hook \u2014 and on a deny/rewrite conflict, which wins?",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "decision",
+      "text": "precedence (resolves q1): a per-model fix is evaluated BEFORE base model-blind hooks; the first deny/rewrite wins, extending hooks.py's existing first-wins semantics so model-specific intent takes priority over shared defaults",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "the fix surface is bounded to two composable, already-conventional levers \u2014 the existing per-model AGENTS prompt layer (layers.py) and a NEW per-model hooks overlay (.convertible/<model>/hooks.json) \u2014 adding no third correction mechanism, no bias auto-detector, and no new transport/runtime/daemon",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "the implementation adds exactly one new config surface (.convertible/<model>/hooks.json) and reuses the existing layers.py + hooks.py + configdir machinery \u2014 verifiable by: no new runtime dependency in pyproject.toml, the zero-deps guard test still passes, and no socket/daemon/mcp.json code path is introduced",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "whether a 'fix' should also include a new per-model post-finish output-validation/correction pass, or stay limited to prompt-steer + per-model hooks overlay for v0 (leading answer: defer the validation pass; v0 = prompt steer + per-model hooks)",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}
