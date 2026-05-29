@@ -77,8 +77,11 @@ arbitrary binary.
 
 The inspection CLI is invoked under the `devex` name (the `agex-cli`
 distribution ships both `agex` and `devex` console scripts for the same tool).
-Convertible standardizes on `devex` here — matching the cicd skill's PR
-lifecycle (`devex pr`) — so the whole repo speaks one name (issue #33).
+Convertible's culture tool standardizes on the `devex` name here, matching the
+cicd skill's PR lifecycle (`devex pr`) (issue #33). Some vendored skill scripts
+still print `agex` in help text — those are upstream-owned (tracked via
+`docs/skill-sources.md`) and migrate on their own re-vendor, independent of this
+chassis allow-list.
 
 ### Neighbour repos (opt-in, defaults to empty)
 
