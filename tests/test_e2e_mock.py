@@ -125,8 +125,9 @@ def test_engine_swap_needs_no_task_change(tmp_path: Path) -> None:
 
 
 def test_every_engine_exposes_the_culture_tools_identically() -> None:
-    """All-engines rule (t3): the curated culture tool lives on the *shared* tool
-    surface, beyond the five base tools, so every engine exposes it identically.
+    """All-engines rule (t3/t2): the curated culture and devague tools live on the
+    *shared* tool surface, beyond the five base tools, so every engine exposes them
+    identically.
 
     The surface is a single shared ``SCHEMAS`` list: the vLLM engine hands it to
     the model verbatim, and the loop's ``ToolExecutor`` dispatches the same tool
@@ -134,10 +135,12 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     on ``SCHEMAS`` is the honest all-engines guard.
     """
     exposed = {s["function"]["name"] for s in SCHEMAS}
-    # Base five remain, the culture tool is added, and nothing else creeps in.
+    _CHASSIS_TOOLS = {"culture", "devague"}
+    # Base five remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the five base tools must remain exposed"
     assert _CULTURE_TOOLS <= exposed, "every engine must expose the culture tool"
-    assert exposed == _BASE_TOOLS | _CULTURE_TOOLS, "the tool surface is base-five + culture"
+    assert _CHASSIS_TOOLS <= exposed, "every engine must expose all chassis tools"
+    assert exposed == _BASE_TOOLS | _CHASSIS_TOOLS, "the tool surface is base-five + chassis"
 
     # The vLLM engine literally hands this shared surface to the model.
     assert vllm_openai.SCHEMAS is SCHEMAS
