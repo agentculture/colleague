@@ -156,3 +156,37 @@ def test_artifact_without_new_fields_loads_with_defaults(tmp_path: Path) -> None
     assert reloaded.hook_firings == []
     assert reloaded.command is None
     assert reloaded.changed_files == ["README.md"]
+
+
+# ---------------------------------------------------------------------------
+# t3: destination / announcement keys in written artifact (omit-when-None)
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_includes_destination_and_announcement_when_set(tmp_path: Path) -> None:
+    """Writing a result with destination + announcement → both keys appear in the JSON file."""
+    result = TaskResult(
+        task_id="dest-art1",
+        status=OK,
+        summary="reached goal",
+        destination="goal-frame-x",
+        announcement="Arrived at goal-frame-x.",
+    )
+    path = write(result, tmp_path / ".convertible")
+    payload = json.loads(path.read_text())
+    assert "destination" in payload
+    assert payload["destination"] == "goal-frame-x"
+    assert "announcement" in payload
+    assert payload["announcement"] == "Arrived at goal-frame-x."
+
+
+def test_artifact_omits_destination_and_announcement_when_none(tmp_path: Path) -> None:
+    """Writing a result with no destination → neither key appears in the JSON file.
+
+    This preserves byte-identical output for the no-destination path (c8/h8).
+    """
+    result = TaskResult(task_id="nodest-art1", status=OK, summary="plain drive")
+    path = write(result, tmp_path / ".convertible")
+    payload = json.loads(path.read_text())
+    assert "destination" not in payload
+    assert "announcement" not in payload
