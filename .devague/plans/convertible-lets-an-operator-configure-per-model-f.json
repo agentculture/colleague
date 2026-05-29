@@ -1,0 +1,216 @@
+{
+  "slug": "convertible-lets-an-operator-configure-per-model-f",
+  "title": "Convertible lets an operator configure per-model fixes that adapt the harness to a model's known biases, so a recurring defect from one model is corrected only when that model is driving and never leaks to other models.",
+  "frame_slug": "convertible-lets-an-operator-configure-per-model-f",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-29T10:37:31Z",
+  "updated": "2026-05-29T10:43:18Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible lets an operator configure per-model fixes that adapt the harness to a model's known biases, so a recurring defect from one model is corrected only when that model is driving and never leaks to other models."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "a fix configured for model X demonstrably does not alter a drive of model Y \u2014 the 'never leaks to other models' guarantee is backed by a passing per-model isolation test, mirroring the layers.py isolation pattern"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators running convertible against a specific model (or small fixed set) whose output has known, recurring biases \u2014 e.g. always linking outside the served docroot (finding F9), or chronically over-long output"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "the targeted bias is operator-declared and recurring/reproducible across drives, not a one-off \u2014 the audience is operators who can name a model's failure mode, not users expecting automatic detection"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "an operator declares a fix per model and the harness applies it only when that model drives \u2014 a prompt-level steer, a deterministic tool-call rewrite/deny, or both \u2014 mitigating that model's known bias automatically across every drive of that model"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "when driving model X the harness builds X's exact fix path and never loads model Y's fix \u2014 exact-path construction, no sibling globbing (the same isolation guarantee layers.py provides)"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "a model with no configured fix sees byte-identical behavior to a fix-free run \u2014 strict no-op; the mock engine reference and the e2e shape test still pass"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "per-model adaptation today is prompt-only (AGENTS.convertible.<model>.md, structurally isolated in layers.py); deterministic fixes exist as hooks (pre_tool deny/rewrite, hooks.py) but hooks match only on a tool-name regex and carry no model dimension (.convertible/hooks.json) \u2014 so the two mechanisms do not compose and no fix can be scoped to a single model"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "verifiable in code: load_hooks (hooks.py:181) reads .convertible/hooks.json with a tool-name matcher and no model parameter, and HookEntry carries no model field"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "one harness, many engines: each model fails differently; the harness should adapt to the model rather than force every model to be perfect or pollute shared config with one model's quirks"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "adding a per-model fix for model X neither requires editing nor degrades the shared model-blind .convertible/hooks.json that other models rely on \u2014 shared config stays usable by all models"
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "a configured per-model fix changes behavior for that model only (verified by an isolation test like layers'), is a strict no-op for models with no fix (the mock engine reference + the e2e shape test stay unchanged), and the F9 footer-link bias can be expressed and corrected as a worked example"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "there is an isolation test proving a fix configured for model X does not fire for model Y, mirroring the layers per-model isolation test"
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "the fix surface is bounded to two composable, already-conventional levers \u2014 the existing per-model AGENTS prompt layer (layers.py) and a NEW per-model hooks overlay (.convertible/<model>/hooks.json) \u2014 adding no third correction mechanism, no bias auto-detector, and no new transport/runtime/daemon"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the implementation adds exactly one new config surface (.convertible/<model>/hooks.json) and reuses the existing layers.py + hooks.py + configdir machinery \u2014 verifiable by: no new runtime dependency in pyproject.toml, the zero-deps guard test still passes, and no socket/daemon/mcp.json code path is introduced"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Per-model hooks resolution + composition in hooks.py: load_hooks gains an optional model param; resolves .convertible/<sanitize_model(model)>/hooks.json via configdir exact-path (repo-over-user, within-root confinement) and composes per-model entries BEFORE base entries per event, so the existing first-deny/rewrite-wins gives per-model precedence",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "load_hooks(repo, model='X') merges .convertible/X/hooks.json entries before base .convertible/hooks.json entries for each event; hooks_for(event,tool) returns per-model matches first",
+        "the per-model path is built by exact construction via layers.sanitize_model \u2014 no glob/iteration of sibling .convertible/*/ dirs; a fix under .convertible/Y/hooks.json is never loaded when model='X'",
+        "load_hooks with model=None, or a model whose overlay file is absent, returns a HookConfig byte-identical to today's base-only load",
+        "a malformed/unreadable per-model hooks.json is skipped (never raises), mirroring base load_hooks resilience; the before-state baseline (no model param pre-change) is captured in a test/docstring"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "c4",
+        "c10",
+        "h3"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Wire the driving model into the loop's hook load (chassis): pass config.model to load_hooks at its call site so a real drive fires the composed per-model+base hook set; hooks stay chassis-owned (all-engines rule)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the drive path loads hooks with the current model so a per-model overlay fires during an actual drive (verified by a loop-level test)",
+        "with no per-model overlay present, hook firing during a drive is unchanged \u2014 the mock engine reference and e2e shape test pass identically"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Per-model isolation test (tests/test_hooks_per_model.py): prove a fix configured for model X does not fire for model Y, mirroring the layers.py per-model isolation test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "configuring .convertible/X/hooks.json with a deny on tool T and loading for model Y asserts the deny does NOT apply (isolation, h6)",
+        "loading the same config for model X asserts the deny DOES apply, and per-model entries are ordered before base entries (precedence)",
+        "a base .convertible/hooks.json entry still fires for model X alongside the per-model overlay \u2014 the base is not edited or degraded (h8)",
+        "the test mirrors the layers per-model isolation test structure and lives in its own file (h5)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "h1",
+        "h5",
+        "h6",
+        "h8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Strict no-op + zero-deps guard for the per-model path: extend tests/test_zero_deps.py to import the per-model hooks path and assert no third-party leak; assert the e2e mock shape test is unchanged when no overlay is present; assert no socket/daemon/mcp.json path is introduced",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_zero_deps.py imports convertible.hooks incl. the per-model resolution and asserts zero third-party imports even with [otel] installed (h9)",
+        "tests/test_e2e_mock.py passes with no per-model overlay \u2014 TaskResult shape byte-identical to today (h2)",
+        "no new code path opens a socket, forks a daemon, or reads mcp.json; pyproject dependencies stay []"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "h2",
+        "h9"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "CLI surface: convertible hooks list --model <m> shows the composed per-model+base set with per-model entries first and tagged by source scope; update hooks overview/explain to document the overlay + precedence",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "convertible hooks list --model X --json lists per-model entries (from .convertible/X/hooks.json) before base entries, each tagged with its scope; results to stdout, diagnostics to stderr",
+        "convertible hooks list with no --model is byte-identical to today (base-only) and --json stays parseable",
+        "convertible explain hooks documents the per-model overlay path and the per-model-first precedence"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Worked example + docs: a per-model hooks overlay that corrects the F9 footer bias (deny/rewrite a write_file whose footer links outside the served docroot), plus document the overlay (.convertible/<model>/hooks.json), composition order, and operator-declared framing in CLAUDE.md + README + the layered-config feature doc",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a worked example shows a per-model hook detecting+correcting the F9 external-ref footer (../README.md) so the output no longer escapes the docroot, affecting only the targeted model (c7)",
+        "CLAUDE.md + README describe the per-model hooks overlay path, the per-model-first precedence, and that it adds no new dep/socket/daemon (c5; audience framing c2)",
+        "docs state the bias is operator-declared and recurring \u2014 convertible does not auto-detect it (h7)",
+        "a feature doc docs/features/per-model-configuration.md frames the feature with convertible's car metaphor \u2014 the harness can 'adjust seat and mirrors' to fit the specific model (the driver) \u2014 and is linked from the docs/features feature index"
+      ],
+      "deps": [
+        "t1",
+        "t5"
+      ],
+      "covers": [
+        "c2",
+        "c5",
+        "c7",
+        "h7"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Deferred (parked in the spec): a per-model post-finish output-validation/correction pass as a third lever beyond prompt-steer + per-model hooks \u2014 out of scope for this plan",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "t2 wiring point: confirm where load_hooks is currently invoked and that config.model is in scope there (loop.py vs drive.py); the edit site moves accordingly",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    }
+  ]
+}
