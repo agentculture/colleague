@@ -86,7 +86,7 @@ which one ran.
 - **Mesh-member integration** — a drive resolves a process-level identity (the
   repo's `culture.yaml` nick or `.convertible/identity.json`) and propagates it
   to subcommands via `CONVERTIBLE_IDENTITY`. The loop exposes one curated
-  `culture` tool (allow-list: `agtag`, `agex`) that shells out to the
+  `culture` tool (allow-list: `agtag`, `devex`) that shells out to the
   operator-installed CLIs with the identity injected. Operators opt into
   read-only ephemeral neighbour clones via `.convertible/neighbours.json`
   (defaults to empty; no new runtime dependency).

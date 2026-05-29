@@ -10,7 +10,7 @@
 
 - No first-class identity concept — the drive had no nick and produced no
   attributed mesh artifacts.
-- No native culture surface — reaching `agtag` (mesh issues) or `agex` (inspect
+- No native culture surface — reaching `agtag` (mesh issues) or `devex` (inspect
   a repo's agent-first surface) meant crafting an ad-hoc `run_command` string;
   nothing was declared, nothing was structural.
 - No neighbour awareness — a drive could only read files in the target repo; it
@@ -26,7 +26,7 @@ loop had no declared tool for them and no injected identity.
   or a `.convertible/identity.json` `as` field) and propagates it to every
   culture-CLI subprocess via `CONVERTIBLE_IDENTITY` — no per-call flag.
 - The model is offered a single curated **`culture` loop tool** that shells out
-  to the allow-listed AgentCulture CLIs (`agtag`, `agex`) with the identity
+  to the allow-listed AgentCulture CLIs (`agtag`, `devex`) with the identity
   already injected and `cwd` pinned at the repo root. Reaching the mesh is a
   *declared capability*, not an improvised shell string.
 - Operators can list repos in `.convertible/neighbours.json`; the
@@ -68,12 +68,17 @@ Install whichever CLIs you want available:
 
 ```bash
 uv tool install agtag          # mesh issue tracker (agtag issue post/fetch/reply)
-uv tool install agex-cli       # agent-first surface inspector (agex explain/overview)
+uv tool install agex-cli       # agent-first surface inspector (devex explain/overview)
 ```
 
-Only `agtag` and `agex` are in the curated allow-list. Asking the `culture` tool
+Only `agtag` and `devex` are in the curated allow-list. Asking the `culture` tool
 to run any other CLI name returns a clean error rather than launching an
 arbitrary binary.
+
+The inspection CLI is invoked under the `devex` name (the `agex-cli`
+distribution ships both `agex` and `devex` console scripts for the same tool).
+Convertible standardizes on `devex` here — matching the cicd skill's PR
+lifecycle (`devex pr`) — so the whole repo speaks one name (issue #33).
 
 ### Neighbour repos (opt-in, defaults to empty)
 
@@ -112,7 +117,7 @@ variable so the identity flows down without a per-call flag.
 The loop's tool surface now includes a single `culture` tool alongside the five
 base tools. It:
 
-- Validates the requested CLI name against `ALLOWED_CLIS = {"agtag", "agex"}` —
+- Validates the requested CLI name against `ALLOWED_CLIS = {"agtag", "devex"}` —
   any other name is rejected before a subprocess is spawned.
 - Runs the CLI as `subprocess.run` (no socket, no daemon, no import) with
   `cwd` pinned at the repo root and `CONVERTIBLE_IDENTITY` injected.
@@ -163,7 +168,7 @@ repo-confined read zone.
   neighbours at drive start and removes the whole tree on the `finish` lifecycle
   event — which fires on every loop exit (model finish, empty turn, or step-budget
   exhaustion) — so clones are ephemeral and leave no residue between drives.
-- **The allow-list is fixed by the builder.** The curated set (`agtag`, `agex`)
+- **The allow-list is fixed by the builder.** The curated set (`agtag`, `devex`)
   is hardcoded in `ALLOWED_CLIS`. Adding further culture tools is a builder
   decision, not an operator config option.
 

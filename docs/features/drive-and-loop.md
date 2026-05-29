@@ -59,7 +59,7 @@ OpenAI function schemas — the original five base tools plus one curated
 | `write_file` | Create/overwrite a UTF-8 file, relative to the repo root. |
 | `list_dir` | List a directory's entries, relative to the repo root. |
 | `run_command` | Run a shell command with `cwd` pinned to the repo root. |
-| `culture` | Run an allow-listed AgentCulture CLI (`agtag` / `agex`) with the agent's identity injected. See [mesh-member.md](mesh-member.md). |
+| `culture` | Run an allow-listed AgentCulture CLI (`agtag` / `devex`) with the agent's identity injected. See [mesh-member.md](mesh-member.md). |
 | `finish` | Signal completion with a short summary. |
 
 ### Confinement
