@@ -39,7 +39,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from convertible.configdir import collect_files
 from convertible.contract import Task
@@ -108,6 +108,60 @@ def discover_commands(
     return collect_files(repo_path, "commands", suffix=".md", user_home=user_home)
 
 
+def _engine_or_none(value: str) -> Optional[str]:
+    """Empty ``engine:`` → ``None`` (callers fall back to their own default)."""
+    return value if value else None
+
+
+def _split_constraints(value: str) -> list[str]:
+    """Comma-separated ``constraints:`` → a stripped, empties-dropped list."""
+    return [c.strip() for c in value.split(",") if c.strip()]
+
+
+# Maps a metadata key to (Command field name, value parser). Keys absent from
+# this table are silently ignored. Replaces an if/elif key chain so each key's
+# transform stays a one-liner and the dispatch is a single lookup.
+_META_PARSERS: dict[str, tuple[str, Callable[[str], object]]] = {
+    "description": ("description", str),
+    "engine": ("engine", _engine_or_none),
+    "constraints": ("constraints", _split_constraints),
+    "arg-hint": ("arg_hint", str),
+}
+
+
+def _parse_metadata(lines: list[str]) -> tuple[dict[str, object], Optional[int]]:
+    """Parse a leading ``---`` / ``---`` metadata block.
+
+    Returns the parsed :class:`Command` field overrides and the index of the
+    closing ``---`` line, or ``({}, None)`` when there is no complete metadata
+    block (no opening fence, or an opening fence with no closing one) — in which
+    case the caller treats the whole file as the body.
+    """
+    # A metadata block must open with "---" as the first line.
+    if not (lines and lines[0].rstrip("\r\n") == "---"):
+        return {}, None
+
+    closing_idx: Optional[int] = None
+    for i, line in enumerate(lines[1:], start=1):
+        if line.rstrip("\r\n") == "---":
+            closing_idx = i
+            break
+    if closing_idx is None:
+        return {}, None
+
+    fields: dict[str, object] = {}
+    for meta_line in lines[1:closing_idx]:
+        stripped = meta_line.rstrip("\r\n")
+        if ":" not in stripped:
+            continue
+        key, _, value = stripped.partition(":")
+        parser = _META_PARSERS.get(key.strip())
+        if parser is not None:
+            field_name, transform = parser
+            fields[field_name] = transform(value.strip())
+    return fields, closing_idx
+
+
 def load_command(path: str | Path) -> Command:
     """Parse a command-template file into a :class:`Command`.
 
@@ -126,54 +180,15 @@ def load_command(path: str | Path) -> Command:
         Populated command object.
     """
     path = Path(path)
-    name = path.stem
     raw = path.read_text()
-
-    description = ""
-    engine: Optional[str] = None
-    constraints: list[str] = []
-    arg_hint = ""
-    body = raw
-
     lines = raw.splitlines(keepends=True)
-    # Check for a leading metadata block: first non-empty content must be "---"
-    if lines and lines[0].rstrip("\r\n") == "---":
-        # Find the closing ---
-        closing_idx: Optional[int] = None
-        for i, line in enumerate(lines[1:], start=1):
-            if line.rstrip("\r\n") == "---":
-                closing_idx = i
-                break
 
-        if closing_idx is not None:
-            # Parse the key: value lines inside the block
-            for meta_line in lines[1:closing_idx]:
-                stripped = meta_line.rstrip("\r\n")
-                if ":" in stripped:
-                    key, _, value = stripped.partition(":")
-                    key = key.strip()
-                    value = value.strip()
-                    if key == "description":
-                        description = value
-                    elif key == "engine":
-                        engine = value if value else None
-                    elif key == "constraints":
-                        constraints = [c.strip() for c in value.split(",") if c.strip()]
-                    elif key == "arg-hint":
-                        arg_hint = value
-                    # Unknown keys are silently ignored.
+    fields, closing_idx = _parse_metadata(lines)
+    # Body is everything after the closing ---; with no metadata block the whole
+    # file is the body.
+    body = "".join(lines[closing_idx + 1 :]) if closing_idx is not None else raw
 
-            # Body is everything after the closing ---
-            body = "".join(lines[closing_idx + 1 :])
-
-    return Command(
-        name=name,
-        description=description,
-        engine=engine,
-        constraints=constraints,
-        arg_hint=arg_hint,
-        body=body,
-    )
+    return Command(name=path.stem, body=body, **fields)
 
 
 def _substitute(body: str, args: list[str]) -> str:

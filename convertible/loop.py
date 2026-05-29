@@ -48,7 +48,7 @@ from convertible.contract import (
 from convertible.hooks import HookConfig, HookDecision, load_hooks, run_hook
 from convertible.neighbours import NeighbourManager
 from convertible.telemetry import Telemetry, load_telemetry
-from convertible.tools import ToolError, ToolExecutor
+from convertible.tools import ToolError, ToolExecutor, ToolOutcome
 
 _DEFAULT_SYSTEM = (
     "You are a coding agent working inside a repository. Use the provided tools "
@@ -185,6 +185,134 @@ def _fire_hooks(
     return decisive
 
 
+@dataclass(frozen=True)
+class _Drive:
+    """The fixed collaborators threaded through one drive's tool-loop helpers.
+
+    Grouped so the per-call helpers take one ``ctx`` instead of a long parameter
+    list. ``result`` and ``messages`` are mutated *through* these references
+    during the loop — ``frozen`` fixes the bindings, not the objects they hold.
+    """
+
+    executor: ToolExecutor
+    hooks: HookConfig
+    telemetry: Telemetry
+    task: Task
+    result: TaskResult
+    messages: list[dict[str, Any]]
+
+
+def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
+    """Record a finish on ``result`` — summary, then optional destination/announcement.
+
+    Same order and truthiness guards as the inline finish path it replaced: the
+    destination/announcement are set only when the engine declared them, so a
+    finish without a goal-frame leaves those keys off the artifact (the e2e shape
+    test pins this).
+    """
+    result.summary = outcome.finish_summary or result.summary
+    if outcome.destination:
+        result.destination = outcome.destination
+    if outcome.announcement:
+        result.announcement = outcome.announcement
+
+
+def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
+    """Run one tool call inside its own telemetry span; return whether it finished.
+
+    Owns the per-call lifecycle: the ``pre_tool`` hook (first deny/rewrite wins),
+    execution, the ``post_tool`` hook, and finish detection. Kept as a single
+    ``with tool_span`` block so exactly one step/tool-call metric is recorded per
+    call — including the deny and error paths, which still close the span on the
+    way out (they ``return False``, replacing the loop's old ``continue``).
+    """
+    step_index = len(ctx.result.steps)
+
+    # One span per tool-call iteration, auto-nesting under the drive span. A
+    # ``return False`` still runs the span's exit (so its metrics — one step +
+    # one tool call — are recorded for deny/error paths too).
+    with ctx.telemetry.tool_span(tool=call.name, step_index=step_index) as span:
+        # pre_tool — the only control-bearing event. The first deny/rewrite
+        # wins; allow/observe pass through. arguments may be swapped here.
+        arguments = call.arguments
+        decision = _fire_hooks(
+            ctx.hooks,
+            ctx.result,
+            event="pre_tool",
+            task=ctx.task,
+            tool=call.name,
+            arguments=arguments,
+        )
+        kind = decision.decision if decision is not None else None
+        if kind == DECISION_DENY:
+            # Skip execution entirely; feed the reason back so the model can
+            # adapt. Recorded as a non-ok Step (the firing is already recorded
+            # by _fire_hooks).
+            reason = (decision and decision.reason) or "denied by a pre_tool hook"
+            span.set(ok=False, denied=True, reason=reason)
+            ctx.telemetry.on_hook_denial()
+            ctx.result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
+            ctx.messages.append(_tool_message(call.id, reason))
+            return False
+        if kind == DECISION_REWRITE and decision is not None and decision.arguments is not None:
+            # Execute with the hook-supplied arguments instead.
+            arguments = decision.arguments
+
+        try:
+            outcome = ctx.executor.execute(call.name, arguments)
+        except ToolError as exc:
+            span.set(ok=False, error=str(exc))
+            ctx.result.steps.append(
+                Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
+            )
+            ctx.messages.append(_tool_message(call.id, f"error: {exc}"))
+            # post_tool still fires after a tool *attempt*; observe-only.
+            _fire_hooks(
+                ctx.hooks,
+                ctx.result,
+                event="post_tool",
+                task=ctx.task,
+                tool=call.name,
+                arguments=arguments,
+            )
+            return False
+
+        span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
+        ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
+        ctx.messages.append(_tool_message(call.id, outcome.result))
+
+        # post_tool — after the tool executed. Observe-only: the decision does
+        # not alter the already-executed result this increment.
+        _fire_hooks(
+            ctx.hooks,
+            ctx.result,
+            event="post_tool",
+            task=ctx.task,
+            tool=call.name,
+            arguments=arguments,
+        )
+
+        if not outcome.finished:
+            return False
+        span.set(finished=True)
+        _apply_finish(ctx.result, outcome)
+        return True
+
+
+def _run_tool_calls(ctx: _Drive, calls: list[ToolCall]) -> bool:
+    """Run every tool call in one model turn; return whether any finished.
+
+    A finish does *not* stop the turn — the remaining calls in the same response
+    still run (matching the original loop, where ``finished`` was set but the
+    inner ``for`` kept iterating; only the outer step loop broke afterwards).
+    """
+    finished = False
+    for call in calls:
+        if _run_tool_call(ctx, call):
+            finished = True
+    return finished
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -258,6 +386,17 @@ def run(
     # task_start — once, before the loop. Observe-only: side-effects only.
     _fire_hooks(hooks, result, event="task_start", task=task)
 
+    # The fixed collaborators for this drive — passed as one ``ctx`` to the
+    # per-turn / per-call helpers so the loop body stays shallow.
+    ctx = _Drive(
+        executor=executor,
+        hooks=hooks,
+        telemetry=telemetry,
+        task=task,
+        result=result,
+        messages=messages,
+    )
+
     for _ in range(max(1, max_steps)):
         resp = complete(messages)
         result.usage.add(resp.prompt_tokens, resp.completion_tokens)
@@ -271,87 +410,10 @@ def run(
             break
 
         messages.append(_assistant_message(resp))
-        for call in resp.tool_calls:
-            step_index = len(result.steps)
-
-            # One span per tool-call iteration, auto-nesting under the drive
-            # span. ``continue`` still runs the span's exit (so its metrics —
-            # one step + one tool call — are recorded for deny/error paths too).
-            with telemetry.tool_span(tool=call.name, step_index=step_index) as span:
-                # pre_tool — the only control-bearing event. The first
-                # deny/rewrite wins; allow/observe pass through. arguments may
-                # be swapped here.
-                arguments = call.arguments
-                verdict = _fire_hooks(
-                    hooks,
-                    result,
-                    event="pre_tool",
-                    task=task,
-                    tool=call.name,
-                    arguments=arguments,
-                )
-                if verdict is not None and verdict.decision == DECISION_DENY:
-                    # Skip execution entirely; feed the reason back so the model
-                    # can adapt. Recorded as a non-ok Step (the firing is
-                    # already recorded by _fire_hooks).
-                    reason = verdict.reason or "denied by a pre_tool hook"
-                    span.set(ok=False, denied=True, reason=reason)
-                    telemetry.on_hook_denial()
-                    result.steps.append(Step(step_index, call.name, arguments, reason, ok=False))
-                    messages.append(_tool_message(call.id, reason))
-                    continue
-                if (
-                    verdict is not None
-                    and verdict.decision == DECISION_REWRITE
-                    and verdict.arguments is not None
-                ):
-                    # Execute with the hook-supplied arguments instead.
-                    arguments = verdict.arguments
-
-                try:
-                    outcome = executor.execute(call.name, arguments)
-                except ToolError as exc:
-                    span.set(ok=False, error=str(exc))
-                    result.steps.append(
-                        Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
-                    )
-                    messages.append(_tool_message(call.id, f"error: {exc}"))
-                    # post_tool still fires after a tool *attempt*; observe-only.
-                    _fire_hooks(
-                        hooks,
-                        result,
-                        event="post_tool",
-                        task=task,
-                        tool=call.name,
-                        arguments=arguments,
-                    )
-                    continue
-
-                span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
-                result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
-                messages.append(_tool_message(call.id, outcome.result))
-
-                # post_tool — after the tool executed. Observe-only: the
-                # decision does not alter the already-executed result this
-                # increment.
-                _fire_hooks(
-                    hooks,
-                    result,
-                    event="post_tool",
-                    task=task,
-                    tool=call.name,
-                    arguments=arguments,
-                )
-
-                if outcome.finished:
-                    span.set(finished=True)
-                    result.summary = outcome.finish_summary or result.summary
-                    if outcome.destination:
-                        result.destination = outcome.destination
-                    if outcome.announcement:
-                        result.announcement = outcome.announcement
-                    finished = True
-        if finished:
+        # Run the turn's tool calls; a finish on any of them ends the drive once
+        # the turn completes (the remaining calls in the turn still run).
+        if _run_tool_calls(ctx, resp.tool_calls):
+            finished = True
             break
 
     # finish — once, on every loop exit (model finish / empty turn / budget).

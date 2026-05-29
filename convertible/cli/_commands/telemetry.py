@@ -76,20 +76,19 @@ def cmd_telemetry_status(args: argparse.Namespace) -> int:
         payload = cfg.to_dict()
         payload["sdk_installed"] = installed
         emit_result(payload, json_mode=True)
-        return 0
-
-    lines = [
-        f"enabled:        {cfg.enabled}",
-        f"sdk_installed:  {installed}",
-        f"service_name:   {cfg.service_name}",
-        f"otlp_endpoint:  {cfg.otlp_endpoint}",
-        f"otlp_protocol:  {cfg.otlp_protocol}",
-        f"traces_enabled: {cfg.traces_enabled}",
-        f"metrics_enabled:{cfg.metrics_enabled}",
-    ]
-    if cfg.enabled and not installed:
-        lines.append("note:           enabled but the [otel] extra is not installed (no-op)")
-    emit_result("\n".join(lines), json_mode=False)
+    else:
+        lines = [
+            f"enabled:        {cfg.enabled}",
+            f"sdk_installed:  {installed}",
+            f"service_name:   {cfg.service_name}",
+            f"otlp_endpoint:  {cfg.otlp_endpoint}",
+            f"otlp_protocol:  {cfg.otlp_protocol}",
+            f"traces_enabled: {cfg.traces_enabled}",
+            f"metrics_enabled:{cfg.metrics_enabled}",
+        ]
+        if cfg.enabled and not installed:
+            lines.append("note:           enabled but the [otel] extra is not installed (no-op)")
+        emit_result("\n".join(lines), json_mode=False)
     return 0
 
 
