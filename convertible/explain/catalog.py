@@ -480,6 +480,61 @@ default. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
 """
 
 
+_SUBAGENT = """\
+# convertible subagent (convoy)
+
+Mid-drive, an engine can delegate a scoped sub-task to a nested in-process child
+drive via the `subagent` loop tool. The child runs the same bounded tool-loop
+with **no** git handoff; its result is returned to the parent as the tool result
+and appended to `TaskResult.sub_results` (omitted when empty).
+
+## Key properties
+
+- **In-process, synchronous** — plain function call, no thread, process, socket,
+  or fork; zero new runtime dependencies.
+- **Engine/model switch** — the optional `engine` and `model` parameters let the
+  child run on a different wheel or model. Resolution goes through
+  `registry.load` + `EngineConfig` inheritance (config-level switch only, no
+  engine code change).
+- **Bounded** — `MAX_SUBAGENT_DEPTH=2` (recursion cap, checked before any child
+  work starts) and `MAX_SUBAGENT_FANOUT=4` (per-drive fan-out cap). A child
+  refused at the depth cap does zero work and returns an error immediately.
+- **Engine-judged, optional** — the model decides whether to delegate per call,
+  like the `devague` destination tool. There is no operator-configured automatic
+  task→engine routing.
+- **Sequential only in v0** — parallel/concurrent subagents and per-subagent
+  worktree isolation are a parked follow-up that would require a re-spec.
+- **No per-subagent handoff** — only the top-level drive branches, commits, and
+  opens a PR. Sub-drives run purely in-process.
+- **Chassis-owned (all-engines rule)** — the tool schema lives in
+  `convertible/tools.py`; the launcher lives in `convertible/subagents.py`. No
+  engine module touches either; the tool is offered to every engine identically.
+
+## NOT the gearbox
+
+This is **not** the out-of-scope multi-engine router: there is no
+operator-configured policy that automatically routes a task to a particular
+engine. Delegation is always the model's choice at call time.
+
+## Tool parameters
+
+- `instruction` (required) — the sub-task to hand to the child drive.
+- `engine` (optional) — engine wheel name; defaults to the parent's engine.
+- `model` (optional) — model override; defaults to the parent's model.
+
+## Implementation
+
+- `convertible/subagents.py` — `run_subagent` / `make_spawn` launcher.
+- `convertible/tools.py` — tool schema + `ToolExecutor._subagent` dispatch.
+- `convertible/config.py` — `MAX_SUBAGENT_DEPTH`, `MAX_SUBAGENT_FANOUT`.
+- `convertible/contract.py` — `SubResult`, `TaskResult.sub_results`.
+
+## See also
+
+- `convertible explain drive`
+- `convertible explain wheels`
+"""
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
@@ -513,4 +568,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("telemetry",): _TELEMETRY,
     ("telemetry", "status"): _TELEMETRY,
     ("telemetry", "overview"): _TELEMETRY,
+    ("subagent",): _SUBAGENT,
+    ("subagents",): _SUBAGENT,
+    ("convoy",): _SUBAGENT,
 }

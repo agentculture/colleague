@@ -139,7 +139,7 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     on ``SCHEMAS`` is the honest all-engines guard.
     """
     exposed = {s["function"]["name"] for s in SCHEMAS}
-    _CHASSIS_TOOLS = {"culture", "devague"}
+    _CHASSIS_TOOLS = {"culture", "devague", "subagent"}
     # Base five remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the five base tools must remain exposed"
     assert _CULTURE_TOOLS <= exposed, "every engine must expose the culture tool"
@@ -194,6 +194,47 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         "hook_firings",
         "command",
     }
+
+
+def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) -> None:
+    """A normal mock drive that delegates NO subagent serializes byte-identically
+    to the pre-feature shape: ``to_dict()`` must NOT contain a ``"sub_results"`` key.
+
+    This mirrors the destination/announcement omit-when-None treatment:
+    ``sub_results`` is emitted ONLY when the list is non-empty, so a drive that
+    never called the subagent tool is indistinguishable from today's artifact shape.
+    The mock engine is the contract reference (the all-engines rule).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg = EngineConfig.resolve()
+
+    result = registry.load("mock").drive(Task.new(str(repo), "do work"), cfg)
+
+    assert result.status == OK
+    # The drive really ran and the sub_results list is empty.
+    assert result.changed_files
+    assert result.sub_results == []
+    # The serialized shape OMITS the key entirely (not present-as-empty-list).
+    serialized = result.to_dict()
+    assert "sub_results" not in serialized
+
+    # Byte-identical guard: the pinned key set must NOT include sub_results.
+    expected_keys = {
+        "task_id",
+        "status",
+        "summary",
+        "changed_files",
+        "steps",
+        "usage",
+        "artifacts_path",
+        "error",
+        "branch",
+        "pr_url",
+        "hook_firings",
+        "command",
+    }
+    assert set(serialized.keys()) == expected_keys
 
 
 def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -1,9 +1,9 @@
 """The tool surface the agentic loop offers an engine, plus a repo-confined executor.
 
-Seven tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
-``culture``, ``devague``, and ``finish`` — are exposed to the model as OpenAI
-function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor` runs a requested
-call against a fixed repo root.
+Eight tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
+``culture``, ``devague``, ``subagent``, and ``finish`` — are exposed to the model
+as OpenAI function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor` runs a
+requested call against a fixed repo root.
 
 Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``list_dir``
 resolve their path against the root and refuse anything that escapes it (``..``
@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from convertible import culture, devague
+from convertible.config import MAX_SUBAGENT_FANOUT
+from convertible.contract import SubResult
 
 FINISH = "finish"
 
@@ -175,6 +177,39 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "subagent",
+            "description": (
+                "Delegate a scoped sub-task to a nested in-process child drive, "
+                "optionally on a different engine or model. The child drive runs "
+                "the full bounded tool-loop (no git handoff) and returns a result "
+                "summary; any files the child writes are merged into the parent's "
+                "changed-file set so they reach the single top-level handoff. "
+                "Use this to break a large task into independently executable "
+                "pieces or to run part of the work on a specialised model."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instruction": {
+                        "type": "string",
+                        "description": "A scoped sub-task for a nested child drive.",
+                    },
+                    "engine": {
+                        "type": "string",
+                        "description": "Engine wheel for the subagent (omit to inherit parent).",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model override for the subagent (omit to inherit parent).",
+                    },
+                },
+                "required": ["instruction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -215,9 +250,11 @@ def _truncate(text: str) -> str:
 class ToolExecutor:
     """Executes tool calls against a single repo root, confining file access to it."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, spawn=None) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
+        self._spawn = spawn
+        self.sub_results: list[SubResult] = []
 
     def _safe_path(self, rel: str) -> Path:
         """Resolve ``rel`` under the root, refusing any path that escapes it."""
@@ -239,6 +276,8 @@ class ToolExecutor:
             return self._culture(arguments)
         if name == "devague":
             return self._devague(arguments)
+        if name == "subagent":
+            return self._subagent(arguments)
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -363,3 +402,47 @@ class ToolExecutor:
         except devague.DevagueToolError as exc:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
+
+    def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Delegate a scoped sub-task to a nested child drive via the injected spawn.
+
+        The actual launching lives in the injected ``spawn`` callable (set by the
+        loop in t6); here we only validate inputs, enforce the per-drive fan-out
+        cap, call the spawn, and translate any non-ToolError exception into a clean
+        :class:`ToolError` so a launcher/engine error is fed back to the model and
+        never crashes the parent drive.
+
+        The child's changed files are merged into ``self.changed`` so they reach
+        the single top-level handoff. ``self.sub_results`` accumulates all children
+        for the parent ``TaskResult``.
+        """
+        if self._spawn is None:
+            raise ToolError("subagent delegation is not available in this drive")
+
+        instruction = arguments.get("instruction")
+        if not instruction or not isinstance(instruction, str):
+            raise ToolError("subagent tool requires an 'instruction'")
+
+        engine = arguments.get("engine") or None
+        model = arguments.get("model") or None
+
+        if len(self.sub_results) >= MAX_SUBAGENT_FANOUT:
+            raise ToolError(
+                f"subagent fan-out limit ({MAX_SUBAGENT_FANOUT}) reached for this drive"
+            )
+
+        try:
+            sub = self._spawn(instruction, engine, model)
+        except ToolError:
+            raise
+        except Exception as exc:  # launcher/engine errors -> clean string for the model
+            raise ToolError(f"subagent failed: {exc}") from exc
+
+        self.sub_results.append(sub)
+        self.changed.update(sub.changed_files)
+
+        result = (
+            f"subagent[{sub.engine}/{sub.model}] {sub.status}: {sub.summary}\n"
+            f"changed files: " + (", ".join(sub.changed_files) or "(none)")
+        )
+        return ToolOutcome(result=_truncate(result))

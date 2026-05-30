@@ -1,0 +1,360 @@
+{
+  "slug": "convertible-drives-can-delegate-sub-tasks-to-subag",
+  "title": "Convertible drives can delegate sub-tasks to subagents \u2014 each a nested drive on any engine or model \u2014 and fold the results back into the main loop; the engine decides per sub-task whether to do the work itself or hand it off.",
+  "frame_slug": "convertible-drives-can-delegate-sub-tasks-to-subag",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-29T22:18:27Z",
+  "updated": "2026-05-29T22:23:21Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible drives can delegate sub-tasks to subagents \u2014 each a nested drive on any engine or model \u2014 and fold the results back into the main loop; the engine decides per sub-task whether to do the work itself or hand it off."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "End-to-end truth: a single drive can, mid-loop, delegate a scoped sub-task to a nested drive on a different engine/model and fold its result back \u2014 demonstrated by a mock->mock delegation test whose parent step-trace shows the subagent call and whose summary reflects the child's work."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators driving multi-step repo tasks who want a cheaper, faster, or specialist model to handle scoped sub-tasks while a capable 'driver' model orchestrates \u2014 plus engine authors, who inherit the capability for free via the chassis (all-engines rule)."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The benefit needs no operator wiring to enable: the subagent tool is present for every engine by default (like read_file/finish), so the cheaper/specialist sub-task use case works out of the box and engine authors add zero code (the tool is chassis-owned)."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today a drive is single-engine, single-model end to end. The only model switch is --engine at the top level; mid-drive there is no way for the model to hand a scoped sub-task to a different (cheaper/specialist) engine. loop.run drives one 'complete' closure start to finish."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Verifiable baseline: in today's code (loop.run + the seven existing tools) there is no tool by which the model can invoke a second engine/model mid-loop; --engine is resolved once in cmd_drive and never re-entered during the loop."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Mid-drive, an engine can call a 'subagent' (delegate) tool: it names a scoped sub-task and optionally an engine and/or model. The chassis runs a nested in-process drive on that engine/model through the SAME loop path, then folds the child's result summary back into the parent's tool-loop as the tool result."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The folded-back tool result is the child's summary plus a compact changed-files signal, returned as a plain string fed to the parent loop like any other tool result, so the parent model can read it and continue or finish."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "It applies Convertible's 'one harness, many engines' promise WITHIN a single drive: a strong orchestrator can delegate narrow or expensive sub-tasks to the right-sized engine, instead of paying top-tier cost for every step or being locked to one model for the whole job."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The win is observable as model-appropriate cost: the artifact records which engine/model ran each child drive, so a strong-orchestrator + cheap-sub-task split is visible in the dashboard, not hand-waved."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "NOT the out-of-scope multi-engine router/'gearbox': there is no operator-configured automatic task->engine routing policy. Delegation is engine-judged \u2014 a loop tool the model chooses per call, exactly like the optional devague destination tool. A drive that never calls it behaves identically to today."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "No file or config maps task->engine automatically; the ONLY routing is the orchestrator model's per-call tool choice, and a drive that never calls the subagent tool is byte-identical to today. (This is the recorded resolution of gearbox risk q1.)"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "NOT a daemon/server and NOT concurrent in v0: subagents are SEQUENTIAL, in-process nested drives via the existing loop path \u2014 no fork, no socket, no thread pool, no new runtime dependency. Parallel/concurrent subagents (and per-subagent worktree isolation) are a parked follow-up needing their own re-spec."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The subagent dispatch runs the child drive synchronously and returns before the parent loop continues: no thread/process pool, no asyncio loop, no socket \u2014 the subagent path is a direct in-process call into the existing drive machinery."
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Subagents do NOT each hand off: only the top-level drive branches/commits/opens a PR. A subagent shares the parent working tree; its changed files merge into the parent result's changed set for the single top-level handoff."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The child drive runs the loop WITHOUT calling handoff(): no branch/commit/PR per subagent; only the top-level execute_drive hands off once, and the child's changed files merge into the parent result so that single handoff stages them."
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "A drive that calls no subagent tool serializes a byte-identical artifact to today (the e2e shape test stays green); the parent TaskResult gains a sub-results field that is OMITTED when empty, mirroring destination/announcement. A delegated drive records the nested sub-result(s) and the merged changed_files in the artifact."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "tests/test_e2e_mock.py asserts the no-subagent artifact is unchanged; the new sub-results key is OMITTED (not null) when empty, exactly like destination/announcement in TaskResult.to_dict()."
+    },
+    {
+      "id": "c10",
+      "kind": "success_signal",
+      "text": "The subagent tool is offered identically to mock and vllm-openai (all-engines rule), and a mock->mock (and mock->different-model) delegation round-trips in a test: the child runs the same loop and its summary returns as the parent tool result."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "A test drives mock with a scripted subagent call to mock and asserts the parent step-trace contains the subagent step, the nested sub-result is recorded, and the identical tool schema is present for vllm-openai."
+    },
+    {
+      "id": "c11",
+      "kind": "success_signal",
+      "text": "Subagent depth and fan-out are bounded with sane defaults, and the whole subagent tree is guaranteed to terminate (no infinite recursion) \u2014 analogous to the loop's max_steps termination guarantee."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "A test proves a subagent recursing past the depth cap is refused \u2014 the tool returns an error string fed back to the model, never an unbounded stack \u2014 so the subagent tree provably terminates, analogous to max_steps."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A subagent is an in-process nested drive: the loop offers a 'subagent' tool that builds a child Task (same repo_path), resolves a child engine+model, runs the SAME loop.run/drive path WITHOUT a git handoff, and returns the child result summary as the tool result fed back to the parent loop."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The subagent dispatch opens no socket, forks no process, and starts no daemon: it reuses loop.run in-process and adds no runtime dependency (zero-deps guard stays green). It performs no branch/commit/PR \u2014 only the top-level execute_drive hands off."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The subagent tool accepts an OPTIONAL engine and/or model override; both resolve through the existing registry.load + EngineConfig.resolve path. Omitted -> inherit the parent's engine+model. Switching engine/model is a config-level choice, never an engine code change (consistent with 'retargeting is config, not code')."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A mock->mock and a mock->(different model string/base_url) delegation both succeed via registry.load + EngineConfig.resolve alone, with zero changes to either engine's code; an omitted engine/model inherits the parent's."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Because a subagent runs through the same loop path, it inherits the full chassis \u2014 hooks (incl. per-model overlay), telemetry (nested spans), approval policy (incl. per-model overlay), identity, neighbours, and AGENTS/skills layers \u2014 all resolved for the SUBAGENT's model via the existing exact-path (layers.sanitize_model) resolution, never a sibling model's."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A subagent launched on model X loads X's per-model hooks/approvals/AGENTS/skills layers (not the parent's, not a sibling's) via the existing layers.sanitize_model exact-path construction; telemetry OFF is a strict no-op and child spans nest under the parent tool span when ON."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "The subagent tool belongs to the chassis (convertible/tools.py schema + loop wiring), not to any engine: no engine module imports or special-cases it. The all-engines rule applies \u2014 mock and vllm-openai expose the identical tool, guarded by the e2e shape test."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "No module under convertible/engines/ imports or references the subagent tool; the schema lives in convertible/tools.py and the wiring in the loop/drive path; the e2e shape test proves mock and vllm-openai expose the identical tool surface."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Subagent recursion depth and per-drive fan-out are bounded with sane defaults; the parent TaskResult gains a sub-results field OMITTED when empty (byte-identical no-subagent artifact); child changed_files merge into the parent's changed set for the single top-level handoff."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The e2e shape test stays green for a no-subagent drive (sub-results key omitted when empty, exactly like destination/announcement); a documented depth+fan-out cap guarantees the subagent tree terminates; a delegated drive's artifact shows the nested sub-result and the parent's changed_files include the child's writes."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Contract: add SubResult dataclass + TaskResult.sub_results (omitted-when-empty), per-child engine/model/usage attribution",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A no-subagent TaskResult.to_dict() is byte-identical to today: the sub_results key is ABSENT (not null) when empty, exactly like destination/announcement",
+        "A populated sub_results round-trips to_dict -> from_dict to an equal object",
+        "SubResult records task_id, engine, model, status, summary, changed_files, and its own usage (nested-only cost attribution; parent.usage is NOT silently summed)"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "h10",
+        "c9",
+        "h14",
+        "c16"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Config: add EngineConfig.subagent_spawn runtime-only field + depth/fan-out bound constants (default depth=2, fan-out=4)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "subagent_spawn defaults None and is excluded from eq/repr and to_dict (mirrors the progress field exactly)",
+        "EngineConfig.to_dict() output is unchanged from today",
+        "Bound constants MAX_SUBAGENT_DEPTH=2 and MAX_SUBAGENT_FANOUT=4 are defined and importable"
+      ],
+      "deps": [],
+      "covers": []
+    },
+    {
+      "id": "t3",
+      "summary": "Launcher convertible/subagents.py run_subagent(): resolve child engine+model, run child via engine.drive WITHOUT handoff, enforce depth cap, return SubResult",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A mock->mock run_subagent returns a SubResult whose summary reflects the child's work",
+        "Omitted engine/model inherits the parent's; a provided engine and/or model is resolved via registry.load + EngineConfig.resolve with ZERO change to any engine's code",
+        "Recursion past the depth cap (default 2) is refused with a clear message and never recurses unbounded; the subagent tree provably terminates",
+        "run_subagent runs the child via engine.drive (loop.run), performs NO git handoff (no branch/commit/PR), and runs synchronously with no thread/process pool and no socket"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c12",
+        "c13",
+        "h3",
+        "c14",
+        "c11",
+        "h16",
+        "c7",
+        "h12",
+        "c8",
+        "h13"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Tools: add 'subagent' schema to SCHEMAS + ToolExecutor injected spawn callback + _subagent dispatch (fan-out cap, changed_files merge, absent-callback ToolError)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "SCHEMAS includes a 'subagent' function with required 'instruction' and optional 'engine'/'model' params",
+        "No module under convertible/engines/ is imported or referenced by convertible/tools.py (the cycle is avoided via callback injection)",
+        "_subagent with no spawn callback returns a ToolError string fed back to the model, never raising out of the executor",
+        "_subagent returns the child summary + a compact changed-files signal and merges the child's changed_files into the parent executor.changed; per-drive fan-out beyond the cap (default 4) is refused"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "h9",
+        "c15",
+        "h5",
+        "c3",
+        "h8"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Zero-deps guard: extend tests/test_zero_deps.py to import convertible.subagents and assert no third-party leak",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Importing convertible.subagents leaks no third-party module",
+        "The guard imports loop/tools/subagents/cli and passes even with the [otel] extra installed"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "h2"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Wire spawn through loop.run -> ToolExecutor; execute_drive builds the callback from run_subagent; both engines forward config.subagent_spawn; record sub_results + merge changed_files; advertise the tool in _DEFAULT_SYSTEM",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A mock drive that scripts a subagent call records one entry on the parent artifact's sub_results and the child's changed_files appear in the parent result.changed_files for the single top-level handoff",
+        "_DEFAULT_SYSTEM advertises the subagent tool as OPTIONAL and engine-judged (same framing as the devague tool); a drive that never calls it is byte-identical to today",
+        "Both convertible/engines/mock.py and vllm_openai.py forward config.subagent_spawn to loop.run (all-engines rule); no engine special-cases the tool",
+        "A subagent launched on model X resolves X's per-model hooks/approvals/AGENTS/skills layers via the existing exact-path resolution"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c2",
+        "h7",
+        "c6",
+        "h11"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "E2E tests: byte-identical no-subagent artifact (test_e2e_mock.py) + mock->mock round-trip, all-engines schema parity, telemetry nesting (test_subagent_e2e.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_e2e_mock asserts the no-subagent artifact is unchanged (sub_results key absent)",
+        "A mock->mock e2e drive: the parent step-trace contains the subagent call and result.sub_results has one entry whose summary reflects the child's work",
+        "The 'subagent' tool schema is present and IDENTICAL for mock and vllm-openai",
+        "Telemetry OFF is a strict no-op (no spans, artifact unchanged); ON, the child drive spans nest under the parent tool-call span"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c10",
+        "h15",
+        "h6",
+        "h4"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Docs: CLAUDE.md car-metaphor Subagents/convoy bullet + scope/honest-limits, and an explain catalog entry for the subagent tool",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md documents Subagents (convoy): in-process nested drives, sequential-only, NOT the gearbox, no daemon/socket/fork, parallel subagents parked as a follow-up",
+        "An explain catalog entry documents the subagent tool including its honest limits (sequential-only, depth/fan-out caps, no per-subagent handoff)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": []
+    },
+    {
+      "id": "t9",
+      "summary": "Version bump (minor) + CHANGELOG entry for the subagent feature (version-check CI gate)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Version is bumped (minor) in pyproject.toml and convertible/__init__.py, kept in sync",
+        "CHANGELOG.md has a Keep-a-Changelog entry describing subagent delegation"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": []
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Scope creep: must stay engine-judged delegation (a loop tool the model chooses), never an operator policy that auto-routes task->engine. A config-driven router would be the out-of-scope 'gearbox'.",
+      "kind": "out_of_scope",
+      "task_id": "t6"
+    },
+    {
+      "id": "r2",
+      "text": "Parallel/concurrent subagents + per-subagent git-worktree isolation are deliberately deferred \u2014 needs concurrency machinery and its own re-spec.",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

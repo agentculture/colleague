@@ -34,6 +34,10 @@ _DEFAULT_TIMEOUT = 120.0
 # reachable only by an explicit ``--engine mock`` / ``CONVERTIBLE_ENGINE=mock``.
 _DEFAULT_ENGINE = "vllm-openai"
 
+# Subagent delegation bounds.
+MAX_SUBAGENT_DEPTH = 2
+MAX_SUBAGENT_FANOUT = 4
+
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
     if explicit is not None:
@@ -84,6 +88,11 @@ class EngineConfig:
     progress: Optional[Callable[[int, str, str, bool], None]] = field(
         default=None, compare=False, repr=False
     )
+
+    # Runtime-only spawn callback for subagent delegation; set by the drive
+    # path, not by ``resolve()``; excluded from eq/repr/to_dict (it is behavior,
+    # not serializable config).
+    subagent_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
 
     @classmethod
     def resolve(

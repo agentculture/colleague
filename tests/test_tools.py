@@ -10,8 +10,8 @@ from convertible.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecut
 
 
 def test_schemas_cover_base_five_plus_culture_and_devague() -> None:
-    # The five base tools, plus the curated shared culture tool (t3) and the
-    # curated shared devague tool (t2).
+    # The five base tools, plus the curated shared culture tool (t3), the
+    # curated shared devague tool (t2), and the subagent delegation tool (t4).
     assert set(TOOL_NAMES) == {
         "read_file",
         "write_file",
@@ -20,6 +20,7 @@ def test_schemas_cover_base_five_plus_culture_and_devague() -> None:
         "finish",
         "culture",
         "devague",
+        "subagent",
     }
     for schema in SCHEMAS:
         assert schema["type"] == "function"

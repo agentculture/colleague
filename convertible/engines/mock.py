@@ -58,4 +58,5 @@ class MockEngine(Engine):
             system_prompt=self.system_prompt(task, config),
             model=config.model,
             progress=config.progress,
+            spawn=config.subagent_spawn,
         )

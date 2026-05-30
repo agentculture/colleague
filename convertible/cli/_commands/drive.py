@@ -33,6 +33,7 @@ from convertible.commands import CommandError, expand_command
 from convertible.config import EngineConfig, resolve_engine
 from convertible.contract import OK, Task, TaskResult
 from convertible.handoff import HandoffError, handoff, untracked_snapshot
+from convertible.subagents import make_spawn
 from convertible.telemetry import load_telemetry
 
 
@@ -141,6 +142,12 @@ def execute_drive(
             # `session`, and every engine (which forwards `config.progress`),
             # report identically.
             config.progress = _step_progress
+            # Subagent delegation (t6) — the top-level spawn callback is built here
+            # so both `drive` and `session`, and every engine (which forwards
+            # `config.subagent_spawn`), can delegate identically. depth defaults to
+            # 1; the launcher binds each child to depth+1, so recursion is bounded
+            # by MAX_SUBAGENT_DEPTH.
+            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine)
             try:
                 result = engine.drive(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
