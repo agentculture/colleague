@@ -11,6 +11,11 @@ Three skills (`think`, `spec-to-plan`, `assign-to-workforce`) originate in
 only **re-broadcasts** them. Cite guildmaster's copy; track devague as the true
 origin.
 
+One skill is **first-party**: `outsource` is **authored here** (origin =
+convertible), not vendored. It is the inverse of the rest — when it stabilizes,
+guildmaster could pull it *from* convertible and re-broadcast it, the same way
+`think`/`spec-to-plan` flow *from* devague.
+
 Every vendored `SKILL.md` carries `type: command`. convertible
 declares a culture agent (`culture.yaml`, `backend: claude`), and
 `core.skill_loader` silently skips any `SKILL.md` lacking `type:` — so the field
@@ -29,6 +34,7 @@ is load-bearing, even where guildmaster's upstream copy omits it.
 | `think` | `../guildmaster/.claude/skills/think/` | **devague** (re-broadcast via guildmaster) | idea→spec leg of the devague workflow chain. Verbatim (already carried `type: command` at guildmaster). Origin/broadcast prose left verbatim. | 2026-05-26 (guildmaster 0.6.0) |
 | `spec-to-plan` | `../guildmaster/.claude/skills/spec-to-plan/` | **devague** (re-broadcast via guildmaster) | spec→plan leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
 | `assign-to-workforce` | `../guildmaster/.claude/skills/assign-to-workforce/` | **devague** (re-broadcast via guildmaster) | plan→parallel-implementation leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
+| `outsource` | — (first-party) | **convertible** | Authored here, not vendored: a portable wrapper (`scripts/outsource.sh`) that drives the `convertible` CLI for `explore`/`review`/`write` — hand a scoped task to a different engine/mind. Carries `type: command`. | n/a (origin) |
 
 ## Re-sync procedure
 

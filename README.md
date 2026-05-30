@@ -146,6 +146,7 @@ Each shipped feature has a focused page under [`docs/features/`](docs/features/)
 | Destination | [destination.md](docs/features/destination.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
+| Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.

@@ -535,6 +535,45 @@ engine. Delegation is always the model's choice at call time.
 - `convertible explain wheels`
 """
 
+_OUTSOURCE = """\
+# convertible outsource (a different mind)
+
+`outsource` is a **first-party** Claude Code skill (`.claude/skills/outsource/`),
+not a CLI verb — the inverse of the vendored skills (origin = convertible). It
+lets another agent hand a scoped task to convertible: a *different* engine/mind,
+not a stronger one. Diversity is the point — a second, independent perspective
+catches what the author's mind glides past, which is why **review** is the
+headline verb.
+
+## Verbs
+
+- `outsource explore "<question or area>"` — read-only investigation; the model
+  reads and reports findings.
+- `outsource review "<focus>" [--base main]` — a diverse second opinion on the
+  committed diff (`<base>...HEAD`).
+- `outsource write "<task>" [--pr]` — delegate a small implementation; lands a
+  `convertible/<id>` drive branch (or a PR with `--pr`).
+
+## Safety
+
+- explore/review run in a throwaway `git worktree` at HEAD — they cannot touch
+  your working tree or branch (read-only is enforced by isolation + a prompt
+  constraint, not a sandbox).
+- `write` refuses a dirty tree unless `--allow-dirty` (guards the dirty-tree
+  hazard).
+
+## Run
+
+    bash .claude/skills/outsource/scripts/outsource.sh <verb> "<text>" [options]
+
+Defaults to a local vLLM model; override with `--engine` / `--model` /
+`--base-url` or `CONVERTIBLE_*` env. See `docs/features/outsource.md`.
+
+## See also
+
+- `convertible explain drive`
+"""
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
@@ -571,4 +610,5 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("subagent",): _SUBAGENT,
     ("subagents",): _SUBAGENT,
     ("convoy",): _SUBAGENT,
+    ("outsource",): _OUTSOURCE,
 }

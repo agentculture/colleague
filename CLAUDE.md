@@ -311,6 +311,19 @@ The live vLLM proof is opt-in (the reference rig must expose tool calling:
 CONVERTIBLE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
+## The `outsource` skill (first-party)
+
+convertible ships one **first-party** Claude Code skill,
+[`outsource`](.claude/skills/outsource/) — the *inverse* of the vendored skills
+(origin = convertible; see [`docs/skill-sources.md`](docs/skill-sources.md)). It
+lets another agent hand a scoped task to convertible — a *different* engine/mind,
+not a stronger one; diversity is the point. Three verbs over `convertible drive`:
+`outsource explore` (read-only investigation), `outsource review` (a diverse
+second opinion on the committed `<base>...HEAD` diff — the headline verb), and
+`outsource write` (delegate a small change). explore/review run in a throwaway
+`git worktree` (no side effects); `write` guards against a dirty tree. Details +
+worked examples: [`docs/features/outsource.md`](docs/features/outsource.md).
+
 ## Git workflow
 
 Branch out, implement, **bump the version every PR** (the `version-check` CI job
