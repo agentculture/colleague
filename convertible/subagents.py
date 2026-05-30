@@ -29,7 +29,7 @@ promises.
 from __future__ import annotations
 
 import dataclasses
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 from convertible import registry
 from convertible.config import MAX_SUBAGENT_DEPTH, EngineConfig
@@ -126,9 +126,12 @@ def run_subagent(
 
     # (c) Inherit the parent's config, overriding ONLY the model when provided.
     # dataclasses.replace keeps base_url/api_key/max_steps/temperature/timeout
-    # intact and leaves the parent object untouched.
-    child_config: EngineConfig = dataclasses.replace(
-        parent_config, model=(model or parent_config.model)
+    # (and any future field) intact and leaves the parent object untouched. The
+    # cast is purely for the static analyser: Sonar models replace()'s return as a
+    # generic DataclassInstance, not EngineConfig, which would trip S5655/S5890.
+    child_config = cast(
+        EngineConfig,
+        dataclasses.replace(parent_config, model=(model or parent_config.model)),
     )
 
     # (d) Give the child its OWN spawn callback bound to depth + 1 so it can
