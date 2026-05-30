@@ -196,15 +196,11 @@ SCHEMAS: list[dict[str, Any]] = [
                     },
                     "engine": {
                         "type": "string",
-                        "description": (
-                            "Engine wheel to run the subagent " "(default: inherit the parent's)."
-                        ),
+                        "description": "Engine wheel for the subagent (omit to inherit parent).",
                     },
                     "model": {
                         "type": "string",
-                        "description": (
-                            "Model override for the subagent " "(default: inherit the parent's)."
-                        ),
+                        "description": "Model override for the subagent (omit to inherit parent).",
                     },
                 },
                 "required": ["instruction"],

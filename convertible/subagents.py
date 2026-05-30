@@ -118,7 +118,7 @@ def run_subagent(
 
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
-    child_engine = engine or parent_engine
+    child_engine: str = engine or parent_engine
     try:
         eng = registry.load(child_engine)
     except registry.UnknownEngine as exc:
