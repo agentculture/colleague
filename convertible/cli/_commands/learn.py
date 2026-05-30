@@ -44,6 +44,13 @@ Exit-code policy
   2 environment / setup error
   3+ reserved
 
+Outsourcing to a different mind
+-------------------------------
+The first-party `outsource` skill (.claude/skills/outsource/) hands a scoped task
+to convertible itself — a different engine/mind, not a stronger one; diversity
+helps. Verbs: outsource explore | review | write (review = a second opinion on a
+diff). See: convertible explain outsource.
+
 More detail
 -----------
   convertible explain convertible

@@ -28,9 +28,7 @@ def _render(name: str, arg: str, base: str) -> str:
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", str(SCRIPT), *args], capture_output=True, text=True, check=False
-    )
+    return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, check=False)
 
 
 def test_skill_layout_exists() -> None:
@@ -100,7 +98,7 @@ def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
     fake = bindir / "convertible"
     fake.write_text(
         "#!/usr/bin/env bash\n"
-        "echo '{\"status\": \"ok\", \"summary\": \"FAKE_SUMMARY_OK\", "
+        'echo \'{"status": "ok", "summary": "FAKE_SUMMARY_OK", '
         '"changed_files": ["x.py"], "branch": "convertible/abc123"}\'\n'
     )
     fake.chmod(0o755)
@@ -109,17 +107,90 @@ def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
     subprocess.run(
-        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
-         "commit", "--allow-empty", "-q", "-m", "init"],
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "init",
+        ],
         check=True,
     )
 
     env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
     r = subprocess.run(
         ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo)],
-        capture_output=True, text=True, env=env, check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
     )
     assert r.returncode == 0, r.stderr
     assert "FAKE_SUMMARY_OK" in r.stdout
     assert "x.py" in r.stdout
     assert "convertible/abc123" in r.stdout
+
+
+def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
+    """explore/review (run_readonly) must run in a throwaway worktree and remove
+    it afterwards. Stub `convertible`, run `outsource explore`, and assert the
+    summary comes back AND the worktree count is unchanged (no leak). Covers the
+    run_readonly path a 27B dogfood-review flagged as untested."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "convertible"
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo \'{"status": "ok", "summary": "READONLY_OK", "changed_files": []}\'\n'
+    )
+    fake.chmod(0o755)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "init",
+        ],
+        check=True,
+    )
+
+    def _wt_count() -> int:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "list"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return len([ln for ln in out.splitlines() if ln.strip()])
+
+    before = _wt_count()
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "investigate something", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "READONLY_OK" in r.stdout
+    assert _wt_count() == before, "worktree leaked — run_readonly did not clean up"

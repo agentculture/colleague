@@ -33,6 +33,7 @@ boundary — what is deliberately *not* built — is restated under
 | Mesh-member integration | [mesh-member.md](mesh-member.md) | Chassis (identity + culture tool + neighbours) | `culture` loop tool |
 | Destination | [destination.md](destination.md) | Destination (goal-frame + arrival) | `devague` loop tool |
 | Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Chassis (per-model hooks overlay) | `hooks list --model` |
+| Outsource (a different mind) | [outsource.md](outsource.md) | A first-party skill that hands the wheel to a different mind | `outsource` skill (drives `drive`) |
 
 ## How the features fit together
 
