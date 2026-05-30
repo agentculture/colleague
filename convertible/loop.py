@@ -66,6 +66,15 @@ _DEFAULT_SYSTEM = (
     "convergence belongs to the operator, not to you. When the work reaches the "
     "goal, declare arrival by passing destination (the frame slug) and announcement "
     "(the goal-frame's arrival announcement) to the finish tool."
+    "\n\n"
+    "Subagents (optional). When a sub-task is well-scoped and would be better handled "
+    "on its own — for example a mechanical chunk a cheaper model can do, or a piece you "
+    "want to isolate — you MAY call the subagent tool to delegate it to a nested child "
+    "drive on a chosen engine/model. The child runs the same bounded tool-loop (no git "
+    "handoff), and its result summary is returned to you while any files it writes are "
+    "merged into your changed set. This is advisory and entirely your own judgement: a "
+    "simple task needs none, so never delegate just to delegate. Delegation is sequential "
+    "and bounded (a capped depth and per-drive fan-out), so it always terminates."
 )
 
 
@@ -465,6 +474,7 @@ def run(
     model: str | None = None,
     progress: ProgressFn | None = None,
     policy: Policy | None = None,
+    spawn: Callable | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -495,13 +505,23 @@ def run(
     Like hooks/telemetry it is chassis-owned — every engine forwards
     ``config.progress`` so the behavior is identical across engines.
 
+    ``spawn`` is an optional subagent launch callback
+    ``spawn(instruction, engine=None, model=None) -> SubResult`` (built by
+    :func:`convertible.subagents.make_spawn`); when given it is injected into the
+    :class:`~convertible.tools.ToolExecutor` so the ``subagent`` tool can delegate
+    a scoped sub-task to a nested child drive. ``None`` (the default) leaves the
+    tool unavailable (it reports so to the model). Like progress it is chassis-owned
+    — every engine forwards ``config.subagent_spawn``. Any nested results the
+    executor accumulates are snapshotted onto ``result.sub_results`` on every exit
+    path (alongside ``changed_files``).
+
     If ``complete`` raises mid-loop (e.g. a per-request timeout), the partial
     work is *preserved*: the accumulated ``steps`` / ``usage`` / ``changed_files``
     are finalized onto the result with ``status=error`` and re-raised as
     :class:`DriveAborted` carrying that result, so the drive path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
-    executor = executor or ToolExecutor(task.repo_path)
+    executor = executor or ToolExecutor(task.repo_path, spawn=spawn)
     hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
     # Telemetry defaults like hooks do: resolved from the environment, a no-op
     # unless explicitly enabled. Tool spans auto-nest under the drive span the
@@ -580,6 +600,11 @@ def run(
         neighbours.cleanup()
 
     result.changed_files = sorted(executor.changed)
+    # Snapshot any nested child drives the executor accumulated — captured here,
+    # the single place that runs on EVERY exit path (model finish / empty turn /
+    # budget / the aborted path below), so a delegation survives even a mid-loop
+    # engine raise. Empty when nothing was delegated → omitted from the artifact.
+    result.sub_results = list(executor.sub_results)
 
     if aborted is not None:
         # Carry the populated partial result out via DriveAborted; the drive path
