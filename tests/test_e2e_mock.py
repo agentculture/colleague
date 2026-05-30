@@ -139,7 +139,7 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     on ``SCHEMAS`` is the honest all-engines guard.
     """
     exposed = {s["function"]["name"] for s in SCHEMAS}
-    _CHASSIS_TOOLS = {"culture", "devague"}
+    _CHASSIS_TOOLS = {"culture", "devague", "subagent"}
     # Base five remain, the chassis tools are added, and nothing else creeps in.
     assert _BASE_TOOLS <= exposed, "the five base tools must remain exposed"
     assert _CULTURE_TOOLS <= exposed, "every engine must expose the culture tool"
