@@ -36,6 +36,7 @@ from pathlib import Path
 
 import pytest
 
+import convertible.telemetry as tel
 from convertible.config import EngineConfig
 from convertible.contract import OK, Task, TaskResult
 from convertible.engines import mock as mock_mod
@@ -43,6 +44,23 @@ from convertible.engines import vllm_openai
 from convertible.loop import ModelResponse, ToolCall, run
 from convertible.subagents import make_spawn
 from convertible.tools import SCHEMAS, TOOL_NAMES
+
+# The [otel] extra is optional. ``convertible.telemetry`` (``tel``) is import-safe
+# without it (lazy SDK import), but the ``_otel`` submodule and the in-memory span
+# exporter both import the SDK eagerly — so guard BOTH here and skip ONLY the
+# span-nesting test below when the extra is absent (never the whole module).
+try:
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    from convertible.telemetry import _otel
+
+    _HAS_OTEL = True
+except ImportError:  # the optional [otel] extra is not installed
+    InMemorySpanExporter = None  # type: ignore[assignment,misc]
+    _otel = None  # type: ignore[assignment]
+    _HAS_OTEL = False
 
 # ---------------------------------------------------------------------------
 # Helper: build a deterministic complete() that replays turns then repeats last.
@@ -374,18 +392,12 @@ def test_subagent_drive_with_telemetry_off_is_noop(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC4b: telemetry ON — child spans nest under parent tool-call span
-# (requires the [otel] extra; skipped cleanly if absent)
+# AC4b: telemetry ON — child spans nest under parent tool-call span.
+# Requires the [otel] extra. The guard is per-test (skipif on the single test
+# below), NOT a module-scope importorskip: the latter silently skipped this
+# whole file — including the non-telemetry subagent E2E tests above — in any
+# environment without the extra (qodo finding on PR #58).
 # ---------------------------------------------------------------------------
-
-pytest.importorskip("opentelemetry", reason="install the [otel] extra to test SDK span nesting")
-
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E402
-    InMemorySpanExporter,
-)
-
-import convertible.telemetry as tel  # noqa: E402
-from convertible.telemetry import _otel  # noqa: E402
 
 
 @pytest.fixture
@@ -399,6 +411,7 @@ def _otel_capture():
     _otel.reset_for_tests()
 
 
+@pytest.mark.skipif(not _HAS_OTEL, reason="install the [otel] extra to test SDK span nesting")
 def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_capture) -> None:
     """When telemetry is ON and injected into the parent drive, the parent's
     ``convertible.tool.subagent`` span nests correctly under the outer

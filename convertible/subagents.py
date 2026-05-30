@@ -118,7 +118,7 @@ def run_subagent(
 
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
-    child_engine: str = engine or parent_engine
+    child_engine = engine or parent_engine
     try:
         eng = registry.load(child_engine)
     except registry.UnknownEngine as exc:
@@ -127,7 +127,9 @@ def run_subagent(
     # (c) Inherit the parent's config, overriding ONLY the model when provided.
     # dataclasses.replace keeps base_url/api_key/max_steps/temperature/timeout
     # intact and leaves the parent object untouched.
-    child_config = dataclasses.replace(parent_config, model=(model or parent_config.model))
+    child_config: EngineConfig = dataclasses.replace(
+        parent_config, model=(model or parent_config.model)
+    )
 
     # (d) Give the child its OWN spawn callback bound to depth + 1 so it can
     # delegate further, still bounded. (The loop won't consume this until t6
