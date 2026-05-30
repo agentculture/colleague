@@ -118,6 +118,50 @@ class Usage:
 
 
 @dataclass
+class SubResult:
+    """The result of one delegated sub-task driven by a nested child drive.
+
+    A drive may delegate a scoped sub-task to a nested child drive; each child
+    produces a ``SubResult`` recorded on the parent ``TaskResult.sub_results``.
+
+    Cost attribution is **nested-only**: the child carries its OWN ``usage`` and
+    the parent ``TaskResult.usage`` is NOT summed with its children's — a reader
+    sums them explicitly if a roll-up is wanted.
+    """
+
+    task_id: str
+    engine: str
+    model: str
+    status: str
+    summary: str = ""
+    changed_files: list[str] = field(default_factory=list)
+    usage: Usage = field(default_factory=Usage)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "engine": self.engine,
+            "model": self.model,
+            "status": self.status,
+            "summary": self.summary,
+            "changed_files": list(self.changed_files),
+            "usage": self.usage.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SubResult":
+        return cls(
+            task_id=str(data["task_id"]),
+            engine=str(data["engine"]),
+            model=str(data["model"]),
+            status=str(data["status"]),
+            summary=str(data.get("summary", "")),
+            changed_files=list(data.get("changed_files", [])),
+            usage=Usage.from_dict(data.get("usage", {})),
+        )
+
+
+@dataclass
 class Step:
     """One iteration of the agentic tool-loop: a tool call and its result."""
 
@@ -226,6 +270,12 @@ class TaskResult:
     pr_url: Optional[str] = None
     hook_firings: list[HookFiring] = field(default_factory=list)
     """Every hook invocation that fired during this drive (populated by the loop)."""
+    sub_results: list[SubResult] = field(default_factory=list)
+    """Results of any sub-tasks delegated to nested child drives, in order; empty
+    when this drive delegated nothing. Like destination/announcement, the
+    serialized key is OMITTED (not null) when the list is empty, so a
+    no-subagent result is byte-identical to today. Cost is nested-only — the
+    parent ``usage`` is NOT summed with these children's."""
     command: Optional[str] = None
     """The command-template name that originated this task, or ``None`` for
     an ad-hoc instruction (e.g. plain ``convertible drive "<text>"``).
@@ -263,6 +313,12 @@ class TaskResult:
             d["destination"] = self.destination
         if self.announcement is not None:
             d["announcement"] = self.announcement
+        # sub_results is OMITTED (not emitted as an empty list) when no sub-task
+        # was delegated — mirroring the destination/announcement omit-when-None
+        # pattern above so a no-subagent drive serializes byte-identically to
+        # today's contract.
+        if self.sub_results:
+            d["sub_results"] = [s.to_dict() for s in self.sub_results]
         return d
 
     @classmethod
@@ -279,6 +335,7 @@ class TaskResult:
             branch=data.get("branch"),
             pr_url=data.get("pr_url"),
             hook_firings=[HookFiring.from_dict(h) for h in data.get("hook_firings", [])],
+            sub_results=[SubResult.from_dict(s) for s in data.get("sub_results", [])],
             command=data.get("command"),
             destination=data.get("destination"),
             announcement=data.get("announcement"),
