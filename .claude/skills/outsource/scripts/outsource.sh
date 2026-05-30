@@ -86,6 +86,32 @@ case "$VERB" in
         ;;
 esac
 
+# Required external tools — fail fast with a clear message, not an opaque
+# mid-run error, if the environment is missing one.
+require_tools() {
+    local missing=() t
+    for t in python3 git grep mktemp; do
+        command -v "$t" >/dev/null 2>&1 || missing+=("$t")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "error: missing required tool(s): ${missing[*]}" >&2
+        echo "hint: outsource needs python3, git, grep, and mktemp on PATH." >&2
+        exit 2
+    fi
+}
+
+# Guard a value-taking flag: a trailing flag with no value would otherwise
+# dereference an unset $2 and abort under `set -u`.
+need_value() {  # $1 = remaining arg count ($#), $2 = flag name
+    [[ "$1" -ge 2 ]] || {
+        echo "error: $2 requires a value" >&2
+        echo "hint: run 'outsource --help'" >&2
+        exit 2
+    }
+}
+
+require_tools
+
 # ── defaults + flag parsing ─────────────────────────────────────────────────
 REPO="."
 BASE="main"
@@ -100,13 +126,13 @@ ARG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --repo) REPO="$2"; shift 2 ;;
-        --base) BASE="$2"; shift 2 ;;
-        --engine) ENGINE="$2"; shift 2 ;;
-        --model) MODEL="$2"; shift 2 ;;
-        --base-url) BASE_URL="$2"; shift 2 ;;
-        --max-steps) MAX_STEPS="$2"; shift 2 ;;
-        --timeout) TIMEOUT="$2"; shift 2 ;;
+        --repo) need_value "$#" "$1"; REPO="$2"; shift 2 ;;
+        --base) need_value "$#" "$1"; BASE="$2"; shift 2 ;;
+        --engine) need_value "$#" "$1"; ENGINE="$2"; shift 2 ;;
+        --model) need_value "$#" "$1"; MODEL="$2"; shift 2 ;;
+        --base-url) need_value "$#" "$1"; BASE_URL="$2"; shift 2 ;;
+        --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; shift 2 ;;
+        --timeout) need_value "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
         -h | --help) usage; exit 0 ;;
@@ -181,7 +207,10 @@ _cleanup_worktree() {
     [[ -n "$_WT" ]] || return 0
     git -C "$REPO" worktree remove --force "$_WT" >/dev/null 2>&1 || true
     rm -rf "$_WT" >/dev/null 2>&1 || true
-    if [[ -n "$_DRIVE_BRANCH" ]]; then
+    # Only ever delete the ephemeral drive branch convertible names
+    # (convertible/<task_id>) — never an unrelated local branch, even if the
+    # JSON `branch` value were unexpected.
+    if [[ "$_DRIVE_BRANCH" == convertible/* ]]; then
         git -C "$REPO" branch -D "$_DRIVE_BRANCH" >/dev/null 2>&1 || true
     fi
 }

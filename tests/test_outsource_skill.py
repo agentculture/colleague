@@ -88,6 +88,15 @@ def test_missing_description_errors() -> None:
     assert "needs a description" in r.stderr
 
 
+def test_trailing_value_flag_errors_cleanly() -> None:
+    """A value-flag with no following value must exit 2 with a clear message,
+    not crash on an unbound $2 under `set -u` (qodo finding)."""
+    r = _run("explore", "investigate x", "--repo")
+    assert r.returncode == 2
+    assert "requires a value" in r.stderr
+    assert "unbound variable" not in r.stderr
+
+
 def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
     """End-to-end wrapper path (resolve -> render -> drive -> print_result) with a
     stubbed `convertible` that echoes a canned TaskResult. Guards the result
