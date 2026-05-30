@@ -18,6 +18,8 @@ Rules:
   read-only commands.
 - Be terse and prioritized — lead with what actually matters. Don't pad.
 - Call out real problems; if it's genuinely fine, say so and say why.
+- You have a limited step budget. Read the diff efficiently and call finish with
+  your review well before you run out of steps.
 
 When you are done, call finish with a structured review:
 1. Correctness risks / likely bugs (with file:line).

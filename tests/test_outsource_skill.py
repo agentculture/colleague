@@ -88,3 +88,38 @@ def test_missing_description_errors() -> None:
     r = _run("explore")
     assert r.returncode == 2
     assert "needs a description" in r.stderr
+
+
+def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
+    """End-to-end wrapper path (resolve -> render -> drive -> print_result) with a
+    stubbed `convertible` that echoes a canned TaskResult. Guards the result
+    extraction (in particular: print_result must read the piped JSON from stdin,
+    not have it shadowed by a heredoc)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "convertible"
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        "echo '{\"status\": \"ok\", \"summary\": \"FAKE_SUMMARY_OK\", "
+        '"changed_files": ["x.py"], "branch": "convertible/abc123"}\'\n'
+    )
+    fake.chmod(0o755)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+         "commit", "--allow-empty", "-q", "-m", "init"],
+        check=True,
+    )
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo)],
+        capture_output=True, text=True, env=env, check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "FAKE_SUMMARY_OK" in r.stdout
+    assert "x.py" in r.stdout
+    assert "convertible/abc123" in r.stdout

@@ -64,6 +64,7 @@ Options:
   --model NAME       Model (default: $CONVERTIBLE_MODEL or mmangkad/Qwen3.6-27B-NVFP4)
   --base-url URL     OpenAI base URL (default: $CONVERTIBLE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20)
+  --timeout N        Per-request timeout, seconds (default: $CONVERTIBLE_TIMEOUT or 300)
   --allow-dirty      (write) allow running on a dirty tree
   --pr               (write) push + open a PR instead of a local drive branch
 
@@ -92,6 +93,7 @@ ENGINE="${CONVERTIBLE_ENGINE:-vllm-openai}"
 MODEL="${CONVERTIBLE_MODEL:-mmangkad/Qwen3.6-27B-NVFP4}"
 BASE_URL="${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}"
 MAX_STEPS=20
+TIMEOUT="${CONVERTIBLE_TIMEOUT:-300}"
 ALLOW_DIRTY=0
 OPEN_PR=0
 ARG=""
@@ -104,6 +106,7 @@ while [[ $# -gt 0 ]]; do
         --model) MODEL="$2"; shift 2 ;;
         --base-url) BASE_URL="$2"; shift 2 ;;
         --max-steps) MAX_STEPS="$2"; shift 2 ;;
+        --timeout) TIMEOUT="$2"; shift 2 ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
         -h | --help) usage; exit 0 ;;
@@ -119,6 +122,9 @@ REPO="$(cd "$REPO" && pwd)"
 
 resolve_convertible || exit 2
 
+# Per-request timeout is config (no drive flag); EngineConfig reads it from env.
+# A local model can be slow on a growing context, so default generously.
+export CONVERTIBLE_TIMEOUT="$TIMEOUT"
 COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
 
 # ── render an instruction from a prompt template ────────────────────────────
@@ -136,7 +142,10 @@ PY
 # Reads JSON on stdin; prints a human/agent-readable digest; exits non-zero if
 # the drive failed.
 print_result() {
-    python3 - <<'PY'
+    # NOTE: must be `python3 -c`, not `python3 - <<HEREDOC`: a heredoc becomes
+    # python's stdin (the script source), which would shadow the piped JSON and
+    # leave sys.stdin.read() empty. The script body uses no single quotes.
+    python3 -c '
 import sys, json
 raw = sys.stdin.read().strip()
 if not raw:
@@ -159,33 +168,40 @@ if d.get("branch"):
 if d.get("artifacts_path"):
     print("artifact:", d["artifacts_path"])
 sys.exit(0 if d.get("status") == "ok" else 1)
-PY
+'
 }
 
 # ── read-only verbs: isolate the drive in a throwaway worktree at HEAD ──────
+# Worktree state is module-global, not a function local: the EXIT trap fires
+# *after* run_readonly returns, so under `set -u` a local would be unbound.
+_WT=""
+_DRIVE_BRANCH=""
+
+_cleanup_worktree() {
+    [[ -n "$_WT" ]] || return 0
+    git -C "$REPO" worktree remove --force "$_WT" >/dev/null 2>&1 || true
+    rm -rf "$_WT" >/dev/null 2>&1 || true
+    if [[ -n "$_DRIVE_BRANCH" ]]; then
+        git -C "$REPO" branch -D "$_DRIVE_BRANCH" >/dev/null 2>&1 || true
+    fi
+}
+
 run_readonly() {
     local instruction="$1"
     git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
         || { echo "error: --repo is not a git repository: $REPO" >&2; exit 2; }
 
-    local wt drive_branch=""
-    wt="$(mktemp -d)"
-    cleanup() {
-        git -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
-        rm -rf "$wt" >/dev/null 2>&1 || true
-        if [[ -n "$drive_branch" ]]; then
-            git -C "$REPO" branch -D "$drive_branch" >/dev/null 2>&1 || true
-        fi
-    }
-    trap cleanup EXIT
-
-    git -C "$REPO" worktree add -q --detach "$wt" HEAD
+    _WT="$(mktemp -d)"
+    trap _cleanup_worktree EXIT
+    git -C "$REPO" worktree add -q --detach "$_WT" HEAD
 
     local out
-    out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$wt" --no-pr "${COMMON_FLAGS[@]}")" || true
-    drive_branch="$(printf '%s' "$out" | python3 -c 'import sys,json
-try: print(json.load(sys.stdin).get("branch") or "")
-except Exception: print("")' 2>/dev/null || true)"
+    out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
+    _DRIVE_BRANCH="$(printf '%s' "$out" | python3 -c 'import sys, json
+try:
+    print(json.load(sys.stdin).get("branch") or "")
+except Exception:
+    print("")' 2>/dev/null || true)"
     printf '%s' "$out" | print_result
 }
 

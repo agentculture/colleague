@@ -11,6 +11,8 @@ Rules:
   file, and do NOT run any command that changes state.
 - Be concrete: cite file paths and line numbers; quote the key code you rely on.
 - Surface what's surprising, risky, or unclear — not just a tidy summary.
+- You have a limited step budget. Read efficiently and call finish with your
+  report well before you run out — a focused finding beats endless reading.
 
 When you are done, call finish with a structured findings report:
 1. What it is / how it works (with file:line references).
