@@ -81,6 +81,23 @@ The car metaphor *is* the architecture:
   v0 is checksum-only (`version` pinning is a documented follow-up, not
   built). This is the tracked "per-repo hook trust gate" from the conventions
   section, now partially landed; there is still no `--no-hooks` flag.
+- **Subagents (convoy)** — mid-drive, an engine MAY delegate a scoped sub-task
+  via the `subagent` loop tool (`convertible/subagents.py` + `convertible/tools.py`).
+  The child runs the SAME bounded tool-loop as a nested in-process call —
+  no thread, no subprocess, no socket, no fork, zero new runtime deps. The parent
+  receives the child's `SubResult` as the tool result; completed sub-results are
+  folded into `TaskResult.sub_results` (omitted when empty). Delegation is
+  ENGINE-JUDGED and OPTIONAL (like the `devague` destination tool), never a forced
+  gate. An optional `engine`/`model` switch resolves through the existing
+  `registry.load` + `EngineConfig` inheritance — a config-level switch, no engine
+  code change. Termination is structural: `MAX_SUBAGENT_DEPTH=2` (recursion cap,
+  checked *before* any child work) and `MAX_SUBAGENT_FANOUT=4` (per-drive fan-out
+  cap). No per-subagent git handoff — only the top-level drive hands off.
+  **v0 is SEQUENTIAL only** — parallel/concurrent subagents and per-subagent
+  worktree isolation are a parked follow-up (would need a re-spec). This is
+  explicitly NOT the out-of-scope multi-engine router/"gearbox": there is no
+  operator-configured automatic task→engine routing policy. Chassis-owned
+  (all-engines rule): the tool fires identically for every engine.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`convertible/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
@@ -135,8 +152,12 @@ excluding `confirm`/`reject`/`export`), which lets an engine set and converge a
 goal-frame when a task warrants one, drive toward it, and declare the announcement
 on arrival — and the **approval gate** (`convertible/policy.py`):
 `.convertible/approvals.json` gating `run_command` CLIs by program token and
-hook/command files by checksum. All four integrated features (mesh-member, culture
-tool, destination, and approval gate) were added via explicit re-specs (spec + plan
+hook/command files by checksum — and the **subagent/convoy tool**
+(`convertible/subagents.py` + `convertible/tools.py`): engine-judged, optional
+in-process child drives with engine/model switch, depth cap (2), fan-out cap (4),
+no per-subagent handoff, sequential-only (parallel subagents parked as a
+follow-up). All five integrated features (mesh-member, culture tool, destination,
+approval gate, and subagents) were added via explicit re-specs (spec + plan
 committed on this branch under `docs/specs/` / `docs/plans/`); they extend the
 chassis within the zero-deps / no-socket / no-daemon conventions.
 
