@@ -87,6 +87,7 @@ def test_no_third_party_imports():
         import convertible.loop  # noqa: F401
         import convertible.neighbours  # noqa: F401
         import convertible.policy  # noqa: F401
+        import convertible.subagents  # noqa: F401
         import convertible.telemetry  # noqa: F401
 
     third_party = _third_party_modules_introduced(_import_core)
