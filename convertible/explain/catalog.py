@@ -551,16 +551,18 @@ headline verb.
   reads and reports findings.
 - `outsource review "<focus>" [--base main]` — a diverse second opinion on the
   committed diff (`<base>...HEAD`).
-- `outsource write "<task>" [--pr]` — delegate a small implementation; lands a
-  `convertible/<id>` drive branch (or a PR with `--pr`).
+- `outsource write "<task>" [--apply|--pr]` — delegate a small implementation.
+  Previews by default (throwaway worktree + would-be diff, no side effects);
+  `--apply` lands a `convertible/<id>` drive branch, `--pr` opens a PR.
 
 ## Safety
 
 - explore/review run in a throwaway `git worktree` at HEAD — they cannot touch
   your working tree or branch (read-only is enforced by isolation + a prompt
   constraint, not a sandbox).
-- `write` refuses a dirty tree unless `--allow-dirty` (guards the dirty-tree
-  hazard).
+- `write` previews by default (isolated worktree, safe even on a dirty tree);
+  applying (`--apply` / `--pr`) refuses a dirty tree unless `--allow-dirty`
+  (guards the dirty-tree hazard).
 
 ## Run
 

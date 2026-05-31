@@ -8,11 +8,12 @@
 #
 #   outsource explore "<question or area>"   read-only investigation -> findings
 #   outsource review  "<what to focus on>"   diverse second-opinion on the diff
-#   outsource write   "<task>" [--pr]        implement a change
+#   outsource write   "<task>" [--apply]     implement a change (preview by default)
 #
 # explore/review run in a throwaway `git worktree` at HEAD, so they can never
-# touch your working tree or branch (any stray write is discarded). write runs
-# in-place and lands a drive branch (or a PR with --pr).
+# touch your working tree or branch (any stray write is discarded). write also
+# previews in a throwaway worktree by default (reporting what it WOULD change);
+# pass --apply to land a drive branch in place, or --pr to push + open a PR.
 #
 set -euo pipefail
 
@@ -55,7 +56,7 @@ outsource — hand a scoped repo task to convertible (a different engine/mind).
 Usage:
   outsource explore "<question or area>"     Read-only investigation -> findings (no side effects)
   outsource review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
-  outsource write   "<task>" [--pr]          Implement a change (drive branch, or PR with --pr)
+  outsource write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
 
 Options:
   --repo PATH        Target repo (default: .)
@@ -65,11 +66,13 @@ Options:
   --base-url URL     OpenAI base URL (default: $CONVERTIBLE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20)
   --timeout N        Per-request timeout, seconds (default: $CONVERTIBLE_TIMEOUT or 300)
-  --allow-dirty      (write) allow running on a dirty tree
-  --pr               (write) push + open a PR instead of a local drive branch
+  --apply            (write) apply the change in place (drive branch) instead of previewing
+  --allow-dirty      (write) allow running on a dirty tree (only with --apply/--pr)
+  --pr               (write) push + open a PR instead of a local drive branch (implies --apply)
 
 explore/review run in a throwaway git worktree at HEAD — they cannot touch your
 working tree or branch. review compares <base>...HEAD (committed changes only).
+write previews in a throwaway worktree too unless --apply (or --pr) is given.
 EOF
 }
 
@@ -121,6 +124,7 @@ BASE_URL="${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}"
 MAX_STEPS=20
 TIMEOUT="${CONVERTIBLE_TIMEOUT:-300}"
 ALLOW_DIRTY=0
+APPLY=0
 OPEN_PR=0
 ARG=""
 
@@ -133,6 +137,7 @@ while [[ $# -gt 0 ]]; do
         --base-url) need_value "$#" "$1"; BASE_URL="$2"; shift 2 ;;
         --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; shift 2 ;;
         --timeout) need_value "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
+        --apply) APPLY=1; shift ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
         -h | --help) usage; exit 0 ;;
@@ -146,6 +151,21 @@ done
 [[ -d "$REPO" ]] || { echo "error: --repo is not a directory: $REPO" >&2; exit 2; }
 REPO="$(cd "$REPO" && pwd)"
 
+# One git-repo guard for every verb: --repo is a runtime target like `git -C`, but
+# it must at least be a real git work tree. Fail fast with a clear message instead
+# of an opaque mid-drive error (and every verb here needs git: read-only verbs add
+# a worktree, write commits a drive branch).
+git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || { echo "error: --repo is not a git repository: $REPO" >&2; exit 2; }
+
+# review interpolates --base into the LLM instruction ("git diff $BASE...HEAD"),
+# so reject a value that is not a real commit/ref before it is rendered into the
+# prompt — fail fast rather than hand the model a bogus (or injected) ref.
+if [[ "$VERB" == "review" ]]; then
+    git -C "$REPO" rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null 2>&1 \
+        || { echo "error: --base is not a valid commit/ref in $REPO: $BASE" >&2; exit 2; }
+fi
+
 resolve_convertible || exit 2
 
 # Per-request timeout is config (no drive flag); EngineConfig reads it from env.
@@ -157,16 +177,22 @@ COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-s
 render_prompt() {
     local file="$PROMPTS_DIR/$1.md"
     [[ -f "$file" ]] || { echo "error: missing prompt template: $file" >&2; exit 2; }
+    # Single-pass substitution: doing `.replace("$ARGUMENTS", ARG).replace("$BASE",
+    # BASE)` in two passes lets a literal "$BASE" *inside* the user's argument get
+    # clobbered by the second pass. One re.sub never re-scans already-substituted
+    # text, so injected tokens survive verbatim.
     ARG="$ARG" BASE="$BASE" python3 - "$file" <<'PY'
-import os, sys
+import os, re, sys
 tpl = open(sys.argv[1], encoding="utf-8").read()
-sys.stdout.write(tpl.replace("$ARGUMENTS", os.environ["ARG"]).replace("$BASE", os.environ["BASE"]))
+repl = {"$ARGUMENTS": os.environ["ARG"], "$BASE": os.environ["BASE"]}
+sys.stdout.write(re.compile(r"\$ARGUMENTS|\$BASE").sub(lambda m: repl[m.group(0)], tpl))
 PY
 }
 
 # ── print the TaskResult that convertible emitted as JSON on stdout ─────────
-# Reads JSON on stdin; prints a human/agent-readable digest; exits non-zero if
-# the drive failed.
+# Reads JSON on stdin; prints a human/agent-readable digest — to stdout on
+# success, to stderr on failure so a caller can script on a clean stdout — and
+# exits non-zero if the drive failed.
 print_result() {
     # NOTE: must be `python3 -c`, not `python3 - <<HEREDOC`: a heredoc becomes
     # python's stdin (the script source), which would shadow the piped JSON and
@@ -183,17 +209,19 @@ except Exception:
     sys.stderr.write("error: could not parse convertible --json output:\n")
     sys.stderr.write(raw[:2000] + "\n")
     sys.exit(2)
-print("status:", d.get("status"))
-print()
-print((d.get("summary") or "").rstrip())
+ok = d.get("status") == "ok"
+out = sys.stdout if ok else sys.stderr
+print("status:", d.get("status"), file=out)
+print(file=out)
+print((d.get("summary") or "").rstrip(), file=out)
 cf = d.get("changed_files") or []
 if cf:
-    print("\nchanged files:", ", ".join(cf))
+    print("\nchanged files:", ", ".join(cf), file=out)
 if d.get("branch"):
-    print("drive branch:", d["branch"])
+    print("drive branch:", d["branch"], file=out)
 if d.get("artifacts_path"):
-    print("artifact:", d["artifacts_path"])
-sys.exit(0 if d.get("status") == "ok" else 1)
+    print("artifact:", d["artifacts_path"], file=out)
+sys.exit(0 if ok else 1)
 '
 }
 
@@ -213,41 +241,94 @@ _cleanup_worktree() {
     if [[ "$_DRIVE_BRANCH" == convertible/* ]]; then
         git -C "$REPO" branch -D "$_DRIVE_BRANCH" >/dev/null 2>&1 || true
     fi
+    # Defensive: clear the handles so a re-entry is a clean no-op. The EXIT trap
+    # fires once today, but this keeps cleanup idempotent against future refactors
+    # (dogfood-review suggestion, #61).
+    _WT=""
+    _DRIVE_BRANCH=""
+}
+
+# Extract the drive branch (convertible/<id>) from a TaskResult JSON on stdin.
+_extract_branch() {
+    python3 -c 'import sys, json
+try:
+    print(json.load(sys.stdin).get("branch") or "")
+except Exception:
+    print("")' 2>/dev/null || true
+}
+
+# Spin up a throwaway detached worktree at HEAD (the isolation both read-only
+# verbs and the write preview share). `mktemp -d` is given an explicit template:
+# GNU mktemp tolerates a bare `-d`, but BSD/macOS mktemp requires one.
+_add_worktree() {
+    _WT="$(mktemp -d "${TMPDIR:-/tmp}/outsource.XXXXXX")"
+    trap _cleanup_worktree EXIT
+    git -C "$REPO" worktree add -q --detach "$_WT" HEAD
 }
 
 run_readonly() {
     local instruction="$1"
-    git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-        || { echo "error: --repo is not a git repository: $REPO" >&2; exit 2; }
-
-    _WT="$(mktemp -d)"
-    trap _cleanup_worktree EXIT
-    git -C "$REPO" worktree add -q --detach "$_WT" HEAD
-
+    _add_worktree
     local out
     out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
-    _DRIVE_BRANCH="$(printf '%s' "$out" | python3 -c 'import sys, json
-try:
-    print(json.load(sys.stdin).get("branch") or "")
-except Exception:
-    print("")' 2>/dev/null || true)"
+    _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
     printf '%s' "$out" | print_result
 }
 
-# ── write verb: in-place drive (drive branch, or PR with --pr) ──────────────
+# ── write preview (default): drive in a throwaway worktree, show the would-be ──
+# change, then discard. Nothing reaches the real working tree or branch — pass
+# --apply (or --pr) to land it for real.
+run_preview() {
+    local instruction="$1"
+    _add_worktree
+    local out
+    out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
+    _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
+
+    # Capture the would-be patch before _cleanup_worktree deletes the drive branch.
+    local patch=""
+    if [[ "$_DRIVE_BRANCH" == convertible/* ]]; then
+        patch="$(git -C "$REPO" diff "HEAD..$_DRIVE_BRANCH" 2>/dev/null || true)"
+    fi
+
+    local rc=0
+    printf '%s' "$out" | print_result || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
+        if [[ -n "$patch" ]]; then
+            printf '\n--- preview diff (NOT applied — pass --apply to land it) ---\n'
+            printf '%s\n' "$patch"
+        else
+            printf '\n(preview: no file changes reported; NOT applied)\n'
+        fi
+    fi
+    return "$rc"
+}
+
+# ── write verb: preview by default; --apply lands a drive branch; --pr opens a ─
+# PR (implies apply). The dirty-tree guard only matters when applying in place —
+# a preview runs in an isolated worktree and never touches the working tree.
 run_write() {
     local instruction="$1"
+    if [[ "$APPLY" -eq 0 && "$OPEN_PR" -eq 0 ]]; then
+        run_preview "$instruction"
+        return
+    fi
     if [[ "$ALLOW_DIRTY" -eq 0 ]] \
         && [[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]]; then
         echo "error: working tree is dirty — commit/stash first, or pass --allow-dirty" >&2
         echo "hint: 'convertible drive --no-pr' commits uncommitted edits onto the drive branch" >&2
         exit 2
     fi
+    # `|| true`: a failed drive (`convertible drive` returns 1 when status != ok,
+    # printing the result JSON to stdout) must still flow into print_result so the
+    # digest is emitted (to stderr) and the wrapper exits non-zero — not aborted by
+    # `set -e` at the assignment, which would swallow the digest. Matches the
+    # read-only / preview paths, which already guard this way.
     local out
     if [[ "$OPEN_PR" -eq 1 ]]; then
-        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")"
+        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || true
     else
-        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")"
+        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || true
     fi
     printf '%s' "$out" | print_result
 }

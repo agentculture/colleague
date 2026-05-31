@@ -320,9 +320,11 @@ lets another agent hand a scoped task to convertible — a *different* engine/mi
 not a stronger one; diversity is the point. Three verbs over `convertible drive`:
 `outsource explore` (read-only investigation), `outsource review` (a diverse
 second opinion on the committed `<base>...HEAD` diff — the headline verb), and
-`outsource write` (delegate a small change). explore/review run in a throwaway
-`git worktree` (no side effects); `write` guards against a dirty tree. Details +
-worked examples: [`docs/features/outsource.md`](docs/features/outsource.md).
+`outsource write` (delegate a small change — previews by default; `--apply` lands
+a drive branch, `--pr` opens a PR). explore/review run in a throwaway `git
+worktree` (no side effects); `write` previews in one too unless `--apply`/`--pr`,
+and guards against a dirty tree when applying. Details + worked examples:
+[`docs/features/outsource.md`](docs/features/outsource.md).
 
 ## Git workflow
 
