@@ -378,6 +378,7 @@ def test_subagent_drive_with_telemetry_off_is_noop(tmp_path: Path) -> None:
         "changed_files",
         "steps",
         "usage",
+        "stats",
         "artifacts_path",
         "error",
         "branch",

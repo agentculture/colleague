@@ -27,6 +27,14 @@ def test_mock_is_deterministic(tmp_path: Path) -> None:
     cfg = EngineConfig.resolve()
     first = MockEngine().drive(task, cfg).to_dict()
     second = MockEngine().drive(task, cfg).to_dict()
+
+    # Wall-clock fields in DriveStats (started_at, duration_seconds) are
+    # inherently non-deterministic — strip them before comparing. Everything
+    # else, including every other stat (turns, tool_counts, bytes_written,
+    # reasoning/answer sizes), must be byte-identical across runs.
+    for snapshot in (first, second):
+        snapshot["stats"].pop("started_at")
+        snapshot["stats"].pop("duration_seconds")
     assert first == second
 
 

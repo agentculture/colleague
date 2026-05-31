@@ -22,6 +22,7 @@ palette delegate to it so the drive path is never duplicated (honesty h11).
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 from pathlib import Path
 
 from convertible import registry
@@ -32,6 +33,7 @@ from convertible.cli._output import emit_diagnostic, emit_result
 from convertible.commands import CommandError, expand_command
 from convertible.config import EngineConfig, resolve_engine
 from convertible.contract import OK, Task, TaskResult
+from convertible.feedback import set_last_drive
 from convertible.handoff import HandoffError, handoff, untracked_snapshot
 from convertible.subagents import make_spawn
 from convertible.telemetry import load_telemetry
@@ -169,6 +171,10 @@ def execute_drive(
                 result.command = command_name
                 drive_span.set(status=result.status)
                 write(result, artifact_dir(repo))
+                # The drive happened (even if it failed) — record it as 'last' so
+                # `feedback last` can still grade it. Best-effort: never mask the error.
+                with suppress(Exception):
+                    set_last_drive(repo, result.task_id)
                 raise CliError(
                     EXIT_ENV_ERROR,
                     f"engine '{engine_name}' failed: {original}",
@@ -209,6 +215,11 @@ def execute_drive(
             )
             result.command = command_name
             artifact_path = write(result, artifact_dir(repo))
+            # Record this as the repo's most recent drive so `convertible feedback
+            # last` resolves to it. Best-effort: a pointer write must never break
+            # a successful drive.
+            with suppress(Exception):
+                set_last_drive(repo, result.task_id)
             return result, artifact_path
     finally:
         telemetry.flush()

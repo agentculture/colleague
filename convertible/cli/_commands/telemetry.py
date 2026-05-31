@@ -35,8 +35,9 @@ def _telemetry_sections() -> list[dict[str, object]]:
             "title": "Signals",
             "items": [
                 "spans: convertible.drive -> convertible.tool.* (+ convertible.handoff)",
-                "metrics: convertible.steps, convertible.tokens, convertible.tool.latency,"
-                " convertible.tool.calls, convertible.hook.denials, convertible.drive.duration",
+                "metrics: convertible.steps, convertible.tokens, convertible.generated.chars,"
+                " convertible.bytes_written, convertible.tool.latency, convertible.tool.calls,"
+                " convertible.hook.denials, convertible.drive.duration",
             ],
         },
         {

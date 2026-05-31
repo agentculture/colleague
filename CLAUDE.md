@@ -23,6 +23,25 @@ The car metaphor *is* the architecture:
 - **Wheels** — engines are plugins discovered via the `convertible.engines`
   Python entry-point group (`convertible/registry.py`).
 - **Dashboard** — the JSON result artifact + step trace (`convertible/artifact.py`).
+  Includes an **always-on per-drive statistics block** (`TaskResult.stats`,
+  `convertible/contract.py` `DriveStats`): request, ISO start + wall-clock
+  duration, model turns, step count, per-tool counts, files changed, exact UTF-8
+  `bytes_written`, and reasoning-vs-answer char/byte sizes. Tokens stay on
+  `usage` (exact, verbatim from the model response — never estimated); since the
+  served model reports no reasoning-token breakdown, "thought vs written" is
+  measured as chars/bytes, not tokens (no tokenizer, zero deps). Populated
+  chassis-side in `convertible/loop.py` (`run`/`_drive_loop` + `_finalize_stats`)
+  so every engine fills it identically; the vLLM engine captures
+  `message.reasoning` (previously discarded).
+- **Feedback** — the ROI loop (`convertible/feedback.py` + `convertible/cli/_commands/
+  feedback.py`). Drive stats say what a drive *cost*; a feedback record says how
+  *good* it was — together they let a caller compute the ROI of outsourcing a task
+  to convertible. A single record per drive (`<task_id>.feedback.json` beside the
+  artifact, re-grade overwrites): `{task_id, rating 1-5, notes, by, at}`; a per-repo
+  `last_drive` pointer (written by `execute_drive`) lets `feedback ... last`
+  resolve the most recent drive. Stdlib JSON only; an ungraded drive reads back as
+  a clean "no feedback yet" state, never an error. Surfaced as `convertible
+  feedback record|show|overview` and as the `outsource feedback` skill verb.
 - **GPS** — opt-in OpenTelemetry traces + metrics (`convertible/telemetry/`).
   Instrumented in the loop + the shared drive path so every engine emits it
   (all-engines rule), exactly like hooks. Off by default; the OpenTelemetry SDK
@@ -156,10 +175,14 @@ hook/command files by checksum — and the **subagent/convoy tool**
 (`convertible/subagents.py` + `convertible/tools.py`): engine-judged, optional
 in-process child drives with engine/model switch, depth cap (2), fan-out cap (4),
 no per-subagent handoff, sequential-only (parallel subagents parked as a
-follow-up). All five integrated features (mesh-member, culture tool, destination,
-approval gate, and subagents) were added via explicit re-specs (spec + plan
-committed on this branch under `docs/specs/` / `docs/plans/`); they extend the
-chassis within the zero-deps / no-socket / no-daemon conventions.
+follow-up) — and the **drive statistics + feedback loop** (the ROI loop):
+always-on per-drive `DriveStats` in the artifact (`convertible/contract.py` +
+`convertible/loop.py`) and a single-record-per-drive feedback store
+(`convertible/feedback.py`) surfaced as `convertible feedback` and the
+`outsource feedback` skill verb. All integrated features (mesh-member, culture
+tool, destination, approval gate, subagents, and stats+feedback) were added via
+explicit re-specs (spec + plan committed under `docs/specs/` / `docs/plans/`);
+they extend the chassis within the zero-deps / no-socket / no-daemon conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-engine
 router/policy "gearbox", an execution sandbox, a daemon/server mode,
@@ -267,6 +290,23 @@ test (`tests/test_e2e_mock.py`) is the guard.
   the one check that opens a network connection, so it is gated behind the flag and
   invoked outside the (no-network) registered check-groups. See `convertible explain
   doctor` for details.
+- **Drive statistics belong to the chassis, not to engines.** `convertible/loop.py`
+  owns `DriveStats` population (`_drive_loop` per-turn + `_finalize_stats` on every
+  exit path); `convertible/tools.py` accumulates `bytes_written`; the vLLM engine
+  only *captures* `message.reasoning` into `ModelResponse`. The all-engines rule
+  applies: stats are always-on and identical for `mock` and `vllm-openai`
+  (`tests/test_e2e_mock.py` pins the `stats` key). **Honest token limit:** tokens
+  are exactly what the response `usage` reports — never estimated. The served model
+  reports no reasoning-token breakdown, so reasoning is measured as chars/bytes,
+  not tokens; there is no tokenizer and no `bytes/4` heuristic. The optional OTel
+  path mirrors the new metrics (`convertible.generated.chars`,
+  `convertible.bytes_written`) as a strict no-op when off.
+- **The feedback store belongs to the chassis, not to engines.**
+  `convertible/feedback.py` is a stdlib JSON store (one record per drive,
+  re-grade overwrites) + a per-repo `last_drive` pointer written by
+  `execute_drive`. No engine touches it. Absent file/pointer is a clean no-op
+  (`read_feedback` / `get_last_drive` return `None`, never raise). It is **not**
+  gated by the approval gate and opens no socket/daemon — zero new runtime deps.
 
 ## Commands
 
@@ -287,6 +327,11 @@ uv run convertible hooks approve <script> --repo . # record checksum approval fo
 uv run convertible commands approve <name> --repo . # record checksum approval for a command template
 # Both approve commands accept --algo sha256|md5 (default: sha256) and --json.
 uv run convertible session --repo . --engine mock  # interactive palette (commits locally, no PR; --pr to push+PR)
+
+# ROI loop: drive stats (always-on in the artifact) + feedback (grade a drive):
+uv run convertible feedback record last --rating 4 --notes "…" --repo .  # grade the most recent drive (or <task_id>)
+uv run convertible feedback show last --repo .                           # read a drive's feedback (clean no-op if ungraded)
+uv run convertible feedback overview                                     # surface description
 
 # GPS / telemetry (opt-in; needs the [otel] extra):
 uv run convertible telemetry status                # resolved telemetry config

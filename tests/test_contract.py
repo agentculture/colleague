@@ -208,6 +208,7 @@ def test_destination_omitted_when_none() -> None:
         "changed_files",
         "steps",
         "usage",
+        "stats",
         "artifacts_path",
         "error",
         "branch",

@@ -111,6 +111,13 @@ def test_help_lists_the_verbs() -> None:
         assert verb in r.stdout
 
 
+def test_help_lists_the_feedback_verb() -> None:
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "feedback" in r.stdout
+    assert "--rating" in r.stdout
+
+
 def test_help_documents_the_default_model() -> None:
     r = _run("--help")
     assert "mmangkad/Qwen3.6-27B-NVFP4" in r.stdout
@@ -199,6 +206,70 @@ def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
     assert "FAKE_SUMMARY_OK" in r.stdout
     assert "x.py" in r.stdout
     assert "convertible/abc123" in r.stdout
+
+
+def test_feedback_verb_shells_to_convertible_feedback(tmp_path) -> None:
+    """`outsource feedback <ref> --rating N` must invoke `convertible feedback
+    record <ref> --rating N --repo <repo>` (the ROI loop pass-through, t9). A
+    stub convertible records its argv so we can assert the mapping without a model."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "convertible"
+    fake.write_text(
+        "#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n' 'echo "recorded"\n'
+    )
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            "feedback",
+            "last",
+            "--rating",
+            "4",
+            "--notes",
+            "good",
+            "--repo",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert argv[:3] == ["feedback", "record", "last"]
+    assert "--rating" in argv and "4" in argv
+    assert "--notes" in argv and "good" in argv
+    assert "--repo" in argv
+
+
+def test_feedback_verb_without_rating_shows(tmp_path) -> None:
+    """No --rating → `convertible feedback show <ref>` (read, not record)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "convertible"
+    fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "feedback", "abc123", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert argv[:3] == ["feedback", "show", "abc123"]
 
 
 def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:

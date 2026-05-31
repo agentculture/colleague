@@ -486,6 +486,7 @@ class TestAnnouncementHonesty:
             "changed_files",
             "steps",
             "usage",
+            "stats",
             "artifacts_path",
             "error",
             "branch",

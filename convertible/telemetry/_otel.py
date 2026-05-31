@@ -136,6 +136,8 @@ class _State:
     tracer: Any
     steps: Any
     tokens: Any
+    generated: Any
+    bytes_written: Any
     tool_calls: Any
     tool_latency: Any
     hook_denials: Any
@@ -176,12 +178,18 @@ def _build_state(
 
     meter_provider: Optional[MeterProvider] = None
     steps = tokens = tool_calls = tool_latency = hook_denials = drive_duration = None
+    generated = bytes_written = None
     if cfg.metrics_enabled:
         reader = metric_reader if metric_reader is not None else _default_metric_reader(cfg)
         meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
         meter = meter_provider.get_meter(_METER_NAME)
         steps = meter.create_counter("convertible.steps")
         tokens = meter.create_counter("convertible.tokens")
+        # Generated text size (attr kind=reasoning|answer) — the char-level
+        # "thought vs written" measure, since this server reports no reasoning-
+        # token breakdown. And the exact bytes written to files.
+        generated = meter.create_counter("convertible.generated.chars")
+        bytes_written = meter.create_counter("convertible.bytes_written", unit="By")
         tool_calls = meter.create_counter("convertible.tool.calls")
         tool_latency = meter.create_histogram("convertible.tool.latency", unit="s")
         hook_denials = meter.create_counter("convertible.hook.denials")
@@ -193,6 +201,8 @@ def _build_state(
         tracer=tracer,
         steps=steps,
         tokens=tokens,
+        generated=generated,
+        bytes_written=bytes_written,
         tool_calls=tool_calls,
         tool_latency=tool_latency,
         hook_denials=hook_denials,
@@ -299,6 +309,18 @@ class _OtelTelemetry(Telemetry):
             self._s.tokens.add(prompt_tokens, {"kind": "prompt"})
         if completion_tokens:
             self._s.tokens.add(completion_tokens, {"kind": "completion"})
+
+    def on_generated(self, *, reasoning: str = "", answer: str = "") -> None:
+        if self._s.generated is None:
+            return
+        if reasoning:
+            self._s.generated.add(len(reasoning), {"kind": "reasoning"})
+        if answer:
+            self._s.generated.add(len(answer), {"kind": "answer"})
+
+    def on_bytes_written(self, n_bytes: int) -> None:
+        if self._s.bytes_written is not None and n_bytes:
+            self._s.bytes_written.add(n_bytes)
 
     def on_hook_denial(self) -> None:
         if self._s.hook_denials is not None:
