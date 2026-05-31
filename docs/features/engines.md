@@ -104,6 +104,8 @@ to convertible core.
 
 ## See also
 
+- [model-selection.md](model-selection.md) — how convertible resolves the model
+  and endpoint (flags → env → defaults), and keeping it synced to a local server.
 - [drive-and-loop.md](drive-and-loop.md) — the contract + loop drivers delegate to.
 - [layered-config.md](layered-config.md) — the per-model system prompt every
   engine inherits.
