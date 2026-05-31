@@ -1,0 +1,292 @@
+{
+  "slug": "convertible-records-what-every-drive-cost-and-how",
+  "title": "You can now calculate the ROI of outsourcing to convertible: every drive reports time, tokens spent (read + generated), tokens/bytes written, and an attachable quality grade -- together enough to retro and evaluate whether outsourcing a task to convertible paid off.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-31T14:28:24Z",
+  "updated": "2026-05-31T14:54:48Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "You can now calculate the ROI of outsourcing to convertible: every drive reports time, tokens spent (read + generated), tokens/bytes written, and an attachable quality grade -- together enough to retro and evaluate whether outsourcing a task to convertible paid off.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "after the feature ships, a real model-gear drive's artifact shows populated stats AND 'convertible feedback' can grade that drive by its task-id or 'last'",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "agents and humans who run 'convertible drive' (incl. via the outsource skill) and want to know what a drive cost and grade its quality",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "both a human (readable artifact JSON) and an agent (the outsource skill) can consume the stats + feedback with no extra tooling",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "every drive's artifact JSON carries rich always-on stats (request, tokens read, total generated tokens, tools used, elapsed time, turns, files changed, bytes written, reasoning vs answer char counts); and a caller can attach feedback to a drive by task-id or 'last', persisted beside the artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "after a drive the artifact JSON contains a populated stats block, and a feedback record can be attached and read back for that task-id",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "today the artifact carries only usage (prompt/completion/total tokens) and a steps trace: no elapsed time, no tools-used aggregate, no bytes-written, no request copy, no reasoning capture, and no way to record how good a drive was",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "today's pre-feature artifact demonstrably lacks elapsed time, tools-used aggregate, bytes-written, request copy, reasoning capture, and feedback (verifiable from current TaskResult.to_dict)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "drives become a gradeable, learnable record: stats show what happened, feedback shows how good it was, so callers (and future routing) can compare engines/models on real cost and quality",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "two drives of the same task on different engines are comparable on cost (time+tokens+bytes) and quality (rating) from their artifacts + feedback alone",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not a tokenizer (zero runtime deps): token counts are only what the model API reports; reasoning is measured as chars/bytes, never estimated as tokens. Not a new read-back 'stats' noun, not a router/gearbox, not a daemon/socket/sandbox",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "no tokenizer/third-party dep is added (zero-deps test green) and no stats read-noun, router, daemon, socket, or sandbox appears in the diff",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "a real vllm-openai drive against model-gear writes an artifact with populated stats incl. non-zero reasoning chars; 'convertible feedback last --rating ...' writes a feedback record linked to that drive; mock and vllm-openai produce identical result shape; zero-deps + e2e-shape tests stay green",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "e2e mock-shape + zero-deps tests pass; a live model-gear drive shows reasoning_chars>0; 'convertible feedback last' writes and reads back a record",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Part A: drive statistics are ALWAYS-ON in the artifact (no flag), captured chassis-side in loop.py/execute_drive/contract and mirrored into optional OTel as a strict no-op when off; holds identically for mock and vllm-openai",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "with stats disabled-by-absence impossible (always-on), a no-op drive's artifact still round-trips through TaskResult.to_dict/from_dict and the e2e mock-shape test passes after updating its pinned key-set",
+          "status": "confirmed"
+        },
+        {
+          "id": "h2",
+          "text": "tests/test_zero_deps.py stays green: no new third-party import is added outside the lazy telemetry/_otel.py",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Part B: a 'convertible feedback' CLI verb records and reads feedback for a drive by task-id or 'last', stored as stdlib JSON beside the artifact with a per-repo last-drive pointer; surfaced as an 'outsource feedback' skill verb; supports --json, overview, and an explain catalog entry",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "'convertible feedback' follows agent-first conventions: results to stdout, diagnostics to stderr, --json supported, an 'overview' verb on the noun, and an explain catalog entry added",
+          "status": "confirmed"
+        },
+        {
+          "id": "h4",
+          "text": "feedback persists to a stdlib JSON file under the repo artifact dir keyed by task-id, with a 'last' pointer that resolves the most recent drive in that repo; absent store is a clean no-op",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "vllm-openai engine captures message.reasoning (currently discarded): per-turn it records reasoning char/byte length and answer char/byte length, threaded ModelResponse -> loop -> stats; mock engine mirrors the same fields for shape parity",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "for model-gear, a captured drive shows reasoning_chars > 0 and answer_chars matching message.content length; mock yields deterministic non-API values for the same fields so the e2e shape test is engine-agnostic",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "tokens come from the model API exactly as reported; missing fields default and are flagged to the operator, never estimated. model-gear reports prompt/completion/total only (no completion_tokens_details, prompt_tokens_details=null) but returns a separate message.reasoning field",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "decision",
+      "text": "surface is artifact-JSON-only for stats (no 'stats' read noun); the only new CLI/skill surface is feedback",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "build via /think -> /spec-to-plan, committing spec+plan under docs/ before implementation",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "non_goal",
+      "text": "no token-level reasoning count (model-gear doesn't report reasoning_tokens); no bytes/4 heuristic; no automatic engine->task routing; no persistence of full reasoning TEXT unless converged as in-scope",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "assumption",
+      "text": "feedback is general to any convertible drive (keyed by task-id), with 'outsource feedback' as the agent-facing entry; not outsource-exclusive",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "feedback record = a SINGLE object per drive (re-grading overwrites), stored as <task_id>.feedback.json beside the artifact: {rating: int 1-5, notes: free-text, by: actor, at: ISO-ts, task_id}; absent file = no feedback yet",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "writing feedback twice for one task-id overwrites (single record, not a list); 'convertible feedback <id>' / 'last' reads it back; reading a drive with no feedback file returns an explicit 'no feedback' (clean no-op), not an error",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "stats sizing = exact API tokens from the response payload usage (prompt_tokens, completion_tokens, total_tokens), PLUS reasoning-vs-answer measured as BOTH chars and bytes (reasoning_chars/bytes, answer_chars/bytes) from message.reasoning vs message.content; the reasoning TEXT is NOT persisted in v0 (lengths only)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "token figures equal exactly what the response usage reports (no derived/estimated tokens); reasoning_chars==len(message.reasoning) and answer_chars==len(message.content) per turn, summed across turns; bytes are UTF-8 byte lengths",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "why_it_matters",
+      "text": "the four signals together -- wall-clock time, tokens spent (read+generated), bytes/tokens written, and a 1-5 quality grade -- make outsourcing measurable: a caller can retro a delegated task's ROI from one drive's artifact + feedback alone and decide whether to outsource again and to which engine",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "an outsourcing retro/ROI is computable from a single drive's artifact + its feedback record alone (time + tokens + written-bytes + rating), needing no external data",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "whether to persist full reasoning TEXT in the artifact (privacy + size) or only reasoning char/byte lengths",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "rolling up sub_results stats into a parent total vs keeping nested-only (matches existing usage rule)",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
