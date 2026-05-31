@@ -111,6 +111,7 @@ def test_sub_results_omitted_when_empty() -> None:
         "changed_files",
         "steps",
         "usage",
+        "stats",
         "artifacts_path",
         "error",
         "branch",

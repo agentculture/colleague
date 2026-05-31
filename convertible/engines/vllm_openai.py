@@ -64,11 +64,18 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
             ToolCall(id=raw.get("id", ""), name=function.get("name", ""), arguments=arguments)
         )
     usage = data.get("usage") or {}
+    # Capture the model's chain-of-thought when the server returns it as a
+    # separate field (was previously discarded). Reasoning models served by vLLM
+    # (e.g. Qwen3) put thinking in ``message.reasoning``; some servers use
+    # ``reasoning_content``. Tokens are still taken EXACTLY from ``usage`` (this
+    # server reports no completion_tokens_details, so there is no reasoning-token
+    # breakdown — the loop measures reasoning by length, never estimates tokens).
     return ModelResponse(
         content=message.get("content") or "",
         tool_calls=calls,
         prompt_tokens=int(usage.get("prompt_tokens", 0)),
         completion_tokens=int(usage.get("completion_tokens", 0)),
+        reasoning=message.get("reasoning") or message.get("reasoning_content") or "",
     )
 
 

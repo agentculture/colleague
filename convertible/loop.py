@@ -31,7 +31,10 @@ exit path and cannot extend the step budget.
 
 from __future__ import annotations
 
+import datetime
 import json
+import time
+from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -89,12 +92,21 @@ class ToolCall:
 
 @dataclass
 class ModelResponse:
-    """One model turn: free text, any tool calls, and token usage."""
+    """One model turn: free text, reasoning, any tool calls, and token usage.
+
+    ``reasoning`` is the model's chain-of-thought when the server returns it as a
+    separate field (OpenAI-compatible ``message.reasoning`` / ``reasoning_content``),
+    distinct from ``content`` (the final answer). It is generated but never saved
+    to a file, so the loop measures it as the "thought" portion of a drive
+    (char/byte lengths in :class:`~convertible.contract.DriveStats`). Empty for
+    servers/models that do not emit a reasoning field.
+    """
 
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    reasoning: str = ""
 
 
 # A ``complete`` performs one model turn given the running message list.
@@ -279,6 +291,31 @@ def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
         result.announcement = outcome.announcement
 
 
+def _finalize_stats(
+    result: TaskResult,
+    task: Task,
+    executor: ToolExecutor,
+    *,
+    started_at: str,
+    duration_seconds: float,
+) -> None:
+    """Fill the drive-level :class:`DriveStats` fields known only at loop exit.
+
+    The per-turn fields (``model_turns`` and the generated reasoning/answer sizes)
+    are accumulated in :func:`_drive_loop`; this fills the rest from the finished
+    result + executor. Called on EVERY exit path (model finish / empty turn /
+    budget / mid-loop abort) so a partial drive still gets populated stats.
+    """
+    stats = result.stats
+    stats.request = task.instruction
+    stats.started_at = started_at
+    stats.duration_seconds = duration_seconds
+    stats.step_count = len(result.steps)
+    stats.tool_counts = dict(Counter(step.tool for step in result.steps))
+    stats.files_changed = len(result.changed_files)
+    stats.bytes_written = executor.bytes_written
+
+
 def _progress_target(arguments: Any) -> str:
     """A short human hint for a tool call's subject (its path / command / name)."""
     if not isinstance(arguments, dict):
@@ -447,6 +484,12 @@ def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> bool:
         resp = complete(ctx.messages)
         ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
         ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
+        # Per-turn statistics (always-on): count the turn and accumulate the
+        # generated reasoning/answer sizes (chars + bytes). Mirrored into the
+        # optional telemetry as a strict no-op when off.
+        ctx.result.stats.model_turns += 1
+        ctx.result.stats.add_generated(reasoning=resp.reasoning, answer=resp.content)
+        ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
 
         if not resp.tool_calls:
             # Model answered without requesting a tool — treat as done.
@@ -576,6 +619,12 @@ def run(
         progress=progress,
     )
 
+    # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
+    # the loop. Captured here so the duration covers the model work; finalized onto
+    # DriveStats on every exit path below.
+    started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    start_monotonic = time.monotonic()
+
     # The engine call (`complete`) may raise mid-loop. Catch it here so the
     # partial work accumulated on `result` is preserved rather than discarded
     # (#37); the finish hook + neighbour cleanup + changed_files snapshot below
@@ -605,6 +654,17 @@ def run(
     # budget / the aborted path below), so a delegation survives even a mid-loop
     # engine raise. Empty when nothing was delegated → omitted from the artifact.
     result.sub_results = list(executor.sub_results)
+    # Finalize the always-on drive statistics — runs on every exit path (here,
+    # the single place after changed_files is known), so even a partial/aborted
+    # drive carries populated stats. The optional telemetry mirrors bytes_written.
+    _finalize_stats(
+        result,
+        task,
+        executor,
+        started_at=started_at,
+        duration_seconds=round(time.monotonic() - start_monotonic, 6),
+    )
+    telemetry.on_bytes_written(result.stats.bytes_written)
 
     if aborted is not None:
         # Carry the populated partial result out via DriveAborted; the drive path

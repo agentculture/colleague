@@ -21,8 +21,14 @@ OUTPUT_FILE = "convertible-mock.md"
 def _script(task: Task) -> CompleteFn:
     """A deterministic two-turn script: write a marker file, then finish."""
     content = f"# Convertible mock engine\n\nHandled instruction:\n\n{task.instruction}\n"
+    # Deterministic reasoning/answer text so DriveStats' generated-size fields are
+    # non-zero and engine-agnostic (the mock is the contract reference, h5): the
+    # e2e shape test compares key shape, and these give the mock the same
+    # reasoning_*/answer_* fields a real reasoning model produces.
     turns = [
         ModelResponse(
+            content="writing the marker file",
+            reasoning="mock reasoning: decide to write the marker file",
             tool_calls=[
                 ToolCall("mock-1", "write_file", {"path": OUTPUT_FILE, "content": content})
             ],
@@ -30,6 +36,8 @@ def _script(task: Task) -> CompleteFn:
             completion_tokens=1,
         ),
         ModelResponse(
+            content="done",
+            reasoning="mock reasoning: nothing left to do, finish",
             tool_calls=[ToolCall("mock-2", "finish", {"summary": f"mock wrote {OUTPUT_FILE}"})],
             prompt_tokens=1,
             completion_tokens=1,

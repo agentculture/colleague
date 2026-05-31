@@ -253,6 +253,10 @@ class ToolExecutor:
     def __init__(self, root: str | Path, *, spawn=None) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
+        # Total UTF-8 bytes written to files via write_file across the drive — the
+        # exact "tokens written" measure (no tokenizer, so bytes not tokens). The
+        # loop snapshots it onto DriveStats, mirroring the changed_files snapshot.
+        self.bytes_written: int = 0
         self._spawn = spawn
         self.sub_results: list[SubResult] = []
 
@@ -313,9 +317,17 @@ class ToolExecutor:
             )
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        # newline="" disables newline translation so the on-disk bytes equal
+        # len(content.encode("utf-8")) on EVERY platform (default newline=None
+        # would rewrite "\n" -> "\r\n" on Windows, inflating the file and making
+        # bytes_written wrong). Keeps file writes byte-deterministic cross-platform.
+        path.write_text(content, encoding="utf-8", newline="")
         self.changed.add(rel)
-        return ToolOutcome(result=f"wrote {len(content)} bytes to {rel}", changed_file=rel)
+        # Accumulate exact UTF-8 bytes written (== the on-disk size, given
+        # newline=""), summed across every write_file — snapshotted into DriveStats.
+        n_bytes = len(content.encode("utf-8"))
+        self.bytes_written += n_bytes
+        return ToolOutcome(result=f"wrote {n_bytes} bytes to {rel}", changed_file=rel)
 
     def _list_dir(self, arguments: dict[str, Any]) -> ToolOutcome:
         path = self._safe_path(str(arguments.get("path", ".")))

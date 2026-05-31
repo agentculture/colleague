@@ -99,6 +99,8 @@ def test_load_disabled_returns_noop() -> None:
     with t.tool_span(tool="read_file", step_index=0) as span:
         span.set(ok=True)
     t.on_completion(3, 4)
+    t.on_generated(reasoning="thinking", answer="answer")
+    t.on_bytes_written(42)
     t.on_hook_denial()
     t.flush()
 
@@ -231,6 +233,32 @@ def test_metrics_recorded(tmp_path: Path, otel_capture) -> None:
     assert "convertible.tokens" in names
     assert "convertible.tool.calls" in names
     assert "convertible.tool.latency" in names
+
+
+def test_generated_and_bytes_metrics_recorded(tmp_path: Path, otel_capture) -> None:
+    """t8 parity: the new stats (reasoning/answer chars + bytes_written) emit metrics."""
+    t, _span_exporter, metric_reader = otel_capture
+    responses = [
+        ModelResponse(
+            content="the answer",
+            reasoning="some chain of thought",
+            tool_calls=[ToolCall("1", "write_file", {"path": "a.txt", "content": "hello"})],
+            prompt_tokens=5,
+            completion_tokens=2,
+        ),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    run(_scripted(responses), Task.new(str(tmp_path), "write"), max_steps=10, telemetry=t)
+    t.flush()
+
+    data = metric_reader.get_metrics_data()
+    names = set()
+    for rm in data.resource_metrics:
+        for sm in rm.scope_metrics:
+            for metric in sm.metrics:
+                names.add(metric.name)
+    assert "convertible.generated.chars" in names
+    assert "convertible.bytes_written" in names
 
 
 def test_metrics_disabled_suppresses_metrics(tmp_path: Path) -> None:

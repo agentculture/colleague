@@ -118,6 +118,111 @@ class Usage:
 
 
 @dataclass
+class DriveStats:
+    """Always-on per-drive statistics — the cost+shape record of one drive.
+
+    Sits alongside :class:`Usage` (which holds the exact API-reported token
+    counts) and captures everything else worth knowing about a drive so a caller
+    can compute the **ROI of outsourcing**: how long it took, what it did, and
+    how much it produced. Populated chassis-side by :func:`convertible.loop.run`
+    (the all-engines rule), so every engine fills it identically.
+
+    Token honesty (decision c11/c17): tokens live on :class:`Usage` and are taken
+    *verbatim* from the model response ``usage`` — never estimated. This model
+    reports no reasoning-token breakdown, so "thought vs written" is measured here
+    as exact **chars/bytes**, not tokens: ``reasoning_*`` is the model's
+    chain-of-thought (the separate ``message.reasoning`` field, generated but not
+    saved to a file), ``answer_*`` is ``message.content`` (the final answer), and
+    ``bytes_written`` is the exact UTF-8 byte count written to files via
+    ``write_file``. There is no tokenizer (zero runtime deps), so a reasoning /
+    written *token* count is deliberately not synthesised.
+
+    Fields
+    ------
+    request:
+        The originating task instruction (the request the drive answered).
+    started_at:
+        ISO-8601 UTC timestamp of when the loop began.
+    duration_seconds:
+        Wall-clock loop duration (monotonic delta), seconds.
+    model_turns:
+        Number of model turns (``complete`` calls) the loop ran.
+    step_count:
+        Number of tool-call steps recorded (mirrors ``len(steps)``).
+    tool_counts:
+        Per-tool call counts aggregated from ``steps`` (tool name → count).
+    files_changed:
+        Number of distinct files the drive wrote (mirrors ``len(changed_files)``).
+    bytes_written:
+        Total UTF-8 bytes written to files via ``write_file``, summed over the drive.
+    reasoning_chars / reasoning_bytes:
+        Length of all ``message.reasoning`` text generated (chain-of-thought
+        "thought" not saved to a file), in Unicode chars and UTF-8 bytes.
+    answer_chars / answer_bytes:
+        Length of all ``message.content`` text generated (the final answer), in
+        Unicode chars and UTF-8 bytes.
+    """
+
+    request: str = ""
+    started_at: str = ""
+    duration_seconds: float = 0.0
+    model_turns: int = 0
+    step_count: int = 0
+    tool_counts: dict[str, int] = field(default_factory=dict)
+    files_changed: int = 0
+    bytes_written: int = 0
+    reasoning_chars: int = 0
+    reasoning_bytes: int = 0
+    answer_chars: int = 0
+    answer_bytes: int = 0
+
+    def add_generated(self, *, reasoning: str = "", answer: str = "") -> None:
+        """Accumulate one turn's generated text into the char/byte counters.
+
+        Called once per model turn by the loop with that turn's
+        ``message.reasoning`` and ``message.content``. Char counts are Unicode
+        code points (``len``); byte counts are UTF-8 (``len(.encode("utf-8"))``).
+        """
+        self.reasoning_chars += len(reasoning)
+        self.reasoning_bytes += len(reasoning.encode("utf-8"))
+        self.answer_chars += len(answer)
+        self.answer_bytes += len(answer.encode("utf-8"))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request": self.request,
+            "started_at": self.started_at,
+            "duration_seconds": self.duration_seconds,
+            "model_turns": self.model_turns,
+            "step_count": self.step_count,
+            "tool_counts": dict(self.tool_counts),
+            "files_changed": self.files_changed,
+            "bytes_written": self.bytes_written,
+            "reasoning_chars": self.reasoning_chars,
+            "reasoning_bytes": self.reasoning_bytes,
+            "answer_chars": self.answer_chars,
+            "answer_bytes": self.answer_bytes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DriveStats":
+        return cls(
+            request=str(data.get("request", "")),
+            started_at=str(data.get("started_at", "")),
+            duration_seconds=float(data.get("duration_seconds", 0.0)),
+            model_turns=int(data.get("model_turns", 0)),
+            step_count=int(data.get("step_count", 0)),
+            tool_counts={str(k): int(v) for k, v in (data.get("tool_counts") or {}).items()},
+            files_changed=int(data.get("files_changed", 0)),
+            bytes_written=int(data.get("bytes_written", 0)),
+            reasoning_chars=int(data.get("reasoning_chars", 0)),
+            reasoning_bytes=int(data.get("reasoning_bytes", 0)),
+            answer_chars=int(data.get("answer_chars", 0)),
+            answer_bytes=int(data.get("answer_bytes", 0)),
+        )
+
+
+@dataclass
 class SubResult:
     """The result of one delegated sub-task driven by a nested child drive.
 
@@ -264,6 +369,12 @@ class TaskResult:
     changed_files: list[str] = field(default_factory=list)
     steps: list[Step] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
+    stats: DriveStats = field(default_factory=DriveStats)
+    """Always-on per-drive statistics (timing, tools used, bytes/chars produced).
+    Sits beside ``usage`` (exact API token counts); together they make a drive's
+    cost — and, with a feedback record, its ROI — readable from the artifact.
+    Unlike destination/sub_results this key is ALWAYS serialized (it is never
+    empty for a real drive); the e2e shape test pins it on every engine."""
     artifacts_path: Optional[str] = None
     error: Optional[str] = None
     branch: Optional[str] = None
@@ -296,6 +407,7 @@ class TaskResult:
             "changed_files": list(self.changed_files),
             "steps": [s.to_dict() for s in self.steps],
             "usage": self.usage.to_dict(),
+            "stats": self.stats.to_dict(),
             "artifacts_path": self.artifacts_path,
             "error": self.error,
             "branch": self.branch,
@@ -330,6 +442,7 @@ class TaskResult:
             changed_files=list(data.get("changed_files", [])),
             steps=[Step.from_dict(s) for s in data.get("steps", [])],
             usage=Usage.from_dict(data.get("usage", {})),
+            stats=DriveStats.from_dict(data.get("stats", {})),
             artifacts_path=data.get("artifacts_path"),
             error=data.get("error"),
             branch=data.get("branch"),

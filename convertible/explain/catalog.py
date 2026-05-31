@@ -430,6 +430,48 @@ Skills are never approval-gated (they are always ``accessible``).
 - ``convertible explain drive``
 """
 
+_FEEDBACK = """\
+# convertible feedback
+
+Grade a drive **after the fact** — the second half of the outsourcing-ROI loop.
+A drive's artifact already records what it *cost* (the always-on `stats` block:
+elapsed time, tokens read/generated, tools used, bytes written, reasoning-vs-answer
+sizes); `feedback` records how *good* it was. Together they let a caller — human
+or agent — decide whether outsourcing that task to convertible (and to which
+engine) paid off.
+
+A drive is named by its `task_id`, or the literal `last` for the most recent
+drive in the repo. Feedback is a **single record per drive** (re-grading
+overwrites), stored as `.convertible/<task_id>.feedback.json` beside the artifact.
+
+## Verbs
+
+- `feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]` —
+  write a 1-5 quality rating + notes. `--by` defaults to the resolved identity.
+- `feedback show <id|last> [--repo P] [--json]` — read a drive's feedback. An
+  ungraded drive reads back as `no feedback yet` (a clean state, exit 0 — not an error).
+- `feedback overview` — describe this surface.
+
+## Usage
+
+    convertible feedback record last --rating 4 --notes "correct but verbose"
+    convertible feedback record 9f2c1ab0 --rating 5 --repo . --json
+    convertible feedback show last --repo .
+
+## Record shape
+
+    {"task_id": "...", "rating": 4, "notes": "...", "by": "...", "at": "<ISO-8601>"}
+
+`rating` must be an integer 1-5. There is no tokenizer, so the artifact's
+reasoning/written sizes are exact chars/bytes, never estimated tokens — see
+`convertible explain drive` for the stats block.
+
+## See also
+
+- `convertible explain drive`
+- `convertible explain outsource`
+"""
+
 _TELEMETRY = """\
 # convertible telemetry
 
@@ -454,6 +496,7 @@ a one-line stderr notice — it never fails the drive.
 - spans: `convertible.drive` (root) -> `convertible.tool.*` (per tool call) plus
   `convertible.handoff`.
 - metrics: `convertible.steps`, `convertible.tokens` (attr `kind`),
+  `convertible.generated.chars` (attr `kind`=reasoning|answer), `convertible.bytes_written`,
   `convertible.tool.latency`, `convertible.tool.calls`, `convertible.hook.denials`,
   `convertible.drive.duration` (attr `status`).
 
@@ -606,6 +649,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("skills", "list"): _SKILLS,
     ("skills", "overview"): _SKILLS,
     ("approve",): _APPROVE,
+    ("feedback",): _FEEDBACK,
+    ("feedback", "record"): _FEEDBACK,
+    ("feedback", "show"): _FEEDBACK,
+    ("feedback", "overview"): _FEEDBACK,
     ("telemetry",): _TELEMETRY,
     ("telemetry", "status"): _TELEMETRY,
     ("telemetry", "overview"): _TELEMETRY,

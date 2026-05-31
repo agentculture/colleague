@@ -6,11 +6,12 @@ description: >
   (e.g. a local vLLM Qwen) — and fold its answer back. The point isn't a stronger
   model; it's a different mind, and diversity helps: `outsource review` gets an
   independent second opinion on a diff, `outsource explore` gets a fresh read of
-  an area, `outsource write` delegates a small implementation. Use when the user
-  says "outsource this", "get a second opinion", "have convertible review/explore/
-  write", "ask the other model", or when you want a diverse perspective rather
-  than just doing it yourself. Read-only verbs (explore/review) run isolated in a
-  throwaway git worktree and cannot touch the working tree.
+  an area, `outsource write` delegates a small implementation, and `outsource
+  feedback` grades a finished drive (the ROI loop). Use when the user says
+  "outsource this", "get a second opinion", "have convertible review/explore/
+  write", "ask the other model", "rate that drive", or when you want a diverse
+  perspective rather than just doing it yourself. Read-only verbs (explore/review)
+  run isolated in a throwaway git worktree and cannot touch the working tree.
 ---
 
 # outsource — use convertible as a different mind
@@ -44,6 +45,7 @@ else an install hint.
 | `explore "<question or area>"` | Read-only investigation of the repo; the model reads and reports findings. | **None** — runs in a throwaway worktree at HEAD. |
 | `review "<what to focus on>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; reviews committed changes only. |
 | `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a drive branch in place; `--pr` pushes + opens a PR. | **None** by default (preview); a `convertible/<id>` drive branch / PR only with `--apply` / `--pr`. |
+| `feedback <id\|last> [--rating N]` | **Grade a finished drive** (the ROI loop). With `--rating N` (1–5, plus `--notes`) it records feedback; without, it shows the drive's existing feedback. `last` resolves the most recent drive in `--repo`. | Writes `.convertible/<id>.feedback.json` only when `--rating` is given; read-only otherwise. |
 
 ### Options
 
@@ -58,6 +60,9 @@ else an install hint.
 | `--apply` | (`write`) apply the change in place (drive branch) instead of previewing. |
 | `--allow-dirty` | (`write`) allow running on a dirty tree (only matters with `--apply` / `--pr`). |
 | `--pr` | (`write`) push + open a PR instead of a local drive branch (implies `--apply`). |
+| `--rating N` | (`feedback`) record a 1–5 quality rating for the drive. |
+| `--notes "..."` | (`feedback`) free-text notes stored with the rating. |
+| `--by NAME` | (`feedback`) who is grading (default: convertible's resolved identity). |
 
 The result printed to stdout is the drive's `TaskResult.summary` (plus
 `changed_files` / drive branch for `write`), parsed from `convertible drive
@@ -75,6 +80,13 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   diff without touching your tree); pass `--apply` to land it on a
   `convertible/<id>` drive branch you can inspect, merge, or discard, or `--pr` to
   open a PR.
+- **feedback** — *after* an outsourced drive, close the loop: record how good it
+  was. Every drive's artifact already carries always-on **stats** (elapsed time,
+  tokens read/generated, tools used, bytes written, reasoning-vs-answer sizes);
+  `feedback` adds a 1–5 quality grade. Stats say what it *cost*, feedback says how
+  *good* it was — together they let you compute the **ROI of outsourcing** and
+  decide whether to outsource again (and to which engine). Grade the most recent
+  drive with `outsource feedback last --rating 4 --notes "…"`.
 
 ## Hard rules (do not violate)
 

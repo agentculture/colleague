@@ -9,6 +9,7 @@
 #   outsource explore "<question or area>"   read-only investigation -> findings
 #   outsource review  "<what to focus on>"   diverse second-opinion on the diff
 #   outsource write   "<task>" [--apply]     implement a change (preview by default)
+#   outsource feedback <id|last> --rating N  grade a past drive (ROI loop); no rating -> show
 #
 # explore/review run in a throwaway `git worktree` at HEAD, so they can never
 # touch your working tree or branch (any stray write is discarded). write also
@@ -57,6 +58,7 @@ Usage:
   outsource explore "<question or area>"     Read-only investigation -> findings (no side effects)
   outsource review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
   outsource write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
+  outsource feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
 
 Options:
   --repo PATH        Target repo (default: .)
@@ -69,21 +71,26 @@ Options:
   --apply            (write) apply the change in place (drive branch) instead of previewing
   --allow-dirty      (write) allow running on a dirty tree (only with --apply/--pr)
   --pr               (write) push + open a PR instead of a local drive branch (implies --apply)
+  --rating N         (feedback) record a 1-5 quality rating for the drive
+  --notes "..."      (feedback) free-text notes to store with the rating
+  --by NAME          (feedback) who is grading (default: convertible's resolved identity)
 
 explore/review run in a throwaway git worktree at HEAD — they cannot touch your
 working tree or branch. review compares <base>...HEAD (committed changes only).
 write previews in a throwaway worktree too unless --apply (or --pr) is given.
+feedback grades a finished drive: stats (in the artifact) say what it cost,
+feedback says how good it was — together, the ROI of outsourcing.
 EOF
 }
 
 # ── parse the verb ──────────────────────────────────────────────────────────
 VERB="${1:-}"
 case "$VERB" in
-    explore | review | write) shift ;;
+    explore | review | write | feedback) shift ;;
     -h | --help) usage; exit 0 ;;
     "") usage >&2; exit 2 ;;
     *)
-        echo "error: unknown verb '$VERB' (expected explore|review|write)" >&2
+        echo "error: unknown verb '$VERB' (expected explore|review|write|feedback)" >&2
         echo "hint: run 'outsource --help'" >&2
         exit 2
         ;;
@@ -126,6 +133,9 @@ TIMEOUT="${CONVERTIBLE_TIMEOUT:-300}"
 ALLOW_DIRTY=0
 APPLY=0
 OPEN_PR=0
+RATING=""
+NOTES=""
+BY=""
 ARG=""
 
 while [[ $# -gt 0 ]]; do
@@ -140,6 +150,9 @@ while [[ $# -gt 0 ]]; do
         --apply) APPLY=1; shift ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
+        --rating) need_value "$#" "$1"; RATING="$2"; shift 2 ;;
+        --notes) need_value "$#" "$1"; NOTES="$2"; shift 2 ;;
+        --by) need_value "$#" "$1"; BY="$2"; shift 2 ;;
         -h | --help) usage; exit 0 ;;
         --) shift; while [[ $# -gt 0 ]]; do ARG="${ARG:+$ARG }$1"; shift; done ;;
         -*) echo "error: unknown option '$1'" >&2; echo "hint: run 'outsource --help'" >&2; exit 2 ;;
@@ -333,8 +346,29 @@ run_write() {
     printf '%s' "$out" | print_result
 }
 
+# ── feedback verb: grade a finished drive (the ROI loop) ────────────────────
+# A thin pass-through to `convertible feedback`: with --rating it records a 1-5
+# grade + notes; without, it shows the drive's existing feedback. The ref is the
+# drive's task-id, or `last` for the most recent drive in --repo. No worktree,
+# no engine — convertible owns the store and its own stdout/stderr/exit code.
+run_feedback() {
+    local ref="$1"
+    # Build one command array (never empty) so we don't expand an empty array
+    # under `set -u` — the optional --by is appended only when set.
+    local cmd=("${CONVERTIBLE[@]}" feedback)
+    if [[ -n "$RATING" ]]; then
+        cmd+=(record "$ref" --rating "$RATING" --notes "$NOTES")
+        [[ -n "$BY" ]] && cmd+=(--by "$BY")
+    else
+        cmd+=(show "$ref")
+    fi
+    cmd+=(--repo "$REPO")
+    "${cmd[@]}"
+}
+
 case "$VERB" in
     explore) run_readonly "$(render_prompt explore)" ;;
     review) run_readonly "$(render_prompt review)" ;;
     write) run_write "$(render_prompt write)" ;;
+    feedback) run_feedback "$ARG" ;;
 esac

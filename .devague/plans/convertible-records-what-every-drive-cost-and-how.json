@@ -1,0 +1,327 @@
+{
+  "slug": "convertible-records-what-every-drive-cost-and-how",
+  "title": "You can now calculate the ROI of outsourcing to convertible: every drive reports time, tokens spent (read + generated), tokens/bytes written, and an attachable quality grade -- together enough to retro and evaluate whether outsourcing a task to convertible paid off.",
+  "frame_slug": "convertible-records-what-every-drive-cost-and-how",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-05-31T14:56:25Z",
+  "updated": "2026-05-31T15:03:08Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "You can now calculate the ROI of outsourcing to convertible: every drive reports time, tokens spent (read + generated), tokens/bytes written, and an attachable quality grade -- together enough to retro and evaluate whether outsourcing a task to convertible paid off."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "after the feature ships, a real model-gear drive's artifact shows populated stats AND 'convertible feedback' can grade that drive by its task-id or 'last'"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "agents and humans who run 'convertible drive' (incl. via the outsource skill) and want to know what a drive cost and grade its quality"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "both a human (readable artifact JSON) and an agent (the outsource skill) can consume the stats + feedback with no extra tooling"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "every drive's artifact JSON carries rich always-on stats (request, tokens read, total generated tokens, tools used, elapsed time, turns, files changed, bytes written, reasoning vs answer char counts); and a caller can attach feedback to a drive by task-id or 'last', persisted beside the artifact"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "after a drive the artifact JSON contains a populated stats block, and a feedback record can be attached and read back for that task-id"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "today the artifact carries only usage (prompt/completion/total tokens) and a steps trace: no elapsed time, no tools-used aggregate, no bytes-written, no request copy, no reasoning capture, and no way to record how good a drive was"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "today's pre-feature artifact demonstrably lacks elapsed time, tools-used aggregate, bytes-written, request copy, reasoning capture, and feedback (verifiable from current TaskResult.to_dict)"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "drives become a gradeable, learnable record: stats show what happened, feedback shows how good it was, so callers (and future routing) can compare engines/models on real cost and quality"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "two drives of the same task on different engines are comparable on cost (time+tokens+bytes) and quality (rating) from their artifacts + feedback alone"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not a tokenizer (zero runtime deps): token counts are only what the model API reports; reasoning is measured as chars/bytes, never estimated as tokens. Not a new read-back 'stats' noun, not a router/gearbox, not a daemon/socket/sandbox"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "no tokenizer/third-party dep is added (zero-deps test green) and no stats read-noun, router, daemon, socket, or sandbox appears in the diff"
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "a real vllm-openai drive against model-gear writes an artifact with populated stats incl. non-zero reasoning chars; 'convertible feedback last --rating ...' writes a feedback record linked to that drive; mock and vllm-openai produce identical result shape; zero-deps + e2e-shape tests stay green"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "e2e mock-shape + zero-deps tests pass; a live model-gear drive shows reasoning_chars>0; 'convertible feedback last' writes and reads back a record"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Part A: drive statistics are ALWAYS-ON in the artifact (no flag), captured chassis-side in loop.py/execute_drive/contract and mirrored into optional OTel as a strict no-op when off; holds identically for mock and vllm-openai"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "with stats disabled-by-absence impossible (always-on), a no-op drive's artifact still round-trips through TaskResult.to_dict/from_dict and the e2e mock-shape test passes after updating its pinned key-set"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "tests/test_zero_deps.py stays green: no new third-party import is added outside the lazy telemetry/_otel.py"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Part B: a 'convertible feedback' CLI verb records and reads feedback for a drive by task-id or 'last', stored as stdlib JSON beside the artifact with a per-repo last-drive pointer; surfaced as an 'outsource feedback' skill verb; supports --json, overview, and an explain catalog entry"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "'convertible feedback' follows agent-first conventions: results to stdout, diagnostics to stderr, --json supported, an 'overview' verb on the noun, and an explain catalog entry added"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "feedback persists to a stdlib JSON file under the repo artifact dir keyed by task-id, with a 'last' pointer that resolves the most recent drive in that repo; absent store is a clean no-op"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "vllm-openai engine captures message.reasoning (currently discarded): per-turn it records reasoning char/byte length and answer char/byte length, threaded ModelResponse -> loop -> stats; mock engine mirrors the same fields for shape parity"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "for model-gear, a captured drive shows reasoning_chars > 0 and answer_chars matching message.content length; mock yields deterministic non-API values for the same fields so the e2e shape test is engine-agnostic"
+    },
+    {
+      "id": "c18",
+      "kind": "why_it_matters",
+      "text": "the four signals together -- wall-clock time, tokens spent (read+generated), bytes/tokens written, and a 1-5 quality grade -- make outsourcing measurable: a caller can retro a delegated task's ROI from one drive's artifact + feedback alone and decide whether to outsource again and to which engine"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "an outsourcing retro/ROI is computable from a single drive's artifact + its feedback record alone (time + tokens + written-bytes + rating), needing no external data"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Contract: DriveStats dataclass + TaskResult.stats with JSON round-trip",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "DriveStats holds request, started_at, duration_seconds, model_turns, step_count, tool_counts(dict), files_changed, bytes_written, reasoning_chars, reasoning_bytes, answer_chars, answer_bytes",
+        "TaskResult.stats serializes via to_dict and from_dict round-trips to an equal object; from_dict tolerates a missing 'stats' block (back-compat)"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h1"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Engines: ModelResponse reasoning/answer capture + vllm parse + mock parity",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "vllm _parse_response reads message.reasoning AND message.content; tokens taken exactly from usage (prompt/completion/total), optional fields default 0",
+        "unit test parses a model-gear-shaped response (usage without completion_tokens_details) and asserts reasoning length==len(message.reasoning) and answer length==len(message.content)",
+        "mock engine yields deterministic reasoning/answer values so the e2e shape test is engine-agnostic"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h5"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "ToolExecutor: accumulate UTF-8 bytes_written from write_file",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ToolExecutor exposes a bytes_written total summing UTF-8 byte length of write_file content; non-write tools leave it unchanged; unit test asserts the count"
+      ],
+      "deps": [],
+      "covers": [
+        "c8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "feedback.py: stdlib JSON store (single record per drive) + last-drive pointer",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "write_feedback overwrites <task_id>.feedback.json with {task_id,rating(1-5),notes,by,at}; read returns it or an explicit no-feedback sentinel (not an error) when absent",
+        "set/get last-drive pointer resolves the most recent drive in the repo; rating outside 1-5 rejected; round-trip unit test"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h4"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Loop: time the drive + aggregate tool_counts + snapshot bytes/reasoning into DriveStats",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "run() records started_at(ISO) and duration_seconds(monotonic delta); tool_counts aggregated from result.steps; bytes_written snapshotted from the executor; reasoning/answer char+byte lengths summed across turns; TaskResult.stats populated",
+        "existing loop tests pass; a no-op drive still produces a valid populated stats block"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c8",
+        "c3",
+        "h1",
+        "h11"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "CLI: convertible feedback noun (record/show/overview) + register + explain",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "feedback record <id|last> --rating N --notes ... writes; feedback show <id|last> reads; feedback overview describes the noun; --json on every verb; stdout for results, stderr for diagnostics; bad rating raises CliError (no traceback)",
+        "verb registered in cli/__init__.py and an explain catalog entry added for feedback"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c9",
+        "h3",
+        "h6",
+        "c1"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "execute_drive: capture request + update last-drive pointer after artifact write",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "stats.request == task.instruction; after write(result) the last-drive pointer is set to result.task_id; session path inherits via shared execute_drive (no parallel code path)"
+      ],
+      "deps": [
+        "t5",
+        "t4"
+      ],
+      "covers": [
+        "c3",
+        "h11"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Telemetry: mirror reasoning chars/bytes + bytes_written metrics; stay strict no-op",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_otel _build_state defines metrics for reasoning chars/bytes and bytes_written, recorded chassis-side; telemetry off = strict no-op (no spans/import, TaskResult shape unchanged)",
+        "tests/test_zero_deps.py green: no third-party import outside lazy _otel.py; no new read-noun/router/daemon/socket/sandbox in the diff"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "h2",
+        "c6",
+        "h14"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "outsource skill: add 'outsource feedback <id|last>' verb over convertible feedback",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "outsource feedback <id|last> --rating N --notes '...' shells to convertible feedback; SKILL.md documents the verb; test_outsource_skill.py covers the new path"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c2",
+        "h10"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "Finalize: e2e shape + before/after + ROI comparability + docs + version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_e2e_mock.py pinned key-sets updated for the always-on stats block and pass; mock and vllm-openai produce identical result shape",
+        "a test asserts ROI inputs (duration, tokens, bytes_written, rating) are all readable from one artifact + its feedback (h9/h13); pre-feature before-state (h12) verified",
+        "opt-in live model-gear smoke documented: a real vllm-openai drive shows reasoning_chars>0 and 'feedback last' writes+reads (h6/h15)",
+        "CLAUDE.md chassis bullet + conventions, docs/features entry, CHANGELOG entry, and version bump (version-check CI) present"
+      ],
+      "deps": [
+        "t5",
+        "t7",
+        "t6",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c4",
+        "c5",
+        "c7",
+        "c18",
+        "h6",
+        "h9",
+        "h12",
+        "h13",
+        "h15"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "persist full reasoning TEXT in the artifact (v0 = char/byte lengths only)",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "roll up sub_results stats into a parent total (v0 = nested-only, matching usage)",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

@@ -164,6 +164,12 @@ class Telemetry:
     def on_completion(self, prompt_tokens: int, completion_tokens: int) -> None:
         """No-op: token counts are dropped when telemetry is disabled."""
 
+    def on_generated(self, *, reasoning: str = "", answer: str = "") -> None:
+        """No-op: generated reasoning/answer sizes are dropped when disabled."""
+
+    def on_bytes_written(self, n_bytes: int) -> None:
+        """No-op: the bytes-written total is dropped when telemetry is disabled."""
+
     def on_hook_denial(self) -> None:
         """No-op: hook-denial counts are dropped when telemetry is disabled."""
 
