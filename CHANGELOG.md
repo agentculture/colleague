@@ -15,8 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   config file**, how to point `vllm-openai` at any OpenAI-compatible server, and
   a recipe to keep `CONVERTIBLE_MODEL` auto-synced to a locally-served model
   (generic `/v1/models` lookup, plus model-gear's `model whoami`). Notes that
-  subagents inherit the parent model. Linked from `engines.md`. Docs only — no
-  behavior change.
+  subagents inherit the parent model. Linked from `engines.md` and listed in the
+  features index (`docs/features/README.md`). Docs only — no behavior change.
 
 ## [0.16.0] - 2026-05-30
 

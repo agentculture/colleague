@@ -18,14 +18,21 @@ The engine name resolves in `convertible/config.py` (`resolve_engine`):
 ```
 
 The provider config resolves in `EngineConfig.resolve` (`convertible/config.py`),
-each field independently, first non-empty wins (empty/whitespace falls through to
-the next source):
+each field independently: an explicit flag value wins if given, else the first
+**set, non-empty** environment variable, else the default.
 
 | Field | Flag | Environment (checked in order) | Default |
 |-------|------|--------------------------------|---------|
 | model | `--model` | `CONVERTIBLE_MODEL` | `Qwen/Qwen3-32B` |
 | base_url | `--base-url` | `CONVERTIBLE_BASE_URL`, `OPENAI_BASE_URL` | `http://localhost:8001/v1` |
 | api_key | `--api-key` | `CONVERTIBLE_API_KEY`, `OPENAI_API_KEY` | `EMPTY` |
+
+Resolution is **literal, not sanitizing** (`_pick`): a flag value is used
+verbatim even when empty — `--model ''` resolves to an empty model, it does *not*
+fall through — and a whitespace-only environment value is taken as-is (it is not
+stripped). Only the **engine name** (`resolve_engine`) treats a blank/whitespace
+candidate as absent and strips it. So set the model to a real served name; don't
+rely on a blank value falling back to the default.
 
 **There is no persistent model config file.** The repo-level `.convertible/`
 directory configures identity, hooks, neighbours, approvals, command templates,
@@ -64,7 +71,10 @@ server `data[0]` is unambiguous):
 ```bash
 # Always target whatever the local server is serving right now.
 convertible() {
-  local served
+  local served t
+  for t in curl python3; do
+    command -v "$t" >/dev/null 2>&1 || { echo "convertible: missing required tool: $t" >&2; return 127; }
+  done
   served=$(curl -s --max-time 5 "${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}/models" \
            | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null)
   [ -n "$served" ] && export CONVERTIBLE_MODEL="$served"
@@ -80,7 +90,10 @@ deployments:
 ```bash
 # convertible always drives whatever model-gear is currently serving.
 convertible() {
-  local served port
+  local served port t
+  for t in model awk; do
+    command -v "$t" >/dev/null 2>&1 || { echo "convertible: missing required tool: $t" >&2; return 127; }
+  done
   read -r served port < <(model whoami 2>/dev/null | awk '/served_model:/{print $2, $4}')
   if [ -z "$served" ]; then
     echo "convertible: warning — could not read served model from 'model whoami';" \
