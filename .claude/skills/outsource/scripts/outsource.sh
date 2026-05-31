@@ -241,6 +241,11 @@ _cleanup_worktree() {
     if [[ "$_DRIVE_BRANCH" == convertible/* ]]; then
         git -C "$REPO" branch -D "$_DRIVE_BRANCH" >/dev/null 2>&1 || true
     fi
+    # Defensive: clear the handles so a re-entry is a clean no-op. The EXIT trap
+    # fires once today, but this keeps cleanup idempotent against future refactors
+    # (dogfood-review suggestion, #61).
+    _WT=""
+    _DRIVE_BRANCH=""
 }
 
 # Extract the drive branch (convertible/<id>) from a TaskResult JSON on stdin.
