@@ -21,6 +21,7 @@ boundary — what is deliberately *not* built — is restated under
 |---------|-----|----------|-------------|
 | Drive & the tool-loop | [drive-and-loop.md](drive-and-loop.md) | Chassis + Tool-loop | `drive` |
 | Engines & wheels | [engines.md](engines.md) | Engine + Driver + Wheels | `wheels list`, `--engine` |
+| Model & endpoint selection | [model-selection.md](model-selection.md) | Engine config (model + endpoint) | `--model`, `--base-url`, env |
 | Git/PR handoff | [handoff.md](handoff.md) | Handoff | `drive` (`--no-pr`, `--base`) |
 | Result artifact | [artifact.md](artifact.md) | Dashboard | written by `drive` |
 | Command templates | [command-templates.md](command-templates.md) | Command templates | `commands`, `drive --command` |
