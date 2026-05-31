@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -35,9 +36,31 @@ LAST_DRIVE_FILENAME = "last_drive"
 MIN_RATING = 1
 MAX_RATING = 5
 
+#: A drive id must be a single safe path segment. Real ids are uuid hex, but the
+#: CLI accepts an arbitrary ``ref`` (``resolve_task_id`` passes explicit refs
+#: through unchanged), so the id is validated before it is joined into a filename.
+_SAFE_TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
 
 class FeedbackError(Exception):
     """A feedback operation that cannot be honored (bad rating, unresolvable id)."""
+
+
+def _validate_task_id(task_id: str) -> str:
+    """Reject a task-id that is not a single safe path segment (traversal guard).
+
+    ``feedback_path`` joins the id into a filename and the CLI accepts an
+    arbitrary ``ref``, so a value like ``../../x`` or ``/etc/passwd`` could
+    otherwise escape the artifact directory on read/write. The allow-list (no
+    path separators, no ``.``/``..``, not absolute) keeps real uuid-hex ids while
+    blocking traversal; an invalid id raises :class:`FeedbackError`.
+    """
+    if task_id in (".", "..") or not _SAFE_TASK_ID.match(task_id or ""):
+        raise FeedbackError(
+            f"invalid drive id {task_id!r}: expected a plain id "
+            "(letters, digits, '.', '_', '-'; no path separators)"
+        )
+    return task_id
 
 
 def _now_iso() -> str:
@@ -76,8 +99,13 @@ class Feedback:
 
 
 def feedback_path(repo_path: str | Path, task_id: str) -> Path:
-    """The feedback-record path for ``task_id`` (beside the drive artifact)."""
-    return artifact_dir(repo_path) / f"{task_id}.feedback.json"
+    """The feedback-record path for ``task_id`` (beside the drive artifact).
+
+    ``task_id`` is validated as a single safe path segment first — this is the
+    single chokepoint that protects both :func:`write_feedback` and
+    :func:`read_feedback` from path traversal via a user-supplied ref.
+    """
+    return artifact_dir(repo_path) / f"{_validate_task_id(task_id)}.feedback.json"
 
 
 def last_drive_path(repo_path: str | Path) -> Path:

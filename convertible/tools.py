@@ -317,10 +317,14 @@ class ToolExecutor:
             )
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        # newline="" disables newline translation so the on-disk bytes equal
+        # len(content.encode("utf-8")) on EVERY platform (default newline=None
+        # would rewrite "\n" -> "\r\n" on Windows, inflating the file and making
+        # bytes_written wrong). Keeps file writes byte-deterministic cross-platform.
+        path.write_text(content, encoding="utf-8", newline="")
         self.changed.add(rel)
-        # Accumulate exact UTF-8 bytes written (the on-disk size), summed across
-        # every write_file in the drive — snapshotted by the loop into DriveStats.
+        # Accumulate exact UTF-8 bytes written (== the on-disk size, given
+        # newline=""), summed across every write_file — snapshotted into DriveStats.
         n_bytes = len(content.encode("utf-8"))
         self.bytes_written += n_bytes
         return ToolOutcome(result=f"wrote {n_bytes} bytes to {rel}", changed_file=rel)

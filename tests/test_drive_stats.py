@@ -127,6 +127,19 @@ def test_executor_accumulates_utf8_bytes_written(tmp_path: Path) -> None:
     assert ex.bytes_written == 5
 
 
+def test_bytes_written_matches_on_disk_size_no_newline_translation(tmp_path: Path) -> None:
+    """bytes_written must equal the actual on-disk byte count (Qodo: no CRLF
+    translation). With newline="" the file bytes == len(content.encode('utf-8'))
+    on every platform, so the counter is exact."""
+    ex = ToolExecutor(tmp_path)
+    content = "line1\nline2\nline3\n"  # 3 LFs — default newline=None would inflate on Windows
+    ex.execute("write_file", {"path": "multi.txt", "content": content})
+    on_disk = (tmp_path / "multi.txt").read_bytes()
+    assert ex.bytes_written == len(content.encode("utf-8"))
+    assert ex.bytes_written == len(on_disk)  # exact match to what's on disk
+    assert b"\r\n" not in on_disk  # no newline translation
+
+
 # --- t5: the loop populates DriveStats on a real (mock) drive ---------------
 
 

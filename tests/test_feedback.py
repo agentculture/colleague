@@ -61,3 +61,25 @@ def test_resolve_task_id_last_and_explicit(tmp_path: Path) -> None:
 def test_resolve_last_with_no_pointer_raises(tmp_path: Path) -> None:
     with pytest.raises(FeedbackError):
         feedback.resolve_task_id(tmp_path, "last")
+
+
+@pytest.mark.parametrize(
+    "evil",
+    ["../escape", "../../etc/passwd", "/etc/passwd", "a/b", "a\\b", "..", ".", "", "-leading"],
+)
+def test_path_traversal_ids_are_rejected(tmp_path: Path, evil: str) -> None:
+    """A user-supplied ref must not escape the artifact dir (Qodo security finding)."""
+    with pytest.raises(FeedbackError):
+        feedback.write_feedback(tmp_path, evil, rating=3)
+    with pytest.raises(FeedbackError):
+        feedback.read_feedback(tmp_path, evil)
+    # And nothing was written outside the artifact dir.
+    assert not (tmp_path / "escape.feedback.json").exists()
+    assert not (tmp_path.parent / "escape.feedback.json").exists()
+
+
+def test_valid_uuid_hex_id_is_accepted(tmp_path: Path) -> None:
+    """The real id shape (uuid hex) must still pass the traversal guard."""
+    fb = feedback.write_feedback(tmp_path, "9f2c1ab0e4d1", rating=5)
+    assert fb.task_id == "9f2c1ab0e4d1"
+    assert feedback.read_feedback(tmp_path, "9f2c1ab0e4d1") == fb
