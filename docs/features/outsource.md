@@ -21,7 +21,7 @@ this one is **authored here** — convertible is its origin (see
 |------|--------------|--------------|
 | `explore "<question or area>"` | Read-only investigation; the model reads and reports findings. | **None** — runs in a throwaway `git worktree` at HEAD. |
 | `review "<focus>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; committed changes only. |
-| `write "<task>" [--pr]` | Implement a change. | A `convertible/<id>` drive branch (or a PR with `--pr`). |
+| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default**; `--apply` lands it, `--pr` opens a PR. | **None** by default (preview in a throwaway worktree); a `convertible/<id>` drive branch with `--apply` (or a PR with `--pr`). |
 
 Each verb builds an instruction from a prompt template
 (`prompts/{explore,review,write}.md`), runs `convertible drive --json`, and
@@ -38,7 +38,8 @@ Common options: `--repo PATH` (default `.`), `--base BRANCH` (review base,
 default `main`), `--engine` / `--model` / `--base-url` (default the local 27B,
 overridable via flags or `CONVERTIBLE_*` env), `--max-steps N` (default 20),
 `--timeout N` (per-request seconds, default 300 — a local model can be slow on a
-growing context), `--allow-dirty` / `--pr` (write only).
+growing context), `--apply` / `--allow-dirty` / `--pr` (write only — `write`
+previews unless `--apply` or `--pr` is given).
 
 ### explore (read-only)
 
@@ -53,10 +54,32 @@ status: ok
 The drive ran entirely in a throwaway worktree — `git status`, the current
 branch, and the worktree list are byte-for-byte identical before and after.
 
-### write
+### write (previews by default)
+
+Without `--apply`, `write` runs the change in a throwaway worktree and prints the
+would-be diff — nothing touches your working tree:
 
 ```text
-$ outsource write "create greet.py with a function greet(name) returning 'hi, ' + name" --repo /tmp/demo
+$ outsource write "create greet.py with greet(name) returning 'hi, ' + name" --repo /tmp/demo
+status: ok
+
+Created greet.py with a single function greet(name) that returns 'hi, ' + name.
+
+changed files: greet.py
+
+--- preview diff (NOT applied — pass --apply to land it) ---
+diff --git a/greet.py b/greet.py
+new file mode 100644
++++ b/greet.py
++def greet(name):
++    return "hi, " + name
+```
+
+Pass `--apply` to land it on a `convertible/<id>` drive branch you can inspect,
+merge, or discard (or `--pr` to push + open a PR):
+
+```text
+$ outsource write "create greet.py with greet(name) …" --repo /tmp/demo --apply
 status: ok
 
 Created greet.py with a single function greet(name) that returns 'hi, ' + name.
@@ -64,8 +87,6 @@ Created greet.py with a single function greet(name) that returns 'hi, ' + name.
 changed files: greet.py
 drive branch: convertible/3acc192d27e1
 ```
-
-The change landed on a drive branch you can inspect, merge, or discard.
 
 ### review — the headline verb
 
@@ -98,9 +119,11 @@ now covers exactly that path. A different mind earned its keep.
   HEAD, so a stray write can't reach your working tree or branch, and the worktree
   (plus any drive branch) is removed afterwards. The prompts also instruct the
   model not to modify anything.
-- **`write` refuses a dirty tree** unless `--allow-dirty` — this guards the
-  dirty-tree hazard (`convertible drive --no-pr` commits *uncommitted* edits onto
-  the drive branch and leaves you there). Commit or stash first.
+- **`write` previews by default** (isolated worktree, safe even on a dirty tree).
+  **Applying** (`--apply` / `--pr`) **refuses a dirty tree** unless `--allow-dirty`
+  — this guards the dirty-tree hazard (`convertible drive --no-pr` commits
+  *uncommitted* edits onto the drive branch and leaves you there). Commit or stash
+  first before applying.
 
 ## Honest limits
 

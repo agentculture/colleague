@@ -43,7 +43,7 @@ else an install hint.
 |------|--------------|--------------|
 | `explore "<question or area>"` | Read-only investigation of the repo; the model reads and reports findings. | **None** — runs in a throwaway worktree at HEAD. |
 | `review "<what to focus on>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; reviews committed changes only. |
-| `write "<task>" [--pr]` | Implement a change. Commits to a drive branch by default; `--pr` pushes + opens a PR. | In-place: a `convertible/<id>` drive branch (or a PR). |
+| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a drive branch in place; `--pr` pushes + opens a PR. | **None** by default (preview); a `convertible/<id>` drive branch / PR only with `--apply` / `--pr`. |
 
 ### Options
 
@@ -55,8 +55,9 @@ else an install hint.
 | `--model NAME` | Model (default: `$CONVERTIBLE_MODEL` or `mmangkad/Qwen3.6-27B-NVFP4`). |
 | `--base-url URL` | OpenAI base URL (default: `$CONVERTIBLE_BASE_URL` or `http://localhost:8001/v1`). |
 | `--max-steps N` | Loop step budget (default: 20). |
-| `--allow-dirty` | (`write`) allow running on a dirty tree. |
-| `--pr` | (`write`) push + open a PR instead of a local drive branch. |
+| `--apply` | (`write`) apply the change in place (drive branch) instead of previewing. |
+| `--allow-dirty` | (`write`) allow running on a dirty tree (only matters with `--apply` / `--pr`). |
+| `--pr` | (`write`) push + open a PR instead of a local drive branch (implies `--apply`). |
 
 The result printed to stdout is the drive's `TaskResult.summary` (plus
 `changed_files` / drive branch for `write`), parsed from `convertible drive
@@ -69,8 +70,11 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   Treat the output as a second opinion to weigh, not a verdict.
 - **explore** — you want a fresh, unbiased read of an unfamiliar area ("how does
   X work here?") without anchoring on your own assumptions.
-- **write** — a small, well-scoped implementation you're happy to delegate. The
-  result lands on a drive branch you can inspect, merge, or discard.
+- **write** — a small, well-scoped implementation you're happy to delegate. It
+  **previews by default** (runs in a throwaway worktree and prints the would-be
+  diff without touching your tree); pass `--apply` to land it on a
+  `convertible/<id>` drive branch you can inspect, merge, or discard, or `--pr` to
+  open a PR.
 
 ## Hard rules (do not violate)
 
@@ -78,9 +82,12 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   at HEAD, so a stray write can't reach your working tree or branch; the prompts
   also tell the model not to modify anything. Don't route a change-making task
   through them — use `write`.
-- **`write` refuses a dirty tree** unless you pass `--allow-dirty`. This guards
-  the dirty-tree hazard: `convertible drive --no-pr` commits *uncommitted* edits
-  onto the drive branch and leaves you there. Commit or stash first.
+- **`write` previews by default; applying refuses a dirty tree.** A preview runs
+  in an isolated worktree and never touches your tree, so it is safe even when
+  dirty. `--apply` / `--pr` (the in-place path) refuses a dirty tree unless you
+  pass `--allow-dirty` — this guards the dirty-tree hazard: `convertible drive
+  --no-pr` commits *uncommitted* edits onto the drive branch and leaves you there.
+  Commit or stash first before applying.
 - **Outsourced output is a second opinion, not authority.** The engine may be a
   smaller/different model; weigh its findings, verify its claims, and own the
   decision yourself.

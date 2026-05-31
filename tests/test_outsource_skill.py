@@ -9,6 +9,7 @@ dogfooding, not in CI.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -22,13 +23,57 @@ VERBS = ("explore", "review", "write")
 
 
 def _render(name: str, arg: str, base: str) -> str:
-    """Mirror the wrapper's render_prompt substitution."""
+    """Mirror the wrapper's render_prompt single-pass substitution."""
     tpl = (PROMPTS / f"{name}.md").read_text(encoding="utf-8")
-    return tpl.replace("$ARGUMENTS", arg).replace("$BASE", base)
+    repl = {"$ARGUMENTS": arg, "$BASE": base}
+    return re.compile(r"\$ARGUMENTS|\$BASE").sub(lambda m: repl[m.group(0)], tpl)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, check=False)
+
+
+def _init_repo(path: Path) -> Path:
+    """Create a git repo with a single empty commit (HEAD to worktree from)."""
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(path),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "init",
+        ],
+        check=True,
+    )
+    return path
+
+
+def _fake_convertible(bindir: Path, body: str) -> dict[str, str]:
+    """Drop a stub `convertible` on a fresh PATH and return the env to run with."""
+    bindir.mkdir(parents=True, exist_ok=True)
+    fake = bindir / "convertible"
+    fake.write_text(body)
+    fake.chmod(0o755)
+    return {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+
+
+def _worktree_count(repo: Path) -> int:
+    out = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "list"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return len([ln for ln in out.splitlines() if ln.strip()])
 
 
 def test_skill_layout_exists() -> None:
@@ -71,6 +116,14 @@ def test_help_documents_the_default_model() -> None:
     assert "mmangkad/Qwen3.6-27B-NVFP4" in r.stdout
 
 
+def test_help_documents_preview_by_default_and_apply() -> None:
+    """write previews by default (#1); the --apply opt-in must be discoverable."""
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "--apply" in r.stdout
+    assert "preview by default" in r.stdout
+
+
 def test_unknown_verb_errors_with_hint() -> None:
     r = _run("frobnicate", "x")
     assert r.returncode == 2
@@ -101,7 +154,8 @@ def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
     """End-to-end wrapper path (resolve -> render -> drive -> print_result) with a
     stubbed `convertible` that echoes a canned TaskResult. Guards the result
     extraction (in particular: print_result must read the piped JSON from stdin,
-    not have it shadowed by a heredoc)."""
+    not have it shadowed by a heredoc). Uses --apply to exercise the in-place
+    write path now that `write` previews by default."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     fake = bindir / "convertible"
@@ -135,7 +189,7 @@ def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
 
     env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
     r = subprocess.run(
-        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo)],
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply"],
         capture_output=True,
         text=True,
         env=env,
@@ -203,3 +257,139 @@ def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
     assert r.returncode == 0, r.stderr
     assert "READONLY_OK" in r.stdout
     assert _wt_count() == before, "worktree leaked — run_readonly did not clean up"
+
+
+# ── issue #61: downstream qodo findings ─────────────────────────────────────
+
+
+def test_render_preserves_literal_base_in_argument() -> None:
+    """A literal `$BASE` inside the user's argument must survive (#6): single-pass
+    substitution must not re-scan injected text. The old two-pass `.replace`
+    clobbered it to the base value."""
+    out = _render("explore", "describe the $BASE token literally", "main")
+    assert "$BASE token literally" in out
+    assert "main token literally" not in out
+
+
+def test_literal_base_in_argument_survives_through_the_script(tmp_path) -> None:
+    """Script-level guard for #6: stub `convertible` echoes the rendered drive
+    instruction back as its summary, so we can assert a literal `$BASE` in the
+    argument reaches the model verbatim instead of being rewritten to `main`."""
+    env = _fake_convertible(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        'python3 -c "import json,sys; '
+        "print(json.dumps({'status':'ok','summary':sys.argv[1],'changed_files':[]}))\" \"$2\"\n",
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            "explore",
+            "explain the $BASE placeholder literally",
+            "--repo",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "$BASE placeholder literally" in r.stdout
+    assert "main placeholder literally" not in r.stdout
+
+
+def test_failure_digest_goes_to_stderr(tmp_path) -> None:
+    """On a failed drive (status != ok) the digest must go to stderr (#4) so stdout
+    stays clean for scripting; the wrapper still exits non-zero."""
+    env = _fake_convertible(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n" 'echo \'{"status": "error", "summary": "BOOM_FAILED"}\'\n',
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 1, (r.stdout, r.stderr)
+    assert "BOOM_FAILED" in r.stderr
+    assert "BOOM_FAILED" not in r.stdout
+    assert r.stdout.strip() == "", "stdout must stay clean on failure"
+
+
+def test_review_rejects_bogus_base(tmp_path) -> None:
+    """review interpolates --base into the LLM instruction, so a value that is not a
+    real commit/ref must be rejected up front (#5) — before the CLI is invoked."""
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "review", "focus", "--repo", str(repo), "--base", "no-such-ref-xyz"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 2
+    assert "not a valid commit/ref" in r.stderr
+
+
+def test_non_git_repo_is_rejected_for_every_verb(tmp_path) -> None:
+    """The git-repo guard (#2) now covers every verb, including write — a plain
+    directory is rejected with a clear message, not an opaque mid-drive error."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(plain), "--apply"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 2
+    assert "not a git repository" in r.stderr
+
+
+def test_write_previews_by_default(tmp_path) -> None:
+    """write without --apply (#1) runs in a throwaway worktree, prints the would-be
+    change + diff, and lands NOTHING in the real working tree; the worktree and the
+    ephemeral drive branch are cleaned up afterwards."""
+    env = _fake_convertible(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        'repo=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "--repo" ] && repo="$a"; prev="$a"; done\n'
+        'git -C "$repo" checkout -q -b convertible/previewfeed\n'
+        "printf 'hello\\n' > \"$repo/preview_added.txt\"\n"
+        'git -C "$repo" add -A\n'
+        'git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m "drive change"\n'
+        "python3 -c \"import json; print(json.dumps({'status':'ok',"
+        "'summary':'PREVIEW_RAN','changed_files':['preview_added.txt'],"
+        "'branch':'convertible/previewfeed'}))\"\n",
+    )
+    repo = _init_repo(tmp_path / "repo")
+    before = _worktree_count(repo)
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "add a file", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "PREVIEW_RAN" in r.stdout
+    assert "preview diff (NOT applied" in r.stdout
+    assert "preview_added.txt" in r.stdout
+    # nothing landed in the real working tree …
+    assert not (repo / "preview_added.txt").exists()
+    # … and the worktree + ephemeral drive branch were cleaned up.
+    assert _worktree_count(repo) == before, "preview leaked a worktree"
+    branches = subprocess.run(
+        ["git", "-C", str(repo), "branch", "--list", "convertible/previewfeed"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert branches == "", "preview leaked the ephemeral drive branch"
