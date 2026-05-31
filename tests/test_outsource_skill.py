@@ -303,10 +303,16 @@ def test_literal_base_in_argument_survives_through_the_script(tmp_path) -> None:
 
 def test_failure_digest_goes_to_stderr(tmp_path) -> None:
     """On a failed drive (status != ok) the digest must go to stderr (#4) so stdout
-    stays clean for scripting; the wrapper still exits non-zero."""
+    stays clean for scripting; the wrapper still exits non-zero.
+
+    The stub models real `convertible drive` faithfully (qodo #62): it prints the
+    error JSON to stdout *and exits 1*. The apply path's `|| true` must keep that
+    non-zero exit from aborting the script under `set -e` before print_result runs."""
     env = _fake_convertible(
         tmp_path / "bin",
-        "#!/usr/bin/env bash\n" 'echo \'{"status": "error", "summary": "BOOM_FAILED"}\'\n',
+        "#!/usr/bin/env bash\n"
+        'echo \'{"status": "error", "summary": "BOOM_FAILED"}\'\n'
+        "exit 1\n",
     )
     repo = _init_repo(tmp_path / "repo")
     r = subprocess.run(

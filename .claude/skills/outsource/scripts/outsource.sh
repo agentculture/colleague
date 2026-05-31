@@ -319,11 +319,16 @@ run_write() {
         echo "hint: 'convertible drive --no-pr' commits uncommitted edits onto the drive branch" >&2
         exit 2
     fi
+    # `|| true`: a failed drive (`convertible drive` returns 1 when status != ok,
+    # printing the result JSON to stdout) must still flow into print_result so the
+    # digest is emitted (to stderr) and the wrapper exits non-zero — not aborted by
+    # `set -e` at the assignment, which would swallow the digest. Matches the
+    # read-only / preview paths, which already guard this way.
     local out
     if [[ "$OPEN_PR" -eq 1 ]]; then
-        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")"
+        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || true
     else
-        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")"
+        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || true
     fi
     printf '%s' "$out" | print_result
 }
