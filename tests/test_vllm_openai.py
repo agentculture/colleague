@@ -7,6 +7,7 @@ The opt-in live end-to-end proof against a real server lives in
 from __future__ import annotations
 
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ import pytest
 from convertible.config import EngineConfig
 from convertible.contract import OK, Task
 from convertible.engines import vllm_openai
-from convertible.engines.vllm_openai import VllmOpenAIEngine, _parse_response
+from convertible.engines.vllm_openai import VllmOpenAIEngine, _parse_response, _post_json
 
 
 def _message_with_tool_call(name: str, arguments: dict) -> dict:
@@ -50,6 +51,31 @@ def test_parse_response_tolerates_plain_text() -> None:
     resp = _parse_response({"choices": [{"message": {"content": "just text"}}]})
     assert resp.content == "just text"
     assert resp.tool_calls == []
+
+
+def test_post_json_preserves_vllm_error_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Response:
+        def read(self) -> bytes:
+            return b'{"error":{"message":"The model `Qwen/Qwen3-32B` does not exist."}}'
+
+        def close(self) -> None:  # file-like protocol: HTTPError closes its fp on GC
+            pass
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> object:
+        raise urllib.error.HTTPError(
+            "http://localhost:8001/v1/chat/completions",
+            404,
+            "Not Found",
+            {},
+            _Response(),
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _post_json("http://localhost:8001/v1/chat/completions", {}, api_key="EMPTY", timeout=1)
+
+    assert "Qwen/Qwen3-32B" in str(exc.value)
 
 
 def test_drive_runs_full_loop_over_mocked_http(

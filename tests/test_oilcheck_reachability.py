@@ -14,6 +14,7 @@ server required). Scenarios:
 
 from __future__ import annotations
 
+import json
 import urllib.error
 
 import pytest
@@ -25,15 +26,30 @@ from convertible.oilcheck.reachability import checks
 class _FakeResponse:
     """Minimal context-manager stand-in for an HTTP response."""
 
+    def __init__(self, payload: dict | None = None) -> None:
+        self.payload = payload or {"object": "list", "data": []}
+
     def __enter__(self) -> "_FakeResponse":
         return self
 
     def __exit__(self, *exc: object) -> bool:
         return False
 
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
 
 def _ok(*_args: object, **_kwargs: object) -> _FakeResponse:
-    return _FakeResponse()
+    return _FakeResponse(
+        {
+            "object": "list",
+            "data": [{"id": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"}],
+        }
+    )
+
+
+def _missing_model(*_args: object, **_kwargs: object) -> _FakeResponse:
+    return _FakeResponse({"object": "list", "data": [{"id": "other/model"}]})
 
 
 def _refused(*_args: object, **_kwargs: object) -> _FakeResponse:
@@ -69,6 +85,19 @@ def test_reachable_when_urlopen_succeeds(monkeypatch: pytest.MonkeyPatch) -> Non
     assert c["passed"] is True
     assert c["severity"] == "info"
     assert c["remediation"] == ""
+
+
+def test_probe_warns_when_configured_model_is_not_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("urllib.request.urlopen", _missing_model)
+    c = _find(checks(), "provider_model_available")
+    assert c is not None
+    assert c["passed"] is False
+    assert c["severity"] == "warning"
+    assert "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP" in c["message"]
+    assert "other/model" in c["message"]
+    assert c["remediation"]
 
 
 def test_reachable_when_http_error(monkeypatch: pytest.MonkeyPatch) -> None:

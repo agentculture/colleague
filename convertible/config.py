@@ -22,7 +22,11 @@ from typing import Callable, Optional
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
 _DEFAULT_BASE_URL = "http://localhost:8001/v1"
-_DEFAULT_MODEL = "Qwen/Qwen3-32B"
+# Built-in fallback model id. Points at the model the reference rig actually
+# serves at _DEFAULT_BASE_URL so a bare drive (no CONVERTIBLE_MODEL / --model)
+# reaches a live model instead of a 404 "model does not exist". Override per
+# environment with CONVERTIBLE_MODEL or --model.
+_DEFAULT_MODEL = "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
 _DEFAULT_MAX_STEPS = 25
 _DEFAULT_TEMPERATURE = 0.0
 _DEFAULT_TIMEOUT = 120.0

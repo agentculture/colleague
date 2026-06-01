@@ -16,6 +16,7 @@ needs the server to emit OpenAI-format tool calls.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -41,10 +42,30 @@ def _post_json(
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
     )
-    with urllib.request.urlopen(
-        request, timeout=timeout
-    ) as response:  # nosec B310 - configured endpoint
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(
+            request, timeout=timeout
+        ) as response:  # nosec B310 - configured endpoint
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # vLLM/OpenAI carry the actionable detail (e.g. "model `X` does not
+        # exist") in the response *body*, which the bare HTTPError str() drops.
+        # Re-raise the same error class with the body folded into the message so
+        # a wrong-model 404 is legible instead of "HTTP Error 404: Not Found".
+        detail = _read_error_body(exc)
+        if not detail:
+            raise
+        raise urllib.error.HTTPError(
+            url, exc.code, f"{exc.msg}: {detail}", exc.headers, None
+        ) from exc
+
+
+def _read_error_body(exc: urllib.error.HTTPError) -> str:
+    """Best-effort decode of an HTTPError response body (``""`` if unavailable)."""
+    try:
+        return exc.read().decode("utf-8", "replace").strip()
+    except Exception:  # nosec B110 - body is advisory; never let decoding mask the HTTP error
+        return ""
 
 
 def _parse_response(data: dict[str, Any]) -> ModelResponse:
