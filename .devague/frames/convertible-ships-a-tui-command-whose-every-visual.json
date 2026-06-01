@@ -1,0 +1,252 @@
+{
+  "slug": "convertible-ships-a-tui-command-whose-every-visual",
+  "title": "Convertible ships a tui command whose every visual frame has an agent-readable semantic mirror (TJSON), so a coder agent can read, operate, snapshot, replay, and diagnose the terminal UI without OCR or terminal guessing.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-01T17:27:56Z",
+  "updated": "2026-06-01T17:36:20Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible ships a tui command whose every visual frame has an agent-readable semantic mirror (TJSON), so a coder agent can read, operate, snapshot, replay, and diagnose the terminal UI without OCR or terminal guessing.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A captured frame round-trips: state -> TJSON -> replay/render reproduces the same frame, and the TJSON mirror is complete enough that diagnose never needs OCR or terminal scraping.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Coder agents (Codex, Claude Code, convertible's own engines) that must read, operate, and debug the TUI \u2014 and the humans who use it interactively.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The TJSON payload is consumable by a coder agent with no convertible-specific client (plain JSON over stdout/file), and a human can run the same 'tui' and see the rendered frame.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "Every meaningful visual TUI frame has a structured TJSON mirror an agent can read, inspect by stable selector, operate (selector->event), snapshot, replay deterministically, and diagnose \u2014 no OCR, no terminal key-sequence guessing.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Each of read/inspect/operate/snapshot/replay/diagnose maps to a concrete 'tui' subcommand that works headless, with no real terminal attached.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Terminal UIs are opaque to agents: an agent can run a TUI but cannot reliably know what state it is in, what action is available, why a popup appeared, whether focus is correct, or whether the visual frame disagrees with app state.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Without TJSON the same bug can only be reported by pasting ANSI/screenshots; with it the agent names the failing selector and bug class from structured data.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "It moves the TUI from a blind spot inside the agent workflow into part of it: a human-seen bug becomes an agent-diagnosable snapshot, repairable via deterministic replay.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A human-captured snapshot triple is sufficient input for an agent to diagnose and propose a fix offline, without reproducing the bug live.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a daemon/server, not a new parallel runtime (foreground TTY like session), not a base TUI-library dependency, and not an LLM-based diagnose. The live TTY driver is the thinnest, last slice.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "No code path in the tui feature opens a socket, forks a daemon, adds a base dependency, or calls a model; the live driver is a foreground process that exits on quit.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A coder agent reconstructs TUI state from an events.jsonl via the pure reducer and classifies a TUI bug from the snapshot triple, with no real terminal attached and no model call.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "A passing CI test feeds an events.jsonl to the reducer and asserts diagnose's bug-class output, running with no TTY and no network.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "decision",
+      "text": "The CLI verb is 'tui' (not 'cockpit').",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "decision",
+      "text": "The renderer is a wheel like engines: a hand-rolled stdlib ANSI renderer ships zero-deps as the default; Rich/Textual is an opt-in [tui] extra plus a separately-installable renderer wheel discovered via a 'convertible.renderers' entry-point group.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The reducer is a pure function reduce(state, event) -> state: no I/O, no clock, no randomness. Determinism (incl. --animations=deterministic) comes from advancing the animation frame only via explicit injected 'tick' events, never by reading wall-clock time.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The animation frame counter is a field in State advanced only by a tick event; two replays of the same events.jsonl produce byte-identical ANSI.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "TJSON is serialize(state): a single derived mirror of canonical State, never hand-maintained beside the renderer. Stable selectors are dotted JSON-paths into that TJSON tree (e.g. popup.skill.boost.accept), so they cannot drift from state.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Renaming or moving a node in State changes both its render and its selector path in lockstep; there is no second selector table that can disagree.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The base install stays zero-deps (dependencies = []): the tui core (state/reducer/tjson/selectors/snapshot/replay/diagnose) never imports a rendering library; only the optional [tui] renderer wheel may. Guarded by test_zero_deps.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "After installing only the base package (no extras), importing convertible.cockpit/tui modules introduces no third-party module, asserted by test_zero_deps; the ANSI default renderer still works.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "No visual-only truth: every meaningful state lives in TJSON as data (e.g. status.severity), and colour/animation/theme only reflects it. An agent reads severity, never a colour.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "For a state with status.severity='error', the TJSON carries severity='error' and a message string; the red background is derivable from severity, and removing colour loses no information an agent needs.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "diagnose is a pure stdlib cross-mirror differ: it folds events.jsonl through the reducer, compares against the captured .tjson and greps the .ansi, and classifies the disagreement into the 7 bug classes (state/render/layout/focus/input-routing/theme/popup-lifecycle) \u2014 no LLM, no tokens.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "Given a snapshot triple where TJSON says popup visible=true but the ANSI lacks the popup title, diagnose returns 'render bug' (not state/layout) using only stdlib string/JSON comparison.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "Naming: the agent-readable semantic mirror is TAUI (Textual Agentic UI), not TJSON. The name doubles as the feature's identity (a Textual UI for humans that is Agentic/agent-readable). Snapshot mirror files use the .taui.json extension; the snapshot triple is <name>.taui.json + <name>.ansi + <name>.events.jsonl. All prior claim text using 'TJSON' refers to TAUI.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "The Rich/Textual renderer wheel and the 'convertible.renderers' entry-point group ship after the stdlib-ANSI MVP; v0 ships only the default ANSI renderer.",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether the existing 'convertible session' line-palette folds into 'tui' (tui as the full-screen session) or stays a separate verb \u2014 decide during planning.",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "The live TTY driver's raw-mode input handling (termios/tty) is the one impure seam; its keymap->event routing test strategy is TBD (the driver is intentionally the last, thinnest slice).",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}
