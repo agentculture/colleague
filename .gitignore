@@ -231,3 +231,8 @@ skills.local.yaml
 /.convertible/neighbours/
 
 .devague/questions/
+
+# Local-only convertible run artifacts + harness state (never committed)
+/.convertible/
+.claude/settings.json
+.claude/scheduled_tasks.lock
