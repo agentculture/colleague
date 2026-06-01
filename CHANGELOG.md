@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-06-02
+
+### Added
+
+- docs/features/subagents.md — the missing feature page for the subagent/convoy loop tool; added to the README feature table and the docs/features index.
+- README sections for the tui cockpit, the drive-stats/feedback ROI loop, subagents (convoy), and an outsource narrative (all shipped features that the README narrative omitted).
+
+### Changed
+
+- README: corrected the stale Qwen3-32B reference to the current default model sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP; documented doctor --probe (provider_reachable + provider_model_available); added a CHANGELOG pointer and the missing model-selection/tui/stats-and-feedback feature-table rows. Docs-only — no behavior change (#73, umbrella #72).
+
 ## [0.21.0] - 2026-06-01
 
 ### Added

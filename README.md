@@ -59,7 +59,9 @@ which one ran.
   entry-point group an out-of-tree wheel would use:
   - `mock` — deterministic and networkless; the CI workhorse.
   - `vllm-openai` — drives any **OpenAI-compatible** `/v1/chat/completions`
-    endpoint with tool calling (the reference rig: Qwen3-32B on a vLLM server).
+    endpoint with tool calling. The built-in default model is
+    `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (an NVFP4 Qwen3 checkpoint on a
+    vLLM server — what `doctor` checks for); any tool-calling model works.
 - **Git/PR handoff** — branch → commit → push → `gh pr create`, gated so
   `--no-pr` (or no remote) stays a local commit and CI never pushes.
 - A **result artifact** (`.convertible/<task-id>.json`) for handoff back to
@@ -127,23 +129,28 @@ driver speaks the OpenAI wire format over the standard library.
 ## Feature docs
 
 Each shipped feature has a focused page under [`docs/features/`](docs/features/)
-— start at the [feature index](docs/features/README.md):
+— start at the [feature index](docs/features/README.md). For the per-version
+list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 
 | Feature | Doc |
 |---------|-----|
 | Drive & the tool-loop | [drive-and-loop.md](docs/features/drive-and-loop.md) |
 | Engines & wheels | [engines.md](docs/features/engines.md) |
+| Model & endpoint selection | [model-selection.md](docs/features/model-selection.md) |
 | Git/PR handoff | [handoff.md](docs/features/handoff.md) |
 | Result artifact | [artifact.md](docs/features/artifact.md) |
 | Command templates | [command-templates.md](docs/features/command-templates.md) |
 | Lifecycle hooks | [hooks.md](docs/features/hooks.md) |
 | Interactive palette | [session.md](docs/features/session.md) |
+| Cockpit views (tui / TAUI) | [tui.md](docs/features/tui.md) |
 | Layered per-model config | [layered-config.md](docs/features/layered-config.md) |
 | GPS: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
+| Drive stats & feedback (ROI) | [stats-and-feedback.md](docs/features/stats-and-feedback.md) |
 | `doctor` (oilcheck) | [doctor.md](docs/features/doctor.md) |
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 | Destination | [destination.md](docs/features/destination.md) |
+| Subagents (the convoy) | [subagents.md](docs/features/subagents.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
 | Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |
@@ -227,9 +234,11 @@ uv run convertible drive "fix the typo in the README title" \
 ```
 
 Configuration resolves in the order: explicit flag → `CONVERTIBLE_*` env →
-`OPENAI_*` env → default. Because the driver only touches the OpenAI surface,
-pointing `--base-url` at any compatible server (llama.cpp, an OpenAI proxy) needs
-no code change.
+`OPENAI_*` env → default. The built-in default `--model` is
+`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`; the example above overrides it with
+`--model` to match the server you started. Because the driver only touches the
+OpenAI surface, pointing `--base-url` at any compatible server (llama.cpp, an
+OpenAI proxy) needs no code change.
 
 The opt-in live end-to-end test proves this against a real server:
 
@@ -388,6 +397,37 @@ push or open a PR — pass `--pr` to opt back into push + PR per drive (unlike
 `drive`, which opens a PR by default). Other driver flags accepted by `drive`
 (`--engine`, `--base-url`, etc.) are also accepted by `session`.
 
+## Cockpit views (tui)
+
+`convertible tui` exposes a **headless, stdlib-only cockpit** in three views of one
+`CockpitState`: a **JSON/TAUI** mirror (the agent-readable, selector-addressed
+source of truth — `tui state`), an **ANSI** frame (the visual render — `tui render`,
+the default), and a **Markdown** view (the agent-facing readable render —
+`tui render --format markdown`). TAUI (*Textual Agentic UI*) lets an agent read and
+operate the UI without screen-scraping, an LLM, or any `convertible` import.
+
+The cockpit is a pure reducer (`event → reduce(state, event) → CockpitState`) and
+its state carries a **popup** model (`skill_suggestion` / `confirmation` / `error` /
+`progress` / `diff` / `help`). `tui snapshot` captures a moment; `tui diagnose`
+classifies cross-view disagreements (no LLM, no network); `tui live` opens the
+foreground TTY cockpit.
+
+```bash
+uv run convertible tui state                          # the TAUI JSON mirror
+uv run convertible tui render --state <file>          # the ANSI frame
+uv run convertible tui render --format markdown --state <file>
+uv run convertible tui overview
+```
+
+> **Watching a live drive.** Wiring the live cockpit + popups into a running
+> `drive`/`session` is tracked in [#74](https://github.com/agentculture/convertible/issues/74)
+> — today the cockpit renders authored/snapshot state, not a live drive. In the
+> meantime a running drive streams per-step progress (`step N: <tool> [ok|err]`) to
+> stderr, and a mid-loop failure still writes a **partial artifact** (`status=error`)
+> with the steps, usage, and changed files accumulated so far.
+
+See [`docs/features/tui.md`](docs/features/tui.md) for the full surface.
+
 ## GPS: OpenTelemetry observability
 
 A drive can emit **OpenTelemetry traces + metrics** so it's observable against an
@@ -425,6 +465,37 @@ uv run convertible telemetry status      # resolved config + whether the SDK is 
 uv run convertible telemetry overview    # describe the surface
 ```
 
+## Drive stats & the feedback loop (ROI)
+
+Together these let a caller compute the **ROI of outsourcing** a task: the stats
+say what a drive *cost*, a feedback record says how *good* it was.
+
+**Always-on stats.** Every `TaskResult` carries a `stats` block
+(`DriveStats`), written into the artifact on **every** drive — no flag, no opt-in.
+It records the request, ISO start + wall-clock duration, model turns, step count,
+per-tool counts, files changed, exact UTF-8 `bytes_written`, and
+reasoning-vs-answer char/byte sizes. Exact token counts stay on `usage`, verbatim
+from the model response (never estimated). Like hooks and telemetry, stats are
+chassis-owned — identical for `mock` and `vllm-openai`.
+
+> **Honest token limit.** Convertible has no tokenizer (zero deps), and the
+> served model reports no reasoning-token breakdown — so "thought vs written" is
+> measured as **chars/bytes**, not tokens.
+
+**Feedback.** A single record per drive (re-grading overwrites) lives beside the
+artifact at `.convertible/<task_id>.feedback.json`; a per-repo `last_drive` pointer
+lets you grade the most recent drive without quoting its id. An ungraded drive
+reads back as a clean "no feedback yet" state, never an error.
+
+```bash
+uv run convertible feedback record last --rating 4 --notes "correct but verbose"
+uv run convertible feedback show last --repo .
+uv run convertible feedback overview
+```
+
+The agent-facing entry is the `outsource feedback` skill verb. See
+[`docs/features/stats-and-feedback.md`](docs/features/stats-and-feedback.md).
+
 ## Configuration readiness: `doctor` (the oilcheck)
 
 Before you hand convertible work, `convertible doctor` answers "is this install
@@ -450,7 +521,13 @@ to `CHECK_GROUPS` — see `convertible explain doctor` and
 ```bash
 uv run convertible doctor          # human-readable rubric; exit 1 if unhealthy
 uv run convertible doctor --json   # structured {healthy, checks[]}
+uv run convertible doctor --probe  # + a live provider ping (the one networked check)
 ```
+
+`--probe` adds two opt-in checks that open a network connection — `provider_reachable`
+(can convertible reach the endpoint?) and `provider_model_available` (is the
+configured model actually served at that endpoint?) — gated behind the flag so the
+default `doctor` stays network-free.
 
 ## Per-model instructions & skills
 
@@ -490,6 +567,48 @@ uv run convertible skills list --model Qwen/Qwen3-32B --repo .
 > **MCP layering is not built yet.** Convertible does not read `mcp.json` or
 > connect to any MCP server today; a live MCP client needs its own spec. There
 > is no `mcp` verb — don't rely on a non-existent surface.
+
+## Subagents (the convoy)
+
+Mid-drive, an engine **may** delegate a scoped sub-task to a nested in-process
+child drive via the `subagent` loop tool. The child runs the *same* bounded
+tool-loop — a plain synchronous function call, **no** thread, process, socket, or
+fork, zero new runtime deps — and its result is returned to the parent and folded
+into `TaskResult.sub_results` (omitted when empty). An optional `engine`/`model`
+parameter lets the child run on a different wheel or model, resolved through the
+existing `registry.load` + `EngineConfig` inheritance (a config-level switch, no
+engine code change).
+
+Delegation is **engine-judged and optional** (like the `devague` destination
+tool), never a forced gate. Termination is structural: `MAX_SUBAGENT_DEPTH=2`
+(checked before any child work) and `MAX_SUBAGENT_FANOUT=4` (per-drive). Only the
+top-level drive hands off — sub-drives never branch, commit, or open a PR.
+**v0 is sequential-only**; parallel subagents + per-subagent worktree isolation are
+a parked follow-up. This is chassis-owned (the tool fires identically for every
+engine) and is explicitly **not** the out-of-scope multi-engine router/"gearbox":
+there is no automatic task→engine routing.
+
+```bash
+uv run convertible explain subagent   # the loop tool's contract (not a CLI verb)
+```
+
+## Outsource (a different mind)
+
+`outsource` is convertible's one **first-party** Claude Code skill — the inverse of
+the vendored skills. It lets another agent hand a scoped task to convertible: a
+*different* engine/model (e.g. a local vLLM Qwen), not a stronger one — **diversity
+is the point**. Four verbs over `convertible drive`:
+
+| Verb | What it does |
+|------|--------------|
+| `outsource explore` | Read-only investigation of an area (worktree-isolated). |
+| `outsource review` | A diverse second opinion on the committed `<base>...HEAD` diff (the headline verb). |
+| `outsource write` | Delegate a small change — previews by default; `--apply` lands a drive branch, `--pr` opens a PR. |
+| `outsource feedback` | Grade a finished drive (close the ROI loop). |
+
+`explore`/`review` run in a throwaway `git worktree` (no working-tree side effects);
+`write` previews in one too unless `--apply`/`--pr`. See
+[`docs/features/outsource.md`](docs/features/outsource.md).
 
 ## Approval gate
 
