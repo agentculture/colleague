@@ -119,7 +119,9 @@ def _served_models(response: object) -> list[str] | None:
     try:
         payload = json.loads(response.read().decode("utf-8"))
         data = payload.get("data")
-    except (AttributeError, ValueError, UnicodeDecodeError):
+    except (AttributeError, ValueError):
+        # ValueError covers JSONDecodeError and UnicodeDecodeError (both
+        # subclasses — S5713: no redundant subclasses in the tuple).
         return None
     if not isinstance(data, list):
         return None
