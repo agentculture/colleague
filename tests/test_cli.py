@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 
 import pytest
 
 from convertible import __version__
-from convertible.cli import main
+from convertible.cli import _build_parser, main
 from convertible.explain import known_paths
 
 
@@ -135,3 +136,32 @@ def test_every_catalog_path_resolves(capsys: pytest.CaptureFixture[str]) -> None
         rc = main(["explain", *path])
         assert rc == 0, f"explain {' '.join(path)} failed"
         capsys.readouterr()
+
+
+def _subparsers_action(parser: argparse.ArgumentParser):
+    """The parser's ``_SubParsersAction`` (its sub-commands), or ``None`` if it has none."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def test_every_verb_has_explain_and_action_nouns_have_overview() -> None:
+    """Reverse-coverage of the explain catalog (the agent-first rubric): every
+    registered CLI verb must have an ``explain`` entry, and every *action-noun*
+    (a verb that has its own sub-actions, e.g. ``commands`` / ``hooks`` / ``tui``)
+    must expose an ``overview`` sub-action and carry catalog entries for both the
+    noun and ``<noun> overview``. Guards against a new verb/noun shipping
+    undocumented — the existing test only checks the catalog is self-consistent."""
+    catalog = set(known_paths())
+    top = _subparsers_action(_build_parser())
+    assert top is not None, "the CLI must register sub-commands"
+
+    for verb, verb_parser in top.choices.items():
+        assert (verb,) in catalog, f"CLI verb {verb!r} has no `explain {verb}` entry"
+
+        noun = _subparsers_action(verb_parser)
+        if noun is None:
+            continue  # a leaf verb (drive, session, doctor, …) needs no overview
+        assert "overview" in noun.choices, f"action-noun {verb!r} must expose `overview`"
+        assert (verb, "overview") in catalog, f"missing `explain {verb} overview` entry"

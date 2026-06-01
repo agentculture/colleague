@@ -36,6 +36,27 @@ def _current_branch(repo: Path) -> str:
     return proc.stdout.strip()
 
 
+def _head_sha(repo: Path) -> str:
+    proc = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.strip()
+
+
+def _branch_exists(repo: Path, name: str) -> bool:
+    proc = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", name],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
 def test_local_only_repo_has_no_remote(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -46,6 +67,7 @@ def test_local_only_repo_has_no_remote(tmp_path: Path) -> None:
 def test_handoff_commits_locally_without_pushing(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
+    before = _current_branch(repo)
     (repo / "feature.txt").write_text("new work\n")
 
     result = handoff(repo, "abc123", instruction="add feature", open_pr=True)
@@ -54,7 +76,35 @@ def test_handoff_commits_locally_without_pushing(tmp_path: Path) -> None:
     assert result.committed is True
     assert result.pushed is False
     assert result.pr_url is None
-    assert _current_branch(repo) == "convertible/abc123"
+    # C2: the commit lands on the drive branch, but the operator is returned to
+    # the branch they started on — a drive must not strand them on convertible/<id>.
+    assert _current_branch(repo) == before
+    # …and the drive branch still exists carrying the commit (not lost on restore).
+    assert _branch_exists(repo, "convertible/abc123")
+    # Restored to `before`, whose tree never had feature.txt (it lives only on the
+    # drive branch) — proves the checkout actually moved off the drive branch.
+    assert not (repo / "feature.txt").exists()
+
+
+def test_handoff_restores_detached_head(tmp_path: Path) -> None:
+    """C2: a drive that starts on a detached HEAD (the `outsource` worktree case,
+    `git worktree add --detach`) is returned to that same commit — detached, not
+    stranded on the drive branch."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    original_sha = _head_sha(repo)
+    _run(repo, "checkout", "-q", "--detach", "HEAD")
+    (repo / "feature.txt").write_text("detached work\n")
+
+    result = handoff(repo, "detached1", open_pr=False)
+
+    assert result.committed is True
+    assert result.branch == "convertible/detached1"
+    # Back on the original commit, still detached (rev-parse --abbrev-ref == HEAD).
+    assert _current_branch(repo) == "HEAD"
+    assert _head_sha(repo) == original_sha
+    # The commit is preserved on the drive branch.
+    assert _branch_exists(repo, "convertible/detached1")
 
 
 def test_handoff_respects_no_pr_flag(tmp_path: Path) -> None:
@@ -86,9 +136,12 @@ def test_handoff_reports_changed_files(tmp_path: Path) -> None:
     assert "new.txt" in result.changed_files
 
 
-def _commit_subject(repo: Path) -> str:
+# These read the *drive branch* commit by ref, not HEAD: since C2 returns the
+# operator to their original branch after committing, HEAD is no longer the drive
+# commit. Callers pass `convertible/<task_id>`.
+def _commit_subject(repo: Path, ref: str = "HEAD") -> str:
     proc = subprocess.run(
-        ["git", "log", "-1", "--format=%s"],
+        ["git", "log", "-1", "--format=%s", ref],
         cwd=str(repo),
         capture_output=True,
         text=True,
@@ -97,9 +150,9 @@ def _commit_subject(repo: Path) -> str:
     return proc.stdout.strip()
 
 
-def _commit_body(repo: Path) -> str:
+def _commit_body(repo: Path, ref: str = "HEAD") -> str:
     proc = subprocess.run(
-        ["git", "log", "-1", "--format=%b"],
+        ["git", "log", "-1", "--format=%b", ref],
         cwd=str(repo),
         capture_output=True,
         text=True,
@@ -108,9 +161,9 @@ def _commit_body(repo: Path) -> str:
     return proc.stdout.strip()
 
 
-def _committed_files(repo: Path) -> list[str]:
+def _committed_files(repo: Path, ref: str = "HEAD") -> list[str]:
     proc = subprocess.run(
-        ["git", "show", "--name-only", "--format=", "HEAD"],
+        ["git", "show", "--name-only", "--format=", ref],
         cwd=str(repo),
         capture_output=True,
         text=True,
@@ -130,7 +183,7 @@ def test_handoff_excludes_convertible_bookkeeping_dir(tmp_path: Path) -> None:
 
     result = handoff(repo, "abc123", instruction="add feature", open_pr=False)
 
-    committed = _committed_files(repo)
+    committed = _committed_files(repo, "convertible/abc123")
     assert "feature.txt" in committed
     assert not any(p.startswith(".convertible/") for p in committed)
     # changed_files reflects the committed set, not the swept tree.
@@ -182,7 +235,7 @@ def test_handoff_does_not_sweep_preexisting_untracked(tmp_path: Path) -> None:
         open_pr=False,
     )
 
-    committed = _committed_files(repo)
+    committed = _committed_files(repo, "convertible/t1")
     assert "drive_output.txt" in committed
     assert "operator_wip.txt" not in committed
     assert result.changed_files == ["drive_output.txt"]
@@ -195,7 +248,7 @@ def test_handoff_commits_run_command_tracked_edit(tmp_path: Path) -> None:
     (repo / "README.md").write_text("seed\nedited by the drive\n")  # modify a tracked file
 
     result = handoff(repo, "t1", open_pr=False)
-    assert "README.md" in _committed_files(repo)
+    assert "README.md" in _committed_files(repo, "convertible/t1")
     assert result.changed_files == ["README.md"]
 
 
@@ -211,13 +264,13 @@ def test_handoff_commit_subject_is_short_with_full_body(tmp_path: Path) -> None:
 
     handoff(repo, "deadbeef", instruction=instruction, open_pr=False)
 
-    subject = _commit_subject(repo)
+    subject = _commit_subject(repo, "convertible/deadbeef")
     assert "\n" not in subject
     assert len(subject) <= len("convertible: ") + 64
     assert subject.startswith("convertible: Build a static site")
     assert subject.endswith("...")
     # Full instruction preserved in the body.
-    assert instruction in _commit_body(repo)
+    assert instruction in _commit_body(repo, "convertible/deadbeef")
 
 
 def test_handoff_short_instruction_needs_no_body(tmp_path: Path) -> None:
@@ -227,8 +280,8 @@ def test_handoff_short_instruction_needs_no_body(tmp_path: Path) -> None:
     (repo / "feature.txt").write_text("work\n")
 
     handoff(repo, "t1", instruction="tidy up", open_pr=False)
-    assert _commit_subject(repo) == "convertible: tidy up"
-    assert _commit_body(repo) == ""
+    assert _commit_subject(repo, "convertible/t1") == "convertible: tidy up"
+    assert _commit_body(repo, "convertible/t1") == ""
 
 
 def test_handoff_empty_instruction_falls_back_to_task_id(tmp_path: Path) -> None:
@@ -237,7 +290,7 @@ def test_handoff_empty_instruction_falls_back_to_task_id(tmp_path: Path) -> None
     (repo / "feature.txt").write_text("work\n")
 
     handoff(repo, "fallback-id", open_pr=False)
-    assert _commit_subject(repo) == "convertible: fallback-id"
+    assert _commit_subject(repo, "convertible/fallback-id") == "convertible: fallback-id"
 
 
 def test_handoff_surfaces_gitignored_output(tmp_path: Path) -> None:
@@ -257,7 +310,7 @@ def test_handoff_surfaces_gitignored_output(tmp_path: Path) -> None:
     )
 
     assert result.committed is True
-    assert "site/index.html" not in _committed_files(repo)
+    assert "site/index.html" not in _committed_files(repo, "convertible/ignored1")
     assert "gitignored" in result.note
     assert "site/index.html" in result.note
 

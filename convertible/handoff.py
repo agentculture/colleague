@@ -66,6 +66,35 @@ def _branch_name(task_id: str) -> str:
     return f"convertible/{task_id}"
 
 
+def _current_ref(repo: Path) -> str | None:
+    """The operator's current branch name, or the commit SHA if detached.
+
+    Captured before the handoff switches branches so we can return the operator
+    there afterwards. A detached HEAD (e.g. the throwaway worktree the
+    ``outsource`` skill drives in) has no branch name, so we fall back to the
+    commit SHA. Returns ``None`` when git can't answer (treated as "don't
+    restore").
+    """
+    proc = _git(repo, "symbolic-ref", "--short", "-q", "HEAD", check=False)
+    name = proc.stdout.strip()
+    if name:
+        return name
+    sha = _git(repo, "rev-parse", "-q", "HEAD", check=False)
+    return sha.stdout.strip() or None
+
+
+def _restore_ref(repo: Path, ref: str | None) -> None:
+    """Return the operator to their pre-handoff branch/commit (best-effort).
+
+    The ``convertible/<id>`` branch keeps its commit; this only stops the drive
+    from stranding the operator on it. The worktree is clean immediately after
+    the commit, so the checkout is safe — and a failure is swallowed (the commit
+    already succeeded, so restoration must never raise).
+    """
+    if ref:
+        _git(repo, "checkout", ref, check=False)
+
+
 def handoff(
     repo_path: str | Path,
     task_id: str,
@@ -80,6 +109,11 @@ def handoff(
 
     Returns a :class:`HandoffResult`; ``pr_url`` is ``None`` whenever the run
     stays local (gating off, no remote, no gh, or a push/PR failure).
+
+    After committing, the operator is returned to the branch (or detached commit)
+    they were on before the drive — the ``convertible/<id>`` branch keeps the
+    commit, but a drive never strands the operator on a freshly-made task branch
+    (the no-op paths below never switch branches at all).
 
     Staging commits **only the task's own work** (#39): all tracked
     modifications (so ``run_command`` edits to tracked files are captured) plus
@@ -137,6 +171,10 @@ def handoff(
         return result
     result.changed_files = staged
 
+    # Capture where the operator was so we can return them there after committing
+    # — the drive branch keeps the commit, but a drive must not strand the
+    # operator on a freshly-made task branch.
+    original_ref = _current_ref(repo)
     _git(repo, "checkout", "-B", branch)
     subject = _commit_subject(instruction, task_id)
     body = (instruction or "").strip()
@@ -152,6 +190,7 @@ def handoff(
         result.note = _with_ignored(
             "local commit only (--no-pr, no remote, or gh unavailable)", ignored
         )
+        _restore_ref(repo, original_ref)
         return result
 
     try:
@@ -166,6 +205,9 @@ def handoff(
             result.note = _with_ignored(f"pushed branch; PR creation failed: {exc}", ignored)
         else:
             result.note = _with_ignored(f"local commit only (push failed: {exc})", ignored)
+    # Restore only after push + `gh pr create` (which infer the head from the
+    # checked-out branch) have run on the drive branch.
+    _restore_ref(repo, original_ref)
     return result
 
 

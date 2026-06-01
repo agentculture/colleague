@@ -232,7 +232,11 @@ skills.local.yaml
 
 .devague/questions/
 
-# Local-only convertible run artifacts + harness state (never committed)
-/.convertible/
+# Local-only convertible run artifacts + harness state (never committed):
+# ignore everything under .convertible/ EXCEPT committed command-template recipes,
+# which teams may share in-repo (artifacts, hooks.json, approvals.json, neighbours/
+# stay ignored). Git can't re-include under a fully-excluded dir, hence `/*`.
+/.convertible/*
+!/.convertible/commands/
 .claude/settings.json
 .claude/scheduled_tasks.lock

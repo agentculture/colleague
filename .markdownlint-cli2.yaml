@@ -30,3 +30,8 @@ ignores:
   - ".devague/**"
   - "docs/specs/**"
   - "docs/plans/**"
+  # Command-template recipes under .convertible/commands/ are not prose: the body
+  # is a task instruction (a leading H1 would be sent to the model) and an
+  # optional `---` frontmatter block is parsed by convertible/commands.py, not by
+  # a Markdown reader. Linting them as docs is a category error.
+  - ".convertible/**"

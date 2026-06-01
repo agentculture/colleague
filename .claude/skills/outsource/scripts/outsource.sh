@@ -210,8 +210,13 @@ print_result() {
     # NOTE: must be `python3 -c`, not `python3 - <<HEREDOC`: a heredoc becomes
     # python's stdin (the script source), which would shadow the piped JSON and
     # leave sys.stdin.read() empty. The script body uses no single quotes.
-    python3 -c '
-import sys, json
+    #
+    # $1 (optional): the real artifact directory. When the drive ran in a
+    # throwaway worktree (read-only verbs), the JSON's artifacts_path points into
+    # that soon-deleted worktree; pass the real repo's .convertible/ so the
+    # printed path names the preserved copy instead. Empty -> print as-is.
+    OUTSOURCE_REAL_ARTIFACT_DIR="${1:-}" python3 -c '
+import sys, json, os
 raw = sys.stdin.read().strip()
 if not raw:
     sys.stderr.write("error: convertible produced no result on stdout (see diagnostics above)\n")
@@ -232,8 +237,12 @@ if cf:
     print("\nchanged files:", ", ".join(cf), file=out)
 if d.get("branch"):
     print("drive branch:", d["branch"], file=out)
-if d.get("artifacts_path"):
-    print("artifact:", d["artifacts_path"], file=out)
+ap = d.get("artifacts_path")
+real_dir = os.environ.get("OUTSOURCE_REAL_ARTIFACT_DIR") or ""
+if ap and real_dir:
+    ap = os.path.join(real_dir, os.path.basename(ap))
+if ap:
+    print("artifact:", ap, file=out)
 sys.exit(0 if ok else 1)
 '
 }
@@ -270,6 +279,34 @@ except Exception:
     print("")' 2>/dev/null || true
 }
 
+# Extract the task id from a TaskResult JSON on stdin.
+_extract_task_id() {
+    python3 -c 'import sys, json
+try:
+    print(json.load(sys.stdin).get("task_id") or "")
+except Exception:
+    print("")' 2>/dev/null || true
+}
+
+# Read-only verbs drive in a throwaway worktree that _cleanup_worktree deletes, so
+# the artifact written under <worktree>/.convertible/ would vanish with it. Copy it
+# back to the real repo's .convertible/ (plus a last_drive pointer) so `convertible
+# feedback record last` / `outsource feedback last` can grade the drive afterwards.
+# Writes only the gitignored .convertible/ bookkeeping dir — never the tracked tree.
+_preserve_artifact() {
+    local task_id="$1"
+    [[ -n "$task_id" && -n "$_WT" ]] || return 0
+    local src="$_WT/.convertible"
+    local dst="$REPO/.convertible"
+    [[ -f "$src/$task_id.json" ]] || return 0
+    mkdir -p "$dst"
+    cp -f "$src/$task_id.json" "$dst/$task_id.json" 2>/dev/null || true
+    if [[ -f "$src/$task_id.trace.jsonl" ]]; then
+        cp -f "$src/$task_id.trace.jsonl" "$dst/$task_id.trace.jsonl" 2>/dev/null || true
+    fi
+    printf '%s' "$task_id" > "$dst/last_drive" 2>/dev/null || true
+}
+
 # Spin up a throwaway detached worktree at HEAD (the isolation both read-only
 # verbs and the write preview share). `mktemp -d` is given an explicit template:
 # GNU mktemp tolerates a bare `-d`, but BSD/macOS mktemp requires one.
@@ -285,7 +322,10 @@ run_readonly() {
     local out
     out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
-    printf '%s' "$out" | print_result
+    # Preserve the artifact to the real repo BEFORE the EXIT trap removes the
+    # worktree, so the drive can be graded (`outsource feedback last`).
+    _preserve_artifact "$(printf '%s' "$out" | _extract_task_id)"
+    printf '%s' "$out" | print_result "$REPO/.convertible"
 }
 
 # ── write preview (default): drive in a throwaway worktree, show the would-be ──
