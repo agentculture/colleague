@@ -627,10 +627,23 @@ single agent-readable mirror is the **TAUI** (a plain JSON dict). This verb runs
 entirely **without a terminal** and opens no socket: it is a set of pure
 `state -> mirror/frame` transforms. The live TTY driver is a separate concern.
 
+The cockpit exposes **three views** of the same `CockpitState`:
+
+- **JSON (TAUI)** — the programmatic/script contract and the source of truth;
+  emitted by `tui state`.
+- **ANSI** — the visual frame for a live terminal; emitted by `tui render` (default).
+- **Markdown** — the agent-facing readable view; better than raw JSON for an agent
+  to read at a glance. Emitted by `tui render --format markdown`. All three are pure
+  functions of one `CockpitState`, so any disagreement between them is a
+  render-fidelity bug — `tui diagnose` catches it. (Before this surface was added,
+  no convertible command emitted Markdown and `diagnose` inspected the ANSI frame
+  only.)
+
 ## Verbs
 
-- `tui render --state <file>` — render the ANSI frame for a state (`--json` wraps
-  it as `{"ansi": "<frame>"}`).
+- `tui render --state <file> [--format ansi|markdown]` — render the chosen frame
+  (default: `ansi`). `--json` wraps the result as `{"ansi": "<frame>"}` or
+  `{"markdown": "<frame>"}` depending on `--format`.
 - `tui state [--state <file>]` — print the TAUI mirror as JSON (default: a fresh
   empty cockpit).
 - `tui inspect --select <selector> [--state <file>]` — resolve a dotted selector
@@ -638,12 +651,19 @@ entirely **without a terminal** and opens no socket: it is a set of pure
 - `tui action --select <selector> [--state <file>]` — operate the UI by selector:
   map a popup-action selector to an event, reduce it, and print the NEW mirror.
 - `tui replay <events.jsonl> [--state <file>]` — fold an event log into a mirror.
-- `tui snapshot --name <n> [--state/--events/--dir]` — write the snapshot triple
-  (`<name>.taui.json`, `<name>.ansi`, `<name>.events.jsonl`).
+- `tui snapshot --name <n> [--state/--events/--dir]` — write the snapshot **quad**:
+  `<name>.taui.json`, `<name>.ansi`, `<name>.events.jsonl`, and `<name>.md` (the
+  Markdown render). Legacy triples (no `.md`) still read fine — `<name>.md` defaults
+  to empty when absent.
 - `tui test --scenario <file.json>` — run a JSON scenario as an assertion;
   **exit 1 on FAIL**.
 - `tui diagnose (--dir <d> --name <n> | --taui <f> --ansi <f> [--events <f>])` —
-  classify cross-mirror bugs (no model/network).
+  classify cross-mirror bugs (no model/network). On a quad (`<name>.md` present)
+  the RENDER faithfulness check runs against **both** the ANSI frame and the
+  Markdown frame — proving the JSON mirror and the Markdown render agree. Zero
+  findings = faithful; a finding = render-fidelity drift between JSON and Markdown.
+  (Legacy triples without a `.md` file skip the Markdown check entirely, preserving
+  the exact pre-quad behavior.)
 - `tui overview` — describe this surface.
 
 ## Scenario format (JSON, not YAML)
@@ -673,9 +693,13 @@ The runner builds `CockpitState.from_dict(initial)`, folds each event via
 
     convertible tui state --json
     convertible tui render --state cockpit.json
+    convertible tui render --state cockpit.json --format markdown
+    convertible tui render --state cockpit.json --format markdown --json
     convertible tui inspect --select popup.skill.boost --state cockpit.json --json
     convertible tui action --select popup.skill.boost.accept --state cockpit.json --json
     convertible tui test --scenario convertible/tui/scenarios/boost-popup.scenario.json
+    convertible tui snapshot --name baseline --state cockpit.json --dir ./snapshots
+    convertible tui diagnose --dir ./snapshots --name baseline
 
 ## See also
 

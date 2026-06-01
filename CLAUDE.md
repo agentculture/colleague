@@ -137,6 +137,16 @@ The car metaphor *is* the architecture:
 - **Interactive palette** — `convertible session` (`convertible/cli/_commands/
   session.py`): a foreground TTY loop over the same drive path; no parallel
   code path, no daemon.
+- **Cockpit views (tui)** — `convertible tui` provides three headless, pure-stdlib
+  views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
+  `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**
+  (agent-facing readable view — better than raw JSON for an agent to glance at,
+  `tui render --format markdown`). The snapshot is now a **quad**: `tui snapshot`
+  writes `<name>.taui.json` / `<name>.ansi` / `<name>.events.jsonl` / `<name>.md`.
+  `tui diagnose` on a quad verifies **JSON↔Markdown alignment** — the RENDER
+  faithfulness check runs against both frames; zero findings = faithful. Before this
+  surface was added, no convertible command emitted Markdown and `diagnose` inspected
+  the ANSI frame only. Legacy triples (no `.md`) still read fine.
 - **Config resolution** — `convertible/configdir.py`: repo-level
   `.convertible/` overrides user-level `~/.convertible/`.
 - **Layered per-model config** — `convertible/layers.py`: AGENTS instructions
