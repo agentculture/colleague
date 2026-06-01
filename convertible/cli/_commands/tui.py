@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from convertible.cli._commands.overview import emit_overview
-from convertible.cli._errors import EXIT_USER_ERROR, CliError
+from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
 from convertible.tui.diagnose import diagnose, diagnose_snapshot
 from convertible.tui.events import event_from_dict, loads_events
@@ -106,6 +107,7 @@ def _tui_sections() -> list[dict[str, object]]:
                 "tui snapshot --name <n> [--state/--events/--dir] — write the triple",
                 "tui test --scenario <file.json> — run a scenario (exit 1 on FAIL)",
                 "tui diagnose (--dir <d> --name <n> | --taui/--ansi/--events) — classify bugs",
+                "tui live — foreground TTY loop (requires an interactive terminal)",
                 "tui overview — describe this surface (this command)",
             ],
         },
@@ -394,6 +396,36 @@ def _render_report(report: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# live — foreground TTY driver
+# ---------------------------------------------------------------------------
+
+
+def cmd_tui_live(args: argparse.Namespace) -> int:
+    """Launch the foreground TTY cockpit loop.
+
+    Requires an interactive terminal.  Exits cleanly with a :class:`CliError`
+    when stdin is not a tty — so CI jobs and agent shells never hang.
+    """
+    if not sys.stdin.isatty():
+        raise CliError(
+            EXIT_ENV_ERROR,
+            "tui live requires an interactive terminal",
+            "run it in a real terminal, or use the headless verbs: "
+            "render/state/replay/snapshot/diagnose",
+        )
+
+    from convertible.tui.render.driver import run as driver_run
+
+    final_state = driver_run(initial=CockpitState())
+    # Emit a brief closing summary so the caller knows the session ended cleanly.
+    emit_result(
+        {"screen": final_state.screen, "mode": final_state.mode, "exited": True},
+        json_mode=bool(getattr(args, "json", False)),
+    )
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # registration
 # ---------------------------------------------------------------------------
 
@@ -468,3 +500,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     ov = noun_sub.add_parser("overview", help="Describe the tui surface.")
     _add_json(ov)
     ov.set_defaults(func=cmd_tui_overview)
+
+    liv = noun_sub.add_parser(
+        "live",
+        help="Launch the foreground TTY cockpit (requires an interactive terminal).",
+    )
+    _add_json(liv)
+    liv.set_defaults(func=cmd_tui_live)
