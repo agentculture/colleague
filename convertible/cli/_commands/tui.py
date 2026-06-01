@@ -28,6 +28,7 @@ from convertible.tui.diagnose import diagnose, diagnose_snapshot
 from convertible.tui.events import event_from_dict, loads_events
 from convertible.tui.reducer import reduce
 from convertible.tui.render.ansi import render
+from convertible.tui.render.markdown import render_markdown
 from convertible.tui.replay import replay
 from convertible.tui.selectors import SelectorError, resolve, selector_to_event, selectors
 from convertible.tui.snapshot import write_snapshot
@@ -150,8 +151,23 @@ def cmd_tui_overview(args: argparse.Namespace) -> int:
 def cmd_tui_render(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
     state = _load_state(args.state)
-    frame = render(state)
-    emit_result({"ansi": frame} if json_mode else frame, json_mode=json_mode)
+    fmt = getattr(args, "format", "ansi")
+
+    # Dispatch on format; invalid format raises CliError (EXIT_USER_ERROR).
+    if fmt == "ansi":
+        frame = render(state)
+        payload = {"ansi": frame} if json_mode else frame
+    elif fmt == "markdown":
+        frame = render_markdown(state)
+        payload = {"markdown": frame} if json_mode else frame
+    else:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"invalid --format {fmt!r}",
+            "use --format ansi or --format markdown",
+        )
+
+    emit_result(payload, json_mode=json_mode)
     return 0
 
 
@@ -284,7 +300,7 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
 def _render_diagnosis(payload: dict[str, Any]) -> str:
     findings = payload.get("findings", [])
     if not findings:
-        return "no findings — the captured triple agrees"
+        return "no findings — the captured views agree"
     lines = [f"{len(findings)} finding(s): {', '.join(payload.get('classes', []))}", ""]
     for finding in findings:
         lines.append(f"[{finding['bug_class']}] {finding['selector']}: {finding['message']}")
@@ -464,6 +480,12 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     rnd = noun_sub.add_parser("render", help="Render the ANSI frame for a state.")
     rnd.add_argument("--state", required=True, help="Path to a CockpitState/TAUI JSON file.")
+    rnd.add_argument(
+        "--format",
+        choices=["ansi", "markdown"],
+        default="ansi",
+        help="Output format: ansi (ANSI frame, default) or markdown (Markdown rendering).",
+    )
     _add_json(rnd)
     rnd.set_defaults(func=cmd_tui_render)
 

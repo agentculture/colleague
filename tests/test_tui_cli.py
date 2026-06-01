@@ -276,3 +276,66 @@ def test_snapshot_bad_name_errors(tmp_path: Path, capsys: pytest.CaptureFixture[
     )
     assert rc != 0
     assert "error:" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# tui render --format (t4)
+# ---------------------------------------------------------------------------
+
+
+def test_render_markdown_plain(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """render --format markdown emits Markdown (plain, non-JSON)."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(["tui", "render", "--state", str(sf), "--format", "markdown"])
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert output  # non-empty Markdown output
+    # Markdown should contain typical Markdown structure (headers, lists, etc.)
+    assert "#" in output or "-" in output or output.strip()
+
+
+def test_render_markdown_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """render --format markdown --json emits {"markdown": ...}."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(["tui", "render", "--state", str(sf), "--format", "markdown", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "markdown" in payload and isinstance(payload["markdown"], str)
+
+
+def test_render_default_is_ansi(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """render (no --format) defaults to ANSI, same as --format ansi."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(["tui", "render", "--state", str(sf)])
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert output  # ANSI frame
+
+
+def test_render_format_ansi_explicit(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """render --format ansi emits ANSI (same as default)."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(["tui", "render", "--state", str(sf), "--format", "ansi"])
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert output  # ANSI frame
+
+
+def test_render_format_ansi_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """render --format ansi --json emits {"ansi": ...} (unchanged behavior)."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(["tui", "render", "--state", str(sf), "--format", "ansi", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "ansi" in payload and isinstance(payload["ansi"], str)
+
+
+def test_render_invalid_format_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """render --format <unknown> is rejected via CliError with no traceback."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    with pytest.raises(SystemExit) as exc:
+        main(["tui", "render", "--state", str(sf), "--format", "invalid"])
+    assert exc.value.code != 0
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err

@@ -19,9 +19,14 @@ The seven bug classes
     (e.g. a ``SkillSuggested`` fired but the captured taui has no/invisible
     popup for it).
 ``RENDER``
-    The mirror is correct but the ANSI is wrong/missing — a popup with
+    The mirror is correct but a rendered frame is wrong/missing — a popup with
     ``visible=true`` whose (non-empty) ``message`` text is ABSENT from the
-    captured frame.
+    captured frame.  Checked against the ANSI frame always, and — when a
+    Markdown frame is supplied (the snapshot quad) — against the Markdown frame
+    too.  Markdown and JSON are both pure functions of one ``CockpitState``, so a
+    Markdown disagreement is a render-fidelity bug, never a data-source
+    divergence.  The Markdown check runs only when a non-empty Markdown frame is
+    present; an absent/empty frame (the legacy triple) is skipped entirely.
 ``LAYOUT``
     A node exists & is marked visible, but its owning zone (matched by id
     prefix) is ``visible=false`` — the node can never actually paint.
@@ -45,8 +50,8 @@ Public API
 - :class:`BugClass` — the seven string constants.
 - :class:`Finding` — one classified disagreement.
 - :class:`Diagnosis` — the collected findings (+ ``classes`` / ``to_dict``).
-- :func:`diagnose` — run every detector over ``(taui, ansi, events)``.
-- :func:`diagnose_snapshot` — read a snapshot triple and diagnose it.
+- :func:`diagnose` — run every detector over ``(taui, ansi, events, markdown)``.
+- :func:`diagnose_snapshot` — read a snapshot quad and diagnose it.
 """
 
 from __future__ import annotations
@@ -268,6 +273,50 @@ def _detect_render(taui: dict[str, Any], ansi: str) -> List[Finding]:
     return findings
 
 
+def _detect_render_markdown(taui: dict[str, Any], markdown: str) -> List[Finding]:
+    """RENDER (Markdown frame): a visible popup absent from the Markdown render.
+
+    Mirrors :func:`_detect_render` faithfully — same ``_visible_popups`` and
+    ``_popup_title`` helpers, so it stays in lock-step with how the renderer
+    titles popups — but checks the Markdown string instead of the ANSI frame and
+    names the **MARKDOWN** frame in its message.  Markdown and JSON are both pure
+    functions of one ``CockpitState``, so any disagreement here is a
+    render-fidelity bug, never a data-source divergence.
+
+    The caller (:func:`diagnose`) only invokes this when ``markdown`` is a
+    non-empty string, so a legacy triple (no ``.md``, ``markdown == ""``) is
+    never checked and behaves exactly as before.
+
+    Unlike the ANSI :func:`_detect_render` (which treats a popup as rendered
+    when *either* its title or its message survives — it only guards against a
+    popup vanishing entirely), the Markdown check requires the popup's
+    **message** itself, because Markdown is the agent-facing *reading-complete*
+    view: dropping the message while keeping the title is a fidelity loss the
+    agent would feel, so it must be flagged (matching this finding's own
+    "MARKDOWN lacks message" wording).
+    """
+    findings: List[Finding] = []
+    for popup in _visible_popups(taui):
+        message = str(popup.get("message", ""))
+        if not message:
+            continue
+        # The mirror says this popup is visible with a non-empty message; if that
+        # message text is absent from the Markdown frame, the agent-facing render
+        # dropped visible content -> render bug.
+        if message not in markdown:
+            findings.append(
+                Finding(
+                    bug_class=BugClass.RENDER,
+                    selector=str(popup.get("id", "")),
+                    message=(
+                        f"TAUI says popup {popup.get('id')!r} visible=true; "
+                        f"MARKDOWN lacks message {message!r} -> likely render bug"
+                    ),
+                )
+            )
+    return findings
+
+
 def _detect_layout(taui: dict[str, Any]) -> List[Finding]:
     """LAYOUT: a visible node whose owning zone is visible=false.
 
@@ -444,8 +493,9 @@ def diagnose(
     taui: dict[str, Any],
     ansi: str,
     events: Optional[list] = None,
+    markdown: Optional[str] = None,
 ) -> Diagnosis:
-    """Run every detector over a captured triple and collect the findings.
+    """Run every detector over a captured frame set and collect the findings.
 
     Parameters
     ----------
@@ -459,15 +509,27 @@ def diagnose(
         The captured event trail.  When ``None`` the STATE detector (which needs
         the trail to compute the expected mirror) is skipped; every other
         detector still runs.
+    markdown:
+        The captured Markdown frame string (output of
+        :func:`convertible.tui.render.markdown.render_markdown`).  When ``None``
+        or empty — the legacy-triple default — the Markdown RENDER detector is
+        skipped entirely, so behavior is byte-identical to the pre-quad differ.
+        When a non-empty frame is supplied, the same RENDER faithfulness check
+        the ANSI frame gets is applied to the Markdown frame too.
 
     Returns
     -------
     Diagnosis
-        The collected :class:`Finding` objects (empty when the triple agrees).
+        The collected :class:`Finding` objects (empty when the frames agree).
     """
     findings: List[Finding] = []
     findings.extend(_detect_state(taui, events))
     findings.extend(_detect_render(taui, ansi))
+    # The Markdown RENDER check is additive and runs ONLY when a Markdown frame
+    # is actually present.  A legacy triple (markdown None/"") skips it, so the
+    # ANSI path is preserved exactly.
+    if markdown:
+        findings.extend(_detect_render_markdown(taui, markdown))
     findings.extend(_detect_layout(taui))
     findings.extend(_detect_focus(taui))
     findings.extend(_detect_input_routing(taui))
@@ -477,11 +539,15 @@ def diagnose(
 
 
 def diagnose_snapshot(directory: "str | Any", name: str) -> Diagnosis:
-    """Read the snapshot triple ``<name>`` from *directory* and diagnose it.
+    """Read the snapshot quad ``<name>`` from *directory* and diagnose it.
 
-    Convenience wrapper that loads the captured ``taui`` / ``ansi`` / ``events``
-    via :func:`convertible.tui.snapshot.read_snapshot` and forwards them to
-    :func:`diagnose`.
+    Convenience wrapper that loads the captured ``taui`` / ``ansi`` / ``events`` /
+    ``markdown`` via :func:`convertible.tui.snapshot.read_snapshot` and forwards
+    them to :func:`diagnose`.
+
+    Because :func:`diagnose` skips the Markdown RENDER check when the frame is
+    empty, a legacy triple (no ``.md`` → ``snap.markdown == ""``) keeps its exact
+    current behavior; a quad gets the extra Markdown faithfulness check for free.
 
     Parameters
     ----------
@@ -493,11 +559,11 @@ def diagnose_snapshot(directory: "str | Any", name: str) -> Diagnosis:
     Returns
     -------
     Diagnosis
-        The diagnosis of the read triple.
+        The diagnosis of the read frame set.
     """
     # Imported lazily so the core differ has zero dependency on the filesystem
     # snapshot layer (and to keep the import graph shallow).
     from convertible.tui.snapshot import read_snapshot
 
     snap = read_snapshot(directory, name)
-    return diagnose(snap.taui, snap.ansi, snap.events)
+    return diagnose(snap.taui, snap.ansi, snap.events, markdown=snap.markdown)

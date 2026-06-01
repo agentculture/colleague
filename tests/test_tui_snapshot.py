@@ -1,4 +1,4 @@
-"""Tests for convertible.tui.snapshot — snapshot triple write/read."""
+"""Tests for convertible.tui.snapshot — snapshot quad write/read."""
 
 from pathlib import Path
 
@@ -6,6 +6,7 @@ import pytest
 
 from convertible.tui.events import DriveStep, UserInput
 from convertible.tui.render.ansi import render
+from convertible.tui.render.markdown import render_markdown
 from convertible.tui.snapshot import Snapshot, read_snapshot, write_snapshot
 from convertible.tui.state import Action, CockpitState, Drive, Popup, Status
 from convertible.tui.taui import serialize
@@ -44,15 +45,16 @@ def _make_events() -> list:
 
 
 class TestWriteSnapshot:
-    def test_produces_three_files(self, tmp_path):
+    def test_produces_four_files(self, tmp_path):
         state = _make_state()
         events = _make_events()
         paths = write_snapshot(tmp_path, "bug-x", state, events)
 
-        assert set(paths.keys()) == {"taui", "ansi", "events"}
+        assert set(paths.keys()) == {"taui", "ansi", "events", "markdown"}
         assert paths["taui"] == tmp_path / "bug-x.taui.json"
         assert paths["ansi"] == tmp_path / "bug-x.ansi"
         assert paths["events"] == tmp_path / "bug-x.events.jsonl"
+        assert paths["markdown"] == tmp_path / "bug-x.md"
 
         for p in paths.values():
             assert p.exists(), f"Expected {p} to exist"
@@ -126,6 +128,21 @@ class TestWriteSnapshot:
         content = paths["events"].read_text(encoding="utf-8")
         assert content == ""
 
+    def test_produces_four_files_with_markdown(self, tmp_path):
+        state = _make_state()
+        events = _make_events()
+        paths = write_snapshot(tmp_path, "quad", state, events)
+
+        assert set(paths.keys()) == {"taui", "ansi", "events", "markdown"}
+        assert paths["markdown"] == tmp_path / "quad.md"
+        assert paths["markdown"].exists(), f"Expected {paths['markdown']} to exist"
+
+    def test_markdown_content_matches_render_markdown(self, tmp_path):
+        state = _make_state()
+        paths = write_snapshot(tmp_path, "md-test", state, [])
+        written = paths["markdown"].read_text(encoding="utf-8")
+        assert written == render_markdown(state)
+
 
 class TestReadSnapshot:
     def test_round_trip_taui(self, tmp_path):
@@ -193,6 +210,67 @@ class TestReadSnapshot:
         # standing action always present
         assert "input.prompt" in selectors
 
+    def test_round_trip_markdown(self, tmp_path):
+        state = _make_state()
+        write_snapshot(tmp_path, "md-rt", state, [])
+        snap = read_snapshot(tmp_path, "md-rt")
+        assert snap.markdown == render_markdown(state)
+
+    def test_snapshot_has_markdown_field(self, tmp_path):
+        state = CockpitState()
+        write_snapshot(tmp_path, "md-field", state, [])
+        snap = read_snapshot(tmp_path, "md-field")
+        assert isinstance(snap, Snapshot)
+        assert hasattr(snap, "markdown")
+        assert isinstance(snap.markdown, str)
+
+
+class TestLegacyTripleBackcompat:
+    """read_snapshot handles legacy triples (no .md file) gracefully."""
+
+    def test_legacy_triple_without_md_file(self, tmp_path):
+        """Reading a triple that exists without the new .md file sets markdown to empty string."""
+        state = _make_state()
+        # Write the triple manually (mimic old behavior)
+        import json
+
+        out = Path(tmp_path)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "legacy.taui.json").write_text(
+            json.dumps(serialize(state), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        (out / "legacy.ansi").write_text(render(state), encoding="utf-8")
+        (out / "legacy.events.jsonl").write_text("", encoding="utf-8")
+        # NO .md file — this is the legacy case
+
+        # read_snapshot must not crash
+        snap = read_snapshot(tmp_path, "legacy")
+        assert snap.taui == serialize(state)
+        assert snap.ansi == render(state)
+        assert snap.markdown == ""  # graceful default
+
+    def test_legacy_triple_with_events(self, tmp_path):
+        """Legacy triple with actual events still works without .md."""
+        state = _make_state()
+        events = _make_events()
+        import json
+
+        from convertible.tui.events import dumps_events
+
+        out = Path(tmp_path)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "legacy-ev.taui.json").write_text(
+            json.dumps(serialize(state), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        (out / "legacy-ev.ansi").write_text(render(state), encoding="utf-8")
+        (out / "legacy-ev.events.jsonl").write_text(dumps_events(events), encoding="utf-8")
+
+        snap = read_snapshot(tmp_path, "legacy-ev")
+        assert len(snap.events) == len(events)
+        assert snap.markdown == ""
+
 
 class TestSnapshotNameValidation:
     """write_snapshot/read_snapshot reject unsafe names (directory traversal)."""
@@ -216,3 +294,10 @@ class TestSnapshotNameValidation:
     def test_safe_name_still_works(self, tmp_path: Path) -> None:
         paths = write_snapshot(tmp_path, "bug-x", _make_state(), [])
         assert paths["taui"].name == "bug-x.taui.json"
+
+    def test_name_validation_applies_to_markdown_file(self, tmp_path: Path) -> None:
+        """Verify that _validate_snapshot_name guards the .md file too."""
+        state = _make_state()
+        # This should be caught by _validate_snapshot_name
+        with pytest.raises(ValueError):
+            write_snapshot(tmp_path, "bad../name", state, [])
