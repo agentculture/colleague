@@ -58,6 +58,9 @@ def test_post_json_preserves_vllm_error_body(monkeypatch: pytest.MonkeyPatch) ->
         def read(self) -> bytes:
             return b'{"error":{"message":"The model `Qwen/Qwen3-32B` does not exist."}}'
 
+        def close(self) -> None:  # file-like protocol: HTTPError closes its fp on GC
+            pass
+
     def fake_urlopen(*_args: object, **_kwargs: object) -> object:
         raise urllib.error.HTTPError(
             "http://localhost:8001/v1/chat/completions",
