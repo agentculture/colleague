@@ -1,0 +1,10 @@
+{
+  "name": "boost popup appears when a skill is suggested",
+  "initial": { "screen": "main" },
+  "events": [ {"type": "skill_suggested", "skill": "boost", "reason": "task_complexity_high"} ],
+  "expect": {
+    "popup": { "id": "popup.skill.boost", "visible": true, "blocking": false },
+    "focused": "input.prompt",
+    "action_available": "popup.skill.boost.accept"
+  }
+}

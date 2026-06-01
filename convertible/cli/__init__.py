@@ -86,6 +86,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from convertible.cli._commands import session as _session_cmd
     from convertible.cli._commands import skills as _skills_group
     from convertible.cli._commands import telemetry as _telemetry_group
+    from convertible.cli._commands import tui as _tui_cmd
     from convertible.cli._commands import wheels as _wheels_group
     from convertible.cli._commands import whoami as _whoami_cmd
 
@@ -123,6 +124,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _telemetry_group.register(sub)
     # Interactive foreground palette (c28/R8).
     _session_cmd.register(sub)
+    # Headless TUI inspection + JSON scenario runner (TAUI).
+    _tui_cmd.register(sub)
 
     return parser
 

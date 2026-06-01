@@ -619,6 +619,70 @@ Defaults to a local vLLM model; override with `--engine` / `--model` /
 - `convertible explain drive`
 """
 
+_TUI = """\
+# convertible tui
+
+Headless, agent-facing inspection of the TUI cockpit — a state machine whose
+single agent-readable mirror is the **TAUI** (a plain JSON dict). This verb runs
+entirely **without a terminal** and opens no socket: it is a set of pure
+`state -> mirror/frame` transforms. The live TTY driver is a separate concern.
+
+## Verbs
+
+- `tui render --state <file>` — render the ANSI frame for a state (`--json` wraps
+  it as `{"ansi": "<frame>"}`).
+- `tui state [--state <file>]` — print the TAUI mirror as JSON (default: a fresh
+  empty cockpit).
+- `tui inspect --select <selector> [--state <file>]` — resolve a dotted selector
+  to its node (JSON). A bad selector is a user error.
+- `tui action --select <selector> [--state <file>]` — operate the UI by selector:
+  map a popup-action selector to an event, reduce it, and print the NEW mirror.
+- `tui replay <events.jsonl> [--state <file>]` — fold an event log into a mirror.
+- `tui snapshot --name <n> [--state/--events/--dir]` — write the snapshot triple
+  (`<name>.taui.json`, `<name>.ansi`, `<name>.events.jsonl`).
+- `tui test --scenario <file.json>` — run a JSON scenario as an assertion;
+  **exit 1 on FAIL**.
+- `tui diagnose (--dir <d> --name <n> | --taui <f> --ansi <f> [--events <f>])` —
+  classify cross-mirror bugs (no model/network).
+- `tui overview` — describe this surface.
+
+## Scenario format (JSON, not YAML)
+
+convertible keeps zero runtime dependencies, so scenarios are **JSON**, never
+YAML (PyYAML is forbidden):
+
+    {
+      "name": "boost popup appears when a skill is suggested",
+      "initial": { "screen": "main" },
+      "events": [ {"type": "skill_suggested", "skill": "boost",
+                   "reason": "task_complexity_high"} ],
+      "expect": {
+        "popup": { "id": "popup.skill.boost", "visible": true, "blocking": false },
+        "focused": "input.prompt",
+        "action_available": "popup.skill.boost.accept"
+      }
+    }
+
+The runner builds `CockpitState.from_dict(initial)`, folds each event via
+`event_from_dict` + `reduce`, serializes the final state, and checks each
+`expect` clause: `popup` (id/visible/blocking against the serialized popups),
+`focused`, and `action_available` (present among the derived selectors /
+`available_actions`). The report lists which clauses passed and which failed.
+
+## Usage
+
+    convertible tui state --json
+    convertible tui render --state cockpit.json
+    convertible tui inspect --select popup.skill.boost --state cockpit.json --json
+    convertible tui action --select popup.skill.boost.accept --state cockpit.json --json
+    convertible tui test --scenario convertible/tui/scenarios/boost-popup.scenario.json
+
+## See also
+
+- `convertible explain session`
+- `convertible explain drive`
+"""
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("convertible",): _ROOT,
@@ -660,4 +724,14 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("subagents",): _SUBAGENT,
     ("convoy",): _SUBAGENT,
     ("outsource",): _OUTSOURCE,
+    ("tui",): _TUI,
+    ("tui", "render"): _TUI,
+    ("tui", "state"): _TUI,
+    ("tui", "inspect"): _TUI,
+    ("tui", "action"): _TUI,
+    ("tui", "replay"): _TUI,
+    ("tui", "snapshot"): _TUI,
+    ("tui", "test"): _TUI,
+    ("tui", "diagnose"): _TUI,
+    ("tui", "overview"): _TUI,
 }
