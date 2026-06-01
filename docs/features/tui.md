@@ -16,7 +16,7 @@ import on the reader's side.
 The TUI is a **pure-reducer pipeline** — no global state, no I/O inside the
 core:
 
-```
+```text
 Event  →  reduce(state, event)  →  CockpitState  →  serialize()  =  TAUI JSON
                                                   →  render()     =  ANSI string
 ```
