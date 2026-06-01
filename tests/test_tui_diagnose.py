@@ -399,6 +399,35 @@ class TestMarkdownMutation:
             "MARKDOWN" in f.message for f in offenders
         ), "the Markdown RENDER finding must name the MARKDOWN frame"
 
+    def test_dropping_only_the_message_keeping_title_still_yields_render(self):
+        """Message-loss alone is a fidelity bug, even if the popup title survives.
+
+        The agent-facing Markdown view must carry the popup MESSAGE, not just its
+        derived title heading — so a render that keeps the heading but drops the
+        message content is still flagged. Regression guard for the Qodo finding
+        on PR #71 (the check used to require BOTH message and title to vanish).
+        """
+        state = _skill_state()
+        taui = serialize(state)
+        ansi = render(state)  # ANSI stays faithful
+        markdown = render_markdown(state)
+        popup = next(p for p in taui["popups"] if p.get("visible"))
+        message = popup["message"]
+        title = f"Skill Suggestion [{popup['id']}]"
+        assert message in markdown and title in markdown  # sanity: faithful
+
+        # Drop ONLY the message; the title heading still survives.
+        broken_md = markdown.replace(message, "")
+        assert title in broken_md  # the popup is still "discoverable" by title
+
+        diag = diagnose(taui, ansi, events=[SkillSuggested("boost")], markdown=broken_md)
+
+        offenders = [
+            f for f in diag.findings if f.bug_class == BugClass.RENDER and f.selector == popup["id"]
+        ]
+        assert offenders, "message-loss (title kept) must still yield a MARKDOWN RENDER finding"
+        assert all("MARKDOWN" in f.message for f in offenders)
+
     def test_ansi_stays_faithful_so_only_markdown_render_fires(self):
         """When only the Markdown drifts, the RENDER finding names MARKDOWN, not ANSI."""
         state = _skill_state()

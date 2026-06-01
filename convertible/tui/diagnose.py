@@ -286,17 +286,24 @@ def _detect_render_markdown(taui: dict[str, Any], markdown: str) -> List[Finding
     The caller (:func:`diagnose`) only invokes this when ``markdown`` is a
     non-empty string, so a legacy triple (no ``.md``, ``markdown == ""``) is
     never checked and behaves exactly as before.
+
+    Unlike the ANSI :func:`_detect_render` (which treats a popup as rendered
+    when *either* its title or its message survives — it only guards against a
+    popup vanishing entirely), the Markdown check requires the popup's
+    **message** itself, because Markdown is the agent-facing *reading-complete*
+    view: dropping the message while keeping the title is a fidelity loss the
+    agent would feel, so it must be flagged (matching this finding's own
+    "MARKDOWN lacks message" wording).
     """
     findings: List[Finding] = []
     for popup in _visible_popups(taui):
         message = str(popup.get("message", ""))
         if not message:
             continue
-        title = _popup_title(popup)
-        # The mirror says this popup is visible; if neither its message nor its
-        # derived title text appears in the Markdown frame, the renderer dropped
-        # it -> render bug.
-        if message not in markdown and title not in markdown:
+        # The mirror says this popup is visible with a non-empty message; if that
+        # message text is absent from the Markdown frame, the agent-facing render
+        # dropped visible content -> render bug.
+        if message not in markdown:
             findings.append(
                 Finding(
                     bug_class=BugClass.RENDER,
