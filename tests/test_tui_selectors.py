@@ -2,7 +2,7 @@
 
 import pytest
 
-from convertible.tui.events import Dismiss, KeyPress
+from convertible.tui.events import Dismiss
 from convertible.tui.selectors import SelectorError, resolve, selector_to_event, selectors
 from convertible.tui.state import Action, CockpitState, Panel, PanelItem, Popup
 from convertible.tui.taui import serialize
@@ -266,13 +266,12 @@ def test_selector_to_event_dismiss_action_returns_dismiss():
     assert event.target == "popup.skill.boost"
 
 
-def test_selector_to_event_non_dismiss_returns_key():
-    """A non-dismiss action selector yields Key(key=<action input>)."""
+def test_selector_to_event_non_dismiss_raises_not_operable():
+    """A non-dismiss action is not operable headlessly in v0 — must raise (not no-op)."""
     state = _make_skill_boost_state()
     taui = serialize(state)
-    event = selector_to_event(taui, "popup.skill.boost.accept")
-    assert isinstance(event, KeyPress)
-    assert event.key == "enter"
+    with pytest.raises(SelectorError, match="not operable headlessly"):
+        selector_to_event(taui, "popup.skill.boost.accept")
 
 
 def test_selector_to_event_unknown_raises_selector_error():

@@ -70,7 +70,14 @@ def _load_state(path_str: Optional[str]) -> CockpitState:
         raise CliError(EXIT_USER_ERROR, f"--state is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise CliError(EXIT_USER_ERROR, "--state must contain a JSON object")
-    return CockpitState.from_dict(data)
+    try:
+        return CockpitState.from_dict(data)
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"--state has an invalid shape: {exc}",
+            "see 'convertible tui state' for the expected structure",
+        ) from exc
 
 
 def _load_events(path_str: Optional[str], *, kind: str = "events") -> list:
@@ -212,7 +219,10 @@ def cmd_tui_snapshot(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
     state = _load_state(args.state)
     events = _load_events(args.events)
-    paths = write_snapshot(args.dir or ".", args.name, state, events)
+    try:
+        paths = write_snapshot(args.dir or ".", args.name, state, events)
+    except ValueError as exc:
+        raise CliError(EXIT_USER_ERROR, str(exc), "use a plain filename for --name") from exc
     str_paths = {key: str(value) for key, value in paths.items()}
     if json_mode:
         emit_result(str_paths, json_mode=True)
@@ -252,6 +262,8 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
             raise CliError(
                 EXIT_USER_ERROR, f"snapshot not found: {exc}", "check --dir and --name"
             ) from exc
+        except ValueError as exc:
+            raise CliError(EXIT_USER_ERROR, str(exc), "use a plain filename for --name") from exc
 
     if args.taui is None or args.ansi is None:
         raise CliError(

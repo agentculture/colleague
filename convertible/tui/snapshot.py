@@ -38,6 +38,22 @@ except ImportError:  # pragma: no cover — TYPE_CHECKING guard
     CockpitState = Any  # type: ignore[assignment,misc]
 
 
+def _validate_snapshot_name(name: str) -> str:
+    """Return *name* if it is a safe, bare filename; else raise ``ValueError``.
+
+    Guards against directory traversal: the snapshot ``name`` is interpolated
+    into file paths, so a value containing path separators or ``..`` segments
+    could escape the target directory. Reject anything that is not a plain
+    basename.
+    """
+    if not name or Path(name).name != name or ".." in name:
+        raise ValueError(
+            f"invalid snapshot name {name!r}: must be a bare filename "
+            "with no path separators or '..' segments"
+        )
+    return name
+
+
 @dataclass
 class Snapshot:
     """The three components of a TUI snapshot triple.
@@ -86,6 +102,7 @@ def write_snapshot(
         Mapping with keys ``"taui"``, ``"ansi"``, ``"events"`` pointing to
         the three written :class:`~pathlib.Path` objects.
     """
+    _validate_snapshot_name(name)
     out = Path(directory)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -124,6 +141,7 @@ def read_snapshot(directory: "str | Path", name: str) -> Snapshot:
         A :class:`Snapshot` dataclass with ``taui``, ``ansi``, and ``events``
         fields populated from the stored files.
     """
+    _validate_snapshot_name(name)
     out = Path(directory)
 
     taui = json.loads((out / f"{name}.taui.json").read_text(encoding="utf-8"))

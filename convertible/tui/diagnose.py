@@ -28,9 +28,9 @@ The seven bug classes
 ``FOCUS``
     ``taui.focused`` names a selector that does not resolve in the tree.
 ``INPUT_ROUTING``
-    An ``available_actions`` entry whose ``selector`` does not resolve, or for
-    which :func:`~convertible.tui.selectors.selector_to_event` raises — the
-    action is offered but cannot route to an event.
+    An ``available_actions`` entry whose ``selector`` does not resolve to any
+    node in the tree — the action is advertised but addresses nothing. (Whether
+    an action is *operable headlessly* is a v0 scope choice, not a routing bug.)
 ``THEME``
     ``background.semantic`` implies a "stronger agent" theme but
     ``background.theme`` contradicts it (semantic mode and visual theme
@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from convertible.tui.replay import replay
-from convertible.tui.selectors import SelectorError, resolve, selector_to_event
+from convertible.tui.selectors import SelectorError, resolve
 from convertible.tui.taui import serialize
 
 #: Standing selectors that are addressable by design but do not drill through
@@ -362,20 +362,6 @@ def _detect_input_routing(taui: dict[str, Any]) -> List[Finding]:
                         f"available_actions offers {selector!r} but it does not "
                         "resolve to any node -> the action cannot route -> "
                         "likely input-routing bug"
-                    ),
-                )
-            )
-            continue
-        try:
-            selector_to_event(taui, selector)
-        except SelectorError:
-            findings.append(
-                Finding(
-                    bug_class=BugClass.INPUT_ROUTING,
-                    selector=selector,
-                    message=(
-                        f"available_actions offers {selector!r} but it cannot "
-                        "be mapped to an event -> likely input-routing bug"
                     ),
                 )
             )

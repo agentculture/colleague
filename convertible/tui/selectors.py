@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from convertible.tui.events import Dismiss, Event, KeyPress
+from convertible.tui.events import Dismiss, Event
 
 # ---------------------------------------------------------------------------
 # Error type
@@ -169,43 +169,34 @@ def resolve(taui: dict[str, Any], selector: str) -> Any:
 
 
 def selector_to_event(taui: dict[str, Any], selector: str) -> Event:
-    """Map an action *selector* to an :class:`~convertible.tui.events.Event`.
+    """Map a popup-action *selector* to an :class:`~convertible.tui.events.Event`.
 
-    The selector must identify a popup ACTION node (an entry in a popup's
-    ``actions`` list).  Non-action selectors (popup ids, panel ids, …) raise
+    Only ``.dismiss`` actions have a defined headless state effect in v0 — they
+    close the popup. Every other popup action (``accept``, ``details``, …) and
+    all key navigation/activation are the **live driver's** concern (a parked
+    follow-up), so they are NOT operable via the headless ``tui action`` verb
+    yet. Rather than silently returning an unchanged mirror (a misleading
+    no-op), such selectors — and any non-action selector — raise
     :class:`SelectorError`.
-
-    Mapping rules
-    -------------
-    - If the action's ``selector`` ends with ``".dismiss"``, return
-      ``Dismiss(target=<parent popup id>)``.
-    - Otherwise return ``KeyPress(key=<action "input">)``.
 
     Raises
     ------
     SelectorError
-        If the selector is not found or does not identify an actionable node.
+        If the selector is unknown, is not a popup action, or is an action that
+        has no defined headless effect in v0 (anything other than ``.dismiss``).
     """
-    # Search popup actions, tracking the parent popup id
     for popup in taui.get("popups", []):
         for action in popup.get("actions", []):
             if action.get("selector") == selector:
-                # Found the action — now decide which event to emit
                 if selector.endswith(".dismiss"):
-                    parent_id = popup.get("id", "")
-                    return Dismiss(target=str(parent_id))
-                return KeyPress(key=str(action.get("input", "")))
+                    return Dismiss(target=str(popup.get("id", "")))
+                raise SelectorError(
+                    f"action {selector!r} is not operable headlessly in v0 — only "
+                    "'.dismiss' actions change state; activation/navigation is the "
+                    "live driver's concern (a parked follow-up)"
+                )
 
-    # Also check available_actions for the standing input.prompt action
-    for action in taui.get("available_actions", []):
-        if action.get("selector") == selector:
-            # The standing action is not a dismiss
-            return KeyPress(key=str(action.get("input", "")))
-
-    # resolve() first to give a clear SelectorError for unknowns; if it does
-    # not raise, the selector exists but is not an actionable action node.
+    # Not a popup action. resolve() raises a clear SelectorError for unknowns;
+    # if it resolves, the selector names a non-action node.
     resolve(taui, selector)
-
-    raise SelectorError(
-        f"selector {selector!r} is not an actionable node (resolved to a non-action node)"
-    )
+    raise SelectorError(f"selector {selector!r} is not an actionable popup action")

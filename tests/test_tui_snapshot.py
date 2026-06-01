@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from convertible.tui.events import DriveStep, UserInput
 from convertible.tui.render.ansi import render
 from convertible.tui.snapshot import Snapshot, read_snapshot, write_snapshot
@@ -190,3 +192,27 @@ class TestReadSnapshot:
         assert "button.no" in selectors
         # standing action always present
         assert "input.prompt" in selectors
+
+
+class TestSnapshotNameValidation:
+    """write_snapshot/read_snapshot reject unsafe names (directory traversal)."""
+
+    def test_write_rejects_parent_traversal(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            write_snapshot(tmp_path, "../escape", _make_state(), [])
+
+    def test_write_rejects_path_separator(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            write_snapshot(tmp_path, "sub/name", _make_state(), [])
+
+    def test_write_rejects_empty_name(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            write_snapshot(tmp_path, "", _make_state(), [])
+
+    def test_read_rejects_parent_traversal(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError):
+            read_snapshot(tmp_path, "../escape")
+
+    def test_safe_name_still_works(self, tmp_path: Path) -> None:
+        paths = write_snapshot(tmp_path, "bug-x", _make_state(), [])
+        assert paths["taui"].name == "bug-x.taui.json"

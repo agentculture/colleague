@@ -154,14 +154,21 @@ def event_from_dict(data: dict[str, Any]) -> Event:
     Raises
     ------
     ValueError
-        If the 'type' field is missing or unknown.
+        If *data* is not a dict, the 'type' field is missing/unknown, or a
+        required field for the event type is absent.
     """
+    if not isinstance(data, dict):
+        raise ValueError(f"event must be a JSON object, got {type(data).__name__}")
+
     event_type = data.get("type")
     if event_type not in _EVENT_REGISTRY:
         raise ValueError(f"Unknown event type: {event_type!r}")
 
     cls = _EVENT_REGISTRY[event_type]
-    return cls.from_dict(data)
+    try:
+        return cls.from_dict(data)
+    except KeyError as exc:
+        raise ValueError(f"event of type {event_type!r} is missing required field {exc}") from exc
 
 
 def dumps_events(events: list[Event]) -> str:

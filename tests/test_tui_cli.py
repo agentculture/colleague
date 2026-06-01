@@ -138,16 +138,28 @@ def test_inspect_bad_selector_errors(tmp_path: Path, capsys: pytest.CaptureFixtu
 # ---------------------------------------------------------------------------
 
 
-def test_action_accept_after_boost_popup(
+def test_action_dismiss_after_boost_popup(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A .dismiss action operates the UI: it closes the popup (visible -> false)."""
     sf = _write_state(tmp_path / "s.json", _boost_state())
     rc = main(
-        ["tui", "action", "--select", "popup.skill.boost.accept", "--state", str(sf), "--json"]
+        ["tui", "action", "--select", "popup.skill.boost.dismiss", "--state", str(sf), "--json"]
     )
     assert rc == 0
     mirror = json.loads(capsys.readouterr().out)
-    assert mirror["taui_version"]  # a fresh, valid mirror
+    boost = next(p for p in mirror["popups"] if p["id"] == "popup.skill.boost")
+    assert boost["visible"] is False
+
+
+def test_action_non_dismiss_errors_clearly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A non-dismiss action is not a silent no-op — it errors as not operable in v0."""
+    sf = _write_state(tmp_path / "s.json", _boost_state())
+    rc = main(["tui", "action", "--select", "popup.skill.boost.accept", "--state", str(sf)])
+    assert rc != 0
+    assert "not operable" in capsys.readouterr().err
 
 
 def test_action_bad_selector_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -227,3 +239,40 @@ def test_no_verb_defaults_to_overview(capsys: pytest.CaptureFixture[str]) -> Non
     rc = main(["tui"])
     assert rc == 0
     assert "tui" in capsys.readouterr().out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Robustness — malformed input errors via CliError, never a traceback
+# ---------------------------------------------------------------------------
+
+
+def test_state_invalid_shape_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A valid-JSON-but-wrong-shape --state errors cleanly (no traceback)."""
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"status": 123}', encoding="utf-8")  # status must be an object
+    rc = main(["tui", "state", "--state", str(bad)])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+
+
+def test_replay_malformed_events_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An events line missing a required field errors cleanly (no traceback)."""
+    ev = tmp_path / "ev.jsonl"
+    ev.write_text('{"type": "user_input"}\n', encoding="utf-8")  # missing "text"
+    rc = main(["tui", "replay", str(ev)])
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+
+
+def test_snapshot_bad_name_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A traversal --name is rejected cleanly (directory-traversal guard)."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(
+        ["tui", "snapshot", "--name", "../escape", "--state", str(sf), "--dir", str(tmp_path)]
+    )
+    assert rc != 0
+    assert "error:" in capsys.readouterr().err

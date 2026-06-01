@@ -115,6 +115,18 @@ class TestEventFromDict:
         with pytest.raises(ValueError, match="Unknown event type"):
             event_from_dict({})
 
+    def test_missing_required_field_raises_value_error(self):
+        # A known type missing a required field surfaces as ValueError (not KeyError),
+        # so callers that catch ValueError never see a raw traceback.
+        with pytest.raises(ValueError, match="missing required field"):
+            event_from_dict({"type": "user_input"})  # no "text"
+
+    def test_non_dict_raises_value_error(self):
+        with pytest.raises(ValueError):
+            event_from_dict([1, 2, 3])
+        with pytest.raises(ValueError):
+            event_from_dict(42)
+
 
 class TestJSONL:
     """JSONL (de)serialize round-trips."""
