@@ -1,0 +1,205 @@
+{
+  "slug": "convertible-tui-renders-the-cockpit-as-markdown-a",
+  "title": "convertible tui renders the cockpit as Markdown \u2014 a third view beside the JSON mirror and the live screen \u2014 and a cross-mirror check proves the Markdown and the JSON never disagree",
+  "frame_slug": "convertible-tui-renders-the-cockpit-as-markdown-a",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-01T19:21:55Z",
+  "updated": "2026-06-01T19:53:00Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "convertible tui renders the cockpit as Markdown \u2014 a third view beside the JSON mirror and the live screen \u2014 and a cross-mirror check proves the Markdown and the JSON never disagree"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Markdown and ANSI render from the SAME CockpitState through one render entry point; generalizing diagnose's RENDER detector to Markdown changes NO ANSI behavior (existing diagnose tests stay green)."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Agents and humans who need to read a convertible drive's cockpit state OUTSIDE a live terminal \u2014 pasted into a PR, a log, a doc, or a chat \u2014 plus the test suite that guards rendering."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "The Markdown view is reachable HEADLESSLY (no TTY): 'tui render --format markdown --state <file>' prints Markdown to stdout \u2014 so a PR/log/doc/chat consumer and the test suite all produce it the same way."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "From any CockpitState/TAUI snapshot you can produce a readable Markdown view of the cockpit, and a cross-mirror check flags any place the Markdown and the JSON mirror disagree (zero findings when they're faithful)."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "'tui render --format markdown' produces Markdown from any loaded CockpitState/TAUI snapshot, and 'tui diagnose' returns a non-empty finding set IFF the Markdown disagrees with the mirror, empty IFF faithful."
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today tui offers only the JSON mirror (machine-readable, not skimmable) and the ANSI live screen (needs a real TTY, full of escape codes). There is no portable, human-skimmable, paste-anywhere rendering, and nothing verifies a render faithfully reflects the mirror except the ANSI-only RENDER detector inside diagnose."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Verifiable by inspection of main@HEAD: no convertible command emits Markdown, and diagnose's signature takes only (taui, ansi, events) \u2014 its RENDER detector inspects the ANSI frame only."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The whole TAUI premise is that every view derives from one CockpitState and therefore cannot drift. A Markdown view extends that guarantee to the format humans actually skim, and an explicit JSON<->Markdown alignment check turns 'cannot drift' from a design claim into a tested invariant."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Markdown and JSON are both pure functions of the same CockpitState (no independent data source), so any disagreement diagnose reports is a render-fidelity bug, never a data-source divergence."
+    },
+    {
+      "id": "c6",
+      "kind": "success_signal",
+      "text": "Rendering the same state to JSON and to Markdown and running the alignment check yields zero findings; a deliberately broken Markdown render (drops a visible popup) is caught with a clear finding; the new path is offered identically for every engine (chassis-owned)."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "There is a round-trip test (render one fixture state to JSON + Markdown, run diagnose, assert zero findings) AND a mutation test (a Markdown frame missing a visible popup's message yields a RENDER finding)."
+    },
+    {
+      "id": "c7",
+      "kind": "why_it_matters",
+      "text": "For an AGENT, Markdown is a better readable view of the cockpit than raw JSON \u2014 the agent's equivalent of a human glancing at the live screen. JSON stays the programmatic/script contract AND the source of truth the Markdown is checked against. Markdown = agent-facing live-equivalent read; JSON = for scripts."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The Markdown render is structured for reading (headings/sections/lists that mirror the cockpit zones), and it contains every fact the JSON mirror marks visible \u2014 so an agent reading ONLY the Markdown misses nothing the JSON would have told it."
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Render is strictly one-way: state -> Markdown only. convertible never parses Markdown back into a CockpitState."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "No code path accepts Markdown as input to build a CockpitState: the markdown render signature is state->str only, and there is no markdown loader anywhere in the tui package."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Markdown renderer: add convertible/tui/render/markdown.py with render_markdown(state)->str \u2014 pure stdlib, structured headings/sections/lists mirroring the cockpit zones (status, skills, conversation, prompt, popups), reading-complete vs the TAUI mirror",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "render_markdown(state) returns a Markdown string for any CockpitState; the only signature is state->str \u2014 there is no markdown loader/parse path anywhere in the tui package",
+        "Every popup/panel/status/drive fact the TAUI mirror marks visible appears in the Markdown output (reading-complete vs the mirror); render is pure and deterministic (same state -> same Markdown), stdlib-only"
+      ],
+      "deps": [],
+      "covers": [
+        "c1",
+        "c3",
+        "c7",
+        "c8",
+        "h3",
+        "h4"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Snapshot quad: extend convertible/tui/snapshot.py so Snapshot carries a markdown field, write_snapshot writes a 4th file name.md = render_markdown(state), and read_snapshot populates it; legacy triples without a .md read gracefully",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "write_snapshot writes name.md = render_markdown(state) and read_snapshot round-trips Snapshot.markdown == render_markdown(state); reading a legacy triple with no .md does not crash"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c3"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Generalize diagnose: convertible/tui/diagnose.py diagnose() gains an optional markdown frame; the RENDER faithfulness check runs against it (visible popup message/title absent from Markdown -> RENDER finding); diagnose_snapshot forwards Snapshot.markdown; ANSI behavior unchanged when markdown is absent",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "With no markdown argument, diagnose output is identical to pre-change behavior and all existing test_tui_diagnose tests pass (no ANSI regression)",
+        "Round-trip test: render one fixture state to taui+ansi+markdown, run diagnose, assert zero findings. Mutation test: a Markdown frame with a visible popup message removed yields a RENDER finding",
+        "diagnose_snapshot forwards Snapshot.markdown so tui diagnose --dir/--name checks the quad; diagnose returns a non-empty finding set IFF the Markdown disagrees with the mirror, empty IFF faithful"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c5",
+        "c6",
+        "h1",
+        "h2",
+        "h6",
+        "h8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "CLI tui render --format: convertible/cli/_commands/tui.py render verb gains --format ansi|markdown (ansi default), dispatching to render or render_markdown; --json wraps the chosen format; the Markdown view is reachable headlessly with no TTY",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tui render --state f --format markdown prints Markdown to stdout with no TTY; default and --format ansi print the unchanged ANSI frame; an invalid --format value raises CliError with no traceback",
+        "tui render --format markdown --json emits a JSON object wrapping the markdown string (parallel to the ansi --json shape)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h5"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Docs and explain: update convertible/explain/catalog.py _TUI entry for --format and the JSON/Markdown alignment via diagnose, add a CHANGELOG.md entry, and note Markdown as the third cockpit view in CLAUDE.md",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "convertible explain tui render documents --format ansi|markdown and the alignment-via-diagnose story; CHANGELOG and CLAUDE.md describe Markdown as the third view and the accurate ANSI-only before-state",
+        "Docs state the before-state accurately (h7): pre-change no convertible command emitted Markdown and diagnose inspected the ANSI frame only"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c4",
+        "h7"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Explicit 'tui diagnose --markdown <file>' for non-snapshot alignment checks is deferred; v0 surfaces the JSON<->Markdown check via snapshot-dir mode (tui diagnose --dir/--name) + diagnose_snapshot reading the quad's .md",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "Legacy snapshots written before the quad have no .md file; read_snapshot must default markdown gracefully (documented), not raise",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    },
+    {
+      "id": "r3",
+      "text": "Version bump + PR creation is the main-agent integration step after the waves merge (per repo convention + version-check CI), not a fanned-out task",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
