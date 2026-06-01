@@ -182,3 +182,66 @@ def test_no_socket_daemon_mcp_surface():
 
     msg = "No-socket/daemon/mcp surface violations:\n" + "\n".join(violations) if violations else ""
     assert not violations, msg
+
+
+def test_tui_core_no_third_party_imports():
+    """Importing TUI core modules introduces no third-party top-level imports.
+
+    The TUI feature ships a stdlib-only ANSI renderer by default. Rich/Textual
+    are opt-in extras ([tui]) loaded lazily by external renderer wheels. This
+    guard asserts the default TUI surface is import-clean even when the [tui]
+    extra IS installed — just as the OTel guard works for telemetry.
+    """
+
+    def _import_tui_core():
+        import convertible.tui.diagnose  # noqa: F401
+        import convertible.tui.events  # noqa: F401
+        import convertible.tui.reducer  # noqa: F401
+        import convertible.tui.render.ansi  # noqa: F401
+        import convertible.tui.replay  # noqa: F401
+        import convertible.tui.selectors  # noqa: F401
+        import convertible.tui.snapshot  # noqa: F401
+        import convertible.tui.state  # noqa: F401
+        import convertible.tui.taui  # noqa: F401
+
+    third_party = _third_party_modules_introduced(_import_tui_core)
+    assert not third_party, (
+        f"TUI core introduced third-party imports: {sorted(third_party)}. "
+        "rich/textual must only be imported inside an opt-in renderer wheel, "
+        "never at TUI core module load."
+    )
+
+
+def test_tui_core_no_forbidden_stdlib_imports():
+    """TUI core source does not import rich, textual, or network/daemon stdlib.
+
+    The renderer is hand-rolled ANSI (honesty h11/c6): no network calls, no
+    subprocess, no socket, no daemon. Verifies the source directly so the
+    check is independent of the runtime environment.
+    """
+    import re
+
+    tui_dir = Path(__file__).resolve().parents[1] / "convertible" / "tui"
+    assert tui_dir.is_dir(), f"convertible/tui dir not found at {tui_dir}"
+
+    # Third-party renderer packages must never appear in TUI core source.
+    third_party_pattern = re.compile(r"^\s*(import|from)\s+(rich|textual)\b", re.MULTILINE)
+    # Network / daemon / subprocess stdlib must not appear in TUI core source.
+    forbidden_stdlib_pattern = re.compile(
+        r"^\s*(import|from)\s+(urllib|socket|http|subprocess)\b", re.MULTILINE
+    )
+
+    violations = []
+    for py_file in sorted(tui_dir.rglob("*.py")):
+        content = py_file.read_text(encoding="utf-8")
+        rel = py_file.relative_to(tui_dir)
+        if third_party_pattern.search(content):
+            violations.append(f"tui/{rel}: imports rich or textual (must be lazy/in wheel)")
+        if forbidden_stdlib_pattern.search(content):
+            violations.append(
+                f"tui/{rel}: imports urllib/socket/http/subprocess "
+                "(no network/daemon in TUI core)"
+            )
+
+    msg = "TUI core source has forbidden imports:\n" + "\n".join(violations) if violations else ""
+    assert not violations, msg
