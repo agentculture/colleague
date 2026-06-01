@@ -300,7 +300,7 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
 def _render_diagnosis(payload: dict[str, Any]) -> str:
     findings = payload.get("findings", [])
     if not findings:
-        return "no findings — the captured triple agrees"
+        return "no findings — the captured views agree"
     lines = [f"{len(findings)} finding(s): {', '.join(payload.get('classes', []))}", ""]
     for finding in findings:
         lines.append(f"[{finding['bug_class']}] {finding['selector']}: {finding['message']}")
