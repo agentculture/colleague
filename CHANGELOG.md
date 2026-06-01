@@ -9,9 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- convertible tui render --format ansi|markdown — a Markdown render of the cockpit, the agent-facing readable third view beside the JSON (TAUI) mirror and the ANSI live screen; --json wraps the chosen format ({"markdown": ...}).
-- tui snapshot now writes a quad — a 4th file <name>.md (the Markdown render) alongside <name>.taui.json / <name>.ansi / <name>.events.jsonl; legacy triples without a .md still read fine.
-- diagnose now verifies the Markdown frame too — its RENDER faithfulness check runs against the Markdown when present, so tui diagnose on a quad proves the JSON mirror and the Markdown agree (zero findings = faithful; a finding = drift). Markdown and JSON are both pure functions of one CockpitState, so any disagreement is a render-fidelity bug, never a data divergence.
+- `convertible tui render --format ansi|markdown` — a Markdown render of the cockpit, the agent-facing readable third view beside the JSON (TAUI) mirror and the ANSI live screen; `--json` wraps the chosen format (`{"markdown": ...}`).
+- `tui snapshot` now writes a quad — a 4th file `<name>.md` (the Markdown render) alongside `<name>.taui.json` / `<name>.ansi` / `<name>.events.jsonl`; legacy triples without a `.md` still read fine.
+- `diagnose` now verifies the Markdown frame too — its RENDER faithfulness check runs against the Markdown when present, so `tui diagnose` on a quad proves the JSON mirror and the Markdown agree (zero findings = faithful; a finding = drift). Markdown and JSON are both pure functions of one `CockpitState`, so any disagreement is a render-fidelity bug, never a data divergence.
 
 ### Changed
 
