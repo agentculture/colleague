@@ -5,7 +5,7 @@ import pytest
 from convertible.tui.events import (
     Dismiss,
     DriveStep,
-    Key,
+    KeyPress,
     SkillSuggested,
     Tick,
     UserInput,
@@ -24,13 +24,13 @@ class TestEventTypes:
         assert event_from_dict(evt.to_dict()) == evt
 
     def test_key(self):
-        evt = Key(key="enter")
+        evt = KeyPress(key="enter")
         assert evt.to_dict() == {"type": "key", "key": "enter"}
         assert event_from_dict(evt.to_dict()) == evt
 
     def test_key_variants(self):
         for key_name in ["tab", "esc", "up", "down"]:
-            evt = Key(key=key_name)
+            evt = KeyPress(key=key_name)
             assert event_from_dict(evt.to_dict()) == evt
 
     def test_tick_default(self):
@@ -128,7 +128,7 @@ class TestJSONL:
     def test_mixed_events(self):
         events = [
             UserInput(text="hello"),
-            Key(key="enter"),
+            KeyPress(key="enter"),
             Tick(delta=2),
             SkillSuggested(skill="review", reason="bug", confidence=0.8),
             Dismiss(target="popup"),
@@ -154,14 +154,14 @@ class TestJSONL:
         deserialized = loads_events(text)
         assert len(deserialized) == 3
         assert deserialized[0] == UserInput(text="hi")
-        assert deserialized[1] == Key(key="enter")
+        assert deserialized[1] == KeyPress(key="enter")
         assert deserialized[2] == Tick(delta=1)
 
     def test_roundtrip_preserves_equality(self):
         """Complete roundtrip through JSONL preserves object equality."""
         original = [
             UserInput(text="start"),
-            Key(key="up"),
+            KeyPress(key="up"),
             Tick(delta=3),
             SkillSuggested(skill="write", reason="new feature", confidence=0.9),
             Dismiss(target="error"),

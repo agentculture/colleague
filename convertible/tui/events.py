@@ -28,7 +28,7 @@ class UserInput:
 
 
 @dataclass
-class Key:
+class KeyPress:
     """A keyboard event — key name like 'enter', 'tab', 'esc', 'up', 'down'."""
 
     type: ClassVar[str] = "key"
@@ -38,7 +38,7 @@ class Key:
         return {"type": self.type, "key": self.key}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Key":
+    def from_dict(cls, data: dict[str, Any]) -> "KeyPress":
         return cls(key=str(data["key"]))
 
 
@@ -125,12 +125,12 @@ class DriveStep:
 
 
 # Discriminated union type alias for type hints.
-Event = UserInput | Key | Tick | SkillSuggested | Dismiss | DriveStep
+Event = UserInput | KeyPress | Tick | SkillSuggested | Dismiss | DriveStep
 
 # Registry mapping type discriminator to event class.
 _EVENT_REGISTRY: dict[str, type] = {
     UserInput.type: UserInput,
-    Key.type: Key,
+    KeyPress.type: KeyPress,
     Tick.type: Tick,
     SkillSuggested.type: SkillSuggested,
     Dismiss.type: Dismiss,

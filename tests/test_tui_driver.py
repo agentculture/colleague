@@ -17,7 +17,7 @@ import pytest
 
 from convertible.cli import main
 from convertible.cli._errors import CliError
-from convertible.tui.events import Key
+from convertible.tui.events import KeyPress
 from convertible.tui.render.driver import key_to_event, run
 from convertible.tui.state import CockpitState
 
@@ -39,21 +39,21 @@ def test_key_to_event_esc_returns_none() -> None:
 def test_key_to_event_other_returns_key() -> None:
     """Any non-quit key returns a Key event."""
     result = key_to_event("x")
-    assert isinstance(result, Key)
+    assert isinstance(result, KeyPress)
     assert result.key == "x"
 
 
 def test_key_to_event_arbitrary_token_returns_key() -> None:
     """Arrow keys and multi-char tokens also return Key."""
     result = key_to_event("up")
-    assert isinstance(result, Key)
+    assert isinstance(result, KeyPress)
     assert result.key == "up"
 
 
 def test_key_to_event_enter_returns_key() -> None:
     """Enter key returns a Key event (not a quit)."""
     result = key_to_event("\r")
-    assert isinstance(result, Key)
+    assert isinstance(result, KeyPress)
 
 
 # ---------------------------------------------------------------------------

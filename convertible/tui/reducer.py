@@ -14,7 +14,7 @@ import copy
 from dataclasses import replace
 from typing import Any
 
-from convertible.tui.events import Dismiss, DriveStep, Key, SkillSuggested, Tick, UserInput
+from convertible.tui.events import Dismiss, DriveStep, KeyPress, SkillSuggested, Tick, UserInput
 from convertible.tui.state import Action, CockpitState, Panel, Popup
 
 # ---------------------------------------------------------------------------
@@ -48,8 +48,8 @@ def reduce(state: CockpitState, event: Any) -> CockpitState:
         return _reduce_user_input(state, event)
     if isinstance(event, DriveStep):
         return _reduce_drive_step(state, event)
-    if isinstance(event, Key):
-        # Key handling (focus/navigation) is the driver's concern — return unchanged copy.
+    if isinstance(event, KeyPress):
+        # KeyPress handling (focus/navigation) is the driver's concern — return unchanged copy.
         return copy.deepcopy(state)
     # Unknown event — return unchanged copy.
     return copy.deepcopy(state)

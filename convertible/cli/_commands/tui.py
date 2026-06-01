@@ -34,6 +34,9 @@ from convertible.tui.snapshot import write_snapshot
 from convertible.tui.state import CockpitState
 from convertible.tui.taui import serialize
 
+# Reused argument help (kept as a constant to avoid duplicated literals).
+_STATE_FILE_HELP = "Path to a state JSON file (default: empty)."
+
 # ---------------------------------------------------------------------------
 # Shared loaders (every loader maps failure to a CliError — never a traceback)
 # ---------------------------------------------------------------------------
@@ -76,7 +79,7 @@ def _load_events(path_str: Optional[str], *, kind: str = "events") -> list:
     raw = _read_text(path_str, kind=kind)
     try:
         return loads_events(raw)
-    except (ValueError, json.JSONDecodeError) as exc:
+    except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
         raise CliError(EXIT_USER_ERROR, f"cannot parse {kind} JSONL: {exc}") from exc
 
 
@@ -453,19 +456,19 @@ def register(sub: argparse._SubParsersAction) -> None:
     rnd.set_defaults(func=cmd_tui_render)
 
     st = noun_sub.add_parser("state", help="Print the TAUI mirror as JSON.")
-    st.add_argument("--state", default=None, help="Path to a state JSON file (default: empty).")
+    st.add_argument("--state", default=None, help=_STATE_FILE_HELP)
     _add_json(st)
     st.set_defaults(func=cmd_tui_state)
 
     ins = noun_sub.add_parser("inspect", help="Resolve a selector to a node (JSON).")
     ins.add_argument("--select", required=True, help="Dotted selector into the TAUI tree.")
-    ins.add_argument("--state", default=None, help="Path to a state JSON file (default: empty).")
+    ins.add_argument("--state", default=None, help=_STATE_FILE_HELP)
     _add_json(ins)
     ins.set_defaults(func=cmd_tui_inspect)
 
     act = noun_sub.add_parser("action", help="Operate the UI by selector; print the new mirror.")
     act.add_argument("--select", required=True, help="Actionable popup-action selector.")
-    act.add_argument("--state", default=None, help="Path to a state JSON file (default: empty).")
+    act.add_argument("--state", default=None, help=_STATE_FILE_HELP)
     _add_json(act)
     act.set_defaults(func=cmd_tui_action)
 

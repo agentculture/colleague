@@ -14,9 +14,9 @@ Public API
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
-from convertible.tui.events import Dismiss, Event, Key
+from convertible.tui.events import Dismiss, Event, KeyPress
 
 # ---------------------------------------------------------------------------
 # Error type
@@ -27,9 +27,48 @@ class SelectorError(Exception):
     """Raised when a selector cannot be resolved in the TAUI tree."""
 
 
+# Sentinel distinguishing "not found" from a legitimately falsy resolved value
+# (e.g. an empty status message or a zero frame counter).
+_MISSING = object()
+
+
 # ---------------------------------------------------------------------------
 # selectors() — derive every addressable path from the tree
 # ---------------------------------------------------------------------------
+
+
+def _collect_popup_selectors(taui: dict[str, Any], add: Callable[[str], None]) -> None:
+    """Add every popup ``id`` and its action ``selector``s."""
+    for popup in taui.get("popups", []):
+        popup_id = popup.get("id")
+        if popup_id:
+            add(str(popup_id))
+        for action in popup.get("actions", []):
+            action_sel = action.get("selector")
+            if action_sel:
+                add(str(action_sel))
+
+
+def _collect_panel_selectors(taui: dict[str, Any], add: Callable[[str], None]) -> None:
+    """Add every panel ``id`` and its item ``id``s."""
+    for panel in taui.get("panels", []):
+        panel_id = panel.get("id")
+        if panel_id:
+            add(str(panel_id))
+        for item in panel.get("items", []):
+            item_id = item.get("id")
+            if item_id:
+                add(str(item_id))
+
+
+def _collect_zone_and_action_selectors(taui: dict[str, Any], add: Callable[[str], None]) -> None:
+    """Add every zone key and every ``available_actions`` selector."""
+    for zone_key in taui.get("zones", {}):
+        add(str(zone_key))
+    for action in taui.get("available_actions", []):
+        action_sel = action.get("selector")
+        if action_sel:
+            add(str(action_sel))
 
 
 def selectors(taui: dict[str, Any]) -> list[str]:
@@ -37,28 +76,8 @@ def selectors(taui: dict[str, Any]) -> list[str]:
 
     The list is DERIVED by reading the tree — not hardcoded.  Renaming any
     node's ``id`` or ``selector`` field changes what this function returns.
-
-    Collected items
-    ---------------
-    - Every popup ``id``.
-    - Every action ``selector`` inside each popup.
-    - Every panel ``id``.
-    - Every panel item ``id``.
-    - Every zone key (the zone name itself, e.g. ``"top.status"``).
-    - Every ``selector`` present in ``available_actions``.
-    - The standing top-level selectors: ``"input.prompt"``, ``"status"``,
-      ``"background"``.
-
-    Parameters
-    ----------
-    taui:
-        A TAUI mirror dict as produced by :func:`convertible.tui.taui.serialize`.
-
-    Returns
-    -------
-    list[str]
-        De-duplicated list of selector strings (order: popups → panels →
-        zones → available_actions → standing).
+    Order: popups → panels → zones → available_actions → standing selectors
+    (``"input.prompt"``, ``"status"``, ``"background"``).
     """
     seen: set[str] = set()
     result: list[str] = []
@@ -68,38 +87,10 @@ def selectors(taui: dict[str, Any]) -> list[str]:
             seen.add(s)
             result.append(s)
 
-    # Popups: popup id + each action's selector
-    for popup in taui.get("popups", []):
-        popup_id = popup.get("id")
-        if popup_id:
-            _add(str(popup_id))
-        for action in popup.get("actions", []):
-            action_sel = action.get("selector")
-            if action_sel:
-                _add(str(action_sel))
+    _collect_popup_selectors(taui, _add)
+    _collect_panel_selectors(taui, _add)
+    _collect_zone_and_action_selectors(taui, _add)
 
-    # Panels: panel id + each item's id
-    for panel in taui.get("panels", []):
-        panel_id = panel.get("id")
-        if panel_id:
-            _add(str(panel_id))
-        for item in panel.get("items", []):
-            item_id = item.get("id")
-            if item_id:
-                _add(str(item_id))
-
-    # Zones: the zone key itself (e.g. "top.status")
-    for zone_key in taui.get("zones", {}):
-        _add(str(zone_key))
-
-    # available_actions selectors (catches anything we may have missed above,
-    # e.g. the standing "input.prompt")
-    for action in taui.get("available_actions", []):
-        action_sel = action.get("selector")
-        if action_sel:
-            _add(str(action_sel))
-
-    # Standing top-level selectors always present
     _add("input.prompt")
     _add("status")
     _add("background")
@@ -112,77 +103,63 @@ def selectors(taui: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_popup(taui: dict[str, Any], selector: str) -> Any:
+    """Match a popup ``id`` (then a popup action ``selector``) or ``_MISSING``."""
+    for popup in taui.get("popups", []):
+        if popup.get("id") == selector:
+            return popup
+    for popup in taui.get("popups", []):
+        for action in popup.get("actions", []):
+            if action.get("selector") == selector:
+                return action
+    return _MISSING
+
+
+def _resolve_panel(taui: dict[str, Any], selector: str) -> Any:
+    """Match a panel ``id`` (then a panel item ``id``) or ``_MISSING``."""
+    for panel in taui.get("panels", []):
+        if panel.get("id") == selector:
+            return panel
+    for panel in taui.get("panels", []):
+        for item in panel.get("items", []):
+            if item.get("id") == selector:
+                return item
+    return _MISSING
+
+
+def _resolve_zone(taui: dict[str, Any], selector: str) -> Any:
+    """Match a zone key exactly (zone keys may contain dots) or ``_MISSING``."""
+    zones = taui.get("zones", {})
+    if selector in zones:
+        return zones[selector]
+    return _MISSING
+
+
+def _resolve_dotted(taui: dict[str, Any], selector: str) -> Any:
+    """Drill the top-level dict by dotted path (e.g. ``background.theme``)."""
+    node: Any = taui
+    for part in selector.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
 def resolve(taui: dict[str, Any], selector: str) -> Any:
     """Return the node (or scalar) identified by *selector*.
 
-    Resolution order
-    ----------------
-    1. Search popups: match popup ``id`` → return popup dict.
-    2. Search popup actions: match action ``selector`` → return action dict.
-    3. Search panels: match panel ``id`` → return panel dict.
-    4. Search panel items: match item ``id`` → return item dict.
-    5. Match zone keys exactly (zone keys can contain dots, so this must be an
-       exact-key lookup, not a dotted drill).
-    6. Dotted-dict drilling on the top-level taui dict
-       (e.g. ``"status"`` → ``taui["status"]``,
-       ``"background.theme"`` → ``taui["background"]["theme"]``).
-
-    Parameters
-    ----------
-    taui:
-        A TAUI mirror dict as produced by :func:`convertible.tui.taui.serialize`.
-    selector:
-        The selector string to look up.
-
-    Returns
-    -------
-    Any
-        The matching node or scalar value.
+    Resolution order: popup id → popup action selector → panel id → panel item
+    id → zone key (exact) → dotted-dict drill on the top-level taui dict.
 
     Raises
     ------
     SelectorError
         If no node matches the selector.
     """
-    # 1. Popup id match
-    for popup in taui.get("popups", []):
-        if popup.get("id") == selector:
-            return popup
-
-    # 2. Popup action selector match
-    for popup in taui.get("popups", []):
-        for action in popup.get("actions", []):
-            if action.get("selector") == selector:
-                return action
-
-    # 3. Panel id match
-    for panel in taui.get("panels", []):
-        if panel.get("id") == selector:
-            return panel
-
-    # 4. Panel item id match
-    for panel in taui.get("panels", []):
-        for item in panel.get("items", []):
-            if item.get("id") == selector:
-                return item
-
-    # 5. Zone key exact match (zone keys themselves may contain dots)
-    zones = taui.get("zones", {})
-    if selector in zones:
-        return zones[selector]
-
-    # 6. Dotted-dict drill on top-level taui
-    parts = selector.split(".")
-    node: Any = taui
-    try:
-        for part in parts:
-            if not isinstance(node, dict):
-                raise KeyError(part)
-            node = node[part]
-        return node
-    except (KeyError, TypeError):
-        pass
-
+    for finder in (_resolve_popup, _resolve_panel, _resolve_zone, _resolve_dotted):
+        result = finder(taui, selector)
+        if result is not _MISSING:
+            return result
     raise SelectorError(f"no node for selector: {selector!r}")
 
 
@@ -202,20 +179,7 @@ def selector_to_event(taui: dict[str, Any], selector: str) -> Event:
     -------------
     - If the action's ``selector`` ends with ``".dismiss"``, return
       ``Dismiss(target=<parent popup id>)``.
-    - Otherwise return ``Key(key=<action "input">)``.
-
-    Parameters
-    ----------
-    taui:
-        A TAUI mirror dict.
-    selector:
-        The selector string to resolve.
-
-    Returns
-    -------
-    Event
-        A :class:`~convertible.tui.events.Dismiss` or
-        :class:`~convertible.tui.events.Key` instance.
+    - Otherwise return ``KeyPress(key=<action "input">)``.
 
     Raises
     ------
@@ -230,13 +194,13 @@ def selector_to_event(taui: dict[str, Any], selector: str) -> Event:
                 if selector.endswith(".dismiss"):
                     parent_id = popup.get("id", "")
                     return Dismiss(target=str(parent_id))
-                return Key(key=str(action.get("input", "")))
+                return KeyPress(key=str(action.get("input", "")))
 
     # Also check available_actions for the standing input.prompt action
     for action in taui.get("available_actions", []):
         if action.get("selector") == selector:
             # The standing action is not a dismiss
-            return Key(key=str(action.get("input", "")))
+            return KeyPress(key=str(action.get("input", "")))
 
     # resolve() first to give a clear SelectorError for unknowns; if it does
     # not raise, the selector exists but is not an actionable action node.

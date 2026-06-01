@@ -2,7 +2,7 @@
 
 import pytest
 
-from convertible.tui.events import Dismiss, Key
+from convertible.tui.events import Dismiss, KeyPress
 from convertible.tui.selectors import SelectorError, resolve, selector_to_event, selectors
 from convertible.tui.state import Action, CockpitState, Panel, PanelItem, Popup
 from convertible.tui.taui import serialize
@@ -271,7 +271,7 @@ def test_selector_to_event_non_dismiss_returns_key():
     state = _make_skill_boost_state()
     taui = serialize(state)
     event = selector_to_event(taui, "popup.skill.boost.accept")
-    assert isinstance(event, Key)
+    assert isinstance(event, KeyPress)
     assert event.key == "enter"
 
 

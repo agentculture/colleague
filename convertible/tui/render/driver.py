@@ -27,15 +27,12 @@ from __future__ import annotations
 import sys
 import termios
 import tty
-from typing import TYPE_CHECKING, Iterable, Optional
+from typing import Iterable, Optional
 
-from convertible.tui.events import Event, Key
+from convertible.tui.events import Event, KeyPress
 from convertible.tui.reducer import reduce
 from convertible.tui.render.ansi import render
 from convertible.tui.state import CockpitState
-
-if TYPE_CHECKING:
-    pass
 
 # ---------------------------------------------------------------------------
 # ANSI clear-screen escape — prepended before each frame in live mode
@@ -72,7 +69,7 @@ def key_to_event(key: str) -> Optional[Event]:
     """
     if key in _QUIT_KEYS:
         return None
-    return Key(key=key)
+    return KeyPress(key=key)
 
 
 # ---------------------------------------------------------------------------

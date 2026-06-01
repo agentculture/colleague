@@ -6,7 +6,7 @@ import inspect
 from convertible.tui.events import (
     Dismiss,
     DriveStep,
-    Key,
+    KeyPress,
     SkillSuggested,
     Tick,
     UserInput,
@@ -340,7 +340,7 @@ def test_key_does_not_crash():
     from convertible.tui.reducer import reduce
 
     s0 = _fresh()
-    s1 = reduce(s0, Key(key="up"))
+    s1 = reduce(s0, KeyPress(key="up"))
     assert s1 is not None
 
 
@@ -348,7 +348,7 @@ def test_key_returns_new_object():
     from convertible.tui.reducer import reduce
 
     s0 = _fresh()
-    s1 = reduce(s0, Key(key="tab"))
+    s1 = reduce(s0, KeyPress(key="tab"))
     assert s1 is not s0
 
 
