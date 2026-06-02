@@ -62,9 +62,17 @@ class CockpitProgressSink:
 
     Owns its `CockpitState` (seeded with a running :class:`Drive`); each call
     folds a `DriveStep` through the pure reducer (so a failed step opens the same
-    error popup as `tui replay`) and redraws the frame.  Escapes are stripped when
-    the stream should not be colored (`NO_COLOR` / non-TTY), and the in-place clear
-    is only emitted on a real TTY so a captured log stays readable.
+    error popup as `tui replay`) and redraws the frame.
+
+    Two output modes:
+
+    * **in-place redraw** — only on a colored TTY (interactive *and* color allowed):
+      each frame is preceded by a clear-screen/cursor-home so the cockpit updates in
+      place.
+    * **append** — otherwise (a non-TTY stream, or ``NO_COLOR``): escapes are stripped
+      and successive frames are separated by a blank line so borders never run
+      together. Under ``NO_COLOR`` this guarantees **no** escape sequences at all —
+      the clear-home is itself an escape, so it is suppressed too.
     """
 
     def __init__(self, task_id: str, engine: str, *, stream: Optional[TextIO] = None) -> None:
@@ -86,11 +94,16 @@ class CockpitProgressSink:
 
     def _write_frame(self, *, final: bool = False) -> None:
         frame = render(self._state)
-        if not self._color:
-            frame = strip_ansi(frame)
-        prefix = _CLEAR_HOME if self._tty else ""
-        suffix = "\n" if final else ""
-        self._stream.write(prefix + frame + suffix)
+        if self._tty and self._color:
+            # Colored TTY: redraw in place (clear + cursor-home), no inter-frame gap.
+            text = _CLEAR_HOME + frame + ("\n" if final else "")
+        else:
+            # No in-place redraw available (non-TTY, or NO_COLOR strips all escapes):
+            # strip escapes and separate successive frames with a blank line so the
+            # box borders never run together. Under NO_COLOR this leaves zero escapes
+            # (the clear-home is an escape, so it is suppressed here too).
+            text = strip_ansi(frame) + "\n\n"
+        self._stream.write(text)
         with suppress(Exception):
             self._stream.flush()
 

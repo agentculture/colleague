@@ -67,6 +67,31 @@ def test_cockpit_sink_no_clear_codes_off_tty() -> None:
     assert "\x1b[2J" not in out.getvalue()  # in-place clear only on a real TTY
 
 
+def test_cockpit_sink_no_color_on_tty_emits_zero_escapes(monkeypatch) -> None:
+    """Qodo #2: under NO_COLOR the in-place clear-home (itself an escape) must be
+    suppressed too — a TTY stream must still produce a fully escape-free frame."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    out = _Stream(isatty=True)  # a real terminal, but NO_COLOR is set
+    sink = CockpitProgressSink("t1", "mock", stream=out)
+    sink(0, "read_file", "main.py", True)
+    sink.close()
+    frame = out.getvalue()
+    assert "main.py" in frame  # content still rendered
+    assert "\x1b" not in frame  # NO_COLOR == no escape sequences at all
+
+
+def test_cockpit_sink_separates_frames_when_not_redrawing() -> None:
+    """Qodo #3: without in-place redraw (non-TTY / NO_COLOR), successive frames
+    must be delimited so box borders don't run together."""
+    out = _Stream(isatty=False)
+    sink = CockpitProgressSink("t1", "mock", stream=out)
+    sink(0, "read_file", "a.py", True)
+    sink(1, "write_file", "b.py", True)
+    # A blank line separates frames -> the closing border of one frame is never
+    # immediately followed by the opening line of the next.
+    assert "\n\n" in out.getvalue()
+
+
 # --- events-file stream (A3) -------------------------------------------------
 
 
