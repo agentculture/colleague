@@ -467,11 +467,13 @@ def run_session(
 ) -> int:
     """Run the interactive cockpit session loop.
 
-    Output contract: the rendered cockpit goes to ``out`` (stdout) — an ANSI frame,
-    Markdown menus, or a TAUI JSON line per the resolved tier; in ``--json`` mode
-    each completed drive also emits its ``TaskResult`` as JSON to ``out``. The
-    banner, diagnostics, and the closing notice go to ``err`` (stderr). Always
-    returns ``0`` (clean exit on quit/EOF).
+    Output contract: outside ``--json`` the rendered cockpit goes to ``out``
+    (stdout) — an ANSI frame or Markdown menus per the resolved tier. In
+    ``--json`` mode the cockpit renders as chrome to ``err`` (stderr) and ``out``
+    (stdout) carries only each completed drive's ``TaskResult`` as JSON (one
+    object per drive, preserving the machine contract). The banner, diagnostics,
+    and the closing notice always go to ``err`` (stderr). Always returns ``0``
+    (clean exit on quit/EOF).
 
     The ``input_fn`` / ``out`` / ``err`` / ``_drive_fn`` seams are for tests;
     ``_color`` overrides the colour-TTY detection that picks ANSI vs. Markdown.
@@ -551,6 +553,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--json",
         action="store_true",
-        help="Emit the TAUI JSON mirror + one JSON result per drive to stdout.",
+        help=(
+            "Emit one JSON TaskResult per drive to stdout; render the cockpit as "
+            "chrome to stderr. (The TAUI JSON mirror lives under 'tui state'.)"
+        ),
     )
     p.set_defaults(func=cmd_session)
