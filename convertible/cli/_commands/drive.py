@@ -37,7 +37,7 @@ from convertible.contract import OK, Task, TaskResult
 from convertible.feedback import set_last_drive
 from convertible.handoff import HandoffError, handoff, untracked_snapshot
 from convertible.subagents import make_spawn
-from convertible.telemetry import load_telemetry
+from convertible.telemetry import Telemetry, load_telemetry
 
 
 def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
@@ -79,6 +79,51 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
     lines.append(f"PR: {result.pr_url or '(none)'}")
     lines.append(f"artifact: {artifact_path}")
     return "\n".join(lines)
+
+
+def _handoff_result(
+    *,
+    repo: Path,
+    task: Task,
+    result: TaskResult,
+    baseline_untracked: list[str],
+    open_pr: bool,
+    base: str,
+    telemetry: Telemetry,
+) -> None:
+    """Branch/commit (+push/PR) a successful drive; fold the outcome onto *result*.
+
+    A :class:`~convertible.handoff.HandoffError` is non-fatal — the drive still
+    succeeded, so it is surfaced as a diagnostic and the result keeps its local
+    state. Extracted from :func:`execute_drive` to keep that function's control
+    flow flat.
+    """
+    with telemetry.handoff_span() as handoff_span:
+        try:
+            outcome = handoff(
+                repo,
+                task.id,
+                instruction=task.instruction,
+                changed_files=result.changed_files,
+                baseline_untracked=baseline_untracked,
+                open_pr=open_pr,
+                base_branch=base,
+            )
+        except HandoffError as exc:
+            emit_diagnostic(f"handoff skipped: {exc}")
+            return
+        result.branch = outcome.branch
+        result.pr_url = outcome.pr_url
+        if not result.changed_files:
+            result.changed_files = outcome.changed_files
+        handoff_span.set(
+            branch=outcome.branch,
+            committed=outcome.committed,
+            pushed=outcome.pushed,
+            pr_url=outcome.pr_url,
+        )
+        if outcome.note:
+            emit_diagnostic(f"handoff: {outcome.note}")
 
 
 def execute_drive(
@@ -232,31 +277,15 @@ def execute_drive(
                         cockpit_sink.close()
 
             if result.status == OK:
-                with telemetry.handoff_span() as handoff_span:
-                    try:
-                        outcome = handoff(
-                            repo,
-                            task.id,
-                            instruction=task.instruction,
-                            changed_files=result.changed_files,
-                            baseline_untracked=baseline_untracked,
-                            open_pr=open_pr,
-                            base_branch=base,
-                        )
-                        result.branch = outcome.branch
-                        result.pr_url = outcome.pr_url
-                        if not result.changed_files:
-                            result.changed_files = outcome.changed_files
-                        handoff_span.set(
-                            branch=outcome.branch,
-                            committed=outcome.committed,
-                            pushed=outcome.pushed,
-                            pr_url=outcome.pr_url,
-                        )
-                        if outcome.note:
-                            emit_diagnostic(f"handoff: {outcome.note}")
-                    except HandoffError as exc:
-                        emit_diagnostic(f"handoff skipped: {exc}")
+                _handoff_result(
+                    repo=repo,
+                    task=task,
+                    result=result,
+                    baseline_untracked=baseline_untracked,
+                    open_pr=open_pr,
+                    base=base,
+                    telemetry=telemetry,
+                )
 
             drive_span.set(
                 status=result.status,
