@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -518,3 +519,25 @@ class TestPortabilityGuard:
         assert CHECKS_INIT.is_file(), "checks/__init__.py missing"
         assert ENTRY_PY.is_file(), "check.py missing"
         assert ENTRY_SH.is_file(), "check.sh missing"
+
+
+class TestPython3Guard:
+    def test_clear_error_without_python3(self, tmp_path: Path) -> None:
+        """check.sh exits 2 with a clear message when python3 is not on PATH."""
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        # Provide the tools the wrapper itself needs (bash + dirname) but NOT python3.
+        needed = {tool: shutil.which(tool) for tool in ("bash", "dirname")}
+        if not all(needed.values()):
+            pytest.skip("bash/dirname not resolvable for a restricted-PATH test")
+        for tool, src in needed.items():
+            (bindir / tool).symlink_to(src)
+        result = subprocess.run(
+            ["bash", str(ENTRY_SH), "--only", "skills", "--repo", str(REPO_ROOT)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PATH": str(bindir)},
+        )
+        assert result.returncode == 2
+        assert "python3" in result.stderr
