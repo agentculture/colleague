@@ -13,14 +13,52 @@ foreground loop over the shared drive code.
 
 ## Interaction
 
-At the `>>>` prompt you can enter:
+Input is **line-based**. Plain text runs a drive:
 
-- A **number** (e.g. `1`) — selects that template from the numbered palette.
+- A **number** (e.g. `1`) — selects that template from the palette.
 - A **template name** (e.g. `lint`) — runs that template directly.
 - A **free-text instruction** — treated as an ad-hoc task (like `drive "<text>"`).
 - `q`, `quit`, `exit`, or an **empty line** — ends the session.
 
-The loop continues until you quit or hit EOF.
+A line starting with `/` is a **slash command** — the meta/system namespace (akin
+to Claude Code / Codex), independent of the render tier:
+
+| Slash | Effect |
+|-------|--------|
+| `/help` | List the slash commands. |
+| `/commands` | List discovered [command templates](command-templates.md). |
+| `/skills` | Resolved skill docs (`skills list`). |
+| `/agents` | Resolved AGENTS instruction layers (`agents list`). |
+| `/config` | Configuration readiness (the `doctor` rubric). |
+| `/engines` | Discovered engine wheels (`wheels list`). |
+| `/telemetry` | Telemetry configuration (`telemetry status`). |
+| `/feedback` | Feedback record for the last drive (`feedback show last`). |
+| `/engine <name>` | Switch the engine used by the next drive (validated). |
+| `/model <name>` | Switch the model. |
+| `/base <branch>` | Set the PR base branch. |
+| `/pr` | Toggle push + open PR on each drive. |
+| `/quit` | End the session. |
+
+Introspection commands run the real noun **in-process** (no subprocess) and fold
+its output into the cockpit conversation. Config commands mutate the session live —
+no restart. The loop continues until you quit or hit EOF.
+
+## Three render tiers
+
+The session renders the one `CockpitState` through whichever view fits the
+context — the same three views the [`tui`](tui.md) verb exposes:
+
+- **Interactive (a colour TTY)** — the dynamic ANSI cockpit: redraw-in-place, with
+  popups on real events (an `error` popup when a drive step fails).
+- **Non-interactive (piped / captured)** — **Markdown** menus: the static but
+  *full* agent-readable view, the default off a TTY. `--no-tui` forces it on a TTY.
+- **`--json`** — stdout carries only the drive `TaskResult` (one JSON object each,
+  preserving the machine contract); the Markdown cockpit renders to stderr as
+  chrome. The TAUI JSON mirror itself is `convertible tui state`.
+
+Errors (a bad selection, an unknown engine, a drive failure) go to **stderr**
+(agent-first); in the dynamic ANSI tier they are also folded into the conversation
+so a redraw never hides them.
 
 ## Bare `convertible` opens it
 

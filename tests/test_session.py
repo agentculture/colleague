@@ -201,6 +201,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         command_name: str | None = None,
         tui: bool | None = None,
         tui_events: str | None = None,
+        progress_sink: object = None,
     ) -> tuple[TaskResult, Path]:
         result, art_path = execute_drive(
             repo=repo,
@@ -212,6 +213,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
             command_name=command_name,
             tui=tui,
             tui_events=tui_events,
+            progress_sink=progress_sink,
         )
         captured_results.append(result)
         return result, art_path
@@ -307,3 +309,163 @@ def test_session_eof_exits_gracefully(tmp_path: Path) -> None:
     # An empty iterator immediately raises StopIteration
     rc = run_session(args, input_fn=iter([]), out=out)
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# #74 A2 — the cockpit session: 3 render tiers + slash commands
+# ---------------------------------------------------------------------------
+
+
+def _ok_drive(tmp_path: Path, recorder: list | None = None):
+    """A fake drive that succeeds (recording its kwargs when *recorder* given)."""
+
+    def _fake(**kwargs: object) -> tuple[TaskResult, Path]:
+        if recorder is not None:
+            recorder.append(kwargs)
+        return TaskResult(task_id="x", status=OK, summary="done"), tmp_path / "art.json"
+
+    return _fake
+
+
+def test_session_markdown_tier_is_the_non_tty_default(tmp_path: Path) -> None:
+    """Off a colour TTY the cockpit renders as Markdown menus (the full static
+    experience) — command names + the 'convertible session' identity, no escapes."""
+    _make_command_template(tmp_path, "setup", "Set up the project.\n")
+    out = _CollectingOut()
+    rc = run_session(_make_args(tmp_path), input_fn=iter(["q"]), out=out, _color=False)
+    assert rc == 0
+    text = out.text()
+    assert "# Cockpit" in text  # the Markdown view
+    assert "convertible session" in text  # identity (status bar)
+    assert "setup" in text  # the command palette lists templates
+    assert "\x1b" not in text  # static Markdown carries no ANSI escapes
+
+
+def test_session_ansi_tier_redraws_in_place_on_a_colour_tty(tmp_path: Path) -> None:
+    """With colour forced on, the cockpit is the dynamic ANSI frame: one
+    clear-home per render, the boxed Commands palette, and the identity."""
+    _make_command_template(tmp_path, "setup", "Set up the project.\n")
+    out = _CollectingOut()
+    rc = run_session(_make_args(tmp_path), input_fn=iter(["q"]), out=out, _color=True)
+    assert rc == 0
+    text = out.text()
+    assert "\x1b[H\x1b[2J" in text  # clear-home → redraw in place
+    assert "Commands" in text and "setup" in text
+    # Each emitted frame carries exactly one clear-home — one render regime, no
+    # double-clear/flicker from the palette and an in-drive sink fighting.
+    for frame in out.lines:
+        assert frame.count("\x1b[H\x1b[2J") == 1
+
+
+def test_session_slash_help_lists_commands(tmp_path: Path) -> None:
+    out = _CollectingOut()
+    rc = run_session(_make_args(tmp_path), input_fn=iter(["/help", "q"]), out=out, _color=False)
+    assert rc == 0
+    assert "slash commands" in out.text()
+    assert "/engine" in out.text() and "/skills" in out.text()
+
+
+def test_session_slash_engines_folds_wheels_output(tmp_path: Path) -> None:
+    """A read-only slash command runs the real noun in-process and folds its
+    output into the cockpit (here `/engines` → `wheels list`)."""
+    out = _CollectingOut()
+    rc = run_session(_make_args(tmp_path), input_fn=iter(["/engines", "q"]), out=out, _color=False)
+    assert rc == 0
+    assert "mock" in out.text()  # the mock wheel is always discovered
+
+
+@pytest.mark.parametrize(
+    "verb", ["commands", "skills", "agents", "config", "engines", "telemetry", "feedback"]
+)
+def test_session_introspection_slash_runs_without_crashing(tmp_path: Path, verb: str) -> None:
+    """Every introspection slash command runs its noun in-process and folds output
+    into the cockpit — proving each fixed argv mapping parses (no SystemExit) and
+    no noun crashes the session even in a bare repo."""
+    out = _CollectingOut()
+    rc = run_session(_make_args(tmp_path), input_fn=iter([f"/{verb}", "q"]), out=out, _color=False)
+    assert rc == 0  # a bad argv would SystemExit and never return cleanly
+    assert out.text().strip()  # something was folded into the cockpit
+
+
+def test_session_slash_engine_switches_for_next_drive(tmp_path: Path) -> None:
+    """/engine <name> mutates the session so the NEXT drive uses the new engine."""
+    calls: list = []
+    args = _make_args(tmp_path, engine="vllm-openai")  # start on a different engine
+    out = _CollectingOut()
+    rc = run_session(
+        args,
+        input_fn=iter(["/engine mock", "do a thing", "q"]),
+        out=out,
+        _drive_fn=_ok_drive(tmp_path, calls),
+        _color=False,
+    )
+    assert rc == 0
+    assert [c["engine_name"] for c in calls] == ["mock"]  # drove with the switched engine
+    assert "engine → mock" in out.text()
+
+
+def test_session_slash_engine_rejects_unknown(tmp_path: Path) -> None:
+    """An unknown engine is rejected (to stderr) and does not change the session."""
+    calls: list = []
+    err = _CollectingOut()
+    rc = run_session(
+        _make_args(tmp_path),
+        input_fn=iter(["/engine nope", "do a thing", "q"]),
+        out=_CollectingOut(),
+        err=err,
+        _drive_fn=_ok_drive(tmp_path, calls),
+        _color=False,
+    )
+    assert rc == 0
+    assert "unknown engine 'nope'" in err.text()
+    assert [c["engine_name"] for c in calls] == ["mock"]  # still the default, not 'nope'
+
+
+def test_session_slash_pr_toggles_handoff(tmp_path: Path) -> None:
+    """/pr flips push+PR for subsequent drives."""
+    calls: list = []
+    out = _CollectingOut()
+    rc = run_session(
+        _make_args(tmp_path),
+        input_fn=iter(["do one", "/pr", "do two", "q"]),
+        out=out,
+        _drive_fn=_ok_drive(tmp_path, calls),
+        _color=False,
+    )
+    assert rc == 0
+    assert [c["open_pr"] for c in calls] == [False, True]  # off, then on after /pr
+
+
+def test_session_failed_step_surfaces_error_popup(tmp_path: Path) -> None:
+    """A failed drive step folds the error popup into the session's cockpit
+    (the in-session sink shares the session's state); visible in the ANSI frame."""
+
+    def _failing(**kwargs: object) -> tuple[TaskResult, Path]:
+        sink = kwargs["progress_sink"]
+        sink(0, "run_command", "pytest -q", False)  # a failed step
+        sink.close()
+        return TaskResult(task_id="x", status=OK, summary="done"), tmp_path / "art.json"
+
+    out = _CollectingOut()
+    rc = run_session(
+        _make_args(tmp_path),
+        input_fn=iter(["run the tests", "q"]),
+        out=out,
+        _drive_fn=_failing,
+        _color=True,
+    )
+    assert rc == 0
+    assert "popup.error.run_command" in out.text()
+
+
+def test_session_unknown_slash_is_a_stderr_error(tmp_path: Path) -> None:
+    err = _CollectingOut()
+    rc = run_session(
+        _make_args(tmp_path),
+        input_fn=iter(["/frobnicate", "q"]),
+        out=_CollectingOut(),
+        err=err,
+        _color=False,
+    )
+    assert rc == 0
+    assert "unknown command: /frobnicate" in err.text()

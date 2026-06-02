@@ -57,55 +57,66 @@ def cockpit_active(tui: Optional[bool], *, stream: Optional[TextIO] = None) -> b
     return _isatty(stream if stream is not None else sys.stderr)
 
 
-class CockpitProgressSink:
-    """A progress sink that renders a live ANSI cockpit frame per drive step.
+class FrameWriter:
+    """Render a :class:`CockpitState` to a stream with one clear-home regime.
 
-    Owns its `CockpitState` (seeded with a running :class:`Drive`); each call
-    folds a `DriveStep` through the pure reducer (so a failed step opens the same
-    error popup as `tui replay`) and redraws the frame.
+    Holds the resolved ``(stream, tty, color)`` so the live drive sink **and** the
+    interactive session can share a single writer — the palette frame and the
+    in-drive frames then never fight over the screen (one owner, one clear).
 
     Two output modes:
 
-    * **in-place redraw** — only on a colored TTY (interactive *and* color allowed):
-      each frame is preceded by a clear-screen/cursor-home so the cockpit updates in
-      place.
-    * **append** — otherwise (a non-TTY stream, or ``NO_COLOR``): escapes are stripped
-      and successive frames are separated by a blank line so borders never run
-      together. Under ``NO_COLOR`` this guarantees **no** escape sequences at all —
-      the clear-home is itself an escape, so it is suppressed too.
+    * **in-place redraw** (``dynamic`` — a colored TTY): each frame is preceded by
+      a clear-screen/cursor-home so the cockpit updates in place.
+    * **append** (otherwise — non-TTY or ``NO_COLOR``): escapes are stripped and
+      successive frames are separated by a blank line so box borders never run
+      together. Under ``NO_COLOR`` this leaves **no** escape sequences at all (the
+      clear-home is itself an escape, so it is suppressed too).
     """
 
-    def __init__(self, task_id: str, engine: str, *, stream: Optional[TextIO] = None) -> None:
+    def __init__(self, stream: Optional[TextIO] = None) -> None:
         self._stream = stream if stream is not None else sys.stderr
-        self._state = CockpitState()
-        self._state.drive = Drive(task_id=task_id, engine=engine, step_count=0, running=True)
         self._tty = _isatty(self._stream)
         self._color = should_color(self._stream)
 
+    @property
+    def dynamic(self) -> bool:
+        """Whether frames redraw in place (colored TTY) vs. append (static)."""
+        return self._tty and self._color
+
+    def write(self, state: CockpitState, *, final: bool = False) -> None:
+        frame = render(state)
+        if self.dynamic:
+            text = _CLEAR_HOME + frame + ("\n" if final else "")
+        else:
+            text = strip_ansi(frame) + "\n\n"
+        self._stream.write(text)
+        with suppress(Exception):
+            self._stream.flush()
+
+
+class CockpitProgressSink:
+    """A progress sink that renders a live ANSI cockpit frame per drive step.
+
+    Holds a :class:`CockpitState` (seeded with a running :class:`Drive`); each call
+    folds a `DriveStep` through the pure reducer (so a failed step opens the same
+    error popup as `tui replay`) and redraws via a :class:`FrameWriter`.
+    """
+
+    def __init__(self, task_id: str, engine: str, *, stream: Optional[TextIO] = None) -> None:
+        self._state = CockpitState()
+        self._state.drive = Drive(task_id=task_id, engine=engine, step_count=0, running=True)
+        self._writer = FrameWriter(stream)
+
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         self._state = reduce(self._state, drive_step(tool, target, ok))
-        self._write_frame()
+        self._writer.write(self._state)
 
     def close(self) -> None:
         """Mark the drive finished and render a final frame (with a trailing newline)."""
         if self._state.drive is not None:
             self._state.drive = replace(self._state.drive, running=False)
-        self._write_frame(final=True)
-
-    def _write_frame(self, *, final: bool = False) -> None:
-        frame = render(self._state)
-        if self._tty and self._color:
-            # Colored TTY: redraw in place (clear + cursor-home), no inter-frame gap.
-            text = _CLEAR_HOME + frame + ("\n" if final else "")
-        else:
-            # No in-place redraw available (non-TTY, or NO_COLOR strips all escapes):
-            # strip escapes and separate successive frames with a blank line so the
-            # box borders never run together. Under NO_COLOR this leaves zero escapes
-            # (the clear-home is an escape, so it is suppressed here too).
-            text = strip_ansi(frame) + "\n\n"
-        self._stream.write(text)
-        with suppress(Exception):
-            self._stream.flush()
+        self._writer.write(self._state, final=True)
 
 
 def make_events_sink(path: str, *, diag: Optional[Callable[[str], None]] = None) -> ProgressSink:
@@ -153,18 +164,28 @@ def build_progress(
     tui_events: Optional[str] = None,
     stream: Optional[TextIO] = None,
     diag: Optional[Callable[[str], None]] = None,
+    external_sink: Optional["CockpitProgressSink"] = None,
 ) -> tuple[ProgressSink, Optional[CockpitProgressSink]]:
     """Resolve the drive's progress callback and (if any) the live cockpit sink.
 
     Returns ``(progress, cockpit)``.  When neither TUI surface is requested the
     *default_sink* is returned **verbatim** (so the plain `step N:` path stays
     byte-identical); otherwise the active sinks are composed with per-sink failure
-    isolation.  *cockpit* is non-None only when the live cockpit is active, so the
-    caller can `close()` it after the drive.
+    isolation.  *cockpit* is non-None only when a live cockpit is active, so the
+    caller can `close()` it (and read back its accumulated ``state``) after the drive.
+
+    *external_sink* lets a caller supply its **own** cockpit sink (e.g. the
+    interactive session, bound to the session's `CockpitState` + frame-writer). When
+    given it replaces the auto-constructed cockpit and bypasses ``tui``
+    auto-activation — so a drive launched from the session renders into the session's
+    one shared screen.
     """
     cockpit: Optional[CockpitProgressSink] = None
     sinks: list[ProgressSink] = []
-    if cockpit_active(tui, stream=stream):
+    if external_sink is not None:
+        cockpit = external_sink
+        sinks.append(external_sink)
+    elif cockpit_active(tui, stream=stream):
         cockpit = CockpitProgressSink(task_id, engine, stream=stream)
         sinks.append(cockpit)
     else:

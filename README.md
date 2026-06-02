@@ -379,28 +379,42 @@ uv run convertible hooks list --repo .
 uv run convertible hooks overview
 ```
 
-## Interactive palette
+## Interactive cockpit (session)
 
-`convertible session` opens a foreground interactive palette. It lists
-discovered command templates, accepts a number, a name, or a free-text
-instruction, and runs the selection through the same `drive` path (same `Task`,
-loop, hooks, and artifact — no parallel code path):
+`convertible session` opens a foreground interactive **cockpit** (#74 A2): it
+renders one `CockpitState` — a command palette + a running conversation + popups —
+and runs each selection through the same `drive` path (same `Task`, loop, hooks,
+and artifact — no parallel code path):
 
 ```bash
 uv run convertible session --repo /path/to/repo --engine vllm-openai
 ```
 
-Running `convertible` with no arguments **at a terminal** opens this same palette
-(resolving the engine like `drive`: `--engine` > `CONVERTIBLE_ENGINE` >
-`vllm-openai`, never a silent `mock`) — the natural "get in and drive" gesture.
-Piped, redirected, or otherwise non-interactive, bare `convertible` prints usage
-instead, so scripts and agents keep a discoverable surface.
+**Input is line-based.** At the prompt, plain text runs a drive — a **number**
+(palette entry), a **template name**, or a **free-text instruction** (ad-hoc
+task). A line starting with `/` is a **slash command** — the meta/system
+namespace, akin to Claude Code / Codex:
 
-The session loops until the user enters `q`, `quit`, or an empty line. By
-default it is a "talk + iterate" loop: each drive commits locally but does **not**
-push or open a PR — pass `--pr` to opt back into push + PR per drive (unlike
-`drive`, which opens a PR by default). Other driver flags accepted by `drive`
-(`--engine`, `--base-url`, etc.) are also accepted by `session`.
+- Introspection (surface an existing noun in the cockpit): `/help`, `/commands`,
+  `/skills`, `/agents`, `/config` (the `doctor` readiness view), `/engines`,
+  `/telemetry`, `/feedback`.
+- Live config: `/engine <name>`, `/model <name>`, `/base <branch>`, `/pr` (toggle
+  push + PR) — change the session without restarting it.
+- `/quit` (or `q` / empty line) ends the session.
+
+**Three render tiers of the one state, chosen automatically:**
+
+- **Interactive (a colour TTY)** — the dynamic ANSI cockpit: redraw-in-place, and
+  popups on real events (an `error` popup when a drive step fails).
+- **Non-interactive (piped / captured)** — **Markdown** menus (the static but
+  *full* agent-readable view), the default off a TTY. `--no-tui` forces it on a TTY.
+- **`--json`** — stdout carries only the drive `TaskResult` (one JSON object each,
+  preserving the machine contract); the cockpit renders to stderr as chrome.
+
+Running `convertible` with no arguments **at a terminal** opens this same cockpit
+(engine resolved like `drive`: `--engine` > `CONVERTIBLE_ENGINE` > `vllm-openai`,
+never a silent `mock`). By default it is a "talk + iterate" loop — each drive
+commits locally but does **not** push or open a PR; `/pr` or `--pr` opts in.
 
 ## Cockpit views (tui)
 
@@ -444,8 +458,9 @@ uv run convertible tui replay --trace .convertible/<id>.trace.jsonl      # repla
   telemetry — never swept into the drive branch.)
 - **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
   finished drive's loop-step trace into the cockpit (live and replayed steps read
-  identically — one shared converter). The interactive `session` cockpit is the
-  remaining #74 follow-up (A2).
+  identically — one shared converter).
+- **Interactive cockpit (A2)** — `convertible session` is now cockpit-rendered with
+  slash commands; see [Interactive cockpit (session)](#interactive-cockpit-session).
 
 A mid-loop failure still writes a **partial artifact** (`status=error`) with the
 steps, usage, and changed files accumulated so far.

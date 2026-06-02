@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-06-02
+
+### Added
+
+- Interactive cockpit session (#74 A2): `convertible session` is rebuilt onto the TAUI cockpit. It renders one `CockpitState` (command palette + conversation + popups) through three tiers chosen automatically — the dynamic ANSI cockpit on a colour TTY (redraw-in-place, error popups on failed steps), static **Markdown** menus when piped/captured (`--no-tui` forces it), and `--json` keeping stdout as pure result JSON with the cockpit as stderr chrome.
+- Session slash commands (akin to Claude Code / Codex): read-only introspection that folds an existing noun's output into the cockpit (`/help`, `/commands`, `/skills`, `/agents`, `/config`, `/engines`, `/telemetry`, `/feedback`) and live config actions that mutate the session without a restart (`/engine`, `/model`, `/base`, `/pr`). Plain text (number / template name / free-text) still runs a drive.
+- A `command_palette` cockpit widget (`convertible/tui/widgets/command_palette.py`) renders a `commands` panel as a numbered menu (ANSI); the Markdown/TAUI views pick it up via generic panel rendering.
+
+### Changed
+
+- `convertible session` non-interactive output is now the full Markdown cockpit (was a terse numbered list); `--json` stdout is unchanged (one `TaskResult` JSON per drive).
+- `execute_drive` accepts an optional `progress_sink` so the session injects a sink bound to its own cockpit state (default `None` keeps the `drive` path byte-identical); the live drive frame-writer is factored into a shared `FrameWriter`.
+
 ## [0.23.0] - 2026-06-02
 
 ### Added
