@@ -400,6 +400,69 @@ def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
     assert str(art) in r.stdout
 
 
+def test_readonly_rejects_unsafe_task_id(tmp_path) -> None:
+    """C4 hardening (qodo #1): a malicious/buggy TaskResult task_id containing
+    path separators must not let _preserve_artifact escape $REPO/.convertible/.
+    The drive still succeeds (preservation is advisory); the copy is refused and
+    no last_drive is written."""
+    # Echoes a TaskResult whose task_id is a traversal attempt. (No artifact is
+    # written: validation rejects the id before the file is ever consulted.)
+    env = _fake_convertible(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        "set -eu\n"
+        "printf "
+        '\'{"status":"ok","summary":"OK","task_id":"../pwned",'
+        '"changed_files":[],"artifacts_path":"/tmp/x.json"}\'\n',
+    )
+    repo = _init_repo(tmp_path / "repo")
+
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "investigate", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    # The drive itself succeeded; preservation is best-effort, so the verb is ok.
+    assert r.returncode == 0, r.stderr
+    # Nothing escaped .convertible/, and no pointer was left behind.
+    assert not (repo / "pwned.json").exists()
+    assert not (repo / ".convertible" / "last_drive").exists()
+    assert "unsafe drive id" in r.stderr
+
+
+def test_readonly_does_not_claim_path_when_preservation_fails(tmp_path) -> None:
+    """C4 hardening (qodo #3): if the worktree artifact is missing, the copy can't
+    happen — run_readonly must NOT rewrite the printed `artifact:` to the real repo
+    (no false path) and must not write last_drive."""
+    # Reports a safe task_id and an artifacts_path, but never writes the file —
+    # mimicking a drive whose artifact didn't materialize in the worktree.
+    env = _fake_convertible(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        "set -eu\n"
+        "printf "
+        '\'{"status":"ok","summary":"OK","task_id":"tid404",'
+        '"changed_files":[],"artifacts_path":"/tmp/wt/.convertible/tid404.json"}\'\n',
+    )
+    repo = _init_repo(tmp_path / "repo")
+
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "investigate", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    # No real-repo artifact was created, so no false claim and no dangling pointer.
+    assert not (repo / ".convertible" / "tid404.json").exists()
+    assert not (repo / ".convertible" / "last_drive").exists()
+    # The printed path is NOT rewritten to the (non-existent) real-repo location.
+    assert str(repo / ".convertible" / "tid404.json") not in r.stdout
+
+
 # ── issue #61: downstream qodo findings ─────────────────────────────────────
 
 

@@ -17,6 +17,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `convertible drive` now returns you to the branch (or detached commit) you started on after it commits — the `convertible/<id>` drive branch keeps the commit, but a drive no longer strands you on it (all commit paths, incl. `--no-pr` and `session`) (#75 C2). Side effect: successive `session` drives now branch independently from your base rather than chaining on the previous drive.
 
+### Fixed
+
+- The read-only outsource artifact-preservation path (#75 C4) now validates the drive `task_id` as a single safe path segment before joining it into a copy destination (mirroring `convertible/feedback.py`), so a malformed/hostile TaskResult can no longer escape `.convertible/`; and it only reports the preserved real-repo path (and writes `last_drive`) when the copy actually succeeds, never claiming an artifact that isn't there.
+
 ## [0.21.1] - 2026-06-02
 
 ### Added

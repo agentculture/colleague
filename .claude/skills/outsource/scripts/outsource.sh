@@ -288,23 +288,46 @@ except Exception:
     print("")' 2>/dev/null || true
 }
 
+# A task id must be a single safe path segment before it is joined into a copy
+# destination (mirrors convertible/feedback.py's _validate_task_id: allow
+# [A-Za-z0-9][A-Za-z0-9._-]*, reject "."/".." and any path separator). The id
+# comes from convertible's own TaskResult, but validating it keeps the write
+# strictly inside $REPO/.convertible/ even for a malformed/hostile result.
+_valid_task_id() {
+    [[ "$1" != "." && "$1" != ".." && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
 # Read-only verbs drive in a throwaway worktree that _cleanup_worktree deletes, so
 # the artifact written under <worktree>/.convertible/ would vanish with it. Copy it
 # back to the real repo's .convertible/ (plus a last_drive pointer) so `convertible
 # feedback record last` / `outsource feedback last` can grade the drive afterwards.
 # Writes only the gitignored .convertible/ bookkeeping dir — never the tracked tree.
+# Returns non-zero (and writes no last_drive) when the id is unsafe or the copy
+# fails, so run_readonly never reports a preserved path that isn't actually there.
 _preserve_artifact() {
     local task_id="$1"
-    [[ -n "$task_id" && -n "$_WT" ]] || return 0
+    [[ -n "$task_id" && -n "$_WT" ]] || return 1
+    if ! _valid_task_id "$task_id"; then
+        printf 'outsource: refusing to preserve artifact for unsafe drive id %q\n' "$task_id" >&2
+        return 1
+    fi
     local src="$_WT/.convertible"
     local dst="$REPO/.convertible"
-    [[ -f "$src/$task_id.json" ]] || return 0
-    mkdir -p "$dst"
-    cp -f "$src/$task_id.json" "$dst/$task_id.json" 2>/dev/null || true
+    [[ -f "$src/$task_id.json" ]] || return 1
+    mkdir -p "$dst" || return 1
+    # The JSON artifact is the record of the drive — surface a copy failure rather
+    # than swallow it, so the caller can fall back to honest path reporting.
+    if ! cp -f "$src/$task_id.json" "$dst/$task_id.json"; then
+        printf 'outsource: could not preserve artifact %s.json\n' "$task_id" >&2
+        return 1
+    fi
+    # The trace is optional context; a best-effort copy is fine.
     if [[ -f "$src/$task_id.trace.jsonl" ]]; then
         cp -f "$src/$task_id.trace.jsonl" "$dst/$task_id.trace.jsonl" 2>/dev/null || true
     fi
-    printf '%s' "$task_id" > "$dst/last_drive" 2>/dev/null || true
+    # Write last_drive only after the artifact actually landed — never leave the
+    # pointer aimed at a missing file.
+    printf '%s' "$task_id" > "$dst/last_drive" || return 1
 }
 
 # Spin up a throwaway detached worktree at HEAD (the isolation both read-only
@@ -323,9 +346,15 @@ run_readonly() {
     out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
     # Preserve the artifact to the real repo BEFORE the EXIT trap removes the
-    # worktree, so the drive can be graded (`outsource feedback last`).
-    _preserve_artifact "$(printf '%s' "$out" | _extract_task_id)"
-    printf '%s' "$out" | print_result "$REPO/.convertible"
+    # worktree, so the drive can be graded (`outsource feedback last`). Only point
+    # print_result at the real repo when the copy actually landed — otherwise the
+    # printed `artifact:` would name a file that preservation never wrote.
+    local task_id real_dir=""
+    task_id="$(printf '%s' "$out" | _extract_task_id)"
+    if _preserve_artifact "$task_id"; then
+        real_dir="$REPO/.convertible"
+    fi
+    printf '%s' "$out" | print_result "$real_dir"
 }
 
 # ── write preview (default): drive in a throwaway worktree, show the would-be ──
