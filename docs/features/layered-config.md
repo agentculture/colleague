@@ -3,15 +3,15 @@
 > A model-specific system prompt composed from AGENTS instructions and skills,
 > with strict per-model isolation.
 
-Convertible composes a model-specific **system prompt** for every drive from two
+Colleague composes a model-specific **system prompt** for every drive from two
 layered families, resolved *relative to the model currently driving*
-(`convertible/layers.py`). It is injected once on the `Engine` base class
+(`colleague/layers.py`). It is injected once on the `Engine` base class
 (`system_prompt()`), so every engine inherits it — the all-engines rule, exactly
 like hooks and telemetry.
 
 **Per-model isolation is structural.** When driving model X, the loader builds
 X's exact filenames/dirnames and reads only those plus the shared base. It never
-globs `AGENTS.convertible.*.md` or iterates sibling `.convertible/*/skills/`
+globs `AGENTS.colleague.*.md` or iterates sibling `.colleague/*/skills/`
 directories — so model X can never load model Y's files. Isolation is built from
 exact-path construction, not filtering.
 
@@ -19,30 +19,30 @@ exact-path construction, not filtering.
 
 A cascade read from the **repo root** (the cross-tool standard location —
 sibling agent tools read `AGENTS.md` there too), general → specific, with a
-`~/.convertible/` user-level fallback:
+`~/.colleague/` user-level fallback:
 
 ```text
 AGENTS.md                       # shared base
-AGENTS.convertible.md           # convertible overlay
-AGENTS.convertible.<model>.md   # model overlay
+AGENTS.colleague.md           # colleague overlay
+AGENTS.colleague.<model>.md   # model overlay
 ```
 
 The layers are concatenated general → specific, so model-specific guidance lands
 last. Note the asymmetry: the repo-level layer lives at the repo root, but the
-user-level fallback lives under `~/.convertible/`.
+user-level fallback lives under `~/.colleague/`.
 
 ## Skills
 
-Markdown capability docs under `.convertible/`, folded into the prompt as a
+Markdown capability docs under `.colleague/`, folded into the prompt as a
 compact **name + one-line-summary catalog** (never the full bodies — it stays
 token-cheap):
 
 ```text
-.convertible/skills/*.md            # base
-.convertible/<model>/skills/*.md    # model overlay (shadows base by stem)
+.colleague/skills/*.md            # base
+.colleague/<model>/skills/*.md    # model overlay (shadows base by stem)
 ```
 
-Repo-level `.convertible/` also shadows user-level `~/.convertible/` underneath —
+Repo-level `.colleague/` also shadows user-level `~/.colleague/` underneath —
 two orthogonal precedence axes, both structural. A skill is **instructional text
 only**; there is no skill *execution* in v0 (an execution sandbox is out of
 scope) — invokable skills are a tracked follow-up.
@@ -70,29 +70,29 @@ byte-identical to a layer-free run.
 ## Usage
 
 ```bash
-convertible agents list --model Qwen/Qwen3-32B --repo .
-convertible agents overview
-convertible skills list --model Qwen/Qwen3-32B --repo .
-convertible skills overview
+colleague agents list --model Qwen/Qwen3-32B --repo .
+colleague agents overview
+colleague skills list --model Qwen/Qwen3-32B --repo .
+colleague skills overview
 ```
 
 ## MCP layering is not built
 
-Convertible does **not** read `mcp.json` or connect to any MCP server today, and
+Colleague does **not** read `mcp.json` or connect to any MCP server today, and
 there is **no `mcp` verb**. A live MCP client (transport, tool discovery,
 dynamic tool registration) needs its own spec — don't rely on a non-existent
 surface.
 
 ## Key files
 
-- `convertible/layers.py` — `resolve_agents`, `resolve_skills`, `system_prompt_for`.
-- `convertible/engine.py` — `Engine.system_prompt()` injects it for every engine.
-- `convertible/configdir.py` — repo-over-user `.convertible/` resolution.
+- `colleague/layers.py` — `resolve_agents`, `resolve_skills`, `system_prompt_for`.
+- `colleague/engine.py` — `Engine.system_prompt()` injects it for every engine.
+- `colleague/configdir.py` — repo-over-user `.colleague/` resolution.
 
 ## See also
 
 - [per-model-configuration.md](per-model-configuration.md) — per-model hooks
   overlay: the same per-model isolation principle applied to the hooks layer
-  (`.convertible/<model>/hooks.json`).
+  (`.colleague/<model>/hooks.json`).
 - [engines.md](engines.md) — every engine inherits the layered prompt.
-- [command-templates.md](command-templates.md) — also resolved via `.convertible/`.
+- [command-templates.md](command-templates.md) — also resolved via `.colleague/`.

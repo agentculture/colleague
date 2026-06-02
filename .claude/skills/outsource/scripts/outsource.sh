@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# outsource — hand a scoped repo task to convertible (a different engine/mind).
+# outsource — hand a scoped repo task to colleague (a different engine/mind).
 #
-# Convertible's engine is not necessarily stronger than the calling agent; it is
+# Colleague's engine is not necessarily stronger than the calling agent; it is
 # a *different* mind, and diversity helps — which is why `review` is the headline
-# verb. Three verbs drive `convertible drive` and print the result:
+# verb. Three verbs drive `colleague drive` and print the result:
 #
 #   outsource explore "<question or area>"   read-only investigation -> findings
 #   outsource review  "<what to focus on>"   diverse second-opinion on the diff
@@ -21,20 +21,20 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROMPTS_DIR="$SKILL_DIR/prompts"
 
-# ── resolve the convertible CLI (installed, then local-dev fallback) ─────────
-CONVERTIBLE=()
-resolve_convertible() {
-    if command -v convertible >/dev/null 2>&1; then
-        CONVERTIBLE=(convertible)        # installed tool — the normal case
+# ── resolve the colleague CLI (installed, then local-dev fallback) ─────────
+COLLEAGUE=()
+resolve_colleague() {
+    if command -v colleague >/dev/null 2>&1; then
+        COLLEAGUE=(colleague)        # installed tool — the normal case
         return 0
     fi
-    # Local-dev fallback: inside the convertible checkout, run via uv.
+    # Local-dev fallback: inside the colleague checkout, run via uv.
     local dir="$PWD"
     while [[ -n "$dir" ]] && [[ "$dir" != "/" ]]; do
         if [[ -f "$dir/pyproject.toml" ]] \
-            && grep -q '^name = "convertible-cli"' "$dir/pyproject.toml" 2>/dev/null; then
+            && grep -q '^name = "colleague"' "$dir/pyproject.toml" 2>/dev/null; then
             if command -v uv >/dev/null 2>&1; then
-                CONVERTIBLE=(uv run convertible)
+                COLLEAGUE=(uv run colleague)
                 return 0
             fi
             break
@@ -42,17 +42,17 @@ resolve_convertible() {
         dir=$(dirname "$dir")
     done
     cat >&2 <<'EOF'
-error: convertible CLI not found.
-hint: install it with `uv tool install convertible-cli` (or `pipx install convertible-cli`),
-      or run from inside the convertible checkout with `uv` available.
-      https://github.com/agentculture/convertible
+error: colleague CLI not found.
+hint: install it with `uv tool install colleague` (or `pipx install colleague`),
+      or run from inside the colleague checkout with `uv` available.
+      https://github.com/agentculture/colleague
 EOF
     return 1
 }
 
 usage() {
     cat <<'EOF'
-outsource — hand a scoped repo task to convertible (a different engine/mind).
+outsource — hand a scoped repo task to colleague (a different engine/mind).
 
 Usage:
   outsource explore "<question or area>"     Read-only investigation -> findings (no side effects)
@@ -63,17 +63,17 @@ Usage:
 Options:
   --repo PATH        Target repo (default: .)
   --base BRANCH      Base for `review` diff (default: main)
-  --engine NAME      Engine wheel (default: $CONVERTIBLE_ENGINE or vllm-openai)
-  --model NAME       Model (default: $CONVERTIBLE_MODEL or mmangkad/Qwen3.6-27B-NVFP4)
-  --base-url URL     OpenAI base URL (default: $CONVERTIBLE_BASE_URL or http://localhost:8001/v1)
+  --engine NAME      Engine wheel (default: $COLLEAGUE_ENGINE or vllm-openai)
+  --model NAME       Model (default: $COLLEAGUE_MODEL or mmangkad/Qwen3.6-27B-NVFP4)
+  --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20)
-  --timeout N        Per-request timeout, seconds (default: $CONVERTIBLE_TIMEOUT or 300)
+  --timeout N        Per-request timeout, seconds (default: $COLLEAGUE_TIMEOUT or 300)
   --apply            (write) apply the change in place (drive branch) instead of previewing
   --allow-dirty      (write) allow running on a dirty tree (only with --apply/--pr)
   --pr               (write) push + open a PR instead of a local drive branch (implies --apply)
   --rating N         (feedback) record a 1-5 quality rating for the drive
   --notes "..."      (feedback) free-text notes to store with the rating
-  --by NAME          (feedback) who is grading (default: convertible's resolved identity)
+  --by NAME          (feedback) who is grading (default: colleague's resolved identity)
 
 explore/review run in a throwaway git worktree at HEAD — they cannot touch your
 working tree or branch. review compares <base>...HEAD (committed changes only).
@@ -125,11 +125,12 @@ require_tools
 # ── defaults + flag parsing ─────────────────────────────────────────────────
 REPO="."
 BASE="main"
-ENGINE="${CONVERTIBLE_ENGINE:-vllm-openai}"
-MODEL="${CONVERTIBLE_MODEL:-mmangkad/Qwen3.6-27B-NVFP4}"
-BASE_URL="${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}"
+# COLLEAGUE_* wins; the legacy CONVERTIBLE_* names are honored as a deprecated fallback.
+ENGINE="${COLLEAGUE_ENGINE:-${CONVERTIBLE_ENGINE:-vllm-openai}}"
+MODEL="${COLLEAGUE_MODEL:-${CONVERTIBLE_MODEL:-mmangkad/Qwen3.6-27B-NVFP4}}"
+BASE_URL="${COLLEAGUE_BASE_URL:-${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}}"
 MAX_STEPS=20
-TIMEOUT="${CONVERTIBLE_TIMEOUT:-300}"
+TIMEOUT="${COLLEAGUE_TIMEOUT:-${CONVERTIBLE_TIMEOUT:-300}}"
 ALLOW_DIRTY=0
 APPLY=0
 OPEN_PR=0
@@ -179,11 +180,11 @@ if [[ "$VERB" == "review" ]]; then
         || { echo "error: --base is not a valid commit/ref in $REPO: $BASE" >&2; exit 2; }
 fi
 
-resolve_convertible || exit 2
+resolve_colleague || exit 2
 
 # Per-request timeout is config (no drive flag); EngineConfig reads it from env.
 # A local model can be slow on a growing context, so default generously.
-export CONVERTIBLE_TIMEOUT="$TIMEOUT"
+export COLLEAGUE_TIMEOUT="$TIMEOUT"
 COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
 
 # ── render an instruction from a prompt template ────────────────────────────
@@ -202,7 +203,7 @@ sys.stdout.write(re.compile(r"\$ARGUMENTS|\$BASE").sub(lambda m: repl[m.group(0)
 PY
 }
 
-# ── print the TaskResult that convertible emitted as JSON on stdout ─────────
+# ── print the TaskResult that colleague emitted as JSON on stdout ─────────
 # Reads JSON on stdin; prints a human/agent-readable digest — to stdout on
 # success, to stderr on failure so a caller can script on a clean stdout — and
 # exits non-zero if the drive failed.
@@ -213,18 +214,18 @@ print_result() {
     #
     # $1 (optional): the real artifact directory. When the drive ran in a
     # throwaway worktree (read-only verbs), the JSON's artifacts_path points into
-    # that soon-deleted worktree; pass the real repo's .convertible/ so the
+    # that soon-deleted worktree; pass the real repo's .colleague/ so the
     # printed path names the preserved copy instead. Empty -> print as-is.
     OUTSOURCE_REAL_ARTIFACT_DIR="${1:-}" python3 -c '
 import sys, json, os
 raw = sys.stdin.read().strip()
 if not raw:
-    sys.stderr.write("error: convertible produced no result on stdout (see diagnostics above)\n")
+    sys.stderr.write("error: colleague produced no result on stdout (see diagnostics above)\n")
     sys.exit(2)
 try:
     d = json.loads(raw)
 except Exception:
-    sys.stderr.write("error: could not parse convertible --json output:\n")
+    sys.stderr.write("error: could not parse colleague --json output:\n")
     sys.stderr.write(raw[:2000] + "\n")
     sys.exit(2)
 ok = d.get("status") == "ok"
@@ -257,10 +258,10 @@ _cleanup_worktree() {
     [[ -n "$_WT" ]] || return 0
     git -C "$REPO" worktree remove --force "$_WT" >/dev/null 2>&1 || true
     rm -rf "$_WT" >/dev/null 2>&1 || true
-    # Only ever delete the ephemeral drive branch convertible names
-    # (convertible/<task_id>) — never an unrelated local branch, even if the
+    # Only ever delete the ephemeral drive branch colleague names
+    # (colleague/<task_id>) — never an unrelated local branch, even if the
     # JSON `branch` value were unexpected.
-    if [[ "$_DRIVE_BRANCH" == convertible/* ]]; then
+    if [[ "$_DRIVE_BRANCH" == colleague/* ]]; then
         git -C "$REPO" branch -D "$_DRIVE_BRANCH" >/dev/null 2>&1 || true
     fi
     # Defensive: clear the handles so a re-entry is a clean no-op. The EXIT trap
@@ -270,7 +271,7 @@ _cleanup_worktree() {
     _DRIVE_BRANCH=""
 }
 
-# Extract the drive branch (convertible/<id>) from a TaskResult JSON on stdin.
+# Extract the drive branch (colleague/<id>) from a TaskResult JSON on stdin.
 _extract_branch() {
     python3 -c 'import sys, json
 try:
@@ -289,19 +290,19 @@ except Exception:
 }
 
 # A task id must be a single safe path segment before it is joined into a copy
-# destination (mirrors convertible/feedback.py's _validate_task_id: allow
+# destination (mirrors colleague/feedback.py's _validate_task_id: allow
 # [A-Za-z0-9][A-Za-z0-9._-]*, reject "."/".." and any path separator). The id
-# comes from convertible's own TaskResult, but validating it keeps the write
-# strictly inside $REPO/.convertible/ even for a malformed/hostile result.
+# comes from colleague's own TaskResult, but validating it keeps the write
+# strictly inside $REPO/.colleague/ even for a malformed/hostile result.
 _valid_task_id() {
     [[ "$1" != "." && "$1" != ".." && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
 }
 
 # Read-only verbs drive in a throwaway worktree that _cleanup_worktree deletes, so
-# the artifact written under <worktree>/.convertible/ would vanish with it. Copy it
-# back to the real repo's .convertible/ (plus a last_drive pointer) so `convertible
+# the artifact written under <worktree>/.colleague/ would vanish with it. Copy it
+# back to the real repo's .colleague/ (plus a last_drive pointer) so `colleague
 # feedback record last` / `outsource feedback last` can grade the drive afterwards.
-# Writes only the gitignored .convertible/ bookkeeping dir — never the tracked tree.
+# Writes only the gitignored .colleague/ bookkeeping dir — never the tracked tree.
 # Returns non-zero (and writes no last_drive) when the id is unsafe or the copy
 # fails, so run_readonly never reports a preserved path that isn't actually there.
 _preserve_artifact() {
@@ -311,8 +312,8 @@ _preserve_artifact() {
         printf 'outsource: refusing to preserve artifact for unsafe drive id %q\n' "$task_id" >&2
         return 1
     fi
-    local src="$_WT/.convertible"
-    local dst="$REPO/.convertible"
+    local src="$_WT/.colleague"
+    local dst="$REPO/.colleague"
     [[ -f "$src/$task_id.json" ]] || return 1
     mkdir -p "$dst" || return 1
     # The JSON artifact is the record of the drive — surface a copy failure rather
@@ -343,7 +344,7 @@ run_readonly() {
     local instruction="$1"
     _add_worktree
     local out
-    out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
+    out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
     # Preserve the artifact to the real repo BEFORE the EXIT trap removes the
     # worktree, so the drive can be graded (`outsource feedback last`). Only point
@@ -352,7 +353,7 @@ run_readonly() {
     local task_id real_dir=""
     task_id="$(printf '%s' "$out" | _extract_task_id)"
     if _preserve_artifact "$task_id"; then
-        real_dir="$REPO/.convertible"
+        real_dir="$REPO/.colleague"
     fi
     printf '%s' "$out" | print_result "$real_dir"
 }
@@ -364,12 +365,12 @@ run_preview() {
     local instruction="$1"
     _add_worktree
     local out
-    out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
+    out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
 
     # Capture the would-be patch before _cleanup_worktree deletes the drive branch.
     local patch=""
-    if [[ "$_DRIVE_BRANCH" == convertible/* ]]; then
+    if [[ "$_DRIVE_BRANCH" == colleague/* ]]; then
         patch="$(git -C "$REPO" diff "HEAD..$_DRIVE_BRANCH" 2>/dev/null || true)"
     fi
 
@@ -398,33 +399,33 @@ run_write() {
     if [[ "$ALLOW_DIRTY" -eq 0 ]] \
         && [[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]]; then
         echo "error: working tree is dirty — commit/stash first, or pass --allow-dirty" >&2
-        echo "hint: 'convertible drive --no-pr' commits uncommitted edits onto the drive branch" >&2
+        echo "hint: 'colleague drive --no-pr' commits uncommitted edits onto the drive branch" >&2
         exit 2
     fi
-    # `|| true`: a failed drive (`convertible drive` returns 1 when status != ok,
+    # `|| true`: a failed drive (`colleague drive` returns 1 when status != ok,
     # printing the result JSON to stdout) must still flow into print_result so the
     # digest is emitted (to stderr) and the wrapper exits non-zero — not aborted by
     # `set -e` at the assignment, which would swallow the digest. Matches the
     # read-only / preview paths, which already guard this way.
     local out
     if [[ "$OPEN_PR" -eq 1 ]]; then
-        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || true
+        out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || true
     else
-        out="$("${CONVERTIBLE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || true
+        out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || true
     fi
     printf '%s' "$out" | print_result
 }
 
 # ── feedback verb: grade a finished drive (the ROI loop) ────────────────────
-# A thin pass-through to `convertible feedback`: with --rating it records a 1-5
+# A thin pass-through to `colleague feedback`: with --rating it records a 1-5
 # grade + notes; without, it shows the drive's existing feedback. The ref is the
 # drive's task-id, or `last` for the most recent drive in --repo. No worktree,
-# no engine — convertible owns the store and its own stdout/stderr/exit code.
+# no engine — colleague owns the store and its own stdout/stderr/exit code.
 run_feedback() {
     local ref="$1"
     # Build one command array (never empty) so we don't expand an empty array
     # under `set -u` — the optional --by is appended only when set.
-    local cmd=("${CONVERTIBLE[@]}" feedback)
+    local cmd=("${COLLEAGUE[@]}" feedback)
     if [[ -n "$RATING" ]]; then
         cmd+=(record "$ref" --rating "$RATING" --notes "$NOTES")
         [[ -n "$BY" ]] && cmd+=(--by "$BY")

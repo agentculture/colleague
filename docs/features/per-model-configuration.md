@@ -3,7 +3,7 @@
 > The harness adjusts the seat and mirrors for whoever is driving — same car,
 > tuned to the specific model behind the wheel.
 
-Convertible's car metaphor extends to how operator-declared fixes apply to
+Colleague's car metaphor extends to how operator-declared fixes apply to
 specific models. The **chassis** (loop, hooks, config resolution) is shared
 across every engine. But different models have different biases — quirks in how
 they write files, what they assume about paths, or how they structure output.
@@ -13,7 +13,7 @@ them only to the targeted model and leaving all other drives untouched.
 Two per-model configuration surfaces ship in v0:
 
 - **Per-model AGENTS instructions and skills** — a system-prompt overlay
-  (`AGENTS.convertible.<model>.md` + `.convertible/<model>/skills/*.md`) that
+  (`AGENTS.colleague.<model>.md` + `.colleague/<model>/skills/*.md`) that
   tunes the model's guiding instructions. See [layered-config.md](layered-config.md).
 - **Per-model hooks overlay** — a separate `hooks.json` whose entries fire
   **ahead of** the base hooks for that model only. This page documents the hooks
@@ -26,7 +26,7 @@ Two per-model configuration surfaces ship in v0:
 Place a `hooks.json` at:
 
 ```text
-.convertible/<model>/hooks.json
+.colleague/<model>/hooks.json
 ```
 
 where `<model>` is the sanitized model token (see [Model token
@@ -34,10 +34,10 @@ sanitization](#model-token-sanitization) below). For example, for a model id
 `mmangkad/Qwen3.6-27B-NVFP4`:
 
 ```text
-.convertible/mmangkad-Qwen3.6-27B-NVFP4/hooks.json
+.colleague/mmangkad-Qwen3.6-27B-NVFP4/hooks.json
 ```
 
-The file format is identical to the base `.convertible/hooks.json` — same
+The file format is identical to the base `.colleague/hooks.json` — same
 `{"hooks": {"pre_tool": [...], ...}}` schema. See
 [hooks.md](hooks.md) for the full format reference.
 
@@ -60,8 +60,8 @@ adds entries at the front, never removes the base ones.
 ### Exact-path isolation
 
 The overlay path is built by **exact construction** through
-`convertible.layers.sanitize_model`. The loader never globs
-`.convertible/*/hooks.json` or iterates sibling directories. Model X therefore
+`colleague.layers.sanitize_model`. The loader never globs
+`.colleague/*/hooks.json` or iterates sibling directories. Model X therefore
 can never load model Y's overlay: isolation is structural, not filtered.
 
 ### Strict no-op
@@ -74,11 +74,11 @@ against models with no overlay see no behavior change.
 
 The overlay is a file read — the same `subprocess`-based hook runner used for
 the base config. No new runtime dep, no socket, no daemon; it reuses the exact
-hook machinery already in `convertible/hooks.py` and `convertible/loop.py`.
+hook machinery already in `colleague/hooks.py` and `colleague/loop.py`.
 
 ### Model token sanitization
 
-The `<model>` directory name is produced by `convertible.layers.sanitize_model`:
+The `<model>` directory name is produced by `colleague.layers.sanitize_model`:
 every run of characters outside `[A-Za-z0-9._-]` collapses to a single `-`,
 leading/trailing `-`/`.` are stripped, and an empty id yields `default`. Dots
 are preserved (`Qwen3.6`, `NVFP4` carry meaning).
@@ -91,7 +91,7 @@ are preserved (`Qwen3.6`, `NVFP4` carry meaning).
 
 ## Operator-declared, not auto-detected
 
-Convertible does **not** auto-detect model biases. The operator names the
+Colleague does **not** auto-detect model biases. The operator names the
 failure mode, writes the hook fix, and places it under the model's directory.
 This is intentional: auto-detection would require heuristic guessing across
 every run; an explicit hook is auditable, repeatable, and applies only when
@@ -124,7 +124,7 @@ untouched for every other drive.
 
 ### Hook config
 
-Place the following at `.convertible/mmangkad-Qwen3.6-27B-NVFP4/hooks.json`:
+Place the following at `.colleague/mmangkad-Qwen3.6-27B-NVFP4/hooks.json`:
 
 ```json
 {
@@ -132,7 +132,7 @@ Place the following at `.convertible/mmangkad-Qwen3.6-27B-NVFP4/hooks.json`:
     "pre_tool": [
       {
         "matcher": "write_file",
-        "command": "python3 .convertible/hooks/fix-footer-escape.py"
+        "command": "python3 .colleague/hooks/fix-footer-escape.py"
       }
     ]
   }
@@ -141,7 +141,7 @@ Place the following at `.convertible/mmangkad-Qwen3.6-27B-NVFP4/hooks.json`:
 
 ### Hook script
 
-`.convertible/hooks/fix-footer-escape.py`:
+`.colleague/hooks/fix-footer-escape.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -205,13 +205,13 @@ without re-triggering the hook.
 ### Inspecting the composed hook set
 
 ```bash
-convertible hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4
+colleague hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4
 ```
 
 Output (human-readable):
 
 ```text
-[per-model]  pre_tool   write_file   python3 .convertible/hooks/fix-footer-escape.py
+[per-model]  pre_tool   write_file   python3 .colleague/hooks/fix-footer-escape.py
 [base]       pre_tool   run_command  my-policy-gate.sh
 ```
 
@@ -219,7 +219,7 @@ Per-model entries appear first, tagged `per-model`; base entries follow, tagged
 `base`. With `--json`:
 
 ```bash
-convertible hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4 --json
+colleague hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4 --json
 ```
 
 ```json
@@ -228,7 +228,7 @@ convertible hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4 --json
     {
       "event": "pre_tool",
       "matcher": "write_file",
-      "command": "python3 .convertible/hooks/fix-footer-escape.py",
+      "command": "python3 .colleague/hooks/fix-footer-escape.py",
       "scope": "per-model"
     },
     {
@@ -243,7 +243,7 @@ convertible hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4 --json
 
 ## The all-engines rule
 
-Per-model hooks load in `convertible/loop.py` via `load_hooks(repo_path,
+Per-model hooks load in `colleague/loop.py` via `load_hooks(repo_path,
 model=config.model)`. Both bundled engines (`mock` and `vllm-openai`) pass
 `model=config.model` — so a per-model overlay that fires on `mock` fires
 identically on `vllm-openai`. New engine wheels inherit this for free because
@@ -251,12 +251,12 @@ hook firing is chassis-owned, not engine-owned.
 
 ## Key files
 
-- `convertible/hooks.py` — `load_hooks(repo_path, *, model=None)`: per-model
+- `colleague/hooks.py` — `load_hooks(repo_path, *, model=None)`: per-model
   overlay load + composition.
-- `convertible/layers.py` — `sanitize_model`: model-id → filename-safe token.
-- `convertible/loop.py` — passes `model=config.model` to `load_hooks`; the
+- `colleague/layers.py` — `sanitize_model`: model-id → filename-safe token.
+- `colleague/loop.py` — passes `model=config.model` to `load_hooks`; the
   chassis owns all hook firing.
-- `convertible/cli/_commands/hooks.py` — `hooks list --model <m>` shows the
+- `colleague/cli/_commands/hooks.py` — `hooks list --model <m>` shows the
   composed set with `scope` tags.
 
 ## See also

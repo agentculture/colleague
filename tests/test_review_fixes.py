@@ -19,15 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from convertible import registry
-from convertible.cli._commands import drive as drive_mod
-from convertible.cli._commands.session import run_session
-from convertible.cli._errors import CliError
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task, TaskResult
-from convertible.hooks import HookConfig, HookEntry, load_hooks, run_hook
-from convertible.loop import ModelResponse, ToolCall
-from convertible.loop import run as loop_run
+from colleague import registry
+from colleague.cli._commands import drive as drive_mod
+from colleague.cli._commands.session import run_session
+from colleague.cli._errors import CliError
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task, TaskResult
+from colleague.hooks import HookConfig, HookEntry, load_hooks, run_hook
+from colleague.loop import ModelResponse, ToolCall
+from colleague.loop import run as loop_run
 
 
 # --------------------------------------------------------------------------- #
@@ -68,8 +68,8 @@ def test_run_hook_timeout_maps_to_deny(tmp_path: Path) -> None:
 
 
 def test_hooks_for_invalid_regex_is_non_matching(tmp_path: Path) -> None:
-    (tmp_path / ".convertible").mkdir()
-    (tmp_path / ".convertible" / "hooks.json").write_text(
+    (tmp_path / ".colleague").mkdir()
+    (tmp_path / ".colleague" / "hooks.json").write_text(
         json.dumps({"hooks": {"pre_tool": [{"matcher": "[", "command": "echo x"}]}}),
         encoding="utf-8",
     )
@@ -79,13 +79,13 @@ def test_hooks_for_invalid_regex_is_non_matching(tmp_path: Path) -> None:
 
 
 def test_loop_contains_a_crashing_hook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (tmp_path / ".convertible").mkdir()
-    (tmp_path / ".convertible" / "hooks.json").write_text(
+    (tmp_path / ".colleague").mkdir()
+    (tmp_path / ".colleague" / "hooks.json").write_text(
         json.dumps({"hooks": {"pre_tool": [{"matcher": "write_file", "command": "echo x"}]}}),
         encoding="utf-8",
     )
 
-    import convertible.loop as loop_module
+    import colleague.loop as loop_module
 
     def _boom(*_a: object, **_k: object) -> None:
         raise RuntimeError("kaboom")
@@ -118,8 +118,8 @@ def test_loop_contains_a_crashing_hook(tmp_path: Path, monkeypatch: pytest.Monke
 # #3 — public accessor for hook entries
 # --------------------------------------------------------------------------- #
 def test_hookconfig_all_entries_is_public(tmp_path: Path) -> None:
-    (tmp_path / ".convertible").mkdir()
-    (tmp_path / ".convertible" / "hooks.json").write_text(
+    (tmp_path / ".colleague").mkdir()
+    (tmp_path / ".colleague" / "hooks.json").write_text(
         json.dumps(
             {
                 "hooks": {
@@ -140,8 +140,8 @@ def test_hookconfig_all_entries_is_public(tmp_path: Path) -> None:
 # #1 / #2 — session --json + stream separation
 # --------------------------------------------------------------------------- #
 def test_session_json_mode_stdout_is_pure_json(tmp_path: Path) -> None:
-    (tmp_path / ".convertible" / "commands").mkdir(parents=True)
-    (tmp_path / ".convertible" / "commands" / "greet.md").write_text("Say hi\n", encoding="utf-8")
+    (tmp_path / ".colleague" / "commands").mkdir(parents=True)
+    (tmp_path / ".colleague" / "commands" / "greet.md").write_text("Say hi\n", encoding="utf-8")
 
     out_lines, out = _sink()
     err_lines, err = _sink()
@@ -158,7 +158,7 @@ def test_session_json_mode_stdout_is_pure_json(tmp_path: Path) -> None:
     assert len(payloads) == 1
     assert payloads[0]["status"] == OK
     # The palette chrome and prompts went to stderr instead.
-    assert any("convertible session" in line for line in err_lines)
+    assert any("colleague session" in line for line in err_lines)
 
 
 def test_session_errors_go_to_stderr(tmp_path: Path) -> None:
@@ -198,6 +198,6 @@ def test_command_persisted_on_failure(tmp_path: Path, monkeypatch: pytest.Monkey
             command_name="greet",
         )
 
-    artifact = json.loads((tmp_path / ".convertible" / f"{task.id}.json").read_text())
+    artifact = json.loads((tmp_path / ".colleague" / f"{task.id}.json").read_text())
     assert artifact["status"] == "error"
     assert artifact["command"] == "greet"

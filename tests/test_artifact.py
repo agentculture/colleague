@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from convertible.artifact import failed_result, write
-from convertible.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage
-from convertible.loop import ModelResponse, ToolCall, run
+from colleague.artifact import failed_result, write
+from colleague.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage
+from colleague.loop import ModelResponse, ToolCall, run
 
 
 def _result_with_steps(tmp_path: Path) -> TaskResult:
@@ -22,7 +22,7 @@ def _result_with_steps(tmp_path: Path) -> TaskResult:
 
 
 def test_write_produces_valid_json_with_required_keys(tmp_path: Path) -> None:
-    path = write(_result_with_steps(tmp_path), tmp_path / ".convertible")
+    path = write(_result_with_steps(tmp_path), tmp_path / ".colleague")
     payload = json.loads(path.read_text())
     for key in ("status", "changed_files", "steps", "usage"):
         assert key in payload
@@ -38,14 +38,14 @@ def test_write_sets_artifacts_path(tmp_path: Path) -> None:
 
 def test_failed_run_still_writes_error_artifact(tmp_path: Path) -> None:
     result = failed_result("crashed", "boom: engine raised RuntimeError")
-    path = write(result, tmp_path / ".convertible")
+    path = write(result, tmp_path / ".colleague")
     payload = json.loads(path.read_text())
     assert payload["status"] == ERROR
     assert "boom" in payload["error"]
 
 
 def test_trace_jsonl_has_one_line_per_step(tmp_path: Path) -> None:
-    out = tmp_path / ".convertible"
+    out = tmp_path / ".colleague"
     write(_result_with_steps(tmp_path), out)
     trace = (out / "t1.trace.jsonl").read_text().strip().splitlines()
     assert len(trace) == 1
@@ -66,7 +66,7 @@ def test_real_drive_artifact_round_trips(tmp_path: Path) -> None:
 
     task = Task.new(str(tmp_path), "write x")
     result = run(complete, task, max_steps=5)
-    path = write(result, tmp_path / ".convertible")
+    path = write(result, tmp_path / ".colleague")
     reloaded = TaskResult.from_dict(json.loads(path.read_text()))
     assert reloaded.changed_files == ["x"]
 
@@ -105,7 +105,7 @@ def test_denied_tool_call_written_to_artifact(tmp_path: Path) -> None:
         error="hook denied the tool call",
     )
 
-    out_dir = tmp_path / ".convertible"
+    out_dir = tmp_path / ".colleague"
     path = write(result, out_dir)
     payload = json.loads(path.read_text())
 
@@ -172,7 +172,7 @@ def test_artifact_includes_destination_and_announcement_when_set(tmp_path: Path)
         destination="goal-frame-x",
         announcement="Arrived at goal-frame-x.",
     )
-    path = write(result, tmp_path / ".convertible")
+    path = write(result, tmp_path / ".colleague")
     payload = json.loads(path.read_text())
     assert "destination" in payload
     assert payload["destination"] == "goal-frame-x"
@@ -186,7 +186,7 @@ def test_artifact_omits_destination_and_announcement_when_none(tmp_path: Path) -
     This preserves byte-identical output for the no-destination path (c8/h8).
     """
     result = TaskResult(task_id="nodest-art1", status=OK, summary="plain drive")
-    path = write(result, tmp_path / ".convertible")
+    path = write(result, tmp_path / ".colleague")
     payload = json.loads(path.read_text())
     assert "destination" not in payload
     assert "announcement" not in payload

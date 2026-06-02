@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from convertible import feedback
-from convertible.feedback import Feedback, FeedbackError
+from colleague import feedback
+from colleague.feedback import Feedback, FeedbackError
 
 
 def test_write_then_read_round_trips(tmp_path: Path) -> None:

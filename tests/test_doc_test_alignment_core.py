@@ -75,7 +75,7 @@ def _checks_registry() -> ModuleType:
 
 def _build_fixture_repo(root: Path) -> Path:
     (root / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
-    # No convertible commands → checks (a)/(b) run no subprocess (fast + hermetic).
+    # No colleague commands → checks (a)/(b) run no subprocess (fast + hermetic).
     (root / "README.md").write_text("# Demo\n\nNo commands here.\n", encoding="utf-8")
     (root / "CLAUDE.md").write_text(
         "# Demo\n\n## Commands\n\n```bash\necho hello\n```\n", encoding="utf-8"
@@ -475,8 +475,8 @@ class TestCLI:
 
 
 class TestPortabilityGuard:
-    def test_no_import_convertible(self) -> None:
-        """No skill script file may import convertible (portability)."""
+    def test_no_import_colleague(self) -> None:
+        """No skill script file may import colleague (portability)."""
         py_files = list(SCRIPTS_DIR.rglob("*.py"))
         assert py_files, "Expected at least one .py file under scripts/"
         violations: list[str] = []
@@ -489,9 +489,7 @@ class TestPortabilityGuard:
                 if stripped.startswith("#"):
                     continue
                 # Only flag actual import statements (import/from at start of statement)
-                if stripped.startswith("import convertible") or stripped.startswith(
-                    "from convertible"
-                ):
+                if stripped.startswith("import colleague") or stripped.startswith("from colleague"):
                     violations.append(f"{pyfile.relative_to(SCRIPTS_DIR)}: {line!r}")
         assert not violations, "Portability violations:\n" + "\n".join(violations)
 

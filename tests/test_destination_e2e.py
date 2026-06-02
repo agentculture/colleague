@@ -1,24 +1,24 @@
 """End-to-end destination guards + before-state characterization (c4/c8/h1/h4).
 
-This is the cross-cutting integration guard for the "convertible destination"
+This is the cross-cutting integration guard for the "colleague destination"
 feature. It proves two honest claims hold together, end to end:
 
 * **Arrival recorded (c8/h1).** A drive can BOTH use the ``devague`` destination
   tool AND declare arrival via ``finish(destination=…, announcement=…)`` without
   breaking termination. We script a fake ``complete`` that first issues a
   ``devague`` move and then a ``finish`` carrying the destination + announcement,
-  monkeypatch :func:`convertible.devague.run_devague` to a stub (so NO real
+  monkeypatch :func:`colleague.devague.run_devague` to a stub (so NO real
   ``devague`` CLI / subprocess / socket is ever touched), drive the loop, write
-  the result via :func:`convertible.artifact.write`, and assert the artifact JSON
+  the result via :func:`colleague.artifact.write`, and assert the artifact JSON
   CONTAINS ``destination`` + ``announcement`` and that the drive terminated within
   ``max_steps`` (the fake ``complete`` is bounded so it cannot loop forever).
 
 * **Before-state characterization (c4/h4).** The destination/goal concept is
-  purely ADDITIVE and opt-in. The :class:`~convertible.contract.Task` carries NO
+  purely ADDITIVE and opt-in. The :class:`~colleague.contract.Task` carries NO
   destination/goal/convergence field — the instruction is still just a string —
   and a plain drive (no destination) yields ``TaskResult.destination is None`` and
   an artifact JSON that OMITS both keys. This pins the honest claim that
-  convertible had no destination concept before; the feature is default-off.
+  colleague had no destination concept before; the feature is default-off.
 
 The fake ``complete`` mirrors the scripted-playback pattern from
 ``tests/test_destination_loop.py`` (ModelResponse / ToolCall construction).
@@ -31,10 +31,10 @@ from pathlib import Path
 
 import pytest
 
-import convertible.devague as devague_mod
-from convertible import artifact
-from convertible.contract import OK, Task, TaskResult
-from convertible.loop import CompleteFn, ModelResponse, ToolCall, run
+import colleague.devague as devague_mod
+from colleague import artifact
+from colleague.contract import OK, Task, TaskResult
+from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
 
 # ---------------------------------------------------------------------------
 # Helpers — scripted, bounded fake complete() (copied pattern from t4 tests)
@@ -158,7 +158,7 @@ def test_destination_drive_uses_no_real_subprocess(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The destination e2e is hermetic: with run_devague stubbed, the real
-    subprocess.run inside convertible.devague is never reached.
+    subprocess.run inside colleague.devague is never reached.
 
     We sabotage subprocess.run *inside the devague module* to raise if invoked —
     since the stub replaces run_devague entirely, this must never fire. This is the
@@ -203,7 +203,7 @@ def test_destination_drive_uses_no_real_subprocess(
 def test_task_has_no_destination_or_goal_field() -> None:
     """The Task contract has NO destination/goal/convergence field.
 
-    The instruction is still just a string — convertible had no destination
+    The instruction is still just a string — colleague had no destination
     concept; the feature is additive on the *result* side only. This pins the
     honest before-state: a Task cannot carry a goal-frame.
     """

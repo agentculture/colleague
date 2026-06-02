@@ -4,10 +4,10 @@
 > hook can allow, deny, or rewrite a tool call before it runs.
 
 Hooks are operator-authored shell commands registered in
-`.convertible/hooks.json` (repo-level, falling back to user-level at
-`~/.convertible/hooks.json`; repo wins). They fire at four lifecycle events
+`.colleague/hooks.json` (repo-level, falling back to user-level at
+`~/.colleague/hooks.json`; repo wins). They fire at four lifecycle events
 during a drive. Crucially, hook firing lives in the **chassis**
-(`convertible/loop.py`), not in any engine — so a hook config that fires on
+(`colleague/loop.py`), not in any engine — so a hook config that fires on
 `mock` fires identically on `vllm-openai` (the all-engines rule). New engine
 wheels inherit the full lifecycle layer for free.
 
@@ -79,29 +79,29 @@ invalid matcher regex, or any unexpected error maps to a structured fail-closed
 ## Usage
 
 ```bash
-convertible hooks list --repo .
-convertible hooks list --repo . --json
-convertible hooks overview
+colleague hooks list --repo .
+colleague hooks list --repo . --json
+colleague hooks overview
 ```
 
 ## ⚠ Security: repo-shipped hooks run by default
 
-When you drive a repo that contains `.convertible/hooks.json`, **those hooks
+When you drive a repo that contains `.colleague/hooks.json`, **those hooks
 execute automatically** with your OS privileges — no confirmation prompt, no
-sandbox. This is intentional under convertible's **trusted-operator-env model
+sandbox. This is intentional under colleague's **trusted-operator-env model
 (D2)**, the same tradeoff Claude Code and Codex make for their hook configs.
 
 There is **no `--no-hooks` flag and no per-repo trust gate today** — that
 hardening is a tracked follow-up, not yet built. Until it ships: only drive
-repos you own or have audited, review `.convertible/hooks.json` before driving an
-unfamiliar repo, and prefer user-level (`~/.convertible/hooks.json`) hooks if you
+repos you own or have audited, review `.colleague/hooks.json` before driving an
+unfamiliar repo, and prefer user-level (`~/.colleague/hooks.json`) hooks if you
 want hooks without trusting any repo's config.
 
 ## Key files
 
-- `convertible/hooks.py` — config loading + the `run_hook` I/O contract.
-- `convertible/loop.py` — `_fire_hooks`; the chassis owns lifecycle firing.
-- `convertible/cli/_commands/hooks.py` — the `hooks list`/`overview` verb.
+- `colleague/hooks.py` — config loading + the `run_hook` I/O contract.
+- `colleague/loop.py` — `_fire_hooks`; the chassis owns lifecycle firing.
+- `colleague/cli/_commands/hooks.py` — the `hooks list`/`overview` verb.
 
 ## See also
 

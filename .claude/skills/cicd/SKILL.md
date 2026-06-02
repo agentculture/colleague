@@ -2,22 +2,22 @@
 name: cicd
 type: command
 description: >
-  convertible's CI/CD lane, layered on `devex pr` (the same PR-lifecycle
+  colleague's CI/CD lane, layered on `devex pr` (the same PR-lifecycle
   CLI as `agex`, invoked under the `devex` name). Delegates lint / open /
   read / reply / delta to devex; adds two extensions — `status`
   (SonarCloud quality gate + hotspots + unresolved-thread tally) and
   `await` (read --wait + status with non-zero exit on Sonar ERROR or
-  unresolved threads). Use when: creating PRs in convertible, handling
+  unresolved threads). Use when: creating PRs in colleague, handling
   review feedback, polling CI status, or the user says "create PR",
   "review comments", "address feedback", "resolve threads". Renamed
   from `pr-review` in steward 0.7.0; rebased on agex/devex in 0.12.0.
 ---
 
-# CI/CD — convertible edition
+# CI/CD — colleague edition
 
 This skill drives **`devex pr`** — the agentculture PR-lifecycle CLI,
 invoked under the `devex` name. `devex` is the **same tool as `agex`**
-(upstream `agentculture/agex-cli`); convertible standardizes on the
+(upstream `agentculture/agex-cli`); colleague standardizes on the
 `devex` name and never shells out to `gh` directly to open a PR.
 
 `devex pr` provides the five core PR-lifecycle verbs — `lint`, `open`,

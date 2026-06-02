@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from convertible import registry
-from convertible.engine import Engine
-from convertible.engines.mock import MockEngine
-from convertible.engines.vllm_openai import VllmOpenAIEngine
+from colleague import registry
+from colleague.engine import Engine
+from colleague.engines.mock import MockEngine
+from colleague.engines.vllm_openai import VllmOpenAIEngine
 
 
 class ThirdPartyEngine(Engine):

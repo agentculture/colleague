@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import pytest
 
-from convertible.config import _DEFAULT_API_KEY, _DEFAULT_BASE_URL
-from convertible.oilcheck import diagnose
-from convertible.oilcheck.provider import checks
+from colleague.config import _DEFAULT_API_KEY, _DEFAULT_BASE_URL
+from colleague.oilcheck import diagnose
+from colleague.oilcheck.provider import checks
 
 _THIRD_PARTY_URL = "https://api.thirdparty.com/v1"
 _REAL_KEY = "sk-real-secret-key-abc123"

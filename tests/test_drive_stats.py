@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from convertible import registry
-from convertible.config import EngineConfig
-from convertible.contract import OK, DriveStats, Task, TaskResult
-from convertible.engines import vllm_openai
-from convertible.engines.mock import OUTPUT_FILE
-from convertible.tools import ToolExecutor
+from colleague import registry
+from colleague.config import EngineConfig
+from colleague.contract import OK, DriveStats, Task, TaskResult
+from colleague.engines import vllm_openai
+from colleague.engines.mock import OUTPUT_FILE
+from colleague.tools import ToolExecutor
 
 # --- t1: contract round-trip + back-compat ---------------------------------
 

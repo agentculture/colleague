@@ -1,6 +1,6 @@
 # Skill upstream sources
 
-convertible vendors its `.claude/skills/` from **guildmaster** — the
+colleague vendors its `.claude/skills/` from **guildmaster** — the
 AgentCulture **skills supplier** after the steward → guildmaster cutover
 (guildmaster 0.5.0, 2026-05-24). `steward` retains the **alignment** role
 (`steward doctor`, the sibling-pattern baseline); only the skills-supplier role
@@ -12,29 +12,29 @@ only **re-broadcasts** them. Cite guildmaster's copy; track devague as the true
 origin.
 
 One skill is **first-party**: `outsource` is **authored here** (origin =
-convertible), not vendored. It is the inverse of the rest — when it stabilizes,
-guildmaster could pull it *from* convertible and re-broadcast it, the same way
+colleague), not vendored. It is the inverse of the rest — when it stabilizes,
+guildmaster could pull it *from* colleague and re-broadcast it, the same way
 `think`/`spec-to-plan` flow *from* devague.
 
-Every vendored `SKILL.md` carries `type: command`. convertible
+Every vendored `SKILL.md` carries `type: command`. colleague
 declares a culture agent (`culture.yaml`, `backend: claude`), and
 `core.skill_loader` silently skips any `SKILL.md` lacking `type:` — so the field
 is load-bearing, even where guildmaster's upstream copy omits it.
 
 | Skill | Upstream | Origin | Notes | Last synced |
 |-------|----------|--------|-------|-------------|
-| `cicd` | `../guildmaster/.claude/skills/cicd/` | guildmaster | CI/CD lane layered on `agex pr`: the 5 thin scripts (`workflow.sh`, `pr-status.sh`, `pr-reply.sh`, `_resolve-nick.sh`, `portability-lint.sh`) delegate lint/open/read/reply/delta to `agex` and add the `status` / `await` SonarCloud-gating extensions. Consumer-identifying prose (`guildmaster` → `convertible`) adapted in the description + heading; upstream history (`Renamed from pr-review in steward 0.7.0; rebased on agex in 0.12.0`) and env-var literals (`STEWARD_*`) kept verbatim. The PR signature resolves at runtime from `culture.yaml` via `_resolve-nick.sh` (→ `convertible`). Requires `agex` on PATH. | 2026-05-26 (guildmaster 0.6.0) |
-| `communicate` | `../guildmaster/.claude/skills/communicate/` | guildmaster | Cross-repo + mesh communication. Consumer-identifying prose adapted in the description (incl. the `- convertible (Claude)` signature line). **No hard-coded signature literal in the scripts** — `post-issue.sh` is `agtag`-backed and resolves the signing nick from `culture.yaml`; requires `agtag` (>=0.1) on PATH. The supplier `scripts/templates/` (`skill-update-brief.md`, `skill-new-brief.md`) are kept verbatim — inert for a consumer (they cite guildmaster as upstream). Renamed from `coordinate` in steward 0.8.0; absorbed `gh-issues` in 0.9.1. | 2026-05-26 (guildmaster 0.6.0) |
+| `cicd` | `../guildmaster/.claude/skills/cicd/` | guildmaster | CI/CD lane layered on `agex pr`: the 5 thin scripts (`workflow.sh`, `pr-status.sh`, `pr-reply.sh`, `_resolve-nick.sh`, `portability-lint.sh`) delegate lint/open/read/reply/delta to `agex` and add the `status` / `await` SonarCloud-gating extensions. Consumer-identifying prose (`guildmaster` → `colleague`) adapted in the description + heading; upstream history (`Renamed from pr-review in steward 0.7.0; rebased on agex in 0.12.0`) and env-var literals (`STEWARD_*`) kept verbatim. The PR signature resolves at runtime from `culture.yaml` via `_resolve-nick.sh` (→ `colleague`). Requires `agex` on PATH. | 2026-05-26 (guildmaster 0.6.0) |
+| `communicate` | `../guildmaster/.claude/skills/communicate/` | guildmaster | Cross-repo + mesh communication. Consumer-identifying prose adapted in the description (incl. the `- colleague (Claude)` signature line). **No hard-coded signature literal in the scripts** — `post-issue.sh` is `agtag`-backed and resolves the signing nick from `culture.yaml`; requires `agtag` (>=0.1) on PATH. The supplier `scripts/templates/` (`skill-update-brief.md`, `skill-new-brief.md`) are kept verbatim — inert for a consumer (they cite guildmaster as upstream). Renamed from `coordinate` in steward 0.8.0; absorbed `gh-issues` in 0.9.1. | 2026-05-26 (guildmaster 0.6.0) |
 | `version-bump` | `../guildmaster/.claude/skills/version-bump/` | guildmaster | Pure-Python, CWD-aware (`scripts/bump.py`). Verbatim except added `type: command`. | 2026-05-26 (guildmaster 0.6.0) |
 | `agent-config` | `../guildmaster/.claude/skills/agent-config/` | guildmaster (origin steward) | Shows a Culture agent's full config; run `scripts/show.sh` directly (no `guild` binary required). `scripts/show.sh` + `data/backend-fingerprints.yaml` verbatim. Verbatim except added `type: command`. | 2026-05-26 (guildmaster 0.6.0) |
-| `doc-test-alignment` | (diverged) | **convertible** | **First-party implementation** — four-check spine (readme/claude/skills/tests). Originated in guildmaster as a STUB; convertible now ships a complete implementation with a working CLI. **Do NOT re-vendor from guildmaster** — offer this implementation upstream to guildmaster as a follow-up. | 2026-06-02 (first-party) |
+| `doc-test-alignment` | (diverged) | **colleague** | **First-party implementation** — four-check spine (readme/claude/skills/tests). Originated in guildmaster as a STUB; colleague now ships a complete implementation with a working CLI. **Do NOT re-vendor from guildmaster** — offer this implementation upstream to guildmaster as a follow-up. | 2026-06-02 (first-party) |
 | `pypi-maintainer` | `../guildmaster/.claude/skills/pypi-maintainer/` | guildmaster | Switch a package install between PyPI / TestPyPI / local editable (`scripts/switch-source.sh`). Verbatim except added `type: command`. | 2026-05-26 (guildmaster 0.6.0) |
 | `run-tests` | `../guildmaster/.claude/skills/run-tests/` | guildmaster | pytest + xdist + coverage (`scripts/test.sh`). Verbatim except added `type: command`. | 2026-05-26 (guildmaster 0.6.0) |
 | `sonarclaude` | `../guildmaster/.claude/skills/sonarclaude/` | guildmaster | SonarCloud API queries (`scripts/sonar.sh`). Verbatim except added `type: command`. | 2026-05-26 (guildmaster 0.6.0) |
 | `think` | `../guildmaster/.claude/skills/think/` | **devague** (re-broadcast via guildmaster) | idea→spec leg of the devague workflow chain. Verbatim (already carried `type: command` at guildmaster). Origin/broadcast prose left verbatim. | 2026-05-26 (guildmaster 0.6.0) |
 | `spec-to-plan` | `../guildmaster/.claude/skills/spec-to-plan/` | **devague** (re-broadcast via guildmaster) | spec→plan leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
 | `assign-to-workforce` | `../guildmaster/.claude/skills/assign-to-workforce/` | **devague** (re-broadcast via guildmaster) | plan→parallel-implementation leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
-| `outsource` | — (first-party) | **convertible** | Authored here, not vendored: a portable wrapper (`scripts/outsource.sh`) that drives the `convertible` CLI for `explore`/`review`/`write` — hand a scoped task to a different engine/mind. Carries `type: command`. | n/a (origin) |
+| `outsource` | — (first-party) | **colleague** | Authored here, not vendored: a portable wrapper (`scripts/outsource.sh`) that drives the `colleague` CLI for `explore`/`review`/`write` — hand a scoped task to a different engine/mind. Carries `type: command`. | n/a (origin) |
 
 ## Re-sync procedure
 
@@ -49,7 +49,7 @@ rm -rf .claude/skills/<skill>
 cp -R ../guildmaster/.claude/skills/<skill> .claude/skills/
 
 # Re-apply the identifier-only adaptations in SKILL.md:
-#   - consumer-identifying prose: `guildmaster` → `convertible` (NOT
+#   - consumer-identifying prose: `guildmaster` → `colleague` (NOT
 #     where it cites guildmaster/steward/devague as the upstream/origin).
 #   - add `type: command` to the frontmatter if guildmaster's copy omits it
 #     (load-bearing for the culture/claude backend's core.skill_loader).
@@ -57,7 +57,7 @@ cp -R ../guildmaster/.claude/skills/<skill> .claude/skills/
 # resolves from culture.yaml via agtag — no literal to patch.
 ```
 
-If a re-sync would lose a convertible adaptation, lift the change
+If a re-sync would lose a colleague adaptation, lift the change
 upstream into guildmaster first (per guildmaster's `docs/skill-sources.md`) and
 re-vendor.
 

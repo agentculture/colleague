@@ -1,6 +1,6 @@
 """Approval-gate policy tests (t1) — TEST-FIRST.
 
-Covers the operator-declared approval gate in :mod:`convertible.policy`:
+Covers the operator-declared approval gate in :mod:`colleague.policy`:
 
 * Absent ``approvals.json`` → empty Policy, pass-through no-ops (back-compat).
 * Checksum verification over file bytes; algorithm-prefixed values
@@ -8,7 +8,7 @@ Covers the operator-declared approval gate in :mod:`convertible.policy`:
 * ``check_run_command``: shlex extracts the program token; allow-list denies
   unlisted tokens; deny-list blocks listed tokens; present-section gating.
 * Per-model overlay path is built by **exact construction** via
-  :func:`convertible.layers.sanitize_model` — model X never loads model Y's
+  :func:`colleague.layers.sanitize_model` — model X never loads model Y's
   policy (no sibling glob).
 * The module imports stdlib only (mirrors ``tests/test_zero_deps.py`` style).
 
@@ -23,8 +23,8 @@ import json
 import sys
 from pathlib import Path
 
-from convertible.layers import sanitize_model
-from convertible.policy import (
+from colleague.layers import sanitize_model
+from colleague.policy import (
     DEFAULT_ALGO,
     POLICY_FILENAME,
     Policy,
@@ -189,9 +189,9 @@ def test_check_file_present_section_approved_match(tmp_path: Path) -> None:
     """check_file: an approved, unchanged file passes."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    hook = _write_file(repo / ".convertible" / "hooks" / "lint.sh", b"echo lint")
+    hook = _write_file(repo / ".colleague" / "hooks" / "lint.sh", b"echo lint")
     approval = file_checksum(hook)
-    _write_policy(repo / ".convertible", POLICY_FILENAME, {"hooks": {"lint.sh": approval}})
+    _write_policy(repo / ".colleague", POLICY_FILENAME, {"hooks": {"lint.sh": approval}})
 
     policy = load_policy(repo, user_home=home)
     assert policy.check_file("hooks", "lint.sh", hook).allowed is True
@@ -201,9 +201,9 @@ def test_check_file_present_section_changed_denies(tmp_path: Path) -> None:
     """check_file: an approved file whose content changed is denied."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    hook = _write_file(repo / ".convertible" / "hooks" / "lint.sh", b"echo lint")
+    hook = _write_file(repo / ".colleague" / "hooks" / "lint.sh", b"echo lint")
     approval = file_checksum(hook)
-    _write_policy(repo / ".convertible", POLICY_FILENAME, {"hooks": {"lint.sh": approval}})
+    _write_policy(repo / ".colleague", POLICY_FILENAME, {"hooks": {"lint.sh": approval}})
 
     # Tamper after approval was recorded.
     hook.write_bytes(b"rm -rf /")
@@ -219,11 +219,11 @@ def test_check_file_present_section_unlisted_denies(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"hooks": {"lint.sh": "sha256:" + hashlib.sha256(b"x").hexdigest()}},
     )
-    other = _write_file(repo / ".convertible" / "hooks" / "evil.sh", b"evil")
+    other = _write_file(repo / ".colleague" / "hooks" / "evil.sh", b"evil")
 
     policy = load_policy(repo, user_home=home)
     verdict = policy.check_file("hooks", "evil.sh", other)
@@ -236,10 +236,10 @@ def test_check_file_present_section_missing_file_denies(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     approval = "sha256:" + hashlib.sha256(b"x").hexdigest()
-    _write_policy(repo / ".convertible", POLICY_FILENAME, {"hooks": {"lint.sh": approval}})
+    _write_policy(repo / ".colleague", POLICY_FILENAME, {"hooks": {"lint.sh": approval}})
 
     policy = load_policy(repo, user_home=home)
-    verdict = policy.check_file("hooks", "lint.sh", repo / ".convertible" / "hooks" / "lint.sh")
+    verdict = policy.check_file("hooks", "lint.sh", repo / ".colleague" / "hooks" / "lint.sh")
     assert verdict.allowed is False
 
 
@@ -247,9 +247,9 @@ def test_check_file_commands_category(tmp_path: Path) -> None:
     """check_file works for the commands category too (parity with hooks)."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    cmd = _write_file(repo / ".convertible" / "commands" / "fix-lint.md", b"# fix lint")
+    cmd = _write_file(repo / ".colleague" / "commands" / "fix-lint.md", b"# fix lint")
     approval = file_checksum(cmd)
-    _write_policy(repo / ".convertible", POLICY_FILENAME, {"commands": {"fix-lint": approval}})
+    _write_policy(repo / ".colleague", POLICY_FILENAME, {"commands": {"fix-lint": approval}})
 
     policy = load_policy(repo, user_home=home)
     assert policy.check_file("commands", "fix-lint", cmd).allowed is True
@@ -267,7 +267,7 @@ def test_run_command_shlex_token_extraction(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git"], "deny": []}},
     )
@@ -281,7 +281,7 @@ def test_run_command_allow_list_denies_unlisted(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git", "pytest", "uv"], "deny": []}},
     )
@@ -297,7 +297,7 @@ def test_run_command_deny_list_blocks_listed(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": [], "deny": ["rm", "curl"]}},
     )
@@ -315,7 +315,7 @@ def test_run_command_section_present_empty_lists_allows(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": [], "deny": []}},
     )
@@ -330,7 +330,7 @@ def test_run_command_empty_command_is_safe(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git"], "deny": []}},
     )
@@ -345,7 +345,7 @@ def test_run_command_deny_takes_priority_over_allow(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git"], "deny": ["git"]}},
     )
@@ -359,11 +359,11 @@ def test_run_command_deny_takes_priority_over_allow(tmp_path: Path) -> None:
 
 
 def test_per_model_overlay_applies(tmp_path: Path) -> None:
-    """An overlay under .convertible/<safe_model>/ applies for that model."""
+    """An overlay under .colleague/<safe_model>/ applies for that model."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/{POLICY_FILENAME}",
         {"run_command": {"allow": ["git"], "deny": []}},
     )
@@ -378,12 +378,12 @@ def test_per_model_isolation_x_not_seen_by_y(tmp_path: Path) -> None:
     home = _home(tmp_path)
     # X allows only git; Y allows only pytest.
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/{POLICY_FILENAME}",
         {"run_command": {"allow": ["git"], "deny": []}},
     )
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_Y}/{POLICY_FILENAME}",
         {"run_command": {"allow": ["pytest"], "deny": []}},
     )
@@ -406,12 +406,12 @@ def test_per_model_overlay_wins_over_base(tmp_path: Path) -> None:
     home = _home(tmp_path)
     # Base allows git; model-X overlay narrows run_command to pytest only.
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git"], "deny": []}},
     )
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/{POLICY_FILENAME}",
         {"run_command": {"allow": ["pytest"], "deny": []}},
     )
@@ -428,12 +428,12 @@ def test_base_section_survives_when_overlay_defines_other_key(tmp_path: Path) ->
     home = _home(tmp_path)
     # Base gates run_command; overlay only gates hooks.
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git"], "deny": []}},
     )
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/{POLICY_FILENAME}",
         {"hooks": {"lint.sh": "sha256:" + hashlib.sha256(b"x").hexdigest()}},
     )
@@ -452,12 +452,12 @@ def test_repo_overrides_user_base(tmp_path: Path) -> None:
     home = _home(tmp_path)
     # User base allows curl; repo base allows only git.
     _write_policy(
-        home / ".convertible",
+        home / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["curl"], "deny": []}},
     )
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": {"allow": ["git"], "deny": []}},
     )
@@ -483,8 +483,8 @@ def test_malformed_json_is_treated_as_empty(tmp_path: Path) -> None:
     """A malformed approvals.json degrades to empty, never raises."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    (repo / ".convertible").mkdir(parents=True)
-    (repo / ".convertible" / POLICY_FILENAME).write_text("{ not valid json", encoding="utf-8")
+    (repo / ".colleague").mkdir(parents=True)
+    (repo / ".colleague" / POLICY_FILENAME).write_text("{ not valid json", encoding="utf-8")
 
     policy = load_policy(repo, user_home=home)
     assert policy.is_empty() is True
@@ -496,7 +496,7 @@ def test_non_object_sections_ignored(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write_policy(
-        repo / ".convertible",
+        repo / ".colleague",
         POLICY_FILENAME,
         {"run_command": "not-a-dict", "hooks": ["also", "wrong"]},
     )
@@ -512,14 +512,14 @@ def test_non_object_sections_ignored(tmp_path: Path) -> None:
 
 
 def test_policy_module_imports_stdlib_only() -> None:
-    """Importing + exercising convertible.policy introduces no third-party module.
+    """Importing + exercising colleague.policy introduces no third-party module.
 
     Mirrors tests/test_zero_deps.py: snapshot sys.modules before/after, reduce to
     top-level names, and assert none are third-party.
     """
     before = set(sys.modules.keys())
 
-    import convertible.policy as _policy  # noqa: F401
+    import colleague.policy as _policy  # noqa: F401
 
     # Exercise the real load path so any lazy import would surface.
     _policy.load_policy(Path.cwd(), model="some/model")
@@ -528,8 +528,8 @@ def test_policy_module_imports_stdlib_only() -> None:
     third_party = []
     for name in sorted(new_top_level):
         is_stdlib = name in sys.stdlib_module_names
-        is_convertible = name.startswith("convertible")
+        is_colleague = name.startswith("colleague")
         is_builtin = name.startswith("_")
-        if not (is_stdlib or is_convertible or is_builtin):
+        if not (is_stdlib or is_colleague or is_builtin):
             third_party.append(name)
-    assert not third_party, f"convertible.policy leaked third-party imports: {third_party}"
+    assert not third_party, f"colleague.policy leaked third-party imports: {third_party}"

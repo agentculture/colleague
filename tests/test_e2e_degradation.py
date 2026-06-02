@@ -36,13 +36,13 @@ from typing import Any
 
 import pytest
 
-from convertible.cli import main
-from convertible.config import EngineConfig
-from convertible.context import count_tokens_chars
-from convertible.contract import ERROR, OK, Task
-from convertible.engines import vllm_openai
-from convertible.engines.vllm_openai import VllmOpenAIEngine, _tokenize_url
-from convertible.loop import DriveAborted, ModelResponse, ToolCall, run
+from colleague.cli import main
+from colleague.config import EngineConfig
+from colleague.context import count_tokens_chars
+from colleague.contract import ERROR, OK, Task
+from colleague.engines import vllm_openai
+from colleague.engines.vllm_openai import VllmOpenAIEngine, _tokenize_url
+from colleague.loop import DriveAborted, ModelResponse, ToolCall, run
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -153,7 +153,7 @@ def test_non_recoverable_overflow_emits_parseable_json_to_stdout(
 ) -> None:
     """Headline e2e test: a persistent overflow produces parseable JSON on stdout.
 
-    This is the exact scenario from issue #76 that previously produced "convertible
+    This is the exact scenario from issue #76 that previously produced "colleague
     produced no result on stdout": the vLLM engine's chat-completion POST always
     raises a context-overflow HTTPError, the loop retries a bounded number of times
     and gives up, and the CLI must still emit parseable JSON to stdout with

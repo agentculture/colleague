@@ -1,4 +1,4 @@
-"""Config directory loader: resolve .convertible/ at repo and user levels (t1).
+"""Config directory loader: resolve .colleague/ at repo and user levels (t1).
 
 Tests the module-level API:
 - USER_CONFIG_DIR constant
@@ -7,32 +7,32 @@ Tests the module-level API:
 - collect_files(repo_path, subdir, *, suffix="", user_home=None) -> dict[str, Path]
 
 Acceptance:
-1. Repo-level .convertible/ shadows user-level entries by name.
-2. Absent .convertible/ returns empty results, never raises.
+1. Repo-level .colleague/ shadows user-level entries by name.
+2. Absent .colleague/ returns empty results, never raises.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from convertible.configdir import USER_CONFIG_DIR, collect_files, config_roots, resolve_file
+from colleague.configdir import USER_CONFIG_DIR, collect_files, config_roots, resolve_file
 
 
 def test_user_config_dir_constant() -> None:
-    """USER_CONFIG_DIR is Path.home() / '.convertible'."""
-    assert USER_CONFIG_DIR == Path.home() / ".convertible"
+    """USER_CONFIG_DIR is Path.home() / '.colleague'."""
+    assert USER_CONFIG_DIR == Path.home() / ".colleague"
 
 
 def test_config_roots_both_present_repo_first(tmp_path) -> None:
-    """With both repo and user .convertible/, config_roots returns repo then user."""
+    """With both repo and user .colleague/, config_roots returns repo then user."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
 
     user_home = tmp_path / "home"
     user_home.mkdir()
-    user_config = user_home / ".convertible"
+    user_config = user_home / ".colleague"
     user_config.mkdir()
 
     roots = config_roots(repo_path, user_home=user_home)
@@ -40,10 +40,10 @@ def test_config_roots_both_present_repo_first(tmp_path) -> None:
 
 
 def test_config_roots_repo_only(tmp_path) -> None:
-    """With only repo .convertible/, config_roots returns just the repo one."""
+    """With only repo .colleague/, config_roots returns just the repo one."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
 
     user_home = tmp_path / "home"
@@ -54,13 +54,13 @@ def test_config_roots_repo_only(tmp_path) -> None:
 
 
 def test_config_roots_user_only(tmp_path) -> None:
-    """With only user .convertible/, config_roots returns just the user one."""
+    """With only user .colleague/, config_roots returns just the user one."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
 
     user_home = tmp_path / "home"
     user_home.mkdir()
-    user_config = user_home / ".convertible"
+    user_config = user_home / ".colleague"
     user_config.mkdir()
 
     roots = config_roots(repo_path, user_home=user_home)
@@ -68,7 +68,7 @@ def test_config_roots_user_only(tmp_path) -> None:
 
 
 def test_config_roots_neither_present(tmp_path) -> None:
-    """With neither repo nor user .convertible/, config_roots returns empty list."""
+    """With neither repo nor user .colleague/, config_roots returns empty list."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
 
@@ -80,14 +80,14 @@ def test_config_roots_neither_present(tmp_path) -> None:
 
 
 def test_config_roots_repo_not_dir_ignored(tmp_path) -> None:
-    """If repo .convertible/ is not a directory, it's excluded."""
+    """If repo .colleague/ is not a directory, it's excluded."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    (repo_path / ".convertible").touch()  # file, not dir
+    (repo_path / ".colleague").touch()  # file, not dir
 
     user_home = tmp_path / "home"
     user_home.mkdir()
-    user_config = user_home / ".convertible"
+    user_config = user_home / ".colleague"
     user_config.mkdir()
 
     roots = config_roots(repo_path, user_home=user_home)
@@ -95,10 +95,10 @@ def test_config_roots_repo_not_dir_ignored(tmp_path) -> None:
 
 
 def test_resolve_file_from_repo(tmp_path) -> None:
-    """resolve_file finds a file in repo .convertible/ first."""
+    """resolve_file finds a file in repo .colleague/ first."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
     repo_file = repo_config / "commands"
     repo_file.mkdir()
@@ -106,7 +106,7 @@ def test_resolve_file_from_repo(tmp_path) -> None:
 
     user_home = tmp_path / "home"
     user_home.mkdir()
-    user_config = user_home / ".convertible"
+    user_config = user_home / ".colleague"
     user_config.mkdir()
     user_file = user_config / "commands"
     user_file.mkdir()
@@ -118,15 +118,15 @@ def test_resolve_file_from_repo(tmp_path) -> None:
 
 
 def test_resolve_file_from_user_when_repo_absent(tmp_path) -> None:
-    """resolve_file falls back to user .convertible/ if repo doesn't have the file."""
+    """resolve_file falls back to user .colleague/ if repo doesn't have the file."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
 
     user_home = tmp_path / "home"
     user_home.mkdir()
-    user_config = user_home / ".convertible"
+    user_config = user_home / ".colleague"
     user_config.mkdir()
     user_file = user_config / "commands"
     user_file.mkdir()
@@ -141,7 +141,7 @@ def test_resolve_file_not_found_returns_none(tmp_path) -> None:
     """resolve_file returns None if the file exists nowhere."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
 
     user_home = tmp_path / "home"
@@ -152,7 +152,7 @@ def test_resolve_file_not_found_returns_none(tmp_path) -> None:
 
 
 def test_resolve_file_no_config_dirs_returns_none(tmp_path) -> None:
-    """resolve_file returns None if no .convertible/ directories exist."""
+    """resolve_file returns None if no .colleague/ directories exist."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
 
@@ -167,7 +167,7 @@ def test_collect_files_repo_shadows_user(tmp_path) -> None:
     """collect_files shadows user-level files with repo-level ones by stem."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
     repo_cmds = repo_config / "commands"
     repo_cmds.mkdir()
@@ -176,7 +176,7 @@ def test_collect_files_repo_shadows_user(tmp_path) -> None:
 
     user_home = tmp_path / "home"
     user_home.mkdir()
-    user_config = user_home / ".convertible"
+    user_config = user_home / ".colleague"
     user_config.mkdir()
     user_cmds = user_config / "commands"
     user_cmds.mkdir()
@@ -195,7 +195,7 @@ def test_collect_files_no_suffix(tmp_path) -> None:
     """collect_files without suffix filters all files."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
     repo_cmds = repo_config / "commands"
     repo_cmds.mkdir()
@@ -214,7 +214,7 @@ def test_collect_files_with_suffix_filter(tmp_path) -> None:
     """collect_files filters by suffix when provided."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
     repo_cmds = repo_config / "commands"
     repo_cmds.mkdir()
@@ -235,7 +235,7 @@ def test_collect_files_empty_when_subdir_absent(tmp_path) -> None:
     """collect_files returns {} if the subdir doesn't exist anywhere."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
 
     user_home = tmp_path / "home"
@@ -246,7 +246,7 @@ def test_collect_files_empty_when_subdir_absent(tmp_path) -> None:
 
 
 def test_collect_files_no_config_dirs(tmp_path) -> None:
-    """collect_files returns {} if no .convertible/ directories exist."""
+    """collect_files returns {} if no .colleague/ directories exist."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
 
@@ -261,7 +261,7 @@ def test_collect_files_only_direct_children(tmp_path) -> None:
     """collect_files only includes direct children of subdir, not nested files."""
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
-    repo_config = repo_path / ".convertible"
+    repo_config = repo_path / ".colleague"
     repo_config.mkdir()
     repo_cmds = repo_config / "commands"
     repo_cmds.mkdir()

@@ -1,8 +1,8 @@
-"""``convertible tui`` headless CLI verb (t10).
+"""``colleague tui`` headless CLI verb (t10).
 
 Every verb runs HEADLESS (no real terminal), supports ``--json``, sends results
 to stdout / diagnostics + errors to stderr, and raises ``CliError`` (never leaks
-a traceback). These tests drive the CLI through ``convertible.cli.main`` exactly
+a traceback). These tests drive the CLI through ``colleague.cli.main`` exactly
 like ``tests/test_feedback_cli.py``.
 """
 
@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
-from convertible.tui.events import SkillSuggested, dumps_events
-from convertible.tui.state import CockpitState
+from colleague.cli import main
+from colleague.tui.events import SkillSuggested, dumps_events
+from colleague.tui.state import CockpitState
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -29,7 +29,7 @@ def _write_state(path: Path, state: CockpitState) -> Path:
 
 def _boost_state() -> CockpitState:
     """A state whose serialized mirror already carries a visible boost popup."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     return reduce(CockpitState(), SkillSuggested(skill="boost", reason="task_complexity_high"))
 
@@ -95,7 +95,7 @@ def test_render_json_wraps_ansi(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
 def test_render_tolerates_taui_mirror(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A TAUI mirror has extra keys (taui_version, available_actions); from_dict tolerates them."""
-    from convertible.tui.taui import serialize
+    from colleague.tui.taui import serialize
 
     mirror = serialize(_boost_state())
     sf = tmp_path / "mirror.json"
@@ -291,7 +291,7 @@ def test_overview_json(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["tui", "overview", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["subject"] == "convertible tui"
+    assert payload["subject"] == "colleague tui"
 
 
 def test_no_verb_defaults_to_overview(capsys: pytest.CaptureFixture[str]) -> None:

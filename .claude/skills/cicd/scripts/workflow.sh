@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# convertible cicd workflow — thin layer over `devex pr` plus two
+# colleague cicd workflow — thin layer over `devex pr` plus two
 # extensions (`status`, `await`) for SonarCloud gating and triage flow.
 #
 # `devex` is the same tool as `agex` (the agentculture PR-lifecycle CLI),

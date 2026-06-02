@@ -1,7 +1,7 @@
 """Drive --json failure path: partial TaskResult goes to stdout (t3 / #XX).
 
 On a failure that carries a partial TaskResult (a DriveAborted-style engine
-exception whose .result attribute is a populated TaskResult), ``convertible drive
+exception whose .result attribute is a populated TaskResult), ``colleague drive
 --json`` must:
 
 * emit parseable JSON to **stdout** (status == "error", non-empty steps);
@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-from convertible import registry
-from convertible.cli import main
-from convertible.cli._errors import EXIT_ENV_ERROR, CliError
-from convertible.config import EngineConfig
-from convertible.contract import Task, TaskResult
-from convertible.engine import Engine
-from convertible.loop import ModelResponse, ToolCall, run
+from colleague import registry
+from colleague.cli import main
+from colleague.cli._errors import EXIT_ENV_ERROR, CliError
+from colleague.config import EngineConfig
+from colleague.contract import Task, TaskResult
+from colleague.engine import Engine
+from colleague.loop import ModelResponse, ToolCall, run
 
 # ---------------------------------------------------------------------------
 # Helpers / fake engines

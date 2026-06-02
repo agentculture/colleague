@@ -228,14 +228,19 @@ skills.local.yaml
 .devague/reviews/
 
 # Neighbour clone manager — ephemeral shallow clones, never committed (t2)
+/.colleague/neighbours/
 /.convertible/neighbours/
 
 .devague/questions/
 
-# Local-only convertible run artifacts + harness state (never committed):
-# ignore everything under .convertible/ EXCEPT committed command-template recipes,
+# Local-only colleague run artifacts + harness state (never committed):
+# ignore everything under .colleague/ EXCEPT committed command-template recipes,
 # which teams may share in-repo (artifacts, hooks.json, approvals.json, neighbours/
 # stay ignored). Git can't re-include under a fully-excluded dir, hence `/*`.
+# The legacy `.convertible/` patterns are kept so a pre-rename local config dir
+# stays ignored during the back-compat window.
+/.colleague/*
+!/.colleague/commands/
 /.convertible/*
 !/.convertible/commands/
 .claude/settings.json

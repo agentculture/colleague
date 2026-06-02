@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from convertible.contract import ERROR, OK, Task
-from convertible.loop import (
+from colleague.contract import ERROR, OK, Task
+from colleague.loop import (
     CompleteFn,
     DriveAborted,
     ModelResponse,
@@ -181,7 +181,7 @@ def test_loop_progress_sink_failure_does_not_abort(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Hook lifecycle wiring (t5 — R4): task_start / pre_tool / post_tool / finish.
 #
-# The loop loads .convertible/hooks.json from task.repo_path by default, so
+# The loop loads .colleague/hooks.json from task.repo_path by default, so
 # every engine inherits the lifecycle for free (the all-engines rule). When no
 # config exists, nothing fires and behavior is byte-identical to today (the
 # tests above stay green). Hooks run as shell commands (run_hook uses
@@ -194,8 +194,8 @@ def test_loop_progress_sink_failure_does_not_abort(tmp_path: Path) -> None:
 
 
 def _write_hooks(repo: Path, config: dict) -> None:
-    """Write .convertible/hooks.json under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write .colleague/hooks.json under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(config), encoding="utf-8")
 
@@ -212,7 +212,7 @@ def _make_script(path: Path, body: str) -> str:
 
 
 def test_no_hooks_config_is_byte_identical(tmp_path: Path) -> None:
-    """No .convertible/hooks.json → nothing fires; result is unchanged."""
+    """No .colleague/hooks.json → nothing fires; result is unchanged."""
     responses = [
         ModelResponse(
             tool_calls=[ToolCall("1", "write_file", {"path": "out.txt", "content": "hi"})]
@@ -446,7 +446,7 @@ def test_finish_hook_fires_on_empty_tool_turn(tmp_path: Path) -> None:
 
 def test_explicit_hooks_argument_overrides_loading(tmp_path: Path) -> None:
     """Passing hooks=HookConfig() explicitly suppresses repo loading."""
-    from convertible.hooks import HookConfig
+    from colleague.hooks import HookConfig
 
     # A repo WITH a deny hook, but we pass an empty config → nothing fires.
     _write_hooks(
@@ -540,11 +540,11 @@ def test_lifecycle_is_engine_agnostic(tmp_path: Path) -> None:
 
 
 def _write_per_model_hooks(repo: Path, model: str, config: dict) -> None:
-    """Write .convertible/<sanitized-model>/hooks.json under *repo*."""
-    from convertible.layers import sanitize_model
+    """Write .colleague/<sanitized-model>/hooks.json under *repo*."""
+    from colleague.layers import sanitize_model
 
     safe = sanitize_model(model)
-    dotdir = repo / ".convertible" / safe
+    dotdir = repo / ".colleague" / safe
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(config), encoding="utf-8")
 

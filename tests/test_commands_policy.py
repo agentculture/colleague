@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from convertible.commands import CommandError, expand_command
-from convertible.contract import Task
-from convertible.policy import file_checksum
+from colleague.commands import CommandError, expand_command
+from colleague.contract import Task
+from colleague.policy import file_checksum
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,14 +34,14 @@ def _make_repo(tmp_path: Path, subpath: str = "repo") -> Path:
 
 
 def _make_commands_dir(base: Path) -> Path:
-    cmds_dir = base / ".convertible" / "commands"
+    cmds_dir = base / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True)
     return cmds_dir
 
 
 def _write_approvals(repo: Path, data: dict) -> None:
-    """Write approvals.json into the repo's .convertible/ directory."""
-    approvals_path = repo / ".convertible" / "approvals.json"
+    """Write approvals.json into the repo's .colleague/ directory."""
+    approvals_path = repo / ".colleague" / "approvals.json"
     approvals_path.write_text(json.dumps(data), encoding="utf-8")
 
 

@@ -23,7 +23,7 @@ Acceptance criteria covered here:
 Implementation note on the scripting pattern:
   The parent's ``complete`` function is injected directly into ``loop.run()``
   (not through ``MockEngine.drive``), so the child mock engine continues to use
-  its OWN unpatched ``_script`` (which writes ``convertible-mock.md``).  This
+  its OWN unpatched ``_script`` (which writes ``colleague-mock.md``).  This
   lets the parent be scripted to delegate while the child does its real work.
   This is the same approach used in ``tests/test_loop_subagent_wiring.py`` (t6).
 """
@@ -36,16 +36,16 @@ from pathlib import Path
 
 import pytest
 
-import convertible.telemetry as tel
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task, TaskResult
-from convertible.engines import mock as mock_mod
-from convertible.engines import vllm_openai
-from convertible.loop import ModelResponse, ToolCall, run
-from convertible.subagents import make_spawn
-from convertible.tools import SCHEMAS, TOOL_NAMES
+import colleague.telemetry as tel
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task, TaskResult
+from colleague.engines import mock as mock_mod
+from colleague.engines import vllm_openai
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.subagents import make_spawn
+from colleague.tools import SCHEMAS, TOOL_NAMES
 
-# The [otel] extra is optional. ``convertible.telemetry`` (``tel``) is import-safe
+# The [otel] extra is optional. ``colleague.telemetry`` (``tel``) is import-safe
 # without it (lazy SDK import), but the ``_otel`` submodule and the in-memory span
 # exporter both import the SDK eagerly — so guard BOTH here and skip ONLY the
 # span-nesting test below when the extra is absent (never the whole module).
@@ -54,7 +54,7 @@ try:
         InMemorySpanExporter,
     )
 
-    from convertible.telemetry import _otel
+    from colleague.telemetry import _otel
 
     _HAS_OTEL = True
 except ImportError:  # the optional [otel] extra is not installed
@@ -83,7 +83,7 @@ def _scripted(turns: list[ModelResponse]):
 # AC2: mock→mock round-trip
 #
 # The parent complete is scripted directly; the child runs the REAL mock engine
-# so it writes convertible-mock.md and finishes cleanly.
+# so it writes colleague-mock.md and finishes cleanly.
 # ---------------------------------------------------------------------------
 
 
@@ -95,7 +95,7 @@ def test_mock_to_mock_subagent_round_trip(tmp_path: Path) -> None:
 
     The parent complete is injected directly into ``loop.run`` (bypassing the
     mock engine's own _script) so the child can run the REAL unpatched mock
-    engine and actually write ``convertible-mock.md``.
+    engine and actually write ``colleague-mock.md``.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -140,7 +140,7 @@ def test_mock_to_mock_subagent_round_trip(tmp_path: Path) -> None:
     assert sub.engine == "mock"
     assert sub.status == OK
     assert sub.summary  # the child's finish summary is non-empty
-    # The child wrote convertible-mock.md and it is merged into parent.
+    # The child wrote colleague-mock.md and it is merged into parent.
     assert mock_mod.OUTPUT_FILE in sub.changed_files
     assert mock_mod.OUTPUT_FILE in result.changed_files
 
@@ -284,7 +284,7 @@ def test_both_engines_use_the_identical_shared_schemas_object() -> None:
     """
     # The vLLM engine uses SCHEMAS verbatim in its completions payload.
     assert vllm_openai.SCHEMAS is SCHEMAS, (
-        "vllm_openai.SCHEMAS must be the same object as convertible.tools.SCHEMAS — "
+        "vllm_openai.SCHEMAS must be the same object as colleague.tools.SCHEMAS — "
         "a copied list would mean the two engines could drift"
     )
 
@@ -320,14 +320,16 @@ def test_subagent_schema_byte_identical_for_both_engines() -> None:
 
 
 def test_subagent_drive_with_telemetry_off_is_noop(tmp_path: Path) -> None:
-    """With telemetry OFF (the default, ``CONVERTIBLE_OTEL_ENABLED`` unset),
+    """With telemetry OFF (the default, ``COLLEAGUE_OTEL_ENABLED`` unset),
     a subagent drive behaves identically — no spans, artifact unchanged, and
     sub_results are still recorded correctly.
 
     Verifies that the telemetry noop path doesn't swallow or interfere with
     the subagent result collection.
     """
-    # Ensure the env key is absent (telemetry disabled by default).
+    # Ensure the env keys are absent (telemetry disabled by default) — pop both
+    # the new and the legacy back-compat name.
+    os.environ.pop("COLLEAGUE_OTEL_ENABLED", None)
     os.environ.pop("CONVERTIBLE_OTEL_ENABLED", None)
 
     repo = tmp_path / "repo"
@@ -406,7 +408,7 @@ def _otel_capture():
     """An enabled, SDK-backed Telemetry writing spans to an in-memory exporter."""
     _otel.reset_for_tests()
     span_exporter = InMemorySpanExporter()
-    cfg = tel.TelemetryConfig(enabled=True, service_name="convertible-subagent-test")
+    cfg = tel.TelemetryConfig(enabled=True, service_name="colleague-subagent-test")
     t = tel.load_telemetry(cfg, span_exporter=span_exporter)
     yield t, span_exporter
     _otel.reset_for_tests()
@@ -415,12 +417,12 @@ def _otel_capture():
 @pytest.mark.skipif(not _HAS_OTEL, reason="install the [otel] extra to test SDK span nesting")
 def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_capture) -> None:
     """When telemetry is ON and injected into the parent drive, the parent's
-    ``convertible.tool.subagent`` span nests correctly under the outer
-    ``convertible.drive`` span (shared trace ID, parent span_id matches).
+    ``colleague.tool.subagent`` span nests correctly under the outer
+    ``colleague.drive`` span (shared trace ID, parent span_id matches).
 
     The parent's tool-loop spans are emitted to the injected telemetry because
     ``loop.run`` receives ``telemetry=t``.  The child drive runs synchronously
-    inside the ``convertible.tool.subagent`` span context, and because OTel
+    inside the ``colleague.tool.subagent`` span context, and because OTel
     context propagation is via contextvars, any span the child's telemetry opens
     (if the child also has telemetry enabled) would automatically nest — but this
     test only asserts the parent-loop property, which is unconditionally verifiable.
@@ -474,25 +476,23 @@ def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_
 
     # The outer drive span was explicitly opened above.
     assert (
-        "convertible.drive" in span_by_name
-    ), f"Expected 'convertible.drive' in spans, got: {list(span_by_name)}"
+        "colleague.drive" in span_by_name
+    ), f"Expected 'colleague.drive' in spans, got: {list(span_by_name)}"
     # The subagent tool call must emit a span from the parent's telemetry.
     assert (
-        "convertible.tool.subagent" in span_by_name
-    ), f"Expected 'convertible.tool.subagent' in spans, got: {list(span_by_name)}"
+        "colleague.tool.subagent" in span_by_name
+    ), f"Expected 'colleague.tool.subagent' in spans, got: {list(span_by_name)}"
 
-    parent_drive_span = span_by_name["convertible.drive"][0]
-    subagent_tool_span = span_by_name["convertible.tool.subagent"][0]
+    parent_drive_span = span_by_name["colleague.drive"][0]
+    subagent_tool_span = span_by_name["colleague.tool.subagent"][0]
 
     # All spans share the same trace (the outer drive_span opened it).
     assert (
         subagent_tool_span.context.trace_id == parent_drive_span.context.trace_id
-    ), "convertible.tool.subagent span must share the parent drive's trace ID"
+    ), "colleague.tool.subagent span must share the parent drive's trace ID"
 
     # The subagent tool span's parent is the outer drive span.
-    assert (
-        subagent_tool_span.parent is not None
-    ), "convertible.tool.subagent span must have a parent"
+    assert subagent_tool_span.parent is not None, "colleague.tool.subagent span must have a parent"
     assert (
         subagent_tool_span.parent.span_id == parent_drive_span.context.span_id
     ), "The subagent tool span's parent span_id must match the outer drive span"

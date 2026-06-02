@@ -1,4 +1,4 @@
-"""Tests for convertible/context.py — context-window management primitives.
+"""Tests for colleague/context.py — context-window management primitives.
 
 TDD: tests written BEFORE implementation. Each test maps to a specific
 acceptance criterion listed in the task spec.
@@ -83,7 +83,7 @@ def is_openai_valid(messages: list[dict]) -> tuple[bool, str]:
 
 class TestCountTokensChars:
     def test_empty_list_returns_one(self):
-        from convertible.context import count_tokens_chars
+        from colleague.context import count_tokens_chars
 
         # minimum 1 when there is any text ... actually spec says minimum 1
         # when there IS any text. Empty list = 0 chars → 0 // 4 = 0.
@@ -92,21 +92,21 @@ class TestCountTokensChars:
         assert result == 0
 
     def test_counts_content_chars(self):
-        from convertible.context import count_tokens_chars
+        from colleague.context import count_tokens_chars
 
         # 400 chars of content → 400 // 4 = 100
         msgs = [{"role": "user", "content": "a" * 400}]
         assert count_tokens_chars(msgs) == 100
 
     def test_minimum_one_when_any_text(self):
-        from convertible.context import count_tokens_chars
+        from colleague.context import count_tokens_chars
 
         # 1 char → 1 // 4 = 0 but minimum 1
         msgs = [{"role": "user", "content": "x"}]
         assert count_tokens_chars(msgs) == 1
 
     def test_counts_tool_calls_name_and_arguments(self):
-        from convertible.context import count_tokens_chars
+        from colleague.context import count_tokens_chars
 
         fn_name = "read_file"  # 9 chars
         fn_args = '{"path": "foo.py"}'  # 18 chars
@@ -127,7 +127,7 @@ class TestCountTokensChars:
         assert count_tokens_chars(msgs) == max(1, expected)
 
     def test_sums_all_messages(self):
-        from convertible.context import count_tokens_chars
+        from colleague.context import count_tokens_chars
 
         msgs = [
             {"role": "system", "content": "a" * 80},
@@ -137,7 +137,7 @@ class TestCountTokensChars:
         assert count_tokens_chars(msgs) == 240 // 4
 
     def test_missing_content_key_treated_as_zero(self):
-        from convertible.context import count_tokens_chars
+        from colleague.context import count_tokens_chars
 
         # assistant tool_calls message may have empty / missing content
         msgs = [
@@ -158,7 +158,7 @@ class TestCountTokensChars:
 class TestWindowMessagesUnderBudget:
     def test_under_budget_returns_same_list(self):
         """When already under budget the list is returned unchanged."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = [
             sys_msg(),
@@ -171,7 +171,7 @@ class TestWindowMessagesUnderBudget:
         assert result == msgs
 
     def test_under_budget_no_placeholder(self):
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = [sys_msg(), user_msg("task")]
         result = window_messages(msgs, budget_tokens=10_000)
@@ -190,7 +190,7 @@ class TestWindowMessagesOverBudget:
         return msgs
 
     def test_system_and_first_user_always_preserved(self):
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = self._long_history(10)
         result = window_messages(msgs, budget_tokens=50)
@@ -199,7 +199,7 @@ class TestWindowMessagesOverBudget:
         assert first_user["content"] == "do the task"
 
     def test_placeholder_present_exactly_once(self):
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = self._long_history(10)
         result = window_messages(msgs, budget_tokens=50)
@@ -208,7 +208,7 @@ class TestWindowMessagesOverBudget:
 
     def test_result_is_openai_valid(self):
         """No orphan tool messages; every tool_calls id has a matching tool reply."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = self._long_history(10)
         result = window_messages(msgs, budget_tokens=80)
@@ -217,7 +217,7 @@ class TestWindowMessagesOverBudget:
 
     def test_most_recent_messages_retained(self):
         """The tail of the history (the most recent turns) is kept."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = self._long_history(6)
         result = window_messages(msgs, budget_tokens=300)
@@ -227,7 +227,7 @@ class TestWindowMessagesOverBudget:
 
     def test_dropped_pairs_are_matched_units(self):
         """No assistant tool_calls without its tool reply, and no orphan tool."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = self._long_history(8)
         # Very tight budget forces significant dropping
@@ -237,7 +237,7 @@ class TestWindowMessagesOverBudget:
 
     def test_placeholder_positioned_after_head(self):
         """Placeholder comes after system+first_user, before the retained tail."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = self._long_history(8)
         result = window_messages(msgs, budget_tokens=80)
@@ -255,7 +255,7 @@ class TestWindowMessagesOverBudget:
 class TestWindowMessagesCallCount:
     def test_count_tokens_calls_bounded(self):
         """count_tokens must be called at most a small constant number of times."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         call_count = 0
 
@@ -285,7 +285,7 @@ class TestWindowMessagesCallCount:
 
     def test_custom_count_tokens_used(self):
         """When count_tokens is passed it must be used instead of chars heuristic."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         used = []
 
@@ -302,7 +302,7 @@ class TestWindowMessagesCallCount:
 class TestWindowMessagesEdgeCases:
     def test_only_head_and_one_turn_still_over_budget_returns_minimal(self):
         """When nothing droppable exists return minimal valid list."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = [
             sys_msg("s" * 1000),
@@ -315,7 +315,7 @@ class TestWindowMessagesEdgeCases:
 
     def test_assistant_text_turn_can_be_dropped_as_standalone(self):
         """A plain assistant text turn (no tool_calls) is droppable on its own."""
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = [
             sys_msg(),
@@ -329,7 +329,7 @@ class TestWindowMessagesEdgeCases:
         assert ok, reason
 
     def test_no_placeholder_when_nothing_dropped(self):
-        from convertible.context import window_messages
+        from colleague.context import window_messages
 
         msgs = [sys_msg(), user_msg("small")]
         result = window_messages(msgs, budget_tokens=10_000)
@@ -343,50 +343,50 @@ class TestWindowMessagesEdgeCases:
 
 class TestIsContextOverflow:
     def test_maximum_context_length(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("This model's maximum context length is 4096 tokens")
 
     def test_context_window(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("The context window has been exceeded")
 
     def test_too_many_tokens(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("Error: too many tokens in the prompt")
 
     def test_reduce_the_length(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("Please reduce the length of the messages")
 
     def test_context_length_exceeded(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("context_length_exceeded error code returned")
 
     def test_longer_than_the_maximum(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("Your input is longer than the maximum allowed")
 
     def test_case_insensitive(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert is_context_overflow("MAXIMUM CONTEXT LENGTH exceeded")
         assert is_context_overflow("Context Window Full")
 
     def test_unrelated_text_returns_false(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert not is_context_overflow("File not found")
         assert not is_context_overflow("rate limit exceeded")
         assert not is_context_overflow("")
 
     def test_none_like_empty_returns_false(self):
-        from convertible.context import is_context_overflow
+        from colleague.context import is_context_overflow
 
         assert not is_context_overflow("")
 
@@ -396,10 +396,10 @@ class TestIsContextOverflow:
 
         # Remove cached module if present
         for key in list(sys.modules.keys()):
-            if "convertible.context" in key:
+            if "colleague.context" in key:
                 del sys.modules[key]
 
-        import convertible.context  # noqa: F401
+        import colleague.context  # noqa: F401
 
         # Verify the module only imports stdlib modules (no third-party)
         # We check by ensuring tiktoken / transformers / etc. are NOT imported

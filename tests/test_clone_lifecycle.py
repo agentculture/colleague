@@ -10,13 +10,13 @@ AC1 — Clone/cleanup lifecycle:
 
 AC2 — Never-execute confinement:
   - run_command must NOT execute anything whose target/execution path falls under
-    the .convertible/neighbours/ clone dir. A best-effort guard in _run_command
+    the .colleague/neighbours/ clone dir. A best-effort guard in _run_command
     returns a ToolError-style message instead of running the command.
   - read_file MUST still succeed for files inside a clone dir (the clone files are
     within the repo root, so _safe_path already allows them).
 
 Tests here are hermetic (no network). Fake neighbours are created by writing files
-directly under a tmp repo's .convertible/neighbours/<name>/ tree — no real git
+directly under a tmp repo's .colleague/neighbours/<name>/ tree — no real git
 clone required.
 """
 
@@ -26,10 +26,10 @@ from pathlib import Path
 
 import pytest
 
-from convertible.contract import Task
-from convertible.hooks import HookConfig
-from convertible.loop import ModelResponse, ToolCall, run
-from convertible.tools import ToolError, ToolExecutor
+from colleague.contract import Task
+from colleague.hooks import HookConfig
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.tools import ToolError, ToolExecutor
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,7 +50,7 @@ def scripted(responses: list[ModelResponse]):
 
 def _make_fake_clone(repo: Path, name: str, filename: str, content: str) -> Path:
     """Create a fake neighbour clone directory with one file (no git needed)."""
-    clone_dir = repo / ".convertible" / "neighbours" / name
+    clone_dir = repo / ".colleague" / "neighbours" / name
     clone_dir.mkdir(parents=True, exist_ok=True)
     file_path = clone_dir / filename
     file_path.write_text(content, encoding="utf-8")
@@ -58,10 +58,10 @@ def _make_fake_clone(repo: Path, name: str, filename: str, content: str) -> Path
 
 
 def _write_neighbours_config(repo: Path, entries: list[dict]) -> None:
-    """Write .convertible/neighbours.json with the given allow-list entries."""
+    """Write .colleague/neighbours.json with the given allow-list entries."""
     import json
 
-    dotdir = repo / ".convertible"
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "neighbours.json").write_text(json.dumps(entries), encoding="utf-8")
 
@@ -78,7 +78,7 @@ class TestCleanupAtFinish:
         """After a normal model-finish run, the neighbours clone dir is removed."""
         # Pre-plant a fake clone that would exist before the drive.
         _make_fake_clone(tmp_path, "sibling", "README.md", "hello")
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert clone_root.exists(), "pre-condition: clone dir exists before drive"
 
         responses = [
@@ -90,12 +90,12 @@ class TestCleanupAtFinish:
         assert result.status == "ok"
         assert (
             not clone_root.exists()
-        ), "cleanup() must remove .convertible/neighbours/ after a model-finish drive"
+        ), "cleanup() must remove .colleague/neighbours/ after a model-finish drive"
 
     def test_cleanup_fires_after_budget_exhaustion(self, tmp_path: Path) -> None:
         """cleanup() fires even when the loop hits max_steps (budget exit path)."""
         _make_fake_clone(tmp_path, "sibling", "README.md", "hello")
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert clone_root.exists()
 
         def never_finish(_messages):
@@ -112,7 +112,7 @@ class TestCleanupAtFinish:
     def test_cleanup_fires_after_empty_tool_turn(self, tmp_path: Path) -> None:
         """cleanup() fires when the model answers without requesting any tool."""
         _make_fake_clone(tmp_path, "sibling", "README.md", "hello")
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert clone_root.exists()
 
         task = Task.new(str(tmp_path), "just answer")
@@ -131,7 +131,7 @@ class TestCleanupAtFinish:
     def test_empty_allowlist_noop(self, tmp_path: Path) -> None:
         """With no neighbours.json, clone_all() is a safe no-op (nothing cloned)."""
         # No neighbours.json, no pre-existing clones.
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert not clone_root.exists()
 
         responses = [
@@ -145,8 +145,8 @@ class TestCleanupAtFinish:
         assert not clone_root.exists()
 
     def test_cleanup_safe_when_no_clones_exist(self, tmp_path: Path) -> None:
-        """cleanup() doesn't crash when .convertible/neighbours/ was never created."""
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        """cleanup() doesn't crash when .colleague/neighbours/ was never created."""
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert not clone_root.exists()
 
         responses = [
@@ -168,7 +168,7 @@ class TestCleanupAtFinish:
         clone already exists, read_file can access it and it's still cleaned up.
         """
         _make_fake_clone(tmp_path, "lib", "util.py", "def helper(): pass\n")
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
 
         read_succeeded = []
 
@@ -180,7 +180,7 @@ class TestCleanupAtFinish:
                         ToolCall(
                             "r1",
                             "read_file",
-                            {"path": ".convertible/neighbours/lib/util.py"},
+                            {"path": ".colleague/neighbours/lib/util.py"},
                         )
                     ]
                 )
@@ -235,10 +235,10 @@ class TestNeverExecuteConfinement:
             )
 
     def test_run_command_refused_for_neighbours_subpath(self, tmp_path: Path) -> None:
-        """run_command is refused for any path under .convertible/neighbours/."""
+        """run_command is refused for any path under .colleague/neighbours/."""
         _make_fake_clone(tmp_path, "lib", "tool.py", "print('x')\n")
         executor = ToolExecutor(tmp_path)
-        clone_path = str(tmp_path / ".convertible" / "neighbours" / "lib" / "tool.py")
+        clone_path = str(tmp_path / ".colleague" / "neighbours" / "lib" / "tool.py")
 
         with pytest.raises(ToolError, match="clone"):
             executor.execute(
@@ -254,7 +254,7 @@ class TestNeverExecuteConfinement:
         with pytest.raises(ToolError, match="clone"):
             executor.execute(
                 "run_command",
-                {"command": "sh .convertible/neighbours/ext/run.sh"},
+                {"command": "sh .colleague/neighbours/ext/run.sh"},
             )
 
     def test_run_command_allowed_outside_clone_dir(self, tmp_path: Path) -> None:
@@ -277,7 +277,7 @@ class TestNeverExecuteConfinement:
 
         outcome = executor.execute(
             "read_file",
-            {"path": ".convertible/neighbours/peer/constants.py"},
+            {"path": ".colleague/neighbours/peer/constants.py"},
         )
         assert "X = 42" in outcome.result
 
@@ -289,7 +289,7 @@ class TestNeverExecuteConfinement:
         with pytest.raises(ToolError, match="clone"):
             executor.execute(
                 "run_command",
-                {"command": "cd .convertible/neighbours/lib && sh build.sh"},
+                {"command": "cd .colleague/neighbours/lib && sh build.sh"},
             )
 
     def test_run_command_confinement_via_loop(self, tmp_path: Path) -> None:
@@ -305,7 +305,7 @@ class TestNeverExecuteConfinement:
                     ToolCall(
                         "c1",
                         "run_command",
-                        {"command": "sh .convertible/neighbours/ext/script.sh"},
+                        {"command": "sh .colleague/neighbours/ext/script.sh"},
                     )
                 ]
             ),

@@ -1,9 +1,9 @@
 # Drive evaluations
 
-A log of experiments in which **convertible drives itself** — the engine does the
+A log of experiments in which **colleague drives itself** — the engine does the
 work, the operator only guides (instruction + config), observes, and records.
 The goal is to be able to **repeat** a drive and **evaluate results over time**
-as convertible (and the engines/models it runs) change.
+as colleague (and the engines/models it runs) change.
 
 Two kinds of content live here, side by side:
 
@@ -25,7 +25,7 @@ docs/drive-notes/
     repro.sh                    # exact command(s) to repeat the run
     output/                     # the produced artifact ("the test"), preserved
       index.html  style.css  render.png
-    artifacts/                  # raw convertible drive artifacts (evidence)
+    artifacts/                  # raw colleague drive artifacts (evidence)
       success-<task>.json  success-<task>.trace.jsonl  fail-<task>-*.json
 ```
 
@@ -63,8 +63,8 @@ Each run folder has a `repro.sh` with the exact invocation. In general:
 
 ```bash
 # requires a live OpenAI-compatible server with tool calling enabled
-CONVERTIBLE_BASE_URL=… CONVERTIBLE_MODEL=… CONVERTIBLE_TIMEOUT=… \
-  uv run convertible drive "<instruction>" \
+COLLEAGUE_BASE_URL=… COLLEAGUE_MODEL=… COLLEAGUE_TIMEOUT=… \
+  uv run colleague drive "<instruction>" \
   --repo . --engine vllm-openai --model <model> --max-steps 50 --no-pr --json
 ```
 
@@ -81,5 +81,5 @@ operator provides pointers-only guidance and records observations factually.
    engine/model/version? Record its `status` in the new run's `stats.json`.
 
 Comparing rows in `index.csv` (and findings status across runs) shows whether a
-change to convertible, the engine, or the model moved time, iterations, nudges,
+change to colleague, the engine, or the model moved time, iterations, nudges,
 cost, or quality.

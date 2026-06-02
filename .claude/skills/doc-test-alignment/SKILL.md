@@ -17,15 +17,15 @@ actually do. The skill runs four independent checks and reports alignment status
 ## The four checks
 
 **(a) readme** — README.md command examples. Scans every bash block and validates
-each `convertible` / `uv run convertible` invocation. Safe introspection commands
-(e.g., `convertible wheels list`, `convertible commands overview`) are executed;
-networked/side-effecting commands (e.g., `convertible drive`, `--base-url` flags)
-are statically validated against `convertible --help`. Findings are **advisory
+each `colleague` / `uv run colleague` invocation. Safe introspection commands
+(e.g., `colleague wheels list`, `colleague commands overview`) are executed;
+networked/side-effecting commands (e.g., `colleague drive`, `--base-url` flags)
+are statically validated against `colleague --help`. Findings are **advisory
 (warning)**, never gating.
 
 **(b) claude** — CLAUDE.md "build/test/publish" command examples. Validates
 the same way as (a): execute safe introspection, statically validate networked
-commands against `convertible --help`. Findings are **advisory (warning)**.
+commands against `colleague --help`. Findings are **advisory (warning)**.
 
 **(c) skills** — SKILL.md descriptions vs. actual scripts. For each
 `.claude/skills/<name>/` directory, extracts any `scripts/<path>` literals
@@ -79,7 +79,7 @@ introspection subcommands (e.g., `--help`, `overview`, `wheels list`, `doctor`).
 Networked or side-effecting commands (anything with `drive`, `--base-url`,
 `--model`, or filesystem mutation) are NEVER executed. Instead, they are
 statically validated: each command is parsed for its verb and flags, then
-validated against `convertible --help` output (verb exists, flag names are valid).
+validated against `colleague --help` output (verb exists, flag names are valid).
 Prose assertions (what the command's output *says*) are checked only via
 exit-code hints (`# 0` or `# 1` in adjacent comments); "matches the prose"
 means exit-code class, not literal string matching. This means the checks can

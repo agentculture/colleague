@@ -5,7 +5,7 @@ Asserts that the execution boundary described in the spec holds:
     "No code path opens a socket, forks a daemon, or imports a command file as
     Python; hooks are only ever executed as subprocesses and the palette runs in
     the foreground."
-                        — docs/specs/2026-05-27-convertible-gains-an-extensibility-layer.md
+                        — docs/specs/2026-05-27-colleague-gains-an-extensibility-layer.md
 
 Four checks (two behavioral, two structural):
 
@@ -20,14 +20,14 @@ Four checks (two behavioral, two structural):
    expanded via ``load_command`` / ``expand_command`` without error.
 
 3. STRUCTURAL — No networking / daemon machinery anywhere in the package.
-   Every ``convertible/**/*.py`` source is scanned for references to
+   Every ``colleague/**/*.py`` source is scanned for references to
    ``socket``, ``socketserver``, ``http.server``, ``asyncio`` (server-side
    patterns), ``os.fork``, and ``multiprocessing`` process-spawning.  Any
    match causes the test to fail with the offending file + line.
 
 4. STRUCTURAL — ``subprocess`` is confined to its sanctioned files.
    The only modules permitted to import ``subprocess`` are:
-   ``convertible/hooks.py``, ``convertible/tools.py``, ``convertible/handoff.py``.
+   ``colleague/hooks.py``, ``colleague/tools.py``, ``colleague/handoff.py``.
    All three are sanctioned subprocess consumers; no other module may import it.
 
 5. STRUCTURAL — No ``importlib.import_module`` / ``__import__`` applied to
@@ -46,7 +46,7 @@ import pytest
 # Resolve the package directory relative to this test file.
 # ---------------------------------------------------------------------------
 
-_PACKAGE_DIR: Path = Path(__file__).resolve().parents[1] / "convertible"
+_PACKAGE_DIR: Path = Path(__file__).resolve().parents[1] / "colleague"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,7 +54,7 @@ _PACKAGE_DIR: Path = Path(__file__).resolve().parents[1] / "convertible"
 
 
 def _all_py_sources() -> list[Path]:
-    """Return every ``*.py`` file under the convertible package."""
+    """Return every ``*.py`` file under the colleague package."""
     return sorted(_PACKAGE_DIR.rglob("*.py"))
 
 
@@ -82,7 +82,7 @@ class TestHookRunsAsSubprocess:
         as Python would raise a SyntaxError.  The subprocess path must succeed
         and return ``decision="allow"`` with the expected stdout.
         """
-        from convertible.hooks import HookDecision, HookEntry, run_hook
+        from colleague.hooks import HookDecision, HookEntry, run_hook
 
         # Write a script that is valid Bash but invalid Python.
         # "[[" is a Bash compound-command keyword; this is a syntax error in Python.
@@ -129,7 +129,7 @@ fi
         script that just echoes a line before the Python-ish fragment is in a
         comment, the shell ignores it and the hook succeeds.
         """
-        from convertible.hooks import HookEntry, run_hook
+        from colleague.hooks import HookEntry, run_hook
 
         script_content = """\
 #!/bin/sh
@@ -178,7 +178,7 @@ class TestCommandsReadAsText:
         SyntaxError as Python.  load_command must return it verbatim in
         Command.body without any attempt to parse or import it.
         """
-        from convertible.commands import load_command
+        from colleague.commands import load_command
 
         # Content that is not valid Python — shell redirections, pipe chains,
         # bare words with curly syntax.
@@ -203,14 +203,14 @@ class TestCommandsReadAsText:
     def test_expand_command_with_non_python_body_returns_task(self, tmp_path: Path) -> None:
         """expand_command with a non-Python template body produces a valid Task.
 
-        The template file is placed under .convertible/commands/ so it is
+        The template file is placed under .colleague/commands/ so it is
         discovered by discover_commands.  After expansion, the task instruction
         must contain the substituted body text.
         """
-        from convertible.commands import expand_command
-        from convertible.contract import Task
+        from colleague.commands import expand_command
+        from colleague.contract import Task
 
-        cmds_dir = tmp_path / ".convertible" / "commands"
+        cmds_dir = tmp_path / ".colleague" / "commands"
         cmds_dir.mkdir(parents=True)
 
         template = (
@@ -274,17 +274,17 @@ _FORBIDDEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"\bmultiprocessing\.(Process|Pool|Queue|Manager)\b"),
     ),
     # plain "import asyncio" without server usage is allowed only if not followed
-    # by server calls — but a blanket asyncio import in convertible would be
+    # by server calls — but a blanket asyncio import in colleague would be
     # suspicious; flag "import asyncio" to keep the boundary tight.
     (
-        "asyncio import (no async I/O allowed in convertible)",
+        "asyncio import (no async I/O allowed in colleague)",
         re.compile(r"^\s*(import asyncio|from asyncio\b)", re.MULTILINE),
     ),
 ]
 
 
 class TestNoNetworkingOrDaemonMachinery:
-    """No module in convertible/ may open a socket, fork a daemon, or start a server."""
+    """No module in colleague/ may open a socket, fork a daemon, or start a server."""
 
     @pytest.mark.parametrize(
         "py_file",
@@ -327,12 +327,12 @@ class TestNoNetworkingOrDaemonMachinery:
 #                   subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
-        "convertible/hooks.py",
-        "convertible/tools.py",
-        "convertible/handoff.py",
-        "convertible/neighbours.py",
-        "convertible/culture.py",
-        "convertible/devague.py",
+        "colleague/hooks.py",
+        "colleague/tools.py",
+        "colleague/handoff.py",
+        "colleague/neighbours.py",
+        "colleague/culture.py",
+        "colleague/devague.py",
     }
 )
 
@@ -395,7 +395,7 @@ class TestNoDynamicCommandImport:
 
         The package reads command templates as plain text (``path.read_text()``)
         and runs hook commands via ``subprocess.run(shell=True)``.  There is no
-        legitimate reason for any module in convertible/ to use
+        legitimate reason for any module in colleague/ to use
         ``importlib.import_module`` or ``__import__`` — their presence would
         signal that a command/hook file is being executed as Python, violating
         the boundary claim.
@@ -416,10 +416,10 @@ class TestNoDynamicCommandImport:
 
 
 # ---------------------------------------------------------------------------
-# Structural check 6 — no mcp.json reference in any convertible source
+# Structural check 6 — no mcp.json reference in any colleague source
 # ---------------------------------------------------------------------------
 
-# The CLAUDE.md v0 scope is explicit: convertible reads no mcp.json and has no
+# The CLAUDE.md v0 scope is explicit: colleague reads no mcp.json and has no
 # mcp verb.  Any source-level reference to the filename (other than in a
 # comment that documents the gap) would signal scope-creep.  We assert that no
 # *executable* reference to "mcp.json" appears — i.e., no open/read/Path call
@@ -435,7 +435,7 @@ _MCP_JSON_CODE_RE = re.compile(
 
 
 class TestNoMcpJsonReference:
-    """No convertible source may open or read an mcp.json file."""
+    """No colleague source may open or read an mcp.json file."""
 
     @pytest.mark.parametrize(
         "py_file",
@@ -465,7 +465,7 @@ class TestNoMcpJsonReference:
 
         assert not violations, (
             "Executable mcp.json reference found in package source — "
-            "convertible reads no mcp.json (v0 scope); re-spec before adding MCP support:\n"
+            "colleague reads no mcp.json (v0 scope); re-spec before adding MCP support:\n"
             + "\n".join(violations)
         )
 
@@ -479,10 +479,10 @@ class TestNoMcpJsonReference:
 # no threading.Thread / threading.daemon, no socketserver, no os.fork.
 # (multiprocessing and asyncio server patterns are already blocked by check 3.)
 _MESH_MODULES: list[str] = [
-    "convertible/culture.py",
-    "convertible/neighbours.py",
-    "convertible/identity.py",
-    "convertible/devague.py",
+    "colleague/culture.py",
+    "colleague/neighbours.py",
+    "colleague/identity.py",
+    "colleague/devague.py",
 ]
 
 _DAEMON_PRIMITIVE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [

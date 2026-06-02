@@ -30,10 +30,10 @@ from pathlib import Path
 
 import pytest
 
-from convertible.contract import OK, Task
-from convertible.hooks import hook_approval_verdict
-from convertible.loop import ModelResponse, ToolCall, run
-from convertible.policy import Policy, Verdict, file_checksum
+from colleague.contract import OK, Task
+from colleague.hooks import hook_approval_verdict
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.policy import Policy, Verdict, file_checksum
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,15 +48,15 @@ def _make_script(path: Path, content: str) -> Path:
 
 
 def _write_hooks(repo: Path, payload: dict) -> None:
-    """Write ``.convertible/hooks.json`` under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write ``.colleague/hooks.json`` under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _write_approvals(repo: Path, payload: dict) -> None:
-    """Write ``.convertible/approvals.json`` under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write ``.colleague/approvals.json`` under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -362,7 +362,7 @@ class TestNoPolicySectionIsNoOp:
         script = tmp_path / "hook.sh"
         _make_script(script, f"#!/bin/sh\ntouch '{marker}'\n")
 
-        # No .convertible/approvals.json → policy is empty.
+        # No .colleague/approvals.json → policy is empty.
         _write_hooks(
             tmp_path,
             {"hooks": {"task_start": [{"command": str(script)}]}},

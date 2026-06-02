@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from convertible.config import (
+from colleague.config import (
     MAX_SUBAGENT_DEPTH,
     MAX_SUBAGENT_FANOUT,
     EngineConfig,

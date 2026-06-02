@@ -1,7 +1,7 @@
 """Tests for the oilcheck otel check-group (GPS / OpenTelemetry readiness).
 
 TDD-first: these tests are written against the spec in
-``convertible/oilcheck/otel.py``'s module docstring.  They cover:
+``colleague/oilcheck/otel.py``'s module docstring.  They cover:
 
 * Default env (telemetry off) — no error checks; otel_enabled info says
   disabled; diagnose() stays healthy.
@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from convertible.oilcheck import diagnose
-from convertible.oilcheck import otel as otel_group
+from colleague.oilcheck import diagnose
+from colleague.oilcheck import otel as otel_group
 
 _CHECK_KEYS = {"id", "passed", "severity", "message", "remediation"}
 
@@ -108,7 +108,7 @@ def test_otel_sdk_passes_when_enabled_and_importable(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("CONVERTIBLE_OTEL_ENABLED", "1")
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
     # The [otel] extra IS installed in dev — sdk_available() should return True.
-    from convertible.telemetry import sdk_available
+    from colleague.telemetry import sdk_available
 
     if not sdk_available():
         pytest.skip("opentelemetry SDK not installed — skipping happy-path test")
@@ -142,7 +142,7 @@ def test_otel_sdk_error_when_enabled_and_missing(monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
 
     # Simulate missing SDK by making sdk_available() return False.
-    import convertible.telemetry as tel_pkg
+    import colleague.telemetry as tel_pkg
 
     monkeypatch.setattr(tel_pkg, "sdk_available", lambda: False)
 
@@ -163,7 +163,7 @@ def test_diagnose_unhealthy_when_enabled_sdk_missing(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("CONVERTIBLE_OTEL_ENABLED", "1")
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
 
-    import convertible.telemetry as tel_pkg
+    import colleague.telemetry as tel_pkg
 
     monkeypatch.setattr(tel_pkg, "sdk_available", lambda: False)
 
@@ -219,7 +219,7 @@ def test_no_error_when_sdk_missing_but_disabled(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("CONVERTIBLE_OTEL_ENABLED", raising=False)
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
 
-    import convertible.telemetry as tel_pkg
+    import colleague.telemetry as tel_pkg
 
     monkeypatch.setattr(tel_pkg, "sdk_available", lambda: False)
 

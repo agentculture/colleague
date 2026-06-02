@@ -1,6 +1,6 @@
 """Tests for the engines check-group (oilcheck).
 
-Uses monkeypatching of the ``convertible.registry._engine_entry_points`` seam
+Uses monkeypatching of the ``colleague.registry._engine_entry_points`` seam
 (the same seam ``tests/test_registry.py`` uses) to simulate various engine
 discovery scenarios without needing a real installed wheel.
 
@@ -20,12 +20,12 @@ from typing import Any
 
 import pytest
 
-from convertible import registry
-from convertible.engine import Engine
-from convertible.engines.mock import MockEngine
-from convertible.engines.vllm_openai import VllmOpenAIEngine
-from convertible.oilcheck import diagnose
-from convertible.oilcheck import engines as engines_group
+from colleague import registry
+from colleague.engine import Engine
+from colleague.engines.mock import MockEngine
+from colleague.engines.vllm_openai import VllmOpenAIEngine
+from colleague.oilcheck import diagnose
+from colleague.oilcheck import engines as engines_group
 
 # ---------------------------------------------------------------------------
 # Helpers / fakes

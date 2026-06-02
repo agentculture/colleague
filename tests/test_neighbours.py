@@ -1,8 +1,8 @@
-"""Neighbour clone manager — acceptance criteria for convertible/neighbours.py.
+"""Neighbour clone manager — acceptance criteria for colleague/neighbours.py.
 
 AC1: No allow-list → neighbour set is EMPTY; clone_all() is a safe no-op.
 AC2: Allow-listed repo is shallow-cloned (--depth 1) into
-     .convertible/neighbours/<name> inside the repo root; clone_path() returns
+     .colleague/neighbours/<name> inside the repo root; clone_path() returns
      that path.
 AC3: Public API exposes only clone/refresh/read/cleanup — never commit/push.
 """
@@ -12,8 +12,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import convertible.neighbours as nb
-from convertible.neighbours import NeighbourManager
+import colleague.neighbours as nb
+from colleague.neighbours import NeighbourManager
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,10 +57,10 @@ def _make_consumer_repo(path: Path) -> Path:
 
 
 def _write_neighbours_json(repo: Path, entries: list[dict]) -> None:
-    """Write .convertible/neighbours.json in the given repo."""
+    """Write .colleague/neighbours.json in the given repo."""
     import json
 
-    config_dir = repo / ".convertible"
+    config_dir = repo / ".colleague"
     config_dir.mkdir(exist_ok=True)
     (config_dir / "neighbours.json").write_text(json.dumps(entries))
 
@@ -71,7 +71,7 @@ def _write_neighbours_json(repo: Path, entries: list[dict]) -> None:
 
 
 def test_no_config_file_gives_empty_neighbour_set(tmp_path: Path) -> None:
-    """AC1: With no .convertible/neighbours.json, the manager yields an empty set."""
+    """AC1: With no .colleague/neighbours.json, the manager yields an empty set."""
     repo = _make_consumer_repo(tmp_path / "consumer")
     manager = NeighbourManager(repo)
     assert manager.neighbours() == []
@@ -90,7 +90,7 @@ def test_clone_all_with_no_config_is_safe_noop(tmp_path: Path) -> None:
     repo = _make_consumer_repo(tmp_path / "consumer")
     manager = NeighbourManager(repo)
     manager.clone_all()  # must not raise
-    clone_root = repo / ".convertible" / "neighbours"
+    clone_root = repo / ".colleague" / "neighbours"
     assert not clone_root.exists()
 
 
@@ -100,7 +100,7 @@ def test_clone_all_with_no_config_is_safe_noop(tmp_path: Path) -> None:
 
 
 def test_clone_all_shallow_clones_into_repo(tmp_path: Path) -> None:
-    """AC2: clone_all() does a --depth 1 clone into .convertible/neighbours/<name>."""
+    """AC2: clone_all() does a --depth 1 clone into .colleague/neighbours/<name>."""
     source = _make_source_repo(tmp_path / "source")
     repo = _make_consumer_repo(tmp_path / "consumer")
     _write_neighbours_json(repo, [{"name": "mysvc", "url": str(source)}])
@@ -108,7 +108,7 @@ def test_clone_all_shallow_clones_into_repo(tmp_path: Path) -> None:
     manager = NeighbourManager(repo)
     manager.clone_all()
 
-    clone_dir = repo / ".convertible" / "neighbours" / "mysvc"
+    clone_dir = repo / ".colleague" / "neighbours" / "mysvc"
     assert clone_dir.is_dir(), "Clone directory must exist inside repo"
     # Confirm the cloned content is accessible
     assert (clone_dir / "README.md").is_file()
@@ -126,7 +126,7 @@ def test_clone_path_returns_path_inside_repo(tmp_path: Path) -> None:
     path = manager.clone_path("svc")
     assert path is not None
     # The clone path must be inside the repo root
-    assert path == repo / ".convertible" / "neighbours" / "svc"
+    assert path == repo / ".colleague" / "neighbours" / "svc"
     repo_resolved = repo.resolve()
     assert path.resolve().is_relative_to(repo_resolved), "Clone path must be under repo root"
 
@@ -160,7 +160,7 @@ def test_shallow_clone_depth_is_one(tmp_path: Path) -> None:
     manager = NeighbourManager(repo)
     manager.clone_all()
 
-    clone_dir = repo / ".convertible" / "neighbours" / "svc"
+    clone_dir = repo / ".colleague" / "neighbours" / "svc"
     # In a --depth 1 clone, git log has exactly 1 entry
     proc = subprocess.run(
         ["git", "rev-list", "--count", "HEAD"],
@@ -194,7 +194,7 @@ def test_refresh_pulls_new_content(tmp_path: Path) -> None:
 
     manager.refresh("svc")
 
-    clone_dir = repo / ".convertible" / "neighbours" / "svc"
+    clone_dir = repo / ".colleague" / "neighbours" / "svc"
     assert (clone_dir / "update.txt").is_file(), "refresh() must bring in new files"
 
 
@@ -204,7 +204,7 @@ def test_refresh_pulls_new_content(tmp_path: Path) -> None:
 
 
 def test_cleanup_removes_clone_root(tmp_path: Path) -> None:
-    """AC2/AC3: cleanup() removes the .convertible/neighbours/ directory."""
+    """AC2/AC3: cleanup() removes the .colleague/neighbours/ directory."""
     source = _make_source_repo(tmp_path / "source")
     repo = _make_consumer_repo(tmp_path / "consumer")
     _write_neighbours_json(repo, [{"name": "svc", "url": str(source)}])
@@ -212,7 +212,7 @@ def test_cleanup_removes_clone_root(tmp_path: Path) -> None:
     manager = NeighbourManager(repo)
     manager.clone_all()
 
-    clone_root = repo / ".convertible" / "neighbours"
+    clone_root = repo / ".colleague" / "neighbours"
     assert clone_root.is_dir()
 
     manager.cleanup()

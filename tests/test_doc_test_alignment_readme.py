@@ -1,8 +1,8 @@
 """Tests for the doc-test-alignment (a) "readme" check + the shared _cmd engine.
 
 These tests are HERMETIC: they build fixture README files and a fake
-``convertible`` CLI in ``tmp_path`` so both execution and static-validation are
-deterministic without a live ``convertible`` on PATH. No ``import convertible``
+``colleague`` CLI in ``tmp_path`` so both execution and static-validation are
+deterministic without a live ``colleague`` on PATH. No ``import colleague``
 anywhere — the check modules are stdlib-only and portable.
 
 The fake CLI:
@@ -26,7 +26,7 @@ import sys
 import pytest
 
 # ---------------------------------------------------------------------------
-# Load the check modules WITHOUT importing convertible. We add the skill's
+# Load the check modules WITHOUT importing colleague. We add the skill's
 # scripts dir (and its checks/ dir) to sys.path exactly like the spine does.
 # ---------------------------------------------------------------------------
 
@@ -69,7 +69,7 @@ readme_commands = _load("readme_commands")
 
 
 _FAKE_HELP_TOP = """\
-usage: convertible [-h] [--version] {...} ...
+usage: colleague [-h] [--version] {...} ...
 
 positional arguments:
   {whoami,doctor,wheels,feedback,telemetry,drive,commands,hooks}
@@ -88,7 +88,7 @@ options:
 """
 
 _FAKE_HELP_DRIVE = """\
-usage: convertible drive [-h] [--repo REPO] [--engine ENGINE] [--no-pr]
+usage: colleague drive [-h] [--repo REPO] [--engine ENGINE] [--no-pr]
                          [--base-url BASE_URL] [--model MODEL]
 
 options:
@@ -101,7 +101,7 @@ options:
 """
 
 _FAKE_HELP_FEEDBACK = """\
-usage: convertible feedback [-h] [--json] {record,show,overview} ...
+usage: colleague feedback [-h] [--json] {record,show,overview} ...
 
 positional arguments:
   {record,show,overview}
@@ -115,7 +115,7 @@ options:
 """
 
 _FAKE_HELP_WHEELS = """\
-usage: convertible wheels [-h] [--json] {list,overview} ...
+usage: colleague wheels [-h] [--json] {list,overview} ...
 
 positional arguments:
   {list,overview}
@@ -129,14 +129,14 @@ options:
 
 
 def _make_fake_cli(directory: pathlib.Path, marker: pathlib.Path) -> pathlib.Path:
-    """Write a fake ``convertible`` executable that:
+    """Write a fake ``colleague`` executable that:
 
     * prints argparse-shaped help (top-level or per-verb) on ``--help``;
     * on a real invocation appends its argv to *marker* (proving execution) and
       exits 0, or exits 1 when ``--unhealthy`` is present (exit-class probe).
     """
     py = sys.executable
-    script = directory / "convertible"
+    script = directory / "colleague"
     body = f"""#!{py}
 import sys
 
@@ -186,8 +186,8 @@ sys.exit(0)
 def _make_fake_uv(directory: pathlib.Path) -> pathlib.Path:
     """Write a fake ``uv`` that strips a leading ``run`` and execs the rest.
 
-    Lets a doc command written as ``uv run convertible …`` resolve to the fake
-    ``convertible`` on PATH, hermetically (no real uv, no network).
+    Lets a doc command written as ``uv run colleague …`` resolve to the fake
+    ``colleague`` on PATH, hermetically (no real uv, no network).
     """
     py = sys.executable
     script = directory / "uv"
@@ -198,7 +198,7 @@ import sys
 args = sys.argv[1:]
 if args and args[0] == "run":
     args = args[1:]
-# Drop common `uv run` flags that take no convertible meaning here.
+# Drop common `uv run` flags that take no colleague meaning here.
 while args and args[0].startswith("-"):
     args = args[1:]
 if not args:
@@ -221,7 +221,7 @@ def _write_repo(tmp_path: pathlib.Path, readme_body: str) -> pathlib.Path:
 
 @pytest.fixture()
 def fake_cli_on_path(tmp_path: pathlib.Path, monkeypatch):
-    """Put a fake ``convertible`` on PATH; return (marker_path, bin_dir)."""
+    """Put a fake ``colleague`` on PATH; return (marker_path, bin_dir)."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     marker = tmp_path / "EXECUTED.txt"
@@ -238,12 +238,12 @@ def fake_cli_on_path(tmp_path: pathlib.Path, monkeypatch):
 
 class TestCatchUnknownVerb:
     def test_static_validate_flags_unknown_verb(self, fake_cli_on_path) -> None:
-        """A networked/unknown ``convertible bogusverb`` whose verb is NOT in the
+        """A networked/unknown ``colleague bogusverb`` whose verb is NOT in the
         fake CLI's --help choice set yields a ``warning`` 'unknown verb' check.
         """
         marker, _ = fake_cli_on_path
         help_cache: dict = {}
-        check = _cmd.static_validate("convertible bogusverb --engine vllm-openai", None, help_cache)
+        check = _cmd.static_validate("colleague bogusverb --engine vllm-openai", None, help_cache)
         assert check["severity"] == "warning"
         assert check["passed"] is False
         assert "unknown verb" in check["message"].lower() or "bogusverb" in check["message"]
@@ -258,66 +258,65 @@ class TestCatchUnknownVerb:
 
 class TestClassify:
     def test_mock_introspection_is_safe(self) -> None:
-        assert _cmd.classify("convertible wheels list") == "safe"
+        assert _cmd.classify("colleague wheels list") == "safe"
 
     def test_doctor_no_probe_is_safe(self) -> None:
-        assert _cmd.classify("convertible doctor") == "safe"
+        assert _cmd.classify("colleague doctor") == "safe"
 
     def test_telemetry_status_is_safe(self) -> None:
-        assert _cmd.classify("convertible telemetry status") == "safe"
+        assert _cmd.classify("colleague telemetry status") == "safe"
 
     def test_help_is_safe(self) -> None:
-        assert _cmd.classify("convertible drive --help") == "safe"
+        assert _cmd.classify("colleague drive --help") == "safe"
 
     def test_engine_vllm_is_networked(self) -> None:
-        cmd = "convertible drive 'fix' --engine vllm-openai --base-url http://x/v1"
+        cmd = "colleague drive 'fix' --engine vllm-openai --base-url http://x/v1"
         assert _cmd.classify(cmd) == "networked"
 
     def test_base_url_is_networked(self) -> None:
         assert (
-            _cmd.classify("convertible drive 'x' --base-url http://localhost:8001/v1")
-            == "networked"
+            _cmd.classify("colleague drive 'x' --base-url http://localhost:8001/v1") == "networked"
         )
 
     def test_doctor_probe_is_networked(self) -> None:
-        assert _cmd.classify("convertible doctor --probe") == "networked"
+        assert _cmd.classify("colleague doctor --probe") == "networked"
 
     def test_drive_writes_files_is_networked(self) -> None:
         # Even a mock drive writes files / commits — never executed.
         assert (
-            _cmd.classify("convertible drive 'add stub' --repo . --engine mock --no-pr")
+            _cmd.classify("colleague drive 'add stub' --repo . --engine mock --no-pr")
             == "networked"
         )
 
     def test_session_is_networked(self) -> None:
-        assert _cmd.classify("convertible session --repo . --engine mock") == "networked"
+        assert _cmd.classify("colleague session --repo . --engine mock") == "networked"
 
     def test_repo_dot_introspection_is_safe(self) -> None:
         # `--repo .` targets the repo under check → safe to execute.
-        assert _cmd.classify("convertible doctor --repo .") == "safe"
+        assert _cmd.classify("colleague doctor --repo .") == "safe"
 
     def test_relative_repo_escape_is_networked(self) -> None:
         # A relative --repo (e.g. an escape) must NOT be safe-executed (fail-closed):
         # only `.`/`./` is executable; everything else is static-validated.
-        assert _cmd.classify("convertible doctor --repo ../../..") == "networked"
-        assert _cmd.classify("convertible doctor --repo subdir") == "networked"
-        assert _cmd.classify("convertible doctor --repo=../etc") == "networked"
+        assert _cmd.classify("colleague doctor --repo ../../..") == "networked"
+        assert _cmd.classify("colleague doctor --repo subdir") == "networked"
+        assert _cmd.classify("colleague doctor --repo=../etc") == "networked"
 
     def test_absolute_repo_is_networked(self) -> None:
-        assert _cmd.classify("convertible doctor --repo /tmp/x") == "networked"
+        assert _cmd.classify("colleague doctor --repo /tmp/x") == "networked"
 
     def test_vllm_e2e_env_is_networked(self) -> None:
-        assert _cmd.classify("CONVERTIBLE_VLLM_E2E=1 convertible drive 'x'") == "networked"
+        assert _cmd.classify("CONVERTIBLE_VLLM_E2E=1 colleague drive 'x'") == "networked"
 
     def test_unknown_invocation_fails_closed_to_unknown(self) -> None:
-        # A convertible line we can't positively classify as safe → "unknown".
+        # A colleague line we can't positively classify as safe → "unknown".
         # The dispatcher treats "unknown" exactly like "networked" (fail-closed:
         # static-validate, never execute) — verified in TestUnknownFailsClosed.
-        assert _cmd.classify("convertible some-weird-thing --frobnicate") == "unknown"
+        assert _cmd.classify("colleague some-weird-thing --frobnicate") == "unknown"
 
 
 # ---------------------------------------------------------------------------
-# iter_convertible_invocations — line splitting / continuation joining
+# iter_colleague_invocations — line splitting / continuation joining
 # ---------------------------------------------------------------------------
 
 
@@ -325,32 +324,32 @@ class TestIterInvocations:
     def test_finds_uv_run_and_bare(self) -> None:
         block = (
             "uv sync\n"
-            "uv run convertible wheels list   # comment\n"
-            "convertible doctor\n"
+            "uv run colleague wheels list   # comment\n"
+            "colleague doctor\n"
             "git status\n"
         )
-        invs = list(_cmd.iter_convertible_invocations(block))
+        invs = list(_cmd.iter_colleague_invocations(block))
         cmds = [i.command for i in invs]
-        assert any("convertible wheels list" in c for c in cmds)
-        assert any(c.strip().startswith("convertible doctor") for c in cmds)
-        # Non-convertible lines are ignored.
+        assert any("colleague wheels list" in c for c in cmds)
+        assert any(c.strip().startswith("colleague doctor") for c in cmds)
+        # Non-colleague lines are ignored.
         assert not any("git status" in c for c in cmds)
         assert not any(c.strip() == "uv sync" for c in cmds)
 
     def test_joins_backslash_continuation(self) -> None:
         block = (
-            "uv run convertible drive 'x' \\\n"
+            "uv run colleague drive 'x' \\\n"
             "  --engine vllm-openai \\\n"
             "  --base-url http://localhost:8001/v1\n"
         )
-        invs = list(_cmd.iter_convertible_invocations(block))
+        invs = list(_cmd.iter_colleague_invocations(block))
         assert len(invs) == 1
         assert "--engine vllm-openai" in invs[0].command
         assert "--base-url" in invs[0].command
 
     def test_captures_adjacent_comment(self) -> None:
-        block = "uv run convertible doctor   # human-readable rubric; exit 1 if unhealthy\n"
-        invs = list(_cmd.iter_convertible_invocations(block))
+        block = "uv run colleague doctor   # human-readable rubric; exit 1 if unhealthy\n"
+        invs = list(_cmd.iter_colleague_invocations(block))
         assert len(invs) == 1
         assert "exit 1 if unhealthy" in invs[0].comment
 
@@ -363,7 +362,7 @@ class TestIterInvocations:
 class TestRunPath:
     def test_safe_command_executes_and_passes(self, fake_cli_on_path) -> None:
         marker, _ = fake_cli_on_path
-        check = _cmd.run_safe(_cmd.Invocation("convertible wheels list", ""), pathlib.Path("."))
+        check = _cmd.run_safe(_cmd.Invocation("colleague wheels list", ""), pathlib.Path("."))
         assert check["passed"] is True
         assert check["severity"] in ("info", "warning")
         # Proof of execution: the fake CLI recorded the argv.
@@ -375,7 +374,7 @@ class TestRunPath:
         expectation; the fake CLI is forced to exit 1, satisfying it -> PASS.
         """
         marker, _ = fake_cli_on_path
-        inv = _cmd.Invocation("convertible doctor --unhealthy", "always exit 1 here")
+        inv = _cmd.Invocation("colleague doctor --unhealthy", "always exit 1 here")
         check = _cmd.run_safe(inv, pathlib.Path("."))
         assert check["passed"] is True
         assert marker.exists()
@@ -386,7 +385,7 @@ class TestRunPath:
         """
         marker, _ = fake_cli_on_path
         # No --unhealthy: the fake CLI exits 0, which is the expected (default) class.
-        inv = _cmd.Invocation("convertible doctor", "exit 1 if unhealthy")
+        inv = _cmd.Invocation("colleague doctor", "exit 1 if unhealthy")
         check = _cmd.run_safe(inv, pathlib.Path("."))
         assert check["passed"] is True
         assert marker.exists()
@@ -398,7 +397,7 @@ class TestRunPath:
         empty = tmp_path / "empty"
         empty.mkdir()
         monkeypatch.setenv("PATH", str(empty))
-        check = _cmd.run_safe(_cmd.Invocation("convertible wheels list", ""), pathlib.Path("."))
+        check = _cmd.run_safe(_cmd.Invocation("colleague wheels list", ""), pathlib.Path("."))
         assert check["severity"] == "info"
         assert check["passed"] is True
         assert (
@@ -417,7 +416,7 @@ class TestNetworkedSkip:
         marker, _ = fake_cli_on_path
         # 'drive' IS a valid verb in the fake help, and --engine/--base-url are
         # valid drive flags, so static validation PASSES (info).
-        cmd = "convertible drive 'fix' --engine vllm-openai --base-url http://x/v1 --model m"
+        cmd = "colleague drive 'fix' --engine vllm-openai --base-url http://x/v1 --model m"
         help_cache: dict = {}
         check = _cmd.static_validate(cmd, None, help_cache)
         assert check["passed"] is True
@@ -428,7 +427,7 @@ class TestNetworkedSkip:
 
     def test_static_validate_flags_unknown_flag(self, fake_cli_on_path) -> None:
         marker, _ = fake_cli_on_path
-        cmd = "convertible drive 'x' --engine vllm-openai --frobnicate"
+        cmd = "colleague drive 'x' --engine vllm-openai --frobnicate"
         help_cache: dict = {}
         check = _cmd.static_validate(cmd, None, help_cache)
         assert check["severity"] == "warning"
@@ -446,8 +445,8 @@ class TestReadmeRun:
     def test_run_does_not_raise_and_summarizes(self, tmp_path, fake_cli_on_path) -> None:
         repo = _write_repo(
             tmp_path,
-            "uv run convertible wheels list\n"
-            "uv run convertible drive 'fix' --engine vllm-openai --base-url http://x/v1\n"
+            "uv run colleague wheels list\n"
+            "uv run colleague drive 'fix' --engine vllm-openai --base-url http://x/v1\n"
             "git status\n",
         )
         checks = readme_commands.run(repo)
@@ -460,7 +459,7 @@ class TestReadmeRun:
     def test_run_flags_bogus_verb_as_warning(self, tmp_path, fake_cli_on_path) -> None:
         repo = _write_repo(
             tmp_path,
-            "uv run convertible bogusverb --engine vllm-openai\n",
+            "uv run colleague bogusverb --engine vllm-openai\n",
         )
         checks = readme_commands.run(repo)
         warns = [c for c in checks if c["severity"] == "warning" and not c["passed"]]
@@ -468,12 +467,12 @@ class TestReadmeRun:
         assert any("bogusverb" in c["message"] for c in warns)
 
     def test_unknown_verb_fails_closed_not_executed(self, tmp_path, fake_cli_on_path) -> None:
-        """An UNKNOWN convertible invocation is fail-closed: static-validated
+        """An UNKNOWN colleague invocation is fail-closed: static-validated
         (never executed). Here the unknown verb isn't in the fake help, so it
         surfaces as a warning — and the fake CLI is never run.
         """
         marker, _ = fake_cli_on_path
-        repo = _write_repo(tmp_path, "uv run convertible some-weird-thing --frobnicate\n")
+        repo = _write_repo(tmp_path, "uv run colleague some-weird-thing --frobnicate\n")
         checks = readme_commands.run(repo)
         warns = [c for c in checks if c["severity"] == "warning" and not c["passed"]]
         assert warns, "an unknown verb must surface as a warning"

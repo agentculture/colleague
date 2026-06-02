@@ -1,4 +1,4 @@
-"""``convertible tui test`` — JSON scenario runner (t10).
+"""``colleague tui test`` — JSON scenario runner (t10).
 
 A scenario is a JSON file (NOT YAML — zero-deps, PyYAML is forbidden) describing
 an initial state, a list of events to fold, and an ``expect`` block of clauses
@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 _REPO = Path(__file__).resolve().parents[1]
-_BUNDLED = _REPO / "convertible" / "tui" / "scenarios" / "boost-popup.scenario.json"
+_BUNDLED = _REPO / "colleague" / "tui" / "scenarios" / "boost-popup.scenario.json"
 
 
 def test_bundled_boost_scenario_passes(capsys: pytest.CaptureFixture[str]) -> None:

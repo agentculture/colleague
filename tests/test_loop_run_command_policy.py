@@ -21,9 +21,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from convertible.contract import OK, Task
-from convertible.loop import ModelResponse, ToolCall, run
-from convertible.policy import Policy
+from colleague.contract import OK, Task
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.policy import Policy
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,8 +64,8 @@ def _empty_policy() -> Policy:
 
 
 def _write_approvals(repo: Path, config: dict) -> None:
-    """Write .convertible/approvals.json under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write .colleague/approvals.json under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(json.dumps(config), encoding="utf-8")
 
@@ -216,15 +216,15 @@ def test_policy_denial_is_engine_agnostic(tmp_path: Path) -> None:
 def test_policy_not_imported_from_engine_modules(tmp_path: Path) -> None:
     """AC2 (isolation): the loop imports policy; engine modules do NOT import it.
     We verify that neither the mock engine nor the vllm-openai engine module
-    references 'convertible.policy' directly.
+    references 'colleague.policy' directly.
     """
-    import convertible.engines.mock as mock_engine
-    import convertible.engines.vllm_openai as vllm_engine
+    import colleague.engines.mock as mock_engine
+    import colleague.engines.vllm_openai as vllm_engine
 
     for engine_mod in (mock_engine, vllm_engine):
         mod_dict = vars(engine_mod)
         # No symbol from policy is imported into the engine namespace.
-        from convertible import policy as policy_mod
+        from colleague import policy as policy_mod
 
         assert policy_mod not in mod_dict.values(), (
             f"{engine_mod.__name__} imported the policy module — "

@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
-from convertible.contract import DriveStats
-from convertible.feedback import read_feedback
+from colleague.cli import main
+from colleague.contract import DriveStats
+from colleague.feedback import read_feedback
 
 
 def test_roi_inputs_readable_from_one_artifact_plus_feedback(

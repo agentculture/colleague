@@ -3,7 +3,7 @@
 > After a drive edits the tree, capture the change as a branch + commit, and —
 > when allowed — push and open a pull request.
 
-The handoff (`convertible/handoff.py`) is the last leg of a drive: it turns the
+The handoff (`colleague/handoff.py`) is the last leg of a drive: it turns the
 working-tree changes an engine made into a reviewable artifact. The sequence is
 **branch → commit → push → `gh pr create`**, but every step past the commit is
 gated so offline and CI runs never reach the network.
@@ -15,8 +15,8 @@ gated so offline and CI runs never reach the network.
    off`. This is the authority on whether work happened, so edits made via
    `run_command` (which the loop's own change-tracking can't see) are still
    captured.
-2. Creates/resets a branch named `convertible/<task-id>`, stages everything
-   (`git add -A`), and commits with the message `convertible: <instruction>`.
+2. Creates/resets a branch named `colleague/<task-id>`, stages everything
+   (`git add -A`), and commits with the message `colleague: <instruction>`.
 3. If — and only if — PR creation is allowed (see gating), pushes the branch and
    runs `gh pr create --fill --base <base> --title <message>`.
 
@@ -44,18 +44,18 @@ creation failed: …`) from one that never left (`local commit only (push failed
 
 ## Usage
 
-Handoff is driven by `convertible drive` / `convertible session`; there is no
+Handoff is driven by `colleague drive` / `colleague session`; there is no
 standalone handoff verb.
 
 ```bash
-convertible drive "..." --repo . --engine vllm-openai            # branch + PR (if gated on)
-convertible drive "..." --repo . --engine mock --no-pr           # local commit only
-convertible drive "..." --repo . --engine mock --base develop    # PR against develop
+colleague drive "..." --repo . --engine vllm-openai            # branch + PR (if gated on)
+colleague drive "..." --repo . --engine mock --no-pr           # local commit only
+colleague drive "..." --repo . --engine mock --base develop    # PR against develop
 ```
 
 ## Key files
 
-- `convertible/handoff.py` — `handoff()`, `should_open_pr()`, `HandoffResult`.
+- `colleague/handoff.py` — `handoff()`, `should_open_pr()`, `HandoffResult`.
 
 ## See also
 

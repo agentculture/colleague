@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 
-from convertible.contract import OK, Step, SubResult, TaskResult, Usage
+from colleague.contract import OK, Step, SubResult, TaskResult, Usage
 
 # ---------------------------------------------------------------------------
 # Criterion 3: SubResult records the expected fields with the right defaults.

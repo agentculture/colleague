@@ -1,6 +1,6 @@
 # Drive statistics & feedback — the ROI loop
 
-**The headline:** you can calculate the *ROI of outsourcing* to convertible.
+**The headline:** you can calculate the *ROI of outsourcing* to colleague.
 Every drive's artifact records, always-on, what the drive **cost**; a feedback
 record says how **good** it was. Together — time + tokens + bytes written + a
 quality grade — they let a caller (human or agent) retro a delegated task and
@@ -12,7 +12,7 @@ and `vllm-openai`.
 
 ## Part A — always-on drive statistics
 
-Every `TaskResult` carries a `stats` block (`convertible/contract.py`
+Every `TaskResult` carries a `stats` block (`colleague/contract.py`
 `DriveStats`), serialized into the artifact JSON on **every** drive (no flag, no
 opt-in). It sits beside `usage`, which holds the exact token counts.
 
@@ -34,11 +34,11 @@ Tokens live on `usage` (`prompt_tokens` / `completion_tokens` / `total_tokens`).
 ### Honest token model
 
 Tokens are **exactly** what the model response `usage` reports — never estimated.
-Convertible has **no tokenizer** (zero runtime deps), so it cannot produce a
+Colleague has **no tokenizer** (zero runtime deps), so it cannot produce a
 reasoning- or written-*token* count. Concretely, the reference server
 (`model-gear`, Qwen3.6-27B) reports only `prompt`/`completion`/`total` tokens —
 no `completion_tokens_details`, so no reasoning-token breakdown — but it returns
-the chain-of-thought as a separate `message.reasoning` field. So convertible
+the chain-of-thought as a separate `message.reasoning` field. So colleague
 measures "thought vs written" as exact **chars/bytes**, not tokens:
 
 - "thought" → `reasoning_chars`/`reasoning_bytes` (the `message.reasoning` text,
@@ -50,20 +50,20 @@ that needs a tokenizer dependency — a deliberate non-goal in v0.
 
 ### Where it's populated
 
-Chassis-side, in `convertible/loop.py`: per-turn fields accumulate in
+Chassis-side, in `colleague/loop.py`: per-turn fields accumulate in
 `_drive_loop`; the rest are filled by `_finalize_stats` on every exit path
 (model finish / empty turn / step budget / mid-loop abort), so even a partial
-drive carries populated stats. `ToolExecutor` (`convertible/tools.py`)
-accumulates `bytes_written`. The vLLM engine (`convertible/engines/vllm_openai.py`)
+drive carries populated stats. `ToolExecutor` (`colleague/tools.py`)
+accumulates `bytes_written`. The vLLM engine (`colleague/engines/vllm_openai.py`)
 captures `message.reasoning` (and `reasoning_content` as an alias) into
 `ModelResponse`. The optional OTel path mirrors two new metrics —
-`convertible.generated.chars` (attr `kind`=reasoning|answer) and
-`convertible.bytes_written` — as a strict no-op when telemetry is off.
+`colleague.generated.chars` (attr `kind`=reasoning|answer) and
+`colleague.bytes_written` — as a strict no-op when telemetry is off.
 
 ## Part B — the feedback loop
 
-`convertible/feedback.py` is a stdlib JSON store. A **single record per drive**
-(re-grading overwrites) lives at `.convertible/<task_id>.feedback.json` beside
+`colleague/feedback.py` is a stdlib JSON store. A **single record per drive**
+(re-grading overwrites) lives at `.colleague/<task_id>.feedback.json` beside
 the artifact:
 
 ```json
@@ -77,14 +77,14 @@ reads back as a clean "no feedback yet" state — never an error.
 ### CLI
 
 ```bash
-convertible feedback record last --rating 4 --notes "correct but verbose"
-convertible feedback record 9f2c1ab0 --rating 5 --repo . --json
-convertible feedback show last --repo .
-convertible feedback overview
+colleague feedback record last --rating 4 --notes "correct but verbose"
+colleague feedback record 9f2c1ab0 --rating 5 --repo . --json
+colleague feedback show last --repo .
+colleague feedback overview
 ```
 
 `record`/`show` take a drive id or the literal `last`. `--rating` must be an
-integer 1–5. `--by` defaults to convertible's resolved identity. Results go to
+integer 1–5. `--by` defaults to colleague's resolved identity. Results go to
 stdout, diagnostics to stderr; every verb supports `--json`.
 
 ### From the `outsource` skill
@@ -100,10 +100,10 @@ outsource feedback <task_id>          # no --rating → show existing feedback
 ## Reading ROI off one drive
 
 ```bash
-convertible drive "refactor the parser" --engine vllm-openai --no-pr --json > result.json
+colleague drive "refactor the parser" --engine vllm-openai --no-pr --json > result.json
 # cost: result.json → .stats.duration_seconds, .usage.{prompt,completion}_tokens, .stats.bytes_written
-convertible feedback record last --rating 4 --notes "clean, a bit slow"
-# quality: .convertible/<task_id>.feedback.json → .rating
+colleague feedback record last --rating 4 --notes "clean, a bit slow"
+# quality: .colleague/<task_id>.feedback.json → .rating
 ```
 
 Time + tokens + bytes written + rating — everything a retro needs, from one
@@ -113,7 +113,7 @@ artifact plus its feedback record, with no external data.
 
 - **No tokenizer** → no reasoning/written *token* counts; chars/bytes only.
 - **Tokens are verbatim** from the model's `usage`; a server that reports nothing
-  yields zeros (convertible does not fabricate them).
+  yields zeros (colleague does not fabricate them).
 - Feedback is a **single record** per drive (re-grade overwrites). A multi-grader
   append-log is a possible follow-up, not built.
 - Stats are **per top-level drive**; a subagent's cost stays in its own

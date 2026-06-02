@@ -1,8 +1,8 @@
-"""Tests for convertible.tui.taui — the TAUI semantic mirror."""
+"""Tests for colleague.tui.taui — the TAUI semantic mirror."""
 
 import json
 
-from convertible.tui.state import (
+from colleague.tui.state import (
     Action,
     CockpitState,
     Drive,
@@ -11,7 +11,7 @@ from convertible.tui.state import (
     Popup,
     Status,
 )
-from convertible.tui.taui import SCHEMA_VERSION, serialize
+from colleague.tui.taui import SCHEMA_VERSION, serialize
 
 # ---------------------------------------------------------------------------
 # Helpers

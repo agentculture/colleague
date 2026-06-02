@@ -1,4 +1,4 @@
-# convertible
+# colleague
 
 ```text
                       ,"^,::,:::::I::::::^                             
@@ -21,32 +21,32 @@
                                 `.   " "                               
 ```
 
-> Convertible CLI is a swappable coder-agent harness that turns different models
+> Colleague CLI is a swappable coder-agent harness that turns different models
 > into repo workers behind one shared task contract.
 >
 > **One harness, many engines.**
 
-Convertible is the **car around the model**. The model is the engine;
-Convertible is the chassis, controls, task contract, and handoff that turn that
+Colleague is the **car around the model**. The model is the engine;
+Colleague is the chassis, controls, task contract, and handoff that turn that
 engine into a usable repo worker. Point it at a repo task and it drives the work
 through whichever coder engine you select — and the caller never has to care
 which one ran.
 
 ## The metaphor, as architecture
 
-| Part | In Convertible |
+| Part | In Colleague |
 |------|----------------|
 | **Engine** | the model/coder backend (a local vLLM model, …) |
-| **Driver** | the adapter that invokes and controls one engine (`convertible/engines/`) |
+| **Driver** | the adapter that invokes and controls one engine (`colleague/engines/`) |
 | **Chassis** | the shared task contract + lifecycle (`Task` → `TaskResult`) |
 | **Tool-loop** | the bounded agentic loop the engine drives the repo through |
 | **Wheels** | replaceable engine plugins, discovered via Python entry points |
 | **Dashboard** | the JSON result artifact + step trace each run writes |
-| **GPS** | opt-in OpenTelemetry traces + metrics (`convertible/telemetry/`) |
-| **Handoff** | branch/commit/push + `gh pr create`, gated for offline/CI (`convertible/handoff.py`) |
-| **Oilcheck** | `convertible doctor` — read-only configuration-readiness health check (`convertible/oilcheck/`) |
-| **Garage** | `convertible wheels list` — the engines installed in this env |
-| **Approval gate** | `convertible/policy.py` — operator-declared `.convertible/approvals.json` that controls what the harness executes |
+| **GPS** | opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`) |
+| **Handoff** | branch/commit/push + `gh pr create`, gated for offline/CI (`colleague/handoff.py`) |
+| **Oilcheck** | `colleague doctor` — read-only configuration-readiness health check (`colleague/oilcheck/`) |
+| **Garage** | `colleague wheels list` — the engines installed in this env |
+| **Approval gate** | `colleague/policy.py` — operator-declared `.colleague/approvals.json` that controls what the harness executes |
 
 ## What ships in v0
 
@@ -55,7 +55,7 @@ which one ran.
 - A **bounded agentic tool-loop** — the engine calls `read_file`, `write_file`,
   `list_dir`, `run_command`, `culture` (AgentCulture CLIs), and `finish`,
   confined to the target repo, until it finishes or hits the step budget.
-- **Two engines**, both registered through the same `convertible.engines`
+- **Two engines**, both registered through the same `colleague.engines`
   entry-point group an out-of-tree wheel would use:
   - `mock` — deterministic and networkless; the CI workhorse.
   - `vllm-openai` — drives any **OpenAI-compatible** `/v1/chat/completions`
@@ -64,26 +64,26 @@ which one ran.
     vLLM server — what `doctor` checks for); any tool-calling model works.
 - **Git/PR handoff** — branch → commit → push → `gh pr create`, gated so
   `--no-pr` (or no remote) stays a local commit and CI never pushes.
-- A **result artifact** (`.convertible/<task-id>.json`) for handoff back to
+- A **result artifact** (`.colleague/<task-id>.json`) for handoff back to
   Guildmaster / Taskmaster / Steward.
 - **Command templates** — reusable, parameterized task recipes stored under
-  `.convertible/commands/*.md`, invoked with `drive --command <name> [args…]`
+  `.colleague/commands/*.md`, invoked with `drive --command <name> [args…]`
   or selected in the interactive palette.
 - **Lifecycle hooks** — operator-authored shell commands that fire at
   `task_start`, `pre_tool`, `post_tool`, and `finish` events; a `pre_tool` hook
   can allow, deny, or rewrite tool calls before the engine executes them. A
-  **per-model hooks overlay** (`.convertible/<model>/hooks.json`) layers
+  **per-model hooks overlay** (`.colleague/<model>/hooks.json`) layers
   model-specific fixes **ahead of** the base hooks, giving the operator a
   precision tool for recurring model biases — applied only for the targeted
   model, a strict no-op for all others; no new runtime dep, socket, or daemon.
-- **Interactive palette** — `convertible session` opens a foreground command
+- **Interactive palette** — `colleague session` opens a foreground command
   browser so operators can select templates and run ad-hoc instructions without
   leaving the shell.
 - **Layered per-model config** — AGENTS instructions
-  (`AGENTS.md` → `AGENTS.convertible.md` → `AGENTS.convertible.<model>.md`) and
-  skills (`.convertible/skills/*.md` → `.convertible/<model>/skills/*.md`)
+  (`AGENTS.md` → `AGENTS.colleague.md` → `AGENTS.colleague.<model>.md`) and
+  skills (`.colleague/skills/*.md` → `.colleague/<model>/skills/*.md`)
   compose into a model-specific system prompt, with strict per-model isolation;
-  inspect them with `convertible agents list` / `convertible skills list`.
+  inspect them with `colleague agents list` / `colleague skills list`.
 - **GPS: OpenTelemetry observability** — opt-in traces + metrics over OTLP,
   emitted identically by every engine; off by default and a strict no-op, with
   the SDK as an optional `[otel]` extra so the base install stays dep-free.
@@ -91,20 +91,20 @@ which one ran.
   across identity, provider, engines, otel-readiness, and environment; emits a
   rubric-shaped report and exits non-zero when unhealthy.
 - **Mesh-member integration** — a drive resolves a process-level identity (the
-  repo's `culture.yaml` nick or `.convertible/identity.json`) and propagates it
-  to subcommands via `CONVERTIBLE_IDENTITY`. The loop exposes one curated
+  repo's `culture.yaml` nick or `.colleague/identity.json`) and propagates it
+  to subcommands via `COLLEAGUE_IDENTITY`. The loop exposes one curated
   `culture` tool (allow-list: `agtag`, `devex`) that shells out to the
   operator-installed CLIs with the identity injected. Operators opt into
-  read-only ephemeral neighbour clones via `.convertible/neighbours.json`
+  read-only ephemeral neighbour clones via `.colleague/neighbours.json`
   (defaults to empty; no new runtime dependency).
-- **Destination** — convertible's sibling to GPS. When a task warrants it, an
+- **Destination** — colleague's sibling to GPS. When a task warrants it, an
   engine can set a curated `devague` loop tool to open and converge a goal-frame
   before driving the repo, and declare the announcement on arrival. The
   destination (frame slug + announcement) is recorded in the JSON artifact; the
   curated allow-list excludes `confirm`/`reject` (user-only) and `export`
   (operator-only), and convergence is advisory — only human-confirmed claims are
   authoritative. Setting a destination is optional and engine-judged.
-- **Approval gate** — an operator-declared `.convertible/approvals.json` that
+- **Approval gate** — an operator-declared `.colleague/approvals.json` that
   gates what the harness *executes*. Approval is tamper-protection, not just a
   name list: `approve` records a file's content checksum; if the file changes
   later the approval is void. Three categories are gated, each opt-in by presence
@@ -113,7 +113,7 @@ which one ran.
   and AGENTS instructions load freely — they are never gated. See the
   [Approval gate](#approval-gate) section below for the full config shape and
   usage.
-- **Startup banner** — `convertible drive` and `convertible session` greet an
+- **Startup banner** — `colleague drive` and `colleague session` greet an
   interactive terminal with an ASCII banner. It's decorative chrome: written to
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
   pollutes the stdout result stream or agent-parsed output.
@@ -160,12 +160,12 @@ per-feature source pointers and cross-links.
 
 ## Before → after: the extensibility layer
 
-**Before** this layer, `convertible drive` accepted one raw instruction string
+**Before** this layer, `colleague drive` accepted one raw instruction string
 and ran the tool-loop with no operator gate and no saved recipes: `run_command`
 and `write_file` executed unconditionally, and every task had to be typed from
 scratch.
 
-**After**, operators drop files into `.convertible/` and gain three things that
+**After**, operators drop files into `.colleague/` and gain three things that
 work identically across every engine (the all-engines rule):
 
 1. **Command templates** — author a recipe once, invoke it by name with
@@ -175,12 +175,12 @@ work identically across every engine (the all-engines rule):
    the model), or rewrite tool arguments before they execute; `post_tool` hooks
    run formatters or linters after; `task_start` and `finish` hooks bracket the
    whole drive. Every firing is recorded in the result artifact.
-3. **Interactive palette** — `convertible session` lists discovered templates,
+3. **Interactive palette** — `colleague session` lists discovered templates,
    accepts a selection (by number or name) plus optional arguments, and runs the
    chosen task through the same drive path, loop, hooks, and artifact — no
    parallel code path.
 
-This extensibility lives in the chassis (`convertible/loop.py`), not in any one
+This extensibility lives in the chassis (`colleague/loop.py`), not in any one
 engine, so it binds equally to `mock`, `vllm-openai`, and any future wheel.
 
 ## Quickstart
@@ -190,13 +190,13 @@ uv sync
 uv run pytest -n auto                          # full suite, no network needed
 
 # Open the interactive harness (the session palette) at a terminal:
-uv run convertible
+uv run colleague
 
 # Discover the engines installed in this environment:
-uv run convertible wheels list
+uv run colleague wheels list
 
 # Drive toward a goal with the deterministic mock engine (no model, no network):
-uv run convertible drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
+uv run colleague drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
 ```
 
 ### Driving a real model (vLLM)
@@ -223,17 +223,17 @@ the server emit OpenAI-format tool calls works.
 > same file cleanly. This is a single observation, not a benchmark — but if a
 > parser garbles quote-heavy edits, trying the other one is worth a shot.
 
-Then point Convertible at it (defaults already target `localhost:8001`):
+Then point Colleague at it (defaults already target `localhost:8001`):
 
 ```bash
-uv run convertible drive "fix the typo in the README title" \
+uv run colleague drive "fix the typo in the README title" \
   --repo /path/to/target/repo \
   --engine vllm-openai \
   --base-url http://localhost:8001/v1 \
   --model Qwen/Qwen3-32B
 ```
 
-Configuration resolves in the order: explicit flag → `CONVERTIBLE_*` env →
+Configuration resolves in the order: explicit flag → `COLLEAGUE_*` env →
 `OPENAI_*` env → default. The built-in default `--model` is
 `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`; the example above overrides it with
 `--model` to match the server you started. Because the driver only touches the
@@ -243,17 +243,17 @@ OpenAI proxy) needs no code change.
 The opt-in live end-to-end test proves this against a real server:
 
 ```bash
-CONVERTIBLE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
+COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
 ## Command templates
 
 Operators save reusable task recipes as Markdown files under
-`.convertible/commands/<name>.md` (repo-level or `~/.convertible/commands/` for
+`.colleague/commands/<name>.md` (repo-level or `~/.colleague/commands/` for
 user-level; repo-level shadows user-level by stem).
 
-`.convertible/commands/` is **committable** — it is the one part of the otherwise
-gitignored `.convertible/` dir that git tracks, so a team can share recipes in-repo
+`.colleague/commands/` is **committable** — it is the one part of the otherwise
+gitignored `.colleague/` dir that git tracks, so a team can share recipes in-repo
 (run artifacts, `hooks.json`, and `approvals.json` stay local). The committed
 `doc-review` recipe is a worked example.
 
@@ -293,13 +293,13 @@ If no `---` block is present, the entire file content is the body.
 
 ```bash
 # One-shot via drive:
-uv run convertible drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
+uv run colleague drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
 
 # List all discovered templates:
-uv run convertible commands list --repo .
+uv run colleague commands list --repo .
 
 # Surface overview:
-uv run convertible commands overview
+uv run colleague commands overview
 ```
 
 The `--command` flag and a positional instruction are mutually exclusive; any
@@ -309,7 +309,7 @@ tokens after `--command <name>` are passed as template arguments (`$1`, `$2`,
 ## Lifecycle hooks
 
 Hooks are operator-authored shell commands registered in
-`.convertible/hooks.json` (repo-level or `~/.convertible/hooks.json` for
+`.colleague/hooks.json` (repo-level or `~/.colleague/hooks.json` for
 user-level; repo-level wins).
 
 ### Config format
@@ -375,19 +375,19 @@ these events is recorded but does not halt the loop.
 ### Inspecting hooks
 
 ```bash
-uv run convertible hooks list --repo .
-uv run convertible hooks overview
+uv run colleague hooks list --repo .
+uv run colleague hooks overview
 ```
 
 ## Interactive cockpit (session)
 
-`convertible session` opens a foreground interactive **cockpit** (#74 A2): it
+`colleague session` opens a foreground interactive **cockpit** (#74 A2): it
 renders one `CockpitState` — a command palette + a running conversation + popups —
 and runs each selection through the same `drive` path (same `Task`, loop, hooks,
 and artifact — no parallel code path):
 
 ```bash
-uv run convertible session --repo /path/to/repo --engine vllm-openai
+uv run colleague session --repo /path/to/repo --engine vllm-openai
 ```
 
 **Input is line-based.** At the prompt, plain text runs a drive — a **number**
@@ -411,19 +411,19 @@ namespace, akin to Claude Code / Codex:
 - **`--json`** — stdout carries only the drive `TaskResult` (one JSON object each,
   preserving the machine contract); the cockpit renders to stderr as chrome.
 
-Running `convertible` with no arguments **at a terminal** opens this same cockpit
-(engine resolved like `drive`: `--engine` > `CONVERTIBLE_ENGINE` > `vllm-openai`,
+Running `colleague` with no arguments **at a terminal** opens this same cockpit
+(engine resolved like `drive`: `--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`,
 never a silent `mock`). By default it is a "talk + iterate" loop — each drive
 commits locally but does **not** push or open a PR; `/pr` or `--pr` opts in.
 
 ## Cockpit views (tui)
 
-`convertible tui` exposes a **headless, stdlib-only cockpit** in three views of one
+`colleague tui` exposes a **headless, stdlib-only cockpit** in three views of one
 `CockpitState`: a **JSON/TAUI** mirror (the agent-readable, selector-addressed
 source of truth — `tui state`), an **ANSI** frame (the visual render — `tui render`,
 the default), and a **Markdown** view (the agent-facing readable render —
 `tui render --format markdown`). TAUI (*Textual Agentic UI*) lets an agent read and
-operate the UI without screen-scraping, an LLM, or any `convertible` import.
+operate the UI without screen-scraping, an LLM, or any `colleague` import.
 
 The cockpit is a pure reducer (`event → reduce(state, event) → CockpitState`) and
 its state carries a **popup** model (`skill_suggestion` / `confirmation` / `error` /
@@ -432,19 +432,19 @@ classifies cross-view disagreements (no LLM, no network); `tui live` opens the
 foreground TTY cockpit.
 
 ```bash
-uv run convertible tui state                          # the TAUI JSON mirror
-uv run convertible tui render --state <file>          # the ANSI frame
-uv run convertible tui render --format markdown --state <file>
-uv run convertible tui overview
+uv run colleague tui state                          # the TAUI JSON mirror
+uv run colleague tui render --state <file>          # the ANSI frame
+uv run colleague tui render --format markdown --state <file>
+uv run colleague tui overview
 ```
 
 **Watching a live drive.** A real `drive` feeds the cockpit (#74):
 
 ```bash
-uv run convertible drive "<task>" --engine mock       # auto: live cockpit on a TTY
-uv run convertible drive "<task>" --engine mock --no-tui   # force the plain step lines
-uv run convertible drive "<task>" --engine mock --tui-events run.jsonl   # live event stream
-uv run convertible tui replay --trace .convertible/<id>.trace.jsonl      # replay a finished drive
+uv run colleague drive "<task>" --engine mock       # auto: live cockpit on a TTY
+uv run colleague drive "<task>" --engine mock --no-tui   # force the plain step lines
+uv run colleague drive "<task>" --engine mock --tui-events run.jsonl   # live event stream
+uv run colleague tui replay --trace .colleague/<id>.trace.jsonl      # replay a finished drive
 ```
 
 - **Live cockpit (A1)** — on an interactive terminal a drive renders the cockpit
@@ -459,7 +459,7 @@ uv run convertible tui replay --trace .convertible/<id>.trace.jsonl      # repla
 - **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
   finished drive's loop-step trace into the cockpit (live and replayed steps read
   identically — one shared converter).
-- **Interactive cockpit (A2)** — `convertible session` is now cockpit-rendered with
+- **Interactive cockpit (A2)** — `colleague session` is now cockpit-rendered with
   slash commands; see [Interactive cockpit (session)](#interactive-cockpit-session).
 
 A mid-loop failure still writes a **partial artifact** (`status=error`) with the
@@ -479,29 +479,29 @@ the result artifact unchanged). The OpenTelemetry SDK is an **optional extra** �
 the base install keeps zero runtime dependencies:
 
 ```bash
-pip install 'convertible-cli[otel]'                 # or: uv sync --extra otel
-export CONVERTIBLE_OTEL_ENABLED=1
+pip install 'colleague[otel]'                 # or: uv sync --extra otel
+export COLLEAGUE_OTEL_ENABLED=1
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # OTLP/HTTP collector
-uv run convertible drive "<task>" --repo . --engine mock --no-pr
+uv run colleague drive "<task>" --repo . --engine mock --no-pr
 #   -> stderr prints "trace: <id>"; the collector receives the spans + metrics
 ```
 
-Requested without the extra installed, convertible degrades to a no-op with a
+Requested without the extra installed, colleague degrades to a no-op with a
 one-line stderr notice — it never fails the drive.
 
-**Signals.** Spans: `convertible.drive` (root) → `convertible.tool.*` (per tool
-call) → `convertible.handoff`. Metrics: `convertible.steps`, `convertible.tokens`,
-`convertible.tool.latency`, `convertible.tool.calls`, `convertible.hook.denials`,
-`convertible.drive.duration`.
+**Signals.** Spans: `colleague.drive` (root) → `colleague.tool.*` (per tool
+call) → `colleague.handoff`. Metrics: `colleague.steps`, `colleague.tokens`,
+`colleague.tool.latency`, `colleague.tool.calls`, `colleague.hook.denials`,
+`colleague.drive.duration`.
 
-**Config** (precedence: explicit > `CONVERTIBLE_OTEL_*` > standard `OTEL_*` >
-default): `CONVERTIBLE_OTEL_ENABLED`, `CONVERTIBLE_OTEL_ENDPOINT` /
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `CONVERTIBLE_OTEL_SERVICE_NAME` /
+**Config** (precedence: explicit > `COLLEAGUE_OTEL_*` > standard `OTEL_*` >
+default): `COLLEAGUE_OTEL_ENABLED`, `COLLEAGUE_OTEL_ENDPOINT` /
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `COLLEAGUE_OTEL_SERVICE_NAME` /
 `OTEL_SERVICE_NAME`. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
 
 ```bash
-uv run convertible telemetry status      # resolved config + whether the SDK is installed
-uv run convertible telemetry overview    # describe the surface
+uv run colleague telemetry status      # resolved config + whether the SDK is installed
+uv run colleague telemetry overview    # describe the surface
 ```
 
 ## Drive stats & the feedback loop (ROI)
@@ -517,19 +517,19 @@ reasoning-vs-answer char/byte sizes. Exact token counts stay on `usage`, verbati
 from the model response (never estimated). Like hooks and telemetry, stats are
 chassis-owned — identical for `mock` and `vllm-openai`.
 
-> **Honest token limit.** Convertible has no tokenizer (zero deps), and the
+> **Honest token limit.** Colleague has no tokenizer (zero deps), and the
 > served model reports no reasoning-token breakdown — so "thought vs written" is
 > measured as **chars/bytes**, not tokens.
 
 **Feedback.** A single record per drive (re-grading overwrites) lives beside the
-artifact at `.convertible/<task_id>.feedback.json`; a per-repo `last_drive` pointer
+artifact at `.colleague/<task_id>.feedback.json`; a per-repo `last_drive` pointer
 lets you grade the most recent drive without quoting its id. An ungraded drive
 reads back as a clean "no feedback yet" state, never an error.
 
 ```bash
-uv run convertible feedback record last --rating 4 --notes "correct but verbose"
-uv run convertible feedback show last --repo .
-uv run convertible feedback overview
+uv run colleague feedback record last --rating 4 --notes "correct but verbose"
+uv run colleague feedback show last --repo .
+uv run colleague feedback overview
 ```
 
 The agent-facing entry is the `outsource feedback` skill verb. See
@@ -537,8 +537,8 @@ The agent-facing entry is the `outsource feedback` skill verb. See
 
 ## Configuration readiness: `doctor` (the oilcheck)
 
-Before you hand convertible work, `convertible doctor` answers "is this install
-actually ready to drive?" It is convertible's **oilcheck**: a **read-only**,
+Before you hand colleague work, `colleague doctor` answers "is this install
+actually ready to drive?" It is colleague's **oilcheck**: a **read-only**,
 diagnose-only health check (no `--fix`, zero new runtime deps) that emits a
 rubric-shaped `{healthy, checks[]}` report across five ordered check-groups:
 
@@ -548,29 +548,29 @@ rubric-shaped `{healthy, checks[]}` report across five ordered check-groups:
 | **provider** | resolved `base_url`/`model` with redacted `api_key` (info); credentials + budget advisories (warning) on a non-default provider |
 | **engines** | engines discovered + both bundled engines present + each wheel loads (error; all-engines rule) |
 | **otel** | telemetry enabled / SDK importable / endpoint configured (info; error only when enabled but the `[otel]` extra is missing) |
-| **environment** | `.convertible/` config, `hooks.json` validity, command-template parsing, AGENTS/skills layering, `git` (error) + `gh` (warning) on PATH, CLI integrity |
+| **environment** | `.colleague/` config, `hooks.json` validity, command-template parsing, AGENTS/skills layering, `git` (error) + `gh` (warning) on PATH, CLI integrity |
 
 Only a **failed `error`** check flips the report unhealthy; warnings and info are
 advisory. `doctor` exits `1` when unhealthy, else `0`. The diagnostic logic lives
-in the chassis-level `convertible/oilcheck/` package (like telemetry); the verb
+in the chassis-level `colleague/oilcheck/` package (like telemetry); the verb
 is a thin renderer. Add a check-group by appending a read-only `checks()` callable
-to `CHECK_GROUPS` — see `convertible explain doctor` and
+to `CHECK_GROUPS` — see `colleague explain doctor` and
 [`docs/features/doctor.md`](docs/features/doctor.md).
 
 ```bash
-uv run convertible doctor          # human-readable rubric; exit 1 if unhealthy
-uv run convertible doctor --json   # structured {healthy, checks[]}
-uv run convertible doctor --probe  # + a live provider ping (the one networked check)
+uv run colleague doctor          # human-readable rubric; exit 1 if unhealthy
+uv run colleague doctor --json   # structured {healthy, checks[]}
+uv run colleague doctor --probe  # + a live provider ping (the one networked check)
 ```
 
 `--probe` adds two opt-in checks that open a network connection — `provider_reachable`
-(can convertible reach the endpoint?) and `provider_model_available` (is the
+(can colleague reach the endpoint?) and `provider_model_available` (is the
 configured model actually served at that endpoint?) — gated behind the flag so the
 default `doctor` stays network-free.
 
 ## Per-model instructions & skills
 
-Convertible composes a model-specific **system prompt** for every drive from two
+Colleague composes a model-specific **system prompt** for every drive from two
 layered families, resolved *relative to the model currently driving*. Strict
 per-model isolation: driving model X reads only X's overlay plus the shared base
 — it never even opens model Y's files (isolation is structural, built from exact
@@ -578,32 +578,32 @@ paths, not filtered).
 
 **AGENTS instructions** cascade from the **repo root** (the cross-tool standard
 location — sibling agent tools read `AGENTS.md` there too), general → specific,
-with a `~/.convertible/` user-level fallback:
+with a `~/.colleague/` user-level fallback:
 
 ```text
 AGENTS.md                       # shared base
-AGENTS.convertible.md           # convertible overlay
-AGENTS.convertible.<model>.md   # model overlay
+AGENTS.colleague.md           # colleague overlay
+AGENTS.colleague.<model>.md   # model overlay
 ```
 
-**Skills** are markdown capability docs under `.convertible/`, folded into the
+**Skills** are markdown capability docs under `.colleague/`, folded into the
 prompt as a compact name + one-line-summary catalog (a skill is instructional
 text only — there is no skill *execution* in v0):
 
 ```text
-.convertible/skills/*.md            # base
-.convertible/<model>/skills/*.md    # model overlay (shadows base by stem)
+.colleague/skills/*.md            # base
+.colleague/<model>/skills/*.md    # model overlay (shadows base by stem)
 ```
 
 `<model>` is sanitized to a filename-safe token (e.g. `Qwen/Qwen3-32B` →
 `Qwen-Qwen3-32B`). Inspect what resolves for a model:
 
 ```bash
-uv run convertible agents list --model Qwen/Qwen3-32B --repo .
-uv run convertible skills list --model Qwen/Qwen3-32B --repo .
+uv run colleague agents list --model Qwen/Qwen3-32B --repo .
+uv run colleague skills list --model Qwen/Qwen3-32B --repo .
 ```
 
-> **MCP layering is not built yet.** Convertible does not read `mcp.json` or
+> **MCP layering is not built yet.** Colleague does not read `mcp.json` or
 > connect to any MCP server today; a live MCP client needs its own spec. There
 > is no `mcp` verb — don't rely on a non-existent surface.
 
@@ -628,15 +628,15 @@ engine) and is explicitly **not** the out-of-scope multi-engine router/"gearbox"
 there is no automatic task→engine routing.
 
 ```bash
-uv run convertible explain subagent   # the loop tool's contract (not a CLI verb)
+uv run colleague explain subagent   # the loop tool's contract (not a CLI verb)
 ```
 
 ## Outsource (a different mind)
 
-`outsource` is convertible's one **first-party** Claude Code skill — the inverse of
-the vendored skills. It lets another agent hand a scoped task to convertible: a
+`outsource` is colleague's one **first-party** Claude Code skill — the inverse of
+the vendored skills. It lets another agent hand a scoped task to colleague: a
 *different* engine/model (e.g. a local vLLM Qwen), not a stronger one — **diversity
-is the point**. Four verbs over `convertible drive`:
+is the point**. Four verbs over `colleague drive`:
 
 | Verb | What it does |
 |------|--------------|
@@ -661,14 +661,14 @@ approval, the checksum no longer matches and the approval is void.
 ```json
 {
   "run_command": { "allow": ["git", "pytest", "uv"], "deny": [] },
-  "hooks":       { ".convertible/lint.sh": "sha256:<hex>" },
+  "hooks":       { ".colleague/lint.sh": "sha256:<hex>" },
   "commands":    { "fix-lint": "sha256:<hex>" }
 }
 ```
 
-Place this file at `.convertible/approvals.json` in the target repo (or
-`~/.convertible/approvals.json` for user-level defaults; repo-level wins). A
-per-model overlay at `.convertible/<sanitized-model>/approvals.json` is composed
+Place this file at `.colleague/approvals.json` in the target repo (or
+`~/.colleague/approvals.json` for user-level defaults; repo-level wins). A
+per-model overlay at `.colleague/<sanitized-model>/approvals.json` is composed
 ahead — per-model keys replace base keys for the same section; no sibling model
 is ever read.
 
@@ -690,13 +690,13 @@ unapproved, or tampered is denied.
 
 ```bash
 # Approve a command template by checksum (default: sha256):
-uv run convertible commands approve fix-lint --repo .
+uv run colleague commands approve fix-lint --repo .
 
 # Approve a hook script by repo-relative path:
-uv run convertible hooks approve .convertible/lint.sh --repo .
+uv run colleague hooks approve .colleague/lint.sh --repo .
 
 # Use md5 instead (drift detection; not recommended for integrity):
-uv run convertible commands approve fix-lint --repo . --algo md5
+uv run colleague commands approve fix-lint --repo . --algo md5
 
 # Both commands support --json for machine-readable output.
 ```
@@ -705,13 +705,13 @@ uv run convertible commands approve fix-lint --repo . --algo md5
 
 ```bash
 # commands list shows: approved | drifted | unapproved | ungated
-uv run convertible commands list --repo .
+uv run colleague commands list --repo .
 
 # hooks list shows approval status per entry + the run_command policy if present
-uv run convertible hooks list --repo .
+uv run colleague hooks list --repo .
 
 # skills list always shows: accessible (never gated)
-uv run convertible skills list --repo .
+uv run colleague skills list --repo .
 ```
 
 Status values:
@@ -746,13 +746,13 @@ Status values:
 
 > **This is a code-execution risk. Read before driving an untrusted repo.**
 
-When you run `convertible drive` (or `convertible session`) against a repo that
-contains a `.convertible/hooks.json`, **those hooks execute automatically** with
+When you run `colleague drive` (or `colleague session`) against a repo that
+contains a `.colleague/hooks.json`, **those hooks execute automatically** with
 your operating-system privileges. There is no confirmation prompt and no
-sandboxing. Cloning a malicious repository and pointing Convertible at it will
+sandboxing. Cloning a malicious repository and pointing Colleague at it will
 run whatever shell commands that repository's hooks.json specifies.
 
-This behavior is intentional under Convertible's **trusted-operator-env model**
+This behavior is intentional under Colleague's **trusted-operator-env model**
 (D2): the same design tradeoff Claude Code and Codex make for their `.claude/`
 and `.codex/` hook configs. You are expected to trust (or audit) the repos you
 drive.
@@ -763,7 +763,7 @@ hard deny of the tool call; it fires a `skipped` firing in the artifact). The
 `run_command` allow/deny list gates which CLI programs the loop may invoke.
 
 **What is NOT yet implemented:** a `--no-hooks` escape hatch or any other
-mechanism to disable repo-shipped hooks without editing `.convertible/hooks.json`
+mechanism to disable repo-shipped hooks without editing `.colleague/hooks.json`
 yourself. The approval gate is a **policy gate, not a sandbox** — see its honest
 limits above. A further hardening increment is tracked but has **not shipped**
 in the current version. Do not rely on a non-existent flag.
@@ -771,8 +771,8 @@ in the current version. Do not rely on a non-existent flag.
 **Safe practices until the trust gate ships:**
 
 - Only drive repos you own or have audited.
-- Review `.convertible/hooks.json` before running `drive` in an unfamiliar repo.
-- Use user-level (`~/.convertible/hooks.json`) hooks as an allow-list approach
+- Review `.colleague/hooks.json` before running `drive` in an unfamiliar repo.
+- Use user-level (`~/.colleague/hooks.json`) hooks as an allow-list approach
   if you want hooks without trusting any repo's config.
 
 ## CLI
@@ -799,7 +799,7 @@ in the current version. Do not rely on a non-existent flag.
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
-| `doctor` | Configuration-readiness health check (convertible's oilcheck): identity, provider, engines, otel, environment. |
+| `doctor` | Configuration-readiness health check (colleague's oilcheck): identity, provider, engines, otel, environment. |
 | `cli overview` | Describe the CLI surface itself. |
 
 Every command supports `--json`. Results go to stdout, errors/diagnostics to
@@ -808,17 +808,17 @@ error, `3+` reserved.
 
 ## Writing your own engine wheel
 
-An engine is a class implementing `convertible.engine.Engine` (one method:
+An engine is a class implementing `colleague.engine.Engine` (one method:
 `drive(task, config) -> TaskResult`). Advertise it under the entry-point group
-and `convertible wheels list` discovers it — no change to Convertible core:
+and `colleague wheels list` discovers it — no change to Colleague core:
 
 ```toml
-[project.entry-points."convertible.engines"]
+[project.entry-points."colleague.engines"]
 my-engine = "my_package.engine:MyEngine"
 ```
 
 Most engines never re-implement the loop — they delegate to
-`convertible.loop.run` and only supply *how the model is called*. Because the
+`colleague.loop.run` and only supply *how the model is called*. Because the
 loop owns hook firing, a custom engine inherits the full lifecycle extensibility
 layer for free.
 

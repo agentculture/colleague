@@ -8,7 +8,7 @@ identically to the README check (one shared engine).
 All failures are advisory ``severity="warning"``. ``run()`` NEVER raises.
 
 Contract: ``NAME == "claude"`` and ``def run(repo: pathlib.Path) -> list[dict]``.
-Stdlib only — no ``import convertible``.
+Stdlib only — no ``import colleague``.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def _scan_blocks(blocks_text, repo: pathlib.Path):
 
     for _label, block in blocks_text:
         n_blocks += 1
-        for inv in _cmd.iter_convertible_invocations(block):
+        for inv in _cmd.iter_colleague_invocations(block):
             n_commands += 1
             kind = _cmd.classify(inv.command, inv.env_assignments)
             if kind == "safe":
@@ -147,7 +147,7 @@ def run(repo: pathlib.Path) -> list:
             "info",
             (
                 f"scanned {n_blocks} bash block(s) under '## Commands', "
-                f"{n_commands} convertible command(s): {n_executed} executed, "
+                f"{n_commands} colleague command(s): {n_executed} executed, "
                 f"{n_static} static-validated, {n_skipped} skipped (CLI unavailable)"
             ),
             "",

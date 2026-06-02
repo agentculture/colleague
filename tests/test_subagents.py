@@ -24,10 +24,10 @@ import os
 
 import pytest
 
-from convertible.config import MAX_SUBAGENT_DEPTH, EngineConfig
-from convertible.contract import OK, SubResult
-from convertible.registry import UnknownEngine
-from convertible.subagents import (
+from colleague.config import MAX_SUBAGENT_DEPTH, EngineConfig
+from colleague.contract import OK, SubResult
+from colleague.registry import UnknownEngine
+from colleague.subagents import (
     SubagentError,
     make_spawn,
     run_subagent,
@@ -51,8 +51,8 @@ def test_mock_to_mock_returns_subresult(tmp_path) -> None:
     assert result.engine == "mock"
     assert result.status == OK
     # The summary reflects the child's real work (the mock writes a marker file).
-    assert "convertible-mock.md" in result.summary
-    assert result.changed_files == ["convertible-mock.md"]
+    assert "colleague-mock.md" in result.summary
+    assert result.changed_files == ["colleague-mock.md"]
     assert result.task_id  # a real child task id was produced
 
 
@@ -178,7 +178,7 @@ def test_depth_cap_refuses_before_work(tmp_path) -> None:
         )
     assert str(MAX_SUBAGENT_DEPTH) in str(exc.value)
     # No child drive ran: the mock would have written a marker file. Absent.
-    assert not os.path.exists(os.path.join(str(tmp_path), "convertible-mock.md"))
+    assert not os.path.exists(os.path.join(str(tmp_path), "colleague-mock.md"))
 
 
 def test_depth_at_cap_is_allowed(tmp_path) -> None:

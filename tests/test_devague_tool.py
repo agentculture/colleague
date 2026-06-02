@@ -1,7 +1,7 @@
 """Tests for the devague loop tool and finish destination/announcement extensions.
 
 Written TDD — run these before implementing to see them fail, then implement to
-make them green.  Scope: convertible/tools.py additions only; loop wiring is
+make them green.  Scope: colleague/tools.py additions only; loop wiring is
 task t4.
 """
 
@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
-import convertible.devague as devague_mod
-from convertible.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
+import colleague.devague as devague_mod
+from colleague.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
 # ---------------------------------------------------------------------------
 # 1. Schema surface — devague must appear in the shared chassis tool table
@@ -157,7 +157,7 @@ def test_finish_destination_and_announcement_are_optional() -> None:
 
 def test_tool_outcome_has_destination_and_announcement_fields() -> None:
     """ToolOutcome.destination and .announcement default to None."""
-    from convertible.tools import ToolOutcome
+    from colleague.tools import ToolOutcome
 
     outcome = ToolOutcome(result="x")
     assert outcome.destination is None
@@ -216,13 +216,13 @@ def test_devague_in_shared_schemas_surface() -> None:
 
 
 def test_no_engine_imports_devague() -> None:
-    """No module under convertible/engines/ imports convertible.devague.
+    """No module under colleague/engines/ imports colleague.devague.
 
     The devague tool belongs to the chassis (tools.py); engines must not
     import it directly — they inherit it through the loop (all-engines rule).
     """
-    engines_dir = Path(__file__).parent.parent / "convertible" / "engines"
-    pattern = re.compile(r"\bconvertible\.devague\b|from convertible import.*devague")
+    engines_dir = Path(__file__).parent.parent / "colleague" / "engines"
+    pattern = re.compile(r"\bcolleague\.devague\b|from colleague import.*devague")
     violations: list[str] = []
     for py_file in engines_dir.glob("*.py"):
         if py_file.name == "__init__.py":
@@ -231,6 +231,6 @@ def test_no_engine_imports_devague() -> None:
         if pattern.search(source):
             violations.append(py_file.name)
     assert violations == [], (
-        f"Engine(s) {violations} import convertible.devague directly — "
+        f"Engine(s) {violations} import colleague.devague directly — "
         "the devague tool belongs to the chassis (tools.py), not to engines."
     )

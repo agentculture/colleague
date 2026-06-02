@@ -1,4 +1,4 @@
-"""Tests for convertible.tui.replay — deterministic event-log folding.
+"""Tests for colleague.tui.replay — deterministic event-log folding.
 
 Criteria tested:
 1. replay() folds events correctly (frame after 3 ticks == 3; skill popup
@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import inspect
 
-import convertible.tui.replay as _replay_mod
-from convertible.tui.events import Dismiss, SkillSuggested, Tick, dumps_events
-from convertible.tui.render.ansi import render
-from convertible.tui.replay import replay, replay_from_jsonl
-from convertible.tui.state import CockpitState
+import colleague.tui.replay as _replay_mod
+from colleague.tui.events import Dismiss, SkillSuggested, Tick, dumps_events
+from colleague.tui.render.ansi import render
+from colleague.tui.replay import replay, replay_from_jsonl
+from colleague.tui.state import CockpitState
 
 # ---------------------------------------------------------------------------
 # Criterion 1 — correctness

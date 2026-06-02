@@ -1,7 +1,7 @@
 """The integration seam (t6): subagent delegation wired end to end.
 
 These tests guard the wiring that connects the already-merged pieces — the
-subagent launcher (:func:`convertible.subagents.make_spawn`/``run_subagent``), the
+subagent launcher (:func:`colleague.subagents.make_spawn`/``run_subagent``), the
 tool executor's injected ``spawn`` callback, the ``subagent`` tool schema, and the
 ``TaskResult.sub_results`` field — into the live drive path.
 
@@ -25,11 +25,11 @@ from pathlib import Path
 
 import pytest
 
-from convertible import registry
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task
-from convertible.loop import _DEFAULT_SYSTEM, ModelResponse, ToolCall, run
-from convertible.subagents import make_spawn
+from colleague import registry
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task
+from colleague.loop import _DEFAULT_SYSTEM, ModelResponse, ToolCall, run
+from colleague.subagents import make_spawn
 
 
 def _script(turns: list[ModelResponse]):
@@ -53,7 +53,7 @@ def test_subagent_call_records_sub_result_and_merges_changed_files(tmp_path: Pat
     parent's ``changed_files`` (merged for the single top-level handoff).
 
     The child runs the REAL ``mock`` engine through ``make_spawn``/``run_subagent``
-    — the mock engine deterministically writes ``convertible-mock.md`` and finishes,
+    — the mock engine deterministically writes ``colleague-mock.md`` and finishes,
     so its changed file is the assertion target.
     """
     repo = tmp_path / "repo"
@@ -94,8 +94,8 @@ def test_subagent_call_records_sub_result_and_merges_changed_files(tmp_path: Pat
     sub = result.sub_results[0]
     assert sub.engine == "mock"
     assert sub.status == OK
-    # The mock child writes convertible-mock.md — it must be merged into the parent.
-    from convertible.engines.mock import OUTPUT_FILE
+    # The mock child writes colleague-mock.md — it must be merged into the parent.
+    from colleague.engines.mock import OUTPUT_FILE
 
     assert OUTPUT_FILE in sub.changed_files
     assert OUTPUT_FILE in result.changed_files
@@ -119,7 +119,7 @@ def test_subagent_sub_results_surface_through_mock_engine_drive(tmp_path: Path) 
     config.subagent_spawn = make_spawn(str(repo), config, "mock")
 
     # Override the mock engine's script to delegate first, then finish.
-    from convertible.engines import mock as mock_mod
+    from colleague.engines import mock as mock_mod
 
     def _delegating_script(_task):
         return _script(
@@ -176,8 +176,8 @@ def test_default_system_advertises_subagent_as_optional() -> None:
 @pytest.mark.parametrize(
     "engine_source",
     [
-        "convertible/engines/mock.py",
-        "convertible/engines/vllm_openai.py",
+        "colleague/engines/mock.py",
+        "colleague/engines/vllm_openai.py",
     ],
 )
 def test_both_engines_forward_subagent_spawn(engine_source: str) -> None:

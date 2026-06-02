@@ -4,18 +4,18 @@
 > with positional arguments.
 
 Command templates let operators save reusable task recipes as Markdown files
-under `.convertible/commands/<name>.md` and invoke them by name. A template
+under `.colleague/commands/<name>.md` and invoke them by name. A template
 expands into the *same* `Task` shape a raw `drive "<text>"` produces — it is a
-front-end over the drive path, not a parallel one (`convertible/commands.py`).
+front-end over the drive path, not a parallel one (`colleague/commands.py`).
 
-Templates resolve repo-level first, then user-level: `.convertible/commands/`
-in the repo shadows `~/.convertible/commands/` by file stem
+Templates resolve repo-level first, then user-level: `.colleague/commands/`
+in the repo shadows `~/.colleague/commands/` by file stem
 ([config resolution](layered-config.md#config-resolution)).
 
-`.convertible/commands/` is the one part of the otherwise-gitignored
-`.convertible/` dir that git tracks, so recipes can be **committed and shared
+`.colleague/commands/` is the one part of the otherwise-gitignored
+`.colleague/` dir that git tracks, so recipes can be **committed and shared
 in-repo** (run artifacts, `hooks.json`, and `approvals.json` stay local). For
-cross-repo sharing, put recipes under `~/.convertible/commands/` instead. The
+cross-repo sharing, put recipes under `~/.colleague/commands/` instead. The
 committed `doc-review` recipe is a worked example.
 
 ## Template file format
@@ -51,12 +51,12 @@ Fix all lint errors under $1. Then run the formatter. $ARGUMENTS
 
 ```bash
 # One-shot via drive — tokens after the name are template arguments:
-convertible drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
+colleague drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
 
 # List discovered templates / describe the surface:
-convertible commands list --repo .
-convertible commands list --repo . --json
-convertible commands overview
+colleague commands list --repo .
+colleague commands list --repo . --json
+colleague commands overview
 ```
 
 `--command <name>` and a positional instruction are **mutually exclusive**. The
@@ -65,9 +65,9 @@ originating command name is recorded as `TaskResult.command` in the
 
 ## Key files
 
-- `convertible/commands.py` — discovery, parsing, `$ARGUMENTS`/`$N` expansion.
-- `convertible/configdir.py` — repo-over-user `.convertible/` resolution.
-- `convertible/cli/_commands/commands.py` — the `commands list`/`overview` verb.
+- `colleague/commands.py` — discovery, parsing, `$ARGUMENTS`/`$N` expansion.
+- `colleague/configdir.py` — repo-over-user `.colleague/` resolution.
+- `colleague/cli/_commands/commands.py` — the `commands list`/`overview` verb.
 
 ## See also
 

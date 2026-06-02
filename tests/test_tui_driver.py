@@ -1,4 +1,4 @@
-"""Tests for the live TTY driver — ``convertible.tui.render.driver`` (t12).
+"""Tests for the live TTY driver — ``colleague.tui.render.driver`` (t12).
 
 All four acceptance criteria:
 1. ``key_to_event`` maps quit keys to None, other keys to Key.
@@ -15,11 +15,11 @@ import sys
 
 import pytest
 
-from convertible.cli import main
-from convertible.cli._errors import CliError
-from convertible.tui.events import KeyPress
-from convertible.tui.render.driver import key_to_event, run
-from convertible.tui.state import CockpitState
+from colleague.cli import main
+from colleague.cli._errors import CliError
+from colleague.tui.events import KeyPress
+from colleague.tui.render.driver import key_to_event, run
+from colleague.tui.state import CockpitState
 
 # ---------------------------------------------------------------------------
 # Criterion 1: key_to_event mapping
@@ -135,7 +135,7 @@ def test_run_empty_keys_returns_state() -> None:
 
 def test_driver_does_not_import_socket() -> None:
     """driver.py must not import 'socket'."""
-    import convertible.tui.render.driver as drv_mod
+    import colleague.tui.render.driver as drv_mod
 
     src = inspect.getsource(drv_mod)
     assert "import socket" not in src, "driver must not import 'socket'"
@@ -143,7 +143,7 @@ def test_driver_does_not_import_socket() -> None:
 
 def test_driver_does_not_import_subprocess() -> None:
     """driver.py must not import 'subprocess'."""
-    import convertible.tui.render.driver as drv_mod
+    import colleague.tui.render.driver as drv_mod
 
     src = inspect.getsource(drv_mod)
     assert "import subprocess" not in src, "driver must not import 'subprocess'"
@@ -151,7 +151,7 @@ def test_driver_does_not_import_subprocess() -> None:
 
 def test_driver_does_not_import_asyncio() -> None:
     """driver.py must not import 'asyncio'."""
-    import convertible.tui.render.driver as drv_mod
+    import colleague.tui.render.driver as drv_mod
 
     src = inspect.getsource(drv_mod)
     assert "import asyncio" not in src, "driver must not import 'asyncio'"
@@ -159,7 +159,7 @@ def test_driver_does_not_import_asyncio() -> None:
 
 def test_driver_does_not_use_os_fork() -> None:
     """driver.py must not call os.fork."""
-    import convertible.tui.render.driver as drv_mod
+    import colleague.tui.render.driver as drv_mod
 
     src = inspect.getsource(drv_mod)
     assert "os.fork" not in src, "driver must not call 'os.fork'"
@@ -167,7 +167,7 @@ def test_driver_does_not_use_os_fork() -> None:
 
 def test_driver_does_not_start_threads() -> None:
     """driver.py must not call Thread(...).start()."""
-    import convertible.tui.render.driver as drv_mod
+    import colleague.tui.render.driver as drv_mod
 
     src = inspect.getsource(drv_mod)
     assert "Thread(" not in src, "driver must not spawn threads"
@@ -186,7 +186,7 @@ def test_tui_live_raises_cli_error_when_not_tty(monkeypatch: pytest.MonkeyPatch)
     """
     import argparse
 
-    from convertible.cli._commands.tui import cmd_tui_live
+    from colleague.cli._commands.tui import cmd_tui_live
 
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     args = argparse.Namespace(json=False)
@@ -201,7 +201,7 @@ def test_tui_live_cli_error_has_remediation(monkeypatch: pytest.MonkeyPatch) -> 
     """The CliError from tui live must carry a remediation hint."""
     import argparse
 
-    from convertible.cli._commands.tui import cmd_tui_live
+    from colleague.cli._commands.tui import cmd_tui_live
 
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     args = argparse.Namespace(json=False)

@@ -30,12 +30,12 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from convertible.artifact import write as artifact_write
-from convertible.commands import expand_command
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task, TaskResult
-from convertible.engine import Engine
-from convertible.loop import CompleteFn, ModelResponse, ToolCall, run
+from colleague.artifact import write as artifact_write
+from colleague.commands import expand_command
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task, TaskResult
+from colleague.engine import Engine
+from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,15 +50,15 @@ def _make_script(path: Path, body: str) -> str:
 
 
 def _write_hooks(repo: Path, config: dict) -> None:
-    """Write .convertible/hooks.json under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write .colleague/hooks.json under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(config), encoding="utf-8")
 
 
 def _write_command(repo: Path, name: str, body: str) -> None:
-    """Write a command template under .convertible/commands/<name>.md."""
-    cmds_dir = repo / ".convertible" / "commands"
+    """Write a command template under .colleague/commands/<name>.md."""
+    cmds_dir = repo / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True, exist_ok=True)
     (cmds_dir / f"{name}.md").write_text(body, encoding="utf-8")
 
@@ -91,8 +91,8 @@ def _dict_keys_deep(value: Any) -> Any:
 
 def _setup_repo(tmp_path: Path, repo_name: str, scripts_dir: Path) -> tuple[Path, Path]:
     """Create a repo with:
-    - .convertible/commands/do-work.md (template with $ARGUMENTS)
-    - .convertible/hooks.json:
+    - .colleague/commands/do-work.md (template with $ARGUMENTS)
+    - .colleague/hooks.json:
         pre_tool: DENY hook on run_command (exit 1)
         post_tool: observe hook on write_file that writes a marker file
     Returns (repo_path, marker_path).

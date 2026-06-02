@@ -9,7 +9,7 @@ AC1 — Identity attribution:
   to a file; the test asserts the drive ran with ``CONVERTIBLE_IDENTITY=X``.
 
 AC2 — Neighbour read + cleanup:
-  Pre-create a fake neighbour under ``.convertible/neighbours/<name>/somefile``
+  Pre-create a fake neighbour under ``.colleague/neighbours/<name>/somefile``
   with known content. Script the mock engine to call ``read_file`` on that clone
   path during the drive.  Assert the drive successfully read the neighbour
   content — demonstrating a cross-repo task a sealed (no-neighbour) drive could
@@ -24,10 +24,10 @@ from pathlib import Path
 
 import pytest
 
-from convertible.contract import Task
-from convertible.hooks import HookConfig
-from convertible.loop import ModelResponse, ToolCall, run
-from convertible.tools import ToolExecutor
+from colleague.contract import Task
+from colleague.hooks import HookConfig
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.tools import ToolExecutor
 
 # ---------------------------------------------------------------------------
 # Helpers shared by both ACs
@@ -66,8 +66,8 @@ def _make_fake_agtag(directory: Path, record_file: Path) -> Path:
 
 
 def _make_fake_neighbour(repo: Path, name: str, filename: str, content: str) -> Path:
-    """Write a file under ``.convertible/neighbours/<name>/`` (no git needed)."""
-    clone_dir = repo / ".convertible" / "neighbours" / name
+    """Write a file under ``.colleague/neighbours/<name>/`` (no git needed)."""
+    clone_dir = repo / ".colleague" / "neighbours" / name
     clone_dir.mkdir(parents=True, exist_ok=True)
     file_path = clone_dir / filename
     file_path.write_text(content, encoding="utf-8")
@@ -145,11 +145,11 @@ class TestIdentityAttribution:
     def test_identity_via_identity_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Identity resolved from .convertible/identity.json also reaches the subprocess."""
+        """Identity resolved from .colleague/identity.json also reaches the subprocess."""
         # No culture.yaml — fall through to identity.json.
         import json
 
-        dotdir = tmp_path / ".convertible"
+        dotdir = tmp_path / ".colleague"
         dotdir.mkdir(parents=True, exist_ok=True)
         (dotdir / "identity.json").write_text(json.dumps({"as": "json-identity"}), encoding="utf-8")
 
@@ -191,14 +191,14 @@ class TestNeighbourReadAndCleanup:
 
         A sealed (no-neighbour) drive could not complete this task because the
         neighbour file would not exist. Here we:
-        1. Pre-write ``.convertible/neighbours/sibling/facts.txt`` with known content.
+        1. Pre-write ``.colleague/neighbours/sibling/facts.txt`` with known content.
         2. Script the mock drive to read that file, then finish.
         3. Assert the read succeeded (the step result contains the file content).
-        4. Assert ``.convertible/neighbours/`` is gone after finish (cleanup fired).
+        4. Assert ``.colleague/neighbours/`` is gone after finish (cleanup fired).
         """
         neighbour_content = "NEIGHBOUR_FACT: cross-repo data only a clone provides\n"
         _make_fake_neighbour(tmp_path, "sibling", "facts.txt", neighbour_content)
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert clone_root.exists(), "pre-condition: clone dir must exist before drive"
 
         read_results: list[str] = []
@@ -209,7 +209,7 @@ class TestNeighbourReadAndCleanup:
                     ToolCall(
                         "r1",
                         "read_file",
-                        {"path": ".convertible/neighbours/sibling/facts.txt"},
+                        {"path": ".colleague/neighbours/sibling/facts.txt"},
                     )
                 ],
                 prompt_tokens=1,
@@ -260,7 +260,7 @@ class TestNeighbourReadAndCleanup:
 
         # AC2c — cleanup fired: no clone dir residue after finish.
         assert not clone_root.exists(), (
-            "cleanup() must remove .convertible/neighbours/ after finish — "
+            "cleanup() must remove .colleague/neighbours/ after finish — "
             "clone dir still present after drive"
         )
 
@@ -268,7 +268,7 @@ class TestNeighbourReadAndCleanup:
         """Even with multiple neighbour files, cleanup removes everything after finish."""
         _make_fake_neighbour(tmp_path, "alpha", "a.txt", "alpha content\n")
         _make_fake_neighbour(tmp_path, "beta", "b.txt", "beta content\n")
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
         assert list(clone_root.iterdir()), "two fake clones must exist before drive"
 
         responses = [
@@ -320,7 +320,7 @@ class TestMeshDriveCombined:
         # --- fake neighbour ---
         neighbour_content = "CROSS_REPO_DATUM: only readable via neighbour clone\n"
         _make_fake_neighbour(tmp_path, "peer", "data.txt", neighbour_content)
-        clone_root = tmp_path / ".convertible" / "neighbours"
+        clone_root = tmp_path / ".colleague" / "neighbours"
 
         read_results: list[str] = []
 
@@ -342,7 +342,7 @@ class TestMeshDriveCombined:
                     ToolCall(
                         "r1",
                         "read_file",
-                        {"path": ".convertible/neighbours/peer/data.txt"},
+                        {"path": ".colleague/neighbours/peer/data.txt"},
                     )
                 ],
                 prompt_tokens=2,
@@ -391,9 +391,7 @@ class TestMeshDriveCombined:
         assert "CROSS_REPO_DATUM" in read_results[0]
 
         # AC2b — cleanup: no clone dir after finish.
-        assert (
-            not clone_root.exists()
-        ), "cleanup() must remove .convertible/neighbours/ after finish"
+        assert not clone_root.exists(), "cleanup() must remove .colleague/neighbours/ after finish"
 
         # Trace sanity: culture step + read_file step both succeeded.
         culture_steps = [s for s in result.steps if s.tool == "culture"]

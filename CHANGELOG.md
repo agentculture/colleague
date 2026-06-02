@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-06-02
+
+### Added
+
+- Deprecated back-compat fallbacks for the rename (read-only): the legacy `.convertible/` config + artifact directories are still read (new writes always target `.colleague/`), `CONVERTIBLE_*` environment variables are honored as a fallback (`COLLEAGUE_*` takes precedence), and `identity_env` emits BOTH `COLLEAGUE_IDENTITY` and `CONVERTIBLE_IDENTITY` so sibling AgentCulture CLIs keep inheriting the identity.
+
+### Changed
+
+- **Renamed the project from `convertible` to `colleague`.** The import package is now `colleague`, the CLI ships as two console scripts (`colleague` and its short alias `clg`), and the PyPI distribution is `colleague` (no longer `convertible-cli`).
+- Config directory is now `.colleague/` and the environment variables are `COLLEAGUE_*` (e.g. `COLLEAGUE_ENGINE`, `COLLEAGUE_MODEL`, `COLLEAGUE_OTEL_ENABLED`, `COLLEAGUE_IDENTITY`, `COLLEAGUE_VLLM_E2E`).
+- Engine/renderer entry-point groups are now `colleague.engines` / `colleague.renderers`; OpenTelemetry service/tracer/meter names and span/metric names are now `colleague.*`.
+- pyproject URLs point at `github.com/agentculture/colleague`; SonarCloud `sonar.sources` is now `colleague` and `sonar.projectKey` is now `agentculture_colleague` (the SonarCloud project must be re-keyed externally to match, or coverage uploads 404).
+
 ## [0.26.0] - 2026-06-02
 
 ### Added

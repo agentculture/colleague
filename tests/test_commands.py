@@ -1,13 +1,13 @@
 """Command template discovery and expansion (t3).
 
-Tests for convertible.commands:
+Tests for colleague.commands:
 - discover_commands(repo_path, *, user_home=None) -> dict[str, Path]
 - load_command(path) -> Command
 - expand_command(repo_path, name, args, *, engine_default="mock", user_home=None) -> Task
 - CommandError raised on unknown command name
 
 Acceptance criteria:
-1. discover_commands finds fixture files under .convertible/commands/; a fixture command
+1. discover_commands finds fixture files under .colleague/commands/; a fixture command
    expands with $ARGUMENTS AND $1/$2 substitution working.
 2. expand_command(repo, name, args) returns a Task whose dict keys exactly match
    Task.new(repo, "x").to_dict() keys, and whose repo_path/engine/constraints/instruction
@@ -21,14 +21,14 @@ from pathlib import Path
 
 import pytest
 
-from convertible.commands import (
+from colleague.commands import (
     Command,
     CommandError,
     discover_commands,
     expand_command,
     load_command,
 )
-from convertible.contract import Task
+from colleague.contract import Task
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,8 +43,8 @@ def _make_repo(tmp_path: Path, subpath: str = "repo") -> Path:
 
 
 def _make_commands_dir(base: Path) -> Path:
-    """Create .convertible/commands/ directory tree under base."""
-    cmds_dir = base / ".convertible" / "commands"
+    """Create .colleague/commands/ directory tree under base."""
+    cmds_dir = base / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True)
     return cmds_dir
 
@@ -88,7 +88,7 @@ class TestDiscoverCommands:
 
         user_home = tmp_path / "home"
         user_home.mkdir()
-        user_cmds = user_home / ".convertible" / "commands"
+        user_cmds = user_home / ".colleague" / "commands"
         user_cmds.mkdir(parents=True)
         (user_cmds / "shared.md").write_text("user version")
         (user_cmds / "user-only.md").write_text("user only")
@@ -100,7 +100,7 @@ class TestDiscoverCommands:
         assert result["user-only"].read_text() == "user only"
 
     def test_empty_when_no_commands_dir(self, tmp_path: Path) -> None:
-        """discover_commands returns {} when no .convertible/commands/ exists."""
+        """discover_commands returns {} when no .colleague/commands/ exists."""
         repo = _make_repo(tmp_path)
         user_home = tmp_path / "home"
         user_home.mkdir()
@@ -109,10 +109,10 @@ class TestDiscoverCommands:
 
         assert result == {}
 
-    def test_empty_when_commands_dir_absent_but_convertible_present(self, tmp_path: Path) -> None:
-        """Returns {} when .convertible/ exists but commands/ subdir does not."""
+    def test_empty_when_commands_dir_absent_but_colleague_present(self, tmp_path: Path) -> None:
+        """Returns {} when .colleague/ exists but commands/ subdir does not."""
         repo = _make_repo(tmp_path)
-        (repo / ".convertible").mkdir()
+        (repo / ".colleague").mkdir()
         user_home = tmp_path / "home"
         user_home.mkdir()
 

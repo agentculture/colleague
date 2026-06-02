@@ -3,10 +3,10 @@
 > A foreground TTY loop that runs every selection through the same drive path —
 > no parallel code path, no daemon.
 
-`convertible session` opens a foreground interactive palette
-(`convertible/cli/_commands/session.py`). It lists discovered
+`colleague session` opens a foreground interactive palette
+(`colleague/cli/_commands/session.py`). It lists discovered
 [command templates](command-templates.md), accepts a selection or a free-text
-instruction, and runs each through the **same `drive` path** as `convertible
+instruction, and runs each through the **same `drive` path** as `colleague
 drive` — identical `Task`, loop, hooks, telemetry, and artifact. It is a thin
 front-end, not a second engine path, and it is **not** a daemon: it is a plain
 foreground loop over the shared drive code.
@@ -54,35 +54,35 @@ context — the same three views the [`tui`](tui.md) verb exposes:
   *full* agent-readable view, the default off a TTY. `--no-tui` forces it on a TTY.
 - **`--json`** — stdout carries only the drive `TaskResult` (one JSON object each,
   preserving the machine contract); the Markdown cockpit renders to stderr as
-  chrome. The TAUI JSON mirror itself is `convertible tui state`.
+  chrome. The TAUI JSON mirror itself is `colleague tui state`.
 
 Errors (a bad selection, an unknown engine, a drive failure) go to **stderr**
 (agent-first); in the dynamic ANSI tier they are also folded into the conversation
 so a redraw never hides them.
 
-## Bare `convertible` opens it
+## Bare `colleague` opens it
 
-Running `convertible` with no arguments **at a terminal** opens this same palette
+Running `colleague` with no arguments **at a terminal** opens this same palette
 — the natural "get in and drive" gesture. The engine is resolved like `drive`
-(`--engine` > `CONVERTIBLE_ENGINE` > `vllm-openai`); it never silently falls back
+(`--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`); it never silently falls back
 to the no-op `mock`. Piped, redirected, or otherwise non-interactive, bare
-`convertible` prints usage instead, so scripts and agents keep a discoverable
+`colleague` prints usage instead, so scripts and agents keep a discoverable
 surface. Both stdin and stdout must be a TTY for the palette to open (`-h/--help`
 is unaffected either way).
 
 ## Handoff: commit-local by default
 
 A session is a "talk + iterate" loop: by default each drive commits locally on a
-`convertible/<task_id>` branch but does **not** push or open a PR (so chatting
+`colleague/<task_id>` branch but does **not** push or open a PR (so chatting
 with the palette never opens surprise PRs). Pass `--pr` to push and open a PR
 after every drive. This differs from `drive`, which opens a PR by default.
 
 ## Usage
 
 ```bash
-convertible session --repo /path/to/repo --engine vllm-openai
-convertible                       # at a terminal: opens the palette
-convertible | cat                 # piped: prints usage instead
+colleague session --repo /path/to/repo --engine vllm-openai
+colleague                       # at a terminal: opens the palette
+colleague | cat                 # piped: prints usage instead
 ```
 
 Driver flags accepted by `drive` (`--engine`, `--base`, `--base-url`, `--model`,
@@ -93,8 +93,8 @@ result per drive on stdout, palette chrome to stderr).
 
 ## Key files
 
-- `convertible/cli/_commands/session.py` — the palette loop.
-- `convertible/cli/__init__.py` — bare-`convertible` → palette routing.
+- `colleague/cli/_commands/session.py` — the palette loop.
+- `colleague/cli/__init__.py` — bare-`colleague` → palette routing.
 
 ## See also
 

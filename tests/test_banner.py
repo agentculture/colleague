@@ -1,9 +1,9 @@
-"""The convertible startup banner — decorative chrome on drive/session start (issue #15).
+"""The colleague startup banner — decorative chrome on drive/session start (issue #15).
 
 Contract under test: the banner is written to **stderr**, shown **only on an
 interactive TTY**, and **suppressed in ``--json`` mode** — in both ``drive`` and
 ``session``. So it never pollutes the stdout result stream nor the agent-parsed
-``error:``/``hint:`` stderr that convertible (an agent harness) emits.
+``error:``/``hint:`` stderr that colleague (an agent harness) emits.
 """
 
 from __future__ import annotations
@@ -14,13 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
-from convertible.cli._banner import banner, emit_banner
+from colleague.cli import main
+from colleague.cli._banner import banner, emit_banner
 
 
 def _force_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the banner think stderr is interactive (capsys/pipes are not)."""
-    monkeypatch.setattr("convertible.cli._banner._isatty", lambda: True)
+    monkeypatch.setattr("colleague.cli._banner._isatty", lambda: True)
 
 
 def _art() -> str:
@@ -56,7 +56,7 @@ def _session_args(tmp_path: Path, *, json_mode: bool) -> argparse.Namespace:
 
 
 def _run_session(args: argparse.Namespace) -> tuple[_CollectingOut, _CollectingOut]:
-    from convertible.cli._commands.session import run_session
+    from colleague.cli._commands.session import run_session
 
     out, err = _CollectingOut(), _CollectingOut()
     rc = run_session(args, input_fn=iter(["q"]), out=out, err=err)
@@ -139,7 +139,7 @@ def test_emit_banner_swallows_missing_resource(monkeypatch: pytest.MonkeyPatch) 
     def _boom() -> str:
         raise FileNotFoundError("_banner.txt")
 
-    monkeypatch.setattr("convertible.cli._banner.banner", _boom)
+    monkeypatch.setattr("colleague.cli._banner.banner", _boom)
     emitted: list[str] = []
     emit_banner(emitted.append, json_mode=False)  # must not raise
     assert emitted == [], "no art emitted when the resource is missing"

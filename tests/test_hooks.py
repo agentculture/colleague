@@ -1,4 +1,4 @@
-"""Tests for convertible/hooks.py — hook config loader and runner (t4).
+"""Tests for colleague/hooks.py — hook config loader and runner (t4).
 
 Table-driven tests covering:
 1. load_hooks parses hooks.json; hooks_for selects/excludes by matcher.
@@ -14,14 +14,14 @@ from pathlib import Path
 
 import pytest
 
-from convertible.hooks import (
+from colleague.hooks import (
     HookConfig,
     HookDecision,
     HookEntry,
     load_hooks,
     run_hook,
 )
-from convertible.layers import sanitize_model
+from colleague.layers import sanitize_model
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -50,8 +50,8 @@ HOOKS_JSON = {
 
 @pytest.fixture()
 def repo_with_hooks(tmp_path: Path) -> Path:
-    """Create a fake repo with a .convertible/hooks.json."""
-    dotdir = tmp_path / ".convertible"
+    """Create a fake repo with a .colleague/hooks.json."""
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir()
     (dotdir / "hooks.json").write_text(json.dumps(HOOKS_JSON), encoding="utf-8")
     return tmp_path
@@ -128,13 +128,13 @@ class TestLoadHooks:
         assert cfg.hooks_for("pre_tool", tool="run_command") == []
         assert cfg.hooks_for("task_start") == []
 
-    def test_missing_convertible_dir_returns_empty(self, tmp_path: Path) -> None:
+    def test_missing_colleague_dir_returns_empty(self, tmp_path: Path) -> None:
         cfg = load_hooks(tmp_path / "nonexistent_repo")
         assert isinstance(cfg, HookConfig)
         assert cfg.hooks_for("finish") == []
 
     def test_malformed_json_returns_empty(self, tmp_path: Path) -> None:
-        dotdir = tmp_path / ".convertible"
+        dotdir = tmp_path / ".colleague"
         dotdir.mkdir()
         (dotdir / "hooks.json").write_text("not valid json {{", encoding="utf-8")
         cfg = load_hooks(tmp_path)
@@ -159,7 +159,7 @@ class TestLoadHooks:
     def test_user_level_fallback(self, tmp_path: Path) -> None:
         """User-level hooks.json is picked up when no repo-level file exists."""
         user_home = tmp_path / "home"
-        user_dotdir = user_home / ".convertible"
+        user_dotdir = user_home / ".colleague"
         user_dotdir.mkdir(parents=True)
         user_hooks = {"hooks": {"task_start": [{"command": "echo user-start"}]}}
         (user_dotdir / "hooks.json").write_text(json.dumps(user_hooks), encoding="utf-8")
@@ -175,13 +175,13 @@ class TestLoadHooks:
     def test_repo_level_shadows_user_level(self, tmp_path: Path) -> None:
         """Repo-level hooks.json takes precedence over user-level."""
         user_home = tmp_path / "home"
-        user_dotdir = user_home / ".convertible"
+        user_dotdir = user_home / ".colleague"
         user_dotdir.mkdir(parents=True)
         user_hooks = {"hooks": {"task_start": [{"command": "echo user-start"}]}}
         (user_dotdir / "hooks.json").write_text(json.dumps(user_hooks), encoding="utf-8")
 
         repo = tmp_path / "myrepo"
-        repo_dotdir = repo / ".convertible"
+        repo_dotdir = repo / ".colleague"
         repo_dotdir.mkdir(parents=True)
         repo_hooks = {"hooks": {"task_start": [{"command": "echo repo-start"}]}}
         (repo_dotdir / "hooks.json").write_text(json.dumps(repo_hooks), encoding="utf-8")
@@ -211,7 +211,7 @@ class TestPerModelHooksOverlay:
     Before-state baseline (the gap t1 closes): pre-change ``load_hooks`` had no
     ``model`` parameter — its signature was ``load_hooks(repo_path, *,
     user_home=None)``. There was no way to layer a model-specific
-    ``.convertible/<model>/hooks.json`` ahead of the base ``.convertible/
+    ``.colleague/<model>/hooks.json`` ahead of the base ``.colleague/
     hooks.json``. t1 adds the keyword-only ``model`` parameter and the
     per-model-first composition exercised below.
     """
@@ -219,7 +219,7 @@ class TestPerModelHooksOverlay:
     # --- Criterion 1: per-model entries merge BEFORE base entries -----------
 
     def test_per_model_entries_prepended_before_base(self, repo_with_hooks: Path) -> None:
-        """`.convertible/<model>/hooks.json` entries come before base entries.
+        """`.colleague/<model>/hooks.json` entries come before base entries.
 
         The base fixture has one ``pre_tool`` ``run_command`` entry
         (``echo pre-run``). A per-model overlay adds another ``run_command``
@@ -235,7 +235,7 @@ class TestPerModelHooksOverlay:
                 ],
             }
         }
-        _write_hooks(repo_with_hooks / ".convertible", f"{safe}/hooks.json", overlay)
+        _write_hooks(repo_with_hooks / ".colleague", f"{safe}/hooks.json", overlay)
 
         cfg = load_hooks(repo_with_hooks, model=model)
         entries = cfg.hooks_for("pre_tool", tool="run_command")
@@ -253,7 +253,7 @@ class TestPerModelHooksOverlay:
                 "finish": [{"command": "echo model-done"}],
             }
         }
-        _write_hooks(repo_with_hooks / ".convertible", f"{safe}/hooks.json", overlay)
+        _write_hooks(repo_with_hooks / ".colleague", f"{safe}/hooks.json", overlay)
 
         cfg = load_hooks(repo_with_hooks, model=model)
 
@@ -270,9 +270,7 @@ class TestPerModelHooksOverlay:
         """An event present only in the overlay is exposed too."""
         model = "solo"
         overlay = {"hooks": {"post_tool": [{"matcher": "", "command": "echo model-post"}]}}
-        _write_hooks(
-            repo_with_hooks / ".convertible", f"{sanitize_model(model)}/hooks.json", overlay
-        )
+        _write_hooks(repo_with_hooks / ".colleague", f"{sanitize_model(model)}/hooks.json", overlay)
 
         cfg = load_hooks(repo_with_hooks, model=model)
         entries = cfg.hooks_for("post_tool", tool="read_file")
@@ -283,15 +281,15 @@ class TestPerModelHooksOverlay:
     # --- Criterion 2: exact-construction via sanitize_model, no sibling glob -
 
     def test_sibling_model_overlay_never_loaded(self, repo_with_hooks: Path) -> None:
-        """A fix under `.convertible/Y/hooks.json` is invisible when model='X'.
+        """A fix under `.colleague/Y/hooks.json` is invisible when model='X'.
 
         The per-model path is exact-constructed via ``sanitize_model`` — sibling
-        ``.convertible/*/`` directories are never globbed. We place an overlay
+        ``.colleague/*/`` directories are never globbed. We place an overlay
         under model ``Y`` and drive with model ``X``; the overlay must NOT load.
         """
         # Overlay belongs to a *different* model "other-model".
         _write_hooks(
-            repo_with_hooks / ".convertible",
+            repo_with_hooks / ".colleague",
             f"{sanitize_model('other-model')}/hooks.json",
             {"hooks": {"pre_tool": [{"matcher": "run_command", "command": "echo SIBLING"}]}},
         )
@@ -309,7 +307,7 @@ class TestPerModelHooksOverlay:
         assert safe == "Qwen-Qwen3-32B"  # constructed token, slash collapsed
         # Write at the sanitized path — this is the only path that should load.
         _write_hooks(
-            repo_with_hooks / ".convertible",
+            repo_with_hooks / ".colleague",
             f"{safe}/hooks.json",
             {"hooks": {"finish": [{"command": "echo model-done"}]}},
         )
@@ -327,7 +325,7 @@ class TestPerModelHooksOverlay:
     def test_model_with_no_overlay_is_byte_identical_to_base(self, repo_with_hooks: Path) -> None:
         """A model whose overlay file is absent yields the base-only config."""
         base = load_hooks(repo_with_hooks)
-        # No `.convertible/<model>/hooks.json` exists for this model.
+        # No `.colleague/<model>/hooks.json` exists for this model.
         with_model = load_hooks(repo_with_hooks, model="model-without-overlay")
         assert with_model == base
 
@@ -344,7 +342,7 @@ class TestPerModelHooksOverlay:
         safe = sanitize_model(model)
 
         user_home = tmp_path / "home"
-        user_dotdir = user_home / ".convertible"
+        user_dotdir = user_home / ".colleague"
         _write_hooks(
             user_dotdir,
             f"{safe}/hooks.json",
@@ -352,7 +350,7 @@ class TestPerModelHooksOverlay:
         )
 
         repo = tmp_path / "myrepo"
-        repo_dotdir = repo / ".convertible"
+        repo_dotdir = repo / ".colleague"
         # Base repo hooks present so we can observe ordering.
         _write_hooks(
             repo_dotdir,
@@ -379,7 +377,7 @@ class TestPerModelHooksOverlay:
 
         user_home = tmp_path / "home"
         _write_hooks(
-            user_home / ".convertible",
+            user_home / ".colleague",
             f"{safe}/hooks.json",
             {"hooks": {"task_start": [{"command": "echo user-model-start"}]}},
         )
@@ -401,7 +399,7 @@ class TestPerModelHooksOverlay:
         """
         model = "broken-model"
         safe = sanitize_model(model)
-        path = repo_with_hooks / ".convertible" / safe / "hooks.json"
+        path = repo_with_hooks / ".colleague" / safe / "hooks.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("not valid json {{", encoding="utf-8")
 
@@ -414,7 +412,7 @@ class TestPerModelHooksOverlay:
         model = "broken-model"
         safe = sanitize_model(model)
         repo = tmp_path / "myrepo"
-        path = repo / ".convertible" / safe / "hooks.json"
+        path = repo / ".colleague" / safe / "hooks.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{ broken", encoding="utf-8")
 

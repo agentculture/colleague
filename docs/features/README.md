@@ -1,10 +1,10 @@
-# Convertible feature docs
+# Colleague feature docs
 
 > One harness, many engines. This directory holds one doc per shipped feature —
 > the **list of features** below, each linking to a focused page.
 
-Convertible is the **car around the model**: the model is the engine, and
-convertible is the chassis, controls, task contract, and handoff that turn that
+Colleague is the **car around the model**: the model is the engine, and
+colleague is the chassis, controls, task contract, and handoff that turn that
 engine into a usable repo worker. Each feature is one part of that car. For the
 narrative overview and quickstart, see the top-level [`README.md`](../../README.md);
 for the design specs and plans these features converged from, see
@@ -26,7 +26,7 @@ boundary — what is deliberately *not* built — is restated under
 | Result artifact | [artifact.md](artifact.md) | Dashboard | written by `drive` |
 | Command templates | [command-templates.md](command-templates.md) | Command templates | `commands`, `drive --command` |
 | Lifecycle hooks | [hooks.md](hooks.md) | Hooks | `hooks` |
-| Interactive palette | [session.md](session.md) | Interactive palette | `session`, bare `convertible` |
+| Interactive palette | [session.md](session.md) | Interactive palette | `session`, bare `colleague` |
 | Layered per-model config | [layered-config.md](layered-config.md) | Config resolution | `agents`, `skills` |
 | GPS: OpenTelemetry | [telemetry.md](telemetry.md) | GPS | `telemetry` |
 | `doctor` (oilcheck) | [doctor.md](doctor.md) | Oilcheck | `doctor` |
@@ -43,7 +43,7 @@ boundary — what is deliberately *not* built — is restated under
 A single `drive` call exercises most of the car at once:
 
 1. **Engines & wheels** resolve `--engine <name>` to a driver via the
-   `convertible.engines` entry-point group.
+   `colleague.engines` entry-point group.
 2. **Layered per-model config** composes a model-specific system prompt
    (AGENTS + skills) on the `Engine` base class; **per-model configuration**
    additionally layers a per-model hooks overlay ahead of the base hooks.
@@ -74,7 +74,7 @@ exist:
 - **Codex / Claude / Gemini** drivers.
 - A per-repo **hook trust gate** / `--no-hooks` flag (planned hardening; the
   flag does not exist today).
-- A live **MCP** runtime — convertible reads no `mcp.json` and has no `mcp` verb.
+- A live **MCP** runtime — colleague reads no `mcp.json` and has no `mcp` verb.
 
 See the top-level [`CLAUDE.md`](../../CLAUDE.md) for the authoritative scope
 statement.

@@ -28,7 +28,7 @@ discover and run it without modification.
      check so one broken check cannot take down the whole report.
    - MUST be read-only: no file writes, no network calls, no daemon interaction.
 
-4. **Portability:** The module must NOT ``import convertible`` or any third-party
+4. **Portability:** The module must NOT ``import colleague`` or any third-party
    library. Stdlib only (``pathlib``, ``ast``, ``re``, ``subprocess``, etc.).
 
 Registration

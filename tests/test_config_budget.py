@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from convertible.config import EngineConfig
+from colleague.config import EngineConfig
 
 
 def test_context_budget_default() -> None:

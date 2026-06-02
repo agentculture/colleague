@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from convertible.contract import OK, HookFiring, Step, Task, TaskResult, Usage
+from colleague.contract import OK, HookFiring, Step, Task, TaskResult, Usage
 
 
 def test_task_new_assigns_id_and_fields() -> None:
@@ -36,8 +36,8 @@ def test_task_result_round_trips_through_json() -> None:
         changed_files=["README.md"],
         steps=[Step(index=0, tool="write_file", arguments={"path": "README.md"}, result="wrote")],
         usage=Usage(prompt_tokens=10, completion_tokens=4, total_tokens=14),
-        artifacts_path=".convertible/result.json",
-        branch="convertible/abc123",
+        artifacts_path=".colleague/result.json",
+        branch="colleague/abc123",
         pr_url="https://github.com/x/y/pull/1",
     )
     # serialize -> json -> load -> reconstruct must equal the original
@@ -153,7 +153,7 @@ def test_task_result_full_round_trip_with_hooks_and_command() -> None:
         changed_files=["f.py"],
         steps=[Step(index=0, tool="read_file", arguments={"path": "f.py"}, result="ok")],
         usage=Usage(prompt_tokens=3, completion_tokens=1, total_tokens=4),
-        branch="convertible/full1",
+        branch="colleague/full1",
         hook_firings=[
             HookFiring(
                 event="pre_tool",

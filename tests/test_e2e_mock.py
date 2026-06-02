@@ -18,12 +18,12 @@ from typing import Any
 
 import pytest
 
-from convertible import registry
-from convertible.cli import main
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task
-from convertible.engines import vllm_openai
-from convertible.tools import SCHEMAS
+from colleague import registry
+from colleague.cli import main
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task
+from colleague.engines import vllm_openai
+from colleague.tools import SCHEMAS
 
 # The base tool surface every engine inherits, plus the curated culture tool (t3).
 _BASE_TOOLS = {"read_file", "write_file", "list_dir", "run_command", "finish"}
@@ -157,7 +157,7 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
 
     The mock engine is the contract reference (the all-engines rule). Its scripted
     finish carries no destination/announcement, so the serialized result must be
-    indistinguishable from the result a pre-feature convertible produced — the
+    indistinguishable from the result a pre-feature colleague produced — the
     destination concept is additive and default-off, never a null-padded key.
     """
     repo = tmp_path / "repo"
@@ -253,20 +253,20 @@ def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixtur
 def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
     tmp_path: Path,
 ) -> None:
-    """Policy no-op shape guard (t7 AC1): with NO .convertible/approvals.json present,
+    """Policy no-op shape guard (t7 AC1): with NO .colleague/approvals.json present,
     the TaskResult to_dict() key set and step shape are byte-identical to a run in a
     repo that has never had any policy concept applied.
 
     This proves the gate is a strict default-off feature — its presence in the chassis
     adds zero visible artefact when no policy file exists.
     """
-    # Repo A: has a .convertible/ dir but no approvals.json.
+    # Repo A: has a .colleague/ dir but no approvals.json.
     repo_a = tmp_path / "with_dotdir"
     repo_a.mkdir()
-    (repo_a / ".convertible").mkdir()
+    (repo_a / ".colleague").mkdir()
     # Deliberately leave approvals.json absent.
 
-    # Repo B: completely vanilla — no .convertible/ at all.
+    # Repo B: completely vanilla — no .colleague/ at all.
     repo_b = tmp_path / "vanilla"
     repo_b.mkdir()
 
