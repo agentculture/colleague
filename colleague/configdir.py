@@ -10,12 +10,12 @@ Repo-level configuration takes precedence: files with the same name in both
 locations are resolved from the repo.
 
 **Back-compat (rename to colleague):** the legacy `.convertible/` directory name
-is still honored as a *deprecated read fallback* at the lowest precedence, so a
-repo or home that still carries the old config dir keeps working without a manual
-move. New config always lives under `.colleague/`; an existing `.colleague/` file
-always shadows its `.convertible/` namesake. The resolution order is therefore
-``[repo/.colleague, user/.colleague, repo/.convertible, user/.convertible]`` —
-all new roots before any legacy root.
+is still honored as a *deprecated read fallback*, so a repo or home that still
+carries the old config dir keeps working without a manual move. The
+repo-overrides-user invariant above is preserved: a repo-level file always wins
+over any user-level file, and *within a single level* the new `.colleague/`
+shadows the legacy `.convertible/`. The resolution order is therefore
+``[repo/.colleague, repo/.convertible, user/.colleague, user/.convertible]``.
 
 The module exports a clean API for discovering and resolving config files
 without any external dependencies — all functions use stdlib only.
@@ -36,11 +36,12 @@ USER_CONFIG_DIR = Path.home() / CONFIG_DIR_NAME
 def config_roots(repo_path: str | Path, *, user_home: str | Path | None = None) -> list[Path]:
     """Return existing config roots in precedence order.
 
-    Order is ``[repo/.colleague, user/.colleague, repo/.convertible,
-    user/.convertible]`` — the new dir name at both levels first, then the
-    deprecated legacy ``.convertible/`` name as a read fallback. Only includes
-    roots that exist as directories. The `user_home` parameter allows tests to
-    inject a fake home directory; defaults to Path.home().
+    Order is ``[repo/.colleague, repo/.convertible, user/.colleague,
+    user/.convertible]`` — repo overrides user (the module invariant), and
+    within each level the new ``.colleague/`` name overrides the deprecated
+    legacy ``.convertible/`` read fallback. Only includes roots that exist as
+    directories. The `user_home` parameter allows tests to inject a fake home
+    directory; defaults to Path.home().
 
     Args:
         repo_path: Path to the repo directory.
@@ -57,15 +58,14 @@ def config_roots(repo_path: str | Path, *, user_home: str | Path | None = None) 
     repo_path = Path(repo_path)
     roots = []
 
-    # New name first (repo then user), then the legacy name as a fallback.
-    for dir_name in (CONFIG_DIR_NAME, LEGACY_CONFIG_DIR_NAME):
-        repo_config = repo_path / dir_name
-        if repo_config.is_dir():
-            roots.append(repo_config)
-
-        user_config = user_home / dir_name
-        if user_config.is_dir():
-            roots.append(user_config)
+    # Levels outer (repo beats user), dir-names inner (new beats legacy), so the
+    # repo-overrides-user invariant holds across the rename: a repo-level config
+    # always wins over a user-level one regardless of which dir name each uses.
+    for base in (repo_path, user_home):
+        for dir_name in (CONFIG_DIR_NAME, LEGACY_CONFIG_DIR_NAME):
+            candidate = base / dir_name
+            if candidate.is_dir():
+                roots.append(candidate)
 
     return roots
 

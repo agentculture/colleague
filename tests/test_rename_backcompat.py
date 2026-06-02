@@ -21,7 +21,8 @@ from colleague.artifact import artifact_read_dirs
 from colleague.config import EngineConfig, resolve_engine
 from colleague.configdir import collect_files, config_roots
 from colleague.feedback import get_last_drive, read_feedback, set_last_drive, write_feedback
-from colleague.identity import identity_env
+from colleague.identity import identity_env, resolve_identity
+from colleague.neighbours import NeighbourManager
 from colleague.telemetry import TelemetryConfig
 
 _ENGINE_KEYS = ("COLLEAGUE_ENGINE", "CONVERTIBLE_ENGINE")
@@ -86,7 +87,10 @@ def test_identity_env_emits_both_names() -> None:
 # --- config dir: .colleague/ wins, .convertible/ is the fallback -----------
 
 
-def test_config_roots_orders_new_before_legacy(tmp_path: Path) -> None:
+def test_config_roots_repo_beats_user_then_new_beats_legacy(tmp_path: Path) -> None:
+    # Repo overrides user (the module invariant), and within each level the new
+    # name overrides the legacy one — so a repo-level legacy dir still outranks
+    # any user-level dir.
     repo = tmp_path / "repo"
     home = tmp_path / "home"
     for d in (
@@ -99,10 +103,23 @@ def test_config_roots_orders_new_before_legacy(tmp_path: Path) -> None:
     roots = config_roots(repo, user_home=home)
     assert roots == [
         repo / ".colleague",
-        home / ".colleague",
         repo / ".convertible",
+        home / ".colleague",
         home / ".convertible",
     ]
+
+
+def test_repo_legacy_dir_shadows_user_new_dir(tmp_path: Path) -> None:
+    # Regression: a repo-level .convertible/ must still beat a user-level
+    # .colleague/ (repo-overrides-user invariant holds across the rename).
+    repo = tmp_path / "repo"
+    home = tmp_path / "home"
+    (repo / ".convertible" / "skills").mkdir(parents=True)
+    (repo / ".convertible" / "skills" / "foo.md").write_text("repo-legacy\n", encoding="utf-8")
+    (home / ".colleague" / "skills").mkdir(parents=True)
+    (home / ".colleague" / "skills" / "foo.md").write_text("user-new\n", encoding="utf-8")
+    found = collect_files(repo, "skills", suffix=".md", user_home=home)
+    assert found["foo"].read_text(encoding="utf-8") == "repo-legacy\n"
 
 
 def test_collect_files_reads_legacy_convertible_dir(tmp_path: Path) -> None:
@@ -173,3 +190,49 @@ def test_last_drive_new_pointer_shadows_legacy(tmp_path: Path) -> None:
     set_last_drive(tmp_path, "new-id")
     assert (tmp_path / ".colleague" / "last_drive").is_file()
     assert get_last_drive(tmp_path) == "new-id"
+
+
+# --- identity.json + neighbours.json honor the same fallback ----------------
+
+
+def test_identity_json_read_from_legacy_dir(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".convertible").mkdir(parents=True)
+    (repo / ".convertible" / "identity.json").write_text('{"as": "legacy-bot"}', encoding="utf-8")
+    assert resolve_identity(repo, user_home=tmp_path / "home") == "legacy-bot"
+
+
+def test_identity_json_new_dir_shadows_legacy(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".convertible").mkdir(parents=True)
+    (repo / ".convertible" / "identity.json").write_text('{"as": "legacy-bot"}', encoding="utf-8")
+    (repo / ".colleague").mkdir(parents=True)
+    (repo / ".colleague" / "identity.json").write_text('{"as": "new-bot"}', encoding="utf-8")
+    assert resolve_identity(repo, user_home=tmp_path / "home") == "new-bot"
+
+
+def test_neighbours_config_read_from_legacy_dir(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".convertible").mkdir(parents=True)
+    (repo / ".convertible" / "neighbours.json").write_text(
+        json.dumps([{"name": "peer", "url": "https://example.invalid/peer.git"}]),
+        encoding="utf-8",
+    )
+    mgr = NeighbourManager(repo)
+    assert [e["name"] for e in mgr.neighbours()] == ["peer"]
+
+
+def test_neighbours_config_new_dir_shadows_legacy(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".convertible").mkdir(parents=True)
+    (repo / ".convertible" / "neighbours.json").write_text(
+        json.dumps([{"name": "old", "url": "https://example.invalid/old.git"}]),
+        encoding="utf-8",
+    )
+    (repo / ".colleague").mkdir(parents=True)
+    (repo / ".colleague" / "neighbours.json").write_text(
+        json.dumps([{"name": "new", "url": "https://example.invalid/new.git"}]),
+        encoding="utf-8",
+    )
+    mgr = NeighbourManager(repo)
+    assert [e["name"] for e in mgr.neighbours()] == ["new"]

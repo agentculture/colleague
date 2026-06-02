@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from colleague.configdir import config_roots
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -139,10 +141,13 @@ def _read_culture_yaml_nick(repo_path: Path) -> str | None:
 
 
 def _read_identity_json(repo_path: Path, user_home: Path) -> str | None:
-    """Read the ``"as"`` field from ``.colleague/identity.json``.
+    """Read the ``"as"`` field from ``identity.json`` across the config roots.
 
-    Checks repo-level first, then user-level — matching the repo-overrides-user
-    convention of ``colleague/configdir.py``.
+    Resolves through :func:`colleague.configdir.config_roots`, so it inherits the
+    same precedence as every other config file: repo overrides user, and within
+    each level the new ``.colleague/`` shadows the deprecated legacy
+    ``.convertible/`` (back-compat for the rename). Returns the first non-empty
+    ``"as"`` value found.
 
     Args:
         repo_path: Path to the repo directory.
@@ -151,12 +156,8 @@ def _read_identity_json(repo_path: Path, user_home: Path) -> str | None:
     Returns:
         The ``"as"`` value if found and non-empty, otherwise ``None``.
     """
-    candidates = [
-        repo_path / ".colleague" / "identity.json",
-        user_home / ".colleague" / "identity.json",
-    ]
-    for candidate in candidates:
-        value = _parse_identity_json_as(candidate)
+    for root in config_roots(repo_path, user_home=user_home):
+        value = _parse_identity_json_as(root / "identity.json")
         if value:
             return value
     return None

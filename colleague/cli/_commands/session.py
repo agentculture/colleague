@@ -210,9 +210,8 @@ class _Session:
 
     def _status(self) -> Status:
         pr = "PR" if self.open_pr else "local"
-        message = (
-            f"colleague session · engine {self.engine_name} " f"· model {self.config.model} · {pr}"
-        )
+        engine, model = self.engine_name, self.config.model
+        message = f"colleague session · engine {engine} · model {model} · {pr}"
         return Status(severity="info", message=message)
 
     def _log(self, text: str) -> None:

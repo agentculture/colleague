@@ -48,6 +48,9 @@ class NeighbourManager:
     """
 
     _CONFIG_RELPATH = ".colleague/neighbours.json"
+    # Deprecated pre-rename config path; READ as a fallback only (clones still
+    # write under the new ``.colleague/`` dir). Back-compat for convertible→colleague.
+    _LEGACY_CONFIG_RELPATH = ".convertible/neighbours.json"
     _CLONE_SUBDIR = ".colleague/neighbours"
     # Cap each git operation so a slow/unreachable remote cannot hang the drive
     # indefinitely (mirrors the run_command timeout in tools.py).
@@ -165,10 +168,18 @@ class NeighbourManager:
         return dest
 
     def _load_config(self) -> list[dict]:
-        """Load and return the allow-list; returns [] when absent or empty."""
+        """Load and return the allow-list; returns [] when absent or empty.
+
+        Reads ``.colleague/neighbours.json`` first, falling back to the legacy
+        ``.convertible/neighbours.json`` (back-compat for the rename) so an
+        operator config written before the rename still configures neighbours.
+        """
         config_path = self._repo / self._CONFIG_RELPATH
         if not config_path.is_file():
-            return []
+            legacy_path = self._repo / self._LEGACY_CONFIG_RELPATH
+            if not legacy_path.is_file():
+                return []
+            config_path = legacy_path
         try:
             data = json.loads(config_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
