@@ -1,15 +1,15 @@
-"""Tests for convertible.tui.snapshot — snapshot quad write/read."""
+"""Tests for colleague.tui.snapshot — snapshot quad write/read."""
 
 from pathlib import Path
 
 import pytest
 
-from convertible.tui.events import DriveStep, UserInput
-from convertible.tui.render.ansi import render
-from convertible.tui.render.markdown import render_markdown
-from convertible.tui.snapshot import Snapshot, read_snapshot, write_snapshot
-from convertible.tui.state import Action, CockpitState, Drive, Popup, Status
-from convertible.tui.taui import serialize
+from colleague.tui.events import DriveStep, UserInput
+from colleague.tui.render.ansi import render
+from colleague.tui.render.markdown import render_markdown
+from colleague.tui.snapshot import Snapshot, read_snapshot, write_snapshot
+from colleague.tui.state import Action, CockpitState, Drive, Popup, Status
+from colleague.tui.taui import serialize
 
 
 def _make_state() -> CockpitState:
@@ -93,7 +93,7 @@ class TestWriteSnapshot:
         assert written == render(state)
 
     def test_events_jsonl_content_matches_dumps_events(self, tmp_path):
-        from convertible.tui.events import dumps_events
+        from colleague.tui.events import dumps_events
 
         state = CockpitState()
         events = _make_events()
@@ -193,7 +193,7 @@ class TestReadSnapshot:
         assert len(snap.events) == len(events)
 
     def test_taui_version_present(self, tmp_path):
-        from convertible.tui.taui import SCHEMA_VERSION
+        from colleague.tui.taui import SCHEMA_VERSION
 
         state = CockpitState()
         write_snapshot(tmp_path, "ver", state, [])
@@ -256,7 +256,7 @@ class TestLegacyTripleBackcompat:
         events = _make_events()
         import json
 
-        from convertible.tui.events import dumps_events
+        from colleague.tui.events import dumps_events
 
         out = Path(tmp_path)
         out.mkdir(parents=True, exist_ok=True)

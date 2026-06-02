@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import io
 
-from convertible.cli._commands._tui_sink import (
+from colleague.cli._commands._tui_sink import (
     CockpitProgressSink,
     build_progress,
     cockpit_active,
     make_events_sink,
     make_fanout,
 )
-from convertible.tui.events import loads_events
+from colleague.tui.events import loads_events
 
 
 class _Stream(io.StringIO):

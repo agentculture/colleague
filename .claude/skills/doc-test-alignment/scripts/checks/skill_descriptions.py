@@ -39,7 +39,7 @@ Contract
 - NAME = "skills"
 - run(repo: pathlib.Path) -> list[dict]
 - MUST NOT raise — all exceptions caught, returned as a single error check.
-- Read-only, no network, no daemon, stdlib-only, no ``import convertible``.
+- Read-only, no network, no daemon, stdlib-only, no ``import colleague``.
 """
 
 from __future__ import annotations

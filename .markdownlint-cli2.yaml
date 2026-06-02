@@ -1,4 +1,4 @@
-# markdownlint-cli2 config for convertible.
+# markdownlint-cli2 config for colleague.
 # markdownlint-cli2 stops walking at the git root, so a per-user global config
 # in the home directory isn't picked up from inside the repo.
 # Mirrors the guildmaster / steward / teken preset for workspace consistency.
@@ -30,8 +30,10 @@ ignores:
   - ".devague/**"
   - "docs/specs/**"
   - "docs/plans/**"
-  # Command-template recipes under .convertible/commands/ are not prose: the body
+  # Command-template recipes under .colleague/commands/ are not prose: the body
   # is a task instruction (a leading H1 would be sent to the model) and an
-  # optional `---` frontmatter block is parsed by convertible/commands.py, not by
-  # a Markdown reader. Linting them as docs is a category error.
+  # optional `---` frontmatter block is parsed by colleague/commands.py, not by
+  # a Markdown reader. Linting them as docs is a category error. The legacy
+  # .convertible/ path is kept for the back-compat window.
+  - ".colleague/**"
   - ".convertible/**"

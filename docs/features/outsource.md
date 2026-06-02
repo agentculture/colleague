@@ -1,18 +1,18 @@
-# `outsource` — use convertible as a different mind
+# `outsource` — use colleague as a different mind
 
-> Hand a scoped repo task to convertible — a *different* engine/model than the
+> Hand a scoped repo task to colleague — a *different* engine/model than the
 > calling agent. The point isn't a stronger model; it's a **different mind**, and
 > diversity helps.
 
 `outsource` is a **first-party Claude Code skill** (`.claude/skills/outsource/`)
-that drives the `convertible` CLI so another agent can delegate a scoped task to
+that drives the `colleague` CLI so another agent can delegate a scoped task to
 a different engine (default: a local vLLM `mmangkad/Qwen3.6-27B-NVFP4` on
-`:8001`). Convertible's model is **not assumed to be stronger** than the caller —
+`:8001`). Colleague's model is **not assumed to be stronger** than the caller —
 a second, independent perspective catches what the author's mind glides past,
 which is why **review** is the headline verb.
 
-Unlike the other skills under `.claude/skills/` (which convertible *vendors*),
-this one is **authored here** — convertible is its origin (see
+Unlike the other skills under `.claude/skills/` (which colleague *vendors*),
+this one is **authored here** — colleague is its origin (see
 [`docs/skill-sources.md`](../skill-sources.md)).
 
 ## The three verbs
@@ -21,10 +21,10 @@ this one is **authored here** — convertible is its origin (see
 |------|--------------|--------------|
 | `explore "<question or area>"` | Read-only investigation; the model reads and reports findings. | **None** — runs in a throwaway `git worktree` at HEAD. |
 | `review "<focus>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; committed changes only. |
-| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default**; `--apply` lands it, `--pr` opens a PR. | **None** by default (preview in a throwaway worktree); a `convertible/<id>` drive branch with `--apply` (or a PR with `--pr`). |
+| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default**; `--apply` lands it, `--pr` opens a PR. | **None** by default (preview in a throwaway worktree); a `colleague/<id>` drive branch with `--apply` (or a PR with `--pr`). |
 
 Each verb builds an instruction from a prompt template
-(`prompts/{explore,review,write}.md`), runs `convertible drive --json`, and
+(`prompts/{explore,review,write}.md`), runs `colleague drive --json`, and
 prints the drive's `TaskResult.summary` to stdout. Per-step progress streams to
 stderr while it runs.
 
@@ -36,7 +36,7 @@ bash .claude/skills/outsource/scripts/outsource.sh <verb> "<text>" [options]
 
 Common options: `--repo PATH` (default `.`), `--base BRANCH` (review base,
 default `main`), `--engine` / `--model` / `--base-url` (default the local 27B,
-overridable via flags or `CONVERTIBLE_*` env), `--max-steps N` (default 20),
+overridable via flags or `COLLEAGUE_*` env), `--max-steps N` (default 20),
 `--timeout N` (per-request seconds, default 300 — a local model can be slow on a
 growing context), `--apply` / `--allow-dirty` / `--pr` (write only — `write`
 previews unless `--apply` or `--pr` is given).
@@ -48,7 +48,7 @@ $ outsource explore "report the top-level markdown title of README.md"
 status: ok
 
 **Top-level markdown title of `README.md` (line 1):**
-# convertible
+# colleague
 ```
 
 The drive ran entirely in a throwaway worktree — `git status`, the current
@@ -75,7 +75,7 @@ new file mode 100644
 +    return "hi, " + name
 ```
 
-Pass `--apply` to land it on a `convertible/<id>` drive branch you can inspect,
+Pass `--apply` to land it on a `colleague/<id>` drive branch you can inspect,
 merge, or discard (or `--pr` to push + open a PR):
 
 ```text
@@ -85,7 +85,7 @@ status: ok
 Created greet.py with a single function greet(name) that returns 'hi, ' + name.
 
 changed files: greet.py
-drive branch: convertible/3acc192d27e1
+drive branch: colleague/3acc192d27e1
 ```
 
 ### review — the headline verb
@@ -121,7 +121,7 @@ now covers exactly that path. A different mind earned its keep.
   model not to modify anything.
 - **`write` previews by default** (isolated worktree, safe even on a dirty tree).
   **Applying** (`--apply` / `--pr`) **refuses a dirty tree** unless `--allow-dirty`
-  — this guards the dirty-tree hazard (`convertible drive --no-pr` commits
+  — this guards the dirty-tree hazard (`colleague drive --no-pr` commits
   *uncommitted* edits onto the drive branch and leaves you there). Commit or stash
   first before applying.
 

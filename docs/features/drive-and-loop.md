@@ -3,7 +3,7 @@
 > The chassis: a shared task contract and a bounded agentic loop that every
 > engine drives a repo through.
 
-`convertible drive "<goal>"` is convertible's working surface. You hand it a
+`colleague drive "<goal>"` is colleague's working surface. You hand it a
 goal or instruction and it works autonomously — selecting an engine wheel,
 running a bounded agentic tool-loop against the target repo, writing a result
 artifact, and handing the change off as a branch/PR. The repo is the *target*
@@ -14,9 +14,9 @@ engine — only `--engine` changes.
 
 Every engine consumes a `Task` and produces a `TaskResult` of the **same shape**,
 regardless of which model ran underneath. That uniformity is the whole point of
-convertible: the caller assigns repo work without caring which engine executed
+colleague: the caller assigns repo work without caring which engine executed
 it. Both are plain dataclasses with explicit `to_dict`/`from_dict`, so a result
-round-trips through JSON unchanged (`convertible/contract.py`).
+round-trips through JSON unchanged (`colleague/contract.py`).
 
 | `Task` field | Meaning |
 |--------------|---------|
@@ -42,14 +42,14 @@ round-trips through JSON unchanged (`convertible/contract.py`).
 
 ## The bounded tool-loop
 
-The loop (`convertible/loop.py`) is **engine-agnostic**. It is handed a
+The loop (`colleague/loop.py`) is **engine-agnostic**. It is handed a
 `complete` callable that performs *one* model turn (given the running message
 list, return the assistant reply and any tool calls) and drives it in a loop:
 execute each requested tool against the repo, feed the result back, repeat. The
 mock engine supplies a scripted `complete`; the vLLM engine supplies one that
 POSTs to an OpenAI-compatible endpoint. The loop never knows the difference.
 
-The model is offered **six tools** (`convertible/tools.py`), handed to it as
+The model is offered **six tools** (`colleague/tools.py`), handed to it as
 OpenAI function schemas — the original five base tools plus one curated
 `culture` tool added via the mesh-member re-spec:
 
@@ -82,15 +82,15 @@ cannot extend the budget.
 
 ```bash
 # Deterministic mock engine — no model, no network:
-convertible drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
+colleague drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
 
 # A real model over an OpenAI-compatible endpoint:
-convertible drive "fix the typo in the README title" \
+colleague drive "fix the typo in the README title" \
   --repo /path/to/repo --engine vllm-openai \
   --base-url http://localhost:8001/v1 --model Qwen/Qwen3-32B
 
 # Machine-readable result:
-convertible drive "..." --engine mock --no-pr --json
+colleague drive "..." --engine mock --no-pr --json
 ```
 
 Key flags: `--repo PATH`, `--engine NAME`, `--no-pr`, `--base BRANCH`, and the
@@ -102,8 +102,8 @@ exiting non-zero.
 
 ## Configuration
 
-Engine settings resolve in precedence order (`convertible/config.py`): explicit
-flag → `CONVERTIBLE_*` env → `OPENAI_*` env → built-in default. Defaults target
+Engine settings resolve in precedence order (`colleague/config.py`): explicit
+flag → `COLLEAGUE_*` env → `OPENAI_*` env → built-in default. Defaults target
 the vLLM reference rig (`http://localhost:8001/v1`, `Qwen/Qwen3-32B`,
 `max_steps=25`, `temperature=0.0`). Because the driver only speaks the OpenAI
 surface, pointing `base_url` elsewhere is always a config change, never a code
@@ -111,10 +111,10 @@ change.
 
 ## Key files
 
-- `convertible/contract.py` — `Task`, `TaskResult`, `Step`, `Usage`, `HookFiring`.
-- `convertible/loop.py` — the bounded loop, hook firing, telemetry.
-- `convertible/tools.py` — the six tools (five base + `culture`) and the repo-confined `ToolExecutor`.
-- `convertible/config.py` — `EngineConfig` resolution.
+- `colleague/contract.py` — `Task`, `TaskResult`, `Step`, `Usage`, `HookFiring`.
+- `colleague/loop.py` — the bounded loop, hook firing, telemetry.
+- `colleague/tools.py` — the six tools (five base + `culture`) and the repo-confined `ToolExecutor`.
+- `colleague/config.py` — `EngineConfig` resolution.
 
 ## See also
 

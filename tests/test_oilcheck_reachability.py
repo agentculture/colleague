@@ -19,8 +19,8 @@ import urllib.error
 
 import pytest
 
-from convertible.oilcheck import diagnose
-from convertible.oilcheck.reachability import checks
+from colleague.oilcheck import diagnose
+from colleague.oilcheck.reachability import checks
 
 
 class _FakeResponse:

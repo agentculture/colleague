@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task
-from convertible.engines.mock import OUTPUT_FILE, MockEngine
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task
+from colleague.engines.mock import OUTPUT_FILE, MockEngine
 
 
 def test_mock_drives_and_writes_marker(tmp_path: Path) -> None:

@@ -8,7 +8,7 @@ state. Where a human reads the rendered screen, an agent reads the TAUI JSON —
 a serialised, stable, selector-addressed tree that captures exactly what is
 visible, what actions are available, and what the model just said. The design
 goal: an agent can fully understand and drive the UI from the TAUI alone,
-without a screen reader, without an LLM call, and without any `convertible`
+without a screen reader, without an LLM call, and without any `colleague`
 import on the reader's side.
 
 ## Architecture: pure reducer
@@ -22,12 +22,12 @@ Event  →  reduce(state, event)  →  CockpitState  →  serialize()  =  TAUI J
 ```
 
 Every component in the pipeline is a pure function (same input → same output).
-The reducer (`convertible/tui/reducer.py`) never reads the clock, opens a file,
+The reducer (`colleague/tui/reducer.py`) never reads the clock, opens a file,
 or calls the model. State changes only through events.
 
 ### Events
 
-Events are a discriminated union (`convertible/tui/events.py`) covering user
+Events are a discriminated union (`colleague/tui/events.py`) covering user
 interaction (`UserInput`, `Key`), model progress (`DriveStep`), UI lifecycle
 (`Tick`, `Dismiss`), and suggestions (`SkillSuggested`). Each event carries a
 string `type` discriminator and round-trips through JSON cleanly — the JSONL
@@ -35,15 +35,15 @@ event log is a full replay record.
 
 ### State
 
-`CockpitState` (`convertible/tui/state.py`) is a plain `dataclasses` tree:
+`CockpitState` (`colleague/tui/state.py`) is a plain `dataclasses` tree:
 status bar, skills panel, conversation panel, prompt input, popup overlay, and
 background spinner state. Every field has a default; a fresh state is always
 valid. `state.to_dict()` / `CockpitState.from_dict()` round-trip losslessly
-through `json.dumps` — same convention as `convertible.contract`.
+through `json.dumps` — same convention as `colleague.contract`.
 
 ## The TAUI mirror
 
-`convertible/tui/taui.py` produces the agent-readable dict from a
+`colleague/tui/taui.py` produces the agent-readable dict from a
 `CockpitState`. Key invariants:
 
 - Every popup and panel carries a stable `id`.
@@ -57,7 +57,7 @@ through `json.dumps` — same convention as `convertible.contract`.
 
 ## Dotted-path selectors
 
-`convertible/tui/selectors.py` walks the TAUI mirror and exposes:
+`colleague/tui/selectors.py` walks the TAUI mirror and exposes:
 
 - `selectors(mirror)` — every addressable dotted path in the tree.
 - `resolve(mirror, selector)` — the node (dict or scalar) at a path, or
@@ -70,7 +70,7 @@ node changes its selector automatically.
 
 ## Snapshot triple
 
-`convertible/tui/snapshot.py` captures a complete TUI moment as three
+`colleague/tui/snapshot.py` captures a complete TUI moment as three
 complementary files written to a caller-supplied directory:
 
 | File | Contents |
@@ -84,7 +84,7 @@ the UI looked like, what the model saw, and what happened — without a live
 process or any additional context.
 
 ```python
-from convertible.tui.snapshot import write_snapshot, read_snapshot
+from colleague.tui.snapshot import write_snapshot, read_snapshot
 
 paths = write_snapshot(directory, "bug-x", state, events)
 snap  = read_snapshot(directory, "bug-x")
@@ -98,11 +98,11 @@ would break the zero-deps guard.
 
 ## Deterministic replay
 
-`convertible/tui/replay.py` folds a list of events through the pure reducer,
+`colleague/tui/replay.py` folds a list of events through the pure reducer,
 starting from an initial state (or a fresh `CockpitState` when `None`):
 
 ```python
-from convertible.tui.replay import replay, replay_from_jsonl
+from colleague.tui.replay import replay, replay_from_jsonl
 
 final_state = replay(events)
 final_state = replay_from_jsonl(jsonl_text)   # parse + fold in one call
@@ -113,7 +113,7 @@ same final state — useful for regression tests and offline debugging.
 
 ## Diagnose: 7-bug-class cross-mirror differ
 
-`convertible/tui/diagnose.py` classifies disagreements between the three views
+`colleague/tui/diagnose.py` classifies disagreements between the three views
 of a snapshot — **without any LLM, model, or network call**:
 
 | Bug class | What it means |
@@ -131,7 +131,7 @@ needed.
 
 ## Headless subcommands
 
-The TUI feature exposes headless CLI subcommands under `convertible tui` for
+The TUI feature exposes headless CLI subcommands under `colleague tui` for
 scripted and agent use (no TTY required):
 
 | Subcommand | What it does |
@@ -150,16 +150,16 @@ All subcommands support `--json`; failures raise `CliError` (no tracebacks leak)
 The TUI renderer follows the same extension seam as engines:
 
 ```toml
-[project.entry-points."convertible.renderers"]
-ansi = "convertible.tui.render.ansi:render"
+[project.entry-points."colleague.renderers"]
+ansi = "colleague.tui.render.ansi:render"
 ```
 
-An external package that installs a `convertible.renderers` entry-point
+An external package that installs a `colleague.renderers` entry-point
 (e.g. `rich = "mypackage.render_rich:render"`) will be discovered at runtime
-without any core change — the same mechanism `convertible wheels list` uses for
+without any core change — the same mechanism `colleague wheels list` uses for
 engines.
 
-The built-in `ansi` renderer (`convertible/tui/render.ansi`) is **hand-rolled
+The built-in `ansi` renderer (`colleague/tui/render.ansi`) is **hand-rolled
 ANSI SGR** — no third-party rendering library, no network, no subprocess. It
 works out of the box with zero extras installed.
 
@@ -167,7 +167,7 @@ Rich and Textual are an **opt-in `[tui]` extra** for future richer renderer
 wheels. They are never base dependencies:
 
 ```bash
-pip install 'convertible-cli[tui]'     # or: uv sync --extra tui
+pip install 'colleague[tui]'     # or: uv sync --extra tui
 ```
 
 Installing the extra does not activate the richer renderer automatically — it
@@ -177,21 +177,21 @@ them. The `ansi` renderer remains the built-in default regardless.
 ## Zero-deps guarantee
 
 The TUI core is import-clean: `rich`, `textual`, `urllib`, `socket`, `http`, and
-`subprocess` are absent from every `convertible/tui/` source file. This is
+`subprocess` are absent from every `colleague/tui/` source file. This is
 enforced by `tests/test_zero_deps.py`:
 
 - `test_tui_core_no_third_party_imports` — imports all nine TUI core modules at
   runtime and asserts no third-party top-level module is introduced (same
   mechanism as the OTel guard).
 - `test_tui_core_no_forbidden_stdlib_imports` — scans the source of every
-  `convertible/tui/*.py` and asserts no `rich`, `textual`, `urllib`, `socket`,
+  `colleague/tui/*.py` and asserts no `rich`, `textual`, `urllib`, `socket`,
   `http`, or `subprocess` import appears.
 
 ## Live drive integration (#74)
 
 A real `drive` feeds the cockpit, not just authored/snapshot state:
 
-- **Live cockpit (A1)** — `convertible drive` renders the cockpit on stderr as it
+- **Live cockpit (A1)** — `colleague drive` renders the cockpit on stderr as it
   runs (conversation per step; an `error` popup when a tool step fails). Auto-on an
   interactive TTY; `--tui` / `--no-tui` force it. Off a TTY it falls back to the
   plain `step N: <tool> [ok|err]` lines, byte-identical. Escapes are stripped when
@@ -202,7 +202,7 @@ A real `drive` feeds the cockpit, not just authored/snapshot state:
   never swept into the drive branch.
 - **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
   finished drive's loop-step trace into the cockpit. Live and replayed steps read
-  identically — both go through one converter (`convertible/tui/from_drive.py`)
+  identically — both go through one converter (`colleague/tui/from_drive.py`)
   and the same pure reducer, so a failed step opens the same popup live and on
   replay.
 
@@ -220,20 +220,20 @@ A real `drive` feeds the cockpit, not just authored/snapshot state:
 
 ## Key files
 
-- `convertible/tui/state.py` — `CockpitState` and its nested dataclasses.
-- `convertible/tui/events.py` — discriminated event union with JSONL helpers.
-- `convertible/tui/reducer.py` — pure `reduce(state, event) -> CockpitState`.
-- `convertible/tui/taui.py` — `serialize(state) -> dict` (the TAUI mirror).
-- `convertible/tui/selectors.py` — dotted-path resolution over the TAUI mirror.
-- `convertible/tui/snapshot.py` — snapshot triple write + read.
-- `convertible/tui/replay.py` — deterministic event-log replay.
-- `convertible/tui/diagnose.py` — 7-bug-class cross-mirror differ.
-- `convertible/tui/render/ansi.py` — stdlib ANSI renderer (the default wheel).
+- `colleague/tui/state.py` — `CockpitState` and its nested dataclasses.
+- `colleague/tui/events.py` — discriminated event union with JSONL helpers.
+- `colleague/tui/reducer.py` — pure `reduce(state, event) -> CockpitState`.
+- `colleague/tui/taui.py` — `serialize(state) -> dict` (the TAUI mirror).
+- `colleague/tui/selectors.py` — dotted-path resolution over the TAUI mirror.
+- `colleague/tui/snapshot.py` — snapshot triple write + read.
+- `colleague/tui/replay.py` — deterministic event-log replay.
+- `colleague/tui/diagnose.py` — 7-bug-class cross-mirror differ.
+- `colleague/tui/render/ansi.py` — stdlib ANSI renderer (the default wheel).
 
 ## See also
 
 - [artifact.md](artifact.md) — the per-drive JSON artifact TAUI complements.
 - [telemetry.md](telemetry.md) — GPS (OTel) follows the same opt-in extra +
   lazy-import pattern as the `[tui]` extra.
-- [engines.md](engines.md) — the `convertible.engines` entry-point group that
-  `convertible.renderers` mirrors.
+- [engines.md](engines.md) — the `colleague.engines` entry-point group that
+  `colleague.renderers` mirrors.

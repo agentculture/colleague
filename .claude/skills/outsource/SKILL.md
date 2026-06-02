@@ -2,40 +2,40 @@
 name: outsource
 type: command
 description: >
-  Hand a scoped repo task to convertible — a *different* engine/model than you
+  Hand a scoped repo task to colleague — a *different* engine/model than you
   (e.g. a local vLLM Qwen) — and fold its answer back. The point isn't a stronger
   model; it's a different mind, and diversity helps: `outsource review` gets an
   independent second opinion on a diff, `outsource explore` gets a fresh read of
   an area, `outsource write` delegates a small implementation, and `outsource
   feedback` grades a finished drive (the ROI loop). Use when the user says
-  "outsource this", "get a second opinion", "have convertible review/explore/
+  "outsource this", "get a second opinion", "have colleague review/explore/
   write", "ask the other model", "rate that drive", or when you want a diverse
   perspective rather than just doing it yourself. Read-only verbs (explore/review)
   run isolated in a throwaway git worktree and cannot touch the working tree.
 ---
 
-# outsource — use convertible as a different mind
+# outsource — use colleague as a different mind
 
-`outsource` drives the **`convertible`** CLI so a Claude agent can hand a scoped
+`outsource` drives the **`colleague`** CLI so a Claude agent can hand a scoped
 task to a *different* engine (default: a local vLLM `Qwen3.6-27B` on
-`:8001`). Convertible's model is **not** assumed to be stronger than you — its
+`:8001`). Colleague's model is **not** assumed to be stronger than you — its
 value is **diversity**. A second, independent mind catches things the author's
 mind glides past, which is why **review** is the headline verb.
 
 This skill is the operator: a portable wrapper that resolves the CLI and turns
-each verb into a `convertible drive`, then prints the drive's result summary.
+each verb into a `colleague drive`, then prints the drive's result summary.
 
 ## How to run
 
 The entry point is `scripts/outsource.sh`. Invoke it from the repo you want
-convertible to work on:
+colleague to work on:
 
 ```bash
 bash .claude/skills/outsource/scripts/outsource.sh <verb> "<text>" [options]
 ```
 
-It resolves the CLI portably — an installed `convertible` on `PATH` (the normal
-case), falling back to `uv run convertible` when inside the convertible checkout,
+It resolves the CLI portably — an installed `colleague` on `PATH` (the normal
+case), falling back to `uv run colleague` when inside the colleague checkout,
 else an install hint.
 
 ### Verbs
@@ -44,8 +44,8 @@ else an install hint.
 |------|--------------|--------------|
 | `explore "<question or area>"` | Read-only investigation of the repo; the model reads and reports findings. | **None** — runs in a throwaway worktree at HEAD. |
 | `review "<what to focus on>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; reviews committed changes only. |
-| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a drive branch in place; `--pr` pushes + opens a PR. | **None** by default (preview); a `convertible/<id>` drive branch / PR only with `--apply` / `--pr`. |
-| `feedback <id\|last> [--rating N]` | **Grade a finished drive** (the ROI loop). With `--rating N` (1–5, plus `--notes`) it records feedback; without, it shows the drive's existing feedback. `last` resolves the most recent drive in `--repo`. | Writes `.convertible/<id>.feedback.json` only when `--rating` is given; read-only otherwise. |
+| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a drive branch in place; `--pr` pushes + opens a PR. | **None** by default (preview); a `colleague/<id>` drive branch / PR only with `--apply` / `--pr`. |
+| `feedback <id\|last> [--rating N]` | **Grade a finished drive** (the ROI loop). With `--rating N` (1–5, plus `--notes`) it records feedback; without, it shows the drive's existing feedback. `last` resolves the most recent drive in `--repo`. | Writes `.colleague/<id>.feedback.json` only when `--rating` is given; read-only otherwise. |
 
 ### Options
 
@@ -53,19 +53,19 @@ else an install hint.
 |--------|---------|
 | `--repo PATH` | Target repo (default: `.`). |
 | `--base BRANCH` | Base for the `review` diff (default: `main`). |
-| `--engine NAME` | Engine wheel (default: `$CONVERTIBLE_ENGINE` or `vllm-openai`). |
-| `--model NAME` | Model (default: `$CONVERTIBLE_MODEL` or `mmangkad/Qwen3.6-27B-NVFP4`). |
-| `--base-url URL` | OpenAI base URL (default: `$CONVERTIBLE_BASE_URL` or `http://localhost:8001/v1`). |
+| `--engine NAME` | Engine wheel (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
+| `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `mmangkad/Qwen3.6-27B-NVFP4`). |
+| `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
 | `--max-steps N` | Loop step budget (default: 20). |
 | `--apply` | (`write`) apply the change in place (drive branch) instead of previewing. |
 | `--allow-dirty` | (`write`) allow running on a dirty tree (only matters with `--apply` / `--pr`). |
 | `--pr` | (`write`) push + open a PR instead of a local drive branch (implies `--apply`). |
 | `--rating N` | (`feedback`) record a 1–5 quality rating for the drive. |
 | `--notes "..."` | (`feedback`) free-text notes stored with the rating. |
-| `--by NAME` | (`feedback`) who is grading (default: convertible's resolved identity). |
+| `--by NAME` | (`feedback`) who is grading (default: colleague's resolved identity). |
 
 The result printed to stdout is the drive's `TaskResult.summary` (plus
-`changed_files` / drive branch for `write`), parsed from `convertible drive
+`changed_files` / drive branch for `write`), parsed from `colleague drive
 --json`. Per-step progress streams to stderr while it runs.
 
 ## When to reach for which verb
@@ -78,7 +78,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
 - **write** — a small, well-scoped implementation you're happy to delegate. It
   **previews by default** (runs in a throwaway worktree and prints the would-be
   diff without touching your tree); pass `--apply` to land it on a
-  `convertible/<id>` drive branch you can inspect, merge, or discard, or `--pr` to
+  `colleague/<id>` drive branch you can inspect, merge, or discard, or `--pr` to
   open a PR.
 - **feedback** — *after* an outsourced drive, close the loop: record how good it
   was. Every drive's artifact already carries always-on **stats** (elapsed time,
@@ -97,7 +97,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
 - **`write` previews by default; applying refuses a dirty tree.** A preview runs
   in an isolated worktree and never touches your tree, so it is safe even when
   dirty. `--apply` / `--pr` (the in-place path) refuses a dirty tree unless you
-  pass `--allow-dirty` — this guards the dirty-tree hazard: `convertible drive
+  pass `--allow-dirty` — this guards the dirty-tree hazard: `colleague drive
   --no-pr` commits *uncommitted* edits onto the drive branch and leaves you there.
   Commit or stash first before applying.
 - **Outsourced output is a second opinion, not authority.** The engine may be a
@@ -116,7 +116,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
 
 ## Provenance
 
-This is a **first-party** convertible skill — convertible is its origin. It is
-the inverse of the other skills under `.claude/skills/`, which convertible
+This is a **first-party** colleague skill — colleague is its origin. It is
+the inverse of the other skills under `.claude/skills/`, which colleague
 vendors *from* guildmaster. See `docs/skill-sources.md`. The `cite, don't import`
 policy holds: downstream repos copy it, they don't symlink or depend on it.

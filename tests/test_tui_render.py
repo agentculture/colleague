@@ -1,4 +1,4 @@
-"""Tests for the stdlib ANSI renderer (convertible/tui/render/ansi.py).
+"""Tests for the stdlib ANSI renderer (colleague/tui/render/ansi.py).
 
 TDD: tests written before implementation, covering:
 - render() returns str
@@ -8,8 +8,8 @@ TDD: tests written before implementation, covering:
 - determinism: same state → same output; differing frame → may differ
 """
 
-from convertible.tui.render.ansi import render
-from convertible.tui.state import (
+from colleague.tui.render.ansi import render
+from colleague.tui.state import (
     Action,
     Background,
     CockpitState,

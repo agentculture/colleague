@@ -1,0 +1,5 @@
+{"ts":"2026-06-02T20:36:00.957921+00:00","type":"pr_opened","pr":83,"title":"feat: rename convertible \u2192 colleague (v0.27.0)"}
+{"ts":"2026-06-02T20:36:02.164708+00:00","type":"pr_review_triggered","pr":83,"command":"/agentic_review"}
+{"ts":"2026-06-02T20:37:05.275068+00:00","type":"readiness_arrived","pr":83,"waited_secs":60}
+{"ts":"2026-06-02T20:37:09.872448+00:00","type":"pr_read","pr":83,"comment_count":4,"threads_unresolved":0,"ci_state":"ok"}
+{"ts":"2026-06-02T21:11:03.948829+00:00","type":"pr_read","pr":83,"comment_count":6,"threads_unresolved":2,"ci_state":"ok"}

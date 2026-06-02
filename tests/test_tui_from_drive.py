@@ -1,6 +1,6 @@
 """The drive→DriveStep bridge: live and post-hoc summaries must agree.
 
-`convertible/tui/from_drive.py` is the single source of the step→summary mapping,
+`colleague/tui/from_drive.py` is the single source of the step→summary mapping,
 so a step reads identically whether it came from the live progress callback or
 was reconstructed from a `<id>.trace.jsonl` line. These guard that contract plus
 the trace-conversion edge cases.
@@ -8,8 +8,8 @@ the trace-conversion edge cases.
 
 from __future__ import annotations
 
-from convertible.tui.events import DriveStep
-from convertible.tui.from_drive import drive_step, progress_target, trace_to_drive_steps
+from colleague.tui.events import DriveStep
+from colleague.tui.from_drive import drive_step, progress_target, trace_to_drive_steps
 
 
 def test_progress_target_prefers_path_then_command_then_name() -> None:

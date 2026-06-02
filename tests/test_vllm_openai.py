@@ -1,7 +1,7 @@
 """vLLM OpenAI driver: response parsing + a full loop over mocked HTTP (R2, h2).
 
 The opt-in live end-to-end proof against a real server lives in
-``test_vllm_live.py`` (skipped unless ``CONVERTIBLE_VLLM_E2E=1``).
+``test_vllm_live.py`` (skipped unless ``COLLEAGUE_VLLM_E2E=1``).
 """
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task
-from convertible.engines import vllm_openai
-from convertible.engines.vllm_openai import VllmOpenAIEngine, _parse_response, _post_json
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task
+from colleague.engines import vllm_openai
+from colleague.engines.vllm_openai import VllmOpenAIEngine, _parse_response, _post_json
 
 
 def _message_with_tool_call(name: str, arguments: dict) -> dict:

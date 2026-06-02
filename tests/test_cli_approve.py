@@ -2,7 +2,7 @@
 
 Acceptance criteria:
 1. ``commands approve <name>`` writes a checksum approval into
-   ``<repo>/.convertible/approvals.json`` under ``["commands"][name]``;
+   ``<repo>/.colleague/approvals.json`` under ``["commands"][name]``;
    re-running is idempotent; other sections are preserved.
 2. ``hooks approve <name>`` writes into ``["hooks"][name]``; missing file
    raises CliError.
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -28,19 +28,19 @@ from convertible.cli import main
 
 
 def _make_commands_dir(repo: Path) -> Path:
-    cmds_dir = repo / ".convertible" / "commands"
+    cmds_dir = repo / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True)
     return cmds_dir
 
 
 def _make_hooks_json(repo: Path, hooks: dict) -> None:
-    dotdir = repo / ".convertible"
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(hooks))
 
 
 def _read_approvals(repo: Path) -> dict:
-    p = repo / ".convertible" / "approvals.json"
+    p = repo / ".colleague" / "approvals.json"
     return json.loads(p.read_text(encoding="utf-8"))
 
 
@@ -96,7 +96,7 @@ def test_commands_approve_preserves_other_sections(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """commands approve merges into existing approvals.json without clobbering other sections."""
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     # Pre-existing hooks approval
     (dotdir / "approvals.json").write_text(
@@ -200,7 +200,7 @@ def test_hooks_approve_preserves_other_sections(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """hooks approve merges into existing approvals.json without clobbering other sections."""
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(json.dumps({"commands": {"lint": "sha256:deadbeef"}}))
     script = tmp_path / "run.sh"
@@ -223,7 +223,7 @@ def test_commands_list_json_shows_status_unapproved(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """commands list --json: commands section present but entry absent → status=unapproved."""
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir(parents=True)
     # commands section is present (gate is active) but no entry for "lint"
     (dotdir / "approvals.json").write_text(json.dumps({"commands": {}}))
@@ -281,7 +281,7 @@ def test_commands_list_json_shows_status_ungated(
 ) -> None:
     """commands list --json: commands section absent from policy → status=ungated."""
     # Create approvals.json with run_command but NO commands section
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(json.dumps({"run_command": {"allow": ["git"]}}))
     cmds_dir = dotdir / "commands"
@@ -334,7 +334,7 @@ def test_hooks_list_json_shows_run_command_policy(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """hooks list --json: shows run_command policy when present in approvals.json."""
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(
         json.dumps({"run_command": {"allow": ["git", "pytest"], "deny": ["rm"]}})
@@ -395,7 +395,7 @@ def test_skills_list_json_shows_accessible_status(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """skills list --json: every skill has status=accessible."""
-    skill_dir = tmp_path / ".convertible" / "skills"
+    skill_dir = tmp_path / ".colleague" / "skills"
     skill_dir.mkdir(parents=True)
     (skill_dir / "myskill.md").write_text("# my skill\n")
 
@@ -410,7 +410,7 @@ def test_skills_list_text_shows_accessible(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """skills list text mode mentions accessible."""
-    skill_dir = tmp_path / ".convertible" / "skills"
+    skill_dir = tmp_path / ".colleague" / "skills"
     skill_dir.mkdir(parents=True)
     (skill_dir / "greet.md").write_text("# greet\n")
 
@@ -426,7 +426,7 @@ def test_skills_list_text_shows_accessible(
 
 
 def test_explain_approve_exists(capsys: pytest.CaptureFixture[str]) -> None:
-    """convertible explain approve emits non-empty docs (entry is registered)."""
+    """colleague explain approve emits non-empty docs (entry is registered)."""
     rc = main(["explain", "approve"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -435,7 +435,7 @@ def test_explain_approve_exists(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_explain_commands_approve_exists(capsys: pytest.CaptureFixture[str]) -> None:
-    """convertible explain commands approve emits non-empty docs."""
+    """colleague explain commands approve emits non-empty docs."""
     rc = main(["explain", "commands", "approve"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -443,7 +443,7 @@ def test_explain_commands_approve_exists(capsys: pytest.CaptureFixture[str]) -> 
 
 
 def test_explain_hooks_approve_exists(capsys: pytest.CaptureFixture[str]) -> None:
-    """convertible explain hooks approve emits non-empty docs."""
+    """colleague explain hooks approve emits non-empty docs."""
     rc = main(["explain", "hooks", "approve"])
     assert rc == 0
     out = capsys.readouterr().out

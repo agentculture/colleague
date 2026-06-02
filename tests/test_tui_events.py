@@ -1,8 +1,8 @@
-"""Tests for convertible.tui.events — Event union + JSONL (de)serialize."""
+"""Tests for colleague.tui.events — Event union + JSONL (de)serialize."""
 
 import pytest
 
-from convertible.tui.events import (
+from colleague.tui.events import (
     Dismiss,
     DriveStep,
     KeyPress,

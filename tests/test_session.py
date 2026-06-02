@@ -1,4 +1,4 @@
-"""`convertible session` — interactive palette over the shared drive path (t7/c28/h11).
+"""`colleague session` — interactive palette over the shared drive path (t7/c28/h11).
 
 Tests are written first (TDD) before implementing the feature.  The session loop
 is driven through a scripted ``input_fn`` so no real TTY is required.
@@ -11,10 +11,10 @@ from typing import Iterator
 
 import pytest
 
-from convertible.cli import main
-from convertible.cli._commands.drive import execute_drive
-from convertible.cli._commands.session import run_session
-from convertible.contract import OK, Task, TaskResult
+from colleague.cli import main
+from colleague.cli._commands.drive import execute_drive
+from colleague.cli._commands.session import run_session
+from colleague.contract import OK, Task, TaskResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,7 +22,7 @@ from convertible.contract import OK, Task, TaskResult
 
 
 def _make_command_template(repo: Path, name: str, content: str) -> None:
-    cmds_dir = repo / ".convertible" / "commands"
+    cmds_dir = repo / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True, exist_ok=True)
     (cmds_dir / f"{name}.md").write_text(content)
 
@@ -171,8 +171,8 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
     _make_command_template(tmp_path, "setup", "Set up the project.\n")
 
     # --- Drive path via execute_drive (the shared helper used by both) ---
-    from convertible.commands import expand_command
-    from convertible.config import EngineConfig
+    from colleague.commands import expand_command
+    from colleague.config import EngineConfig
 
     task_via_drive = expand_command(tmp_path, "setup", [], engine_default="mock")
     config = EngineConfig.resolve()
@@ -262,7 +262,7 @@ def test_session_loops_multiple_iterations(tmp_path: Path) -> None:
 
 def test_execute_drive_returns_taskresult_and_path(tmp_path: Path) -> None:
     """execute_drive returns (TaskResult, Path) with the expected types."""
-    from convertible.config import EngineConfig
+    from colleague.config import EngineConfig
 
     task = Task.new(str(tmp_path), "set up the repo", engine="mock")
     config = EngineConfig.resolve()
@@ -280,12 +280,12 @@ def test_execute_drive_returns_taskresult_and_path(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7: CLI wiring — `convertible session --help` exits 0 and mentions flags
+# Test 7: CLI wiring — `colleague session --help` exits 0 and mentions flags
 # ---------------------------------------------------------------------------
 
 
 def test_session_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
-    """convertible session --help exits 0 and mentions expected flags."""
+    """colleague session --help exits 0 and mentions expected flags."""
     with pytest.raises(SystemExit) as exc_info:
         main(["session", "--help"])
     out = capsys.readouterr().out
@@ -329,14 +329,14 @@ def _ok_drive(tmp_path: Path, recorder: list | None = None):
 
 def test_session_markdown_tier_is_the_non_tty_default(tmp_path: Path) -> None:
     """Off a colour TTY the cockpit renders as Markdown menus (the full static
-    experience) — command names + the 'convertible session' identity, no escapes."""
+    experience) — command names + the 'colleague session' identity, no escapes."""
     _make_command_template(tmp_path, "setup", "Set up the project.\n")
     out = _CollectingOut()
     rc = run_session(_make_args(tmp_path), input_fn=iter(["q"]), out=out, _color=False)
     assert rc == 0
     text = out.text()
     assert "# Cockpit" in text  # the Markdown view
-    assert "convertible session" in text  # identity (status bar)
+    assert "colleague session" in text  # identity (status bar)
     assert "setup" in text  # the command palette lists templates
     assert "\x1b" not in text  # static Markdown carries no ANSI escapes
 

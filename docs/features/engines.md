@@ -5,28 +5,28 @@
 
 In the car metaphor, the **engine** is the model/coder backend and the
 **driver** is the adapter that invokes and controls one engine. A driver is a
-class implementing the `Engine` protocol (`convertible/engine.py`) — one
+class implementing the `Engine` protocol (`colleague/engine.py`) — one
 abstract method, `drive(task, config) -> TaskResult`. Drivers don't
-re-implement the loop; they delegate to `convertible.loop.run` and only supply
+re-implement the loop; they delegate to `colleague.loop.run` and only supply
 *how the model is called* (a `complete` function).
 
 ## Wheels: entry-point discovery
 
 An engine becomes available by advertising itself under the
-`convertible.engines` **Python entry-point group**. The two bundled engines do
+`colleague.engines` **Python entry-point group**. The two bundled engines do
 this in this repo's `pyproject.toml`; an out-of-tree wheel does the *identical*
-thing in its own metadata, and `convertible wheels list` discovers it with no
-change to convertible core (`convertible/registry.py` — the "garage").
+thing in its own metadata, and `colleague wheels list` discovers it with no
+change to colleague core (`colleague/registry.py` — the "garage").
 
 ```toml
-[project.entry-points."convertible.engines"]
+[project.entry-points."colleague.engines"]
 my-engine = "my_package.engine:MyEngine"
 ```
 
 ```bash
-convertible wheels list          # the garage: engines installed in this env
-convertible wheels list --json
-convertible drive "..." --engine my-engine
+colleague wheels list          # the garage: engines installed in this env
+colleague wheels list --json
+colleague drive "..." --engine my-engine
 ```
 
 Requesting an unknown engine raises `UnknownEngine`, listing the available
@@ -36,10 +36,10 @@ names.
 
 ### `mock` — the reference engine
 
-Deterministic and networkless (`convertible/engines/mock.py`). It runs the exact
+Deterministic and networkless (`colleague/engines/mock.py`). It runs the exact
 same chassis as a real engine — the shared contract and the bounded loop — but
 supplies a scripted two-turn `complete` (write a marker file
-`convertible-mock.md`, then `finish`) instead of calling a model. That makes it
+`colleague-mock.md`, then `finish`) instead of calling a model. That makes it
 the **CI workhorse**: it proves the harness end-to-end with no network and no
 flakiness, and it is the reference against which a live engine's result *shape*
 is compared (the all-engines rule). The e2e shape test
@@ -48,7 +48,7 @@ is compared (the all-engines rule). The e2e shape test
 ### `vllm-openai` — the real backend
 
 Drives any **OpenAI-compatible** `/v1/chat/completions` endpoint with tool
-calling (`convertible/engines/vllm_openai.py`). The reference rig is Qwen3-32B
+calling (`colleague/engines/vllm_openai.py`). The reference rig is Qwen3-32B
 on a vLLM server. It touches *only* the OpenAI surface and uses stdlib `urllib`
 rather than any vendor SDK — so retargeting it (vLLM, llama.cpp, an OpenAI
 proxy) is a config change, never a code change.
@@ -68,14 +68,14 @@ makes the server emit OpenAI-format tool calls works. The opt-in live test
 proves the path against a real server:
 
 ```bash
-CONVERTIBLE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
+COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
 ## Writing your own engine wheel
 
 ```python
-from convertible.engine import Engine
-from convertible.loop import run
+from colleague.engine import Engine
+from colleague.loop import run
 
 class MyEngine(Engine):
     name = "my-engine"
@@ -93,18 +93,18 @@ Because the loop owns [hook firing](hooks.md) and [telemetry](telemetry.md), and
 the base class injects the [layered system prompt](layered-config.md) via
 `self.system_prompt(...)`, a custom engine inherits the full lifecycle layer for
 free. Advertise it under the entry-point group and it's discoverable — no change
-to convertible core.
+to colleague core.
 
 ## Key files
 
-- `convertible/engine.py` — the `Engine` ABC + the `system_prompt()` base helper.
-- `convertible/registry.py` — entry-point discovery (`catalog`, `names`, `load`).
-- `convertible/engines/mock.py` — the reference engine.
-- `convertible/engines/vllm_openai.py` — the OpenAI-compatible driver.
+- `colleague/engine.py` — the `Engine` ABC + the `system_prompt()` base helper.
+- `colleague/registry.py` — entry-point discovery (`catalog`, `names`, `load`).
+- `colleague/engines/mock.py` — the reference engine.
+- `colleague/engines/vllm_openai.py` — the OpenAI-compatible driver.
 
 ## See also
 
-- [model-selection.md](model-selection.md) — how convertible resolves the model
+- [model-selection.md](model-selection.md) — how colleague resolves the model
   and endpoint (flags → env → defaults), and keeping it synced to a local server.
 - [drive-and-loop.md](drive-and-loop.md) — the contract + loop drivers delegate to.
 - [layered-config.md](layered-config.md) — the per-model system prompt every

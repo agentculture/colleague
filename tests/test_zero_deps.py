@@ -3,7 +3,7 @@ Guard test enforcing zero runtime dependencies (R7).
 
 Asserts:
 1. pyproject.toml's [project].dependencies is empty.
-2. Importing convertible modules introduces no third-party top-level imports.
+2. Importing colleague modules introduces no third-party top-level imports.
 3. The per-model hooks resolution path stays import-clean and is a strict no-op
    without an overlay; the package opens no socket / daemon / mcp.json surface.
 """
@@ -35,7 +35,7 @@ def _third_party_modules_introduced(action):
 
     Snapshots ``sys.modules`` before/after, reduces new entries to their
     top-level name (first component before ``.``), and filters out stdlib,
-    ``convertible`` itself, and known import-system builtins. Shared by the
+    ``colleague`` itself, and known import-system builtins. Shared by the
     import-cleanliness guards so the snapshot/diff/classify logic lives once.
     """
     before = set(sys.modules.keys())
@@ -45,9 +45,9 @@ def _third_party_modules_introduced(action):
     third_party = []
     for name in sorted(new_top_level):
         is_stdlib = name in sys.stdlib_module_names
-        is_convertible = name.startswith("convertible")
+        is_colleague = name.startswith("colleague")
         is_builtin = name in _KNOWN_IMPORT_BUILTINS or name.startswith("_")
-        if not (is_stdlib or is_convertible or is_builtin):
+        if not (is_stdlib or is_colleague or is_builtin):
             third_party.append(name)
     return third_party
 
@@ -65,53 +65,53 @@ def test_pyproject_dependencies_empty():
 
 
 def test_no_third_party_imports():
-    """Importing convertible modules introduces no third-party top-level imports.
+    """Importing colleague modules introduces no third-party top-level imports.
 
     GPS (issue #22): the telemetry facade and the loop/CLI that use it must stay
     import-clean — the OpenTelemetry SDK is imported lazily inside
-    convertible.telemetry._otel, never at module load. This holds even when the
+    colleague.telemetry._otel, never at module load. This holds even when the
     [otel] extra IS installed (as in dev/CI): it is the guard that the deferral
     is real.
     """
 
     def _import_core():
-        import convertible  # noqa: F401
-        import convertible.cli  # noqa: F401
-        import convertible.cli._commands.telemetry  # noqa: F401
-        import convertible.commands  # noqa: F401
-        import convertible.configdir  # noqa: F401
-        import convertible.culture  # noqa: F401
-        import convertible.devague  # noqa: F401
-        import convertible.hooks  # noqa: F401
-        import convertible.layers  # noqa: F401
-        import convertible.loop  # noqa: F401
-        import convertible.neighbours  # noqa: F401
-        import convertible.policy  # noqa: F401
-        import convertible.subagents  # noqa: F401
-        import convertible.telemetry  # noqa: F401
+        import colleague  # noqa: F401
+        import colleague.cli  # noqa: F401
+        import colleague.cli._commands.telemetry  # noqa: F401
+        import colleague.commands  # noqa: F401
+        import colleague.configdir  # noqa: F401
+        import colleague.culture  # noqa: F401
+        import colleague.devague  # noqa: F401
+        import colleague.hooks  # noqa: F401
+        import colleague.layers  # noqa: F401
+        import colleague.loop  # noqa: F401
+        import colleague.neighbours  # noqa: F401
+        import colleague.policy  # noqa: F401
+        import colleague.subagents  # noqa: F401
+        import colleague.telemetry  # noqa: F401
 
     third_party = _third_party_modules_introduced(_import_core)
     assert not third_party, (
         f"Third-party imports detected: {sorted(third_party)}. "
-        "Expected only stdlib, convertible, or builtins."
+        "Expected only stdlib, colleague, or builtins."
     )
 
 
 def test_per_model_hooks_import_clean(tmp_path):
     """Per-model hooks resolution (h9) introduces no third-party imports."""
     repo = tmp_path / "test_repo"
-    (repo / ".convertible").mkdir(parents=True)
-    (repo / ".convertible" / "hooks.json").write_text(
+    (repo / ".colleague").mkdir(parents=True)
+    (repo / ".colleague" / "hooks.json").write_text(
         '{"hooks": {"task_start": [{"command": "echo base"}]}}'
     )
-    model_dir = repo / ".convertible" / "test-model"
+    model_dir = repo / ".colleague" / "test-model"
     model_dir.mkdir()
     (model_dir / "hooks.json").write_text(
         '{"hooks": {"pre_tool": [{"matcher": ".*", "command": "echo model"}]}}'
     )
 
     def _load_with_overlay():
-        from convertible.hooks import load_hooks
+        from colleague.hooks import load_hooks
 
         config = load_hooks(repo, model="test/model")
         # Confirm the overlay actually loaded, so we measure the real path.
@@ -121,15 +121,15 @@ def test_per_model_hooks_import_clean(tmp_path):
     third_party = _third_party_modules_introduced(_load_with_overlay)
     assert not third_party, (
         f"Per-model hooks resolution leaked third-party imports: {sorted(third_party)}. "
-        "Expected only stdlib, convertible, or builtins."
+        "Expected only stdlib, colleague, or builtins."
     )
 
 
 def test_per_model_hooks_strict_no_op(tmp_path):
     """Per-model hooks are a strict no-op (h2) when the overlay is absent."""
     repo = tmp_path / "test_repo"
-    (repo / ".convertible").mkdir(parents=True)
-    (repo / ".convertible" / "hooks.json").write_text(
+    (repo / ".colleague").mkdir(parents=True)
+    (repo / ".colleague" / "hooks.json").write_text(
         '{"hooks": {'
         '"task_start": [{"command": "echo start"}], '
         '"pre_tool": [{"matcher": "run_command", "command": "echo pre"}], '
@@ -137,7 +137,7 @@ def test_per_model_hooks_strict_no_op(tmp_path):
         "}}"
     )
 
-    from convertible.hooks import load_hooks
+    from colleague.hooks import load_hooks
 
     config_base = load_hooks(repo)
     config_with_missing_model = load_hooks(repo, model="nonexistent/model")
@@ -161,24 +161,22 @@ def test_per_model_hooks_strict_no_op(tmp_path):
 
 
 def test_no_socket_daemon_mcp_surface():
-    """convertible/ has no socket/daemon/mcp.json surface (h9)."""
+    """colleague/ has no socket/daemon/mcp.json surface (h9)."""
     import re
 
-    convertible_dir = Path(__file__).resolve().parents[1] / "convertible"
-    assert convertible_dir.is_dir(), f"convertible package dir not found at {convertible_dir}"
+    colleague_dir = Path(__file__).resolve().parents[1] / "colleague"
+    assert colleague_dir.is_dir(), f"colleague package dir not found at {colleague_dir}"
 
     socket_pattern = re.compile(r"\b(import socket|from socket\b)")
     mcp_json_pattern = re.compile(r'"mcp\.json"|\'mcp\.json\'')
 
     violations = []
-    for py_file in sorted(convertible_dir.rglob("*.py")):
+    for py_file in sorted(colleague_dir.rglob("*.py")):
         content = py_file.read_text(encoding="utf-8")
         if socket_pattern.search(content):
-            violations.append(f"{py_file.relative_to(convertible_dir)}: socket import detected")
+            violations.append(f"{py_file.relative_to(colleague_dir)}: socket import detected")
         if mcp_json_pattern.search(content):
-            violations.append(
-                f"{py_file.relative_to(convertible_dir)}: mcp.json reference detected"
-            )
+            violations.append(f"{py_file.relative_to(colleague_dir)}: mcp.json reference detected")
 
     msg = "No-socket/daemon/mcp surface violations:\n" + "\n".join(violations) if violations else ""
     assert not violations, msg
@@ -194,18 +192,18 @@ def test_tui_core_no_third_party_imports():
     """
 
     def _import_tui_core():
-        import convertible.tui.colors  # noqa: F401
-        import convertible.tui.diagnose  # noqa: F401
-        import convertible.tui.events  # noqa: F401
-        import convertible.tui.from_drive  # noqa: F401
-        import convertible.tui.reducer  # noqa: F401
-        import convertible.tui.render.ansi  # noqa: F401
-        import convertible.tui.replay  # noqa: F401
-        import convertible.tui.selectors  # noqa: F401
-        import convertible.tui.snapshot  # noqa: F401
-        import convertible.tui.state  # noqa: F401
-        import convertible.tui.taui  # noqa: F401
-        import convertible.tui.widgets.command_palette  # noqa: F401
+        import colleague.tui.colors  # noqa: F401
+        import colleague.tui.diagnose  # noqa: F401
+        import colleague.tui.events  # noqa: F401
+        import colleague.tui.from_drive  # noqa: F401
+        import colleague.tui.reducer  # noqa: F401
+        import colleague.tui.render.ansi  # noqa: F401
+        import colleague.tui.replay  # noqa: F401
+        import colleague.tui.selectors  # noqa: F401
+        import colleague.tui.snapshot  # noqa: F401
+        import colleague.tui.state  # noqa: F401
+        import colleague.tui.taui  # noqa: F401
+        import colleague.tui.widgets.command_palette  # noqa: F401
 
     third_party = _third_party_modules_introduced(_import_tui_core)
     assert not third_party, (
@@ -224,8 +222,8 @@ def test_tui_core_no_forbidden_stdlib_imports():
     """
     import re
 
-    tui_dir = Path(__file__).resolve().parents[1] / "convertible" / "tui"
-    assert tui_dir.is_dir(), f"convertible/tui dir not found at {tui_dir}"
+    tui_dir = Path(__file__).resolve().parents[1] / "colleague" / "tui"
+    assert tui_dir.is_dir(), f"colleague/tui dir not found at {tui_dir}"
 
     # Third-party renderer packages must never appear in TUI core source.
     third_party_pattern = re.compile(r"^\s*(import|from)\s+(rich|textual)\b", re.MULTILINE)

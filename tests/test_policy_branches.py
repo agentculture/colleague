@@ -1,4 +1,4 @@
-"""Edge-branch coverage for ``convertible/policy.py``.
+"""Edge-branch coverage for ``colleague/policy.py``.
 
 Targets the defensive/degenerate branches that the happy-path policy tests don't
 reach: an unsupported checksum algorithm, an unknown file category, malformed
@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from convertible import policy
+from colleague import policy
 
 
 def test_file_checksum_rejects_unsupported_algo(tmp_path):
@@ -22,7 +22,7 @@ def test_file_checksum_rejects_unsupported_algo(tmp_path):
 
 
 def test_check_file_unknown_category_is_ungated(tmp_path):
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir()
     (dotdir / "approvals.json").write_text('{"commands": {"a": "sha256:x"}}')
     pol = policy.load_policy(tmp_path)
@@ -64,7 +64,7 @@ def test_parse_policy_file_drops_non_object_sections(tmp_path):
 
 
 def _policy_with(tmp_path, obj):
-    dotdir = tmp_path / ".convertible"
+    dotdir = tmp_path / ".colleague"
     dotdir.mkdir(exist_ok=True)
     (dotdir / "approvals.json").write_text(json.dumps(obj))
     return policy.load_policy(tmp_path)

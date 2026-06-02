@@ -25,8 +25,8 @@ from unittest.mock import patch
 
 import pytest
 
-from convertible import culture
-from convertible.tools import SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
+from colleague import culture
+from colleague.tools import SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
 _BASE_TOOLS = {"read_file", "write_file", "list_dir", "run_command", "finish"}
 

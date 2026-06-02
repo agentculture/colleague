@@ -6,7 +6,7 @@ through the same policy and asserting:
 
 * run_command denial shape (non-ok Step + reason) is identical across engines.
 * Unapproved hook skip (HookFiring.decision == "skipped") is identical.
-* Engine modules do NOT import ``convertible.policy`` (the gate lives in the loop).
+* Engine modules do NOT import ``colleague.policy`` (the gate lives in the loop).
 
 Also covers the "announcement honesty" contract:
 
@@ -15,10 +15,10 @@ Also covers the "announcement honesty" contract:
 * A no-policy run changes nothing — the artifact shape is unchanged and every
   formerly-run tool still runs.
 
-Mocking strategy for vllm-openai: monkeypatch ``convertible.engines.vllm_openai._post_json``
+Mocking strategy for vllm-openai: monkeypatch ``colleague.engines.vllm_openai._post_json``
 to replay a scripted list of OpenAI chat-completion responses — the same approach used in
 ``test_e2e_mock.py`` and ``test_vllm_openai.py``.  No live server is needed; the live
-proof stays gated behind ``CONVERTIBLE_VLLM_E2E``.
+proof stays gated behind ``COLLEAGUE_VLLM_E2E``.
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ from typing import Any
 
 import pytest
 
-from convertible import registry
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task
-from convertible.engines import vllm_openai
+from colleague import registry
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task
+from colleague.engines import vllm_openai
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -41,15 +41,15 @@ from convertible.engines import vllm_openai
 
 
 def _write_approvals(repo: Path, payload: dict) -> None:
-    """Write ``.convertible/approvals.json`` under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write ``.colleague/approvals.json`` under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _write_hooks(repo: Path, payload: dict) -> None:
-    """Write ``.convertible/hooks.json`` under *repo*."""
-    dotdir = repo / ".convertible"
+    """Write ``.colleague/hooks.json`` under *repo*."""
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -122,8 +122,8 @@ class TestRunCommandDenyParity:
         task = Task.new(str(repo), "fetch something", engine="mock")
         # Mock engine is scripted: it always writes a file then finishes.
         # Inject a run_command call instead by driving the loop directly.
-        from convertible.loop import ModelResponse, ToolCall, run
-        from convertible.policy import load_policy
+        from colleague.loop import ModelResponse, ToolCall, run
+        from colleague.policy import load_policy
 
         policy = load_policy(repo)
 
@@ -224,8 +224,8 @@ class TestHookSkipParity:
 
     def _mock_skip_result(self, tmp_path: Path) -> Any:
         repo, _ = self._setup_hook_repo(tmp_path / "mock_hook")
-        from convertible.loop import ModelResponse, ToolCall, run
-        from convertible.policy import load_policy
+        from colleague.loop import ModelResponse, ToolCall, run
+        from colleague.policy import load_policy
 
         policy = load_policy(repo)
 
@@ -274,8 +274,8 @@ class TestHookSkipParity:
         vllm_repo, vllm_marker = self._setup_hook_repo(tmp_path / "vllm_hook2")
 
         # Run mock
-        from convertible.loop import ModelResponse, ToolCall, run
-        from convertible.policy import load_policy
+        from colleague.loop import ModelResponse, ToolCall, run
+        from colleague.policy import load_policy
 
         policy_m = load_policy(mock_repo)
         state = {"i": 0}
@@ -299,36 +299,36 @@ class TestHookSkipParity:
 
 
 # ---------------------------------------------------------------------------
-# Engine module isolation: neither engine imports convertible.policy
+# Engine module isolation: neither engine imports colleague.policy
 # ---------------------------------------------------------------------------
 
 
 def test_engine_modules_do_not_import_policy() -> None:
     """Structural isolation (t7 AC3): the policy gate lives in the loop; engine modules
-    must not import convertible.policy directly.
+    must not import colleague.policy directly.
 
     This asserts the all-engines rule is satisfied by the chassis (loop.py), not by
     each engine re-implementing it.  We inspect the module's global namespace and
     its __dict__ for any symbol that IS the policy module.
     """
-    import convertible.engines.mock as mock_engine
-    import convertible.engines.vllm_openai as vllm_engine
-    import convertible.policy as policy_mod
+    import colleague.engines.mock as mock_engine
+    import colleague.engines.vllm_openai as vllm_engine
+    import colleague.policy as policy_mod
 
     for engine_mod in (mock_engine, vllm_engine):
         mod_vars = vars(engine_mod)
         # The policy module must not appear as a direct symbol in the engine module.
         assert policy_mod not in mod_vars.values(), (
-            f"{engine_mod.__name__} imported convertible.policy — "
+            f"{engine_mod.__name__} imported colleague.policy — "
             "the gate must live in the loop (chassis), not in engine modules"
         )
-        # Also assert the engine's source file does not mention 'convertible.policy'.
+        # Also assert the engine's source file does not mention 'colleague.policy'.
         # This is the structural guard: a text scan of the compiled source.
         engine_file = engine_mod.__file__
         assert engine_file is not None
         source = Path(engine_file).read_text(encoding="utf-8")
-        assert "convertible.policy" not in source, (
-            f"{engine_mod.__name__} source references 'convertible.policy' — "
+        assert "colleague.policy" not in source, (
+            f"{engine_mod.__name__} source references 'colleague.policy' — "
             "the policy import must stay in the loop (chassis)"
         )
 
@@ -352,8 +352,8 @@ class TestAnnouncementHonesty:
         repo.mkdir()
         _write_approvals(repo, {"run_command": {"deny": ["rm"], "allow": []}})
 
-        from convertible.loop import ModelResponse, ToolCall, run
-        from convertible.policy import load_policy
+        from colleague.loop import ModelResponse, ToolCall, run
+        from colleague.policy import load_policy
 
         policy = load_policy(repo)
         sentinel = repo / "sentinel.txt"
@@ -397,8 +397,8 @@ class TestAnnouncementHonesty:
         _write_approvals(repo, {"hooks": {}})
         _write_hooks(repo, {"hooks": {"task_start": [{"command": str(script)}]}})
 
-        from convertible.loop import ModelResponse, ToolCall, run
-        from convertible.policy import load_policy
+        from colleague.loop import ModelResponse, ToolCall, run
+        from colleague.policy import load_policy
 
         policy = load_policy(repo)
 
@@ -433,12 +433,12 @@ class TestAnnouncementHonesty:
         # An active policy.
         _write_approvals(repo, {"run_command": {"allow": ["echo"], "deny": []}})
 
-        # Write an AGENTS.convertible.md to prove layers loads it.
-        agents_md = repo / "AGENTS.convertible.md"
+        # Write an AGENTS.colleague.md to prove layers loads it.
+        agents_md = repo / "AGENTS.colleague.md"
         agents_md.write_text("# Test agents instructions\n", encoding="utf-8")
 
-        from convertible.config import EngineConfig
-        from convertible.contract import Task
+        from colleague.config import EngineConfig
+        from colleague.contract import Task
 
         # Engine.system_prompt() calls layers.load_agents_instructions + load_skills.
         # Instantiate the mock engine and call system_prompt — must not raise.
@@ -456,7 +456,7 @@ class TestAnnouncementHonesty:
         repo_policy_free = tmp_path / "nopolicy"
         repo_policy_free.mkdir()
 
-        from convertible.loop import ModelResponse, ToolCall, run
+        from colleague.loop import ModelResponse, ToolCall, run
 
         state = {"i": 0}
         responses = [

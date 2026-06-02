@@ -1,13 +1,13 @@
 # Destination
 
-> Convertible's destination tells the engine where it's going, not just where it
+> Colleague's destination tells the engine where it's going, not just where it
 > is. An engine MAY set a curated `devague` loop tool to open and converge a
 > goal-frame when a task warrants one, drive toward it, and declare the
-> announcement on arrival — so convertible knows its destination before it drives.
+> announcement on arrival — so colleague knows its destination before it drives.
 
 ## Before → after
 
-**Before** this feature, a `convertible drive` had only one compass:
+**Before** this feature, a `colleague drive` had only one compass:
 
 - GPS/telemetry reported *where the drive was* (execution trace, step count,
   time elapsed).
@@ -28,7 +28,7 @@ before driving**.
 - The engine drives toward that goal, and when it arrives, declares the framed
   announcement.
 - The destination (frame slug + declared announcement) is recorded in the JSON
-  artifact as lightweight metadata — so convertible knows where it's going, and
+  artifact as lightweight metadata — so colleague knows where it's going, and
   there's a clear arrival signal.
 - Convergence is *advisory* — the engine can inspect gaps via `status`, but only
   operator-confirmed claims are authoritative.
@@ -37,11 +37,11 @@ before driving**.
 
 ## The GPS + Destination metaphor
 
-Convertible has two compasses:
+Colleague has two compasses:
 
-- **GPS** (telemetry): tells convertible *where it is* right now — execution
+- **GPS** (telemetry): tells colleague *where it is* right now — execution
   trace, metrics, live step count. Off by default (the `[otel]` extra).
-- **Destination**: tells convertible *where it's going* — the converged goal-frame
+- **Destination**: tells colleague *where it's going* — the converged goal-frame
   and the announced arrival. Off by default (only set when the engine judges it
   necessary).
 
@@ -51,7 +51,7 @@ Together they bound the drive: destination = the goal, GPS = the journey.
 
 ### The `devague` loop tool
 
-The chassis offers a single `devague` tool (registered in `convertible/tools.py`,
+The chassis offers a single `devague` tool (registered in `colleague/tools.py`,
 exactly like the `culture` tool) that shells out to the operator-installed
 `devague` CLI. An engine can:
 
@@ -80,7 +80,7 @@ Each devague call:
 
 - Runs with `cwd` pinned at the repo root so the CLI sees `culture.yaml` (for
   auto-signing).
-- Injects the resolved process identity via `CONVERTIBLE_IDENTITY` (exactly as
+- Injects the resolved process identity via `COLLEAGUE_IDENTITY` (exactly as
   the `culture` tool does) so the CLI inherits the drive's nick.
 - Launches as a subprocess — no socket, no daemon, no Python import of devague.
 - Maps a missing CLI (`FileNotFoundError`) to a clean `ToolError` fed back to
@@ -173,21 +173,21 @@ destination, everyone agrees on what "better" means before the work starts.
 
 ## Boundaries that still hold
 
-- **No new runtime dependency.** `convertible/devague.py` is stdlib-only (just
+- **No new runtime dependency.** `colleague/devague.py` is stdlib-only (just
   `subprocess`, `pathlib`, `os`). The zero-deps guard and `dependencies = []`
   still hold.
 - **No live devague client.** The devague tool shells out to the operator-installed
-  CLI — no socket, no daemon, no library import. Convertible reads no devague
+  CLI — no socket, no daemon, no library import. Colleague reads no devague
   Python API.
 - **Setting a destination is optional and engine-judged.** A clear task just
   drives; only vague/new tasks benefit from goal-setting. The engine (via
-  system-prompt guidance) decides when a destination is warranted — convertible
+  system-prompt guidance) decides when a destination is warranted — colleague
   never forces convergence.
 - **Convergence remains user-authoritative.** The engine's own convergence signal
   is advisory; only human-confirmed claims carry weight. The user-only discipline
   is enforced structurally (the allow-list excludes `confirm` / `reject`).
-- **The destination tool belongs to the chassis.** `convertible/tools.py` owns
-  the tool schema and dispatch; `convertible/devague.py` owns the subprocess
+- **The destination tool belongs to the chassis.** `colleague/tools.py` owns
+  the tool schema and dispatch; `colleague/devague.py` owns the subprocess
   launch, identity injection, and allow-list enforcement. No engine module touches
   devague directly. The all-engines rule applies: every engine sees the tool
   identically.
@@ -197,11 +197,11 @@ destination, everyone agrees on what "better" means before the work starts.
 
 ## Key files
 
-- `convertible/devague.py` — `run_devague()`, `ALLOWED_MOVES`, `normalize_args()`.
-- `convertible/tools.py` — `devague` tool schema in `SCHEMAS`; `_devague`
+- `colleague/devague.py` — `run_devague()`, `ALLOWED_MOVES`, `normalize_args()`.
+- `colleague/tools.py` — `devague` tool schema in `SCHEMAS`; `_devague`
   dispatch in `ToolExecutor`.
-- `convertible/contract.py` — `TaskResult` fields `destination` + `announcement`.
-- `convertible/artifact.py` — JSON artifact includes the destination + announcement.
+- `colleague/contract.py` — `TaskResult` fields `destination` + `announcement`.
+- `colleague/artifact.py` — JSON artifact includes the destination + announcement.
 
 ## See also
 
@@ -212,5 +212,5 @@ destination, everyone agrees on what "better" means before the work starts.
 - [mesh-member.md](mesh-member.md) — the `culture` tool, a sibling chassis-owned
   tool following the same shell-out + allow-list pattern.
 - The spec and plan that converged this feature:
-  [`docs/specs/2026-05-29-convertible-knows-its-destination-before-it-drives.md`](../specs/2026-05-29-convertible-knows-its-destination-before-it-drives.md)
-  and [`docs/plans/2026-05-29-convertible-knows-its-destination-before-it-drives.md`](../plans/2026-05-29-convertible-knows-its-destination-before-it-drives.md).
+  [`docs/specs/2026-05-29-colleague-knows-its-destination-before-it-drives.md`](../specs/2026-05-29-colleague-knows-its-destination-before-it-drives.md)
+  and [`docs/plans/2026-05-29-colleague-knows-its-destination-before-it-drives.md`](../plans/2026-05-29-colleague-knows-its-destination-before-it-drives.md).

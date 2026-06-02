@@ -38,7 +38,7 @@ Output shape:
 
 ``run`` never raises: any internal failure returns a single ``error`` check.
 
-Portable, stdlib-only (``ast``); never imports ``convertible``.
+Portable, stdlib-only (``ast``); never imports ``colleague``.
 """
 
 from __future__ import annotations

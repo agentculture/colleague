@@ -3,7 +3,7 @@
 > A self-describing command surface: structured output, clean stream
 > separation, and read-only introspection verbs an agent can consume.
 
-Convertible is built as an **agent-first CLI** (cited from the teken `python-cli`
+Colleague is built as an **agent-first CLI** (cited from the teken `python-cli`
 reference). Beyond the working verbs ([`drive`](drive-and-loop.md),
 [`session`](session.md), [`wheels`](engines.md), [`commands`](command-templates.md),
 [`hooks`](hooks.md), [`agents`/`skills`](layered-config.md),
@@ -25,8 +25,8 @@ the tool is and how to use it without guessing.
   `commands`, `hooks`, `telemetry`) exposes an `overview`; the global `cli
   overview` describes the CLI surface itself.
 
-New verbs are `convertible/cli/_commands/` modules with a `register(sub)`, wired
-in `convertible/cli/__init__.py`, and each gets an `explain` catalog entry.
+New verbs are `colleague/cli/_commands/` modules with a `register(sub)`, wired
+in `colleague/cli/__init__.py`, and each gets an `explain` catalog entry.
 
 ## The introspection verbs
 
@@ -39,13 +39,13 @@ in `convertible/cli/__init__.py`, and each gets an `explain` catalog entry.
 | `cli overview` | Describes the CLI surface itself (distinct from the agent `overview`). |
 
 ```bash
-convertible whoami
-convertible whoami --json
-convertible learn
-convertible explain convertible        # the root entry
-convertible explain doctor             # any verb
-convertible overview
-convertible cli overview
+colleague whoami
+colleague whoami --json
+colleague learn
+colleague explain colleague        # the root entry
+colleague explain doctor             # any verb
+colleague overview
+colleague cli overview
 ```
 
 ## Identity from `culture.yaml`
@@ -60,9 +60,9 @@ literal defaults.
 
 ## Key files
 
-- `convertible/cli/__init__.py` — parser build, dispatch, error routing.
-- `convertible/cli/_commands/{whoami,learn,explain,overview,cli}.py` — the verbs.
-- `convertible/explain/catalog.py` — the markdown `explain` entries.
+- `colleague/cli/__init__.py` — parser build, dispatch, error routing.
+- `colleague/cli/_commands/{whoami,learn,explain,overview,cli}.py` — the verbs.
+- `colleague/explain/catalog.py` — the markdown `explain` entries.
 
 ## See also
 

@@ -19,8 +19,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from convertible.hooks import HookConfig, HookEntry, load_hooks
-from convertible.layers import sanitize_model
+from colleague.hooks import HookConfig, HookEntry, load_hooks
+from colleague.layers import sanitize_model
 
 # ---------------------------------------------------------------------------
 # Module-level constants (mirroring test_layers.py _MODEL_X / _MODEL_Y style)
@@ -69,7 +69,7 @@ def _write_hooks(dotdir: Path, relative: str, payload: dict) -> Path:
 
 
 def test_isolation_x_overlay_not_seen_by_y(tmp_path: Path) -> None:
-    """Overlay under .convertible/X/ is invisible when loading for model Y.
+    """Overlay under .colleague/X/ is invisible when loading for model Y.
 
     Criterion h6: exact-construction via sanitize_model means no sibling glob.
     The loop must never apply model X's deny rule when driving model Y.
@@ -79,7 +79,7 @@ def test_isolation_x_overlay_not_seen_by_y(tmp_path: Path) -> None:
 
     # Write an overlay that denies _TOOL, filed under model X's sanitized path.
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo DENY-X"}]}},
     )
@@ -102,7 +102,7 @@ def test_isolation_y_overlay_not_seen_by_x(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_Y}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo DENY-Y"}]}},
     )
@@ -122,12 +122,12 @@ def test_isolation_both_overlays_each_sees_only_own(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo X-HOOK"}]}},
     )
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_Y}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo Y-HOOK"}]}},
     )
@@ -159,7 +159,7 @@ def test_per_model_applies_for_correct_model(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo X-FIX"}]}},
     )
@@ -180,13 +180,13 @@ def test_per_model_entries_ordered_before_base(tmp_path: Path) -> None:
 
     # Base hooks.json has one pre_tool entry for _TOOL.
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         "hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo BASE"}]}},
     )
     # Model-X overlay adds another pre_tool entry for the same tool.
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo MODEL-X"}]}},
     )
@@ -215,7 +215,7 @@ def test_per_model_first_across_multiple_events(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         "hooks.json",
         {
             "hooks": {
@@ -225,7 +225,7 @@ def test_per_model_first_across_multiple_events(tmp_path: Path) -> None:
         },
     )
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {
             "hooks": {
@@ -263,12 +263,12 @@ def test_base_entries_present_alongside_per_model(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         "hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo BASE-HOOK"}]}},
     )
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo MODEL-HOOK"}]}},
     )
@@ -292,7 +292,7 @@ def test_base_entries_unaffected_for_other_tool(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         "hooks.json",
         {
             "hooks": {
@@ -304,7 +304,7 @@ def test_base_entries_unaffected_for_other_tool(tmp_path: Path) -> None:
         },
     )
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo MODEL-RUN"}]}},
     )
@@ -332,7 +332,7 @@ def test_base_entries_present_when_no_per_model_for_that_event(tmp_path: Path) -
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         "hooks.json",
         {
             "hooks": {
@@ -343,7 +343,7 @@ def test_base_entries_present_when_no_per_model_for_that_event(tmp_path: Path) -
         },
     )
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo MODEL-PRE"}]}},
     )
@@ -371,7 +371,7 @@ def test_sanitize_model_tokens_match_expected() -> None:
     """The directory names used throughout this file match sanitize_model output.
 
     This documents the exact path construction load_hooks uses, so a reader can
-    see what .convertible/<token>/ directories to create for each model.
+    see what .colleague/<token>/ directories to create for each model.
     """
     assert _SAFE_X == "Qwen-Qwen3-32B"
     assert _SAFE_Y == "meta-Llama-3.1-8B"
@@ -395,7 +395,7 @@ def test_entry_type_is_hookentry(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write_hooks(
-        repo / ".convertible",
+        repo / ".colleague",
         f"{_SAFE_X}/hooks.json",
         {"hooks": {"pre_tool": [{"matcher": _TOOL, "command": "echo X"}]}},
     )

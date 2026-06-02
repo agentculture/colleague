@@ -1,4 +1,4 @@
-"""``convertible feedback`` CLI verb (t6) + drive→last-pointer integration (t7)."""
+"""``colleague feedback`` CLI verb (t6) + drive→last-pointer integration (t7)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 
 def test_record_then_show_json_round_trip(

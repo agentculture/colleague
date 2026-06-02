@@ -1,4 +1,4 @@
-"""Tests for the Markdown renderer (convertible/tui/render/markdown.py).
+"""Tests for the Markdown renderer (colleague/tui/render/markdown.py).
 
 TDD: tests written before implementation, covering:
 - render_markdown() returns str
@@ -17,8 +17,8 @@ TDD: tests written before implementation, covering:
 
 from __future__ import annotations
 
-from convertible.tui.render.markdown import render_markdown
-from convertible.tui.state import (
+from colleague.tui.render.markdown import render_markdown
+from colleague.tui.state import (
     Action,
     CockpitState,
     Drive,
@@ -28,7 +28,7 @@ from convertible.tui.state import (
     Status,
     Zone,
 )
-from convertible.tui.taui import serialize
+from colleague.tui.taui import serialize
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -305,7 +305,7 @@ def test_diagnose_render_would_pass() -> None:
     taui = serialize(state)
     result = render_markdown(state)
 
-    from convertible.tui.diagnose import _popup_title, _visible_popups
+    from colleague.tui.diagnose import _popup_title, _visible_popups
 
     for popup in _visible_popups(taui):
         message = str(popup.get("message", ""))
@@ -480,20 +480,20 @@ def test_no_third_party_imports() -> None:
     import sys
 
     # Re-import to be safe
-    mod = importlib.import_module("convertible.tui.render.markdown")
-    # All names used in the module at import time should be stdlib or convertible
+    mod = importlib.import_module("colleague.tui.render.markdown")
+    # All names used in the module at import time should be stdlib or colleague
     for name, obj in vars(mod).items():
         if hasattr(obj, "__module__") and obj.__module__ is not None:
             pkg = obj.__module__.split(".")[0]
-            # Allow stdlib and convertible packages only
+            # Allow stdlib and colleague packages only
             if pkg not in sys.stdlib_module_names and pkg not in (
-                "convertible",
+                "colleague",
                 "builtins",
                 "__future__",
             ):
                 # check it's not a known third-party
                 assert pkg in (
-                    "convertible",
+                    "colleague",
                     "builtins",
                 ), f"Possible third-party import in markdown.py: {name} from {obj.__module__}"
 

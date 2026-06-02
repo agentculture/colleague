@@ -3,9 +3,9 @@
 > Every drive writes its full result as JSON plus a per-step trace — the handoff
 > payload and the operator's record.
 
-The artifact (`convertible/artifact.py`) is the car's **dashboard**: a durable,
+The artifact (`colleague/artifact.py`) is the car's **dashboard**: a durable,
 machine-readable record of what a drive did. Every drive produces two files under
-an artifact directory (`.convertible/` in the repo by default):
+an artifact directory (`.colleague/` in the repo by default):
 
 | File | Contents |
 |------|----------|
@@ -34,13 +34,13 @@ exiting non-zero. The originating command is persisted on the failure path too.
 
 ## Usage
 
-The artifact is written automatically by `convertible drive` and
-`convertible session`; there is no separate artifact verb. To consume it:
+The artifact is written automatically by `colleague drive` and
+`colleague session`; there is no separate artifact verb. To consume it:
 
 ```bash
-convertible drive "..." --repo . --engine mock --no-pr
-cat .convertible/<task-id>.json        # the full result
-cat .convertible/<task-id>.trace.jsonl # one line per step
+colleague drive "..." --repo . --engine mock --no-pr
+cat .colleague/<task-id>.json        # the full result
+cat .colleague/<task-id>.trace.jsonl # one line per step
 ```
 
 The `--json` flag on `drive` additionally streams the same result to stdout for
@@ -48,8 +48,8 @@ inline consumption.
 
 ## Key files
 
-- `convertible/artifact.py` — `write()`, `failed_result()`, `artifact_dir()`.
-- `convertible/contract.py` — the `TaskResult` shape that is serialized.
+- `colleague/artifact.py` — `write()`, `failed_result()`, `artifact_dir()`.
+- `colleague/contract.py` — the `TaskResult` shape that is serialized.
 
 ## See also
 

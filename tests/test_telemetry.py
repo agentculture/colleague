@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-import convertible.telemetry as tel
-from convertible.contract import OK, Task
-from convertible.loop import ModelResponse, ToolCall, run
+import colleague.telemetry as tel
+from colleague.contract import OK, Task
+from colleague.loop import ModelResponse, ToolCall, run
 
 # --- env hygiene: every test resolves config against a known-clean environment.
 
@@ -45,11 +45,11 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_disabled_by_default() -> None:
     cfg = tel.TelemetryConfig.resolve()
     assert cfg.enabled is False
-    assert cfg.service_name == "convertible"
+    assert cfg.service_name == "colleague"
     assert cfg.otlp_endpoint == "http://localhost:4318"
 
 
-def test_enabled_via_convertible_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enabled_via_colleague_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONVERTIBLE_OTEL_ENABLED", "1")
     monkeypatch.setenv("CONVERTIBLE_OTEL_SERVICE_NAME", "myagent")
     cfg = tel.TelemetryConfig.resolve()
@@ -66,7 +66,7 @@ def test_standard_otel_env_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.service_name == "fromstd"
 
 
-def test_convertible_env_overrides_standard(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_colleague_env_overrides_standard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONVERTIBLE_OTEL_ENABLED", "1")
     monkeypatch.setenv("CONVERTIBLE_OTEL_SERVICE_NAME", "wins")
     monkeypatch.setenv("OTEL_SERVICE_NAME", "loses")
@@ -146,7 +146,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E4
     InMemorySpanExporter,
 )
 
-from convertible.telemetry import _otel  # noqa: E402
+from colleague.telemetry import _otel  # noqa: E402
 
 
 def _scripted(responses: list[ModelResponse]):
@@ -166,7 +166,7 @@ def otel_capture():
     _otel.reset_for_tests()
     span_exporter = InMemorySpanExporter()
     metric_reader = InMemoryMetricReader()
-    cfg = tel.TelemetryConfig(enabled=True, service_name="convertible-test")
+    cfg = tel.TelemetryConfig(enabled=True, service_name="colleague-test")
     t = tel.load_telemetry(cfg, span_exporter=span_exporter, metric_reader=metric_reader)
     yield t, span_exporter, metric_reader
     _otel.reset_for_tests()
@@ -187,8 +187,8 @@ def test_loop_emits_tool_spans(tmp_path: Path, otel_capture) -> None:
     assert result.status == OK
 
     names = [s.name for s in span_exporter.get_finished_spans()]
-    assert "convertible.tool.write_file" in names
-    assert "convertible.tool.finish" in names
+    assert "colleague.tool.write_file" in names
+    assert "colleague.tool.finish" in names
 
 
 def test_drive_span_parents_tool_spans(tmp_path: Path, otel_capture) -> None:
@@ -201,8 +201,8 @@ def test_drive_span_parents_tool_spans(tmp_path: Path, otel_capture) -> None:
         run(_scripted(responses), task, max_steps=5, telemetry=t)
 
     spans = {s.name: s for s in span_exporter.get_finished_spans()}
-    drive = spans["convertible.drive"]
-    tool = spans["convertible.tool.finish"]
+    drive = spans["colleague.drive"]
+    tool = spans["colleague.tool.finish"]
     # The tool span auto-nested under the drive span (shared trace + parent).
     assert tool.context.trace_id == drive.context.trace_id
     assert tool.parent is not None
@@ -229,10 +229,10 @@ def test_metrics_recorded(tmp_path: Path, otel_capture) -> None:
         for sm in rm.scope_metrics:
             for metric in sm.metrics:
                 names.add(metric.name)
-    assert "convertible.steps" in names
-    assert "convertible.tokens" in names
-    assert "convertible.tool.calls" in names
-    assert "convertible.tool.latency" in names
+    assert "colleague.steps" in names
+    assert "colleague.tokens" in names
+    assert "colleague.tool.calls" in names
+    assert "colleague.tool.latency" in names
 
 
 def test_generated_and_bytes_metrics_recorded(tmp_path: Path, otel_capture) -> None:
@@ -257,8 +257,8 @@ def test_generated_and_bytes_metrics_recorded(tmp_path: Path, otel_capture) -> N
         for sm in rm.scope_metrics:
             for metric in sm.metrics:
                 names.add(metric.name)
-    assert "convertible.generated.chars" in names
-    assert "convertible.bytes_written" in names
+    assert "colleague.generated.chars" in names
+    assert "colleague.bytes_written" in names
 
 
 def test_metrics_disabled_suppresses_metrics(tmp_path: Path) -> None:
@@ -275,7 +275,7 @@ def test_metrics_disabled_suppresses_metrics(tmp_path: Path) -> None:
     run(_scripted(responses), Task.new(str(tmp_path), "x"), max_steps=5, telemetry=t)
     t.flush()  # must not raise with no meter provider
     # Traces are unaffected — only metrics are off.
-    assert any(s.name.startswith("convertible.tool.") for s in span_exporter.get_finished_spans())
+    assert any(s.name.startswith("colleague.tool.") for s in span_exporter.get_finished_spans())
     _otel.reset_for_tests()
 
 

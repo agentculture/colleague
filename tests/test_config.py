@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from convertible.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, resolve_engine
 
 
 def test_defaults_point_at_vllm_reference() -> None:
@@ -21,10 +21,10 @@ def test_explicit_args_win_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.base_url == "http://explicit:1/v1"
 
 
-def test_convertible_env_wins_over_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_colleague_env_wins_over_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_BASE_URL", "http://openai/v1")
-    monkeypatch.setenv("CONVERTIBLE_BASE_URL", "http://convertible/v1")
-    assert EngineConfig.resolve().base_url == "http://convertible/v1"
+    monkeypatch.setenv("CONVERTIBLE_BASE_URL", "http://colleague/v1")
+    assert EngineConfig.resolve().base_url == "http://colleague/v1"
 
 
 def test_openai_env_used_as_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

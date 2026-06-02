@@ -1,4 +1,4 @@
-"""`convertible drive` — the headline verb wires engine->loop->artifact->handoff (c4)."""
+"""`colleague drive` — the headline verb wires engine->loop->artifact->handoff (c4)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from convertible import registry
-from convertible.cli import main
-from convertible.config import EngineConfig
-from convertible.contract import Task, TaskResult
-from convertible.engine import Engine
-from convertible.engines.mock import OUTPUT_FILE
-from convertible.loop import ModelResponse, ToolCall, run
+from colleague import registry
+from colleague.cli import main
+from colleague.config import EngineConfig
+from colleague.contract import Task, TaskResult
+from colleague.engine import Engine
+from colleague.engines.mock import OUTPUT_FILE
+from colleague.loop import ModelResponse, ToolCall, run
 
 
 class _CommandEngine(Engine):
@@ -49,7 +49,7 @@ def test_drive_mock_writes_artifact_and_file(
     rc = main(["drive", "set up the repo", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
     assert rc == 0
     assert (tmp_path / OUTPUT_FILE).exists()
-    artifacts = list((tmp_path / ".convertible").glob("*.json"))
+    artifacts = list((tmp_path / ".colleague").glob("*.json"))
     assert len(artifacts) == 1
     payload = json.loads(artifacts[0].read_text())
     assert payload["status"] == "ok"
@@ -81,7 +81,7 @@ def test_drive_in_git_repo_creates_branch(
     )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["branch"].startswith("convertible/")
+    assert payload["branch"].startswith("colleague/")
     assert payload["pr_url"] is None  # --no-pr never pushes
 
 
@@ -112,7 +112,7 @@ def test_drive_hands_off_run_command_edits(
     )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["branch"].startswith("convertible/")  # handoff ran despite no write_file
+    assert payload["branch"].startswith("colleague/")  # handoff ran despite no write_file
     # C2: the work lands on the drive branch and the operator is returned to their
     # original branch, so the output lives on that branch, not the work tree.
     committed = subprocess.run(
@@ -157,7 +157,7 @@ def test_drive_preserves_partial_artifact_on_engine_raise(
     )
     assert rc == 2  # EXIT_ENV_ERROR — the failure is still surfaced
 
-    artifacts = list((tmp_path / ".convertible").glob("*.json"))
+    artifacts = list((tmp_path / ".colleague").glob("*.json"))
     assert len(artifacts) == 1
     payload = json.loads(artifacts[0].read_text())
     assert payload["status"] == "error"
@@ -200,7 +200,7 @@ def test_drive_no_partial_hint_omits_partial_trace(
     assert "a result artifact was still written" in err
     assert "partial trace" not in err  # there is no partial trace on this path
 
-    artifacts = list((tmp_path / ".convertible").glob("*.json"))
+    artifacts = list((tmp_path / ".colleague").glob("*.json"))
     payload = json.loads(artifacts[0].read_text())
     assert payload["status"] == "error"
     assert payload["steps"] == []  # fresh failed_result, no accumulated steps
@@ -243,7 +243,7 @@ def test_drive_default_step_line_is_exact(
     )
     assert rc == 0
     err = capsys.readouterr().err
-    assert "step 0: write_file convertible-mock.md [ok]" in err
+    assert "step 0: write_file colleague-mock.md [ok]" in err
     assert "\x1b" not in err  # no cockpit escapes on the default path
 
 
@@ -279,8 +279,8 @@ def test_drive_tui_events_inside_repo_survives_handoff(
     """A --tui-events stream written into the driven repo is harness telemetry: the
     handoff must not sweep it into the drive branch (after which branch-restore
     would delete it). It survives and round-trips to the same steps (#74 A3)."""
-    from convertible.tui.events import loads_events
-    from convertible.tui.from_drive import trace_to_drive_steps
+    from colleague.tui.events import loads_events
+    from colleague.tui.from_drive import trace_to_drive_steps
 
     ev = tmp_path / "run.jsonl"
     rc = main(
@@ -304,7 +304,7 @@ def test_drive_tui_events_inside_repo_survives_handoff(
     live = [e.to_dict() for e in loads_events(ev.read_text())]
     trace_lines = [
         json.loads(line)
-        for line in (tmp_path / ".convertible" / f"{tid}.trace.jsonl").read_text().splitlines()
+        for line in (tmp_path / ".colleague" / f"{tid}.trace.jsonl").read_text().splitlines()
         if line.strip()
     ]
     assert live == [e.to_dict() for e in trace_to_drive_steps(trace_lines)]
@@ -372,7 +372,7 @@ def test_drive_bad_repo_errors(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def _make_command_template(repo: Path, name: str, content: str) -> None:
-    cmds_dir = repo / ".convertible" / "commands"
+    cmds_dir = repo / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True, exist_ok=True)
     (cmds_dir / f"{name}.md").write_text(content)
 

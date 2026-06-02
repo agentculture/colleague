@@ -4,7 +4,7 @@ Acceptance:
 1. Skills resolve identically whether or not an active approval policy is present.
 2. AGENTS resolve identically whether or not an active approval policy is present.
 3. system_prompt_for() includes the layered content while a policy is active.
-4. convertible.layers does not import convertible.policy (structural independence).
+4. colleague.layers does not import colleague.policy (structural independence).
 """
 
 from __future__ import annotations
@@ -12,14 +12,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from convertible.layers import (
+from colleague.layers import (
     compose_agents,
     compose_skills,
     resolve_agents,
     resolve_skills,
     system_prompt_for,
 )
-from convertible.policy import load_policy
+from colleague.policy import load_policy
 
 _BASE_PROMPT = "DEFAULT-ENGINE-SYSTEM"
 _MODEL = "Qwen/Qwen3-32B"
@@ -51,7 +51,7 @@ def test_skills_load_with_empty_policy(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     # Write a skill.
-    _write(repo / ".convertible" / "skills" / "my_skill.md", "# my_skill\nA test skill.")
+    _write(repo / ".colleague" / "skills" / "my_skill.md", "# my_skill\nA test skill.")
 
     # No policy file at all.
     skills_no_policy = resolve_skills(repo, _MODEL, user_home=home)
@@ -59,7 +59,7 @@ def test_skills_load_with_empty_policy(tmp_path: Path) -> None:
 
     # Now add an active policy (non-empty run_command section).
     _write(
-        repo / ".convertible" / "approvals.json",
+        repo / ".colleague" / "approvals.json",
         json.dumps({"run_command": {"allow": ["git", "pytest"]}}),
     )
 
@@ -74,8 +74,8 @@ def test_skills_compose_with_active_policy(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
 
-    _write(repo / ".convertible" / "skills" / "skill_alpha.md", "# Alpha\nFirst skill.")
-    _write(repo / ".convertible" / "skills" / "skill_beta.md", "# Beta\nSecond skill.")
+    _write(repo / ".colleague" / "skills" / "skill_alpha.md", "# Alpha\nFirst skill.")
+    _write(repo / ".colleague" / "skills" / "skill_beta.md", "# Beta\nSecond skill.")
 
     # Compose without policy.
     skills_no_policy = resolve_skills(repo, _MODEL, user_home=home)
@@ -84,7 +84,7 @@ def test_skills_compose_with_active_policy(tmp_path: Path) -> None:
     assert "skill_beta" in catalog_no_policy
 
     # Add an active policy (e.g., deny all run_command).
-    _write(repo / ".convertible" / "approvals.json", json.dumps({"run_command": {"deny": ["*"]}}))
+    _write(repo / ".colleague" / "approvals.json", json.dumps({"run_command": {"deny": ["*"]}}))
 
     # Composition should be identical.
     skills_with_policy = resolve_skills(repo, _MODEL, user_home=home)
@@ -101,18 +101,18 @@ def test_agents_load_with_active_policy(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write(repo / "AGENTS.md", "Base AGENTS rule.")
-    _write(repo / "AGENTS.convertible.md", "Convertible overlay.")
+    _write(repo / "AGENTS.colleague.md", "Colleague overlay.")
 
     # No policy.
     agents_no_policy = resolve_agents(repo, _MODEL, user_home=home)
     assert len(agents_no_policy) == 2
     texts_no_policy = [layer.text for layer in agents_no_policy]
     assert "Base AGENTS rule." in texts_no_policy
-    assert "Convertible overlay." in texts_no_policy
+    assert "Colleague overlay." in texts_no_policy
 
     # Add an active policy (hooks section is present).
     _write(
-        repo / ".convertible" / "approvals.json",
+        repo / ".colleague" / "approvals.json",
         json.dumps({"hooks": {"lint.sh": "sha256:abc123"}}),
     )
 
@@ -129,17 +129,17 @@ def test_agents_compose_with_active_policy(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write(repo / "AGENTS.md", "Base guidance.")
-    _write(repo / "AGENTS.convertible.md", "Convertible-specific guidance.")
+    _write(repo / "AGENTS.colleague.md", "Colleague-specific guidance.")
 
     # Compose without policy.
     agents_no_policy = resolve_agents(repo, _MODEL, user_home=home)
     composed_no_policy = compose_agents(agents_no_policy)
     assert "Base guidance." in composed_no_policy
-    assert "Convertible-specific guidance." in composed_no_policy
+    assert "Colleague-specific guidance." in composed_no_policy
 
     # Add an active policy (commands section present).
     _write(
-        repo / ".convertible" / "approvals.json", json.dumps({"commands": {"deploy": "md5:xyz789"}})
+        repo / ".colleague" / "approvals.json", json.dumps({"commands": {"deploy": "md5:xyz789"}})
     )
 
     # Composition should be unchanged.
@@ -157,7 +157,7 @@ def test_system_prompt_for_with_active_policy(tmp_path: Path) -> None:
     home = _home(tmp_path)
 
     _write(repo / "AGENTS.md", "Rule: be helpful.")
-    _write(repo / ".convertible" / "skills" / "code_gen.md", "# code-gen\nGenerate code.")
+    _write(repo / ".colleague" / "skills" / "code_gen.md", "# code-gen\nGenerate code.")
 
     # Without policy.
     prompt_no_policy = system_prompt_for(repo, _MODEL, user_home=home, base=_BASE_PROMPT)
@@ -168,7 +168,7 @@ def test_system_prompt_for_with_active_policy(tmp_path: Path) -> None:
 
     # With active policy (non-empty run_command section).
     _write(
-        repo / ".convertible" / "approvals.json",
+        repo / ".colleague" / "approvals.json",
         json.dumps({"run_command": {"allow": ["bash"], "deny": ["rm"]}}),
     )
 
@@ -187,7 +187,7 @@ def test_system_prompt_for_none_when_no_layers_even_with_policy(tmp_path: Path) 
 
     # Add a policy but no AGENTS or skills.
     _write(
-        repo / ".convertible" / "approvals.json",
+        repo / ".colleague" / "approvals.json",
         json.dumps(
             {
                 "run_command": {"allow": ["ls"]},
@@ -206,15 +206,15 @@ def test_system_prompt_for_none_when_no_layers_even_with_policy(tmp_path: Path) 
 
 
 def test_layers_does_not_import_policy() -> None:
-    """convertible.layers module never imports convertible.policy."""
-    import convertible.layers as layers_mod
+    """colleague.layers module never imports colleague.policy."""
+    import colleague.layers as layers_mod
 
     # Inspect the module's source to ensure 'policy' is not imported.
     source = layers_mod.__file__
     assert source is not None
     source_text = Path(source).read_text(encoding="utf-8")
     assert "import policy" not in source_text
-    assert "from convertible.policy" not in source_text
+    assert "from colleague.policy" not in source_text
 
 
 # --- R5: Complex multi-layer policy does not affect resolution ----
@@ -227,9 +227,9 @@ def test_complex_policy_does_not_affect_multi_layer_resolution(tmp_path: Path) -
 
     # Set up multiple layers.
     _write(repo / "AGENTS.md", "Base AGENTS.")
-    _write(repo / "AGENTS.convertible.md", "Convertible AGENTS.")
-    _write(repo / ".convertible" / "skills" / "skill_1.md", "# Skill 1\nText 1.")
-    _write(repo / ".convertible" / "skills" / "skill_2.md", "# Skill 2\nText 2.")
+    _write(repo / "AGENTS.colleague.md", "Colleague AGENTS.")
+    _write(repo / ".colleague" / "skills" / "skill_1.md", "# Skill 1\nText 1.")
+    _write(repo / ".colleague" / "skills" / "skill_2.md", "# Skill 2\nText 2.")
 
     # Capture resolution before policy.
     agents_before = resolve_agents(repo, _MODEL, user_home=home)
@@ -238,7 +238,7 @@ def test_complex_policy_does_not_affect_multi_layer_resolution(tmp_path: Path) -
 
     # Add a comprehensive active policy.
     _write(
-        repo / ".convertible" / "approvals.json",
+        repo / ".colleague" / "approvals.json",
         json.dumps(
             {
                 "run_command": {
@@ -283,15 +283,15 @@ def test_per_model_policy_overlay_does_not_affect_layer_resolution(tmp_path: Pat
     home = _home(tmp_path)
 
     # Per-model AGENTS and skills.
-    _write(repo / "AGENTS.convertible.Qwen-Qwen3-32B.md", "Qwen-specific AGENTS.")
+    _write(repo / "AGENTS.colleague.Qwen-Qwen3-32B.md", "Qwen-specific AGENTS.")
     _write(
-        repo / ".convertible" / "Qwen-Qwen3-32B" / "skills" / "qwen_skill.md",
+        repo / ".colleague" / "Qwen-Qwen3-32B" / "skills" / "qwen_skill.md",
         "# Qwen Skill\nQwen-specific.",
     )
 
     # Per-model policy overlay.
     _write(
-        repo / ".convertible" / "Qwen-Qwen3-32B" / "approvals.json",
+        repo / ".colleague" / "Qwen-Qwen3-32B" / "approvals.json",
         json.dumps({"run_command": {"allow": ["python"]}}),
     )
 

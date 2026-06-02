@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import convertible.engines.mock as mock_mod
-import convertible.engines.vllm_openai as vllm_mod
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task, TaskResult
-from convertible.engines.mock import MockEngine
-from convertible.engines.vllm_openai import VllmOpenAIEngine
-from convertible.loop import _DEFAULT_SYSTEM, CompleteFn, ModelResponse, ToolCall, run
+import colleague.engines.mock as mock_mod
+import colleague.engines.vllm_openai as vllm_mod
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task, TaskResult
+from colleague.engines.mock import MockEngine
+from colleague.engines.vllm_openai import VllmOpenAIEngine
+from colleague.loop import _DEFAULT_SYSTEM, CompleteFn, ModelResponse, ToolCall, run
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -2,7 +2,7 @@
 
 These exercise the parts of the skill that do NOT invoke a drive: the prompt
 templates render, the wrapper resolves verbs/flags, and the error paths exit
-before `resolve_convertible` is ever reached. The live 27B behavior is proven by
+before `resolve_colleague` is ever reached. The live 27B behavior is proven by
 dogfooding, not in CI.
 """
 
@@ -57,10 +57,10 @@ def _init_repo(path: Path) -> Path:
     return path
 
 
-def _fake_convertible(bindir: Path, body: str) -> dict[str, str]:
-    """Drop a stub `convertible` on a fresh PATH and return the env to run with."""
+def _fake_colleague(bindir: Path, body: str) -> dict[str, str]:
+    """Drop a stub `colleague` on a fresh PATH and return the env to run with."""
     bindir.mkdir(parents=True, exist_ok=True)
-    fake = bindir / "convertible"
+    fake = bindir / "colleague"
     fake.write_text(body)
     fake.chmod(0o755)
     return {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
@@ -157,19 +157,19 @@ def test_trailing_value_flag_errors_cleanly() -> None:
     assert "unbound variable" not in r.stderr
 
 
-def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
+def test_wrapper_prints_drive_summary_with_a_fake_colleague(tmp_path) -> None:
     """End-to-end wrapper path (resolve -> render -> drive -> print_result) with a
-    stubbed `convertible` that echoes a canned TaskResult. Guards the result
+    stubbed `colleague` that echoes a canned TaskResult. Guards the result
     extraction (in particular: print_result must read the piped JSON from stdin,
     not have it shadowed by a heredoc). Uses --apply to exercise the in-place
     write path now that `write` previews by default."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    fake = bindir / "convertible"
+    fake = bindir / "colleague"
     fake.write_text(
         "#!/usr/bin/env bash\n"
         'echo \'{"status": "ok", "summary": "FAKE_SUMMARY_OK", '
-        '"changed_files": ["x.py"], "branch": "convertible/abc123"}\'\n'
+        '"changed_files": ["x.py"], "branch": "colleague/abc123"}\'\n'
     )
     fake.chmod(0o755)
 
@@ -205,17 +205,17 @@ def test_wrapper_prints_drive_summary_with_a_fake_convertible(tmp_path) -> None:
     assert r.returncode == 0, r.stderr
     assert "FAKE_SUMMARY_OK" in r.stdout
     assert "x.py" in r.stdout
-    assert "convertible/abc123" in r.stdout
+    assert "colleague/abc123" in r.stdout
 
 
-def test_feedback_verb_shells_to_convertible_feedback(tmp_path) -> None:
-    """`outsource feedback <ref> --rating N` must invoke `convertible feedback
+def test_feedback_verb_shells_to_colleague_feedback(tmp_path) -> None:
+    """`outsource feedback <ref> --rating N` must invoke `colleague feedback
     record <ref> --rating N --repo <repo>` (the ROI loop pass-through, t9). A
-    stub convertible records its argv so we can assert the mapping without a model."""
+    stub colleague records its argv so we can assert the mapping without a model."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     argv_log = tmp_path / "argv.txt"
-    fake = bindir / "convertible"
+    fake = bindir / "colleague"
     fake.write_text(
         "#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n' 'echo "recorded"\n'
     )
@@ -250,11 +250,11 @@ def test_feedback_verb_shells_to_convertible_feedback(tmp_path) -> None:
 
 
 def test_feedback_verb_without_rating_shows(tmp_path) -> None:
-    """No --rating → `convertible feedback show <ref>` (read, not record)."""
+    """No --rating → `colleague feedback show <ref>` (read, not record)."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     argv_log = tmp_path / "argv.txt"
-    fake = bindir / "convertible"
+    fake = bindir / "colleague"
     fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
     fake.chmod(0o755)
     repo = _init_repo(tmp_path / "repo")
@@ -274,12 +274,12 @@ def test_feedback_verb_without_rating_shows(tmp_path) -> None:
 
 def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
     """explore/review (run_readonly) must run in a throwaway worktree and remove
-    it afterwards. Stub `convertible`, run `outsource explore`, and assert the
+    it afterwards. Stub `colleague`, run `outsource explore`, and assert the
     summary comes back AND the worktree count is unchanged (no leak). Covers the
     run_readonly path a 27B dogfood-review flagged as untested."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    fake = bindir / "convertible"
+    fake = bindir / "colleague"
     fake.write_text(
         "#!/usr/bin/env bash\n"
         'echo \'{"status": "ok", "summary": "READONLY_OK", "changed_files": []}\'\n'
@@ -333,13 +333,13 @@ def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
 def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
     """C4: explore/review drive in a throwaway worktree, but the artifact + a
     last_drive pointer are copied back to the REAL repo before the worktree is
-    removed — so `convertible feedback record last` / `outsource feedback last`
+    removed — so `colleague feedback record last` / `outsource feedback last`
     can grade the drive (it otherwise vanished with the worktree)."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    fake = bindir / "convertible"
+    fake = bindir / "colleague"
     # A stub that behaves like a real drive: it writes its artifact under the
-    # --repo's .convertible/ (the worktree), then echoes the TaskResult JSON.
+    # --repo's .colleague/ (the worktree), then echoes the TaskResult JSON.
     fake.write_text(
         "#!/usr/bin/env bash\n"
         "set -eu\n"
@@ -350,14 +350,14 @@ def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
         "    *) shift;;\n"
         "  esac\n"
         "done\n"
-        'mkdir -p "$repo/.convertible"\n'
-        'art="$repo/.convertible/tid123.json"\n'
+        'mkdir -p "$repo/.colleague"\n'
+        'art="$repo/.colleague/tid123.json"\n'
         "printf "
         '\'{"status":"ok","summary":"READONLY_OK","task_id":"tid123",'
         '"changed_files":[],"artifacts_path":"%s"}\' '
         '"$art" > "$art"\n'
         'printf \'{"index":0,"tool":"finish","ok":true}\\n\' '
-        '> "$repo/.convertible/tid123.trace.jsonl"\n'
+        '> "$repo/.colleague/tid123.trace.jsonl"\n'
         'cat "$art"\n'
     )
     fake.chmod(0o755)
@@ -393,21 +393,21 @@ def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
     )
     assert r.returncode == 0, r.stderr
     # Artifact + last_drive preserved in the REAL repo (not lost with the worktree).
-    art = repo / ".convertible" / "tid123.json"
+    art = repo / ".colleague" / "tid123.json"
     assert art.exists(), f"artifact not preserved\nstdout={r.stdout}\nstderr={r.stderr}"
-    assert (repo / ".convertible" / "last_drive").read_text().strip() == "tid123"
+    assert (repo / ".colleague" / "last_drive").read_text().strip() == "tid123"
     # The reported artifact path points at the real repo, not the temp worktree.
     assert str(art) in r.stdout
 
 
 def test_readonly_rejects_unsafe_task_id(tmp_path) -> None:
     """C4 hardening (qodo #1): a malicious/buggy TaskResult task_id containing
-    path separators must not let _preserve_artifact escape $REPO/.convertible/.
+    path separators must not let _preserve_artifact escape $REPO/.colleague/.
     The drive still succeeds (preservation is advisory); the copy is refused and
     no last_drive is written."""
     # Echoes a TaskResult whose task_id is a traversal attempt. (No artifact is
     # written: validation rejects the id before the file is ever consulted.)
-    env = _fake_convertible(
+    env = _fake_colleague(
         tmp_path / "bin",
         "#!/usr/bin/env bash\n"
         "set -eu\n"
@@ -426,9 +426,9 @@ def test_readonly_rejects_unsafe_task_id(tmp_path) -> None:
     )
     # The drive itself succeeded; preservation is best-effort, so the verb is ok.
     assert r.returncode == 0, r.stderr
-    # Nothing escaped .convertible/, and no pointer was left behind.
+    # Nothing escaped .colleague/, and no pointer was left behind.
     assert not (repo / "pwned.json").exists()
-    assert not (repo / ".convertible" / "last_drive").exists()
+    assert not (repo / ".colleague" / "last_drive").exists()
     assert "unsafe drive id" in r.stderr
 
 
@@ -438,13 +438,13 @@ def test_readonly_does_not_claim_path_when_preservation_fails(tmp_path) -> None:
     (no false path) and must not write last_drive."""
     # Reports a safe task_id and an artifacts_path, but never writes the file —
     # mimicking a drive whose artifact didn't materialize in the worktree.
-    env = _fake_convertible(
+    env = _fake_colleague(
         tmp_path / "bin",
         "#!/usr/bin/env bash\n"
         "set -eu\n"
         "printf "
         '\'{"status":"ok","summary":"OK","task_id":"tid404",'
-        '"changed_files":[],"artifacts_path":"/tmp/wt/.convertible/tid404.json"}\'\n',
+        '"changed_files":[],"artifacts_path":"/tmp/wt/.colleague/tid404.json"}\'\n',
     )
     repo = _init_repo(tmp_path / "repo")
 
@@ -457,10 +457,10 @@ def test_readonly_does_not_claim_path_when_preservation_fails(tmp_path) -> None:
     )
     assert r.returncode == 0, r.stderr
     # No real-repo artifact was created, so no false claim and no dangling pointer.
-    assert not (repo / ".convertible" / "tid404.json").exists()
-    assert not (repo / ".convertible" / "last_drive").exists()
+    assert not (repo / ".colleague" / "tid404.json").exists()
+    assert not (repo / ".colleague" / "last_drive").exists()
     # The printed path is NOT rewritten to the (non-existent) real-repo location.
-    assert str(repo / ".convertible" / "tid404.json") not in r.stdout
+    assert str(repo / ".colleague" / "tid404.json") not in r.stdout
 
 
 # ── issue #61: downstream qodo findings ─────────────────────────────────────
@@ -476,10 +476,10 @@ def test_render_preserves_literal_base_in_argument() -> None:
 
 
 def test_literal_base_in_argument_survives_through_the_script(tmp_path) -> None:
-    """Script-level guard for #6: stub `convertible` echoes the rendered drive
+    """Script-level guard for #6: stub `colleague` echoes the rendered drive
     instruction back as its summary, so we can assert a literal `$BASE` in the
     argument reaches the model verbatim instead of being rewritten to `main`."""
-    env = _fake_convertible(
+    env = _fake_colleague(
         tmp_path / "bin",
         "#!/usr/bin/env bash\n"
         'python3 -c "import json,sys; '
@@ -509,10 +509,10 @@ def test_failure_digest_goes_to_stderr(tmp_path) -> None:
     """On a failed drive (status != ok) the digest must go to stderr (#4) so stdout
     stays clean for scripting; the wrapper still exits non-zero.
 
-    The stub models real `convertible drive` faithfully (qodo #62): it prints the
+    The stub models real `colleague drive` faithfully (qodo #62): it prints the
     error JSON to stdout *and exits 1*. The apply path's `|| true` must keep that
     non-zero exit from aborting the script under `set -e` before print_result runs."""
-    env = _fake_convertible(
+    env = _fake_colleague(
         tmp_path / "bin",
         "#!/usr/bin/env bash\n"
         'echo \'{"status": "error", "summary": "BOOM_FAILED"}\'\n'
@@ -565,19 +565,19 @@ def test_write_previews_by_default(tmp_path) -> None:
     """write without --apply (#1) runs in a throwaway worktree, prints the would-be
     change + diff, and lands NOTHING in the real working tree; the worktree and the
     ephemeral drive branch are cleaned up afterwards."""
-    env = _fake_convertible(
+    env = _fake_colleague(
         tmp_path / "bin",
         "#!/usr/bin/env bash\n"
         "set -e\n"
         'repo=""; prev=""\n'
         'for a in "$@"; do [ "$prev" = "--repo" ] && repo="$a"; prev="$a"; done\n'
-        'git -C "$repo" checkout -q -b convertible/previewfeed\n'
+        'git -C "$repo" checkout -q -b colleague/previewfeed\n'
         "printf 'hello\\n' > \"$repo/preview_added.txt\"\n"
         'git -C "$repo" add -A\n'
         'git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m "drive change"\n'
         "python3 -c \"import json; print(json.dumps({'status':'ok',"
         "'summary':'PREVIEW_RAN','changed_files':['preview_added.txt'],"
-        "'branch':'convertible/previewfeed'}))\"\n",
+        "'branch':'colleague/previewfeed'}))\"\n",
     )
     repo = _init_repo(tmp_path / "repo")
     before = _worktree_count(repo)
@@ -597,7 +597,7 @@ def test_write_previews_by_default(tmp_path) -> None:
     # … and the worktree + ephemeral drive branch were cleaned up.
     assert _worktree_count(repo) == before, "preview leaked a worktree"
     branches = subprocess.run(
-        ["git", "-C", str(repo), "branch", "--list", "convertible/previewfeed"],
+        ["git", "-C", str(repo), "branch", "--list", "colleague/previewfeed"],
         capture_output=True,
         text=True,
         check=True,

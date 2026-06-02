@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from convertible.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
+from colleague.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
 
 def test_schemas_cover_base_five_plus_culture_and_devague() -> None:

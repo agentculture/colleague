@@ -1,15 +1,15 @@
 # `doctor` — configuration-readiness (oilcheck)
 
-> Convertible's oilcheck: a read-only health check across identity, provider,
+> Colleague's oilcheck: a read-only health check across identity, provider,
 > engines, otel-readiness, and environment. Exits 1 when unhealthy.
 
-`convertible doctor` is convertible's **oilcheck** — a configuration-readiness
+`colleague doctor` is colleague's **oilcheck** — a configuration-readiness
 health check that answers "is this install actually ready to drive?" before you
 hand it work. It is **read-only** and **diagnose-only** (no `--fix`), with **zero
 new runtime dependencies**.
 
-The diagnostic logic lives in a chassis-level package, `convertible/oilcheck/`
-(the same way telemetry lives in `convertible/telemetry/`). The `doctor` CLI verb
+The diagnostic logic lives in a chassis-level package, `colleague/oilcheck/`
+(the same way telemetry lives in `colleague/telemetry/`). The `doctor` CLI verb
 is a thin presentation layer that renders the report and maps it to an exit code.
 
 ## The check-group contract
@@ -27,7 +27,7 @@ group can't take down the whole report.
 
 ## The five check-groups (in report order)
 
-### 1. identity — `convertible/oilcheck/identity.py`
+### 1. identity — `colleague/oilcheck/identity.py`
 
 The agent-identity invariants (mirrors `steward doctor`). When run from a source
 checkout with a `culture.yaml`:
@@ -40,7 +40,7 @@ checkout with a `culture.yaml`:
 From a wheel install (no `culture.yaml` beside the package) it reports a single
 `source_checkout` info check and nothing else.
 
-### 2. provider — `convertible/oilcheck/provider.py`
+### 2. provider — `colleague/oilcheck/provider.py`
 
 Reports the resolved engine provider config (read-only, no network):
 
@@ -50,12 +50,12 @@ Reports the resolved engine provider config (read-only, no network):
   pointing at a third-party host while `api_key` is still the placeholder
   `EMPTY`.
 - `provider_budget` (**warning**, non-default `base_url` only) — advisory: fires
-  when no `CONVERTIBLE_BUDGET` spend cap is set.
+  when no `COLLEAGUE_BUDGET` spend cap is set.
 
 Silent on the default localhost rig (a local vLLM server needs no key/budget).
 No `error` is ever emitted here.
 
-### 3. engines — `convertible/oilcheck/engines.py`
+### 3. engines — `colleague/oilcheck/engines.py`
 
 Engine-wheel discovery and loadability, probed uniformly (all-engines rule):
 
@@ -65,7 +65,7 @@ Engine-wheel discovery and loadability, probed uniformly (all-engines rule):
 - one `engine_load_<name>` (**error**) per discovered engine — instantiating it
   doesn't raise.
 
-### 4. otel — `convertible/oilcheck/otel.py`
+### 4. otel — `colleague/oilcheck/otel.py`
 
 GPS readiness, **without** enabling telemetry or importing the SDK eagerly
 (`importlib.util.find_spec` only — the zero-deps guard must keep passing):
@@ -77,12 +77,12 @@ GPS readiness, **without** enabling telemetry or importing the SDK eagerly
 - `otel_endpoint` (**info**) — whether an OTLP endpoint is configured (userinfo
   redacted).
 
-### 5. environment — `convertible/oilcheck/environment.py`
+### 5. environment — `colleague/oilcheck/environment.py`
 
 The broader operating environment (repo = cwd):
 
-- `config_dir` (**info**/warning) — whether a `.convertible/` config dir resolves.
-- `hooks_valid` (**info**/error) — `.convertible/hooks.json`, if present, parses.
+- `config_dir` (**info**/warning) — whether a `.colleague/` config dir resolves.
+- `hooks_valid` (**info**/error) — `.colleague/hooks.json`, if present, parses.
 - `commands_parse` (**info**/error) — all command templates parse.
 - `layering` (**info**/warning) — AGENTS/skills resolution doesn't raise.
 - `git_present` (**error**) — `git` is on `PATH` (required for handoff).
@@ -94,23 +94,23 @@ The broader operating environment (repo = cwd):
 ## Usage
 
 ```bash
-convertible doctor              # human-readable rubric; exit 1 if unhealthy
-convertible doctor --json       # structured {healthy, checks[]}
-convertible explain doctor      # the catalog entry
+colleague doctor              # human-readable rubric; exit 1 if unhealthy
+colleague doctor --json       # structured {healthy, checks[]}
+colleague explain doctor      # the catalog entry
 ```
 
 ## Extending it
 
 Add a check-group by writing a module that exposes `checks() -> list[dict]`
 (read-only, never raising, building checks with `make_check`), then append its
-`checks` callable to `CHECK_GROUPS` in `convertible/oilcheck/__init__.py`. List
+`checks` callable to `CHECK_GROUPS` in `colleague/oilcheck/__init__.py`. List
 order is report order. Read the module docstring there — it is the group spec.
 
 ## Key files
 
-- `convertible/oilcheck/__init__.py` — `make_check`, `diagnose`, `CHECK_GROUPS`.
-- `convertible/oilcheck/{identity,provider,engines,otel,environment}.py` — the groups.
-- `convertible/cli/_commands/doctor.py` — the presentation layer.
+- `colleague/oilcheck/__init__.py` — `make_check`, `diagnose`, `CHECK_GROUPS`.
+- `colleague/oilcheck/{identity,provider,engines,otel,environment}.py` — the groups.
+- `colleague/cli/_commands/doctor.py` — the presentation layer.
 
 ## See also
 

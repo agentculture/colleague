@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from convertible.layers import (
+from colleague.layers import (
     AGENTS_BASE,
-    AGENTS_CONVERTIBLE,
+    AGENTS_COLLEAGUE,
     AGENTS_MODEL,
     SKILL_BASE,
     SKILL_MODEL,
@@ -76,25 +76,25 @@ def test_sanitize_model_strips_edges_and_collapses_runs() -> None:
 def test_agents_isolation_x_does_not_see_y(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    _write(repo / f"AGENTS.convertible.{_SAFE_X}.md", "X overlay")
-    _write(repo / f"AGENTS.convertible.{_SAFE_Y}.md", "Y overlay")
+    _write(repo / f"AGENTS.colleague.{_SAFE_X}.md", "X overlay")
+    _write(repo / f"AGENTS.colleague.{_SAFE_Y}.md", "Y overlay")
 
     layers_x = resolve_agents(repo, _MODEL_X, user_home=home)
     paths_x = {layer.path.name for layer in layers_x}
-    assert f"AGENTS.convertible.{_SAFE_X}.md" in paths_x
-    assert f"AGENTS.convertible.{_SAFE_Y}.md" not in paths_x
+    assert f"AGENTS.colleague.{_SAFE_X}.md" in paths_x
+    assert f"AGENTS.colleague.{_SAFE_Y}.md" not in paths_x
 
     layers_y = resolve_agents(repo, _MODEL_Y, user_home=home)
     paths_y = {layer.path.name for layer in layers_y}
-    assert f"AGENTS.convertible.{_SAFE_Y}.md" in paths_y
-    assert f"AGENTS.convertible.{_SAFE_X}.md" not in paths_y
+    assert f"AGENTS.colleague.{_SAFE_Y}.md" in paths_y
+    assert f"AGENTS.colleague.{_SAFE_X}.md" not in paths_y
 
 
 def test_skills_isolation_x_does_not_see_y(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    _write(repo / ".convertible" / _SAFE_X / "skills" / "only_x.md", "# x")
-    _write(repo / ".convertible" / _SAFE_Y / "skills" / "only_y.md", "# y")
+    _write(repo / ".colleague" / _SAFE_X / "skills" / "only_x.md", "# x")
+    _write(repo / ".colleague" / _SAFE_Y / "skills" / "only_y.md", "# y")
 
     skills_x = resolve_skills(repo, _MODEL_X, user_home=home)
     assert "only_x" in skills_x
@@ -111,23 +111,23 @@ def test_skills_isolation_x_does_not_see_y(tmp_path: Path) -> None:
 def test_agents_full_cascade_order(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _write(repo / "AGENTS.md", "base text")
-    _write(repo / "AGENTS.convertible.md", "convertible text")
-    _write(repo / f"AGENTS.convertible.{_SAFE_X}.md", "model text")
+    _write(repo / "AGENTS.colleague.md", "colleague text")
+    _write(repo / f"AGENTS.colleague.{_SAFE_X}.md", "model text")
 
     layers = resolve_agents(repo, _MODEL_X, user_home=_home(tmp_path))
     assert [layer.scope for layer in layers] == [
         AGENTS_BASE,
-        AGENTS_CONVERTIBLE,
+        AGENTS_COLLEAGUE,
         AGENTS_MODEL,
     ]
-    assert compose_agents(layers) == "base text\n\nconvertible text\n\nmodel text"
+    assert compose_agents(layers) == "base text\n\ncolleague text\n\nmodel text"
 
 
 def test_agents_gaps_allowed(tmp_path: Path) -> None:
-    """Missing convertible overlay → base then model, in order."""
+    """Missing colleague overlay → base then model, in order."""
     repo = _repo(tmp_path)
     _write(repo / "AGENTS.md", "base text")
-    _write(repo / f"AGENTS.convertible.{_SAFE_X}.md", "model text")
+    _write(repo / f"AGENTS.colleague.{_SAFE_X}.md", "model text")
 
     layers = resolve_agents(repo, _MODEL_X, user_home=_home(tmp_path))
     assert [layer.scope for layer in layers] == [AGENTS_BASE, AGENTS_MODEL]
@@ -137,7 +137,7 @@ def test_agents_gaps_allowed(tmp_path: Path) -> None:
 def test_compose_agents_drops_empty_layers(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _write(repo / "AGENTS.md", "   \n  ")  # whitespace only
-    _write(repo / "AGENTS.convertible.md", "real")
+    _write(repo / "AGENTS.colleague.md", "real")
     layers = resolve_agents(repo, _MODEL_X, user_home=_home(tmp_path))
     assert compose_agents(layers) == "real"
 
@@ -148,10 +148,10 @@ def test_compose_agents_drops_empty_layers(tmp_path: Path) -> None:
 def test_skills_model_overlay_shadows_base(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    _write(repo / ".convertible" / "skills" / "shared.md", "# base shared")
-    _write(repo / ".convertible" / "skills" / "base_only.md", "# base only")
-    _write(repo / ".convertible" / _SAFE_X / "skills" / "shared.md", "# model shared")
-    _write(repo / ".convertible" / _SAFE_X / "skills" / "model_only.md", "# model only")
+    _write(repo / ".colleague" / "skills" / "shared.md", "# base shared")
+    _write(repo / ".colleague" / "skills" / "base_only.md", "# base only")
+    _write(repo / ".colleague" / _SAFE_X / "skills" / "shared.md", "# model shared")
+    _write(repo / ".colleague" / _SAFE_X / "skills" / "model_only.md", "# model only")
 
     skills = resolve_skills(repo, _MODEL_X, user_home=home)
     assert set(skills) == {"shared", "base_only", "model_only"}
@@ -167,7 +167,7 @@ def test_agents_repo_shadows_user(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write(repo / "AGENTS.md", "repo base")
-    _write(home / ".convertible" / "AGENTS.md", "user base")
+    _write(home / ".colleague" / "AGENTS.md", "user base")
 
     layers = resolve_agents(repo, _MODEL_X, user_home=home)
     assert len(layers) == 1
@@ -177,7 +177,7 @@ def test_agents_repo_shadows_user(tmp_path: Path) -> None:
 def test_agents_user_fallback_when_repo_absent(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    _write(home / ".convertible" / "AGENTS.md", "user base")
+    _write(home / ".colleague" / "AGENTS.md", "user base")
 
     layers = resolve_agents(repo, _MODEL_X, user_home=home)
     assert len(layers) == 1
@@ -187,8 +187,8 @@ def test_agents_user_fallback_when_repo_absent(tmp_path: Path) -> None:
 def test_skills_repo_shadows_user(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    _write(repo / ".convertible" / "skills" / "s.md", "# repo")
-    _write(home / ".convertible" / "skills" / "s.md", "# user")
+    _write(repo / ".colleague" / "skills" / "s.md", "# repo")
+    _write(home / ".colleague" / "skills" / "s.md", "# user")
 
     skills = resolve_skills(repo, _MODEL_X, user_home=home)
     assert skills["s"].path.read_text() == "# repo"
@@ -232,12 +232,12 @@ def test_agents_symlink_within_repo_is_allowed(tmp_path: Path) -> None:
 
 
 def test_skills_symlink_escape_is_ignored(tmp_path: Path) -> None:
-    """A skill doc symlinked outside the .convertible roots is skipped."""
+    """A skill doc symlinked outside the .colleague roots is skipped."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    secret = tmp_path / "secret.md"  # outside any .convertible root
+    secret = tmp_path / "secret.md"  # outside any .colleague root
     secret.write_text("# secret\nleak", encoding="utf-8")
-    skills_dir = repo / ".convertible" / "skills"
+    skills_dir = repo / ".colleague" / "skills"
     skills_dir.mkdir(parents=True)
     (skills_dir / "evil.md").symlink_to(secret)
 
@@ -245,10 +245,10 @@ def test_skills_symlink_escape_is_ignored(tmp_path: Path) -> None:
 
 
 def test_skills_symlink_within_config_is_allowed(tmp_path: Path) -> None:
-    """A skill symlink that stays inside .convertible is followed."""
+    """A skill symlink that stays inside .colleague is followed."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    conv = repo / ".convertible"
+    conv = repo / ".colleague"
     target = conv / "shared" / "real.md"
     _write(target, "# real\nuse me")
     skills_dir = conv / "skills"
@@ -272,7 +272,7 @@ def test_system_prompt_for_composes_base_agents_skills(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     _write(repo / "AGENTS.md", "agent rules")
-    _write(repo / ".convertible" / "skills" / "greet.md", "# greet\nSay hi.")
+    _write(repo / ".colleague" / "skills" / "greet.md", "# greet\nSay hi.")
 
     prompt = system_prompt_for(repo, _MODEL_X, user_home=home, base=_BASE_PROMPT)
     assert prompt is not None

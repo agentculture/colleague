@@ -1,6 +1,6 @@
 # Graceful degradation — context budgets
 
-> Convertible drives degrade instead of hard-failing when a task exceeds a
+> Colleague drives degrade instead of hard-failing when a task exceeds a
 > model's context window. The loop proactively windows its message history to
 > a configurable token budget and, if an overflow error is detected,
 > reactively trims and retries a bounded number of times. If the drive still
@@ -13,7 +13,7 @@ Multi-file repo tasks can exceed a small-context model's window. During a
 16-file audit on a ~32k-window model, the loop accumulated an unbounded message
 history and vLLM returned HTTP 400: "maximum context length is 32768 ... prompt
 contains 32769". The partial artifact landed in a throwaway worktree, but the
-operator saw only "convertible produced no result on stdout" — silent failure,
+operator saw only "colleague produced no result on stdout" — silent failure,
 opaque to the caller.
 
 This made outsourcing multi-file work to diverse/smaller models unreliable. A
@@ -42,7 +42,7 @@ the `--json` drive path — not empty output plus an opaque error.
 
 | Setting | Source | Notes |
 |---------|--------|-------|
-| `CONVERTIBLE_CONTEXT_BUDGET` | Environment variable | Tokens; overrides config default. |
+| `COLLEAGUE_CONTEXT_BUDGET` | Environment variable | Tokens; overrides config default. |
 | `--context-budget-tokens` | CLI flag (future) | Not yet a flag; config only today. |
 | `EngineConfig.context_budget_tokens` | Config object | Default: 24,000 tokens. |
 
@@ -116,7 +116,7 @@ The trade-off is acceptable:
 
 ## Chassis-owned (all-engines rule)
 
-The feature lives in `convertible/loop.py` and `convertible/context.py`:
+The feature lives in `colleague/loop.py` and `colleague/context.py`:
 
 - `_complete_with_degradation` — proactive windowing + reactive trim-and-retry
   logic.
@@ -138,13 +138,13 @@ unchanged even with the feature enabled.
 
 ```bash
 # Explicit budget (tokens):
-CONVERTIBLE_CONTEXT_BUDGET=16000 convertible drive "read all files" --engine vllm-openai
+COLLEAGUE_CONTEXT_BUDGET=16000 colleague drive "read all files" --engine vllm-openai
 
 # Default budget (24,000 tokens, suitable for a 32k-window model):
-convertible drive "read all files" --engine vllm-openai
+colleague drive "read all files" --engine vllm-openai
 
 # Turn off (0 disables proactive windowing; reactive retry still engages on overflow):
-CONVERTIBLE_CONTEXT_BUDGET=0 convertible drive "read all files" --engine vllm-openai
+COLLEAGUE_CONTEXT_BUDGET=0 colleague drive "read all files" --engine vllm-openai
 
 # From outsource skill (inherits the budget):
 outsource write "refactor parser" --pr
@@ -155,13 +155,13 @@ final give-up, the partial result is returned.
 
 ## Key files
 
-- `convertible/context.py` — windowing primitives, overflow detection, char
+- `colleague/context.py` — windowing primitives, overflow detection, char
   counter.
-- `convertible/loop.py` — `_complete_with_degradation`, `_MAX_OVERFLOW_RETRIES`,
+- `colleague/loop.py` — `_complete_with_degradation`, `_MAX_OVERFLOW_RETRIES`,
   `_OVERFLOW_SHRINK_FACTOR`.
-- `convertible/config.py` — `context_budget_tokens`, `_DEFAULT_CONTEXT_BUDGET`,
-  `CONVERTIBLE_CONTEXT_BUDGET` env resolution.
-- `convertible/engines/vllm_openai.py` — `_make_count_tokens`, `_tokenize_count`,
+- `colleague/config.py` — `context_budget_tokens`, `_DEFAULT_CONTEXT_BUDGET`,
+  `COLLEAGUE_CONTEXT_BUDGET` env resolution.
+- `colleague/engines/vllm_openai.py` — `_make_count_tokens`, `_tokenize_count`,
   `_tokenize_url`.
 - `tests/test_e2e_degradation.py` — end-to-end tests (overflow recovery, partial
   result on stdout).
@@ -178,5 +178,5 @@ final give-up, the partial result is returned.
 
 ## Specification & plan
 
-- Specification: `docs/specs/2026-06-02-convertible-drives-degrade-gracefully-when-a-task.md`
-- Build plan: `docs/plans/2026-06-02-convertible-drives-degrade-gracefully-when-a-task.md`
+- Specification: `docs/specs/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`
+- Build plan: `docs/plans/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`

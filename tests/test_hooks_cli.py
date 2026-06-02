@@ -1,17 +1,17 @@
-"""``convertible hooks`` CLI noun group — list and overview (t6) + per-model (t5).
+"""``colleague hooks`` CLI noun group — list and overview (t6) + per-model (t5).
 
 Acceptance criteria (original, t6):
-1. ``convertible hooks list --json`` emits structured JSON with a ``hooks`` key.
-2. ``convertible hooks overview`` exits 0 and describes the noun.
-3. ``convertible hooks overview --json`` has the expected subject.
-4. Bare ``convertible hooks`` falls back to overview (non-empty output, exit 0).
+1. ``colleague hooks list --json`` emits structured JSON with a ``hooks`` key.
+2. ``colleague hooks overview`` exits 0 and describes the noun.
+3. ``colleague hooks overview --json`` has the expected subject.
+4. Bare ``colleague hooks`` falls back to overview (non-empty output, exit 0).
 
 Acceptance criteria (t5 — per-model --model option):
-5. ``convertible hooks list --model X --json`` lists per-model entries before base
+5. ``colleague hooks list --model X --json`` lists per-model entries before base
    entries, each tagged with a ``scope`` key (``per-model`` or ``base``).
-6. ``convertible hooks list`` (no ``--model``) is byte-identical to today — JSON
+6. ``colleague hooks list`` (no ``--model``) is byte-identical to today — JSON
    output unchanged, no ``scope`` key injected.
-7. ``convertible explain hooks`` documents the per-model overlay path and
+7. ``colleague explain hooks`` documents the per-model overlay path and
    per-model-first precedence.
 """
 
@@ -22,11 +22,11 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 
 def _make_hooks_json(repo: Path, hooks: dict) -> None:
-    dotdir = repo / ".convertible"
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(hooks))
 
@@ -109,20 +109,20 @@ def test_hooks_list_text_with_hooks(tmp_path: Path, capsys: pytest.CaptureFixtur
 def test_hooks_overview_text(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["hooks", "overview"])
     assert rc == 0
-    assert "convertible hooks" in capsys.readouterr().out
+    assert "colleague hooks" in capsys.readouterr().out
 
 
 def test_hooks_overview_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["hooks", "overview", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["subject"] == "convertible hooks"
+    assert payload["subject"] == "colleague hooks"
     assert isinstance(payload["sections"], list)
     assert payload["sections"]
 
 
 def test_hooks_bare_noun_prints_overview(capsys: pytest.CaptureFixture[str]) -> None:
-    """Bare 'convertible hooks' (no sub-verb) should print an overview."""
+    """Bare 'colleague hooks' (no sub-verb) should print an overview."""
     rc = main(["hooks"])
     assert rc == 0
     assert capsys.readouterr().out.strip()
@@ -134,8 +134,8 @@ def test_hooks_bare_noun_prints_overview(capsys: pytest.CaptureFixture[str]) -> 
 
 
 def _make_per_model_hooks_json(repo: Path, model_slug: str, hooks: dict) -> None:
-    """Write a per-model hooks.json under .convertible/<model_slug>/hooks.json."""
-    dotdir = repo / ".convertible" / model_slug
+    """Write a per-model hooks.json under .colleague/<model_slug>/hooks.json."""
+    dotdir = repo / ".colleague" / model_slug
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "hooks.json").write_text(json.dumps(hooks))
 
@@ -257,7 +257,7 @@ def test_hooks_list_model_sanitized_slug(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Model names with / or special chars are sanitized to the right directory."""
-    from convertible.layers import sanitize_model
+    from colleague.layers import sanitize_model
 
     model = "Qwen/Qwen3-32B"
     slug = sanitize_model(model)
@@ -283,11 +283,11 @@ def test_hooks_list_model_sanitized_slug(
 def test_explain_hooks_documents_per_model_overlay(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """``convertible explain hooks`` mentions the per-model overlay path and precedence."""
+    """``colleague explain hooks`` mentions the per-model overlay path and precedence."""
     rc = main(["explain", "hooks"])
     assert rc == 0
     out = capsys.readouterr().out
     # Must mention the per-model overlay path pattern
-    assert ".convertible/<model>/hooks.json" in out
+    assert ".colleague/<model>/hooks.json" in out
     # Must mention per-model-first precedence
     assert "per-model" in out.lower()

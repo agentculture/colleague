@@ -7,11 +7,12 @@ Tests the module-level API:
 Acceptance:
 1. resolve_identity returns the culture.yaml nick when a repo-root culture.yaml
    is present and has a `nick:` field.
-2. resolve_identity falls back to .convertible/identity.json `as` field when
+2. resolve_identity falls back to .colleague/identity.json `as` field when
    there is no culture.yaml nick.
 3. resolve_identity returns None when neither source provides an identity.
-4. identity_env returns {"CONVERTIBLE_IDENTITY": identity} when identity is set,
-   and an empty dict when identity is None.
+4. identity_env returns both {"COLLEAGUE_IDENTITY": identity} and the legacy
+   {"CONVERTIBLE_IDENTITY": identity} when identity is set, and an empty dict
+   when identity is None.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from convertible.identity import identity_env, resolve_identity
+from colleague.identity import identity_env, resolve_identity
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -51,10 +52,10 @@ def _write(path: Path, text: str) -> None:
 def test_resolve_identity_from_culture_yaml_nick(tmp_path: Path) -> None:
     """Returns nick from a top-level nick: field in culture.yaml."""
     repo = _repo(tmp_path)
-    _write(repo / "culture.yaml", "nick: convertible\nsome_other: field\n")
+    _write(repo / "culture.yaml", "nick: colleague\nsome_other: field\n")
 
     result = resolve_identity(repo)
-    assert result == "convertible"
+    assert result == "colleague"
 
 
 def test_resolve_identity_culture_yaml_nick_with_whitespace(tmp_path: Path) -> None:
@@ -71,18 +72,18 @@ def test_resolve_identity_culture_yaml_nick_multiline(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _write(
         repo / "culture.yaml",
-        "version: 1\nmesh: main\nnick: deep-convertible\n",
+        "version: 1\nmesh: main\nnick: deep-colleague\n",
     )
 
     result = resolve_identity(repo)
-    assert result == "deep-convertible"
+    assert result == "deep-colleague"
 
 
 def test_resolve_identity_culture_yaml_no_nick_field(tmp_path: Path) -> None:
     """culture.yaml present but without nick: falls through to next source."""
     repo = _repo(tmp_path)
     _write(repo / "culture.yaml", "version: 1\nmesh: main\n")
-    # No .convertible/identity.json either → expect None
+    # No .colleague/identity.json either → expect None
     result = resolve_identity(repo, user_home=_home(tmp_path))
     assert result is None
 
@@ -97,14 +98,14 @@ def test_resolve_identity_culture_yaml_empty_nick_skipped(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
-# resolve_identity — .convertible/identity.json fallback (secondary source)
+# resolve_identity — .colleague/identity.json fallback (secondary source)
 # ---------------------------------------------------------------------------
 
 
 def test_resolve_identity_from_identity_json(tmp_path: Path) -> None:
-    """Falls back to .convertible/identity.json 'as' field when no culture.yaml nick."""
+    """Falls back to .colleague/identity.json 'as' field when no culture.yaml nick."""
     repo = _repo(tmp_path)
-    identity_file = repo / ".convertible" / "identity.json"
+    identity_file = repo / ".colleague" / "identity.json"
     identity_file.parent.mkdir(parents=True, exist_ok=True)
     identity_file.write_text(json.dumps({"as": "my-bot"}), encoding="utf-8")
 
@@ -115,7 +116,7 @@ def test_resolve_identity_from_identity_json(tmp_path: Path) -> None:
 def test_resolve_identity_identity_json_missing_as_key(tmp_path: Path) -> None:
     """identity.json without 'as' key returns None."""
     repo = _repo(tmp_path)
-    identity_file = repo / ".convertible" / "identity.json"
+    identity_file = repo / ".colleague" / "identity.json"
     identity_file.parent.mkdir(parents=True, exist_ok=True)
     identity_file.write_text(json.dumps({"other": "stuff"}), encoding="utf-8")
 
@@ -126,7 +127,7 @@ def test_resolve_identity_identity_json_missing_as_key(tmp_path: Path) -> None:
 def test_resolve_identity_identity_json_empty_as_skipped(tmp_path: Path) -> None:
     """An empty 'as' value in identity.json is treated as absent."""
     repo = _repo(tmp_path)
-    identity_file = repo / ".convertible" / "identity.json"
+    identity_file = repo / ".colleague" / "identity.json"
     identity_file.parent.mkdir(parents=True, exist_ok=True)
     identity_file.write_text(json.dumps({"as": ""}), encoding="utf-8")
 
@@ -135,10 +136,10 @@ def test_resolve_identity_identity_json_empty_as_skipped(tmp_path: Path) -> None
 
 
 def test_resolve_identity_culture_yaml_wins_over_identity_json(tmp_path: Path) -> None:
-    """culture.yaml nick takes priority over .convertible/identity.json."""
+    """culture.yaml nick takes priority over .colleague/identity.json."""
     repo = _repo(tmp_path)
     _write(repo / "culture.yaml", "nick: yaml-nick\n")
-    identity_file = repo / ".convertible" / "identity.json"
+    identity_file = repo / ".colleague" / "identity.json"
     identity_file.parent.mkdir(parents=True, exist_ok=True)
     identity_file.write_text(json.dumps({"as": "json-nick"}), encoding="utf-8")
 
@@ -147,15 +148,15 @@ def test_resolve_identity_culture_yaml_wins_over_identity_json(tmp_path: Path) -
 
 
 # ---------------------------------------------------------------------------
-# resolve_identity — user-level .convertible fallback
+# resolve_identity — user-level .colleague fallback
 # ---------------------------------------------------------------------------
 
 
 def test_resolve_identity_user_level_identity_json(tmp_path: Path) -> None:
-    """Falls back to user-level ~/.convertible/identity.json when repo has nothing."""
+    """Falls back to user-level ~/.colleague/identity.json when repo has nothing."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
-    user_identity = home / ".convertible" / "identity.json"
+    user_identity = home / ".colleague" / "identity.json"
     user_identity.parent.mkdir(parents=True, exist_ok=True)
     user_identity.write_text(json.dumps({"as": "user-bot"}), encoding="utf-8")
 
@@ -164,15 +165,15 @@ def test_resolve_identity_user_level_identity_json(tmp_path: Path) -> None:
 
 
 def test_resolve_identity_repo_identity_json_shadows_user(tmp_path: Path) -> None:
-    """Repo .convertible/identity.json shadows user-level identity.json."""
+    """Repo .colleague/identity.json shadows user-level identity.json."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
 
-    repo_identity = repo / ".convertible" / "identity.json"
+    repo_identity = repo / ".colleague" / "identity.json"
     repo_identity.parent.mkdir(parents=True, exist_ok=True)
     repo_identity.write_text(json.dumps({"as": "repo-bot"}), encoding="utf-8")
 
-    user_identity = home / ".convertible" / "identity.json"
+    user_identity = home / ".colleague" / "identity.json"
     user_identity.parent.mkdir(parents=True, exist_ok=True)
     user_identity.write_text(json.dumps({"as": "user-bot"}), encoding="utf-8")
 
@@ -192,8 +193,8 @@ def test_resolve_identity_none_when_nothing_present(tmp_path: Path) -> None:
     assert result is None
 
 
-def test_resolve_identity_no_culture_yaml_no_convertible_dir(tmp_path: Path) -> None:
-    """Returns None when neither culture.yaml nor .convertible/ exist at all."""
+def test_resolve_identity_no_culture_yaml_no_colleague_dir(tmp_path: Path) -> None:
+    """Returns None when neither culture.yaml nor .colleague/ exist at all."""
     repo = _repo(tmp_path)
     home = _home(tmp_path)
     result = resolve_identity(repo, user_home=home)
@@ -206,9 +207,12 @@ def test_resolve_identity_no_culture_yaml_no_convertible_dir(tmp_path: Path) -> 
 
 
 def test_identity_env_with_identity() -> None:
-    """Returns mapping with CONVERTIBLE_IDENTITY when identity is a non-empty string."""
-    result = identity_env("convertible")
-    assert result == {"CONVERTIBLE_IDENTITY": "convertible"}
+    """Returns both the new COLLEAGUE_IDENTITY and legacy CONVERTIBLE_IDENTITY keys."""
+    result = identity_env("colleague")
+    assert result == {
+        "COLLEAGUE_IDENTITY": "colleague",
+        "CONVERTIBLE_IDENTITY": "colleague",
+    }
 
 
 def test_identity_env_none_returns_empty_dict() -> None:
@@ -228,5 +232,5 @@ def test_identity_env_does_not_mutate(tmp_path: Path) -> None:
     a = identity_env("bot-a")
     b = identity_env("bot-b")
     assert a != b
-    assert a == {"CONVERTIBLE_IDENTITY": "bot-a"}
-    assert b == {"CONVERTIBLE_IDENTITY": "bot-b"}
+    assert a == {"COLLEAGUE_IDENTITY": "bot-a", "CONVERTIBLE_IDENTITY": "bot-a"}
+    assert b == {"COLLEAGUE_IDENTITY": "bot-b", "CONVERTIBLE_IDENTITY": "bot-b"}

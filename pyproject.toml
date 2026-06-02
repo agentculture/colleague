@@ -1,7 +1,7 @@
 [project]
-name = "convertible-cli"
-version = "0.26.0"
-description = "Convertible CLI is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
+name = "colleague"
+version = "0.27.0"
+description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -16,17 +16,17 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/agentculture/convertible"
-Issues = "https://github.com/agentculture/convertible/issues"
+Homepage = "https://github.com/agentculture/colleague"
+Issues = "https://github.com/agentculture/colleague/issues"
 
 # GPS (issue #22): OpenTelemetry is an opt-in *extra*, never a runtime dependency.
 # The base install keeps `dependencies = []` (enforced by tests/test_zero_deps.py);
-# convertible/telemetry/_otel.py imports these lazily, only when telemetry is
-# enabled. Install with: pip install "convertible-cli[otel]".
+# colleague/telemetry/_otel.py imports these lazily, only when telemetry is
+# enabled. Install with: pip install "colleague[otel]".
 #
 # TUI (TAUI): Rich/Textual are opt-in richer renderer deps — never base deps.
-# The stdlib ANSI renderer (convertible.tui.render.ansi) works with zero extras.
-# Install with: pip install "convertible-cli[tui]".
+# The stdlib ANSI renderer (colleague.tui.render.ansi) works with zero extras.
+# Install with: pip install "colleague[tui]".
 [project.optional-dependencies]
 otel = [
     "opentelemetry-api>=1.25",
@@ -40,28 +40,29 @@ tui = [
 ]
 
 [project.scripts]
-convertible = "convertible.cli:main"
+colleague = "colleague.cli:main"
+clg = "colleague.cli:main"
 
 # Engine wheels register here. The two bundled engines use the exact same
 # mechanism an out-of-tree wheel would (R4): a package advertising this
-# entry-point group is discovered by `convertible wheels list`.
-[project.entry-points."convertible.engines"]
-mock = "convertible.engines.mock:MockEngine"
-vllm-openai = "convertible.engines.vllm_openai:VllmOpenAIEngine"
+# entry-point group is discovered by `colleague wheels list`.
+[project.entry-points."colleague.engines"]
+mock = "colleague.engines.mock:MockEngine"
+vllm-openai = "colleague.engines.vllm_openai:VllmOpenAIEngine"
 
 # Renderer wheels register here. The stdlib ANSI renderer is the default and
 # ships zero-deps. External Rich/Textual renderer wheels will register here to
 # replace or augment the built-in. The entry-point name is the renderer key
 # used to select it at runtime (e.g. "ansi", "rich", "textual").
-[project.entry-points."convertible.renderers"]
-ansi = "convertible.tui.render.ansi:render"
+[project.entry-points."colleague.renderers"]
+ansi = "colleague.tui.render.ansi:render"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["convertible"]
+packages = ["colleague"]
 
 [dependency-groups]
 dev = [
@@ -82,10 +83,10 @@ dev = [
 ]
 
 [tool.coverage.run]
-source = ["convertible"]
-omit = ["convertible/__pycache__/*"]
+source = ["colleague"]
+omit = ["colleague/__pycache__/*"]
 # Emit repo-relative paths in coverage.xml so SonarCloud maps them to
-# sonar.sources=convertible (absolute/.venv paths fail to map → empty coverage).
+# sonar.sources=colleague (absolute/.venv paths fail to map → empty coverage).
 relative_files = true
 
 [tool.coverage.report]
@@ -100,7 +101,7 @@ exclude_lines = [
 [tool.isort]
 profile = "black"
 line_length = 100
-known_first_party = ["convertible"]
+known_first_party = ["colleague"]
 
 [tool.black]
 line-length = 100

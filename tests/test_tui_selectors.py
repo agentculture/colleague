@@ -1,11 +1,11 @@
-"""Tests for convertible.tui.selectors — dotted-path selector resolution over TAUI."""
+"""Tests for colleague.tui.selectors — dotted-path selector resolution over TAUI."""
 
 import pytest
 
-from convertible.tui.events import Dismiss
-from convertible.tui.selectors import SelectorError, resolve, selector_to_event, selectors
-from convertible.tui.state import Action, CockpitState, Panel, PanelItem, Popup
-from convertible.tui.taui import serialize
+from colleague.tui.events import Dismiss
+from colleague.tui.selectors import SelectorError, resolve, selector_to_event, selectors
+from colleague.tui.state import Action, CockpitState, Panel, PanelItem, Popup
+from colleague.tui.taui import serialize
 
 # ---------------------------------------------------------------------------
 # Helpers

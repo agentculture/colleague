@@ -1,8 +1,8 @@
-"""Tests for convertible.tui.state — CockpitState round-trip and field presence."""
+"""Tests for colleague.tui.state — CockpitState round-trip and field presence."""
 
 import json
 
-from convertible.tui.state import (
+from colleague.tui.state import (
     Action,
     Background,
     CockpitState,

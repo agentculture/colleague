@@ -1,10 +1,10 @@
-"""``convertible commands`` CLI noun group — list and overview (t6).
+"""``colleague commands`` CLI noun group — list and overview (t6).
 
 Acceptance criteria:
-1. ``convertible commands list --json`` emits structured JSON with a ``commands`` key.
-2. ``convertible commands overview`` exits 0 and describes the noun.
-3. ``convertible commands overview --json`` has the expected subject.
-4. Bare ``convertible commands`` falls back to overview (non-empty output, exit 0).
+1. ``colleague commands list --json`` emits structured JSON with a ``commands`` key.
+2. ``colleague commands overview`` exits 0 and describes the noun.
+3. ``colleague commands overview --json`` has the expected subject.
+4. Bare ``colleague commands`` falls back to overview (non-empty output, exit 0).
 """
 
 from __future__ import annotations
@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 
 def _make_commands_dir(repo: Path) -> Path:
-    cmds_dir = repo / ".convertible" / "commands"
+    cmds_dir = repo / ".colleague" / "commands"
     cmds_dir.mkdir(parents=True)
     return cmds_dir
 
@@ -97,20 +97,20 @@ def test_commands_list_text_with_commands(
 def test_commands_overview_text(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["commands", "overview"])
     assert rc == 0
-    assert "convertible commands" in capsys.readouterr().out
+    assert "colleague commands" in capsys.readouterr().out
 
 
 def test_commands_overview_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["commands", "overview", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["subject"] == "convertible commands"
+    assert payload["subject"] == "colleague commands"
     assert isinstance(payload["sections"], list)
     assert payload["sections"]
 
 
 def test_commands_bare_noun_prints_overview(capsys: pytest.CaptureFixture[str]) -> None:
-    """Bare 'convertible commands' (no sub-verb) should print an overview."""
+    """Bare 'colleague commands' (no sub-verb) should print an overview."""
     rc = main(["commands"])
     assert rc == 0
     assert capsys.readouterr().out.strip()

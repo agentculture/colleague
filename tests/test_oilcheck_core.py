@@ -15,9 +15,9 @@ import socket
 
 import pytest
 
-import convertible.oilcheck as oilcheck
-from convertible.cli import main
-from convertible.oilcheck import diagnose, make_check
+import colleague.oilcheck as oilcheck
+from colleague.cli import main
+from colleague.oilcheck import diagnose, make_check
 
 _VALID_SEVERITIES = {"error", "warning", "info"}
 _CHECK_KEYS = {"id", "passed", "severity", "message", "remediation"}
@@ -124,7 +124,7 @@ def test_doctor_exits_1_when_error_fails(
     rc = main(["doctor"])
     assert rc == 1
     out = capsys.readouterr().out
-    assert "convertible doctor: unhealthy" in out
+    assert "colleague doctor: unhealthy" in out
     assert "[FAIL] boom" in out
     assert "hint: defuse it" in out
 
@@ -136,7 +136,7 @@ def test_doctor_exits_0_with_only_warning_failures(
     monkeypatch.setattr(oilcheck, "CHECK_GROUPS", [_const_group([failing_warn])])
     rc = main(["doctor"])
     assert rc == 0
-    assert "convertible doctor: healthy" in capsys.readouterr().out
+    assert "colleague doctor: healthy" in capsys.readouterr().out
 
 
 def test_doctor_json_emits_diagnose_dict(
@@ -180,7 +180,7 @@ def test_diagnose_opens_no_socket(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_check_groups_registered_in_order() -> None:
     # The canonical group order. Note: the opt-in reachability probe is
     # deliberately NOT registered here (it is invoked only by diagnose(probe=True)).
-    from convertible.oilcheck import engines, environment, identity, otel, provider, usage
+    from colleague.oilcheck import engines, environment, identity, otel, provider, usage
 
     assert oilcheck.CHECK_GROUPS == [
         identity.checks,
@@ -193,7 +193,7 @@ def test_check_groups_registered_in_order() -> None:
 
 
 def test_identity_group_is_non_empty() -> None:
-    from convertible.oilcheck import identity
+    from colleague.oilcheck import identity
 
     checks = identity.checks()
     assert isinstance(checks, list) and checks
@@ -215,13 +215,13 @@ def test_make_check_rejects_remediation_when_passed() -> None:
 
 
 def test_identity_group_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    from convertible.oilcheck import identity
+    from colleague.oilcheck import identity
 
     def _boom() -> object:
         raise PermissionError("denied")
 
     # A filesystem/permission error inside the group must become a failed check,
-    # not crash convertible doctor (the aggregator does not wrap groups).
+    # not crash colleague doctor (the aggregator does not wrap groups).
     monkeypatch.setattr(identity, "find_culture_yaml", _boom)
     checks = identity.checks()  # must not raise
     assert any(c["id"] == "identity_checks_error" for c in checks)

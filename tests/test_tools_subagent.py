@@ -1,10 +1,10 @@
-"""Tests for the ``subagent`` tool surface in :mod:`convertible.tools`.
+"""Tests for the ``subagent`` tool surface in :mod:`colleague.tools`.
 
 Acceptance criteria (task t4):
 1. SCHEMAS and TOOL_NAMES include a ``subagent`` function with required
    ``instruction`` and optional ``engine``/``model``.
-2. ``convertible/tools.py`` imports NOTHING from ``convertible/engines/``,
-   ``convertible.registry``, ``convertible.loop``, or ``convertible.subagents``.
+2. ``colleague/tools.py`` imports NOTHING from ``colleague/engines/``,
+   ``colleague.registry``, ``colleague.loop``, or ``colleague.subagents``.
 3. A ``ToolExecutor`` with no spawn callback raises ``ToolError`` when asked to
    run ``subagent`` — never raises something else.
 4. With an injected fake spawn callback: ``execute("subagent", ...)`` returns a
@@ -22,15 +22,15 @@ from typing import Optional
 
 import pytest
 
-from convertible.config import MAX_SUBAGENT_FANOUT
-from convertible.contract import SubResult
-from convertible.tools import SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor, ToolOutcome
+from colleague.config import MAX_SUBAGENT_FANOUT
+from colleague.contract import SubResult
+from colleague.tools import SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor, ToolOutcome
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_TOOLS_PY = pathlib.Path(__file__).parent.parent / "convertible" / "tools.py"
+_TOOLS_PY = pathlib.Path(__file__).parent.parent / "colleague" / "tools.py"
 
 
 def _fake_sub(
@@ -101,21 +101,21 @@ def test_subagent_schema_optional_engine_and_model():
 
 
 def test_tools_py_no_forbidden_imports():
-    """Parse convertible/tools.py and assert no import touches the banned modules."""
+    """Parse colleague/tools.py and assert no import touches the banned modules."""
     source = _TOOLS_PY.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(_TOOLS_PY))
 
     forbidden_prefixes = (
-        "convertible.engines",
-        "convertible.registry",
-        "convertible.loop",
-        "convertible.subagents",
+        "colleague.engines",
+        "colleague.registry",
+        "colleague.loop",
+        "colleague.subagents",
     )
     forbidden_partial = (
-        "convertible/engines",
-        "convertible/registry",
-        "convertible/loop",
-        "convertible/subagents",
+        "colleague/engines",
+        "colleague/registry",
+        "colleague/loop",
+        "colleague/subagents",
     )
 
     for node in ast.walk(tree):

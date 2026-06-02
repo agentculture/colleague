@@ -1,6 +1,6 @@
 """Tests for the doc-test-alignment (b) "claude" check.
 
-HERMETIC, stdlib-only, no ``import convertible``. The "claude" check scans the
+HERMETIC, stdlib-only, no ``import colleague``. The "claude" check scans the
 fenced bash block(s) under the ``## Commands`` heading of CLAUDE.md and reuses
 the same ``_cmd`` engine as the "readme" check. We reuse the fake-CLI builder
 from the readme test module so the two suites stay consistent.
@@ -18,7 +18,7 @@ import pytest
 
 # Help dumps for the fake CLI (kept in sync with the readme test's fake CLI).
 _FAKE_HELP_TOP = """\
-usage: convertible [-h] [--version] {...} ...
+usage: colleague [-h] [--version] {...} ...
 
 positional arguments:
   {whoami,doctor,wheels,feedback,telemetry,drive,commands,hooks}
@@ -37,7 +37,7 @@ options:
 """
 
 _FAKE_HELP_DRIVE = """\
-usage: convertible drive [-h] [--repo REPO] [--engine ENGINE] [--no-pr]
+usage: colleague drive [-h] [--repo REPO] [--engine ENGINE] [--no-pr]
                          [--base-url BASE_URL] [--model MODEL]
 
 options:
@@ -51,9 +51,9 @@ options:
 
 
 def _make_fake_cli(directory: pathlib.Path, marker: pathlib.Path) -> pathlib.Path:
-    """Write a fake ``convertible`` executable (mirrors the readme test's CLI)."""
+    """Write a fake ``colleague`` executable (mirrors the readme test's CLI)."""
     py = sys.executable
-    script = directory / "convertible"
+    script = directory / "colleague"
     body = f"""#!{py}
 import sys
 
@@ -159,7 +159,7 @@ def _write_claude_repo(tmp_path: pathlib.Path, commands_block: str) -> pathlib.P
         "# CLAUDE.md\n\n"
         "## What it is\n\nSome prose.\n\n"
         "```bash\n# decoy block before Commands — must be ignored\n"
-        "uv run convertible THISSHOULDNOTBESCANNED list\n```\n\n"
+        "uv run colleague THISSHOULDNOTBESCANNED list\n```\n\n"
         "## Commands\n\n"
         "```bash\n" + commands_block + "\n```\n\n"
         "## After\n\nmore prose.\n"
@@ -177,7 +177,7 @@ class TestClaudeScoping:
     def test_only_scans_commands_section(self, tmp_path, fake_cli_on_path) -> None:
         repo = _write_claude_repo(
             tmp_path,
-            "uv run convertible wheels list\nuv run convertible telemetry status\n",
+            "uv run colleague wheels list\nuv run colleague telemetry status\n",
         )
         checks = claude_commands.run(repo)
         # The decoy verb before ## Commands must never be scanned.
@@ -189,7 +189,7 @@ class TestClaudeScoping:
         assert claude_commands.NAME == "claude"
 
     def test_summary_id_prefixed_claude(self, tmp_path, fake_cli_on_path) -> None:
-        repo = _write_claude_repo(tmp_path, "uv run convertible doctor\n")
+        repo = _write_claude_repo(tmp_path, "uv run colleague doctor\n")
         checks = claude_commands.run(repo)
         assert any(c["id"].startswith("claude_") for c in checks)
 
@@ -202,19 +202,19 @@ class TestClaudeScoping:
 class TestClaudeRunPath:
     def test_safe_command_executes(self, tmp_path, fake_cli_on_path) -> None:
         marker, _ = fake_cli_on_path
-        repo = _write_claude_repo(tmp_path, "uv run convertible wheels list\n")
+        repo = _write_claude_repo(tmp_path, "uv run colleague wheels list\n")
         checks = claude_commands.run(repo)
         assert marker.exists()
         assert "wheels list" in marker.read_text(encoding="utf-8")
         assert not any(c["severity"] == "error" for c in checks)
 
     def test_lint_lines_are_ignored_or_info(self, tmp_path, fake_cli_on_path) -> None:
-        """Non-convertible lint tool lines (black/isort/flake8) produce no
-        warning/error checks — only convertible invocations yield checks.
+        """Non-colleague lint tool lines (black/isort/flake8) produce no
+        warning/error checks — only colleague invocations yield checks.
         """
         repo = _write_claude_repo(
             tmp_path,
-            "uv run black --check convertible tests\n" "uv run convertible wheels list\n",
+            "uv run black --check colleague tests\n" "uv run colleague wheels list\n",
         )
         checks = claude_commands.run(repo)
         # No check should be about black.
@@ -231,7 +231,7 @@ class TestClaudeNetworkedAndCatch:
         marker, _ = fake_cli_on_path
         repo = _write_claude_repo(
             tmp_path,
-            'uv run convertible drive "<task>" --repo . --engine mock --no-pr\n',
+            'uv run colleague drive "<task>" --repo . --engine mock --no-pr\n',
         )
         checks = claude_commands.run(repo)
         # A drive is networked/side-effecting: NEVER executed.
@@ -243,7 +243,7 @@ class TestClaudeNetworkedAndCatch:
         marker, _ = fake_cli_on_path
         repo = _write_claude_repo(
             tmp_path,
-            "uv run convertible bogusverb --engine vllm-openai\n",
+            "uv run colleague bogusverb --engine vllm-openai\n",
         )
         checks = claude_commands.run(repo)
         warns = [c for c in checks if c["severity"] == "warning" and not c["passed"]]

@@ -1,4 +1,4 @@
-"""``convertible telemetry`` CLI noun group — status and overview (issue #22).
+"""``colleague telemetry`` CLI noun group — status and overview (issue #22).
 
 Acceptance criteria:
 1. ``telemetry status --json`` emits the resolved config + ``sdk_installed``.
@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 _TELEMETRY_ENV = [
     "CONVERTIBLE_OTEL_ENABLED",
@@ -37,7 +37,7 @@ def test_status_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["enabled"] is False
     assert "sdk_installed" in payload
-    assert payload["service_name"] == "convertible"
+    assert payload["service_name"] == "colleague"
     assert payload["otlp_endpoint"].startswith("http")
 
 
@@ -64,14 +64,14 @@ def test_status_text(capsys: pytest.CaptureFixture[str]) -> None:
 def test_overview_text(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["telemetry", "overview"])
     assert rc == 0
-    assert "convertible telemetry" in capsys.readouterr().out
+    assert "colleague telemetry" in capsys.readouterr().out
 
 
 def test_overview_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["telemetry", "overview", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["subject"] == "convertible telemetry"
+    assert payload["subject"] == "colleague telemetry"
     assert isinstance(payload["sections"], list)
     assert payload["sections"]
 
@@ -85,4 +85,4 @@ def test_bare_noun_prints_overview(capsys: pytest.CaptureFixture[str]) -> None:
 def test_explain_telemetry(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["explain", "telemetry"])
     assert rc == 0
-    assert "convertible telemetry" in capsys.readouterr().out
+    assert "colleague telemetry" in capsys.readouterr().out

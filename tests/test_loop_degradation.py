@@ -1,6 +1,6 @@
 """Context windowing + bounded reactive overflow degradation in the loop (t4).
 
-Engine-agnostic: every test drives :func:`convertible.loop.run` directly with an
+Engine-agnostic: every test drives :func:`colleague.loop.run` directly with an
 injected ``complete`` callable and a deterministic injected ``count_tokens``, so
 the windowing + retry behaviour is verified on the chassis itself (the all-engines
 rule — it holds identically for ``mock`` and ``vllm-openai``).
@@ -23,12 +23,12 @@ from typing import Any
 
 import pytest
 
-from convertible.config import EngineConfig
-from convertible.context import count_tokens_chars
-from convertible.contract import ERROR, OK, Task
-from convertible.engines import vllm_openai
-from convertible.engines.vllm_openai import VllmOpenAIEngine
-from convertible.loop import DriveAborted, ModelResponse, ToolCall, run
+from colleague.config import EngineConfig
+from colleague.context import count_tokens_chars
+from colleague.contract import ERROR, OK, Task
+from colleague.engines import vllm_openai
+from colleague.engines.vllm_openai import VllmOpenAIEngine
+from colleague.loop import DriveAborted, ModelResponse, ToolCall, run
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -372,7 +372,7 @@ def test_mock_engine_drives_with_windowing(tmp_path: Path) -> None:
     it completes unchanged — this guards that wiring windowing on did not break the
     contract reference.
     """
-    from convertible import registry
+    from colleague import registry
 
     repo = tmp_path / "repo"
     repo.mkdir()

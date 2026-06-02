@@ -8,8 +8,8 @@ Subagents (the "convoy") let an engine, *while driving*, hand a scoped sub-task
 to a nested child drive via the `subagent` loop tool. The child runs the **same**
 bounded tool-loop the parent runs; its result is returned to the parent as the
 tool result and appended to `TaskResult.sub_results` (the field is omitted when
-empty). Delegation lives in the **chassis** (`convertible/tools.py` owns the tool
-schema, `convertible/subagents.py` owns the launcher), so the tool is offered to
+empty). Delegation lives in the **chassis** (`colleague/tools.py` owns the tool
+schema, `colleague/subagents.py` owns the launcher), so the tool is offered to
 every engine identically (the all-engines rule) — no engine module re-implements
 it.
 
@@ -65,16 +65,16 @@ The tool fires mid-drive, not from the CLI — there is no `subagent` verb. Read
 its full contract with:
 
 ```bash
-convertible explain subagent      # aliases: subagents, convoy
+colleague explain subagent      # aliases: subagents, convoy
 ```
 
 ## Key files
 
-- `convertible/subagents.py` — `run_subagent` / `make_spawn`; the depth-bound
+- `colleague/subagents.py` — `run_subagent` / `make_spawn`; the depth-bound
   launcher and engine/model resolution.
-- `convertible/tools.py` — the `subagent` tool schema + dispatch.
-- `convertible/config.py` — `MAX_SUBAGENT_DEPTH`, `EngineConfig.subagent_spawn`.
-- `convertible/contract.py` — `SubResult` and `TaskResult.sub_results`.
+- `colleague/tools.py` — the `subagent` tool schema + dispatch.
+- `colleague/config.py` — `MAX_SUBAGENT_DEPTH`, `EngineConfig.subagent_spawn`.
+- `colleague/contract.py` — `SubResult` and `TaskResult.sub_results`.
 
 ## See also
 

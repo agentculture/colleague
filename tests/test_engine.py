@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from convertible.config import EngineConfig
-from convertible.contract import OK, Task, TaskResult
-from convertible.engine import Engine
+from colleague.config import EngineConfig
+from colleague.contract import OK, Task, TaskResult
+from colleague.engine import Engine
 
 
 def test_engine_is_abstract() -> None:

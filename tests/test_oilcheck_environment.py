@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from convertible.oilcheck import diagnose
-from convertible.oilcheck import environment as env_mod
+from colleague.oilcheck import diagnose
+from colleague.oilcheck import environment as env_mod
 
 # The full set of ids emitted by this group (in any order).
 _EXPECTED_IDS = {
@@ -122,7 +122,7 @@ def test_hooks_valid_error_on_malformed_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A malformed hooks.json must produce a failed error check."""
-    dot_conv = tmp_path / ".convertible"
+    dot_conv = tmp_path / ".colleague"
     dot_conv.mkdir()
     (dot_conv / "hooks.json").write_text("{this is not json!!", encoding="utf-8")
 
@@ -138,7 +138,7 @@ def test_hooks_valid_error_makes_diagnose_unhealthy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """diagnose() must be unhealthy when hooks.json is malformed (error severity)."""
-    dot_conv = tmp_path / ".convertible"
+    dot_conv = tmp_path / ".colleague"
     dot_conv.mkdir()
     (dot_conv / "hooks.json").write_text("not json at all", encoding="utf-8")
 
@@ -161,7 +161,7 @@ def test_hooks_valid_passes_when_hooks_absent(
 
 def test_hooks_valid_passes_on_valid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A valid hooks.json must produce a passing hooks_valid check."""
-    dot_conv = tmp_path / ".convertible"
+    dot_conv = tmp_path / ".colleague"
     dot_conv.mkdir()
     (dot_conv / "hooks.json").write_text('{"hooks": {}}', encoding="utf-8")
 
@@ -259,7 +259,7 @@ def test_config_dir_info_passed_when_no_config(
 def test_config_dir_info_passed_when_config_present(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / ".convertible").mkdir()
+    (tmp_path / ".colleague").mkdir()
     monkeypatch.chdir(tmp_path)
     checks = env_mod.checks()
     c = _check_by_id(checks, "config_dir")
@@ -296,7 +296,7 @@ def test_commands_parse_passed_when_no_templates(
 def test_commands_parse_passed_with_valid_template(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    cmd_dir = tmp_path / ".convertible" / "commands"
+    cmd_dir = tmp_path / ".colleague" / "commands"
     cmd_dir.mkdir(parents=True)
     (cmd_dir / "hello.md").write_text("Hello $1!", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -309,7 +309,7 @@ def test_commands_parse_error_on_unreadable_template(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A template that cannot be read (e.g. permission error) → failed check."""
-    cmd_dir = tmp_path / ".convertible" / "commands"
+    cmd_dir = tmp_path / ".colleague" / "commands"
     cmd_dir.mkdir(parents=True)
     bad_file = cmd_dir / "bad.md"
     bad_file.write_text("ok", encoding="utf-8")
@@ -338,7 +338,7 @@ def test_config_dir_probe_failure_surfaces_as_failed_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A config_roots() exception must become a failed check, not a passing info."""
-    import convertible.configdir as configdir
+    import colleague.configdir as configdir
 
     def _boom(_repo: Path) -> object:
         raise OSError("permission denied")

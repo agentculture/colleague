@@ -29,7 +29,7 @@ jobs:
 
       - run: uv sync
 
-      - run: uv run pytest -n auto --cov=convertible --cov-report=xml:coverage.xml --cov-report=term -v
+      - run: uv run pytest -n auto --cov=colleague --cov-report=xml:coverage.xml --cov-report=term -v
 
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
@@ -55,16 +55,16 @@ jobs:
       - run: uv sync
 
       - name: black --check
-        run: uv run black --check convertible tests
+        run: uv run black --check colleague tests
 
       - name: isort --check
-        run: uv run isort --check-only convertible tests
+        run: uv run isort --check-only colleague tests
 
       - name: flake8
-        run: uv run flake8 convertible tests
+        run: uv run flake8 colleague tests
 
       - name: bandit
-        run: uv run bandit -c pyproject.toml -r convertible
+        run: uv run bandit -c pyproject.toml -r colleague
 
       - name: markdownlint-cli2
         run: |

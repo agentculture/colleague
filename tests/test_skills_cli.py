@@ -1,4 +1,4 @@
-"""``convertible skills`` CLI noun group — list and overview.
+"""``colleague skills`` CLI noun group — list and overview.
 
 Acceptance:
 1. ``skills list --json`` emits structured JSON with ``model`` + ``skills``.
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 _MODEL_X = "Qwen/Qwen3-32B"
 _SAFE_X = "Qwen-Qwen3-32B"
@@ -37,8 +37,8 @@ def test_skills_list_json_empty_repo(tmp_path: Path, capsys: pytest.CaptureFixtu
 def test_skills_list_json_base_and_overlay(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _write(tmp_path / ".convertible" / "skills" / "base_skill.md", "# base")
-    _write(tmp_path / ".convertible" / _SAFE_X / "skills" / "model_skill.md", "# model")
+    _write(tmp_path / ".colleague" / "skills" / "base_skill.md", "# base")
+    _write(tmp_path / ".colleague" / _SAFE_X / "skills" / "model_skill.md", "# model")
 
     rc = main(["skills", "list", "--repo", str(tmp_path), "--model", _MODEL_X, "--json"])
     assert rc == 0
@@ -48,7 +48,7 @@ def test_skills_list_json_base_and_overlay(
 
 
 def test_skills_list_model_isolation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _write(tmp_path / ".convertible" / _SAFE_X / "skills" / "only_x.md", "# x")
+    _write(tmp_path / ".colleague" / _SAFE_X / "skills" / "only_x.md", "# x")
 
     rc = main(["skills", "list", "--repo", str(tmp_path), "--model", _MODEL_X, "--json"])
     assert rc == 0
@@ -61,7 +61,7 @@ def test_skills_list_model_isolation(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 
 def test_skills_list_text_with_skills(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _write(tmp_path / ".convertible" / "skills" / "greet.md", "# greet")
+    _write(tmp_path / ".colleague" / "skills" / "greet.md", "# greet")
     rc = main(["skills", "list", "--repo", str(tmp_path), "--model", _MODEL_X])
     assert rc == 0
     assert "greet" in capsys.readouterr().out
@@ -70,14 +70,14 @@ def test_skills_list_text_with_skills(tmp_path: Path, capsys: pytest.CaptureFixt
 def test_skills_overview_text(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["skills", "overview"])
     assert rc == 0
-    assert "convertible skills" in capsys.readouterr().out
+    assert "colleague skills" in capsys.readouterr().out
 
 
 def test_skills_overview_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["skills", "overview", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["subject"] == "convertible skills"
+    assert payload["subject"] == "colleague skills"
     assert isinstance(payload["sections"], list) and payload["sections"]
 
 

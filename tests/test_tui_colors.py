@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 
-from convertible.tui.colors import should_color, strip_ansi
+from colleague.tui.colors import should_color, strip_ansi
 
 
 class _Tty(io.StringIO):

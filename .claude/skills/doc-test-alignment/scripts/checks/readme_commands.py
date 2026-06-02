@@ -1,21 +1,21 @@
 """checks/readme_commands.py — doc-test-alignment check (a) "readme".
 
-Scans every fenced ``bash`` block in README.md for ``convertible`` /
-``uv run convertible`` invocations and dispatches each through the shared
+Scans every fenced ``bash`` block in README.md for ``colleague`` /
+``uv run colleague`` invocations and dispatches each through the shared
 :mod:`_cmd` engine:
 
   * SAFE introspection commands are EXECUTED (hardened env, short timeout) and
     their exit-code class is asserted against any adjacent ``#`` comment hint.
   * NETWORKED / side-effecting commands (vLLM, ``--base-url``, ``drive``,
     ``doctor --probe``, …) are NEVER executed — they are STATICALLY validated
-    against the parsed ``convertible --help`` choice/option set.
+    against the parsed ``colleague --help`` choice/option set.
 
 All failures here are advisory ``severity="warning"`` (these checks do not gate
 CI in v1). ``run()`` NEVER raises — internal failure returns a single
 ``severity="error"`` check so one broken check cannot take down the report.
 
 Contract: ``NAME == "readme"`` and ``def run(repo: pathlib.Path) -> list[dict]``.
-Stdlib only — no ``import convertible``.
+Stdlib only — no ``import colleague``.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def _scan_blocks(blocks_text, repo: pathlib.Path):
 
     for _label, block in blocks_text:
         n_blocks += 1
-        for inv in _cmd.iter_convertible_invocations(block):
+        for inv in _cmd.iter_colleague_invocations(block):
             n_commands += 1
             kind = _cmd.classify(inv.command, inv.env_assignments)
             if kind == "safe":
@@ -107,7 +107,7 @@ def run(repo: pathlib.Path) -> list:
             True,
             "info",
             (
-                f"scanned {n_blocks} bash block(s), {n_commands} convertible "
+                f"scanned {n_blocks} bash block(s), {n_commands} colleague "
                 f"command(s): {n_executed} executed, {n_static} static-validated, "
                 f"{n_skipped} skipped (CLI unavailable)"
             ),

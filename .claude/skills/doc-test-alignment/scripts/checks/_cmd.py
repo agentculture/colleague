@@ -1,7 +1,7 @@
 """_cmd.py — shared engine for the doc-test-alignment command checks (a)/(b).
 
 Both ``readme_commands`` (check "readme") and ``claude_commands`` (check "claude")
-parse fenced ``bash`` blocks for ``convertible`` / ``uv run convertible``
+parse fenced ``bash`` blocks for ``colleague`` / ``uv run colleague``
 invocations and dispatch each one to ONE of three outcomes:
 
   * SAFE          — networkless, side-effect-free introspection. EXECUTED via
@@ -10,16 +10,16 @@ invocations and dispatch each one to ONE of three outcomes:
                     ``# … exit 1 …`` comment says so).
   * NETWORKED     — anything that needs a server/network or writes files
                     (``--engine vllm-openai``, ``--base-url``, ``doctor --probe``,
-                    ``drive``/``session``, ``CONVERTIBLE_VLLM_E2E``, an absolute
+                    ``drive``/``session``, ``COLLEAGUE_VLLM_E2E``, an absolute
                     ``--repo`` path, …). NEVER executed. STATICALLY validated: the
                     verb/subverb + each ``--flag`` must appear in the parsed
                     ``--help`` choice/option set.
-  * UNKNOWN       — a ``convertible`` invocation we can't positively classify as
+  * UNKNOWN       — a ``colleague`` invocation we can't positively classify as
                     safe. Fail-closed → treated as NETWORKED (static-validate).
 
-Design constraints (HARD): stdlib only, NO ``import convertible``. We MAY run the
-``convertible`` CLI as a SUBPROCESS (that is not an import), but only the safe
-subset above. Pure-ish functions (``classify``, ``iter_convertible_invocations``,
+Design constraints (HARD): stdlib only, NO ``import colleague``. We MAY run the
+``colleague`` CLI as a SUBPROCESS (that is not an import), but only the safe
+subset above. Pure-ish functions (``classify``, ``iter_colleague_invocations``,
 ``parse_help_text``) are unit-testable without a live CLI.
 
 "Matches the prose" — honest scope:
@@ -50,7 +50,7 @@ from _report import make_check  # type: ignore[import]  # noqa: E402
 
 __all__ = [
     "Invocation",
-    "iter_convertible_invocations",
+    "iter_colleague_invocations",
     "classify",
     "run_safe",
     "static_validate",
@@ -62,8 +62,9 @@ __all__ = [
 _EXEC_TIMEOUT_S = 20
 
 # Env prefixes stripped from the hardened child env so an executed command never
-# inherits the operator's live provider/telemetry pointing.
-_STRIP_PREFIXES = ("CONVERTIBLE_", "OPENAI_", "OTEL_")
+# inherits the operator's live provider/telemetry pointing. ``CONVERTIBLE_`` is
+# the deprecated pre-rename prefix, kept here so a legacy var is stripped too.
+_STRIP_PREFIXES = ("COLLEAGUE_", "CONVERTIBLE_", "OPENAI_", "OTEL_")
 
 # Networked / side-effecting markers — any of these in the command line forces
 # NETWORKED classification (static-validate, never execute).
@@ -74,7 +75,8 @@ _NETWORK_FLAGS = (
 )
 _NETWORK_TOKENS = (
     "vllm-openai",  # --engine vllm-openai
-    "CONVERTIBLE_VLLM_E2E",  # opt-in live e2e env
+    "COLLEAGUE_VLLM_E2E",  # opt-in live e2e env
+    "CONVERTIBLE_VLLM_E2E",  # deprecated pre-rename alias for the same env
 )
 # Verbs that write files / push / open PRs — never executed.
 _SIDE_EFFECT_VERBS = frozenset({"drive", "session"})
@@ -114,7 +116,7 @@ _WRITE_SUBVERBS = frozenset({"approve", "record", "show"})
 
 @dataclass
 class Invocation:
-    """One ``convertible`` (or ``uv run convertible``) command line from a block.
+    """One ``colleague`` (or ``uv run colleague``) command line from a block.
 
     ``command`` is the full command text (continuation lines joined, leading
     ``uv run`` preserved so ``run_safe`` runs it exactly as written). ``comment``
@@ -127,17 +129,22 @@ class Invocation:
     env_assignments: List[str] = field(default_factory=list)
 
 
-def _is_convertible_command(remainder: str) -> bool:
-    """True iff the PROGRAM TOKEN of *remainder* is ``convertible``.
+#: Accepted CLI program tokens: the full ``colleague`` command and its ``clg``
+#: alias (both bound to ``colleague.cli:main`` in pyproject ``[project.scripts]``).
+_PROGRAM_TOKENS = ("colleague", "clg")
+
+
+def _is_colleague_command(remainder: str) -> bool:
+    """True iff the PROGRAM TOKEN of *remainder* is ``colleague`` (or ``clg``).
 
     Strips an optional leading ``uv run`` launcher. The match is the *program*
-    token, not ``convertible`` appearing as an argument (e.g.
-    ``black --check convertible tests`` is NOT a convertible invocation).
+    token, not ``colleague`` appearing as an argument (e.g.
+    ``black --check colleague tests`` is NOT a colleague invocation).
     """
     toks = _tokenize(remainder)
     if len(toks) >= 2 and toks[0] == "uv" and toks[1] == "run":
         toks = toks[2:]
-    return bool(toks) and toks[0] == "convertible"
+    return bool(toks) and toks[0] in _PROGRAM_TOKENS
 
 
 def _split_trailing_comment(line: str) -> Tuple[str, str]:
@@ -180,11 +187,11 @@ def _leading_env_assignments(code: str) -> Tuple[List[str], str]:
     return assignments, remainder
 
 
-def iter_convertible_invocations(block_text: str) -> Iterator[Invocation]:
-    """Yield :class:`Invocation` for each ``convertible`` line in *block_text*.
+def iter_colleague_invocations(block_text: str) -> Iterator[Invocation]:
+    """Yield :class:`Invocation` for each ``colleague`` line in *block_text*.
 
     Joins ``\\``-continuation lines into a single logical command, ignores any
-    line that does not contain a ``convertible`` program token, and captures the
+    line that does not contain a ``colleague`` program token, and captures the
     trailing ``#`` comment for exit-class hints.
     """
     # First, join backslash continuations into logical lines.
@@ -209,9 +216,9 @@ def iter_convertible_invocations(block_text: str) -> Iterator[Invocation]:
         if not code.strip():
             continue
         # Strip leading env assignments to find the real program token, but keep
-        # the assignments (they carry CONVERTIBLE_VLLM_E2E etc. for classify).
+        # the assignments (they carry COLLEAGUE_VLLM_E2E etc. for classify).
         env_assignments, remainder = _leading_env_assignments(code.strip())
-        if not _is_convertible_command(remainder):
+        if not _is_colleague_command(remainder):
             continue
         yield Invocation(
             command=remainder.strip(),
@@ -233,15 +240,16 @@ def _tokenize(command: str) -> List[str]:
 
 
 def _verb_and_subverb(tokens: List[str]) -> Tuple[Optional[str], Optional[str]]:
-    """Extract (verb, subverb) from a ``[uv run] convertible <verb> [<sub>] …`` line."""
+    """Extract (verb, subverb) from a ``[uv run] colleague <verb> [<sub>] …`` line."""
     # Drop a leading ``uv run`` if present.
     toks = list(tokens)
     if len(toks) >= 2 and toks[0] == "uv" and toks[1] == "run":
         toks = toks[2:]
-    if not toks or toks[0] != "convertible":
-        # Defensive: the regex already confirmed convertible is present.
-        if "convertible" in toks:
-            toks = toks[toks.index("convertible") :]
+    if not toks or toks[0] not in _PROGRAM_TOKENS:
+        # Defensive: the regex already confirmed the program token is present.
+        prog_idx = next((i for i, t in enumerate(toks) if t in _PROGRAM_TOKENS), None)
+        if prog_idx is not None:
+            toks = toks[prog_idx:]
         else:
             return None, None
     rest = toks[1:]
@@ -258,7 +266,7 @@ def classify(command: str, env_assignments: Optional[List[str]] = None) -> str:
       1. Any networked flag/token/side-effecting verb → ``"networked"``.
       2. ``--help`` on any verb → ``"safe"``.
       3. A verb in the SAFE allow-list with NO write subverb → ``"safe"``.
-      4. Otherwise a ``convertible`` line we can't vouch for → ``"unknown"``.
+      4. Otherwise a ``colleague`` line we can't vouch for → ``"unknown"``.
 
     ``classify`` itself never returns ``"unknown"`` to the *caller's dispatcher*
     as "execute" — callers treat unknown exactly like networked (static-validate).
@@ -282,7 +290,7 @@ def classify(command: str, env_assignments: Optional[List[str]] = None) -> str:
     verb, subverb = _verb_and_subverb(tokens)
 
     # 2. --help is always safe (introspection only), even on a side-effect verb
-    #    like ``drive`` — ``convertible drive --help`` writes nothing.
+    #    like ``drive`` — ``colleague drive --help`` writes nothing.
     if "--help" in tokens or "-h" in tokens:
         return "safe"
 
@@ -332,8 +340,8 @@ def _hardened_env() -> dict:
 def _argv_for(command: str) -> List[str]:
     """Resolve the argv to run a command AS WRITTEN.
 
-    A ``uv run convertible …`` line runs ``uv run convertible …``; a bare
-    ``convertible …`` line runs ``convertible …``.
+    A ``uv run colleague …`` line runs ``uv run colleague …``; a bare
+    ``colleague …`` line runs ``colleague …``.
     """
     return shlex.split(command)
 
@@ -487,11 +495,17 @@ def parse_help_text(text: str) -> Tuple[set, set]:
 
 
 def _cli_prefix(command: str) -> List[str]:
-    """The launcher prefix for help: ['uv','run','convertible'] or ['convertible']."""
+    """The launcher prefix for help: ['uv','run',<prog>] or [<prog>].
+
+    ``<prog>`` is whichever accepted program token (``colleague`` or ``clg``) the
+    command actually used, so help introspection runs the same binary the doc did.
+    """
     toks = _tokenize(command)
-    if len(toks) >= 3 and toks[0] == "uv" and toks[1] == "run" and toks[2] == "convertible":
-        return ["uv", "run", "convertible"]
-    return ["convertible"]
+    if len(toks) >= 3 and toks[0] == "uv" and toks[1] == "run" and toks[2] in _PROGRAM_TOKENS:
+        return ["uv", "run", toks[2]]
+    if toks and toks[0] in _PROGRAM_TOKENS:
+        return [toks[0]]
+    return ["colleague"]
 
 
 def help_choices(
@@ -581,7 +595,7 @@ def static_validate(command: str, repo: Optional[pathlib.Path], help_cache: dict
             False,
             "warning",
             f"`{command}`: doc references unknown verb: {verb!r} "
-            f"(not in convertible --help choices)",
+            f"(not in colleague --help choices)",
             "Fix the doc example or restore the verb in the CLI.",
         )
 
@@ -602,7 +616,7 @@ def static_validate(command: str, repo: Optional[pathlib.Path], help_cache: dict
                 False,
                 "warning",
                 f"`{command}`: doc references unknown subverb: "
-                f"{verb!r} {subverb!r} (not in `convertible {verb} --help` choices)",
+                f"{verb!r} {subverb!r} (not in `colleague {verb} --help` choices)",
                 "Fix the doc example or restore the subverb in the CLI.",
             )
         validated_subverb = subverb
@@ -615,9 +629,9 @@ def static_validate(command: str, repo: Optional[pathlib.Path], help_cache: dict
     if known_flags:
         doc_flags = [t for t in tokens if t.startswith("--")]
         path_label = (
-            f"convertible {verb} {validated_subverb}"
+            f"colleague {verb} {validated_subverb}"
             if validated_subverb
-            else f"convertible {verb}"
+            else f"colleague {verb}"
         )
         for raw in doc_flags:
             flag = raw.split("=", 1)[0]

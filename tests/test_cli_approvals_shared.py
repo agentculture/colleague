@@ -1,9 +1,9 @@
 """Tests for the shared approval-ledger writer and the commands/hooks status display.
 
-Covers ``convertible/cli/_approvals.py`` (the repo-confined merge-and-write shared
+Covers ``colleague/cli/_approvals.py`` (the repo-confined merge-and-write shared
 by both ``approve`` verbs) and the ``list`` status branches, which now read the
 *merged* policy (repo-over-user + per-model overlay) via ``load_policy`` and
-derive hook keys via ``convertible.hooks.referenced_repo_files`` — so display
+derive hook keys via ``colleague.hooks.referenced_repo_files`` — so display
 agrees with enforcement.
 """
 
@@ -14,11 +14,11 @@ import json
 
 import pytest
 
-from convertible.cli import _approvals
-from convertible.cli._commands import commands as commands_cli
-from convertible.cli._commands import hooks as hooks_cli
-from convertible.cli._commands import skills as skills_cli
-from convertible.policy import file_checksum
+from colleague.cli import _approvals
+from colleague.cli._commands import commands as commands_cli
+from colleague.cli._commands import hooks as hooks_cli
+from colleague.cli._commands import skills as skills_cli
+from colleague.policy import file_checksum
 
 
 def _ns(**kw) -> argparse.Namespace:
@@ -26,7 +26,7 @@ def _ns(**kw) -> argparse.Namespace:
 
 
 def _write_raw(repo, obj) -> None:
-    dotdir = repo / ".convertible"
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "approvals.json").write_text(
         obj if isinstance(obj, str) else json.dumps(obj), encoding="utf-8"
@@ -48,28 +48,28 @@ def test_write_approval_confined_to_repo_root(tmp_path, monkeypatch):
 
 def test_write_approval_fresh(tmp_path):
     _approvals.write_approval(tmp_path, "commands", "a", "sha256:1")
-    data = json.loads((tmp_path / ".convertible" / "approvals.json").read_text())
+    data = json.loads((tmp_path / ".colleague" / "approvals.json").read_text())
     assert data == {"commands": {"a": "sha256:1"}}
 
 
 def test_write_approval_merges_preserving_other_sections(tmp_path):
     _approvals.write_approval(tmp_path, "commands", "a", "sha256:1")
     _approvals.write_approval(tmp_path, "hooks", "h.sh", "sha256:2")
-    data = json.loads((tmp_path / ".convertible" / "approvals.json").read_text())
+    data = json.loads((tmp_path / ".colleague" / "approvals.json").read_text())
     assert data == {"commands": {"a": "sha256:1"}, "hooks": {"h.sh": "sha256:2"}}
 
 
 def test_write_approval_replaces_malformed_ledger(tmp_path):
     _write_raw(tmp_path, "{broken")
     _approvals.write_approval(tmp_path, "commands", "a", "sha256:1")
-    data = json.loads((tmp_path / ".convertible" / "approvals.json").read_text())
+    data = json.loads((tmp_path / ".colleague" / "approvals.json").read_text())
     assert data == {"commands": {"a": "sha256:1"}}
 
 
 def test_write_approval_root_not_object_is_replaced(tmp_path):
     _write_raw(tmp_path, [1, 2])
     _approvals.write_approval(tmp_path, "commands", "a", "sha256:1")
-    assert json.loads((tmp_path / ".convertible" / "approvals.json").read_text()) == {
+    assert json.loads((tmp_path / ".colleague" / "approvals.json").read_text()) == {
         "commands": {"a": "sha256:1"}
     }
 
@@ -77,7 +77,7 @@ def test_write_approval_root_not_object_is_replaced(tmp_path):
 def test_write_approval_section_not_object_is_reset(tmp_path):
     _write_raw(tmp_path, {"commands": "oops"})
     _approvals.write_approval(tmp_path, "commands", "a", "sha256:1")
-    assert json.loads((tmp_path / ".convertible" / "approvals.json").read_text()) == {
+    assert json.loads((tmp_path / ".colleague" / "approvals.json").read_text()) == {
         "commands": {"a": "sha256:1"}
     }
 
@@ -87,7 +87,7 @@ def test_write_approval_section_not_object_is_reset(tmp_path):
 
 def _make_hook_repo(repo, command, *, hooks_json=True):
     """A repo with a hooks.json that runs *command* (so it shows in `hooks list`)."""
-    dotdir = repo / ".convertible"
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     if hooks_json:
         (dotdir / "hooks.json").write_text(
@@ -128,7 +128,7 @@ def test_hook_status_honors_per_model_overlay(tmp_path):
     script.write_text("echo lint")
     # base: unapproved; per-model overlay: approved
     _approvals.write_approval(tmp_path, "hooks", "other.sh", "sha256:x")
-    model_dir = tmp_path / ".convertible" / "m"
+    model_dir = tmp_path / ".colleague" / "m"
     model_dir.mkdir(parents=True, exist_ok=True)
     (model_dir / "approvals.json").write_text(
         json.dumps({"hooks": {"lint.sh": file_checksum(script)}})
@@ -150,14 +150,14 @@ def test_hooks_approve_normalizes_key_to_repo_relative(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert "approved hooks/scripts/lint.sh" in out  # normalized, no leading ./
-    data = json.loads((tmp_path / ".convertible" / "approvals.json").read_text())
+    data = json.loads((tmp_path / ".colleague" / "approvals.json").read_text())
     assert "scripts/lint.sh" in data["hooks"]
     # And a hook command referencing the same file is now seen as approved.
     assert hooks_cli._hook_approval_status("bash scripts/lint.sh", tmp_path) == "approved"
 
 
 def test_hooks_approve_rejects_escape(tmp_path):
-    from convertible.cli._errors import CliError
+    from colleague.cli._errors import CliError
 
     with pytest.raises(CliError):
         hooks_cli.cmd_hooks_approve(
@@ -204,7 +204,7 @@ def test_hooks_list_with_hooks_text_no_colon(tmp_path, capsys):
 
 
 def _make_command(repo, name, body, description=None):
-    cdir = repo / ".convertible" / "commands"
+    cdir = repo / ".colleague" / "commands"
     cdir.mkdir(parents=True, exist_ok=True)
     text = (
         f"---\ndescription: {description}\n---\n{body}\n"
@@ -236,7 +236,7 @@ def test_commands_list_drifted_status_json(tmp_path, capsys):
 
 def test_commands_list_honors_per_model_overlay(tmp_path, capsys):
     path = _make_command(tmp_path, "demo", "Do $1", description="d")
-    model_dir = tmp_path / ".convertible" / "m"
+    model_dir = tmp_path / ".colleague" / "m"
     model_dir.mkdir(parents=True, exist_ok=True)
     (model_dir / "approvals.json").write_text(
         json.dumps({"commands": {"demo": file_checksum(path)}})

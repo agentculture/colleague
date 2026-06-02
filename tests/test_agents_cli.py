@@ -1,4 +1,4 @@
-"""``convertible agents`` CLI noun group — list and overview.
+"""``colleague agents`` CLI noun group — list and overview.
 
 Acceptance:
 1. ``agents list --json`` emits structured JSON with ``model`` + ``agents``.
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from convertible.cli import main
+from colleague.cli import main
 
 _MODEL_X = "Qwen/Qwen3-32B"
 _SAFE_X = "Qwen-Qwen3-32B"
@@ -31,7 +31,7 @@ def test_agents_list_json_empty_repo(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 def test_agents_list_json_with_layers(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "AGENTS.md").write_text("base")
-    (tmp_path / f"AGENTS.convertible.{_SAFE_X}.md").write_text("model")
+    (tmp_path / f"AGENTS.colleague.{_SAFE_X}.md").write_text("model")
 
     rc = main(["agents", "list", "--repo", str(tmp_path), "--model", _MODEL_X, "--json"])
     assert rc == 0
@@ -42,7 +42,7 @@ def test_agents_list_json_with_layers(tmp_path: Path, capsys: pytest.CaptureFixt
 
 def test_agents_list_model_isolation(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """--model X shows X's overlay; --model Y does not show X's."""
-    (tmp_path / f"AGENTS.convertible.{_SAFE_X}.md").write_text("x")
+    (tmp_path / f"AGENTS.colleague.{_SAFE_X}.md").write_text("x")
 
     rc = main(["agents", "list", "--repo", str(tmp_path), "--model", _MODEL_X, "--json"])
     assert rc == 0
@@ -65,14 +65,14 @@ def test_agents_list_text_with_layers(tmp_path: Path, capsys: pytest.CaptureFixt
 def test_agents_overview_text(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["agents", "overview"])
     assert rc == 0
-    assert "convertible agents" in capsys.readouterr().out
+    assert "colleague agents" in capsys.readouterr().out
 
 
 def test_agents_overview_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["agents", "overview", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["subject"] == "convertible agents"
+    assert payload["subject"] == "colleague agents"
     assert isinstance(payload["sections"], list) and payload["sections"]
 
 

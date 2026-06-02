@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from convertible.oilcheck import diagnose
-from convertible.oilcheck.usage import checks
+from colleague.oilcheck import diagnose
+from colleague.oilcheck.usage import checks
 
 
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:

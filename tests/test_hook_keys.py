@@ -1,4 +1,4 @@
-"""Tests for the shared hook key-derivation helpers in ``convertible.hooks``.
+"""Tests for the shared hook key-derivation helpers in ``colleague.hooks``.
 
 ``referenced_repo_files`` is the single source of truth that enforcement, the
 ``hooks approve`` verb, and the ``hooks list`` display all use to map a hook
@@ -8,7 +8,7 @@ approval written by one is recognised by the others.
 
 from __future__ import annotations
 
-from convertible.hooks import canonical_hook_key, referenced_repo_files
+from colleague.hooks import canonical_hook_key, referenced_repo_files
 
 
 def test_referenced_repo_files_finds_existing_file(tmp_path):

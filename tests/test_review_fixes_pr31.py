@@ -13,19 +13,19 @@ from pathlib import Path
 
 import pytest
 
-import convertible.neighbours as nb
-from convertible.contract import Task
-from convertible.hooks import HookConfig
-from convertible.identity import resolve_identity
-from convertible.loop import ModelResponse, ToolCall, run
-from convertible.neighbours import NeighbourError, NeighbourManager
-from convertible.tools import ToolError, ToolExecutor
+import colleague.neighbours as nb
+from colleague.contract import Task
+from colleague.hooks import HookConfig
+from colleague.identity import resolve_identity
+from colleague.loop import ModelResponse, ToolCall, run
+from colleague.neighbours import NeighbourError, NeighbourManager
+from colleague.tools import ToolError, ToolExecutor
 
 
 def _write_neighbours_config(repo: Path, entries: list[dict]) -> None:
     import json
 
-    dotdir = repo / ".convertible"
+    dotdir = repo / ".colleague"
     dotdir.mkdir(parents=True, exist_ok=True)
     (dotdir / "neighbours.json").write_text(json.dumps(entries), encoding="utf-8")
 
@@ -96,15 +96,15 @@ class TestCloneWriteRefused:
         with pytest.raises(ToolError, match="read-only"):
             ex.execute(
                 "write_file",
-                {"path": ".convertible/neighbours/sibling/x.txt", "content": "nope"},
+                {"path": ".colleague/neighbours/sibling/x.txt", "content": "nope"},
             )
 
     def test_read_from_clone_still_works(self, tmp_path: Path) -> None:
-        clone_file = tmp_path / ".convertible" / "neighbours" / "sibling" / "facts.txt"
+        clone_file = tmp_path / ".colleague" / "neighbours" / "sibling" / "facts.txt"
         clone_file.parent.mkdir(parents=True, exist_ok=True)
         clone_file.write_text("known content", encoding="utf-8")
         ex = ToolExecutor(tmp_path)
-        outcome = ex.execute("read_file", {"path": ".convertible/neighbours/sibling/facts.txt"})
+        outcome = ex.execute("read_file", {"path": ".colleague/neighbours/sibling/facts.txt"})
         assert "known content" in outcome.result
 
 
@@ -114,7 +114,7 @@ class TestTopLevelNickOnly:
         (tmp_path / "culture.yaml").write_text(
             "agents:\n  - nick: nested-should-not-win\n", encoding="utf-8"
         )
-        # No top-level nick and no .convertible identity → None.
+        # No top-level nick and no .colleague identity → None.
         assert resolve_identity(tmp_path, user_home=tmp_path / "no-home") is None
 
     def test_top_level_nick_resolved(self, tmp_path: Path) -> None:

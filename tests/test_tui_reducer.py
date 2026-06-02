@@ -1,9 +1,9 @@
-"""Tests for convertible.tui.reducer — pure reduce(state, event) -> state."""
+"""Tests for colleague.tui.reducer — pure reduce(state, event) -> state."""
 
 import copy
 import inspect
 
-from convertible.tui.events import (
+from colleague.tui.events import (
     Dismiss,
     DriveStep,
     KeyPress,
@@ -11,7 +11,7 @@ from convertible.tui.events import (
     Tick,
     UserInput,
 )
-from convertible.tui.state import CockpitState, Drive
+from colleague.tui.state import CockpitState, Drive
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,7 +35,7 @@ def _fresh_with_drive() -> CockpitState:
 
 
 def test_reducer_module_no_os_import():
-    import convertible.tui.reducer as mod
+    import colleague.tui.reducer as mod
 
     src = inspect.getsource(mod)
     assert "import os" not in src, "reducer.py must not import 'os'"
@@ -43,7 +43,7 @@ def test_reducer_module_no_os_import():
 
 
 def test_reducer_module_no_time_import():
-    import convertible.tui.reducer as mod
+    import colleague.tui.reducer as mod
 
     src = inspect.getsource(mod)
     assert "import time" not in src, "reducer.py must not import 'time'"
@@ -51,7 +51,7 @@ def test_reducer_module_no_time_import():
 
 
 def test_reducer_module_no_random_import():
-    import convertible.tui.reducer as mod
+    import colleague.tui.reducer as mod
 
     src = inspect.getsource(mod)
     assert "import random" not in src, "reducer.py must not import 'random'"
@@ -60,7 +60,7 @@ def test_reducer_module_no_random_import():
 
 def test_reducer_returns_distinct_object():
     """reduce() must not mutate the input; output must be a new object."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     original = _fresh()
     # Take a deep snapshot before calling
@@ -80,7 +80,7 @@ def test_reducer_returns_distinct_object():
 
 
 def test_tick_advances_frame_by_delta():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s0.background.frame = 5
@@ -89,7 +89,7 @@ def test_tick_advances_frame_by_delta():
 
 
 def test_tick_default_delta_advances_by_one():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, Tick())
@@ -97,7 +97,7 @@ def test_tick_default_delta_advances_by_one():
 
 
 def test_tick_does_not_change_other_fields():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, Tick(delta=2))
@@ -113,7 +113,7 @@ def test_tick_does_not_change_other_fields():
 
 
 def test_tick_does_not_mutate_input():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     original_frame = s0.background.frame
@@ -127,7 +127,7 @@ def test_tick_does_not_mutate_input():
 
 
 def test_skill_suggested_opens_popup():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, SkillSuggested(skill="boost"))
@@ -136,7 +136,7 @@ def test_skill_suggested_opens_popup():
 
 
 def test_skill_suggested_popup_is_visible():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -144,7 +144,7 @@ def test_skill_suggested_popup_is_visible():
 
 
 def test_skill_suggested_popup_kind():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -152,7 +152,7 @@ def test_skill_suggested_popup_kind():
 
 
 def test_skill_suggested_popup_not_blocking():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -160,7 +160,7 @@ def test_skill_suggested_popup_not_blocking():
 
 
 def test_skill_suggested_popup_opened_by():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -168,7 +168,7 @@ def test_skill_suggested_popup_opened_by():
 
 
 def test_skill_suggested_popup_reason():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost", reason="speed"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -176,7 +176,7 @@ def test_skill_suggested_popup_reason():
 
 
 def test_skill_suggested_popup_message():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -184,7 +184,7 @@ def test_skill_suggested_popup_message():
 
 
 def test_skill_suggested_popup_actions_selectors():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -195,7 +195,7 @@ def test_skill_suggested_popup_actions_selectors():
 
 
 def test_skill_suggested_popup_actions_inputs():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     p = next(p for p in s1.popups if p.id == "popup.skill.boost")
@@ -206,14 +206,14 @@ def test_skill_suggested_popup_actions_inputs():
 
 
 def test_skill_suggested_sets_background_theme():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     assert s1.background.theme == "boost-suggested"
 
 
 def test_skill_suggested_sets_background_semantic():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     assert s1.background.semantic == "stronger_agent_recommended"
@@ -221,7 +221,7 @@ def test_skill_suggested_sets_background_semantic():
 
 def test_skill_suggested_replaces_existing_popup():
     """Firing SkillSuggested twice for the same skill must not duplicate the popup."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost", reason="first"))
     s2 = reduce(s1, SkillSuggested(skill="boost", reason="second"))
@@ -232,7 +232,7 @@ def test_skill_suggested_replaces_existing_popup():
 
 def test_skill_suggested_works_for_any_skill():
     """Generic: a skill other than 'boost' should work the same way."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="deepresearch"))
     popup_ids = [p.id for p in s1.popups]
@@ -248,7 +248,7 @@ def test_skill_suggested_works_for_any_skill():
 
 
 def test_dismiss_hides_popup():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     s2 = reduce(s1, Dismiss(target="popup.skill.boost"))
@@ -258,7 +258,7 @@ def test_dismiss_hides_popup():
 
 def test_dismiss_does_not_remove_popup():
     """Dismiss hides the popup but does not delete it from the list."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     s2 = reduce(s1, Dismiss(target="popup.skill.boost"))
@@ -267,7 +267,7 @@ def test_dismiss_does_not_remove_popup():
 
 def test_dismiss_unknown_target_is_noop():
     """Dismissing a non-existent popup id should not raise."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, Dismiss(target="popup.nonexistent"))
@@ -276,7 +276,7 @@ def test_dismiss_unknown_target_is_noop():
 
 def test_dismiss_leaves_other_popups_unchanged():
     """Dismissing one popup must not affect other popups."""
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), SkillSuggested(skill="boost"))
     s2 = reduce(s1, SkillSuggested(skill="other"))
@@ -291,14 +291,14 @@ def test_dismiss_leaves_other_popups_unchanged():
 
 
 def test_user_input_focuses_prompt():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), UserInput(text="hello"))
     assert s1.focused == "input.prompt"
 
 
 def test_user_input_creates_conversation_panel():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), UserInput(text="hello"))
     panel_ids = [p.id for p in s1.panels]
@@ -306,7 +306,7 @@ def test_user_input_creates_conversation_panel():
 
 
 def test_user_input_appends_text_to_conversation():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), UserInput(text="hello"))
     panel = next(p for p in s1.panels if p.id == "panel.conversation")
@@ -314,7 +314,7 @@ def test_user_input_appends_text_to_conversation():
 
 
 def test_user_input_second_message_appends():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), UserInput(text="first"))
     s2 = reduce(s1, UserInput(text="second"))
@@ -324,7 +324,7 @@ def test_user_input_second_message_appends():
 
 
 def test_user_input_conversation_panel_title():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh(), UserInput(text="hi"))
     panel = next(p for p in s1.panels if p.id == "panel.conversation")
@@ -337,7 +337,7 @@ def test_user_input_conversation_panel_title():
 
 
 def test_key_does_not_crash():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, KeyPress(key="up"))
@@ -345,7 +345,7 @@ def test_key_does_not_crash():
 
 
 def test_key_returns_new_object():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, KeyPress(key="tab"))
@@ -358,7 +358,7 @@ def test_key_returns_new_object():
 
 
 def test_drive_step_increments_step_count_when_drive_active():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh_with_drive()
     s1 = reduce(s0, DriveStep(tool="read_file", summary="read main.py"))
@@ -367,7 +367,7 @@ def test_drive_step_increments_step_count_when_drive_active():
 
 
 def test_drive_step_appends_conversation_line():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh_with_drive(), DriveStep(tool="write_file", summary="wrote x.py"))
     panel = next((p for p in s1.panels if p.id == "panel.conversation"), None)
@@ -377,7 +377,7 @@ def test_drive_step_appends_conversation_line():
 
 
 def test_drive_step_no_drive_still_appends_conversation():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()  # drive is None
     s1 = reduce(s0, DriveStep(tool="run_command", summary="ran tests"))
@@ -387,7 +387,7 @@ def test_drive_step_no_drive_still_appends_conversation():
 
 
 def test_drive_step_no_drive_does_not_create_drive():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh()
     s1 = reduce(s0, DriveStep(tool="finish", summary="done"))
@@ -395,7 +395,7 @@ def test_drive_step_no_drive_does_not_create_drive():
 
 
 def test_drive_step_does_not_mutate_input_drive():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh_with_drive()
     original_count = s0.drive.step_count  # type: ignore[union-attr]
@@ -404,14 +404,14 @@ def test_drive_step_does_not_mutate_input_drive():
 
 
 def test_drive_step_ok_opens_no_popup():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh_with_drive(), DriveStep(tool="read_file", summary="x", ok=True))
     assert s1.popups == []
 
 
 def test_drive_step_failed_opens_error_popup():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh_with_drive(), DriveStep(tool="run_command", summary="pytest -q", ok=False))
     errs = [p for p in s1.popups if p.kind == "error"]
@@ -426,7 +426,7 @@ def test_drive_step_failed_opens_error_popup():
 
 
 def test_drive_step_failed_popup_deduped_by_tool():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s1 = reduce(_fresh_with_drive(), DriveStep(tool="run_command", summary="first", ok=False))
     s2 = reduce(s1, DriveStep(tool="run_command", summary="second", ok=False))
@@ -436,7 +436,7 @@ def test_drive_step_failed_popup_deduped_by_tool():
 
 
 def test_drive_step_failed_does_not_mutate_input():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     s0 = _fresh_with_drive()
     reduce(s0, DriveStep(tool="run_command", summary="x", ok=False))
@@ -449,7 +449,7 @@ def test_drive_step_failed_does_not_mutate_input():
 
 
 def test_unknown_event_returns_new_copy():
-    from convertible.tui.reducer import reduce
+    from colleague.tui.reducer import reduce
 
     class _Weird:
         pass

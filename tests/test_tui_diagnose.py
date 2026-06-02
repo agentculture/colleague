@@ -1,4 +1,4 @@
-"""Tests for convertible.tui.diagnose — pure cross-mirror differ.
+"""Tests for colleague.tui.diagnose — pure cross-mirror differ.
 
 These tests prove the headline honesty condition (h6): a captured snapshot
 triple (TAUI mirror + ANSI frame + event trail) can be classified into bug
@@ -10,19 +10,19 @@ from __future__ import annotations
 
 import inspect
 
-from convertible.tui.diagnose import (
+from colleague.tui.diagnose import (
     BugClass,
     Diagnosis,
     Finding,
     diagnose,
     diagnose_snapshot,
 )
-from convertible.tui.events import Dismiss, SkillSuggested
-from convertible.tui.reducer import reduce
-from convertible.tui.render.ansi import render
-from convertible.tui.render.markdown import render_markdown
-from convertible.tui.snapshot import write_snapshot
-from convertible.tui.state import (
+from colleague.tui.events import Dismiss, SkillSuggested
+from colleague.tui.reducer import reduce
+from colleague.tui.render.ansi import render
+from colleague.tui.render.markdown import render_markdown
+from colleague.tui.snapshot import write_snapshot
+from colleague.tui.state import (
     Action,
     Background,
     CockpitState,
@@ -30,7 +30,7 @@ from convertible.tui.state import (
     Popup,
     Zone,
 )
-from convertible.tui.taui import serialize
+from colleague.tui.taui import serialize
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -211,7 +211,7 @@ class TestSevenClassesReachable:
 
 class TestPurity:
     def test_module_source_imports_no_network_or_model_libs(self):
-        import convertible.tui.diagnose as mod
+        import colleague.tui.diagnose as mod
 
         src = inspect.getsource(mod)
         forbidden = (
@@ -494,7 +494,7 @@ class TestDiagnoseSnapshotQuad:
         """A legacy triple (no .md) diagnoses exactly as before — no markdown findings."""
         import json
 
-        from convertible.tui.events import dumps_events
+        from colleague.tui.events import dumps_events
 
         state = _skill_state()
         events = [SkillSuggested("boost")]

@@ -1,4 +1,4 @@
-"""Tests for convertible/devague.py — curated devague CLI shell-out launcher.
+"""Tests for colleague/devague.py — curated devague CLI shell-out launcher.
 
 Written test-first (TDD): tests define the contract, implementation follows.
 """
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from convertible.devague import (
+from colleague.devague import (
     ALLOWED_MOVES,
     DevagueToolError,
     normalize_args,
@@ -27,7 +27,7 @@ from convertible.devague import (
 @pytest.fixture()
 def repo_root(tmp_path: Path) -> Path:
     """A minimal repo root with an identity.json so identity resolves."""
-    identity_dir = tmp_path / ".convertible"
+    identity_dir = tmp_path / ".colleague"
     identity_dir.mkdir()
     (identity_dir / "identity.json").write_text(json.dumps({"as": "test-agent"}), encoding="utf-8")
     return tmp_path
@@ -216,7 +216,7 @@ def test_output_format_includes_exit_code(repo_root: Path) -> None:
 
 def test_output_truncated_at_max_chars(repo_root: Path) -> None:
     """Output exceeding _MAX_OUTPUT_CHARS must be truncated."""
-    from convertible.devague import _MAX_OUTPUT_CHARS
+    from colleague.devague import _MAX_OUTPUT_CHARS
 
     proc = MagicMock()
     proc.returncode = 0
@@ -317,22 +317,22 @@ def test_oserror_maps_to_devague_tool_error(repo_root: Path) -> None:
     assert "failed to launch" in str(excinfo.value)
 
 
-def test_convertible_never_imports_devague_as_python() -> None:
-    """Convertible shells out to the devague CLI; it must never import it as Python.
+def test_colleague_never_imports_devague_as_python() -> None:
+    """Colleague shells out to the devague CLI; it must never import it as Python.
 
     Deterministic source scan rather than a ``sys.modules`` check (which reflects
     global interpreter state and is sensitive to unrelated imports / test order).
-    ``import convertible.devague`` is fine — that is convertible's own module,
-    distinguished by the ``convertible.`` prefix.
+    ``import colleague.devague`` is fine — that is colleague's own module,
+    distinguished by the ``colleague.`` prefix.
     """
     import re
 
-    import convertible
+    import colleague
 
-    pkg_dir = Path(convertible.__file__).parent
+    pkg_dir = Path(colleague.__file__).parent
     # A top-level import of the *bare* third-party ``devague`` package:
     #   import devague | from devague import ... | from devague.frame import ...
-    # (but NOT ``import convertible.devague`` / ``from convertible.devague``).
+    # (but NOT ``import colleague.devague`` / ``from colleague.devague``).
     bare_import = re.compile(r"^\s*(?:import|from)\s+devague\b")
     offenders = [
         f"{py.relative_to(pkg_dir.parent)}:{n}: {line.strip()}"
@@ -341,4 +341,4 @@ def test_convertible_never_imports_devague_as_python() -> None:
         if bare_import.search(line)
     ]
     detail = "\n".join(offenders)
-    assert not offenders, f"convertible must not import the devague package:\n{detail}"
+    assert not offenders, f"colleague must not import the devague package:\n{detail}"
