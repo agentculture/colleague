@@ -39,6 +39,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from convertible.context import is_context_overflow, window_messages
 from convertible.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
@@ -80,6 +81,15 @@ _DEFAULT_SYSTEM = (
     "simple task needs none, so never delegate just to delegate. Delegation is sequential "
     "and bounded (a capped depth and per-drive fan-out), so it always terminates."
 )
+
+
+# Bounded reactive degradation: how many times the loop may shrink the budget and
+# retry a single ``complete`` call after a *context-overflow* error before giving
+# up and re-raising. Bounded AND each retry strictly shrinks the budget, so the
+# retry inside one turn always terminates (the outer ``max_steps`` loop is
+# unchanged). 0.6 is the shrink factor applied per retry.
+_MAX_OVERFLOW_RETRIES = 3
+_OVERFLOW_SHRINK_FACTOR = 0.6
 
 
 @dataclass
@@ -275,6 +285,13 @@ class _Drive:
     messages: list[dict[str, Any]]
     policy: Policy = field(default_factory=Policy)
     progress: ProgressFn | None = None
+    # Proactive context-window management (t4): when ``context_budget`` is a
+    # positive int the running history is trimmed to it (via ``count_tokens``,
+    # defaulting to the char estimate in ``window_messages``) before each turn,
+    # and a context-overflow from ``complete`` triggers a bounded shrink-and-retry.
+    # ``None`` (the default) is a strict no-op — no windowing, no reactive retry.
+    context_budget: int | None = None
+    count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -460,17 +477,79 @@ def _run_tool_calls(ctx: _Drive, calls: list[ToolCall]) -> bool:
     return finished
 
 
+def _window_in_place(ctx: _Drive, budget: int) -> None:
+    """Trim ``ctx.messages`` in place to *budget* tokens (preserves head + tail).
+
+    Mutating in place (``[:]``) keeps the trimmed history across turns — dropping
+    old context is intended; there is no summarization. ``window_messages``
+    defaults ``count_tokens`` to the char estimate when ``ctx.count_tokens`` is
+    ``None``.
+    """
+    ctx.messages[:] = window_messages(ctx.messages, budget, ctx.count_tokens)
+
+
+def _complete_with_degradation(ctx: _Drive, complete: CompleteFn) -> ModelResponse:
+    """Window the history, call ``complete``, and degrade-on-overflow if budgeted.
+
+    Owns the proactive window + the bounded reactive shrink-and-retry so
+    :func:`_drive_loop` stays shallow (SonarCloud S3776). With no positive
+    ``context_budget`` this is a thin pass-through: no windowing, ``complete`` is
+    called once and whatever it raises propagates unchanged.
+
+    With a budget set: the history is windowed to it before the call. If
+    ``complete`` raises a *context-overflow* error, the effective budget is shrunk
+    (``* _OVERFLOW_SHRINK_FACTOR``, floored to ≥ 1), the history is re-windowed,
+    and the call retried — up to ``_MAX_OVERFLOW_RETRIES`` times. Retrying stops
+    (and the original error re-raises, so :func:`run` preserves the partial) when
+    the cap is reached OR a re-window can no longer reduce the message count (the
+    floor: only system + first user + last turn remain). Non-overflow errors are
+    never retried — they propagate immediately.
+    """
+    budget = ctx.context_budget
+    if not isinstance(budget, int) or budget <= 0:
+        # Feature off: strict pass-through, byte-identical to the pre-feature loop.
+        return complete(ctx.messages)
+
+    # Proactive window to the full budget before the first attempt.
+    _window_in_place(ctx, budget)
+    effective = budget
+    # The first attempt plus up to _MAX_OVERFLOW_RETRIES reactive retries. Each
+    # retry strictly shrinks the budget AND must reduce the message count, so the
+    # loop always terminates (the floor — system + first user + last turn — and the
+    # cap both stop it). On any non-overflow error, or once neither the budget nor
+    # the message list can shrink further, the error propagates to run()'s
+    # preserved-partial path.
+    for _ in range(_MAX_OVERFLOW_RETRIES + 1):
+        try:
+            return complete(ctx.messages)
+        except Exception as exc:  # noqa: BLE001 - re-raised below unless it is overflow
+            if not is_context_overflow(str(exc)):
+                raise  # non-overflow errors propagate immediately (unchanged)
+            shrunk = max(1, int(effective * _OVERFLOW_SHRINK_FACTOR))
+            before = len(ctx.messages)
+            _window_in_place(ctx, shrunk)
+            # At the floor (re-window changed nothing) AND the budget can't shrink
+            # further → retrying cannot help; let this overflow propagate.
+            if shrunk >= effective and len(ctx.messages) >= before:
+                raise
+            effective = shrunk
+    # Cap exhausted while still making progress: re-raise via one final attempt.
+    return complete(ctx.messages)
+
+
 def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> bool:
     """Run the bounded turn loop; return whether the model finished.
 
-    Each turn: call ``complete``, account usage, then either finish (no tool
-    calls) or run the turn's tool calls. Whatever ``complete`` raises propagates
-    to :func:`run`, which turns it into a preserved partial result (#37). Pulled
-    out of :func:`run` so the loop body lives in one focused function and ``run``
-    keeps its cognitive complexity under the threshold (SonarCloud S3776).
+    Each turn: window the history to the context budget (if set), call
+    ``complete`` (with a bounded overflow shrink-and-retry), account usage, then
+    either finish (no tool calls) or run the turn's tool calls. Whatever
+    ``complete`` raises (after the bounded retry) propagates to :func:`run`, which
+    turns it into a preserved partial result (#37). Pulled out of :func:`run` so
+    the loop body lives in one focused function and ``run`` keeps its cognitive
+    complexity under the threshold (SonarCloud S3776).
     """
     for _ in range(max(1, max_steps)):
-        resp = complete(ctx.messages)
+        resp = _complete_with_degradation(ctx, complete)
         ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
         ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
         # Per-turn statistics (always-on): count the turn and accumulate the
@@ -507,6 +586,8 @@ def run(
     progress: ProgressFn | None = None,
     policy: Policy | None = None,
     spawn: Callable | None = None,
+    context_budget: int | None = None,
+    count_tokens: Callable[[list[dict[str, Any]]], int] | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -547,9 +628,22 @@ def run(
     executor accumulates are snapshotted onto ``result.sub_results`` on every exit
     path (alongside ``changed_files``).
 
-    If ``complete`` raises mid-loop (e.g. a per-request timeout), the partial
-    work is *preserved*: the accumulated ``steps`` / ``usage`` / ``changed_files``
-    are finalized onto the result with ``status=error`` and re-raised as
+    ``context_budget`` is an optional proactive token budget (t4). When a positive
+    int, the running history is windowed to it (via :func:`window_messages`)
+    *before* every model turn, and a context-overflow raised by ``complete``
+    triggers a bounded shrink-and-retry (the budget is reduced and the history
+    re-windowed, up to ``_MAX_OVERFLOW_RETRIES`` times, before the error is
+    re-raised into the preserved-partial path). ``count_tokens`` is the matching
+    token counter handed to ``window_messages``; ``None`` falls back to the
+    char-based estimate. Both default ``None`` → no windowing, no reactive retry
+    (a strict no-op, byte-identical to the pre-feature loop). Like hooks/progress
+    this is chassis-owned, so every engine that forwards ``config.context_budget_tokens``
+    inherits it identically (the all-engines rule).
+
+    If ``complete`` raises mid-loop (e.g. a per-request timeout, or a
+    context-overflow the bounded retry could not recover), the partial work is
+    *preserved*: the accumulated ``steps`` / ``usage`` / ``changed_files`` are
+    finalized onto the result with ``status=error`` and re-raised as
     :class:`DriveAborted` carrying that result, so the drive path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
@@ -606,6 +700,8 @@ def run(
         messages=messages,
         policy=policy,
         progress=progress,
+        context_budget=context_budget,
+        count_tokens=count_tokens,
     )
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing

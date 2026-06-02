@@ -67,4 +67,7 @@ class MockEngine(Engine):
             model=config.model,
             progress=config.progress,
             spawn=config.subagent_spawn,
+            # All-engines rule: the mock exercises the SAME loop windowing path.
+            # No count_tokens → the loop uses the char estimate via window_messages.
+            context_budget=config.context_budget_tokens,
         )

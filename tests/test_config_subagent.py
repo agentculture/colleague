@@ -50,7 +50,14 @@ def test_to_dict_has_expected_keys() -> None:
     cfg = EngineConfig.resolve()
     snapshot = cfg.to_dict()
 
-    expected_keys = {"base_url", "model", "max_steps", "temperature", "timeout"}
+    expected_keys = {
+        "base_url",
+        "model",
+        "max_steps",
+        "temperature",
+        "timeout",
+        "context_budget_tokens",
+    }
     assert set(snapshot.keys()) == expected_keys
 
 

@@ -274,6 +274,7 @@ def execute_drive(
                     EXIT_ENV_ERROR,
                     f"engine '{engine_name}' failed: {original}",
                     f"check the engine config / vLLM server; {artifact_note}",
+                    result=result if isinstance(partial, TaskResult) else None,
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine
@@ -311,6 +312,48 @@ def execute_drive(
         telemetry.flush()
 
 
+def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: EngineConfig) -> Task:
+    """Resolve the positional tokens into a :class:`Task` (instruction or --command).
+
+    ``args.instruction`` is a list (nargs="*"). With ``--command`` set the tokens
+    are template arguments (expanded via :func:`expand_command`); without it they
+    are a plain instruction. Raises :class:`CliError` when neither is supplied or
+    a template fails to expand. Extracted from :func:`cmd_drive` to keep that
+    function's cognitive complexity under the threshold (SonarCloud S3776).
+    """
+    positional_tokens: list[str] = getattr(args, "instruction", None) or []
+    command_name: str | None = getattr(args, "command_name", None)
+    has_command = bool(command_name)
+    has_instruction = not has_command and bool(positional_tokens)
+
+    if not has_instruction and not has_command:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "missing required argument: provide an instruction or --command <name>",
+            "run 'convertible drive --help' to see usage",
+        )
+
+    if has_command:
+        # Positional tokens are template arguments when --command is set.
+        try:
+            return expand_command(
+                repo,
+                command_name,
+                positional_tokens,
+                engine_default=engine,
+                model=config.model,
+            )
+        except CommandError as exc:
+            raise CliError(
+                EXIT_USER_ERROR,
+                str(exc),
+                "list available commands with: convertible commands list --repo <path>",
+            ) from exc
+
+    # Plain instruction path (original behaviour).
+    return Task.new(str(repo), " ".join(positional_tokens), engine=engine)
+
+
 def cmd_drive(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
 
@@ -326,25 +369,6 @@ def cmd_drive(args: argparse.Namespace) -> int:
             "pass --repo pointing at an existing repository",
         )
 
-    # Resolve instruction vs. --command.
-    # ``args.instruction`` is a list (nargs="*") — positional tokens.
-    # When ``--command`` is supplied, positional tokens are template arguments.
-    # When ``--command`` is absent, positional tokens are the plain instruction.
-    positional_tokens: list[str] = getattr(args, "instruction", None) or []
-    command_name: str | None = getattr(args, "command_name", None)
-
-    has_command = bool(command_name)
-    # A plain instruction requires at least one non-empty token.
-    instruction_tokens: list[str] = positional_tokens if not has_command else []
-    has_instruction = not has_command and bool(positional_tokens)
-
-    if not has_instruction and not has_command:
-        raise CliError(
-            EXIT_USER_ERROR,
-            "missing required argument: provide an instruction or --command <name>",
-            "run 'convertible drive --help' to see usage",
-        )
-
     # Resolve the engine: explicit --engine > CONVERTIBLE_ENGINE > vllm-openai.
     # A bare drive never silently falls through to the no-op mock (#53).
     engine = resolve_engine(args.engine)
@@ -356,43 +380,31 @@ def cmd_drive(args: argparse.Namespace) -> int:
         max_steps=args.max_steps,
     )
 
-    if has_command:
-        # Expand a saved command template.
-        assert command_name is not None  # narrowing
-        # Positional tokens are template arguments when --command is set.
-        cmd_args = positional_tokens
-        try:
-            task = expand_command(
-                repo,
-                command_name,
-                cmd_args,
-                engine_default=engine,
-                model=config.model,
-            )
-        except CommandError as exc:
-            raise CliError(
-                EXIT_USER_ERROR,
-                str(exc),
-                "list available commands with: convertible commands list --repo <path>",
-            ) from exc
-    else:
-        # Plain instruction path (original behaviour).
-        instruction = " ".join(instruction_tokens)
-        task = Task.new(str(repo), instruction, engine=engine)
+    command_name: str | None = getattr(args, "command_name", None)
+    task = _build_task(args, repo, engine, config)
 
     # Delegate the full drive orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
-    result, artifact_path = execute_drive(
-        repo=repo,
-        engine_name=engine,
-        task=task,
-        open_pr=not args.no_pr,
-        base=args.base,
-        config=config,
-        command_name=command_name if has_command else None,
-        tui=getattr(args, "tui", None),
-        tui_events=getattr(args, "tui_events", None),
-    )
+    try:
+        result, artifact_path = execute_drive(
+            repo=repo,
+            engine_name=engine,
+            task=task,
+            open_pr=not args.no_pr,
+            base=args.base,
+            config=config,
+            command_name=command_name or None,
+            tui=getattr(args, "tui", None),
+            tui_events=getattr(args, "tui_events", None),
+        )
+    except CliError as exc:
+        # On a partial-bearing failure, surface the preserved partial TaskResult to
+        # stdout (--json only) so machine consumers (e.g. outsource.sh) can parse it.
+        # The diagnostic stays on stderr and the exit code stays non-zero — both are
+        # handled by the _dispatch layer that catches this re-raise.
+        if json_mode and exc.result is not None:
+            emit_result(exc.result.to_dict(), json_mode=True)
+        raise
 
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)

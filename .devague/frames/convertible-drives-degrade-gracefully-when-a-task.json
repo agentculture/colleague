@@ -1,0 +1,276 @@
+{
+  "slug": "convertible-drives-degrade-gracefully-when-a-task",
+  "title": "Convertible drives degrade gracefully when a task outgrows the model's context window: the loop trims its running history to fit and keeps going, and any drive that still cannot finish returns a readable partial result to the caller instead of empty stdout.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-02T15:39:38Z",
+  "updated": "2026-06-02T16:23:20Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible drives degrade gracefully when a task outgrows the model's context window: the loop trims its running history to fit and keeps going, and any drive that still cannot finish returns a readable partial result to the caller instead of empty stdout.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A reproduced overflow scenario that fails today returns a non-empty, status=error TaskResult on stdout after this change (provable by a test).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators and agents who outsource multi-file repo tasks to convertible against small-context models (e.g. the served ~27B at a 32k window) via 'convertible drive' / the outsource skill.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The overflow is reproducible for a multi-file drive on a ~32k-window model via 'convertible drive' / outsource \u2014 i.e. this audience actually hits it today, not a hypothetical.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "A multi-file drive that would overflow the context window trims its oldest tool-result history to fit and continues; if it still cannot finish, the caller receives the partial TaskResult (steps/usage/changed_files, status=error) on stdout, not empty output plus an opaque error.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "After the change the same overflowing drive either finishes, or yields a status=error result whose steps/changed_files reflect the work done up to the limit \u2014 verifiable in a test.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "The loop accumulates an unbounded message history (only per-tool-result truncation at 20k chars, tools.py:30). During the #72 audit a ~16-file read overflowed the 32k window; vLLM returned HTTP 400 'maximum context length is 32768 ... prompt contains 32769'. The partial artifact landed in a throwaway worktree and the caller saw only 'convertible produced no result on stdout' (outsource.sh:222).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The cited failure is real and current: today's loop sends the full unbounded history with no proactive trim \u2014 confirmable by reading loop.py _drive_loop + tools.py:30 (only per-result truncation exists).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Outsourcing repo work to diverse/smaller models is convertible's whole value; if a routine multi-file task silently dies on a small model, the harness is unreliable for its core use case.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A multi-file task on a small model is a normal, intended use of convertible (not abuse), so silent failure is a genuine reliability gap.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Token-based budget via a PLUGGABLE counter, no new library dependency: the loop measures the running prompt in tokens through an injected count_tokens seam. The vLLM engine counts exactly via the server's /tokenize endpoint (reusing the same stdlib urllib/OpenAI-style connection \u2014 zero new dep); when a server does not expose /tokenize (llama.cpp/proxies/mock) the seam falls back to a zero-dep char heuristic. No third-party tokenizer library (tiktoken/transformers) is added.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "No third-party tokenizer LIBRARY/dep is added (exact counting reuses the existing stdlib HTTP path to the server's /tokenize; the fallback is char-based) \u2014 tests/test_zero_deps.py stays green.",
+          "status": "confirmed"
+        },
+        {
+          "id": "h14",
+          "text": "When /tokenize is absent or errors (non-vLLM OpenAI server), the drive still runs unchanged on the char fallback \u2014 so retargeting any OpenAI-compatible server stays a config change, never a code change (h2 preserved); only budget precision degrades, never correctness.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "non_goal",
+      "text": "No LLM-generated rolling summary in v0: windowing drops/elides the oldest tool results and leaves a short placeholder note; a model-based summarization pass is a parked follow-up.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "non_goal",
+      "text": "Not a context router or multi-model fallback: an overflow never auto-switches to a bigger model \u2014 that is the out-of-scope 'gearbox'.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "non_goal",
+      "text": "Not unbounded retries: trim-and-retry is bounded so the loop's termination guarantee (h3) still holds; no new exit path, no daemon, no new runtime dep.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "success_signal",
+      "text": "A drive that previously overflowed (the 16-file audit on a 32k model) now either completes, or returns a readable partial result with status=error and non-empty steps on stdout.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "There is a concrete runnable test that reproduces an overflow and asserts the post-change outcome (completes, or status=error with non-empty steps on stdout).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "success_signal",
+      "text": "An engine-agnostic test injects a 'complete' that raises a context-overflow error once then succeeds, and asserts the loop trimmed history and retried; a second test asserts the --json drive path emits the partial result JSON to stdout on the failure path.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "Both tests run engine-agnostically (no live server) by injecting a 'complete' callable, so CI exercises the degradation path deterministically.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The loop enforces a configurable context budget (env/config, conservative default) and windows the running message list before each model turn, preserving OpenAI message validity (no orphaned assistant tool_calls / tool replies).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Windowing always keeps the system prompt + the original task message + the most-recent turns, and never sends a message list with an assistant tool_calls turn missing its matching tool replies (OpenAI-valid).",
+          "status": "confirmed"
+        },
+        {
+          "id": "h3",
+          "text": "The budget is read from config/env with a conservative default and expressed in TOKENS; it is counted exactly via the server's /tokenize when reachable and approximated by the char fallback otherwise \u2014 documented as best-effort-exact (degrades to approximate), never silently wrong.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "On a detected context-overflow error from 'complete', the loop trims history and retries the same turn a bounded number of times before giving up; on final give-up it preserves the partial result (the existing #37 DriveAborted path).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "trim-and-retry is capped at a small fixed number of attempts per turn; once the floor (system+task, no droppable history) is reached and it still overflows, the loop stops and preserves the partial result \u2014 termination guarantee h3 still provable.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "The CLI --json drive path emits the partial TaskResult JSON to stdout even on the failure/overflow path, so a caller (outsource.sh) gets a parseable result instead of empty stdout; exit code still reflects failure.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "After the change, 'convertible drive --json' on an overflow exits non-zero AND prints a JSON object with status=error and non-empty steps to stdout; outsource.sh print_result parses it instead of reporting 'no result on stdout'.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Degradation lives in the chassis (convertible/loop.py) and fires identically for mock and vllm-openai (all-engines rule); the artifact shape is unchanged (e2e shape test stays green).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "tests/test_e2e_mock.py still passes unchanged (artifact shape identical) and the new degradation behavior is exercised through the engine-agnostic loop, not engine-specific code.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "Overflow detection (resolves v2): match known overflow phrases first ('maximum context length', 'context window', 'too many tokens', 'reduce the length'); if unmatched, treat any HTTP 400 from 'complete' as a possible overflow and attempt one bounded trim+retry. Worst case on an unrelated 400 is a single harmless retry before the partial-result path.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "Token-counter seam: the loop takes an injected count_tokens(messages)->int (like complete/progress/spawn). The vLLM engine supplies one that POSTs the candidate messages to {base_url-root}/tokenize (vLLM extension) for an exact count; on 404/any error it returns None so the loop uses the zero-dep char-heuristic fallback. The mock engine uses the heuristic. At most a small constant number of /tokenize calls per turn (count, proportional pre-trim, one verify).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Exact char-to-token ratio and the default budget value for the served model \u2014 needs measuring; make it configurable with a conservative default rather than hardcoding a guess.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Detection wording across OpenAI-compatible servers (DECIDED, see c16): match known overflow phrases first, else treat any HTTP 400 as a possible overflow and try one bounded trim+retry. Residual follow-up: extend the phrase list if a new server surfaces an unanticipated overflow wording.",
+      "kind": "follow_up",
+      "claim_id": "c16"
+    }
+  ]
+}
