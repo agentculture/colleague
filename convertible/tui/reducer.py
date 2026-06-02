@@ -121,7 +121,13 @@ def _reduce_user_input(state: CockpitState, event: UserInput) -> CockpitState:
 
 
 def _reduce_drive_step(state: CockpitState, event: DriveStep) -> CockpitState:
-    """Increment the drive step counter (if a drive is active) and log a conversation line."""
+    """Increment the drive step counter (if a drive is active) and log a conversation line.
+
+    A failed step (``event.ok is False``) additionally opens an ``error`` popup so
+    the failure surfaces in the cockpit.  Keeping this in the pure reducer (rather
+    than a live-driver side-channel) is what makes the popup appear identically
+    live, in ``tui replay``, and in ``tui replay --trace`` of the same step.
+    """
     new_state = copy.deepcopy(state)
 
     if new_state.drive is not None:
@@ -132,7 +138,34 @@ def _reduce_drive_step(state: CockpitState, event: DriveStep) -> CockpitState:
 
     line = f"[{event.tool}] {event.summary}"
     new_state.panels = _append_conversation_line(new_state.panels, line)
+
+    if not event.ok:
+        new_state.popups = _open_error_popup(new_state.popups, event)
     return new_state
+
+
+def _open_error_popup(popups: list[Popup], event: DriveStep) -> list[Popup]:
+    """Return a new popups list with an ``error`` popup for a failed drive step.
+
+    Deduped by id (``popup.error.<tool>``) so a tool failing repeatedly refreshes
+    one popup rather than stacking.  Non-blocking with a dismiss action — an
+    empty-action or stuck blocking popup would trip ``tui diagnose`` lifecycle checks.
+    """
+    popup_id = f"popup.error.{event.tool}"
+    detail = f": {event.summary}" if event.summary else ""
+    popup = Popup(
+        id=popup_id,
+        kind="error",
+        visible=True,
+        blocking=False,
+        opened_by="agent",
+        reason="tool_failed",
+        message=f"{event.tool} failed{detail}",
+        actions=[Action(f"{popup_id}.dismiss", "esc", "Dismiss")],
+    )
+    kept = [p for p in popups if p.id != popup_id]
+    kept.append(popup)
+    return kept
 
 
 # ---------------------------------------------------------------------------

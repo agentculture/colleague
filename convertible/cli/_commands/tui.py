@@ -26,6 +26,7 @@ from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import JSON_HELP, emit_result
 from convertible.tui.diagnose import diagnose, diagnose_snapshot
 from convertible.tui.events import event_from_dict, loads_events
+from convertible.tui.from_drive import trace_to_drive_steps
 from convertible.tui.reducer import reduce
 from convertible.tui.render.ansi import render
 from convertible.tui.render.markdown import render_markdown
@@ -91,6 +92,29 @@ def _load_events(path_str: Optional[str], *, kind: str = "events") -> list:
         raise CliError(EXIT_USER_ERROR, f"cannot parse {kind} JSONL: {exc}") from exc
 
 
+def _load_trace_steps(path_str: str) -> list:
+    """Read a drive's loop-step trace (``<id>.trace.jsonl``) into DriveStep events.
+
+    Each line is a ``{index, tool, arguments, result, ok}`` object (what
+    :mod:`convertible.artifact` writes per step).  :func:`trace_to_drive_steps`
+    maps them so a real drive replays into the cockpit identically to the live
+    view.  A malformed line maps to a :class:`CliError`, never a traceback.
+    """
+    raw = _read_text(path_str, kind="trace")
+    lines: list = []
+    for num, line in enumerate(raw.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            lines.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise CliError(
+                EXIT_USER_ERROR, f"cannot parse trace JSONL (line {num}): {exc}"
+            ) from exc
+    return trace_to_drive_steps(lines)
+
+
 # ---------------------------------------------------------------------------
 # overview
 # ---------------------------------------------------------------------------
@@ -114,7 +138,7 @@ def _tui_sections() -> list[dict[str, object]]:
                 "tui state [--state <file>] — print the TAUI mirror as JSON",
                 "tui inspect --select <sel> [--state <file>] — resolve a selector to a node",
                 "tui action --select <sel> [--state <file>] — operate the UI by selector",
-                "tui replay <events.jsonl> [--state <file>] — fold events into a mirror",
+                "tui replay <events.jsonl> | --trace <id>.trace.jsonl — fold a drive into a mirror",
                 "tui snapshot --name <n> [--state/--events/--dir] — write the triple",
                 "tui test --scenario <file.json> — run a scenario (exit 1 on FAIL)",
                 "tui diagnose (--dir <d> --name <n> | --taui/--ansi/--events) — classify bugs",
@@ -219,11 +243,30 @@ def cmd_tui_action(args: argparse.Namespace) -> int:
 
 
 def cmd_tui_replay(args: argparse.Namespace) -> int:
-    events = _load_events(args.events_file)
+    events = _resolve_replay_events(args)
     initial = _load_state(args.state) if args.state else None
     final = replay(events, initial=initial)
     emit_result(serialize(final), json_mode=True)
     return 0
+
+
+def _resolve_replay_events(args: argparse.Namespace) -> list:
+    """Resolve the replay source: exactly one of a positional log or ``--trace``.
+
+    The positional ``events_file`` is a TAUI events JSONL (DriveStep-style);
+    ``--trace`` is a real drive's loop-step trace (``<id>.trace.jsonl``), which is
+    converted to the same DriveStep events.  Requiring exactly one keeps the two
+    sources from silently combining or both being empty.
+    """
+    events_file = getattr(args, "events_file", None)
+    trace = getattr(args, "trace", None)
+    if bool(events_file) == bool(trace):
+        raise CliError(
+            EXIT_USER_ERROR,
+            "replay needs exactly one of an events JSONL or --trace",
+            "pass an events file (tui replay events.jsonl) OR --trace <id>.trace.jsonl",
+        )
+    return _load_trace_steps(trace) if trace else _load_events(events_file)
 
 
 # ---------------------------------------------------------------------------
@@ -506,8 +549,18 @@ def register(sub: argparse._SubParsersAction) -> None:
     _add_json(act)
     act.set_defaults(func=cmd_tui_action)
 
-    rep = noun_sub.add_parser("replay", help="Fold an events JSONL log into a TAUI mirror.")
-    rep.add_argument("events_file", help="Path to a JSONL event log.")
+    rep = noun_sub.add_parser(
+        "replay",
+        help="Fold an events JSONL log (or a drive's --trace) into a TAUI mirror.",
+    )
+    rep.add_argument(
+        "events_file", nargs="?", default=None, help="Path to a TAUI events JSONL log."
+    )
+    rep.add_argument(
+        "--trace",
+        default=None,
+        help="Path to a drive's <id>.trace.jsonl (converted to DriveStep events).",
+    )
     rep.add_argument("--state", default=None, help="Initial state JSON file (default: empty).")
     _add_json(rep)
     rep.set_defaults(func=cmd_tui_replay)

@@ -94,8 +94,11 @@ convertible drive "..." --engine mock --no-pr --json
 ```
 
 Key flags: `--repo PATH`, `--engine NAME`, `--no-pr`, `--base BRANCH`, and the
-engine overrides `--base-url / --model / --api-key / --max-steps`. A failed
-drive still writes a `status=error` artifact before exiting non-zero.
+engine overrides `--base-url / --model / --api-key / --max-steps`. The live
+cockpit flags `--tui` / `--no-tui` (default: auto — on an interactive TTY) and
+`--tui-events PATH` (append a live `DriveStep` JSONL stream) are documented in
+[tui.md](tui.md). A failed drive still writes a `status=error` artifact before
+exiting non-zero.
 
 ## Configuration
 

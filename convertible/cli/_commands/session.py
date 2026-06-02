@@ -173,6 +173,10 @@ def _run_one(
             base=base,
             config=config,
             command_name=command_name,
+            # Keep the plain `step N:` sink: the session's own palette chrome owns
+            # the screen, so the auto-on-TTY live cockpit would clobber it. The
+            # session cockpit is #74 A2 (a follow-up); force it off here.
+            tui=False,
         )
     except CliError as exc:
         err(f"  error: {exc.message}")

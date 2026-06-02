@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-06-02
+
+### Added
+
+- Live cockpit during a drive (#74 A1): `convertible drive` renders the TAUI cockpit on stderr as it runs — conversation per step and popups on real events (an `error` popup when a tool step fails). Auto-on an interactive TTY; `--tui` / `--no-tui` force it; off a TTY it falls back to the plain `step N:` lines, byte-identical.
+- Live `DriveStep` event stream (#74 A3): `drive --tui-events PATH` appends one JSONL event per step as the drive runs (the format `tui replay` / `tui snapshot` consume); a stream written into the driven repo is treated as harness telemetry, never swept into the drive branch.
+- `tui replay --trace <id>.trace.jsonl` (#74 A4): fold a finished drive's loop-step trace into the cockpit. Live and replayed steps read identically — one shared converter (`convertible/tui/from_drive.py`) and the same pure reducer.
+- NO_COLOR / TTY-aware color gating helpers (`convertible/tui/colors.py`, #74 A5): the live cockpit strips ANSI escapes when `NO_COLOR` is set or the stream is not a terminal.
+
+### Changed
+
+- A failed `DriveStep` now opens an `error` popup in the pure reducer (so it surfaces identically live, in `tui replay`, and in `tui replay --trace`).
+- The ANSI conversation widget now renders the reducer-produced `panel.conversation` and accepts a multi-line per-step summary, so a live drive shows its steps.
+
 ## [0.22.0] - 2026-06-02
 
 ### Added

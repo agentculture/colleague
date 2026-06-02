@@ -166,6 +166,21 @@ def test_conversation_panel_summary_in_output() -> None:
     assert "3 messages exchanged" in result
 
 
+def test_conversation_panel_reducer_id_renders() -> None:
+    """A live drive's conversation (reducer id 'panel.conversation') must render —
+    not only the bare 'conversation' id used by hand-built states (#74 A1)."""
+    panel = Panel(
+        id="panel.conversation",
+        title="Conversation",
+        visible=True,
+        content_summary="[read_file] main.py\n[run_command] pytest -q",
+    )
+    result = render(CockpitState(panels=[panel]))
+    # Each newline-separated step renders on its own row.
+    assert "[read_file] main.py" in result
+    assert "[run_command] pytest -q" in result
+
+
 def test_prompt_input_shows_focus_indicator() -> None:
     """When focused == 'input.prompt', the prompt line should include a focus indicator."""
     state = CockpitState(focused="input.prompt")
