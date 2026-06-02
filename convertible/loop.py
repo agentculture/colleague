@@ -54,6 +54,7 @@ from convertible.neighbours import NeighbourManager
 from convertible.policy import Policy, load_policy
 from convertible.telemetry import Telemetry, load_telemetry
 from convertible.tools import ToolError, ToolExecutor, ToolOutcome
+from convertible.tui.from_drive import progress_target as _progress_target
 
 _DEFAULT_SYSTEM = (
     "You are a coding agent working inside a repository. Use the provided tools "
@@ -314,18 +315,6 @@ def _finalize_stats(
     stats.tool_counts = dict(Counter(step.tool for step in result.steps))
     stats.files_changed = len(result.changed_files)
     stats.bytes_written = executor.bytes_written
-
-
-def _progress_target(arguments: Any) -> str:
-    """A short human hint for a tool call's subject (its path / command / name)."""
-    if not isinstance(arguments, dict):
-        return ""
-    for key in ("path", "command", "name", "summary", "subcommand"):
-        value = arguments.get(key)
-        if value:
-            text = str(value).splitlines()[0].strip()
-            return text if len(text) <= 48 else text[:45] + "..."
-    return ""
 
 
 def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: bool) -> None:

@@ -187,6 +187,65 @@ def test_replay_folds_events(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     assert "popup.skill.boost" in popup_ids
 
 
+def _write_trace(path: Path) -> Path:
+    """A real-shaped loop-step trace (`<id>.trace.jsonl`): one ok, one failed."""
+    path.write_text(
+        "\n".join(
+            json.dumps(line)
+            for line in [
+                {
+                    "index": 0,
+                    "tool": "read_file",
+                    "arguments": {"path": "main.py"},
+                    "result": "...",
+                    "ok": True,
+                },
+                {
+                    "index": 1,
+                    "tool": "run_command",
+                    "arguments": {"command": "pytest -q"},
+                    "result": "boom",
+                    "ok": False,
+                },
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_replay_trace_reconstructs_cockpit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A4: `tui replay --trace <id>.trace.jsonl` folds a real drive's trace into the
+    cockpit — conversation lines per step, and an error popup for the failed step."""
+    tr = _write_trace(tmp_path / "abc.trace.jsonl")
+    rc = main(["tui", "replay", "--trace", str(tr), "--json"])
+    assert rc == 0
+    mirror = json.loads(capsys.readouterr().out)
+    convo = next(p for p in mirror["panels"] if p["id"] == "panel.conversation")
+    assert "read_file" in convo["content_summary"] and "main.py" in convo["content_summary"]
+    assert "run_command" in convo["content_summary"]
+    assert "popup.error.run_command" in {p["id"] for p in mirror["popups"]}
+
+
+def test_replay_requires_exactly_one_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Neither source -> user error (not a traceback).
+    rc = main(["tui", "replay"])
+    assert rc != 0
+    assert "exactly one" in capsys.readouterr().err
+    # Both sources -> user error too.
+    ev = tmp_path / "e.jsonl"
+    ev.write_text(dumps_events([SkillSuggested(skill="b", reason="r")]), encoding="utf-8")
+    tr = _write_trace(tmp_path / "t.trace.jsonl")
+    rc = main(["tui", "replay", str(ev), "--trace", str(tr)])
+    assert rc != 0
+    assert "exactly one" in capsys.readouterr().err
+
+
 # ---------------------------------------------------------------------------
 # tui snapshot
 # ---------------------------------------------------------------------------

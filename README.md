@@ -424,12 +424,31 @@ uv run convertible tui render --format markdown --state <file>
 uv run convertible tui overview
 ```
 
-> **Watching a live drive.** Wiring the live cockpit + popups into a running
-> `drive`/`session` is tracked in [#74](https://github.com/agentculture/convertible/issues/74)
-> — today the cockpit renders authored/snapshot state, not a live drive. In the
-> meantime a running drive streams per-step progress (`step N: <tool> [ok|err]`) to
-> stderr, and a mid-loop failure still writes a **partial artifact** (`status=error`)
-> with the steps, usage, and changed files accumulated so far.
+**Watching a live drive.** A real `drive` feeds the cockpit (#74):
+
+```bash
+uv run convertible drive "<task>" --engine mock       # auto: live cockpit on a TTY
+uv run convertible drive "<task>" --engine mock --no-tui   # force the plain step lines
+uv run convertible drive "<task>" --engine mock --tui-events run.jsonl   # live event stream
+uv run convertible tui replay --trace .convertible/<id>.trace.jsonl      # replay a finished drive
+```
+
+- **Live cockpit (A1)** — on an interactive terminal a drive renders the cockpit
+  as it runs (conversation per step, popups on real events — e.g. an `error`
+  popup when a tool step fails). Auto-on a TTY; `--tui` / `--no-tui` force it.
+  Off a TTY (pipes/agents/CI) it falls back to the plain `step N: <tool> [ok|err]`
+  stderr lines, byte-for-byte unchanged.
+- **Live event stream (A3)** — `--tui-events <path>` appends one `DriveStep` JSONL
+  line per step as the drive runs, so an agent can follow it turn-by-turn or
+  `tui replay` it. (A stream written into the driven repo is treated as harness
+  telemetry — never swept into the drive branch.)
+- **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
+  finished drive's loop-step trace into the cockpit (live and replayed steps read
+  identically — one shared converter). The interactive `session` cockpit is the
+  remaining #74 follow-up (A2).
+
+A mid-loop failure still writes a **partial artifact** (`status=error`) with the
+steps, usage, and changed files accumulated so far.
 
 See [`docs/features/tui.md`](docs/features/tui.md) for the full surface.
 

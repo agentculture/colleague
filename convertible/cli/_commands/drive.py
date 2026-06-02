@@ -28,6 +28,7 @@ from pathlib import Path
 from convertible import registry
 from convertible.artifact import artifact_dir, failed_result, write
 from convertible.cli._banner import emit_banner
+from convertible.cli._commands._tui_sink import build_progress
 from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import emit_diagnostic, emit_result
 from convertible.commands import CommandError, expand_command
@@ -36,7 +37,7 @@ from convertible.contract import OK, Task, TaskResult
 from convertible.feedback import set_last_drive
 from convertible.handoff import HandoffError, handoff, untracked_snapshot
 from convertible.subagents import make_spawn
-from convertible.telemetry import load_telemetry
+from convertible.telemetry import Telemetry, load_telemetry
 
 
 def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
@@ -50,6 +51,19 @@ def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
     """
     detail = f" {target}" if target else ""
     emit_diagnostic(f"step {step_index}: {tool}{detail} [{'ok' if ok else 'err'}]")
+
+
+def _repo_relative(repo: Path, path_str: str) -> str | None:
+    """Repo-relative POSIX path for *path_str* if it lives inside *repo*, else None.
+
+    Used to recognise a `--tui-events` stream written into the repo so the handoff
+    can treat it as baseline (telemetry) rather than drive-produced output.
+    """
+    try:
+        rel = Path(path_str).expanduser().resolve().relative_to(repo.resolve())
+    except (ValueError, OSError):
+        return None
+    return rel.as_posix()
 
 
 def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
@@ -67,6 +81,51 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
     return "\n".join(lines)
 
 
+def _handoff_result(
+    *,
+    repo: Path,
+    task: Task,
+    result: TaskResult,
+    baseline_untracked: list[str],
+    open_pr: bool,
+    base: str,
+    telemetry: Telemetry,
+) -> None:
+    """Branch/commit (+push/PR) a successful drive; fold the outcome onto *result*.
+
+    A :class:`~convertible.handoff.HandoffError` is non-fatal — the drive still
+    succeeded, so it is surfaced as a diagnostic and the result keeps its local
+    state. Extracted from :func:`execute_drive` to keep that function's control
+    flow flat.
+    """
+    with telemetry.handoff_span() as handoff_span:
+        try:
+            outcome = handoff(
+                repo,
+                task.id,
+                instruction=task.instruction,
+                changed_files=result.changed_files,
+                baseline_untracked=baseline_untracked,
+                open_pr=open_pr,
+                base_branch=base,
+            )
+        except HandoffError as exc:
+            emit_diagnostic(f"handoff skipped: {exc}")
+            return
+        result.branch = outcome.branch
+        result.pr_url = outcome.pr_url
+        if not result.changed_files:
+            result.changed_files = outcome.changed_files
+        handoff_span.set(
+            branch=outcome.branch,
+            committed=outcome.committed,
+            pushed=outcome.pushed,
+            pr_url=outcome.pr_url,
+        )
+        if outcome.note:
+            emit_diagnostic(f"handoff: {outcome.note}")
+
+
 def execute_drive(
     *,
     repo: Path,
@@ -76,6 +135,8 @@ def execute_drive(
     base: str,
     config: EngineConfig,
     command_name: str | None = None,
+    tui: bool | None = None,
+    tui_events: str | None = None,
 ) -> tuple[TaskResult, Path]:
     """Shared drive orchestration: load engine → loop → handoff → write artifact.
 
@@ -101,6 +162,13 @@ def execute_drive(
         Originating command-template name (``None`` for a plain instruction).
         Recorded on the result before *every* artifact write — including the
         failure path — so the dashboard never loses the origin (R5 / c12).
+    tui:
+        Live-cockpit activation (#74 A1): ``True`` forces it on, ``False`` off,
+        ``None`` (default) is auto — on when stderr is an interactive TTY. When
+        off, the plain ``step N:`` stderr sink is used unchanged.
+    tui_events:
+        Optional path (#74 A3): when set, one `DriveStep` JSONL line is appended
+        per step as the drive runs, so an agent can follow / `tui replay` it.
 
     Returns
     -------
@@ -139,11 +207,31 @@ def execute_drive(
             # the files the drive itself produces — never pre-existing operator
             # work-in-progress (#39).
             baseline_untracked = untracked_snapshot(repo)
+            # A live `--tui-events` stream written into the repo is harness
+            # telemetry, not drive output: register it as baseline so the handoff
+            # never sweeps it into the drive branch (after which the branch-restore
+            # would delete it). Paths outside the repo / under .convertible/ are
+            # already excluded by the handoff (#74 A3).
+            if tui_events:
+                ev_rel = _repo_relative(repo, tui_events)
+                if ev_rel is not None:
+                    baseline_untracked.append(ev_rel)
 
-            # Per-step progress to stderr (#38) — wired here so both `drive` and
-            # `session`, and every engine (which forwards `config.progress`),
-            # report identically.
-            config.progress = _step_progress
+            # Per-step progress (#38) — wired here so both `drive` and `session`,
+            # and every engine (which forwards `config.progress`), report
+            # identically. By default the plain `step N:` stderr sink; with the
+            # cockpit active (#74 A1, auto-on a TTY) and/or `--tui-events` (A3) the
+            # sinks are composed with per-sink failure isolation. When neither TUI
+            # surface is requested, `_step_progress` is used verbatim — the default
+            # path stays byte-identical.
+            config.progress, cockpit_sink = build_progress(
+                default_sink=_step_progress,
+                task_id=task.id,
+                engine=engine_name,
+                tui=tui,
+                tui_events=tui_events,
+                diag=emit_diagnostic,
+            )
             # Subagent delegation (t6) — the top-level spawn callback is built here
             # so both `drive` and `session`, and every engine (which forwards
             # `config.subagent_spawn`), can delegate identically. depth defaults to
@@ -180,33 +268,24 @@ def execute_drive(
                     f"engine '{engine_name}' failed: {original}",
                     f"check the engine config / vLLM server; {artifact_note}",
                 ) from exc
+            finally:
+                # Close the live cockpit on every exit path (success or engine
+                # failure) so the final frame shows the drive as finished. Best-
+                # effort: a render glitch must never mask the real outcome.
+                if cockpit_sink is not None:
+                    with suppress(Exception):
+                        cockpit_sink.close()
 
             if result.status == OK:
-                with telemetry.handoff_span() as handoff_span:
-                    try:
-                        outcome = handoff(
-                            repo,
-                            task.id,
-                            instruction=task.instruction,
-                            changed_files=result.changed_files,
-                            baseline_untracked=baseline_untracked,
-                            open_pr=open_pr,
-                            base_branch=base,
-                        )
-                        result.branch = outcome.branch
-                        result.pr_url = outcome.pr_url
-                        if not result.changed_files:
-                            result.changed_files = outcome.changed_files
-                        handoff_span.set(
-                            branch=outcome.branch,
-                            committed=outcome.committed,
-                            pushed=outcome.pushed,
-                            pr_url=outcome.pr_url,
-                        )
-                        if outcome.note:
-                            emit_diagnostic(f"handoff: {outcome.note}")
-                    except HandoffError as exc:
-                        emit_diagnostic(f"handoff skipped: {exc}")
+                _handoff_result(
+                    repo=repo,
+                    task=task,
+                    result=result,
+                    baseline_untracked=baseline_untracked,
+                    open_pr=open_pr,
+                    base=base,
+                    telemetry=telemetry,
+                )
 
             drive_span.set(
                 status=result.status,
@@ -304,6 +383,8 @@ def cmd_drive(args: argparse.Namespace) -> int:
         base=args.base,
         config=config,
         command_name=command_name if has_command else None,
+        tui=getattr(args, "tui", None),
+        tui_events=getattr(args, "tui_events", None),
     )
 
     if json_mode:
@@ -351,5 +432,21 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--model", default=None, help="Override the engine model name.")
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--tui",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Render a live cockpit (with popups) on stderr during the drive. "
+            "Default: auto — on when stderr is an interactive TTY. "
+            "Use --no-tui to force the plain 'step N:' lines."
+        ),
+    )
+    p.add_argument(
+        "--tui-events",
+        metavar="PATH",
+        default=None,
+        help="Append a live DriveStep JSONL stream to PATH (replay with 'tui replay').",
+    )
     p.add_argument("--json", action="store_true", help="Emit the result as structured JSON.")
     p.set_defaults(func=cmd_drive)

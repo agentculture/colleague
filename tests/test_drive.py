@@ -232,6 +232,84 @@ def test_drive_emits_step_progress_to_stderr(
     assert "[ok]" in captured.err
 
 
+def test_drive_default_step_line_is_exact(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Lock the default (no-TUI) progress line byte-for-byte (#74 A1): the live
+    cockpit must never perturb the plain stderr format agents/CI parse. capsys is
+    not a TTY, so the default path is what runs even without --no-tui."""
+    rc = main(
+        ["drive", "set up", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--no-tui"]
+    )
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "step 0: write_file convertible-mock.md [ok]" in err
+    assert "\x1b" not in err  # no cockpit escapes on the default path
+
+
+def test_drive_tui_renders_cockpit_not_step_lines(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--tui forces the live cockpit even off a TTY (#74 A1): stderr shows the
+    cockpit conversation, not the plain `step N:` lines; stdout stays clean JSON."""
+    rc = main(
+        [
+            "drive",
+            "set up",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--tui",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["status"] == "ok"  # stdout still parseable
+    assert "Conversation" in captured.err and "write_file" in captured.err
+    assert "step 0:" not in captured.err  # the plain sink is replaced, not added
+    assert "\x1b" not in captured.err  # non-TTY -> escapes stripped
+
+
+def test_drive_tui_events_inside_repo_survives_handoff(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A --tui-events stream written into the driven repo is harness telemetry: the
+    handoff must not sweep it into the drive branch (after which branch-restore
+    would delete it). It survives and round-trips to the same steps (#74 A3)."""
+    from convertible.tui.events import loads_events
+    from convertible.tui.from_drive import trace_to_drive_steps
+
+    ev = tmp_path / "run.jsonl"
+    rc = main(
+        [
+            "drive",
+            "set up",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--no-tui",
+            "--tui-events",
+            str(ev),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    tid = json.loads(capsys.readouterr().out)["task_id"]
+    assert ev.exists(), "in-repo --tui-events stream was swept away by the handoff"
+    live = [e.to_dict() for e in loads_events(ev.read_text())]
+    trace_lines = [
+        json.loads(line)
+        for line in (tmp_path / ".convertible" / f"{tid}.trace.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert live == [e.to_dict() for e in trace_to_drive_steps(trace_lines)]
+
+
 def test_drive_does_not_commit_preexisting_untracked(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

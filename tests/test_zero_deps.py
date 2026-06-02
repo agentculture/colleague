@@ -194,8 +194,10 @@ def test_tui_core_no_third_party_imports():
     """
 
     def _import_tui_core():
+        import convertible.tui.colors  # noqa: F401
         import convertible.tui.diagnose  # noqa: F401
         import convertible.tui.events  # noqa: F401
+        import convertible.tui.from_drive  # noqa: F401
         import convertible.tui.reducer  # noqa: F401
         import convertible.tui.render.ansi  # noqa: F401
         import convertible.tui.replay  # noqa: F401

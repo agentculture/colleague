@@ -137,7 +137,8 @@ scripted and agent use (no TTY required):
 | Subcommand | What it does |
 |-----------|--------------|
 | `tui render <snapshot>` | Re-render a snapshot's state to ANSI (stdout). |
-| `tui replay <snapshot>` | Fold the event log and emit the final TAUI JSON. |
+| `tui replay <events.jsonl>` | Fold an events log and emit the final TAUI JSON. |
+| `tui replay --trace <id>.trace.jsonl` | Fold a real drive's loop-step trace (#74 A4). |
 | `tui diagnose <snapshot>` | Run the 7-bug-class differ and report findings. |
 | `tui selectors <snapshot>` | List every addressable selector in the TAUI mirror. |
 
@@ -186,18 +187,36 @@ enforced by `tests/test_zero_deps.py`:
   `convertible/tui/*.py` and asserts no `rich`, `textual`, `urllib`, `socket`,
   `http`, or `subprocess` import appears.
 
+## Live drive integration (#74)
+
+A real `drive` feeds the cockpit, not just authored/snapshot state:
+
+- **Live cockpit (A1)** — `convertible drive` renders the cockpit on stderr as it
+  runs (conversation per step; an `error` popup when a tool step fails). Auto-on an
+  interactive TTY; `--tui` / `--no-tui` force it. Off a TTY it falls back to the
+  plain `step N: <tool> [ok|err]` lines, byte-identical. Escapes are stripped when
+  `NO_COLOR` is set or the stream isn't a TTY.
+- **Live event stream (A3)** — `drive --tui-events <path>` appends one `DriveStep`
+  JSONL line per step as the drive runs (the same format `replay`/`snapshot`
+  consume). A stream written into the driven repo is treated as harness telemetry,
+  never swept into the drive branch.
+- **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
+  finished drive's loop-step trace into the cockpit. Live and replayed steps read
+  identically — both go through one converter (`convertible/tui/from_drive.py`)
+  and the same pure reducer, so a failed step opens the same popup live and on
+  replay.
+
 ## Honest limits
 
-- The **live TTY driver** — the foreground interactive session that feeds
-  keypresses into the event queue — is the thinnest, last slice and is not yet
-  built. The pure reducer, TAUI mirror, snapshot, replay, and diagnose are all
-  complete; the driver that wires them to a real terminal is a follow-up.
+- The **interactive `session` cockpit (#74 A2)** is the remaining follow-up:
+  `session` still uses its readline numbered palette, not the live cockpit (a
+  drive *inside* a session keeps the plain `step N:` lines). The pure reducer,
+  TAUI mirror, snapshot, replay, diagnose, the live TTY driver (`tui live`), and
+  the live-drive integration above are all complete.
 - The **Rich/Textual renderer wheel** is a post-MVP follow-up. The entry-point
   seam is registered and the `[tui]` extra packages the deps, but no
-  Rich/Textual renderer ships in core today.
-- The renderer-wheel discovery mechanism (iterating `convertible.renderers`
-  entry-points) is defined by the entry-point group but runtime selection logic
-  is wired up in the live TTY driver — also a follow-up.
+  Rich/Textual renderer ships in core today — the stdlib ANSI renderer is the
+  default and only wheel.
 
 ## Key files
 

@@ -199,6 +199,8 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         base: str,
         config: EngineConfig,
         command_name: str | None = None,
+        tui: bool | None = None,
+        tui_events: str | None = None,
     ) -> tuple[TaskResult, Path]:
         result, art_path = execute_drive(
             repo=repo,
@@ -208,6 +210,8 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
             base=base,
             config=config,
             command_name=command_name,
+            tui=tui,
+            tui_events=tui_events,
         )
         captured_results.append(result)
         return result, art_path

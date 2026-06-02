@@ -403,6 +403,46 @@ def test_drive_step_does_not_mutate_input_drive():
     assert s0.drive.step_count == original_count  # type: ignore[union-attr]
 
 
+def test_drive_step_ok_opens_no_popup():
+    from convertible.tui.reducer import reduce
+
+    s1 = reduce(_fresh_with_drive(), DriveStep(tool="read_file", summary="x", ok=True))
+    assert s1.popups == []
+
+
+def test_drive_step_failed_opens_error_popup():
+    from convertible.tui.reducer import reduce
+
+    s1 = reduce(_fresh_with_drive(), DriveStep(tool="run_command", summary="pytest -q", ok=False))
+    errs = [p for p in s1.popups if p.kind == "error"]
+    assert len(errs) == 1
+    p = errs[0]
+    assert p.id == "popup.error.run_command"
+    assert p.visible and not p.blocking
+    assert p.opened_by == "agent"
+    assert "run_command failed" in p.message and "pytest -q" in p.message
+    # Non-empty actions so the popup is dismissible (tui diagnose lifecycle check).
+    assert [a.selector for a in p.actions] == ["popup.error.run_command.dismiss"]
+
+
+def test_drive_step_failed_popup_deduped_by_tool():
+    from convertible.tui.reducer import reduce
+
+    s1 = reduce(_fresh_with_drive(), DriveStep(tool="run_command", summary="first", ok=False))
+    s2 = reduce(s1, DriveStep(tool="run_command", summary="second", ok=False))
+    errs = [p for p in s2.popups if p.id == "popup.error.run_command"]
+    assert len(errs) == 1  # same tool refreshes one popup, never stacks
+    assert "second" in errs[0].message
+
+
+def test_drive_step_failed_does_not_mutate_input():
+    from convertible.tui.reducer import reduce
+
+    s0 = _fresh_with_drive()
+    reduce(s0, DriveStep(tool="run_command", summary="x", ok=False))
+    assert s0.popups == []
+
+
 # ---------------------------------------------------------------------------
 # Unknown event
 # ---------------------------------------------------------------------------
