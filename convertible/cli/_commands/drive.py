@@ -28,7 +28,7 @@ from pathlib import Path
 from convertible import registry
 from convertible.artifact import artifact_dir, failed_result, write
 from convertible.cli._banner import emit_banner
-from convertible.cli._commands._tui_sink import build_progress
+from convertible.cli._commands._tui_sink import CockpitProgressSink, build_progress
 from convertible.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from convertible.cli._output import emit_diagnostic, emit_result
 from convertible.commands import CommandError, expand_command
@@ -137,6 +137,7 @@ def execute_drive(
     command_name: str | None = None,
     tui: bool | None = None,
     tui_events: str | None = None,
+    progress_sink: "CockpitProgressSink | None" = None,
 ) -> tuple[TaskResult, Path]:
     """Shared drive orchestration: load engine → loop → handoff → write artifact.
 
@@ -169,6 +170,11 @@ def execute_drive(
     tui_events:
         Optional path (#74 A3): when set, one `DriveStep` JSONL line is appended
         per step as the drive runs, so an agent can follow / `tui replay` it.
+    progress_sink:
+        Optional caller-supplied cockpit sink (#74 A2): the interactive ``session``
+        passes a sink bound to its own `CockpitState` + frame-writer so a drive
+        renders into the session's one shared screen. Replaces the auto-constructed
+        cockpit; ``None`` (the default) preserves the byte-identical `drive` path.
 
     Returns
     -------
@@ -231,6 +237,7 @@ def execute_drive(
                 tui=tui,
                 tui_events=tui_events,
                 diag=emit_diagnostic,
+                external_sink=progress_sink,
             )
             # Subagent delegation (t6) — the top-level spawn callback is built here
             # so both `drive` and `session`, and every engine (which forwards

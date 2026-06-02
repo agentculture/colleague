@@ -205,6 +205,7 @@ def test_tui_core_no_third_party_imports():
         import convertible.tui.snapshot  # noqa: F401
         import convertible.tui.state  # noqa: F401
         import convertible.tui.taui  # noqa: F401
+        import convertible.tui.widgets.command_palette  # noqa: F401
 
     third_party = _third_party_modules_introduced(_import_tui_core)
     assert not third_party, (

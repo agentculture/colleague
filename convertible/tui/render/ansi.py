@@ -26,6 +26,7 @@ All ANSI SGR helpers are defined locally — no third-party rendering library.
 from __future__ import annotations
 
 from convertible.tui.state import CockpitState
+from convertible.tui.widgets.command_palette import render_command_palette
 from convertible.tui.widgets.conversation import render_conversation
 from convertible.tui.widgets.popup_layer import render_popup_layer
 from convertible.tui.widgets.prompt_input import render_prompt_input
@@ -64,6 +65,12 @@ def render(state: CockpitState) -> str:
     # ── top: status bar ──────────────────────────────────────────────────────
     parts.append(render_status_bar(state))
     parts.append(_FRAME_SEP)
+
+    # ── command palette (interactive session menu; empty when no palette) ─────
+    palette = render_command_palette(state)
+    if palette:
+        parts.append(palette)
+        parts.append(_FRAME_SEP)
 
     # ── middle: skills panel + conversation panel (side-by-side via text) ────
     skills = render_skill_panel(state)

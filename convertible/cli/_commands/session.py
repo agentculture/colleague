@@ -1,88 +1,76 @@
-"""``convertible session`` — foreground interactive palette over the drive path.
+"""``convertible session`` — the interactive cockpit over the drive path.
 
-Opens a numbered command palette in the foreground, reads a line of input, and
-dispatches the selection through the **same** drive path used by
-``convertible drive`` (via :func:`~convertible.cli._commands.drive.execute_drive`).
-The loop continues until the user enters a quit token (``q`` or an empty line).
+Opens a foreground interactive **cockpit**: it renders one
+:class:`~convertible.tui.state.CockpitState` (a command palette + a running
+conversation + popups), reads a line of input, and dispatches it through the
+**same** drive path used by ``convertible drive``
+(:func:`~convertible.cli._commands.drive.execute_drive`). The loop runs until a
+quit token (``q`` / ``/quit`` / empty line / EOF).
 
-The session is entirely foreground (no sockets, no daemons) and uses only
-stdlib — stdin/stdout only (honesty h11 / c28).
+Three render tiers of the one state (#74 A2), chosen automatically:
+
+* **interactive (a colour TTY, not ``--json``)** — the dynamic ANSI cockpit
+  (popups, redraw-in-place during a drive);
+* **non-interactive (piped / captured)** — **Markdown** menus (the static but
+  *full* agent-readable view), the default off a TTY;
+* **``--json``** — stdout carries only the drive ``TaskResult`` (one JSON object
+  each, preserving the machine contract); the Markdown cockpit renders to stderr
+  as chrome. (The TAUI JSON mirror lives under ``convertible tui state``.)
+
+Input is **line-based**. Plain text (a number / template name / free-text task)
+runs a drive; a line starting with ``/`` is a **slash command** — the meta/system
+namespace (introspection of existing nouns + live config actions).
+
+The session is entirely foreground (no sockets, no daemons) and stdlib-only.
 
 Testability
 -----------
-:func:`run_session` accepts injectable ``input_fn`` and ``out`` callables so
-tests can drive the palette without a real TTY.  The ``_drive_fn`` keyword
-argument (default: :func:`execute_drive`) is a test seam used to capture
-``TaskResult`` objects without re-implementing the drive path.
+:func:`run_session` keeps the injectable ``input_fn`` / ``out`` / ``err`` /
+``_drive_fn`` seams. ``_color`` forces the interactive-vs-static tier without a
+real TTY.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
+from convertible import registry
 from convertible.cli._banner import emit_banner
 from convertible.cli._commands.drive import execute_drive as _default_drive
 from convertible.cli._errors import CliError
 from convertible.commands import CommandError, discover_commands, expand_command, load_command
 from convertible.config import EngineConfig, resolve_engine
 from convertible.contract import Task, TaskResult
+from convertible.tui.colors import should_color
+from convertible.tui.events import UserInput
+from convertible.tui.from_drive import drive_step
+from convertible.tui.reducer import reduce
+from convertible.tui.render.ansi import render as _render_ansi
+from convertible.tui.render.markdown import render_markdown as _render_markdown
+from convertible.tui.state import CockpitState, Panel, PanelItem, Status
 
 # ---------------------------------------------------------------------------
 # Types for the injectable seams
 # ---------------------------------------------------------------------------
 
-_DriveFn = Callable[
-    ...,  # keyword-only: repo, engine_name, task, open_pr, base, config
-    tuple[TaskResult, Path],
-]
+_DriveFn = Callable[..., tuple[TaskResult, Path]]
 
 _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
+_CONVERSATION_PANEL_ID = "panel.conversation"
+#: CSI clear-screen + cursor-home, so the dynamic ANSI view redraws in place.
+_CLEAR_HOME = "\x1b[H\x1b[2J"
+_PROMPT_HINT = "Type a number / template name / free-text task, or /help for commands."
 
 
 def _eprint(*args: object, **kwargs: object) -> None:
     """Default diagnostics sink — writes to stderr (kept off stdout)."""
     print(*args, file=sys.stderr, **kwargs)  # type: ignore[arg-type]
-
-
-def _render_palette(
-    commands: list[tuple[str, str]],  # (name, description)
-    out: Callable[..., None],
-    engine: str,
-    repo: str,
-) -> None:
-    """Print the numbered command palette header."""
-    out("")
-    out(f"=== convertible session (engine: {engine}, repo: {repo}) ===")
-    out("")
-    if commands:
-        out("Command templates:")
-        for i, (name, desc) in enumerate(commands, start=1):
-            if desc:
-                out(f"  {i:2d}. {name} — {desc}")
-            else:
-                out(f"  {i:2d}. {name}")
-        out("")
-    out(
-        "Type a number or template name to run a template, "
-        "or type a free-text instruction (ad-hoc task), "
-        "or 'q' / empty line to quit."
-    )
-    out(">>> ", end="")
-
-
-def _render_result_summary(result: TaskResult, out: Callable[..., None]) -> None:
-    """Print a one-line result summary after a drive completes."""
-    changed = ", ".join(result.changed_files) if result.changed_files else "(none)"
-    out(f"\n  status: {result.status}")
-    out(f"  summary: {result.summary}")
-    out(f"  changed files: {changed}")
-    if result.branch:
-        out(f"  branch: {result.branch}")
-    out("")
 
 
 def _read_line(input_fn: Optional[Iterator[str]]) -> Optional[str]:
@@ -108,7 +96,7 @@ def _resolve_selection(
     discovered: dict[str, Path],
     repo: Path,
     engine_name: str,
-    err: Callable[..., None],
+    note: Callable[[str], None],
     model: str | None = None,
 ) -> Optional[tuple[Task, Optional[str]]]:
     """Resolve a palette input line to a ``(task, command_name)`` pair.
@@ -116,15 +104,15 @@ def _resolve_selection(
     A bare number selects a palette entry; an exact name selects a command
     template; anything else is a free-text ad-hoc instruction (``command_name``
     is ``None``). Returns ``None`` when the line cannot be resolved (out-of-range
-    number, or an unknown/erroring command) — the reason is already written to
-    ``err`` and the caller should simply prompt again.
+    number, or an unknown/erroring command) — the reason is passed to *note* and
+    the caller should simply prompt again.
     """
     command_name: Optional[str] = None
 
     if line.isdigit():
         idx = int(line)
         if not 1 <= idx <= len(palette):
-            err(f"  (no entry {idx} in the palette; type a number 1–{len(palette)})")
+            note(f"no entry {idx} in the palette; type a number 1–{len(palette)}")
             return None
         command_name = palette[idx - 1][0]
     elif line in discovered:
@@ -133,64 +121,340 @@ def _resolve_selection(
         # Free-text ad-hoc instruction — no originating command.
         return Task.new(str(repo), line, engine=engine_name), None
 
-    # A command was selected (by number or name) — expand it into a Task.
     try:
         task = expand_command(repo, command_name, [], engine_default=engine_name, model=model)
     except CommandError as exc:
-        err(f"  error: {exc}")
+        note(f"error: {exc}")
         return None
     return task, command_name
 
 
-def _run_one(
-    task: Task,
-    command_name: Optional[str],
-    *,
-    repo: Path,
-    engine_name: str,
-    open_pr: bool,
-    base: str,
-    config: EngineConfig,
-    drive_fn: _DriveFn,
-    json_mode: bool,
-    out: Callable[..., None],
-    chrome: Callable[..., None],
-    err: Callable[..., None],
-) -> None:
-    """Run one resolved task through the shared drive path and render the result.
+class _DriveSink:
+    """Progress sink for an in-session drive: fold each step into the session's
+    one shared :class:`CockpitState` and (on the dynamic ANSI tier) redraw live."""
 
-    Errors go to ``err`` (stderr); the result goes to ``out`` as one JSON object
-    in ``--json`` mode, else a human summary as interactive chrome. Passing
-    ``command_name`` lets the drive helper persist the originating command in the
-    artifact (R5 / c12).
-    """
-    try:
-        result, _artifact_path = drive_fn(
-            repo=repo,
-            engine_name=engine_name,
-            task=task,
-            open_pr=open_pr,
-            base=base,
-            config=config,
-            command_name=command_name,
-            # Keep the plain `step N:` sink: the session's own palette chrome owns
-            # the screen, so the auto-on-TTY live cockpit would clobber it. The
-            # session cockpit is #74 A2 (a follow-up); force it off here.
-            tui=False,
+    def __init__(self, session: "_Session") -> None:
+        self._session = session
+
+    def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        sess = self._session
+        sess.state = reduce(sess.state, drive_step(tool, target, ok))
+        if sess.view == "ansi":
+            sess.emit()  # live redraw per step
+
+    def close(self) -> None:  # called by execute_drive on every exit path
+        return None
+
+
+class _Session:
+    """Holds the interactive session's mutable state and renders one cockpit."""
+
+    def __init__(
+        self,
+        *,
+        repo: Path,
+        engine_name: str,
+        open_pr: bool,
+        base: str,
+        config: EngineConfig,
+        json_mode: bool,
+        view: str,
+        out: Callable[..., None],
+        err: Callable[..., None],
+        drive_fn: _DriveFn,
+    ) -> None:
+        self.repo = repo
+        self.engine_name = engine_name  # mutable via /engine
+        self.open_pr = open_pr  # mutable via /pr
+        self.base = base  # mutable via /base
+        self.config = config  # .model mutable via /model
+        self.json_mode = json_mode
+        self.view = view  # "ansi" (dynamic) | "markdown" (static)
+        self.out = out
+        self.err = err
+        # The rendered cockpit is interactive chrome: stdout normally, but stderr
+        # in --json mode so stdout carries only the drive TaskResult(s).
+        self.chrome = err if json_mode else out
+        self.drive_fn = drive_fn
+
+        self.discovered = discover_commands(repo)
+        self.palette: list[tuple[str, str]] = [
+            (name, load_command(self.discovered[name]).description)
+            for name in sorted(self.discovered)
+        ]
+        self.state = self._initial_state()
+
+    # ── state construction / mutation ────────────────────────────────────────
+
+    def _initial_state(self) -> CockpitState:
+        items = [
+            PanelItem(
+                id=f"command.{name}",
+                label=(f"{name} — {desc}" if desc else name),
+                status="available",
+            )
+            for name, desc in self.palette
+        ]
+        return CockpitState(
+            panels=[
+                Panel(id="commands", title="Commands", visible=True, items=items),
+                Panel(
+                    id=_CONVERSATION_PANEL_ID,
+                    title="Session",
+                    visible=True,
+                    content_summary=_PROMPT_HINT,
+                ),
+            ],
+            status=self._status(),
         )
-    except CliError as exc:
-        err(f"  error: {exc.message}")
-        if exc.remediation:
-            err(f"  hint: {exc.remediation}")
-        return
-    except Exception as exc:  # noqa: BLE001
-        err(f"  error: {type(exc).__name__}: {exc}")
-        return
 
-    if json_mode:
-        out(json.dumps(result.to_dict(), ensure_ascii=False))
-    else:
-        _render_result_summary(result, chrome)
+    def _status(self) -> Status:
+        pr = "PR" if self.open_pr else "local"
+        message = (
+            f"convertible session · engine {self.engine_name} "
+            f"· model {self.config.model} · {pr}"
+        )
+        return Status(severity="info", message=message)
+
+    def _log(self, text: str) -> None:
+        """Append a line (or block) to the conversation via the pure reducer."""
+        self.state = reduce(self.state, UserInput(text=text))
+
+    def _error(self, text: str) -> None:
+        """Report a diagnostic to stderr (agent-first convention); also fold it into
+        the conversation in the dynamic ANSI tier so a redraw doesn't hide it."""
+        self.err(text)
+        if self.view == "ansi":
+            self._log(text)
+
+    def _refresh_status(self) -> None:
+        self.state.status = self._status()
+
+    # ── rendering (one path; three views) ────────────────────────────────────
+
+    def _frame(self) -> str:
+        if self.view == "ansi":
+            return _CLEAR_HOME + _render_ansi(self.state)
+        return _render_markdown(self.state)
+
+    def emit(self) -> None:
+        self.chrome(self._frame())
+
+    # ── the loop ─────────────────────────────────────────────────────────────
+
+    def run(self, input_fn: Optional[Iterator[str]]) -> int:
+        emit_banner(self.err, json_mode=self.json_mode)
+        while True:
+            self.emit()
+            raw = _read_line(input_fn)
+            if raw is None:
+                break
+            line = raw.strip()
+            if line == "" or line.lower() in _QUIT_TOKENS:
+                break
+            if not self._handle(line):
+                break
+        self.err("(session ended)")
+        return 0
+
+    def _handle(self, line: str) -> bool:
+        """Process one input line; return ``False`` to quit the session."""
+        self._log(line)  # echo the input into the conversation
+        if line.startswith("/"):
+            return self._slash(line)
+        self._drive_line(line)
+        return True
+
+    # ── slash commands ───────────────────────────────────────────────────────
+
+    def _slash(self, line: str) -> bool:
+        parts = line[1:].split()
+        verb = parts[0].lower() if parts else ""
+        rest = parts[1:]
+
+        if verb in ("quit", "exit", "q"):
+            return False
+        if verb in ("help", ""):
+            self._log(_HELP_TEXT)
+            return True
+
+        introspect = _INTROSPECT.get(verb)
+        if introspect is not None:
+            self._log(self._run_cli(*introspect(self)))
+            return True
+
+        action = _CONFIG_ACTIONS.get(verb)
+        if action is not None:
+            try:
+                confirmation = action(self, rest)
+            except ValueError as exc:
+                self._error(str(exc))
+                return True
+            self._log(confirmation)
+            self._refresh_status()
+            return True
+
+        self._error(f"unknown command: /{verb} — try /help")
+        return True
+
+    def _run_cli(self, *argv: str) -> str:
+        """Run a convertible CLI noun in-process and capture its stdout.
+
+        Reuses the real parser (so every noun's args/defaults are correct) and
+        folds the output into the cockpit. No subprocess; errors are reported, not
+        raised.
+        """
+        from convertible.cli import _build_parser
+
+        parser = _build_parser()
+        sink = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                ns = parser.parse_args(list(argv))
+        except SystemExit:
+            return f"(could not run: {' '.join(argv)})"
+        try:
+            with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(io.StringIO()):
+                ns.func(ns)
+        except CliError as exc:
+            return f"error: {exc.message}"
+        except Exception as exc:  # noqa: BLE001 — slash output is advisory, never fatal
+            return f"error: {type(exc).__name__}: {exc}"
+        return sink.getvalue().rstrip() or "(no output)"
+
+    # ── drive ────────────────────────────────────────────────────────────────
+
+    def _drive_line(self, line: str) -> None:
+        resolved = _resolve_selection(
+            line,
+            self.palette,
+            self.discovered,
+            self.repo,
+            self.engine_name,
+            self._error,
+            model=self.config.model,
+        )
+        if resolved is None:
+            return
+        task, command_name = resolved
+        self._run_drive(task, command_name)
+
+    def _run_drive(self, task: Task, command_name: Optional[str]) -> None:
+        try:
+            result, _artifact = self.drive_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                task=task,
+                open_pr=self.open_pr,
+                base=self.base,
+                config=self.config,
+                command_name=command_name,
+                progress_sink=_DriveSink(self),
+            )
+        except CliError as exc:
+            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
+            self._error(f"error: {exc.message}{hint}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._error(f"error: {type(exc).__name__}: {exc}")
+            return
+
+        if self.json_mode:
+            self.out(json.dumps(result.to_dict(), ensure_ascii=False))
+        changed = ", ".join(result.changed_files) or "(none)"
+        branch = f" → {result.branch}" if result.branch else ""
+        self._log(f"{result.status}: {result.summary} [{changed}]{branch}")
+
+
+# ---------------------------------------------------------------------------
+# Slash-command tables
+# ---------------------------------------------------------------------------
+
+_HELP_TEXT = (
+    "slash commands:\n"
+    "  /help                 this list\n"
+    "  /commands             list command templates\n"
+    "  /skills               resolved skill docs\n"
+    "  /agents               resolved AGENTS layers\n"
+    "  /config               configuration readiness (doctor)\n"
+    "  /engines              discovered engine wheels\n"
+    "  /telemetry            telemetry configuration\n"
+    "  /feedback             feedback for the last drive\n"
+    "  /engine <name>        switch the engine for the next drive\n"
+    "  /model <name>         switch the model\n"
+    "  /base <branch>        set the PR base branch\n"
+    "  /pr                   toggle push + open PR on each drive\n"
+    "  /quit                 end the session\n"
+    "plain text (a number / template name / free-text task) runs a drive."
+)
+
+# Read-only introspection: map a verb to the argv passed to the real CLI parser.
+_INTROSPECT: dict[str, Callable[["_Session"], list[str]]] = {
+    "commands": lambda s: ["commands", "list", "--repo", str(s.repo)],
+    "skills": lambda s: ["skills", "list", "--repo", str(s.repo), "--model", s.config.model],
+    "agents": lambda s: ["agents", "list", "--repo", str(s.repo), "--model", s.config.model],
+    "config": lambda s: ["doctor"],
+    "engines": lambda s: ["wheels", "list"],
+    "telemetry": lambda s: ["telemetry", "status"],
+    "feedback": lambda s: ["feedback", "show", "last", "--repo", str(s.repo)],
+}
+
+
+def _act_engine(s: "_Session", rest: list[str]) -> str:
+    if not rest:
+        raise ValueError("usage: /engine <name>")
+    name = rest[0]
+    if name not in registry.names():
+        raise ValueError(
+            f"unknown engine '{name}'; available: {', '.join(registry.names()) or '(none)'}"
+        )
+    s.engine_name = name
+    return f"engine → {name}"
+
+
+def _act_model(s: "_Session", rest: list[str]) -> str:
+    if not rest:
+        raise ValueError("usage: /model <name>")
+    s.config.model = rest[0]
+    return f"model → {rest[0]}"
+
+
+def _act_base(s: "_Session", rest: list[str]) -> str:
+    if not rest:
+        raise ValueError("usage: /base <branch>")
+    s.base = rest[0]
+    return f"base branch → {rest[0]}"
+
+
+def _act_pr(s: "_Session", rest: list[str]) -> str:
+    s.open_pr = not s.open_pr
+    return f"push + PR on each drive → {'on' if s.open_pr else 'off'}"
+
+
+# Live config actions: map a verb to a mutating handler returning a confirmation.
+_CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
+    "engine": _act_engine,
+    "model": _act_model,
+    "base": _act_base,
+    "pr": _act_pr,
+}
+
+
+def _resolve_view(args: argparse.Namespace, *, color: bool) -> str:
+    """Pick the render tier.
+
+    ``--json`` renders the static Markdown cockpit as chrome (to stderr; stdout
+    stays pure result JSON). Otherwise ``--tui``/``--no-tui`` force the dynamic
+    ANSI vs. static Markdown view, defaulting to ANSI only on a colour TTY.
+    """
+    if bool(getattr(args, "json", False)):
+        return "markdown"
+    tui = getattr(args, "tui", None)
+    if tui is False:
+        return "markdown"
+    if tui is True:
+        return "ansi"
+    return "ansi" if color else "markdown"
 
 
 def run_session(
@@ -200,53 +464,27 @@ def run_session(
     out: Callable[..., None] = print,
     err: Optional[Callable[..., None]] = None,
     _drive_fn: _DriveFn = _default_drive,
+    _color: Optional[bool] = None,
 ) -> int:
-    """Run the interactive session loop.
+    """Run the interactive cockpit session loop.
 
-    Output contract: results go to ``out`` (stdout) and all diagnostics —
-    errors, hints, and the interactive palette chrome in ``--json`` mode — go to
-    ``err`` (stderr), so the two streams are never mixed. With ``--json`` set,
-    ``out`` carries only one JSON object per completed drive.
+    Output contract: the rendered cockpit goes to ``out`` (stdout) — an ANSI frame,
+    Markdown menus, or a TAUI JSON line per the resolved tier; in ``--json`` mode
+    each completed drive also emits its ``TaskResult`` as JSON to ``out``. The
+    banner, diagnostics, and the closing notice go to ``err`` (stderr). Always
+    returns ``0`` (clean exit on quit/EOF).
 
-    Parameters
-    ----------
-    args:
-        Parsed CLI namespace (must carry ``repo``, ``engine``, ``base``,
-        ``base_url``, ``model``, ``api_key``, ``max_steps``, ``json``; ``pr`` is
-        read via ``getattr`` and defaults to ``False`` — commit-local, no PR).
-    input_fn:
-        Iterator of input lines (for testing).  When ``None`` the real
-        :func:`input` builtin is used.
-    out:
-        Result sink (stdout).  Defaults to :func:`print`.
-    err:
-        Diagnostics sink (stderr).  Defaults to :func:`_eprint`.
-    _drive_fn:
-        Drive callable (test seam).  Defaults to :func:`execute_drive`.
-
-    Returns
-    -------
-    int
-        Exit code (always ``0`` — the session exits cleanly on quit/EOF).
+    The ``input_fn`` / ``out`` / ``err`` / ``_drive_fn`` seams are for tests;
+    ``_color`` overrides the colour-TTY detection that picks ANSI vs. Markdown.
     """
     repo = Path(args.repo).expanduser()
-    # Resolve the engine like ``drive`` (explicit > CONVERTIBLE_ENGINE >
-    # vllm-openai); a bare session never silently drives the no-op mock (#53).
-    engine_name: str = resolve_engine(args.engine)
-    # Session is a "talk + iterate" loop: by default it commits locally but does
-    # NOT push/open a PR per typed line (#53). ``--pr`` opts back into handoff.
-    open_pr: bool = bool(getattr(args, "pr", False))
-    base: str = args.base
-    json_mode: bool = bool(getattr(args, "json", False))
+    # Resolve the engine like ``drive`` (explicit > CONVERTIBLE_ENGINE > vllm-openai).
+    engine_name = resolve_engine(args.engine)
+    open_pr = bool(getattr(args, "pr", False))
+    base = args.base
+    json_mode = bool(getattr(args, "json", False))
     if err is None:
         err = _eprint
-    # Interactive chrome (palette, prompts, summaries) goes to stdout in normal
-    # mode, but to stderr in --json mode so stdout carries only JSON results.
-    chrome: Callable[..., None] = err if json_mode else out
-
-    # Decorative startup banner — interactive TTY only, suppressed in --json (issue #15).
-    # Printed once here (not in the loop) so it greets the session, not each prompt.
-    emit_banner(err, json_mode=json_mode)
 
     config = EngineConfig.resolve(
         base_url=getattr(args, "base_url", None),
@@ -255,54 +493,22 @@ def run_session(
         max_steps=getattr(args, "max_steps", None),
     )
 
-    # Discover templates once per session (they don't change mid-session).
-    discovered = discover_commands(repo)
-    # Build a sorted list of (name, description) for the palette.
-    palette: list[tuple[str, str]] = []
-    for name in sorted(discovered.keys()):
-        cmd = load_command(discovered[name])
-        palette.append((name, cmd.description))
+    color = _color if _color is not None else should_color(sys.stdout)
+    view = _resolve_view(args, color=color)
 
-    while True:
-        _render_palette(palette, chrome, engine_name, str(repo))
-        raw = _read_line(input_fn)
-
-        # EOF or no input — treat as quit.
-        if raw is None:
-            chrome("\n(session ended)")
-            break
-
-        line = raw.strip()
-
-        # Quit tokens.
-        if line == "" or line.lower() in _QUIT_TOKENS:
-            chrome("\n(session ended)")
-            break
-
-        # Resolve the line to a task (None → already reported; prompt again).
-        resolved = _resolve_selection(
-            line, palette, discovered, repo, engine_name, err, model=config.model
-        )
-        if resolved is None:
-            continue
-        task, command_name = resolved
-
-        _run_one(
-            task,
-            command_name,
-            repo=repo,
-            engine_name=engine_name,
-            open_pr=open_pr,
-            base=base,
-            config=config,
-            drive_fn=_drive_fn,
-            json_mode=json_mode,
-            out=out,
-            chrome=chrome,
-            err=err,
-        )
-
-    return 0
+    session = _Session(
+        repo=repo,
+        engine_name=engine_name,
+        open_pr=open_pr,
+        base=base,
+        config=config,
+        json_mode=json_mode,
+        view=view,
+        out=out,
+        err=err,
+        drive_fn=_drive_fn,
+    )
+    return session.run(input_fn)
 
 
 def cmd_session(args: argparse.Namespace) -> int:
@@ -314,8 +520,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "session",
         help=(
-            "Open a foreground interactive palette: browse command templates, "
-            "run them or type ad-hoc instructions, loop until quit."
+            "Open the interactive cockpit: a command palette + slash commands over "
+            "the drive path; run templates or ad-hoc tasks, loop until quit."
         ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
@@ -335,8 +541,17 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
     p.add_argument(
+        "--tui",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Render the dynamic ANSI cockpit (default: auto — on a colour TTY). "
+            "Use --no-tui for the static Markdown view."
+        ),
+    )
+    p.add_argument(
         "--json",
         action="store_true",
-        help="Emit one JSON result object per drive to stdout; palette chrome goes to stderr.",
+        help="Emit the TAUI JSON mirror + one JSON result per drive to stdout.",
     )
     p.set_defaults(func=cmd_session)
