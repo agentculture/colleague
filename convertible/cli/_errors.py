@@ -11,7 +11,11 @@ and exits with :attr:`CliError.code`. This guarantees:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from convertible.contract import TaskResult
 
 # Exit-code policy. Documented in ``convertible learn`` output.
 # 0      = success
@@ -25,16 +29,24 @@ EXIT_ENV_ERROR = 2
 
 @dataclass
 class CliError(Exception):
-    """Structured error raised within the CLI; carries a remediation hint for agents."""
+    """Structured error raised within the CLI; carries a remediation hint for agents.
+
+    The optional *result* field carries a partial :class:`~convertible.contract.TaskResult`
+    on the drive-failure path so that ``cmd_drive --json`` can surface it to stdout while
+    still exiting non-zero (honesty condition h5 — the partial trace is never silently
+    swallowed by a ``--json`` caller).  All existing call-sites that omit *result* are
+    unaffected — it defaults to ``None``.
+    """
 
     code: int
     message: str
     remediation: str = ""
+    result: "TaskResult | None" = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         super().__init__(self.message)
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "message": self.message,
