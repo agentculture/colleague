@@ -30,6 +30,11 @@ _DEFAULT_MODEL = "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
 _DEFAULT_MAX_STEPS = 25
 _DEFAULT_TEMPERATURE = 0.0
 _DEFAULT_TIMEOUT = 120.0
+# Proactive context budget in tokens. Counted exactly via the served model's
+# /tokenize endpoint when reachable; char-based fallback otherwise (best-effort
+# exact, char-approximate fallback, never token-exact-guaranteed — no tokenizer
+# library is bundled).
+_DEFAULT_CONTEXT_BUDGET = 24000
 
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
@@ -84,6 +89,7 @@ class EngineConfig:
     max_steps: int = _DEFAULT_MAX_STEPS
     temperature: float = _DEFAULT_TEMPERATURE
     timeout: float = _DEFAULT_TIMEOUT
+    context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI drive path, not by
@@ -108,6 +114,7 @@ class EngineConfig:
         max_steps: int | None = None,
         temperature: float | None = None,
         timeout: float | None = None,
+        context_budget_tokens: int | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, then defaults."""
         return cls(
@@ -129,6 +136,13 @@ class EngineConfig:
             timeout=float(
                 _pick(_str(timeout), "CONVERTIBLE_TIMEOUT", default=str(_DEFAULT_TIMEOUT))
             ),
+            context_budget_tokens=int(
+                _pick(
+                    _str(context_budget_tokens),
+                    "CONVERTIBLE_CONTEXT_BUDGET",
+                    default=str(_DEFAULT_CONTEXT_BUDGET),
+                )
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -139,6 +153,7 @@ class EngineConfig:
             "max_steps": self.max_steps,
             "temperature": self.temperature,
             "timeout": self.timeout,
+            "context_budget_tokens": self.context_budget_tokens,
         }
 
 
