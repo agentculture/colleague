@@ -316,7 +316,8 @@ class _Session:
                 ns.func(ns)
         except CliError as exc:
             return f"error: {exc.message}"
-        except Exception as exc:  # noqa: BLE001 - slash output is advisory, never fatal
+        # Slash output is advisory — report any noun failure, never crash the session.
+        except Exception as exc:  # noqa: BLE001
             return f"error: {type(exc).__name__}: {exc}"
         return sink.getvalue().rstrip() or "(no output)"
 
