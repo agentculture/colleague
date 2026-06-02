@@ -65,6 +65,48 @@ def _checks_registry() -> ModuleType:
 
 
 # ---------------------------------------------------------------------------
+# Hermetic fixture repo — a minimal tree where each of the four checks yields
+# exactly one aligned `info` check, so the spine mechanics (dispatch, order,
+# --only selection, exit codes, rendering) can be exercised fast and
+# deterministically without depending on the real repo's content.
+# ---------------------------------------------------------------------------
+
+
+def _build_fixture_repo(root: Path) -> Path:
+    (root / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+    # No convertible commands → checks (a)/(b) run no subprocess (fast + hermetic).
+    (root / "README.md").write_text("# Demo\n\nNo commands here.\n", encoding="utf-8")
+    (root / "CLAUDE.md").write_text(
+        "# Demo\n\n## Commands\n\n```bash\necho hello\n```\n", encoding="utf-8"
+    )
+    skill = root / ".claude" / "skills" / "demo" / "scripts"
+    skill.mkdir(parents=True)
+    (skill.parent / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: a demo skill\n---\n\n# Demo\n\nRun `scripts/run.sh`.\n",
+        encoding="utf-8",
+    )
+    run_sh = skill / "run.sh"
+    run_sh.write_text("#!/usr/bin/env bash\necho hi\n", encoding="utf-8")
+    run_sh.chmod(0o755)
+    tdir = root / "tests"
+    tdir.mkdir()
+    # Name tokens (value/target) appear in the body → not flagged by check (d).
+    (tdir / "test_demo.py").write_text(
+        "def test_value_equals_target():\n"
+        "    target = 5\n"
+        "    value = 5\n"
+        "    assert value == target\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+@pytest.fixture
+def fixture_repo(tmp_path: Path) -> Path:
+    return _build_fixture_repo(tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # _report.py tests
 # ---------------------------------------------------------------------------
 
@@ -291,44 +333,41 @@ class TestRegistry:
         reg = _checks_registry()
         assert set(reg.NAME_TO_MODULE.keys()) == {"readme", "claude", "skills", "tests"}
 
-    def test_run_check_pending_fallback(self) -> None:
-        """With no check modules present, run_check returns a pending info check."""
+    def test_run_check_pending_fallback(
+        self, monkeypatch: pytest.MonkeyPatch, fixture_repo: Path
+    ) -> None:
+        """A canonical name whose module is missing falls back to a pending info check.
+
+        All four checks are implemented now, so the fallback is exercised by
+        pointing one canonical name at a non-existent module.
+        """
         reg = _checks_registry()
-        result = reg.run_check("readme", REPO_ROOT)
-        assert isinstance(result, list)
-        assert len(result) >= 1
-        # all pending checks are info + passed
+        patched = dict(reg.NAME_TO_MODULE)
+        patched["readme"] = "no_such_module_xyz"
+        monkeypatch.setattr(reg, "NAME_TO_MODULE", patched)
+        result = reg.run_check("readme", fixture_repo)
+        assert isinstance(result, list) and len(result) >= 1
         for c in result:
             assert c["passed"] is True
             assert c["severity"] == "info"
             assert "pending" in c["id"] or "pending" in c["message"].lower()
 
-    def test_run_checks_all_pending(self) -> None:
-        """run_checks over all CANONICAL returns pending info for each."""
+    def test_run_checks_returns_valid_check_dicts(self, fixture_repo: Path) -> None:
+        """run_checks over all CANONICAL returns well-formed check dicts."""
         reg = _checks_registry()
-        results = reg.run_checks(reg.CANONICAL, REPO_ROOT)
-        assert isinstance(results, list)
-        # Should have at least one per canonical name (pending)
+        results = reg.run_checks(reg.CANONICAL, fixture_repo)
         assert len(results) >= len(reg.CANONICAL)
         for c in results:
-            assert c["severity"] == "info"
-            assert c["passed"] is True
+            assert set(c.keys()) == {"id", "passed", "severity", "message", "remediation"}
+            assert c["severity"] in ("error", "warning", "info")
 
-    def test_run_checks_order_matches_canonical(self) -> None:
-        """run_checks returns results in CANONICAL order."""
+    def test_run_checks_orders_by_canonical(self, fixture_repo: Path) -> None:
+        """run_checks concatenates results in CANONICAL order, regardless of input order."""
         reg = _checks_registry()
-        results = reg.run_checks(reg.CANONICAL, REPO_ROOT)
-        # IDs should embed the canonical names in order
-        canonical = reg.CANONICAL
-        # Each canonical name should appear in the result ids in order
-        seen_order = []
-        for c in results:
-            for name in canonical:
-                if name in c["id"]:
-                    if not seen_order or seen_order[-1] != name:
-                        seen_order.append(name)
-                    break
-        assert seen_order == canonical
+        expected = reg.run_check("skills", fixture_repo) + reg.run_check("tests", fixture_repo)
+        assert reg.run_checks(["skills", "tests"], fixture_repo) == expected
+        # Reversed input still yields CANONICAL (skills before tests) order.
+        assert reg.run_checks(["tests", "skills"], fixture_repo) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -347,26 +386,21 @@ def _run_check(*args: str, cwd: Path | None = None) -> subprocess.CompletedProce
 
 
 class TestCLI:
-    def test_json_output_shape(self) -> None:
-        """--json emits valid JSON with aligned + checks keys."""
-        result = _run_check("--json", "--repo", str(REPO_ROOT))
+    def test_json_output_shape(self, fixture_repo: Path) -> None:
+        """--json emits valid JSON with aligned + checks keys and five-key dicts."""
+        result = _run_check("--json", "--repo", str(fixture_repo))
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads(result.stdout)
         assert "aligned" in data
-        assert "checks" in data
         assert isinstance(data["checks"], list)
-
-    def test_all_pending_json(self) -> None:
-        """With no check modules, all four canonicals report pending info checks."""
-        result = _run_check("--json", "--repo", str(REPO_ROOT))
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert data["aligned"] is True
-        # At least 4 checks (one per canonical)
-        assert len(data["checks"]) >= 4
         for c in data["checks"]:
-            assert c["severity"] == "info"
-            assert c["passed"] is True
+            assert set(c.keys()) == {"id", "passed", "severity", "message", "remediation"}
+
+    def test_aligned_fixture_exits_0(self, fixture_repo: Path) -> None:
+        """A fully aligned fixture repo reports aligned and exits 0."""
+        result = _run_check("--json", "--repo", str(fixture_repo))
+        assert result.returncode == 0
+        assert json.loads(result.stdout)["aligned"] is True
 
     def test_bogus_only_exits_2(self) -> None:
         """--only with an unknown check name exits 2 and prints a stderr hint."""
@@ -374,61 +408,64 @@ class TestCLI:
         assert result.returncode == 2
         assert result.stderr.strip() != ""  # hint on stderr
 
-    def test_only_single_check(self) -> None:
-        """--only skills runs just the skills check (1 pending info check)."""
-        result = _run_check("--only", "skills", "--json", "--repo", str(REPO_ROOT))
+    def test_only_single_check(self, fixture_repo: Path) -> None:
+        """--only skills runs only the skills check (every result id is a skills check)."""
+        result = _run_check("--only", "skills", "--json", "--repo", str(fixture_repo))
         assert result.returncode == 0
         data = json.loads(result.stdout)
-        assert data["aligned"] is True
-        assert len(data["checks"]) == 1
-        assert "skills" in data["checks"][0]["id"]
+        assert data["checks"]
+        assert all("skills" in c["id"] for c in data["checks"])
 
-    def test_only_comma_split(self) -> None:
-        """--only readme,tests is equivalent to --only readme --only tests."""
-        result = _run_check("--only", "readme,tests", "--json", "--repo", str(REPO_ROOT))
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert len(data["checks"]) == 2
+    def test_only_comma_split(self, fixture_repo: Path) -> None:
+        """--only readme,tests == running readme then tests (CANONICAL order)."""
+        combined = json.loads(
+            _run_check("--only", "readme,tests", "--json", "--repo", str(fixture_repo)).stdout
+        )["checks"]
+        readme = json.loads(
+            _run_check("--only", "readme", "--json", "--repo", str(fixture_repo)).stdout
+        )["checks"]
+        tests = json.loads(
+            _run_check("--only", "tests", "--json", "--repo", str(fixture_repo)).stdout
+        )["checks"]
+        assert combined == readme + tests
 
-    def test_repo_autodetect_from_nested_cwd(self) -> None:
+    def test_only_repeatable(self, fixture_repo: Path) -> None:
+        """--only readme --only claude == running readme then claude."""
+        combined = json.loads(
+            _run_check(
+                "--only", "readme", "--only", "claude", "--json", "--repo", str(fixture_repo)
+            ).stdout
+        )["checks"]
+        readme = json.loads(
+            _run_check("--only", "readme", "--json", "--repo", str(fixture_repo)).stdout
+        )["checks"]
+        claude = json.loads(
+            _run_check("--only", "claude", "--json", "--repo", str(fixture_repo)).stdout
+        )["checks"]
+        assert combined == readme + claude
+
+    def test_repo_autodetect_from_nested_cwd(self, fixture_repo: Path) -> None:
         """Repo root autodetect walks up from a nested subdirectory."""
-        nested = REPO_ROOT / "tests"
-        result = _run_check("--json", cwd=nested)
+        result = _run_check("--json", cwd=fixture_repo / "tests")
         assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert "aligned" in data
+        assert "aligned" in json.loads(result.stdout)
 
-    def test_human_output_header(self) -> None:
+    def test_human_output_header(self, fixture_repo: Path) -> None:
         """Human output includes the alignment header."""
-        result = _run_check("--repo", str(REPO_ROOT))
+        result = _run_check("--repo", str(fixture_repo))
         assert result.returncode == 0
         assert "doc-test-alignment" in result.stdout
 
-    def test_human_output_pass_markers(self) -> None:
-        """Human output includes [PASS] markers for pending info checks."""
-        result = _run_check("--repo", str(REPO_ROOT))
+    def test_human_output_pass_markers(self, fixture_repo: Path) -> None:
+        """Human output includes [PASS] markers for passing checks."""
+        result = _run_check("--repo", str(fixture_repo))
         assert result.returncode == 0
         assert "[PASS]" in result.stdout
 
-    def test_exit_0_when_aligned(self) -> None:
-        result = _run_check("--json", "--repo", str(REPO_ROOT))
-        assert result.returncode == 0
-
-    def test_no_stdout_stderr_mix(self) -> None:
-        """Diagnostics go to stderr, result to stdout — they are not mixed."""
-        result = _run_check("--json", "--repo", str(REPO_ROOT))
-        # stdout should be valid JSON, stderr can be empty
-        data = json.loads(result.stdout)
-        assert "aligned" in data
-
-    def test_only_repeatable(self) -> None:
-        """--only can be repeated: --only readme --only claude."""
-        result = _run_check(
-            "--only", "readme", "--only", "claude", "--json", "--repo", str(REPO_ROOT)
-        )
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert len(data["checks"]) == 2
+    def test_no_stdout_stderr_mix(self, fixture_repo: Path) -> None:
+        """Diagnostics go to stderr, result (JSON) to stdout — not mixed."""
+        result = _run_check("--json", "--repo", str(fixture_repo))
+        assert "aligned" in json.loads(result.stdout)
 
 
 # ---------------------------------------------------------------------------
