@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 # doc-test-alignment skill — entry point.
 #
-# STUB: the real workflow is not implemented yet. This script exists so the
-# steward skills convention is satisfied (every skill ships an executable
-# entry-point script); when the real implementation lands here, it must
-# satisfy the contract documented in ../SKILL.md.
+# Thin portable wrapper: resolves the script's own directory and delegates
+# to check.py. All arguments are forwarded verbatim.
 #
-# Exits 2 (EXIT_USER_ERROR-ish for "you asked for something that isn't
-# wired up yet") so callers can tell the difference between "checks passed"
-# (would be 0) and "stub".
-
+# Exit codes mirror check.py:
+#   0  aligned
+#   1  drift found (error-severity check failed)
+#   2  usage / operational error
 set -euo pipefail
 
-cat >&2 <<'EOF'
-doc-test-alignment: not yet implemented.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-This skill is a stub; the contract for what `check.sh` will assert lives in
-.claude/skills/doc-test-alignment/SKILL.md. Until the implementation lands,
-treat any green exit code from this script as a bug.
+# Guard the one external tool this wrapper needs so a missing interpreter fails
+# with a clear message + the usage/operational exit code (2), not a bare
+# "python3: command not found".
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "doc-test-alignment: python3 not found on PATH (required to run check.py)" >&2
+    exit 2
+fi
 
-Roadmap: see CLAUDE.md ("Roadmap (CLI surface)") and docs/sibling-pattern.md.
-EOF
-exit 2
+exec python3 "$SCRIPT_DIR/check.py" "$@"

@@ -74,6 +74,12 @@ jobs:
       - name: afi rubric gate
         run: uv run teken cli doctor . --strict
 
+      - name: doc-test alignment (skills, gating)
+        run: bash .claude/skills/doc-test-alignment/scripts/check.sh --only skills
+
+      - name: doc-test alignment (readme/claude/tests, advisory)
+        run: bash .claude/skills/doc-test-alignment/scripts/check.sh --only readme --only claude --only tests || true
+
   version-check:
     # Only run on PR events. On push to main after a merged PR, the comparison
     # would always fail (PR_VERSION == MAIN_VERSION because HEAD and origin/main
