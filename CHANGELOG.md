@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-06-02
+
+### Added
+
+- doc-test-alignment skill is now implemented (issue #76 C3), replacing the stub check.sh: a portable, stdlib-only verifier with four checks behind `scripts/check.sh [--only readme|claude|skills|tests] [--repo PATH] [--json]` (exit 0 aligned / 1 drift / 2 usage). (c) SKILL.md script-claims-vs-scripts is deterministic and GATES CI; (a) README + (b) CLAUDE.md commands run safe networkless introspection and statically validate networked/drive commands against `convertible --help` (never executing them); (d) test-name-vs-assertion drift is an advisory AST heuristic with inline/file suppression. JSON shape mirrors doctor: {aligned, checks[{id,passed,severity,message,remediation}]}.
+- CI now gates on doc-test-alignment check (c) (deterministic) and runs (a)/(b)/(d) as advisory (non-blocking) in the lint job.
+
+### Changed
+
+- docs/skill-sources.md records doc-test-alignment as a first-party implementation diverged from the guildmaster stub (do not re-vendor over it; upstreaming is a follow-up).
+
 ## [0.25.0] - 2026-06-02
 
 ### Added
