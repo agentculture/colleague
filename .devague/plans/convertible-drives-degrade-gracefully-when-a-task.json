@@ -1,0 +1,276 @@
+{
+  "slug": "convertible-drives-degrade-gracefully-when-a-task",
+  "title": "Convertible drives degrade gracefully when a task outgrows the model's context window: the loop trims its running history to fit and keeps going, and any drive that still cannot finish returns a readable partial result to the caller instead of empty stdout.",
+  "frame_slug": "convertible-drives-degrade-gracefully-when-a-task",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-02T16:01:58Z",
+  "updated": "2026-06-02T16:23:53Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Convertible drives degrade gracefully when a task outgrows the model's context window: the loop trims its running history to fit and keeps going, and any drive that still cannot finish returns a readable partial result to the caller instead of empty stdout."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A reproduced overflow scenario that fails today returns a non-empty, status=error TaskResult on stdout after this change (provable by a test)."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators and agents who outsource multi-file repo tasks to convertible against small-context models (e.g. the served ~27B at a 32k window) via 'convertible drive' / the outsource skill."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The overflow is reproducible for a multi-file drive on a ~32k-window model via 'convertible drive' / outsource \u2014 i.e. this audience actually hits it today, not a hypothetical."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "A multi-file drive that would overflow the context window trims its oldest tool-result history to fit and continues; if it still cannot finish, the caller receives the partial TaskResult (steps/usage/changed_files, status=error) on stdout, not empty output plus an opaque error."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "After the change the same overflowing drive either finishes, or yields a status=error result whose steps/changed_files reflect the work done up to the limit \u2014 verifiable in a test."
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "The loop accumulates an unbounded message history (only per-tool-result truncation at 20k chars, tools.py:30). During the #72 audit a ~16-file read overflowed the 32k window; vLLM returned HTTP 400 'maximum context length is 32768 ... prompt contains 32769'. The partial artifact landed in a throwaway worktree and the caller saw only 'convertible produced no result on stdout' (outsource.sh:222)."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The cited failure is real and current: today's loop sends the full unbounded history with no proactive trim \u2014 confirmable by reading loop.py _drive_loop + tools.py:30 (only per-result truncation exists)."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Outsourcing repo work to diverse/smaller models is convertible's whole value; if a routine multi-file task silently dies on a small model, the harness is unreliable for its core use case."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A multi-file task on a small model is a normal, intended use of convertible (not abuse), so silent failure is a genuine reliability gap."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Token-based budget via a PLUGGABLE counter, no new library dependency: the loop measures the running prompt in tokens through an injected count_tokens seam. The vLLM engine counts exactly via the server's /tokenize endpoint (reusing the same stdlib urllib/OpenAI-style connection \u2014 zero new dep); when a server does not expose /tokenize (llama.cpp/proxies/mock) the seam falls back to a zero-dep char heuristic. No third-party tokenizer library (tiktoken/transformers) is added."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "No third-party tokenizer LIBRARY/dep is added (exact counting reuses the existing stdlib HTTP path to the server's /tokenize; the fallback is char-based) \u2014 tests/test_zero_deps.py stays green."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "When /tokenize is absent or errors (non-vLLM OpenAI server), the drive still runs unchanged on the char fallback \u2014 so retargeting any OpenAI-compatible server stays a config change, never a code change (h2 preserved); only budget precision degrades, never correctness."
+    },
+    {
+      "id": "c10",
+      "kind": "success_signal",
+      "text": "A drive that previously overflowed (the 16-file audit on a 32k model) now either completes, or returns a readable partial result with status=error and non-empty steps on stdout."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "There is a concrete runnable test that reproduces an overflow and asserts the post-change outcome (completes, or status=error with non-empty steps on stdout)."
+    },
+    {
+      "id": "c11",
+      "kind": "success_signal",
+      "text": "An engine-agnostic test injects a 'complete' that raises a context-overflow error once then succeeds, and asserts the loop trimmed history and retried; a second test asserts the --json drive path emits the partial result JSON to stdout on the failure path."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Both tests run engine-agnostically (no live server) by injecting a 'complete' callable, so CI exercises the degradation path deterministically."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The loop enforces a configurable context budget (env/config, conservative default) and windows the running message list before each model turn, preserving OpenAI message validity (no orphaned assistant tool_calls / tool replies)."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Windowing always keeps the system prompt + the original task message + the most-recent turns, and never sends a message list with an assistant tool_calls turn missing its matching tool replies (OpenAI-valid)."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The budget is read from config/env with a conservative default and expressed in TOKENS; it is counted exactly via the server's /tokenize when reachable and approximated by the char fallback otherwise \u2014 documented as best-effort-exact (degrades to approximate), never silently wrong."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "On a detected context-overflow error from 'complete', the loop trims history and retries the same turn a bounded number of times before giving up; on final give-up it preserves the partial result (the existing #37 DriveAborted path)."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "trim-and-retry is capped at a small fixed number of attempts per turn; once the floor (system+task, no droppable history) is reached and it still overflows, the loop stops and preserves the partial result \u2014 termination guarantee h3 still provable."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "The CLI --json drive path emits the partial TaskResult JSON to stdout even on the failure/overflow path, so a caller (outsource.sh) gets a parseable result instead of empty stdout; exit code still reflects failure."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "After the change, 'convertible drive --json' on an overflow exits non-zero AND prints a JSON object with status=error and non-empty steps to stdout; outsource.sh print_result parses it instead of reporting 'no result on stdout'."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Degradation lives in the chassis (convertible/loop.py) and fires identically for mock and vllm-openai (all-engines rule); the artifact shape is unchanged (e2e shape test stays green)."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "tests/test_e2e_mock.py still passes unchanged (artifact shape identical) and the new degradation behavior is exercised through the engine-agnostic loop, not engine-specific code."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Context windowing + overflow-detection core (new pure-stdlib module convertible/context.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "window_messages(messages, budget_tokens, count_tokens) keeps the system message + the first user task message + the most-recent turns, and drops the oldest tool/assistant pairs as matched units so no assistant tool_calls turn is ever left without its matching tool replies (OpenAI-valid)",
+        "the running size is measured via the INJECTED count_tokens callable; the module ships a zero-dep default counter (char/4 estimate) used when no exact counter is available; under budget the list is returned unchanged, over budget oldest droppable history is elided with one short placeholder note (no LLM call)",
+        "windowing makes at most a small constant number of count_tokens calls per pass (proportional pre-trim then one verify, never one-per-pair); is_context_overflow(text) phrase-matches known overflow errors; module is stdlib-only so tests/test_zero_deps.py stays green"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "c6",
+        "h2",
+        "h11"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Context-budget config knob (tokens) on EngineConfig (convertible/config.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig gains context_budget_tokens with a conservative default (sized with headroom below the served model's window, e.g. under 32k) resolvable via CONVERTIBLE_CONTEXT_BUDGET; precedence explicit > env > default, matching the existing _pick pattern",
+        "EngineConfig.to_dict() includes the budget; a docstring/comment documents the unit as TOKENS, counted exactly via the server's /tokenize when reachable else the char-fallback estimate (best-effort exact, never silently wrong)"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h3"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "CLI --json drive path surfaces the preserved partial result to stdout on the failure path (convertible/cli/_commands/drive.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on an engine failure carrying a partial TaskResult (the #37 DriveAborted path), 'convertible drive --json' prints the partial result JSON (status=error, non-empty steps) to stdout while still exiting non-zero; the human-readable diagnostic stays on stderr",
+        "stdout stays clean JSON so outsource.sh print_result parses a result instead of reporting 'no result on stdout'; the success-path output is byte-identical to today (regression-guarded by a test)"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h5"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Loop windows each turn + bounded reactive trim-and-retry on overflow, wired for every engine (convertible/loop.py + both engines)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "run() accepts a context_budget (tokens) and a count_tokens callable; _drive_loop windows the running messages via window_messages(.., count_tokens) BEFORE each complete() call",
+        "the vllm-openai engine builds count_tokens by POSTing the candidate messages to {base_url-root}/tokenize (vLLM extension, stdlib urllib) for an exact count, returning None on 404/any error so the loop uses the char fallback \u2014 retargeting a non-vLLM server stays a config change; the mock engine uses the default counter; both engines forward config.context_budget_tokens (all-engines rule)",
+        "on a detected context-overflow error from complete(), the loop trims harder and retries the same turn up to a small fixed cap; once the floor (system+task) still overflows it stops and preserves the partial result via the existing DriveAborted path \u2014 termination stays guaranteed; tests/test_e2e_mock.py artifact shape unchanged"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c12",
+        "c13",
+        "c15",
+        "h1",
+        "h4",
+        "h8"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "End-to-end degradation success-signal tests, engine-agnostic (tests/test_e2e_degradation.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test injects a complete() that raises a context-overflow once then succeeds, and asserts the loop trimmed history (via an injected fake count_tokens) and retried, then completed (status=ok)",
+        "a test reproduces a non-recoverable overflow and asserts a status=error TaskResult with non-empty steps is preserved AND emitted to stdout via the --json drive path",
+        "a test covers the vLLM /tokenize counter with a mocked POST (exact count) and its fallback-to-None-on-error -> char heuristic; all tests run without a live server; tests/test_e2e_mock.py and tests/test_zero_deps.py remain green"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c2",
+        "c4",
+        "c10",
+        "c11",
+        "h7",
+        "h9",
+        "h12",
+        "h13",
+        "h6",
+        "h14"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Document the context-budget chassis surface + honest limits (CLAUDE.md + docs/features/graceful-degradation.md)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md gains a chassis bullet describing token-budget windowing + bounded reactive retry as loop-owned (all-engines rule), the CONVERTIBLE_CONTEXT_BUDGET knob, the pluggable count_tokens seam (vLLM /tokenize primary, char fallback), and honest limits (no third-party tokenizer lib; /tokenize is a vLLM extension that degrades gracefully; no LLM summary in v0; no multi-model router; bounded retries)",
+        "a docs/features note explains the behavior, the /tokenize exception to the OpenAI-surface rule (graceful fallback preserves retarget-by-config), and references the spec + plan"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c5",
+        "c6",
+        "h10",
+        "h14"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "The default context_budget_tokens value (and the fallback char->token ratio used when /tokenize is unavailable) need measuring against the served model; ship a conservative configurable default rather than a hardcoded guess.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    },
+    {
+      "id": "r2",
+      "text": "Detection phrase list may miss an unanticipated overflow wording from a future OpenAI-compatible server; the generic-400 fallback covers it with one harmless retry, but the phrase list may need extending.",
+      "kind": "follow_up",
+      "task_id": "t1"
+    }
+  ]
+}

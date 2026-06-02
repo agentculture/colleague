@@ -4,7 +4,7 @@
   "schema_version": 1,
   "status": "exported",
   "created": "2026-06-02T15:39:38Z",
-  "updated": "2026-06-02T15:58:22Z",
+  "updated": "2026-06-02T16:23:20Z",
   "claims": [
     {
       "id": "c1",
@@ -89,13 +89,18 @@
     {
       "id": "c6",
       "kind": "boundary",
-      "text": "No tokenizer and no token-exact budget: the proactive budget is char/byte-approximate (zero-deps convention, consistent with DriveStats measuring chars/bytes never tokens); the server's overflow error is the reactive safety net.",
+      "text": "Token-based budget via a PLUGGABLE counter, no new library dependency: the loop measures the running prompt in tokens through an injected count_tokens seam. The vLLM engine counts exactly via the server's /tokenize endpoint (reusing the same stdlib urllib/OpenAI-style connection \u2014 zero new dep); when a server does not expose /tokenize (llama.cpp/proxies/mock) the seam falls back to a zero-dep char heuristic. No third-party tokenizer library (tiktoken/transformers) is added.",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h11",
-          "text": "No third-party tokenizer or model dep is added; the budget unit is chars/bytes \u2014 confirmable by the zero-deps guard test (tests/test_zero_deps.py) staying green.",
+          "text": "No third-party tokenizer LIBRARY/dep is added (exact counting reuses the existing stdlib HTTP path to the server's /tokenize; the fallback is char-based) \u2014 tests/test_zero_deps.py stays green.",
+          "status": "confirmed"
+        },
+        {
+          "id": "h14",
+          "text": "When /tokenize is absent or errors (non-vLLM OpenAI server), the drive still runs unchanged on the char fallback \u2014 so retargeting any OpenAI-compatible server stays a config change, never a code change (h2 preserved); only budget precision degrades, never correctness.",
           "status": "confirmed"
         }
       ],
@@ -178,7 +183,7 @@
         },
         {
           "id": "h3",
-          "text": "The budget is read from config/env with a conservative default, and is documented as char/byte-approximate (no tokenizer), never claimed token-exact.",
+          "text": "The budget is read from config/env with a conservative default and expressed in TOKENS; it is counted exactly via the server's /tokenize when reachable and approximated by the char fallback otherwise \u2014 documented as best-effort-exact (degrades to approximate), never silently wrong.",
           "status": "confirmed"
         }
       ],
@@ -237,6 +242,16 @@
       "id": "c16",
       "kind": "decision",
       "text": "Overflow detection (resolves v2): match known overflow phrases first ('maximum context length', 'context window', 'too many tokens', 'reduce the length'); if unmatched, treat any HTTP 400 from 'complete' as a possible overflow and attempt one bounded trim+retry. Worst case on an unrelated 400 is a single harmless retry before the partial-result path.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "Token-counter seam: the loop takes an injected count_tokens(messages)->int (like complete/progress/spawn). The vLLM engine supplies one that POSTs the candidate messages to {base_url-root}/tokenize (vLLM extension) for an exact count; on 404/any error it returns None so the loop uses the zero-dep char-heuristic fallback. The mock engine uses the heuristic. At most a small constant number of /tokenize calls per turn (count, proportional pre-trim, one verify).",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [],
