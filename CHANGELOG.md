@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-06-02
+
+### Added
+
+- Context-budget graceful degradation in the bounded tool-loop: the running message history is windowed to a configurable token budget (CONVERTIBLE_CONTEXT_BUDGET / EngineConfig.context_budget_tokens, default 24000) before each model turn, and a detected context-overflow error triggers a bounded trim-and-retry before a readable partial result is preserved — a multi-file drive on a small-context model degrades instead of hard-failing (#76 C1).
+- Pluggable count_tokens seam (convertible/context.py): the vLLM engine counts tokens exactly via the server /tokenize endpoint, falling back to a zero-dep char heuristic when /tokenize is absent — no third-party tokenizer library, dependencies = [] holds.
+- docs/features/graceful-degradation.md documenting the behavior, the /tokenize OpenAI-surface carve-out, and the honest limits.
+
+### Changed
+
+- convertible drive --json now emits the preserved partial TaskResult to stdout on the failure/overflow path (still exiting non-zero, diagnostics on stderr) so a --json consumer gets a parseable result instead of empty stdout (fixes the #76 "convertible produced no result on stdout" symptom).
+
+### Fixed
+
+- A context-window overflow on a small-context model no longer surfaces as an opaque "no result on stdout"; the loop windows + retries, and any unrecoverable drive returns a status=error result with a non-empty step trace.
+
 ## [0.24.0] - 2026-06-02
 
 ### Added
