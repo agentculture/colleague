@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-06-03
+
+### Fixed
+
+- Stop tracking `.devex/data/pr/events.jsonl` — a per-machine devex PR event log that was committed by mistake. Untracked (kept on disk) and added `/.devex/data/` to `.gitignore` so `devex pr` runs no longer dirty the working tree.
+
 ## [0.27.0] - 2026-06-02
 
 ### Added
