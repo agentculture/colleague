@@ -289,9 +289,13 @@ def classify(command: str, env_assignments: Optional[List[str]] = None) -> str:
     if verb in _SIDE_EFFECT_VERBS:
         return "networked"
 
-    # An absolute --repo path (a "real" repo, not '.') means a real drive target.
+    # Only ``--repo .`` (the repo being checked) is safe to execute. ANY other
+    # value — absolute OR relative — is static-validated, never executed:
+    # fail-closed so a doc command like ``--repo ../../..`` can't direct the SAFE
+    # subprocess outside the repository root (relative paths escape an
+    # ``isabs`` check).
     repo_val = _flag_value(tokens, "--repo")
-    if repo_val and repo_val not in (".", "./") and os.path.isabs(repo_val):
+    if repo_val and repo_val not in (".", "./"):
         return "networked"
 
     # 3. Safe allow-list verb with no write subverb.

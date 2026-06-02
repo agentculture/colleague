@@ -292,6 +292,20 @@ class TestClassify:
     def test_session_is_networked(self) -> None:
         assert _cmd.classify("convertible session --repo . --engine mock") == "networked"
 
+    def test_repo_dot_introspection_is_safe(self) -> None:
+        # `--repo .` targets the repo under check → safe to execute.
+        assert _cmd.classify("convertible doctor --repo .") == "safe"
+
+    def test_relative_repo_escape_is_networked(self) -> None:
+        # A relative --repo (e.g. an escape) must NOT be safe-executed (fail-closed):
+        # only `.`/`./` is executable; everything else is static-validated.
+        assert _cmd.classify("convertible doctor --repo ../../..") == "networked"
+        assert _cmd.classify("convertible doctor --repo subdir") == "networked"
+        assert _cmd.classify("convertible doctor --repo=../etc") == "networked"
+
+    def test_absolute_repo_is_networked(self) -> None:
+        assert _cmd.classify("convertible doctor --repo /tmp/x") == "networked"
+
     def test_vllm_e2e_env_is_networked(self) -> None:
         assert _cmd.classify("CONVERTIBLE_VLLM_E2E=1 convertible drive 'x'") == "networked"
 
