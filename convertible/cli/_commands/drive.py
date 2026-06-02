@@ -274,6 +274,7 @@ def execute_drive(
                     EXIT_ENV_ERROR,
                     f"engine '{engine_name}' failed: {original}",
                     f"check the engine config / vLLM server; {artifact_note}",
+                    result=result if isinstance(partial, TaskResult) else None,
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine
@@ -382,17 +383,26 @@ def cmd_drive(args: argparse.Namespace) -> int:
 
     # Delegate the full drive orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
-    result, artifact_path = execute_drive(
-        repo=repo,
-        engine_name=engine,
-        task=task,
-        open_pr=not args.no_pr,
-        base=args.base,
-        config=config,
-        command_name=command_name if has_command else None,
-        tui=getattr(args, "tui", None),
-        tui_events=getattr(args, "tui_events", None),
-    )
+    try:
+        result, artifact_path = execute_drive(
+            repo=repo,
+            engine_name=engine,
+            task=task,
+            open_pr=not args.no_pr,
+            base=args.base,
+            config=config,
+            command_name=command_name if has_command else None,
+            tui=getattr(args, "tui", None),
+            tui_events=getattr(args, "tui_events", None),
+        )
+    except CliError as exc:
+        # On a partial-bearing failure, surface the preserved partial TaskResult to
+        # stdout (--json only) so machine consumers (e.g. outsource.sh) can parse it.
+        # The diagnostic stays on stderr and the exit code stays non-zero — both are
+        # handled by the _dispatch layer that catches this re-raise.
+        if json_mode and exc.result is not None:
+            emit_result(exc.result.to_dict(), json_mode=True)
+        raise
 
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)
