@@ -65,7 +65,14 @@ from _report import make_check  # type: ignore[import]  # noqa: E402
 # non-backtick, non-quote chars that don't start with a dot (avoids matching
 # directory sentinel files like scripts/.gitkeep) and contain at least one dot or
 # slash (looks like a real file reference).  Conservative by design.
-_SCRIPT_PATH_RE = re.compile(r"\bscripts/([^\s`'\"<>\[\]()]+)")
+# Optionally capture a fully-qualified ``.claude/skills/<name>/`` prefix so a
+# cross-skill reference (e.g. the assign-to-workforce SKILL.md mentioning
+# ``.claude/skills/cicd/scripts/workflow.sh``) is attributed to the OTHER skill,
+# not the one being checked — otherwise every skill that documents a sibling's
+# command would false-positive.
+_SCRIPT_PATH_RE = re.compile(
+    r"(?:\.claude/skills/(?P<skill>[^/\s]+)/)?\bscripts/(?P<rel>[^\s`'\"<>\[\]()]+)"
+)
 
 # Minimum dot-in-basename guard: a referenced scripts/<path> must look like a
 # real file (contains a dot somewhere OR has a typical script name without extension
@@ -74,16 +81,22 @@ _SCRIPT_PATH_RE = re.compile(r"\bscripts/([^\s`'\"<>\[\]()]+)")
 _DOTKEEP_RE = re.compile(r"^\.")
 
 
-def _extract_script_claims(text: str) -> list[str]:
-    """Return all unique ``scripts/<relpath>`` literals found in *text*.
+def _extract_script_claims(text: str, skill_name: str) -> list[str]:
+    """Return all unique ``scripts/<relpath>`` literals *claimed by this skill*.
 
-    Excludes dotfiles (e.g. .gitkeep) which are sentinel/hidden files, not
-    real script claims.
+    A match prefixed by ``.claude/skills/<other>/`` is a cross-skill reference
+    and is attributed to ``<other>``, so it is excluded unless ``<other>`` is
+    *skill_name* itself. Bare ``scripts/<path>`` references (and ones prefixed by
+    this skill's own path) are this skill's claims. Excludes dotfiles
+    (e.g. .gitkeep), which are sentinel/hidden files, not real script claims.
     """
     seen: set[str] = set()
     result: list[str] = []
     for m in _SCRIPT_PATH_RE.finditer(text):
-        rel = m.group(1)
+        owner = m.group("skill")
+        if owner is not None and owner != skill_name:
+            continue  # a sibling skill's script — not this skill's claim
+        rel = m.group("rel")
         # Exclude dotfiles and paths that are just punctuation
         basename = rel.split("/")[-1]
         if _DOTKEEP_RE.match(basename):
@@ -136,7 +149,7 @@ def _check_skill(skill_dir: pathlib.Path) -> list[dict]:
     full_text = description + "\n" + text
 
     # Extract all scripts/<path> claims from the full text
-    claims = _extract_script_claims(full_text)
+    claims = _extract_script_claims(full_text, skill_name)
 
     # Determine if a scripts/ directory is present
     has_scripts_dir = scripts_dir.is_dir()

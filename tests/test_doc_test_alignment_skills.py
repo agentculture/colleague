@@ -401,3 +401,43 @@ class TestModuleContract:
         results = mod.run(repo)
         for c in results:
             assert "skills" in c["id"], f"Expected 'skills' in check id, got: {c['id']!r}"
+
+
+class TestCrossSkillReferenceNotAttributed:
+    """A skill that documents a SIBLING skill's `.claude/skills/<other>/scripts/...`
+    command must NOT be flagged for not having that script itself (regression:
+    assign-to-workforce references `.claude/skills/cicd/scripts/workflow.sh`).
+    """
+
+    def test_sibling_script_path_is_not_a_claim(self, tmp_path: Path) -> None:
+        repo = _make_fake_repo(tmp_path)
+        # The skill under test owns scripts/own.sh and only *mentions* a sibling's script.
+        _make_skill(
+            repo,
+            "mover",
+            "---\nname: mover\ndescription: a mover\n---\n\n"
+            "Run `scripts/own.sh`. Afterwards run "
+            "`bash .claude/skills/cicd/scripts/workflow.sh open`.\n",
+            scripts={"scripts/own.sh": "#!/bin/sh\necho hi\n"},
+            executable_scripts=["scripts/own.sh"],
+        )
+        mod = _skill_check()
+        results = mod.run(repo)
+        # No error: the sibling's workflow.sh is not attributed to 'mover'.
+        errors = [c for c in results if c["severity"] == "error" and not c["passed"]]
+        assert errors == [], f"cross-skill ref wrongly flagged: {errors!r}"
+
+    def test_same_skill_qualified_path_still_required(self, tmp_path: Path) -> None:
+        """A fully-qualified reference to THIS skill's own scripts/ IS a claim."""
+        repo = _make_fake_repo(tmp_path)
+        _make_skill(
+            repo,
+            "mover",
+            "---\nname: mover\ndescription: a mover\n---\n\n"
+            "Run `bash .claude/skills/mover/scripts/go.sh`.\n",
+            scripts=None,  # go.sh deliberately missing
+        )
+        mod = _skill_check()
+        results = mod.run(repo)
+        missing = [c for c in results if c["severity"] == "error" and "go" in c["id"]]
+        assert missing, "own fully-qualified script path should still be required"
