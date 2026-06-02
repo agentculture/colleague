@@ -112,8 +112,17 @@ def test_drive_hands_off_run_command_edits(
     )
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert (tmp_path / "made_by_cmd.txt").exists()
     assert payload["branch"].startswith("convertible/")  # handoff ran despite no write_file
+    # C2: the work lands on the drive branch and the operator is returned to their
+    # original branch, so the output lives on that branch, not the work tree.
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", payload["branch"]],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "made_by_cmd.txt" in committed
     assert "made_by_cmd.txt" in payload["changed_files"]  # backfilled from git status
 
 
@@ -248,9 +257,12 @@ def test_drive_does_not_commit_preexisting_untracked(
         ]
     )
     assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
 
+    # C2: read the committed set off the drive branch (the operator is restored to
+    # their original branch after the commit).
     committed = subprocess.run(
-        ["git", "show", "--name-only", "--format=", "HEAD"],
+        ["git", "show", "--name-only", "--format=", payload["branch"]],
         cwd=str(tmp_path),
         capture_output=True,
         text=True,
@@ -258,7 +270,7 @@ def test_drive_does_not_commit_preexisting_untracked(
     ).stdout
     assert OUTPUT_FILE in committed  # the drive's own output landed
     assert "operator_wip.txt" not in committed  # the pre-existing WIP did not
-    # The WIP is still in the work tree, untouched.
+    # The WIP is still in the work tree, untouched (untracked files survive checkout).
     assert (tmp_path / "operator_wip.txt").exists()
 
 

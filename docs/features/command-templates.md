@@ -12,6 +12,12 @@ Templates resolve repo-level first, then user-level: `.convertible/commands/`
 in the repo shadows `~/.convertible/commands/` by file stem
 ([config resolution](layered-config.md#config-resolution)).
 
+`.convertible/commands/` is the one part of the otherwise-gitignored
+`.convertible/` dir that git tracks, so recipes can be **committed and shared
+in-repo** (run artifacts, `hooks.json`, and `approvals.json` stay local). For
+cross-repo sharing, put recipes under `~/.convertible/commands/` instead. The
+committed `doc-review` recipe is a worked example.
+
 ## Template file format
 
 A template may open with an optional `---` metadata block; if absent, the entire

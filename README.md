@@ -252,6 +252,11 @@ Operators save reusable task recipes as Markdown files under
 `.convertible/commands/<name>.md` (repo-level or `~/.convertible/commands/` for
 user-level; repo-level shadows user-level by stem).
 
+`.convertible/commands/` is **committable** — it is the one part of the otherwise
+gitignored `.convertible/` dir that git tracks, so a team can share recipes in-repo
+(run artifacts, `hooks.json`, and `approvals.json` stay local). The committed
+`doc-review` recipe is a worked example.
+
 ### Template file format
 
 A template may open with an optional `---` metadata block:

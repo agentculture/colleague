@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-06-02
+
+### Added
+
+- outsource explore/review now copy their artifact (plus a last_drive pointer) back to the real repo before the throwaway worktree is removed, so a read-only outsourced drive can be graded with `outsource feedback last` / `convertible feedback record last` (#75 C4).
+- Command-template recipes can be committed in-repo: `.convertible/commands/` is no longer gitignored (run artifacts, hooks.json, approvals.json stay local), with a committed `doc-review` example recipe (#75 C5).
+- Reverse-coverage test: every registered CLI verb must have an `explain` catalog entry and every action-noun must expose `overview` (#75 D1).
+
+### Changed
+
+- `convertible drive` now returns you to the branch (or detached commit) you started on after it commits — the `convertible/<id>` drive branch keeps the commit, but a drive no longer strands you on it (all commit paths, incl. `--no-pr` and `session`) (#75 C2). Side effect: successive `session` drives now branch independently from your base rather than chaining on the previous drive.
+
+### Fixed
+
+- The read-only outsource artifact-preservation path (#75 C4) now validates the drive `task_id` as a single safe path segment before joining it into a copy destination (mirroring `convertible/feedback.py`), so a malformed/hostile TaskResult can no longer escape `.convertible/`; and it only reports the preserved real-repo path (and writes `last_drive`) when the copy actually succeeds, never claiming an artifact that isn't there.
+
 ## [0.21.1] - 2026-06-02
 
 ### Added
