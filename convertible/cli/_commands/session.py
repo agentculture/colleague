@@ -302,23 +302,21 @@ class _Session:
 
         Reuses the real parser (so every noun's args/defaults are correct) and
         folds the output into the cockpit. No subprocess; errors are reported, not
-        raised.
+        raised. ``argv`` is built from the fixed slash table (never user input), so
+        ``parse_args`` does not error — a regression in a mapping is caught by the
+        slash-command tests, not at runtime.
         """
         from convertible.cli import _build_parser
 
         parser = _build_parser()
+        ns = parser.parse_args(list(argv))
         sink = io.StringIO()
-        try:
-            with contextlib.redirect_stderr(io.StringIO()):
-                ns = parser.parse_args(list(argv))
-        except SystemExit:
-            return f"(could not run: {' '.join(argv)})"
         try:
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(io.StringIO()):
                 ns.func(ns)
         except CliError as exc:
             return f"error: {exc.message}"
-        except Exception as exc:  # noqa: BLE001 — slash output is advisory, never fatal
+        except Exception as exc:  # noqa: BLE001 - slash output is advisory, never fatal
             return f"error: {type(exc).__name__}: {exc}"
         return sink.getvalue().rstrip() or "(no output)"
 

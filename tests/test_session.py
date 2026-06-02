@@ -374,6 +374,19 @@ def test_session_slash_engines_folds_wheels_output(tmp_path: Path) -> None:
     assert "mock" in out.text()  # the mock wheel is always discovered
 
 
+@pytest.mark.parametrize(
+    "verb", ["commands", "skills", "agents", "config", "engines", "telemetry", "feedback"]
+)
+def test_session_introspection_slash_runs_without_crashing(tmp_path: Path, verb: str) -> None:
+    """Every introspection slash command runs its noun in-process and folds output
+    into the cockpit — proving each fixed argv mapping parses (no SystemExit) and
+    no noun crashes the session even in a bare repo."""
+    out = _CollectingOut()
+    rc = run_session(_make_args(tmp_path), input_fn=iter([f"/{verb}", "q"]), out=out, _color=False)
+    assert rc == 0  # a bad argv would SystemExit and never return cleanly
+    assert out.text().strip()  # something was folded into the cockpit
+
+
 def test_session_slash_engine_switches_for_next_drive(tmp_path: Path) -> None:
     """/engine <name> mutates the session so the NEXT drive uses the new engine."""
     calls: list = []
