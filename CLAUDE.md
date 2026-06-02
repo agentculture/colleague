@@ -147,6 +147,25 @@ The car metaphor *is* the architecture:
   faithfulness check runs against both frames; zero findings = faithful. Before this
   surface was added, no convertible command emitted Markdown and `diagnose` inspected
   the ANSI frame only. Legacy triples (no `.md`) still read fine.
+- **Context budget / graceful degradation** — the bounded tool-loop windows its
+  running message history to a configurable token budget before each model turn
+  (`convertible/context.py` + `convertible/loop.py` `_complete_with_degradation`)
+  and, on a detected context-overflow error, trims history harder and retries a
+  bounded number of times before preserving a readable partial result — so a
+  multi-file drive on a small-context model degrades instead of hard-failing. The
+  knob is `CONVERTIBLE_CONTEXT_BUDGET` (tokens, on `EngineConfig.context_budget_tokens`,
+  default 24000, env `CONVERTIBLE_CONTEXT_BUDGET`). Token counting goes through a
+  pluggable `count_tokens` seam — the vLLM engine counts exactly via the server's
+  `/tokenize` endpoint, falling back to a zero-dep char heuristic (`count_tokens_chars`)
+  when `/tokenize` is absent. **Honest limits:** the budget is best-effort exact
+  (exact via `/tokenize`, char-approximate fallback) — NO third-party tokenizer
+  library is bundled (`dependencies = []` holds); windowing DROPS oldest history
+  with a placeholder note (there is **no LLM-generated summary** in v0); there is
+  **no multi-model router/"gearbox"** (an overflow never switches models); retries
+  are bounded (termination preserved). Chassis-owned (all-engines rule): the feature
+  fires identically for every engine. Specification + plan:
+  `docs/specs/2026-06-02-convertible-drives-degrade-gracefully-when-a-task.md`
+  and `docs/plans/2026-06-02-convertible-drives-degrade-gracefully-when-a-task.md`.
 - **Config resolution** — `convertible/configdir.py`: repo-level
   `.convertible/` overrides user-level `~/.convertible/`.
 - **Layered per-model config** — `convertible/layers.py`: AGENTS instructions
@@ -237,7 +256,13 @@ test (`tests/test_e2e_mock.py`) is the guard.
   expose `overview`. Add an `explain` catalog entry for each new verb.
 - **The vLLM driver only touches the OpenAI surface** — `base_url`/`api_key`/
   `model` config, `/v1/chat/completions` with tools. Retargeting any
-  OpenAI-compatible server must stay a config change, never a code change.
+  OpenAI-compatible server must stay a config change, never a code change. ONE
+  deliberate carve-out: the vLLM `/tokenize` endpoint is used for exact token
+  counting in the context-budget feature (`convertible/engines/vllm_openai.py`
+  `_make_count_tokens`); it **degrades gracefully** (returns `None` on any error)
+  so retargeting a non-vLLM OpenAI-compatible server WITHOUT `/tokenize` stays a
+  config change, never a code change (token precision downgrades to char-approximate
+  fallback, correctness unchanged).
 - **Hook commands run as subprocesses, never imported.** `convertible/hooks.py`
   uses `subprocess.run` (shell=True) in the repo working directory. Command
   templates are Markdown text files, never executed as Python. No code path
