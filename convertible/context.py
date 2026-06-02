@@ -115,8 +115,57 @@ def _build_droppable_segments(messages: list[dict]) -> list[list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# window_messages
+# window_messages (+ helpers)
 # ---------------------------------------------------------------------------
+
+
+def _seg_chars(seg: list[dict]) -> int:
+    """Approximate character size of one segment (content + tool_call text)."""
+    total = 0
+    for m in seg:
+        total += len(m.get("content") or "")
+        for tc in m.get("tool_calls") or []:
+            fn = tc.get("function") or {}
+            total += len(fn.get("name") or "") + len(fn.get("arguments") or "")
+    return total
+
+
+def _proportional_cut(seg_sizes: list[int], chars_to_drop: int, max_drop: int) -> int:
+    """Pick how many leading segments to drop to shed ~*chars_to_drop* chars.
+
+    Single pass over segment sizes (no ``count_tokens`` calls); never drops the
+    last segment (``cut <= max_drop``), so the most-recent turn is always kept.
+    """
+    dropped_chars = 0
+    cut = 0
+    while cut < max_drop and dropped_chars < chars_to_drop:
+        dropped_chars += seg_sizes[cut]
+        cut += 1
+    return cut
+
+
+def _drop_until_fit(
+    head: list[dict],
+    segments: list[list[dict]],
+    start_cut: int,
+    budget_tokens: int,
+    count: Callable[[list[dict]], int],
+) -> list[dict]:
+    """Drop leading segments from *start_cut* onward until the candidate fits.
+
+    Verifies with ``count`` at each cut (the only place this function calls it).
+    Returns as soon as a candidate fits or the last segment is reached — so the
+    minimal valid list (head + placeholder + most-recent segment) is the floor.
+    """
+    placeholder = {"role": "user", "content": _PLACEHOLDER_TEXT}
+    max_drop = len(segments) - 1  # never drop the very last (most-recent) segment
+    cut = start_cut
+    while True:
+        tail = [m for seg in segments[cut:] for m in seg]
+        candidate = head + [placeholder] + tail
+        if cut >= max_drop or count(candidate) <= budget_tokens:
+            return candidate
+        cut += 1
 
 
 def window_messages(
@@ -157,74 +206,20 @@ def window_messages(
 
     head = messages[:2]  # system + first user (always kept)
     segments = _build_droppable_segments(messages)
-
     if not segments:
         # Nothing droppable — return minimal list as-is.
         return list(messages)
 
-    # The tail is the LAST segment (most-recent); we always keep it.
-    # We drop from the FRONT of segments (oldest first).
-    # Estimate how many chars we need to shed.
-
-    # Call 2: measure current total tokens via count_tokens.
-    current = _count(messages)
-    overage = current - budget_tokens
-
-    # Estimate how many chars correspond to `overage` tokens (reverse the
-    # heuristic: tokens * 4 ≈ chars).  We use this to decide how many
-    # segments to speculatively drop without calling count_tokens per segment.
-    chars_to_drop = overage * 4
-
-    # Accumulate segments to drop by tracking their approximate char size.
-    def _seg_chars(seg: list[dict]) -> int:
-        total = 0
-        for m in seg:
-            total += len(m.get("content") or "")
-            for tc in m.get("tool_calls") or []:
-                fn = tc.get("function") or {}
-                total += len(fn.get("name") or "") + len(fn.get("arguments") or "")
-        return total
-
-    # Build an ordered list of (seg_index, seg_chars) so we can decide the
-    # cut point in one pass.
+    # Call 2: measure the overage, then estimate the cut point in one pass
+    # (reverse the heuristic: tokens * 4 ≈ chars) so we avoid a per-segment
+    # count_tokens loop.
+    overage = _count(messages) - budget_tokens
     seg_sizes = [_seg_chars(s) for s in segments]
+    max_drop = len(segments) - 1
+    start_cut = _proportional_cut(seg_sizes, overage * 4, max_drop)
 
-    # If all droppable content still can't cover overage, drop everything but
-    # the last segment and return a minimal list.
-    # Decide cut index: drop segments[0..cut-1], keep segments[cut..].
-    # We want to drop enough chars to cover the overage.
-    dropped_chars = 0
-    cut = 0  # index into segments: segments[cut:] are retained
-    # Always keep at least the last segment (most-recent tail).
-    max_drop = len(segments) - 1  # don't drop the very last segment
-    while cut < max_drop and dropped_chars < chars_to_drop:
-        dropped_chars += seg_sizes[cut]
-        cut += 1
-
-    placeholder = {"role": "user", "content": _PLACEHOLDER_TEXT}
-
-    # Call 3: verify the candidate result actually fits.
-    retained_segs = segments[cut:]
-    tail: list[dict] = [m for seg in retained_segs for m in seg]
-    candidate = head + [placeholder] + tail
-
-    if _count(candidate) <= budget_tokens:
-        return candidate
-
-    # Call 4 (at most): if still over, drop more segments one group at a time
-    # until we fit or exhaust droppable content.
-    while cut < max_drop:
-        cut += 1
-        retained_segs = segments[cut:]
-        tail = [m for seg in retained_segs for m in seg]
-        candidate = head + [placeholder] + tail
-        if _count(candidate) <= budget_tokens:
-            return candidate
-
-    # Nothing helped — return minimal valid list (head + last segment).
-    last_seg = segments[-1]
-    tail = list(last_seg)
-    return head + [placeholder] + tail
+    # Calls 3+ (bounded): verify the candidate and drop more if still over.
+    return _drop_until_fit(head, segments, start_cut, budget_tokens, _count)
 
 
 # ---------------------------------------------------------------------------
