@@ -100,23 +100,33 @@ The car metaphor *is* the architecture:
   v0 is checksum-only (`version` pinning is a documented follow-up, not
   built). This is the tracked "per-repo hook trust gate" from the conventions
   section, now partially landed; there is still no `--no-hooks` flag.
-- **Subagents (convoy)** — mid-drive, an engine MAY delegate a scoped sub-task
-  via the `subagent` loop tool (`colleague/subagents.py` + `colleague/tools.py`).
-  The child runs the SAME bounded tool-loop as a nested in-process call —
-  no thread, no subprocess, no socket, no fork, zero new runtime deps. The parent
-  receives the child's `SubResult` as the tool result; completed sub-results are
-  folded into `TaskResult.sub_results` (omitted when empty). Delegation is
-  ENGINE-JUDGED and OPTIONAL (like the `devague` destination tool), never a forced
-  gate. An optional `engine`/`model` switch resolves through the existing
-  `registry.load` + `EngineConfig` inheritance — a config-level switch, no engine
-  code change. Termination is structural: `MAX_SUBAGENT_DEPTH=2` (recursion cap,
-  checked *before* any child work) and `MAX_SUBAGENT_FANOUT=4` (per-drive fan-out
-  cap). No per-subagent git handoff — only the top-level drive hands off.
-  **v0 is SEQUENTIAL only** — parallel/concurrent subagents and per-subagent
-  worktree isolation are a parked follow-up (would need a re-spec). This is
-  explicitly NOT the out-of-scope multi-engine router/"gearbox": there is no
-  operator-configured automatic task→engine routing policy. Chassis-owned
-  (all-engines rule): the tool fires identically for every engine.
+- **Subagents (convoy)** — mid-drive, an engine MAY delegate scoped sub-tasks
+  via two loop tools: (1) `subagent` for a single child, or (2) `subagents`
+  (plural) for a batch that runs concurrently (`colleague/subagents.py` +
+  `colleague/tools.py`). Each child runs the SAME bounded tool-loop as a nested
+  in-process call and is isolated in its own throwaway git worktree on a
+  `sub/<id>` branch (`colleague/worktrees.py`). The parent receives each child's
+  `SubResult` as the tool result; completed sub-results are folded into
+  `TaskResult.sub_results` (omitted when empty). A SEQUENTIAL merge-subagent
+  integrates the branches afterward, surfacing (never force-merging) unresolvable
+  conflicts. Concurrency is opt-in: `COLLEAGUE_SUBAGENT_CONCURRENCY` (default 1 =
+  byte-identical sequential behavior); with width > 1, up to `MIN(width,
+  MAX_SUBAGENT_FANOUT-1)` children run in parallel via `concurrent.futures`
+  (threads confined to `subagents.py`), reserving one slot for the merge child.
+  Delegation is ENGINE-JUDGED and OPTIONAL (like the `devague` destination tool),
+  never a forced gate. An optional `engine`/`model` switch resolves through the
+  existing `registry.load` + `EngineConfig` inheritance — a config-level switch,
+  no engine code change. Termination is structural: `MAX_SUBAGENT_DEPTH=2`
+  (recursion cap, checked *before* any child work) and `MAX_SUBAGENT_FANOUT=4`
+  (per-drive fan-out cap, including the merge child). No per-subagent git
+  handoff — only the top-level drive hands off. **Honest limit:** real wall-clock
+  speedup requires the served model to handle concurrent requests; on a
+  serializing server, gain is bounded by overlapped I/O wait, not model compute.
+  Specification + plan: `docs/specs/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md`
+  and `docs/plans/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md`.
+  This is explicitly NOT the out-of-scope multi-engine router/"gearbox": there is
+  no operator-configured automatic task→engine routing policy. Chassis-owned
+  (all-engines rule): the tools fire identically for every engine.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`colleague/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
@@ -224,11 +234,13 @@ excluding `confirm`/`reject`/`export`), which lets an engine set and converge a
 goal-frame when a task warrants one, drive toward it, and declare the announcement
 on arrival — and the **approval gate** (`colleague/policy.py`):
 `.colleague/approvals.json` gating `run_command` CLIs by program token and
-hook/command files by checksum — and the **subagent/convoy tool**
-(`colleague/subagents.py` + `colleague/tools.py`): engine-judged, optional
-in-process child drives with engine/model switch, depth cap (2), fan-out cap (4),
-no per-subagent handoff, sequential-only (parallel subagents parked as a
-follow-up) — and the **drive statistics + feedback loop** (the ROI loop):
+hook/command files by checksum — and the **subagent/convoy tools** (`subagent` + `subagents`)
+(`colleague/subagents.py` + `colleague/worktrees.py` + `colleague/tools.py`):
+engine-judged, optional in-process child drives with engine/model switch, depth
+cap (2), fan-out cap (4), no per-subagent handoff, isolated per-child git
+worktrees, opt-in concurrency via `COLLEAGUE_SUBAGENT_CONCURRENCY` (default 1 =
+byte-identical sequential) — and the **drive statistics + feedback loop** (the
+ROI loop):
 always-on per-drive `DriveStats` in the artifact (`colleague/contract.py` +
 `colleague/loop.py`) and a single-record-per-drive feedback store
 (`colleague/feedback.py`) surfaced as `colleague feedback` and the
@@ -291,6 +303,14 @@ test (`tests/test_e2e_mock.py`) is the guard.
   uses `subprocess.run` (shell=True) in the repo working directory. Command
   templates are Markdown text files, never executed as Python. No code path
   opens a socket or forks a daemon.
+- **Threads and subprocesses are sanctioned in exactly two modules.**
+  `colleague/worktrees.py` manages git worktree/branch operations (subprocess);
+  `colleague/subagents.py` runs parallel children via `concurrent.futures`
+  (threads). No other colleague module imports `subprocess` at the loop level,
+  `threading`, or `concurrent.futures` — enforced by boundary tests
+  (`test_boundary.py`). The `culture` and `devague` tools (both in the loop)
+  shell out to operator-installed CLIs, a permitted exception handled via
+  explicit allow-listing.
 - **Hooks belong to the chassis, not to engines.** `colleague/loop.py` owns
   hook firing — new engine wheels inherit the full lifecycle layer automatically
   and must not duplicate it. The all-engines rule applies: a hook config that
