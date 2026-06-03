@@ -251,13 +251,33 @@ def test_replay_requires_exactly_one_source(
 # ---------------------------------------------------------------------------
 
 
-def test_snapshot_writes_three_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_snapshot_writes_four_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["tui", "snapshot", "--name", "cap", "--dir", str(tmp_path), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    for key in ("taui", "ansi", "events"):
+    # The quad: taui + ansi + events + markdown (the .md was added to the
+    # original triple). All four must be reported AND written.
+    for key in ("taui", "ansi", "events", "markdown"):
         assert key in payload
         assert Path(payload[key]).exists()
+
+
+def test_snapshot_text_output_lists_the_whole_quad(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression guard: the text output must list every file the command wrote.
+
+    It previously joined only ``("taui", "ansi", "events")`` — so the ``.md``
+    the command wrote was invisible on stdout while ``--json`` reported it. Text
+    and JSON must agree on the quad.
+    """
+    rc = main(["tui", "snapshot", "--name", "cap", "--dir", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "cap.taui.json" in out
+    assert "cap.ansi" in out
+    assert "cap.events.jsonl" in out
+    assert "cap.md" in out  # the file that used to be omitted from stdout
 
 
 # ---------------------------------------------------------------------------
