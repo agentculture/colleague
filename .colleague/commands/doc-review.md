@@ -9,6 +9,11 @@ You are giving colleague a standing, read-only documentation review — a
 Scope: $ARGUMENTS
 (If the scope above is empty, audit ALL docs.)
 
+When the scope above names a single surface (non-empty), audit ONLY that one
+named surface.  If other doc surfaces exist outside that scope, add a brief
+note at the end of your report under the heading "Out of scope for this
+surface" listing them.
+
 Read and cross-check these against the actual code and CLI behavior:
 - README.md and CLAUDE.md (the two narrative surfaces)
 - every docs/features/*.md page (and docs/features/README.md, the index)

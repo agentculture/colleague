@@ -153,6 +153,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Destination | [destination.md](docs/features/destination.md) |
 | Subagents | [subagents.md](docs/features/subagents.md) |
 | Parallel subagents (convoy) | [parallel-subagents.md](docs/features/parallel-subagents.md) |
+| Audit fan-out | [audit-fanout.md](docs/features/audit-fanout.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
 | Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |
