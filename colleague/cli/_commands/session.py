@@ -37,8 +37,9 @@ import contextlib
 import io
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator, Optional, Sequence
 
 from colleague import registry
 from colleague.cli._banner import emit_banner
@@ -243,18 +244,35 @@ class _Session:
         self.chrome(self._frame())
 
     def _read_live_ansi(self) -> Optional[str]:
-        """Live ANSI read: draw the frame (without its prompt line) and read input
-        via ``input`` so the typed cursor anchors right on ``colleague ❯``.
+        """Live ANSI read with a slash-command autocomplete popup.
 
-        Used only on a real TTY (no injected ``input_fn``); tests and the static
-        Markdown view go through :meth:`emit` + :func:`_read_line` instead.
+        On a POSIX colour TTY this runs the raw per-keystroke reader: typing
+        ``/`` opens a filtered popup of slash commands (Tab/Enter completes,
+        arrows select, Esc dismisses). When raw mode is unavailable (non-TTY,
+        ``termios`` missing, Windows) it falls back to the plain ``input`` path —
+        byte-identical to before — so piped / ``--json`` / agent callers are
+        unaffected. Tests and the static Markdown view never reach here; they go
+        through :meth:`emit` + :func:`_read_line`.
         """
-        sys.stdout.write(self._frame(include_prompt=False) + "\n")
-        sys.stdout.flush()
-        try:
-            return input(plain_prompt())
-        except EOFError:
-            return None
+        from colleague.cli._commands._session_input import read_line_with_popup
+        from colleague.tui.widgets.slash_autocomplete import render_slash_autocomplete
+
+        def _fallback() -> Optional[str]:
+            sys.stdout.write(self._frame(include_prompt=False) + "\n")
+            sys.stdout.flush()
+            try:
+                return input(plain_prompt())
+            except EOFError:
+                return None
+
+        def _render(buffer: str, matches: list, selected: int) -> str:
+            parts = [self._frame(include_prompt=False)]
+            if matches:
+                parts.append(render_slash_autocomplete(matches, selected, width=detect_width()))
+            parts.append(plain_prompt() + buffer)
+            return "\n".join(parts)
+
+        return read_line_with_popup(_SLASH_COMMANDS, _render, filter_slash, fallback=_fallback)
 
     # ── the loop ─────────────────────────────────────────────────────────────
 
@@ -389,23 +407,58 @@ class _Session:
 # Slash-command tables
 # ---------------------------------------------------------------------------
 
-_HELP_TEXT = (
-    "slash commands:\n"
-    "  /help                 this list\n"
-    "  /commands             list command templates\n"
-    "  /skills               resolved skill docs\n"
-    "  /agents               resolved AGENTS layers\n"
-    "  /config               configuration readiness (doctor)\n"
-    "  /engines              discovered backend plugins\n"
-    "  /telemetry            telemetry configuration\n"
-    "  /feedback             feedback for the last drive\n"
-    "  /engine <name>        switch the engine for the next drive\n"
-    "  /model <name>         switch the model\n"
-    "  /base <branch>        set the PR base branch\n"
-    "  /pr                   toggle push + open PR on each drive\n"
-    "  /quit                 end the session\n"
-    "plain text (a number / template name / free-text task) runs a drive."
-)
+
+@dataclass(frozen=True)
+class SlashSpec:
+    """One slash command: its name, an optional arg hint, and a one-line help."""
+
+    name: str
+    arg_hint: str
+    description: str
+
+
+#: The single source of truth for every slash command — the ``/help`` text AND
+#: the live autocomplete popup are both derived from this list, so they cannot
+#: drift (a drift test pins that every dispatch verb appears here).
+_SLASH_COMMANDS: list[SlashSpec] = [
+    SlashSpec("help", "", "this list"),
+    SlashSpec("commands", "", "list command templates"),
+    SlashSpec("skills", "", "resolved skill docs"),
+    SlashSpec("agents", "", "resolved AGENTS layers"),
+    SlashSpec("config", "", "configuration readiness (doctor)"),
+    SlashSpec("engines", "", "discovered backend plugins"),
+    SlashSpec("telemetry", "", "telemetry configuration"),
+    SlashSpec("feedback", "", "feedback for the last drive"),
+    SlashSpec("engine", "<name>", "switch the engine for the next drive"),
+    SlashSpec("model", "<name>", "switch the model"),
+    SlashSpec("base", "<branch>", "set the PR base branch"),
+    SlashSpec("pr", "", "toggle push + open PR on each drive"),
+    SlashSpec("quit", "", "end the session"),
+]
+
+
+def filter_slash(prefix: str, specs: Optional[Sequence[SlashSpec]] = None) -> list[SlashSpec]:
+    """Return the slash commands whose name starts with *prefix* (case-insensitive).
+
+    An empty prefix returns the full list (popup just opened); a non-matching
+    prefix returns ``[]`` (the popup vanishes). This is the pure, TTY-free core
+    of the autofilter.
+    """
+    pool = _SLASH_COMMANDS if specs is None else list(specs)
+    needle = prefix.strip().lower()
+    return [s for s in pool if s.name.lower().startswith(needle)]
+
+
+def _format_help(specs: Sequence[SlashSpec]) -> str:
+    rows = ["slash commands:"]
+    for s in specs:
+        left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
+        rows.append(f"  {left:<21} {s.description}")
+    rows.append("plain text (a number / template name / free-text task) runs a drive.")
+    return "\n".join(rows)
+
+
+_HELP_TEXT = _format_help(_SLASH_COMMANDS)
 
 # Read-only introspection: map a verb to the argv passed to the real CLI parser.
 _INTROSPECT: dict[str, Callable[["_Session"], list[str]]] = {

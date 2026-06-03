@@ -1,0 +1,178 @@
+{
+  "slug": "colleague-session-shows-a-live-autocomplete-popup",
+  "title": "colleague session shows a live / autocomplete popup that opens on a colour TTY, autofilters slash commands as you type, and disappears when nothing matches",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T21:33:39Z",
+  "updated": "2026-06-03T21:35:15Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague session shows a live / autocomplete popup that opens on a colour TTY, autofilters slash commands as you type, and disappears when nothing matches",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "on a colour TTY the popup is purely additive: the drive path (execute_drive) and result shape are unchanged, so the all-engines/h11 parity test still passes",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "humans driving 'colleague session' interactively on a colour TTY (not agents/piped callers)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "the feature targets only interactive human TTY use; agents and piped callers are explicitly unaffected because they take the fallback path",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "typing / opens a filtered menu of slash commands that narrows as you type, restores when characters are deleted, and vanishes when nothing matches; Tab/Enter completes the selection, arrows move it, Esc dismisses",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "each of the four behaviours (open on /, narrow on type, restore on delete, vanish on no-match) is exercised by a test over the pure filter and the widget render",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "the prompt is a whole-line input() call with no per-keystroke feedback; a human must already know the slash table or type /help to see it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "today's prompt is literally input(plain_prompt()) inside _read_live_ansi with no per-keystroke hook \u2014 verifiable in session.py",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "slash-command discoverability without memorising the table \u2014 the palette teaches itself to humans",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "a human can discover and run a slash command they did not previously know using only the popup",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not a full readline replacement (no history, no mouse, prefix-match only); live-TTY only; piped/--json/--no-tui/agent paths keep the exact line-based path; zero new runtime deps; foreground-only (no socket/daemon)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "no history/mouse/fuzzy-match code is added; the popup renders only on a colour TTY; no runtime dep and no socket/daemon are introduced",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "in a real terminal / shows the menu, 'co' narrows to commands+config, deleting back restores the full list, 'zzz' hides it; piped input stays byte-identical to today; all existing test_session.py passes unchanged",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "the listed terminal interactions and the piped byte-identical behaviour are shown in the PR manual verification and the automated suite",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "the interactive reader degrades to plain input() whenever raw mode is unavailable: stdin is not a TTY, termios import fails, or the platform is Windows",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "with stdin not a colour TTY (piped/--json/--no-tui/Windows/termios-absent) the session takes the existing plain input() path and behaves byte-identically \u2014 the unchanged test_session.py suite proves it",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "one structured slash-command catalog (a SlashSpec list) is the single source for both the /help text and the popup, so the two cannot drift",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "every verb in _INTROSPECT and _CONFIG_ACTIONS (plus help/quit) appears in the catalog and in the derived /help text \u2014 a drift test asserts this",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "zero new runtime dependency: the reader uses only stdlib termios/tty/select and the popup widget emits pure ANSI; dependencies=[] still holds and the tui-core import guard stays green",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "the zero-deps guard (tests/test_zero_deps.py) and boundary guard (tests/test_boundary.py) pass: no urllib/socket/http/subprocess in tui-core and no forbidden imports introduced",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "richer in-line editing beyond Tab/Enter/arrows/Esc/Backspace (e.g. Ctrl-A/Ctrl-E, word-delete, history) \u2014 v0 ships minimal editing only",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}

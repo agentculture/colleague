@@ -148,7 +148,17 @@ The architecture, part by part:
   `colleague hooks list --model <m>` (per-model entries tagged `per-model`).
 - **Interactive palette** — `colleague session` (`colleague/cli/_commands/
   session.py`): a foreground TTY loop over the same drive path; no parallel
-  code path, no daemon.
+  code path, no daemon. Slash commands come from one `SlashSpec` catalog that
+  also derives the `/help` text (single source, drift-tested). On a colour TTY,
+  typing `/` opens a **live autocomplete popup** that autofilters slash commands
+  as you type and disappears on no-match (Tab/Enter complete, arrows select, Esc
+  dismisses) — a stdlib raw-mode reader (`colleague/cli/_commands/
+  _session_input.py`, `termios`/`tty`/`select`, no new dep) with a pure-ANSI
+  widget (`colleague/tui/widgets/slash_autocomplete.py`). Off a colour TTY
+  (piped/`--json`/`--no-tui`/Windows) it falls back to plain `input()`,
+  byte-identical to before, so agents and pipelines are unaffected. Spec + plan:
+  `docs/specs/2026-06-03-colleague-session-shows-a-live-autocomplete-popup.md`
+  and `docs/plans/2026-06-03-colleague-session-shows-a-live-autocomplete-popup.md`.
 - **Cockpit views (tui)** — `colleague tui` provides three headless, pure-stdlib
   views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
   `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**

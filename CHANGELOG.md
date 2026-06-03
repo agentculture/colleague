@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-06-04
+
+### Added
+
+- colleague session: live `/` autocomplete popup on a colour TTY — autofilters slash commands as you type, restores on delete, vanishes on no-match; Tab/Enter completes, arrows select, Esc dismisses. Stdlib raw-mode reader (termios/tty/select) with a plain-input() fallback so piped/--json/--no-tui/Windows/agent paths stay byte-identical. Zero new runtime deps.
+
+### Changed
+
+- Slash commands now come from a single `SlashSpec` catalog that also derives the `/help` text (drift-tested), so help and the popup cannot diverge.
+
 ## [0.31.0] - 2026-06-03
 
 ### Added

@@ -1,0 +1,254 @@
+{
+  "slug": "colleague-session-shows-a-live-autocomplete-popup",
+  "title": "colleague session shows a live / autocomplete popup that opens on a colour TTY, autofilters slash commands as you type, and disappears when nothing matches",
+  "frame_slug": "colleague-session-shows-a-live-autocomplete-popup",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T21:35:32Z",
+  "updated": "2026-06-03T21:36:52Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague session shows a live / autocomplete popup that opens on a colour TTY, autofilters slash commands as you type, and disappears when nothing matches"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "on a colour TTY the popup is purely additive: the drive path (execute_drive) and result shape are unchanged, so the all-engines/h11 parity test still passes"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "humans driving 'colleague session' interactively on a colour TTY (not agents/piped callers)"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the feature targets only interactive human TTY use; agents and piped callers are explicitly unaffected because they take the fallback path"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "typing / opens a filtered menu of slash commands that narrows as you type, restores when characters are deleted, and vanishes when nothing matches; Tab/Enter completes the selection, arrows move it, Esc dismisses"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "each of the four behaviours (open on /, narrow on type, restore on delete, vanish on no-match) is exercised by a test over the pure filter and the widget render"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "the prompt is a whole-line input() call with no per-keystroke feedback; a human must already know the slash table or type /help to see it"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "today's prompt is literally input(plain_prompt()) inside _read_live_ansi with no per-keystroke hook \u2014 verifiable in session.py"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "slash-command discoverability without memorising the table \u2014 the palette teaches itself to humans"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "a human can discover and run a slash command they did not previously know using only the popup"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not a full readline replacement (no history, no mouse, prefix-match only); live-TTY only; piped/--json/--no-tui/agent paths keep the exact line-based path; zero new runtime deps; foreground-only (no socket/daemon)"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "no history/mouse/fuzzy-match code is added; the popup renders only on a colour TTY; no runtime dep and no socket/daemon are introduced"
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "in a real terminal / shows the menu, 'co' narrows to commands+config, deleting back restores the full list, 'zzz' hides it; piped input stays byte-identical to today; all existing test_session.py passes unchanged"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the listed terminal interactions and the piped byte-identical behaviour are shown in the PR manual verification and the automated suite"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "the interactive reader degrades to plain input() whenever raw mode is unavailable: stdin is not a TTY, termios import fails, or the platform is Windows"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "with stdin not a colour TTY (piped/--json/--no-tui/Windows/termios-absent) the session takes the existing plain input() path and behaves byte-identically \u2014 the unchanged test_session.py suite proves it"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "one structured slash-command catalog (a SlashSpec list) is the single source for both the /help text and the popup, so the two cannot drift"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "every verb in _INTROSPECT and _CONFIG_ACTIONS (plus help/quit) appears in the catalog and in the derived /help text \u2014 a drift test asserts this"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "zero new runtime dependency: the reader uses only stdlib termios/tty/select and the popup widget emits pure ANSI; dependencies=[] still holds and the tui-core import guard stays green"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the zero-deps guard (tests/test_zero_deps.py) and boundary guard (tests/test_boundary.py) pass: no urllib/socket/http/subprocess in tui-core and no forbidden imports introduced"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add a structured SlashSpec catalog in session.py and derive _HELP_TEXT from it (single source for help + popup)",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a SlashSpec(name,arg_hint,description) list enumerates every slash command and _HELP_TEXT is built from it",
+        "a drift test asserts every _INTROSPECT and _CONFIG_ACTIONS verb plus help/quit appears in the catalog and the derived help"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "c9",
+        "h3",
+        "h7"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Add pure filter_slash(prefix, specs) over the catalog (the testable autofilter core)",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "filter_slash returns the full list on empty prefix, case-insensitive startswith matches, and an empty list on no match (the vanish case)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "c3",
+        "h5",
+        "h6"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "New pure-ANSI slash_autocomplete widget rendering filtered specs with a highlighted row",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the widget renders filtered specs as a boxed ANSI menu with exactly one highlighted selected row and returns empty string on no matches",
+        "the widget imports no termios and the tui-core import guard (test_zero_deps) still passes"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "h6"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "New stdlib raw-mode reader read_line_with_popup in _session_input.py with graceful fallback",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on a TTY it enters raw mode via termios/tty, reads per keystroke, returns the line on Enter and None on Ctrl-D",
+        "when stdin is not a TTY, termios is unavailable, or on Windows it signals the caller to use plain input() instead",
+        "it imports no urllib/socket/http/subprocess and adds no runtime dependency (test_zero_deps + test_boundary pass)"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "c10",
+        "h2",
+        "h4",
+        "h9"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Wire read_line_with_popup into _Session._read_live_ansi (interactive TTY path only)",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_read_live_ansi uses the reader with the catalog and a redraw callback that folds the filtered popup into the cockpit",
+        "the input_fn test seam, the Markdown/static view, and --json keep the existing _read_line path unchanged so execute_drive and result shape are untouched"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c5",
+        "c6",
+        "c7",
+        "h1"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Add tests/test_session_autocomplete.py and keep test_session.py green",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests cover filter open/narrow/restore/vanish + case-insensitivity, widget render + empty, and reader fallback on a non-TTY stream (no raw-mode entry)",
+        "the full pytest suite passes including the unchanged test_session.py regression set"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c7",
+        "h1",
+        "h2",
+        "h3",
+        "h6",
+        "h8",
+        "h10"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Update docs: explain ('session',) entry and the Interactive-palette CLAUDE.md bullet",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the explain session entry and the CLAUDE.md Interactive-palette bullet describe the live autocomplete and its TTY-only / zero-dep / foreground limits; doc-test-alignment passes"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c4",
+        "c5",
+        "c6",
+        "h7",
+        "h8"
+      ]
+    }
+  ],
+  "risks": []
+}
