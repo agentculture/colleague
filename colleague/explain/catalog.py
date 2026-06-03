@@ -51,8 +51,16 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 _WHOAMI = """\
 # colleague whoami
 
-Reports the agent's identity from `culture.yaml`: nick (`suffix`), backend,
-served model, and the package version. Read-only.
+Reports two identities in one glance, plus the package version. Read-only.
+
+- **Mesh identity** (from `culture.yaml`): `nick` (`suffix`) and `backend` — the
+  persona this agent runs as in the Culture mesh.
+- **Drive identity** (resolved live, the same way a real drive resolves it):
+  `drive_engine` — the engine a bare `colleague drive` would pick
+  (`--engine` > `COLLEAGUE_ENGINE` > default `vllm-openai`) — and `drive_model`,
+  the model it would call (`null` for the no-op `mock` engine). This is the
+  trust signal an agent checks before delegating: it names the *delegate*, not
+  an unrelated persona backend.
 
 ## Usage
 

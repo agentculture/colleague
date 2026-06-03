@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.6] - 2026-06-03
+
+### Changed
+
+- `whoami` now reports the live *drive identity* — the `drive_engine` a bare drive would pick (`--engine` > `COLLEAGUE_ENGINE` > default `vllm-openai`) and the `drive_model` it would call — alongside the `culture.yaml` mesh backend. The cheapest probe an agent runs before delegating now names the actual delegate instead of an unrelated persona backend (text relabels `backend:` → `mesh backend:` and replaces the meaningless persona `model:` line with `drive engine:`/`drive model:`; JSON keeps the `backend`/`model` keys and adds `drive_engine`/`drive_model`). `drive_model` is `null` for the no-op `mock` engine, which calls no model.
+
 ## [0.29.5] - 2026-06-03
 
 ### Added

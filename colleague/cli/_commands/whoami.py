@@ -1,11 +1,18 @@
 """``colleague whoami`` — the smallest identity probe.
 
-Reports the agent's identity as declared in ``culture.yaml``: its nick
-(``suffix``), the backend it runs on, and the served model (if any) — plus the
-package version. Read-only; touches nothing but its own ``culture.yaml``.
+Two identities, one glance. The *mesh identity* is declared in ``culture.yaml``:
+the agent's nick (``suffix``) and the persona backend it runs as in the Culture
+mesh. The *drive identity* is what actually executes outsourced repo work — the
+engine a bare ``colleague drive`` would pick (``vllm-openai`` by default) and the
+model it would call. These are resolved live from the same precedence a real
+drive uses (``--engine`` flag > ``COLLEAGUE_ENGINE`` > default; provider config
+via ``EngineConfig.resolve``), so the cheapest probe an agent can run before
+delegating tells the truth about the delegate instead of reporting an unrelated
+persona backend. Read-only; reads ``culture.yaml`` + environment, opens nothing.
 
 When you clone this template, rename the package and update ``culture.yaml`` —
-``whoami`` then reflects your new agent's identity with no code change.
+``whoami`` then reflects your new agent's mesh identity with no code change; the
+drive identity follows your engine/provider config.
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ from pathlib import Path
 
 from colleague import __version__
 from colleague.cli._output import emit_result
+from colleague.config import EngineConfig, resolve_engine
 
 _FALLBACK_NICK = "colleague"
 
@@ -74,11 +82,20 @@ def _scalar(line: str, key: str) -> str:
 
 def report() -> dict[str, object]:
     fields = read_agent_fields()
+    # The drive identity: what a bare ``colleague drive`` would actually run.
+    # Resolved exactly as the drive path resolves it (and as ``doctor``'s
+    # usage check does) so the probe never disagrees with reality. The mock
+    # backend ignores provider config and calls no model, so its drive model
+    # is ``None`` rather than the misleading default model id.
+    drive_engine = resolve_engine(None)
+    drive_model = None if drive_engine == "mock" else EngineConfig.resolve().model
     return {
         "nick": fields["nick"],
         "version": __version__,
         "backend": fields["backend"],
         "model": fields["model"],
+        "drive_engine": drive_engine,
+        "drive_model": drive_model,
     }
 
 
@@ -88,11 +105,13 @@ def cmd_whoami(args: argparse.Namespace) -> None:
     if json_mode:
         emit_result(identity, json_mode=True)
         return
+    drive_model = identity["drive_model"] or "(mock backend — no model)"
     text = (
         f"nick: {identity['nick']}\n"
         f"version: {identity['version']}\n"
-        f"backend: {identity['backend']}\n"
-        f"model: {identity['model']}"
+        f"mesh backend: {identity['backend']}\n"
+        f"drive engine: {identity['drive_engine']}\n"
+        f"drive model: {drive_model}"
     )
     emit_result(text, json_mode=False)
 
@@ -100,7 +119,7 @@ def cmd_whoami(args: argparse.Namespace) -> None:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "whoami",
-        help="Report this agent's nick, version, backend, and served model.",
+        help="Report nick, version, mesh backend, and the live drive engine + model.",
     )
     p.add_argument("--json", action="store_true", help="Emit structured JSON.")
     p.set_defaults(func=cmd_whoami)
