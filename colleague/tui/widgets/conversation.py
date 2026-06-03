@@ -13,20 +13,20 @@ from __future__ import annotations
 
 from typing import Optional
 
+from colleague.tui.render.layout import DEFAULT_WIDTH
 from colleague.tui.state import CockpitState, Panel
 
 _BORDER = "─"
-_PANEL_WIDTH = 50
 #: Panel ids that hold the conversation, in lookup priority order.
 _CONVERSATION_IDS = ("panel.conversation", "conversation")
 
 
-def _hline(title: str = "") -> str:
+def _hline(width: int, title: str = "") -> str:
     if title:
         inner = f" {title} "
-        pad = max(0, _PANEL_WIDTH - len(inner) - 2)
+        pad = max(0, width - len(inner) - 2)
         return "╔" + inner + _BORDER * pad + "╗"
-    return "╚" + _BORDER * (_PANEL_WIDTH - 2) + "╝"
+    return "╚" + _BORDER * (width - 2) + "╝"
 
 
 def _find_conversation(state: CockpitState) -> Optional[Panel]:
@@ -37,14 +37,18 @@ def _find_conversation(state: CockpitState) -> Optional[Panel]:
     return None
 
 
-def render_conversation(state: CockpitState) -> str:
-    """Return a box-drawn conversation panel string, or ``""`` if absent/hidden."""
+def render_conversation(state: CockpitState, *, width: int = DEFAULT_WIDTH) -> str:
+    """Return a box-drawn conversation panel string, or ``""`` if absent/hidden.
+
+    *width* is the full box width; the wrap point is ``width - 4`` inner chars, so
+    a wider box wraps later (a narrow box is what mangled multi-line slash output).
+    """
     panel = _find_conversation(state)
     if panel is None or not panel.visible:
         return ""
 
-    max_inner = _PANEL_WIDTH - 4
-    lines: list[str] = [_hline(panel.title or "Conversation")]
+    max_inner = width - 4
+    lines: list[str] = [_hline(width, panel.title or "Conversation")]
 
     rows = panel.content_summary.split("\n") if panel.content_summary else []
     if not rows:
@@ -56,5 +60,5 @@ def render_conversation(state: CockpitState) -> str:
             row = row[max_inner:]
         lines.append(f"║ {row:<{max_inner}} ║")
 
-    lines.append(_hline())
+    lines.append(_hline(width))
     return "\n".join(lines)

@@ -52,8 +52,10 @@ from colleague.tui.events import UserInput
 from colleague.tui.from_drive import drive_step
 from colleague.tui.reducer import reduce
 from colleague.tui.render.ansi import render as _render_ansi
+from colleague.tui.render.layout import detect_width
 from colleague.tui.render.markdown import render_markdown as _render_markdown
 from colleague.tui.state import CockpitState, Panel, PanelItem, Status
+from colleague.tui.widgets.prompt_input import plain_prompt
 
 # ---------------------------------------------------------------------------
 # Types for the injectable seams
@@ -230,21 +232,41 @@ class _Session:
 
     # ── rendering (one path; three views) ────────────────────────────────────
 
-    def _frame(self) -> str:
+    def _frame(self, *, include_prompt: bool = True) -> str:
         if self.view == "ansi":
-            return _CLEAR_HOME + _render_ansi(self.state)
+            return _CLEAR_HOME + _render_ansi(
+                self.state, width=detect_width(), include_prompt=include_prompt
+            )
         return _render_markdown(self.state)
 
     def emit(self) -> None:
         self.chrome(self._frame())
 
+    def _read_live_ansi(self) -> Optional[str]:
+        """Live ANSI read: draw the frame (without its prompt line) and read input
+        via ``input`` so the typed cursor anchors right on ``colleague ❯``.
+
+        Used only on a real TTY (no injected ``input_fn``); tests and the static
+        Markdown view go through :meth:`emit` + :func:`_read_line` instead.
+        """
+        sys.stdout.write(self._frame(include_prompt=False) + "\n")
+        sys.stdout.flush()
+        try:
+            return input(plain_prompt())
+        except EOFError:
+            return None
+
     # ── the loop ─────────────────────────────────────────────────────────────
 
     def run(self, input_fn: Optional[Iterator[str]]) -> int:
         emit_banner(self.err, json_mode=self.json_mode)
+        live_ansi = input_fn is None and self.view == "ansi"
         while True:
-            self.emit()
-            raw = _read_line(input_fn)
+            if live_ansi:
+                raw = self._read_live_ansi()
+            else:
+                self.emit()
+                raw = _read_line(input_fn)
             if raw is None:
                 break
             line = raw.strip()

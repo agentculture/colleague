@@ -32,6 +32,7 @@ from typing import Iterable, Optional
 from colleague.tui.events import Event, KeyPress
 from colleague.tui.reducer import reduce
 from colleague.tui.render.ansi import render
+from colleague.tui.render.layout import detect_width
 from colleague.tui.state import CockpitState
 
 # ---------------------------------------------------------------------------
@@ -161,8 +162,8 @@ def _live_loop(state: CockpitState, *, out) -> CockpitState:
     try:
         tty.setraw(fd)
         while True:
-            # Render: clear screen + current frame.
-            out.write(_CLEAR + render(state))
+            # Render: clear screen + current frame, sized to the live terminal.
+            out.write(_CLEAR + render(state, width=detect_width()))
             out.flush()
 
             # Read one byte (raw mode).
@@ -170,7 +171,7 @@ def _live_loop(state: CockpitState, *, out) -> CockpitState:
             ev = key_to_event(ch)
             if ev is None:
                 # Quit: one final render, then return.
-                out.write(_CLEAR + render(state))
+                out.write(_CLEAR + render(state, width=detect_width()))
                 out.flush()
                 return state
             state = reduce(state, ev)
