@@ -325,6 +325,8 @@ class TestNoNetworkingOrDaemonMachinery:
 #                   subprocess is the transport
 #   devague.py    — launches the allow-listed devague CLI (the destination tool);
 #                   subprocess is the transport
+#   worktrees.py  — drives git worktree add/remove for per-child isolation;
+#                   subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -333,6 +335,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/neighbours.py",
         "colleague/culture.py",
         "colleague/devague.py",
+        "colleague/worktrees.py",
     }
 )
 
