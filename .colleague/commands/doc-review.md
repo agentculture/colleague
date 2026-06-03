@@ -29,5 +29,18 @@ which category it is:
       and convenient: a live cockpit during a drive, popups wired to real events,
       colored/TTY-aware output, an agent-operable TAUI event stream
 
-Do not propose code changes or edit anything — this is an audit. End with a short
-ranked list of the highest-impact doc fixes.
+Do not propose code changes or edit anything — this is an audit.
+
+You MUST deliver the audit by calling the `finish` tool with your report: the
+itemized findings (each with a file path and a category a–e), then a short
+ranked list of the highest-impact doc fixes. A drive that ends WITHOUT calling
+`finish` returns NOTHING and wastes the whole audit — so do not stop after
+reading. The moment you have read enough to judge the docs (or you are within a
+few steps of your budget), STOP reading and call `finish` with the full report.
+Read efficiently — don't re-read a file you've already seen.
+
+If the docs are too large to audit fully within your budget, do NOT silently run
+out. Finish with an **INCOMPLETE** report: name the surfaces you covered, the
+ones still to do, and suggest how to split the rest (e.g. one sub-audit per doc
+surface). A clear "here's what's left and how to split it" is far more useful
+than a drive that dies mid-read.
