@@ -493,6 +493,7 @@ class TestAnnouncementHonesty:
             "pr_url",
             "hook_firings",
             "command",
+            "not_finished",
         }
         assert set(serialized.keys()) == expected_keys, (
             f"Extra/missing keys in no-policy run: " f"{set(serialized.keys()) ^ expected_keys}"

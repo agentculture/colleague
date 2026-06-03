@@ -757,8 +757,9 @@ def run(
     # (#37); the finish hook + neighbour cleanup + changed_files snapshot below
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
+    finished = False
     try:
-        _drive_loop(ctx, complete, max_steps)
+        finished = _drive_loop(ctx, complete, max_steps)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
         aborted = exc
         result.status = ERROR
@@ -807,6 +808,15 @@ def run(
         )
         raise DriveAborted(result) from aborted
 
+    # Explicit not-finished flag (#106 t5): set from the _drive_loop return value,
+    # which is True when the model finished (finish tool or no-tool-call answer) and
+    # False when the step budget was exhausted.  We are in the non-aborted path here,
+    # so DriveAborted is not raised; that is a different signal and not_finished is
+    # deliberately left False for it (the default covers it above).  Do NOT derive
+    # this from stats.step_count: max_steps bounds model *turns* while step_count
+    # counts *tool calls* (a turn may issue several), so they are not comparable.
+    result.not_finished = not finished
+
     # Summary precedence (t2, #109):
     #   1. finish_summary set by the finish tool (already on result.summary via
     #      _apply_finish at line ~305 — highest priority, untouched here).
@@ -816,14 +826,6 @@ def run(
     #   3. Last substantive assistant content seen across the drive (the t2 gap:
     #      narration emitted on a tool-call turn is now recoverable).
     #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
-    #
-    # NOTE: this no longer encodes the not-finished / budget-exhaustion STATUS in
-    # the summary string (the old ``"stopped at the N-step budget"`` text is gone
-    # — limit *signalling* is out of scope for #109; it belongs to #106). Do NOT
-    # infer budget-exhaustion from ``result.stats.step_count``: ``max_steps`` bounds
-    # model *turns*, while ``step_count`` counts *tool calls* (a turn may issue
-    # several), so the two are not comparable. A reliable not-finished signal is a
-    # follow-up — #106 should add an explicit flag, not a step-count heuristic.
     if not result.summary:
         result.summary = _last_sub or NO_RESULT_PRODUCED
     return result
