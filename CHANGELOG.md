@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.4] - 2026-06-03
+
+### Changed
+
+- The `run_command` neighbour-clone guard is now token-aware: it `shlex`-splits the command and refuses only a token that resolves to the clone root (`.colleague/neighbours`) or under it, instead of a raw whole-string substring match — so a benign command that merely *mentions* the path inside a quoted string (e.g. `echo "see .colleague/neighbours"`) is no longer a false positive. Unparseable commands (shlex ValueError) fall back to the stricter substring check, so a malformed command never slips through. Still a best-effort policy gate, not a sandbox (bypassable by `sh -c`, pipelines, shell expansion) (#92).
+
+## [0.29.3] - 2026-06-03
+
+### Changed
+
+- Added direct test coverage for the neighbours `_dest_for` path-traversal guard (malicious/typo names: separators, dot/dotdot, absolute, empty) — previously only exercised indirectly (#92).
+
+### Fixed
+
+- `run_command` now maps **any** subprocess failure to a recoverable `ToolError` instead of aborting the whole drive: a hung command (`subprocess.TimeoutExpired`), a launch failure (`OSError`), or any other error (e.g. `ValueError` on an embedded NUL byte in a model-issued command) is fed back to the model as a non-ok step so the drive continues — matching the `_subagent`/`_subagents` catch-all and the culture/devague/hooks subprocess handling (all-engines rule). `KeyboardInterrupt` still propagates. The 300s budget is now the named `_COMMAND_TIMEOUT_SECONDS` constant (#92).
+
 ## [0.29.2] - 2026-06-03
 
 ### Changed

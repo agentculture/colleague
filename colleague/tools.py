@@ -14,6 +14,7 @@ later wheel.
 
 from __future__ import annotations
 
+import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,10 @@ from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
 FINISH = "finish"
+
+#: Bound a runaway model-issued command so it cannot stall the loop indefinitely
+#: (mirrors culture/devague ``_TIMEOUT_SECONDS`` and neighbours ``_GIT_TIMEOUT_SECONDS``).
+_COMMAND_TIMEOUT_SECONDS = 300
 
 
 class ToolError(Exception):
@@ -419,27 +424,80 @@ class ToolExecutor:
         """
         command = str(arguments["command"])
 
-        # Best-effort guard: refuse commands that reference the clone dir.
-        # Checks both the canonical relative prefix and the absolute path so
-        # that both "sh .colleague/neighbours/foo/bar.sh" and
-        # "sh /abs/path/.colleague/neighbours/foo/bar.sh" are blocked.
+        # Best-effort guard: refuse commands that EXECUTE a path inside the clone
+        # dir. Token-aware (shlex) so a benign command that merely *mentions* the
+        # path inside a quoted string (e.g. echo "see .colleague/neighbours") is no
+        # longer a false positive — only a token that resolves to the clone root,
+        # or under it, is refused. On unbalanced quotes (shlex ValueError) fall back
+        # to the stricter substring check so a malformed command never slips
+        # through. Honest limit: like the rest of this gate (D2), it is bypassable
+        # by sh -c, pipelines, and shell expansion — a guard, not a sandbox.
         clone_rel = self._CLONE_SUBDIR
-        clone_abs = str(self.root / clone_rel)
-        if clone_rel in command or clone_abs in command:
+        # The guard must NEVER raise — a raw exception here would escape tool
+        # execution and abort the whole drive. Resolving the clone root can fail on
+        # a pathological tree (symlink loop → RuntimeError, permissions → OSError),
+        # so compute it defensively and fall back to the unresolved substring check.
+        try:
+            clone_root: Path | None = (self.root / clone_rel).resolve()
+        except (OSError, RuntimeError, ValueError):
+            clone_root = None
+
+        def _targets_clone(token: str) -> bool:
+            try:
+                candidate = (self.root / token).resolve()
+            except (OSError, RuntimeError, ValueError):
+                # Unresolvable token (e.g. an embedded NUL byte) is not a clone-dir
+                # target; let it fall through to subprocess.run, whose own error is
+                # mapped to a clean ToolError below rather than escaping the guard.
+                return False
+            return candidate == clone_root or clone_root in candidate.parents
+
+        try:
+            tokens: list[str] | None = shlex.split(command)
+        except ValueError:
+            tokens = None  # unparseable command → conservative substring fallback
+        if clone_root is not None and tokens is not None:
+            blocked = any(_targets_clone(t) for t in tokens)
+        else:
+            # Token-aware check unavailable (unresolvable clone root or unparseable
+            # command) → conservative substring fallback on the *unresolved* absolute
+            # path, which never raises.
+            clone_abs = str(self.root / clone_rel)
+            blocked = clone_rel in command or clone_abs in command
+        if blocked:
             raise ToolError(
                 f"run_command refused: commands must not execute paths inside the "
                 f"neighbour clone directory ('{clone_rel}'). "
                 f"Clone files are read-only source — use read_file to inspect them."
             )
 
-        proc = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
-            command,
-            shell=True,
-            cwd=str(self.root),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        try:
+            proc = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
+                command,
+                shell=True,
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                timeout=_COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # A hung command must surface as a recoverable ToolError, not an
+            # uncaught exception that escapes the executor and aborts the whole
+            # drive — the loop only catches ToolError around tool execution
+            # (see colleague/loop.py), mirroring culture/devague/hooks.
+            raise ToolError(
+                f"run_command timed out after {_COMMAND_TIMEOUT_SECONDS}s: {command}"
+            ) from exc
+        except OSError as exc:
+            # Launch/IO failure (e.g. too many open files, no shell) → clean error.
+            raise ToolError(f"run_command failed to launch: {exc}") from exc
+        except Exception as exc:
+            # Any other failure from subprocess.run (e.g. ValueError on an embedded
+            # NUL byte in a model-issued command) must ALSO be recoverable, not
+            # abort the drive — the whole point of run_command error mapping. Mirrors
+            # the _subagent/_subagents catch-all in this module. KeyboardInterrupt is
+            # a BaseException and still propagates.
+            raise ToolError(f"run_command failed: {type(exc).__name__}: {exc}") from exc
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
         return ToolOutcome(result=self._truncate(result))

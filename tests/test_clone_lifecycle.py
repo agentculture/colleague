@@ -22,6 +22,7 @@ clone required.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -292,6 +293,61 @@ class TestNeverExecuteConfinement:
                 {"command": "cd .colleague/neighbours/lib && sh build.sh"},
             )
 
+    def test_run_command_allows_clone_path_in_quoted_string(self, tmp_path: Path) -> None:
+        """A command that only MENTIONS the clone path in a string is allowed.
+
+        The old substring guard false-positived here; the token-aware guard
+        resolves each shlex token and only blocks one that targets the clone root.
+        """
+        _make_fake_clone(tmp_path, "lib", "tool.py", "print('x')\n")
+        executor = ToolExecutor(tmp_path)
+
+        outcome = executor.execute(
+            "run_command",
+            {"command": 'echo "see .colleague/neighbours for clones"'},
+        )
+        assert "see .colleague/neighbours for clones" in outcome.result
+
+    def test_run_command_blocks_clone_path_with_unbalanced_quotes_via_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        """An unparseable command (shlex ValueError) still blocks a clone path.
+
+        The conservative fallback keeps the substring check, so a malformed command
+        can never slip a clone-path execution through the token-aware guard.
+        """
+        _make_fake_clone(tmp_path, "ext", "run.sh", "echo run\n")
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="clone"):
+            executor.execute(
+                "run_command",
+                {"command": 'sh .colleague/neighbours/ext/run.sh "unbalanced'},
+            )
+
+    def test_run_command_blocks_clone_path_when_clone_root_unresolvable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If clone_root can't be resolved the guard falls back to substring (never raises).
+
+        Qodo PR #95: `Path.resolve()` for clone_root sat outside the try/except, so a
+        resolve failure (symlink loop / permissions) would escape as a non-ToolError
+        and abort the drive. The guard now fails closed to the substring check.
+        """
+        _make_fake_clone(tmp_path, "ext", "run.sh", "echo run\n")
+        executor = ToolExecutor(tmp_path)  # construct BEFORE patching resolve
+
+        def boom_resolve(_self: Path, *_a: object, **_k: object) -> Path:
+            raise OSError("resolve failed")
+
+        monkeypatch.setattr("colleague.tools.Path.resolve", boom_resolve)
+
+        with pytest.raises(ToolError, match="clone"):
+            executor.execute(
+                "run_command",
+                {"command": "sh .colleague/neighbours/ext/run.sh"},
+            )
+
     def test_run_command_confinement_via_loop(self, tmp_path: Path) -> None:
         """The never-execute guard is visible through the full loop path.
 
@@ -319,3 +375,76 @@ class TestNeverExecuteConfinement:
         assert run_steps, "a run_command step must be recorded"
         assert run_steps[0].ok is False
         assert "clone" in run_steps[0].result
+
+
+# ---------------------------------------------------------------------------
+# run_command subprocess-failure mapping: a hung or unlaunchable command must
+# become a recoverable ToolError fed back to the model, never an uncaught
+# exception that aborts the whole drive (mirrors culture/devague/hooks).
+# ---------------------------------------------------------------------------
+
+
+class TestRunCommandSubprocessErrors:
+    """subprocess failures in run_command map to ToolError, not a drive abort."""
+
+    def test_run_command_timeout_maps_to_tool_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*_args: object, **_kwargs: object) -> object:
+            raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
+
+        monkeypatch.setattr("colleague.tools.subprocess.run", boom)
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="timed out"):
+            executor.execute("run_command", {"command": "sleep 999"})
+
+    def test_run_command_oserror_maps_to_tool_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*_args: object, **_kwargs: object) -> object:
+            raise OSError("Too many open files")
+
+        monkeypatch.setattr("colleague.tools.subprocess.run", boom)
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="failed to launch"):
+            executor.execute("run_command", {"command": "echo hi"})
+
+    def test_run_command_embedded_nul_maps_to_tool_error(self, tmp_path: Path) -> None:
+        """A command with an embedded NUL makes subprocess.run raise ValueError.
+
+        That is neither TimeoutExpired nor OSError, so without the catch-all it
+        would escape the executor and abort the drive (Qodo PR #94 review). Real
+        (un-monkeypatched) exercise of the catch-all branch.
+        """
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="run_command failed"):
+            executor.execute("run_command", {"command": "echo a\x00b"})
+
+    def test_run_command_timeout_continues_drive_via_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A timed-out command yields a non-ok Step; the drive CONTINUES.
+
+        Regression lock: before the fix, subprocess.TimeoutExpired escaped the
+        executor and aborted the whole drive via DriveAborted.
+        """
+
+        def boom(*_args: object, **_kwargs: object) -> object:
+            raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
+
+        monkeypatch.setattr("colleague.tools.subprocess.run", boom)
+        responses = [
+            ModelResponse(tool_calls=[ToolCall("c1", "run_command", {"command": "sleep 999"})]),
+            ModelResponse(tool_calls=[ToolCall("f1", "finish", {"summary": "done"})]),
+        ]
+        task = Task.new(str(tmp_path), "run a slow command")
+        result = run(scripted(responses), task, max_steps=10, hooks=HookConfig())
+
+        assert result.status == "ok"
+        run_steps = [s for s in result.steps if s.tool == "run_command"]
+        assert run_steps, "a run_command step must be recorded"
+        assert run_steps[0].ok is False
+        assert "timed out" in run_steps[0].result
