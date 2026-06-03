@@ -1,18 +1,184 @@
-"""Escalation continuation-record builder.
+"""Escalation: continuation-record builder + gating / idempotency (t1 + t2).
 
-Provides :func:`build_continuation`, a **pure** function that renders a
-structured five-section markdown body describing where a partial drive got to
-and how to continue it.  The output is intended to be filed as the body of an
-agtag issue by the escalation path (t3); this module owns only the rendering.
+Two public surfaces live here:
 
-No I/O, no subprocess, no network — stdlib only.
+**build_continuation** (t1) — a **pure** function that renders a structured
+five-section markdown body describing where a partial drive got to and how to
+continue it.  The output is intended to be filed as the body of an agtag issue
+by the escalation path (t3); this module owns only the rendering.
+
+**should_escalate / mark_escalated** (t2) — the gating predicate and
+idempotency marker for the agtag escalation outward side-effect.
+``should_escalate`` returns ``True`` ONLY when ALL conditions hold:
+
+1. **opt-in**: ``COLLEAGUE_ESCALATE`` env flag (falling back to the legacy
+   ``CONVERTIBLE_ESCALATE``) is set to a truthy value.
+2. **online / non-CI**: a git remote is configured (``handoff.has_remote``) AND
+   the ``gh`` CLI is on PATH (``handoff.gh_available``).  Both are imported from
+   :mod:`colleague.handoff` — this module does NOT import subprocess itself.
+3. **main checkout, not a throwaway worktree**: a linked git worktree
+   (colleague's subagent worktrees and outsource explore/review worktrees) has
+   ``.git`` as a *file* (a gitdir pointer); the main checkout has ``.git`` as a
+   *directory*.  We return False when ``(repo / ".git").is_file()``.  Pure
+   filesystem check — no subprocess.
+4. **approval gate**: the ``agtag`` program token must be allowed by the
+   policy loaded via :func:`colleague.policy.load_policy`.
+5. **idempotent**: if this ``task_id`` has already escalated (its marker file
+   exists), return False.
+
+``mark_escalated(repo, task_id, issue_url)`` writes the idempotency marker
+``<task_id>.escalation.json`` beside the drive artifact (same directory as the
+feedback record — resolved via :func:`colleague.artifact.artifact_dir`).
+
+No I/O, no subprocess, no network — stdlib only (``json``, ``os``, ``pathlib``).
 """
 
 from __future__ import annotations
 
-from colleague.contract import DriveStats, TaskResult
+import json
+import os
+from pathlib import Path
 
-__all__ = ["build_continuation"]
+from colleague.artifact import artifact_dir
+from colleague.contract import DriveStats, TaskResult
+from colleague.handoff import gh_available, has_remote
+from colleague.policy import load_policy
+
+__all__ = ["build_continuation", "mark_escalated", "should_escalate"]
+
+# ---------------------------------------------------------------------------
+# Env-flag helpers
+# ---------------------------------------------------------------------------
+
+#: Primary env flag; legacy ``CONVERTIBLE_ESCALATE`` honored as fallback.
+_ESCALATE_FLAG = "COLLEAGUE_ESCALATE"
+_ESCALATE_FLAG_LEGACY = "CONVERTIBLE_ESCALATE"
+
+#: Marker filename suffix, mirroring the feedback store pattern.
+_MARKER_SUFFIX = ".escalation.json"
+
+
+def _escalate_enabled() -> bool:
+    """Return True when the COLLEAGUE_ESCALATE (or legacy) env flag is truthy."""
+    raw = os.environ.get(_ESCALATE_FLAG) or os.environ.get(_ESCALATE_FLAG_LEGACY) or ""
+    return raw.strip().lower() not in ("", "0", "false", "no")
+
+
+# ---------------------------------------------------------------------------
+# Idempotency marker
+# ---------------------------------------------------------------------------
+
+
+def _marker_path(repo: Path, task_id: str) -> Path:
+    """Return the write path for this task's escalation marker."""
+    return artifact_dir(repo) / f"{task_id}{_MARKER_SUFFIX}"
+
+
+def mark_escalated(repo: str | Path, task_id: str, issue_url: str) -> None:
+    """Write the idempotency marker for *task_id* beside the drive artifact.
+
+    The marker is a small JSON file ``<task_id>.escalation.json`` in
+    ``<repo>/.colleague/`` (the same directory the feedback store uses).  A
+    second call for the same ``task_id`` silently overwrites the first record —
+    the marker is idempotent by content; the important invariant is existence.
+
+    Parameters
+    ----------
+    repo:
+        The repo root (used to resolve the artifact directory).
+    task_id:
+        The drive's task identifier — used as the filename stem.
+    issue_url:
+        The URL of the agtag issue that was opened.  Stored in the marker so
+        the operator can inspect which issue was filed for a given drive.
+    """
+    path = _marker_path(Path(repo).resolve(), task_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {"task_id": task_id, "issue_url": issue_url}
+    path.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _already_escalated(repo: Path, task_id: str) -> bool:
+    """Return True when the escalation marker for *task_id* already exists.
+
+    An absent or malformed marker is a clean no-op (returns False — treat as
+    "not yet escalated", never raise).
+    """
+    try:
+        return _marker_path(repo, task_id).is_file()
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Gating predicate
+# ---------------------------------------------------------------------------
+
+
+def should_escalate(
+    repo: str | Path,
+    task_id: str,
+    *,
+    model: str | None = None,
+) -> bool:
+    """Return True only when ALL escalation gates are open.
+
+    Gates (ALL must hold):
+
+    1. **opt-in**: ``COLLEAGUE_ESCALATE`` (or ``CONVERTIBLE_ESCALATE``) is set
+       to a truthy value.
+    2. **online / non-CI**: ``handoff.has_remote(repo)`` is True AND
+       ``handoff.gh_available()`` is True.  These helpers are imported from
+       :mod:`colleague.handoff`; no subprocess is called directly here.
+    3. **main checkout**: ``(repo / ".git").is_file()`` must be False — a file
+       indicates a linked git worktree (subagent worktree or outsource throwaway);
+       the main checkout always has ``.git`` as a directory.
+    4. **approval gate**: ``check_run_command("agtag ...")`` on the repo policy
+       must return ``Verdict(allowed=True)``.
+    5. **idempotent**: no escalation marker for *task_id* exists yet.
+
+    Parameters
+    ----------
+    repo:
+        The repository root path.
+    task_id:
+        The drive's task identifier.
+    model:
+        Optional model name; forwarded to ``load_policy`` so per-model overlays
+        are respected.
+
+    Returns
+    -------
+    bool
+        ``True`` only when every gate passes, ``False`` on any failure.  With
+        the env flag unset this is always ``False`` — a strict no-op so tests,
+        CI, offline runs, and worktrees never escalate by default.
+    """
+    # Gate 1 — opt-in: env flag must be explicitly enabled.
+    if not _escalate_enabled():
+        return False
+
+    repo_path = Path(repo).resolve()
+
+    # Gate 2 — online / non-CI: remote + gh CLI must be available.
+    if not has_remote(repo_path) or not gh_available():
+        return False
+
+    # Gate 3 — main checkout only: a linked worktree has .git as a FILE.
+    if (repo_path / ".git").is_file():
+        return False
+
+    # Gate 4 — approval gate: agtag must be in the run_command allow-list.
+    policy = load_policy(repo_path, model=model)
+    verdict = policy.check_run_command("agtag escalate")
+    if not verdict.allowed:
+        return False
+
+    # Gate 5 — idempotent: skip if already escalated for this task.
+    if _already_escalated(repo_path, task_id):
+        return False
+
+    return True
 
 
 def build_continuation(result: TaskResult, stats: DriveStats) -> str:  # noqa: WPS231
