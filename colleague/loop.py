@@ -586,6 +586,7 @@ def run(
     progress: ProgressFn | None = None,
     policy: Policy | None = None,
     spawn: Callable | None = None,
+    batch_spawn: Callable | None = None,
     context_budget: int | None = None,
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None,
 ) -> TaskResult:
@@ -628,6 +629,14 @@ def run(
     executor accumulates are snapshotted onto ``result.sub_results`` on every exit
     path (alongside ``changed_files``).
 
+    ``batch_spawn`` is an optional parallel batch-spawn callback
+    ``batch_spawn(items) -> list[SubResult]`` (built by
+    :func:`colleague.subagents.make_batch_spawn`); when given it is injected into
+    the :class:`~colleague.tools.ToolExecutor` so the ``subagents`` (plural) tool
+    can delegate a batch of sub-tasks to parallel child drives. ``None`` (the
+    default) leaves the batch tool unavailable. Like ``spawn`` it is chassis-owned
+    — every engine forwards ``config.subagent_batch_spawn``.
+
     ``context_budget`` is an optional proactive token budget (t4). When a positive
     int, the running history is windowed to it (via :func:`window_messages`)
     *before* every model turn, and a context-overflow raised by ``complete``
@@ -647,7 +656,7 @@ def run(
     :class:`DriveAborted` carrying that result, so the drive path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
-    executor = executor or ToolExecutor(task.repo_path, spawn=spawn)
+    executor = executor or ToolExecutor(task.repo_path, spawn=spawn, batch_spawn=batch_spawn)
     hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
     # Telemetry defaults like hooks do: resolved from the environment, a no-op
     # unless explicitly enabled. Tool spans auto-nest under the drive span the
