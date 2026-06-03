@@ -25,7 +25,7 @@ Commands
 --------
   colleague drive <task>       Run a repo task through a coder backend.
   colleague wheels list        List discovered backend plugins.
-  colleague whoami             Identity from culture.yaml.
+  colleague whoami             Mesh identity + the live drive engine/model.
   colleague learn              This self-teaching prompt.
   colleague explain <path>...  Markdown docs for any noun/verb path.
   colleague overview           Descriptive snapshot of the agent.
@@ -65,7 +65,7 @@ def _as_json_payload() -> dict[str, object]:
         "commands": [
             {"path": ["drive"], "summary": "Run a repo task through a coder backend."},
             {"path": ["wheels", "list"], "summary": "List discovered backend plugins."},
-            {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
+            {"path": ["whoami"], "summary": "Mesh identity + the live drive engine/model."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},

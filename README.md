@@ -804,7 +804,7 @@ in the current version. Do not rely on a non-existent flag.
 | `telemetry overview` | Describe the telemetry surface. |
 | `session` | Open a foreground interactive palette. |
 | `wheels list` | List discovered backend plugins (the registry). |
-| `whoami` | Report this agent's nick, version, backend, and model. |
+| `whoami` | Report nick, version, mesh backend, and the live drive engine + model (the delegate an `outsource` would actually run). |
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |

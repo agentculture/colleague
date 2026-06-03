@@ -7,11 +7,16 @@ description: >
   model; it's a different mind, and diversity helps: `outsource review` gets an
   independent second opinion on a diff, `outsource explore` gets a fresh read of
   an area, `outsource write` delegates a small implementation, and `outsource
-  feedback` grades a finished drive (the ROI loop). Use when the user says
+  feedback` grades a finished drive (the ROI loop). Reach for it PROACTIVELY, not
+  only when asked: before you present or open a PR on a non-trivial committed
+  diff, run `review` for a diverse second opinion; for a fresh read of an
+  unfamiliar area whose answer is independent of your current context, run
+  `explore`. Both are read-only — isolated in a throwaway git worktree, zero side
+  effects — so the reflex is always safe; the side-effecting `write --apply` /
+  `write --pr` still needs the user's go-ahead. Also triggers when the user says
   "outsource this", "get a second opinion", "have colleague review/explore/
-  write", "ask the other model", "rate that drive", or when you want a diverse
-  perspective rather than just doing it yourself. Read-only verbs (explore/review)
-  run isolated in a throwaway git worktree and cannot touch the working tree.
+  write", "ask the other model", or "rate that drive". Outsourced output is a
+  second opinion to verify and own, never authority.
 ---
 
 # outsource — use colleague as a different mind
@@ -24,6 +29,49 @@ mind glides past, which is why **review** is the headline verb.
 
 This skill is the operator: a portable wrapper that resolves the CLI and turns
 each verb into a `colleague drive`, then prints the drive's result summary.
+
+## The reflex — when to reach for colleague *unprompted*
+
+Don't wait to be told "outsource this." The two read-only verbs have **zero side
+effects** (throwaway worktree, can't touch your tree), so reaching for them is
+always safe — make it a habit on tasks that fit:
+
+**GO** (reach out on your own — default to the read-only verbs):
+
+- **`review` — the standing reflex.** You (or a subagent) just produced a
+  non-trivial *committed* diff and are about to present it or open a PR. Get a
+  diverse second opinion *first*. A different mind catches what the author's mind
+  glides past — that's the whole point. A real review on a local model takes tens
+  of seconds to a few minutes (it reads the diff + touched files), so **kick it
+  off in the background and keep working** rather than blocking on it; fold the
+  findings in when it lands.
+- **`explore`** — you need to understand an unfamiliar area whose answer is
+  **independent of your current context**, and you could be doing something else
+  meanwhile. Fan it out, fold the findings back.
+- A scoped, **verifiable** subtask where a fresh pass raises your confidence and
+  you can cheaply check the result.
+
+**NO-GO** (just do it yourself):
+
+- Work that needs *your* accumulated context, the user's intent, or cross-cutting
+  design judgment — a context-free second mind will drift, not help.
+- Anything **outward-facing or destructive** without a user nod: `write --apply` /
+  `write --pr`, posting, deleting. The read-only verbs are the unprompted reflex;
+  side-effecting ones are not.
+- Trivial work that's faster to just do (a one-line edit) — the drive + fold-back
+  costs more than the edit.
+- Output you can't verify cheaply — if you can't check it, diversity is just noise.
+
+**Guardrails (always):**
+
+- **One-glance readiness.** `colleague whoami` names the live drive engine +
+  model; if it reports `mock` or you're unsure the server is up, run `colleague
+  doctor --probe`. Don't burn time on a dead or no-op backend.
+- **Second opinion, not authority.** colleague is a *different* mind, not a
+  stronger one. Weigh its findings, verify its claims, own the decision. Diversity
+  is the value; verification is the price.
+- **Close the loop.** Occasionally `outsource feedback last --rating N` so the ROI
+  of outsourcing this *kind* of task is measurable — and you learn when to stop.
 
 ## How to run
 

@@ -29,7 +29,7 @@ _VERBS = [
     "wheels list — list discovered backend plugins",
     "agents list — inspect layered AGENTS instruction files for a model",
     "skills list — inspect layered skill docs for a model",
-    "whoami — identity probe (nick, version, backend, model)",
+    "whoami — mesh identity (nick, version, backend) + live drive engine/model",
     "learn — structured self-teaching prompt",
     "explain <path> — markdown docs for a topic",
     "overview — this descriptive snapshot",
