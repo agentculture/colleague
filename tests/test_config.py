@@ -12,7 +12,7 @@ def test_defaults_point_at_vllm_reference() -> None:
     assert cfg.base_url == "http://localhost:8001/v1"
     assert cfg.model == "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
     assert cfg.api_key == "EMPTY"
-    assert cfg.max_steps == 25
+    assert cfg.max_steps == 40
 
 
 def test_explicit_args_win_over_env(monkeypatch: pytest.MonkeyPatch) -> None:

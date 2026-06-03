@@ -154,10 +154,18 @@ The car metaphor *is* the architecture:
   bounded number of times before preserving a readable partial result — so a
   multi-file drive on a small-context model degrades instead of hard-failing. The
   knob is `COLLEAGUE_CONTEXT_BUDGET` (tokens, on `EngineConfig.context_budget_tokens`,
-  default 24000, env `COLLEAGUE_CONTEXT_BUDGET`). Token counting goes through a
-  pluggable `count_tokens` seam — the vLLM engine counts exactly via the server's
-  `/tokenize` endpoint, falling back to a zero-dep char heuristic (`count_tokens_chars`)
-  when `/tokenize` is absent. **Honest limits:** the budget is best-effort exact
+  default 192000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 256k (262144-token)
+  reference rig, leaving headroom for the completion; lower it for a small-context
+  model. A companion knob caps each tool result fed back to the model:
+  `COLLEAGUE_MAX_OUTPUT_CHARS` (chars, on `EngineConfig.max_output_chars`, default
+  100000, raised from the old hardcoded 20000 so a large `read_file`/`run_command`
+  result isn't truncated inside the bigger window); both resolve via the same
+  `EngineConfig.resolve` precedence and the engines forward them to the loop
+  identically (all-engines rule). The drive step budget default is
+  `COLLEAGUE_MAX_STEPS` (`EngineConfig.max_steps`, default 40). Token counting goes
+  through a pluggable `count_tokens` seam — the vLLM engine counts exactly via the
+  server's `/tokenize` endpoint, falling back to a zero-dep char heuristic
+  (`count_tokens_chars`) when `/tokenize` is absent. **Honest limits:** the budget is best-effort exact
   (exact via `/tokenize`, char-approximate fallback) — NO third-party tokenizer
   library is bundled (`dependencies = []` holds); windowing DROPS oldest history
   with a placeholder note (there is **no LLM-generated summary** in v0); there is

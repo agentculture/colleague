@@ -25,7 +25,7 @@ from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
 from colleague.engine import Engine
 from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
-from colleague.tools import SCHEMAS
+from colleague.tools import SCHEMAS, ToolExecutor
 
 
 def _post_json(
@@ -221,7 +221,14 @@ class VllmOpenAIEngine(Engine):
             system_prompt=self.system_prompt(task, config),
             model=config.model,
             progress=config.progress,
-            spawn=config.subagent_spawn,
+            # The engine builds the repo-confined executor so the config-derived
+            # output cap (and subagent spawn) ride the existing ``executor`` seam
+            # — keeps ``run()`` from growing another parameter (all-engines rule).
+            executor=ToolExecutor(
+                task.repo_path,
+                spawn=config.subagent_spawn,
+                max_output_chars=config.max_output_chars,
+            ),
             context_budget=config.context_budget_tokens,
             count_tokens=self._make_count_tokens(config),
         )

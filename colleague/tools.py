@@ -20,14 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from colleague import culture, devague
-from colleague.config import MAX_SUBAGENT_FANOUT
+from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
 FINISH = "finish"
-
-# Cap tool output fed back to the model so a huge file/command can't blow the
-# context window. Tunable; deliberately conservative.
-_MAX_OUTPUT_CHARS = 20_000
 
 
 class ToolError(Exception):
@@ -241,16 +237,16 @@ SCHEMAS: list[dict[str, Any]] = [
 TOOL_NAMES: list[str] = [s["function"]["name"] for s in SCHEMAS]
 
 
-def _truncate(text: str) -> str:
-    if len(text) <= _MAX_OUTPUT_CHARS:
-        return text
-    return text[:_MAX_OUTPUT_CHARS] + f"\n... [truncated at {_MAX_OUTPUT_CHARS} chars]"
-
-
 class ToolExecutor:
     """Executes tool calls against a single repo root, confining file access to it."""
 
-    def __init__(self, root: str | Path, *, spawn=None) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        spawn=None,
+        max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
+    ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
         # Total UTF-8 bytes written to files via write_file across the drive — the
@@ -258,7 +254,17 @@ class ToolExecutor:
         # loop snapshots it onto DriveStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
         self._spawn = spawn
+        # Cap on each tool result fed back to the model so a huge file/command
+        # can't blow the context window. Resolved from EngineConfig (env
+        # COLLEAGUE_MAX_OUTPUT_CHARS); sized for the served model's window.
+        self._max_output_chars = max_output_chars
         self.sub_results: list[SubResult] = []
+
+    def _truncate(self, text: str) -> str:
+        limit = self._max_output_chars
+        if len(text) <= limit:
+            return text
+        return text[:limit] + f"\n... [truncated at {limit} chars]"
 
     def _safe_path(self, rel: str) -> Path:
         """Resolve ``rel`` under the root, refusing any path that escapes it."""
@@ -300,7 +306,7 @@ class ToolExecutor:
             raise ToolError(f"no such file: {arguments['path']}") from exc
         except OSError as exc:
             raise ToolError(f"cannot read {arguments['path']}: {exc}") from exc
-        return ToolOutcome(result=_truncate(text))
+        return ToolOutcome(result=self._truncate(text))
 
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         rel = str(arguments["path"])
@@ -334,7 +340,7 @@ class ToolExecutor:
         if not path.is_dir():
             raise ToolError(f"not a directory: {arguments.get('path', '.')}")
         entries = sorted(p.name + ("/" if p.is_dir() else "") for p in path.iterdir())
-        return ToolOutcome(result=_truncate("\n".join(entries)))
+        return ToolOutcome(result=self._truncate("\n".join(entries)))
 
     # Relative path prefix used by the never-execute guard below.
     _CLONE_SUBDIR = ".colleague/neighbours"
@@ -379,7 +385,7 @@ class ToolExecutor:
         )
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
-        return ToolOutcome(result=_truncate(result))
+        return ToolOutcome(result=self._truncate(result))
 
     def _culture(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch the shared ``culture`` tool to an allow-listed AgentCulture CLI.
@@ -457,4 +463,4 @@ class ToolExecutor:
             f"subagent[{sub.engine}/{sub.model}] {sub.status}: {sub.summary}\n"
             f"changed files: " + (", ".join(sub.changed_files) or "(none)")
         )
-        return ToolOutcome(result=_truncate(result))
+        return ToolOutcome(result=self._truncate(result))
