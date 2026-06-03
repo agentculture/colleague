@@ -102,7 +102,12 @@ SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Run a shell command with the working directory at the repo root.",
+            "description": (
+                "Run a shell command. Each call runs in a FRESH shell with the "
+                "working directory already at the repo root, so `cd` and "
+                "environment changes do NOT persist to later calls — never `cd` to "
+                "reach a path; use repo-relative paths directly."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
