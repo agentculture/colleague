@@ -43,13 +43,13 @@ def render_skill_panel(state: CockpitState, *, width: int = SKILL_COL_WIDTH) -> 
     lines: list[str] = []
     lines.append(_hline(width, panel.title or "Skills"))
     if panel.content_summary:
-        lines.append(f"│ {panel.content_summary:<{width - 4}} │")
+        lines.append(f"│ {panel.content_summary:<{max(1, width - 4)}} │")
 
     for item in panel.items:
         glyph = _STATUS_GLYPH.get(item.status, _DEFAULT_GLYPH)
         label = item.label
         # Truncate if too wide
-        max_label = width - 7
+        max_label = max(1, width - 7)
         if len(label) > max_label:
             label = label[: max_label - 1] + "…"
         lines.append(f"│ {glyph} {label:<{max_label}} │")

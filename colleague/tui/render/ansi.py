@@ -95,8 +95,11 @@ def render(
         p.id in ("panel.conversation", "conversation") and p.visible for p in state.panels
     )
 
-    if has_skills and has_conv:
-        conv_width = max(MIN_WIDTH, width - SKILL_COL_WIDTH - GAP_LEN)
+    if has_skills and has_conv and width >= SKILL_COL_WIDTH + GAP_LEN + MIN_WIDTH:
+        # Side-by-side: fixed skills column, conversation takes the rest.  Guarded
+        # so the joined row (skills + gap + conversation) never exceeds *width* —
+        # a terminal too narrow for two columns falls through to stacking below.
+        conv_width = width - SKILL_COL_WIDTH - GAP_LEN
         skills = render_skill_panel(state, width=SKILL_COL_WIDTH)
         conv = render_conversation(state, width=conv_width)
         skills_lines = skills.splitlines()
@@ -108,6 +111,11 @@ def render(
         gap = " " * GAP_LEN
         middle_lines = [f"{s}{gap}{c}" for s, c in zip(skills_lines, conv_lines)]
         parts.append("\n".join(middle_lines))
+        parts.append(frame_sep)
+    elif has_skills and has_conv:
+        # Too narrow for two columns — stack both panels at the full width.
+        parts.append(render_skill_panel(state, width=width))
+        parts.append(render_conversation(state, width=width))
         parts.append(frame_sep)
     elif has_skills:
         parts.append(render_skill_panel(state, width=SKILL_COL_WIDTH))

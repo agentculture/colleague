@@ -297,6 +297,22 @@ def test_tiny_width_does_not_raise() -> None:
     assert isinstance(out, str) and out
 
 
+def test_narrow_both_panels_stack_without_overflow() -> None:
+    """A terminal too narrow for two columns stacks the panels and never overflows."""
+    skills = Panel(id="skills", title="Skills", items=[PanelItem(id="s1", label="explore")])
+    conv = Panel(id="panel.conversation", title="Session", content_summary="hello there")
+    out = render(CockpitState(panels=[skills, conv]), width=60)  # 60 < 30+2+40
+    assert _max_visible_width(out) <= 60  # no row exceeds the requested width
+    assert "explore" in out and "hello there" in out  # both panels still visible
+
+
+def test_pathologically_small_width_does_not_hang_or_raise() -> None:
+    """width < 4 must not infinite-loop the wrap or raise on a negative field width."""
+    state = _conversation_state("a fairly long conversation line that forces wrapping")
+    out = render(state, width=3)
+    assert isinstance(out, str) and out
+
+
 def test_include_prompt_toggles_prompt_line() -> None:
     """include_prompt=False omits the prompt line; the default keeps it."""
     state = CockpitState(focused="input.prompt")

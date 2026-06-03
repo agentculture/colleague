@@ -33,13 +33,13 @@ def render_command_palette(state: CockpitState, *, width: int = DEFAULT_WIDTH) -
     if panel is None or not panel.visible:
         return ""
 
-    max_inner = width - 4
+    max_inner = max(1, width - 4)
     lines: list[str] = [_hline(width, panel.title or "Commands")]
     if panel.content_summary:
         lines.append(f"│ {panel.content_summary[:max_inner]:<{max_inner}} │")
 
     # "│ NN. <label> │" — leave room for the 2-wide number, dot, and the borders.
-    max_label = width - 8
+    max_label = max(1, width - 8)
     for num, item in enumerate(panel.items, start=1):
         label = item.label
         if len(label) > max_label:

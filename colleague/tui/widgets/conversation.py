@@ -47,7 +47,9 @@ def render_conversation(state: CockpitState, *, width: int = DEFAULT_WIDTH) -> s
     if panel is None or not panel.visible:
         return ""
 
-    max_inner = width - 4
+    # Clamp to >=1 so a pathologically small width can never produce a negative
+    # field width (format error) or a non-shrinking wrap chunk (infinite loop).
+    max_inner = max(1, width - 4)
     lines: list[str] = [_hline(width, panel.title or "Conversation")]
 
     rows = panel.content_summary.split("\n") if panel.content_summary else []

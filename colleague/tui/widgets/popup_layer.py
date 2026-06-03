@@ -43,7 +43,7 @@ def _box_bottom(width: int) -> str:
 
 
 def _box_line(width: int, text: str) -> str:
-    max_inner = width - 4
+    max_inner = max(1, width - 4)
     if len(text) > max_inner:
         text = text[: max_inner - 1] + "…"
     return f"║ {text:<{max_inner}} ║"
@@ -55,7 +55,7 @@ def _render_popup(popup: Popup, width: int) -> str:
     lines.append(f"{_YELLOW}{_BOLD}{_box_top(width, title)}{_RESET}")
 
     # Message — may be multi-line; split on newlines first
-    max_inner = width - 4
+    max_inner = max(1, width - 4)
     for raw_line in (popup.message or "").splitlines() or [""]:
         while len(raw_line) > max_inner:
             lines.append(_box_line(width, raw_line[:max_inner]))

@@ -15,6 +15,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - slash-command output (e.g. /help) no longer mangles mid-word in the conversation panel — the box wraps at the full width instead of 46 chars
+- ANSI render no longer overflows the requested width on a narrow terminal (41–71 cols) when both the skills and conversation panels are visible — the side-by-side layout is guarded and falls back to stacking the panels full-width below the column threshold
+- box widgets clamp their derived inner widths to a positive minimum, so a pathologically small `width` can no longer raise on a negative field width or spin the wrap loop forever
 
 ## [0.27.1] - 2026-06-03
 
