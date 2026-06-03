@@ -34,7 +34,13 @@ DECISION_OBSERVE = "observe"
 # The loop (loop.py, task t2) is responsible for assigning this value; the
 # contract owns the stable string so every backend and every caller share one
 # importable reference.
-NO_RESULT_PRODUCED = "no result produced"
+#
+# The value is a deliberately machine-oriented marker (sentinel affixes + a
+# token unlikely in prose) rather than a plain-English phrase: the sentinel
+# lives in ``summary``, a free-form *model text* field, so if it read like
+# normal output the model could legitimately emit it as its last substantive
+# content and a caller would misclassify a real result as the empty case.
+NO_RESULT_PRODUCED = "__COLLEAGUE_NO_RESULT_PRODUCED__"
 
 
 @dataclass

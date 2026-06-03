@@ -817,11 +817,13 @@ def run(
     #      narration emitted on a tool-call turn is now recoverable).
     #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
     #
-    # The not-finished / budget-exhaustion STATUS is now preserved via
-    # ``result.stats.step_count`` (equals ``max_steps`` when the budget was hit)
-    # rather than encoded in the summary string.  Callers that previously
-    # matched ``"budget" in result.summary`` should instead compare
-    # ``result.stats.step_count >= max_steps`` (or check ``finished`` on their end).
+    # NOTE: this no longer encodes the not-finished / budget-exhaustion STATUS in
+    # the summary string (the old ``"stopped at the N-step budget"`` text is gone
+    # — limit *signalling* is out of scope for #109; it belongs to #106). Do NOT
+    # infer budget-exhaustion from ``result.stats.step_count``: ``max_steps`` bounds
+    # model *turns*, while ``step_count`` counts *tool calls* (a turn may issue
+    # several), so the two are not comparable. A reliable not-finished signal is a
+    # follow-up — #106 should add an explicit flag, not a step-count heuristic.
     if not result.summary:
         result.summary = _last_sub or NO_RESULT_PRODUCED
     return result

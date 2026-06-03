@@ -36,8 +36,12 @@ def test_no_result_produced_is_stable():
 
     Callers will write ``result.summary == NO_RESULT_PRODUCED``; if the value
     changes their comparisons silently break.  Pin the exact text here.
+
+    The value is a machine-oriented marker (sentinel affixes), not a plain-English
+    phrase, so the model cannot plausibly emit it as legitimate output and have a
+    caller misclassify a real result as the empty case.
     """
-    assert NO_RESULT_PRODUCED == "no result produced"
+    assert NO_RESULT_PRODUCED == "__COLLEAGUE_NO_RESULT_PRODUCED__"
 
 
 def test_no_result_produced_does_not_contain_step_count():
@@ -48,6 +52,10 @@ def test_no_result_produced_does_not_contain_step_count():
     """
     assert "step" not in NO_RESULT_PRODUCED
     assert "completed" not in NO_RESULT_PRODUCED
+    # Collision-resistant: machine-oriented affixes, not natural prose the model
+    # could plausibly emit as its own last substantive content.
+    assert NO_RESULT_PRODUCED.startswith("__") and NO_RESULT_PRODUCED.endswith("__")
+    assert " " not in NO_RESULT_PRODUCED
 
 
 # ---------------------------------------------------------------------------
