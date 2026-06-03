@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] - 2026-06-03
+
+### Changed
+
+- Docs/terminology: replaced the car metaphor with standard agent/runtime vocabulary across README, docs/features/*, CLI help text, docstrings, the explain catalog, and CLAUDE.md (engine→backend, driver→adapter, chassis→runtime, wheels→plugins, garage→registry, dashboard→run report, GPS→telemetry, oilcheck→health check, convoy→subagents, gearbox→router/routing policy). New framing: "One runtime, many minds." No CLI verb/flag, module, or test changes; --engine, wheels/doctor/telemetry/drive, colleague.engines, colleague/oilcheck/, and the all-engines rule name are unchanged (#88).
+
 ## [0.29.0] - 2026-06-03
 
 ### Added
