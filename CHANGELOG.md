@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-06-03
+
+### Added
+
+- NO_RESULT_PRODUCED contract sentinel — a stable, programmatic signal a caller branches on when a drive produced no output (#109)
+
+### Changed
+
+- A no-finish drive surfaces the model's last substantive assistant content (tracked on every turn, including tool-call turns) as result.summary instead of a content-free 'completed in N step(s)'; the 'stopped at the N-step budget' summary string is removed (budget is inferrable from stats.step_count) (#109)
+
+### Fixed
+
+- drive/outsource results no longer read as empty-looking successes when the model does not call finish — the produced content is surfaced in the result, not buried in the artifact JSON (#109)
+
 ## [0.29.13] - 2026-06-03
 
 ### Added
