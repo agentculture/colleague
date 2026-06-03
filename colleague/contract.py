@@ -413,6 +413,13 @@ class TaskResult:
     announcement: Optional[str] = None
     """The announcement text declared on arrival at the destination, or ``None``
     when no destination was set or no announcement was produced."""
+    not_finished: bool = False
+    """True iff the drive exhausted the step budget without calling ``finish`` AND
+    without raising :class:`DriveAborted` (i.e. the model ran out of turns but the
+    engine itself did not error).  False on a clean finish (finish tool called), a
+    no-tool-call terminating answer, or the aborted path.  Set by :func:`loop.run`
+    from the return value of ``_drive_loop``; never inferred from
+    ``stats.step_count`` (which counts tool calls, not model turns)."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -429,6 +436,7 @@ class TaskResult:
             "pr_url": self.pr_url,
             "hook_firings": [h.to_dict() for h in self.hook_firings],
             "command": self.command,
+            "not_finished": self.not_finished,
         }
         # destination and announcement are OMITTED (not emitted as null) when
         # None.  This preserves byte-identical output for the no-destination
@@ -467,4 +475,5 @@ class TaskResult:
             command=data.get("command"),
             destination=data.get("destination"),
             announcement=data.get("announcement"),
+            not_finished=bool(data.get("not_finished", False)),
         )

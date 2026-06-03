@@ -5,7 +5,7 @@
   "schema_version": 1,
   "status": "exported",
   "created": "2026-06-03T18:30:55Z",
-  "updated": "2026-06-03T18:33:55Z",
+  "updated": "2026-06-03T20:27:14Z",
   "targets": [
     {
       "id": "c1",
@@ -172,7 +172,8 @@
       ],
       "deps": [
         "t1",
-        "t2"
+        "t2",
+        "t5"
       ],
       "covers": [
         "c1",
@@ -202,6 +203,19 @@
         "h6",
         "h9"
       ]
+    },
+    {
+      "id": "t5",
+      "summary": "Add an explicit not-finished flag to TaskResult, set in loop.py finalize when the drive exhausts the step budget without calling finish",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult carries an explicit boolean (e.g. not_finished) that is True iff the drive ran out the step budget without calling finish and without raising DriveAborted; False on a clean finish or a no-tool-call answer",
+        "the flag is set in loop.py finalize and does NOT rely on stats.step_count (which counts tool calls, not the max_steps turn budget); all-engines (mock and vllm), zero new deps",
+        "the #109 TaskResult-field-set guard (tests/test_result_fidelity.py) and the e2e shape test are updated for the new field; mock and vllm produce the identical shape"
+      ],
+      "deps": [],
+      "covers": []
     }
   ],
   "risks": [

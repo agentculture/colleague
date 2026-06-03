@@ -388,6 +388,7 @@ def test_subagent_drive_with_telemetry_off_is_noop(tmp_path: Path) -> None:
         "hook_firings",
         "command",
         "sub_results",
+        "not_finished",
     }
     assert (
         set(d.keys()) == expected_keys

@@ -157,6 +157,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
 | Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |
+| Escalation (agtag continuation) | [escalation.md](docs/features/escalation.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.

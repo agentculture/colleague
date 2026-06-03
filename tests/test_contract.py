@@ -215,6 +215,7 @@ def test_destination_omitted_when_none() -> None:
         "pr_url",
         "hook_firings",
         "command",
+        "not_finished",
     }
     assert set(serialized.keys()) == expected_keys
 
