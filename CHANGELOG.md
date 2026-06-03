@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.7] - 2026-06-03
+
+### Fixed
+
+- `run_command` tool description now states the fact a small model trips on: each call runs in a FRESH shell with cwd already at the repo root, so `cd` and environment changes do NOT persist between calls — use repo-relative paths, never `cd`. This is the systemic root-cause fix for the thrash that made `outsource review` burn its whole step budget on `cd`/`pwd`/`which` churn; correcting it once at the tool level means every verb and every backend inherits it (all-engines rule), not just the one prompt that was patched.
+- `outsource explore` prompt (`explore.md`) brought to parity with the hardened `review.md`: a report that never calls `finish` returns NOTHING, so finish early; and don't repeat near-identical searches — once a search points at the relevant file, read it. A live explore had been calling `finish` on step 19/20 after several duplicate `rg` searches, one redundant search away from the same empty-result failure.
+
 ## [0.29.6] - 2026-06-03
 
 ### Changed
