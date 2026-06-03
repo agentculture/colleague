@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.10] - 2026-06-03
+
+### Fixed
+
+- `doc-review` command template now enforces **finish discipline** (mirroring the proven `review.md`/`explore.md` fixes): it explicitly requires calling the `finish` tool with the itemized report and warns that ending without `finish` returns nothing. Found by dogfooding (#104): a full-repo audit read 18 files then ended with a 101-char non-report. Verified: a scoped audit now reaches `finish` with a real itemized findings list. Added a lightweight self-escalation seed — when the audit is too big to finish, report INCOMPLETE with what is covered, what remains, and a suggested split (the prompt-level seed of #106).
+- Stale-doc fixes surfaced by that doc-review dogfood (each verified against the code): the `explain` `_SUBAGENT` entry no longer claims subagents are *"sequential only in v0"* / *"synchronous, no thread"* — parallel subagents shipped v0.29.0 (opt-in `COLLEAGUE_SUBAGENT_CONCURRENCY`, `concurrent.futures`, per-child `sub/<id>` worktrees, a merge child); and the README feature table now lists the two existing pages it omitted (`parallel-subagents.md`, `graceful-degradation.md`). (The audit also false-flagged the `MAX_SUBAGENT_*` constants as moved out of `config.py` — they are not; that finding was rejected on verification.)
+
 ## [0.29.9] - 2026-06-03
 
 ### Fixed

@@ -135,6 +135,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Feature | Doc |
 |---------|-----|
 | Drive & the tool-loop | [drive-and-loop.md](docs/features/drive-and-loop.md) |
+| Context budget / graceful degradation | [graceful-degradation.md](docs/features/graceful-degradation.md) |
 | Backends & plugins | [engines.md](docs/features/engines.md) |
 | Model & endpoint selection | [model-selection.md](docs/features/model-selection.md) |
 | Git/PR handoff | [handoff.md](docs/features/handoff.md) |
@@ -151,6 +152,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 | Destination | [destination.md](docs/features/destination.md) |
 | Subagents | [subagents.md](docs/features/subagents.md) |
+| Parallel subagents (convoy) | [parallel-subagents.md](docs/features/parallel-subagents.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
 | Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |

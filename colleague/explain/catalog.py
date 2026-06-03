@@ -541,8 +541,10 @@ and appended to `TaskResult.sub_results` (omitted when empty).
 
 ## Key properties
 
-- **In-process, synchronous** — plain function call, no thread, process, socket,
-  or fork; zero new runtime dependencies.
+- **In-process** — a nested function call, no separate process, socket, or fork;
+  zero new runtime dependencies. The single `subagent` runs **synchronously in
+  the parent's worktree** — no per-child worktree, no thread. Worktree isolation
+  and concurrency are properties of the `subagents` **batch** path only (below).
 - **Backend/model switch** — the optional `engine` and `model` parameters let the
   child run on a different backend or model. Resolution goes through
   `registry.load` + `EngineConfig` inheritance (config-level switch only, no
@@ -553,10 +555,16 @@ and appended to `TaskResult.sub_results` (omitted when empty).
 - **Backend-judged, optional** — the model decides whether to delegate per call,
   like the `devague` destination tool. There is no operator-configured automatic
   task→backend routing.
-- **Sequential only in v0** — parallel/concurrent subagents and per-subagent
-  worktree isolation are a parked follow-up that would require a re-spec.
+- **`subagents` batch — opt-in concurrency (shipped v0.29.0)** —
+  `COLLEAGUE_SUBAGENT_CONCURRENCY` (default 1 = byte-identical sequential) runs up
+  to `MIN(width, MAX_SUBAGENT_FANOUT-1)` batch children in parallel via
+  `concurrent.futures`, reserving one slot for a sequential merge child.
+- **`subagents` batch — per-child worktree isolation** — each *batch* child runs
+  in its own throwaway git worktree on a `sub/<id>` branch
+  (`colleague/worktrees.py`); the merge child integrates them, surfacing (never
+  force-merging) conflicts. (The single `subagent` tool creates no worktree.)
 - **No per-subagent handoff** — only the top-level drive branches, commits, and
-  opens a PR. Sub-drives run purely in-process.
+  opens a PR.
 - **Runtime-owned (all-engines rule)** — the tool schema lives in
   `colleague/tools.py`; the launcher lives in `colleague/subagents.py`. No
   backend module touches either; the tool is offered to every backend identically.
