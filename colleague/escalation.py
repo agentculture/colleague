@@ -216,11 +216,11 @@ def build_continuation(result: TaskResult, stats: DriveStats) -> str:  # noqa: W
     # Section 1 — Continuation State
     # -----------------------------------------------------------------------
     changed = result.changed_files or []
-    files_summary = (
-        (", ".join(f"`{f}`" for f in changed[:5]) + (" …" if len(changed) > 5 else ""))
-        if changed
-        else "_none_"
-    )
+    if changed:
+        overflow = " …" if len(changed) > 5 else ""
+        files_summary = ", ".join(f"`{f}`" for f in changed[:5]) + overflow
+    else:
+        files_summary = "_none_"
 
     tool_detail = (
         ", ".join(f"{tool}: {count}" for tool, count in sorted(stats.tool_counts.items()))
