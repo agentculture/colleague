@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-06-03
+
+### Added
+
+- Escalation (#106): when a drive cannot withstand a request — DriveAborted (timeout/context-overflow/engine error) or step-budget exhaustion — colleague can open ONE tracked agtag continuation issue carrying a 5-section record (continuation / remaining / what's-needed / suggested split / why). Opt-in via COLLEAGUE_ESCALATE (default off), offline/CI-safe, skipped in linked worktrees, approval-gated, idempotent per task_id; best-effort and observe-only (never masks the drive result). docs/features/escalation.md.
+- TaskResult.not_finished (#106): explicit flag set from the drive-loop return value — True iff the step budget was exhausted without calling finish (not via DriveAborted) — replacing the unreliable step_count heuristic for not-finished detection.
+
 ## [0.30.0] - 2026-06-03
 
 ### Added
