@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.8] - 2026-06-03
+
+### Fixed
+
+- `resolve_identity` (`colleague/identity.py`) now falls back to the first agent block's `suffix:` in `culture.yaml` when there is no top-level `nick:`. The canonical clone shape nests the nick as `agents:` → `- suffix: <nick>` (exactly what `colleague whoami` reads), but `resolve_identity` only read a top-level `nick:` and so returned `None` for the standard template — silently emptying both the `COLLEAGUE_IDENTITY` injected into every `culture`/`devague` subprocess (the mesh-member identity propagation) and the `feedback record` `by` default (which `--by` help promised resolves to the identity). The two identity paths now agree; found by exercising the `feedback` ROI loop and seeing `by: (unknown)` despite `whoami` reporting `colleague`.
+
 ## [0.29.7] - 2026-06-03
 
 ### Fixed

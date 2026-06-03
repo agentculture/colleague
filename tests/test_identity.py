@@ -98,6 +98,67 @@ def test_resolve_identity_culture_yaml_empty_nick_skipped(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
+# resolve_identity — culture.yaml agents/suffix shape (the canonical template)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_identity_from_agent_suffix(tmp_path: Path) -> None:
+    """Resolves the first agent block's `suffix:` — the canonical clone shape.
+
+    colleague's own culture.yaml nests the nick as a `suffix:` under `agents:`
+    with no top-level `nick:`; whoami reads it, so resolve_identity must too —
+    otherwise COLLEAGUE_IDENTITY and the feedback `by` default come up empty.
+    """
+    repo = _repo(tmp_path)
+    _write(repo / "culture.yaml", "agents:\n- suffix: colleague\n  backend: claude\n")
+
+    result = resolve_identity(repo, user_home=_home(tmp_path))
+    assert result == "colleague"
+
+
+def test_resolve_identity_top_level_nick_wins_over_suffix(tmp_path: Path) -> None:
+    """A top-level nick: takes priority over a nested agent suffix:."""
+    repo = _repo(tmp_path)
+    _write(repo / "culture.yaml", "nick: top-nick\nagents:\n- suffix: agent-suffix\n")
+
+    result = resolve_identity(repo)
+    assert result == "top-nick"
+
+
+def test_resolve_identity_suffix_first_agent_only(tmp_path: Path) -> None:
+    """Takes the FIRST agent's suffix when several are listed (mirrors whoami)."""
+    repo = _repo(tmp_path)
+    _write(
+        repo / "culture.yaml",
+        "agents:\n- suffix: first\n  backend: claude\n- suffix: second\n",
+    )
+
+    result = resolve_identity(repo, user_home=_home(tmp_path))
+    assert result == "first"
+
+
+def test_resolve_identity_suffix_strips_quotes_and_whitespace(tmp_path: Path) -> None:
+    """Strips surrounding whitespace/quotes from a suffix value."""
+    repo = _repo(tmp_path)
+    _write(repo / "culture.yaml", "agents:\n- suffix:  'my-agent' \n")
+
+    result = resolve_identity(repo, user_home=_home(tmp_path))
+    assert result == "my-agent"
+
+
+def test_resolve_identity_suffix_falls_through_to_identity_json(tmp_path: Path) -> None:
+    """No nick and no suffix → falls through to identity.json (suffix isn't required)."""
+    repo = _repo(tmp_path)
+    _write(repo / "culture.yaml", "agents:\n- backend: claude\n")
+    identity_file = repo / ".colleague" / "identity.json"
+    identity_file.parent.mkdir(parents=True, exist_ok=True)
+    identity_file.write_text(json.dumps({"as": "json-bot"}), encoding="utf-8")
+
+    result = resolve_identity(repo, user_home=_home(tmp_path))
+    assert result == "json-bot"
+
+
+# ---------------------------------------------------------------------------
 # resolve_identity — .colleague/identity.json fallback (secondary source)
 # ---------------------------------------------------------------------------
 

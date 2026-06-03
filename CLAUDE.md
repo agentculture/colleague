@@ -48,9 +48,11 @@ The architecture, part by part:
   is an optional `[otel]` extra, imported lazily, so the base install stays
   dep-free. Surfaced via the `telemetry` introspection noun.
 - **Identity** — process-level identity resolution (`colleague/identity.py`):
-  `culture.yaml` nick → `.colleague/identity.json` `as` → None; propagated to
-  every culture-CLI subprocess via `COLLEAGUE_IDENTITY` (no per-call flag).
-  Part of the runtime; inherited by every backend (all-engines rule).
+  `culture.yaml` top-level `nick:` → `culture.yaml` first-agent `suffix:` (the
+  canonical template shape `whoami` reads) → `.colleague/identity.json` `as` →
+  None; propagated to every culture-CLI subprocess via `COLLEAGUE_IDENTITY` (no
+  per-call flag). Part of the runtime; inherited by every backend (all-engines
+  rule).
 - **Neighbours** — operator-configured read-only neighbour clones
   (`colleague/neighbours.py`): a `.colleague/neighbours.json` allow-list of
   `{name, url}` entries; shallow-cloned on demand into
