@@ -34,6 +34,7 @@ boundary — what is deliberately *not* built — is restated under
 | Mesh-member integration | [mesh-member.md](mesh-member.md) | Runtime (identity + culture tool + neighbours) | `culture` loop tool |
 | Destination | [destination.md](destination.md) | Destination (goal-frame + arrival) | `devague` loop tool |
 | Subagents | [subagents.md](subagents.md) | Subagents (nested in-process child drives) | `subagent` loop tool (mid-drive) |
+| Audit fan-out | [audit-fanout.md](audit-fanout.md) | Operator-driven audit fan-out (assign-to-workforce) | `drive --command` (per-surface) |
 | Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Runtime (per-model hooks overlay) | `hooks list --model` |
 | Outsource (a different mind) | [outsource.md](outsource.md) | A first-party skill that hands a task to a different mind | `outsource` skill (drives `drive`) |
 | Drive stats & feedback (ROI) | [stats-and-feedback.md](stats-and-feedback.md) | Run report (stats) + Feedback (the ROI loop) | always-on in the artifact; `feedback`, `outsource feedback` |
