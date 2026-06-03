@@ -124,6 +124,11 @@ class EngineConfig:
     # not serializable config).
     subagent_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
 
+    # Runtime-only batch-spawn callback for parallel subagent delegation; set by
+    # the drive path, not by ``resolve()``; excluded from eq/repr/to_dict (it is
+    # behavior, not serializable config).
+    subagent_batch_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,

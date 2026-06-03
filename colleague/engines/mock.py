@@ -73,6 +73,7 @@ class MockEngine(Engine):
             executor=ToolExecutor(
                 task.repo_path,
                 spawn=config.subagent_spawn,
+                batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
             ),
             # All-engines rule: the mock exercises the SAME loop windowing path.
