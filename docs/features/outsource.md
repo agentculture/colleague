@@ -28,6 +28,27 @@ Each verb builds an instruction from a prompt template
 prints the drive's `TaskResult.summary` to stdout. Per-step progress streams to
 stderr while it runs.
 
+## The reflex — reach for it *unprompted*
+
+The skill is meant to fire **proactively**, not only when a user says "outsource
+this." The two read-only verbs have zero side effects (throwaway worktree), so
+the reflex is always safe:
+
+- **`review` is the standing reflex** — before presenting or opening a PR on a
+  non-trivial *committed* diff, get a diverse second opinion. A different mind
+  catches what the author's mind glides past, at the cost of ~20s.
+- **`explore`** when you need a fresh read of an unfamiliar area whose answer is
+  independent of your current context.
+- **Don't** outsource work that needs your accumulated context or the user's
+  intent, anything outward-facing/destructive without a nod (`write --apply` /
+  `--pr`), trivial edits, or output you can't verify cheaply.
+- **Guardrails:** check readiness in one glance (`colleague whoami` names the live
+  drive engine + model; `doctor --probe` if unsure); treat output as a second
+  opinion to verify and own, never authority; close the loop with `feedback` so
+  the ROI is measurable.
+
+See the [skill](../../.claude/skills/outsource/SKILL.md) for the full GO/NO-GO rule.
+
 ## How to run
 
 ```bash
