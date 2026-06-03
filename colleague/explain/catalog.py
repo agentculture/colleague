@@ -241,12 +241,25 @@ The loop continues until you enter `q`, an empty line, or EOF.
 
 ## Interaction
 
-At the `>>>` prompt you can enter:
+At the `colleague ❯` prompt you can enter:
 
 - A **number** (e.g. `1`) — selects that template from the numbered palette.
 - A **template name** (e.g. `lint`) — runs that template directly.
 - A **free-text instruction** — treated as an ad-hoc task (like `drive "<text>"`).
+- A **slash command** (e.g. `/help`, `/engine mock`) — the meta namespace:
+  introspection of existing nouns plus live config actions. `/help` lists them all.
 - `q`, `quit`, `exit`, or an **empty line** — ends the session.
+
+## Slash autocomplete (colour TTY)
+
+On an interactive colour TTY, typing `/` opens a **live popup** of slash
+commands that **autofilters** as you type (`/co` → `commands`, `config`),
+restores as you delete, and disappears when nothing matches. **Tab**/**Enter**
+completes the selection, **arrows** move it, **Esc** dismisses. This is a
+TTY-only nicety built on a stdlib raw-mode reader (no new dependency); off a
+colour TTY — piped input, `--json`, `--no-tui`, or Windows — the prompt falls
+back to plain line input, byte-identical to before, so agents and pipelines are
+unaffected.
 
 ## Handoff
 
