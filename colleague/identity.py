@@ -70,12 +70,18 @@ def resolve_identity(
         user_home = Path(user_home)
 
     # --- Source 1: culture.yaml — top-level nick:, else first agent suffix: ---
-    nick = _read_culture_yaml_nick(repo_path)
-    if nick:
-        return nick
-    suffix = _read_culture_yaml_suffix(repo_path)
-    if suffix:
-        return suffix
+    # Read the file at most ONCE, then scan the buffer for both keys: on the
+    # canonical (no top-level nick:) path the suffix fallback would otherwise
+    # re-read the same file, and resolve_identity runs per culture/devague
+    # subprocess and per feedback record.
+    culture_yaml = _read_culture_yaml(repo_path)
+    if culture_yaml is not None:
+        nick = _scan_top_level_nick(culture_yaml)
+        if nick:
+            return nick
+        suffix = _scan_first_agent_suffix(culture_yaml)
+        if suffix:
+            return suffix
 
     # --- Source 2: .colleague/identity.json (repo then user) ---
     as_name = _read_identity_json(repo_path, user_home)
@@ -115,28 +121,41 @@ def identity_env(identity: str | None) -> dict[str, str]:
 _NICK_PREFIX = "nick:"
 
 
-def _read_culture_yaml_nick(repo_path: Path) -> str | None:
-    """Scan the repo-root ``culture.yaml`` for a top-level ``nick:`` value.
+def _read_culture_yaml(repo_path: Path) -> str | None:
+    """Read the repo-root ``culture.yaml`` once, returning its text.
 
-    Uses a minimal line-by-line scan — no YAML parser — to stay zero-deps.
-    Only simple scalar ``nick: <value>`` lines are recognised; YAML block
-    scalars, anchors, and flow mappings are outside scope and treated as absent.
+    Returns the file content, or ``None`` if the file is absent or unreadable.
+    Callers scan the returned buffer (no YAML parser — zero-deps) so the file is
+    read at most once per :func:`resolve_identity` call even when both the
+    ``nick:`` and ``suffix:`` scans run.
 
     Args:
         repo_path: Path to the repo directory.
 
     Returns:
-        The nick string if found and non-empty, otherwise ``None``.
+        The culture.yaml text, or ``None``.
     """
     culture_yaml = repo_path / "culture.yaml"
     if not culture_yaml.is_file():
         return None
-
     try:
-        content = culture_yaml.read_text(encoding="utf-8")
+        return culture_yaml.read_text(encoding="utf-8")
     except OSError:
         return None
 
+
+def _scan_top_level_nick(content: str) -> str | None:
+    """Scan ``culture.yaml`` text for a top-level ``nick:`` value.
+
+    Only simple scalar ``nick: <value>`` lines are recognised; YAML block
+    scalars, anchors, and flow mappings are outside scope and treated as absent.
+
+    Args:
+        content: The culture.yaml text.
+
+    Returns:
+        The nick string if found and non-empty, otherwise ``None``.
+    """
     for line in content.splitlines():
         # Only a TOP-LEVEL ``nick:`` counts — a line with leading whitespace is
         # nested under some other key (e.g. ``agents:\n  - nick: other``) and must
@@ -150,8 +169,8 @@ def _read_culture_yaml_nick(repo_path: Path) -> str | None:
     return None
 
 
-def _read_culture_yaml_suffix(repo_path: Path) -> str | None:
-    """Scan repo-root ``culture.yaml`` for the first agent block's ``suffix:``.
+def _scan_first_agent_suffix(content: str) -> str | None:
+    """Scan ``culture.yaml`` text for the first agent block's ``suffix:``.
 
     The canonical AgentCulture template nests the agent nick as a ``suffix:``
     under an ``agents:`` list rather than a top-level ``nick:``::
@@ -167,20 +186,11 @@ def _read_culture_yaml_suffix(repo_path: Path) -> str | None:
     mirroring ``whoami``. Zero-dep line scan. Returns None if absent or empty.
 
     Args:
-        repo_path: Path to the repo directory.
+        content: The culture.yaml text.
 
     Returns:
         The first agent's suffix if found and non-empty, otherwise ``None``.
     """
-    culture_yaml = repo_path / "culture.yaml"
-    if not culture_yaml.is_file():
-        return None
-
-    try:
-        content = culture_yaml.read_text(encoding="utf-8")
-    except OSError:
-        return None
-
     for line in content.splitlines():
         stripped = line.strip()
         if stripped.startswith(("- suffix:", "suffix:")):
