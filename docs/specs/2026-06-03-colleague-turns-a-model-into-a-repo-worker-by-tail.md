@@ -34,7 +34,7 @@
 - The profile layer is runtime-owned: loaded once via config.model and applied in colleague/tools.py + colleague/loop.py + EngineConfig, so mock and vllm-openai receive an identical tailored surface (all-engines rule).
   - honesty: The same task with the same profile yields an identical tailored tool schema and limits under both --engine mock and --engine vllm-openai — verified by the e2e shape test (tests/test_e2e_mock.py).
 - README and CLAUDE.md are reframed from 'swappable model harness' to 'one runtime, model-tailored work surfaces / tailored minds', documenting the model-profile layer and its honest limits.
-  - honesty: README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no --no-hooks flag); the doc-test-alignment check passes.
+  - honesty: README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no hook-bypass escape hatch); the doc-test-alignment check passes.
 
 ## Honesty conditions
 

@@ -263,7 +263,7 @@
       "honesty_conditions": [
         {
           "id": "h9",
-          "text": "README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no --no-hooks flag); the doc-test-alignment check passes.",
+          "text": "README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no hook-bypass escape hatch); the doc-test-alignment check passes.",
           "status": "confirmed"
         }
       ],

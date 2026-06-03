@@ -145,7 +145,7 @@
     {
       "id": "h9",
       "kind": "honesty",
-      "text": "README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no --no-hooks flag); the doc-test-alignment check passes."
+      "text": "README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no hook-bypass escape hatch); the doc-test-alignment check passes."
     },
     {
       "id": "c19",
@@ -312,7 +312,7 @@
       "status": "confirmed",
       "acceptance_criteria": [
         "README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer, including before->after and why; the doc-test-alignment check passes.",
-        "Docs explicitly list tool parameter-name aliasing and structured retry as out-of-scope follow-ups, and never claim a --no-hooks flag, an MCP surface, or a router."
+        "Docs explicitly list tool parameter-name aliasing and structured retry as out-of-scope follow-ups, and never claim a hook-bypass escape hatch, an MCP surface, or a router."
       ],
       "deps": [
         "t1",

@@ -62,7 +62,7 @@ slug: `colleague-turns-a-model-into-a-repo-worker-by-tail` · status: `exported`
 - covers: c18, h9, c4, h13, c5, c22, h18
 - acceptance:
   - README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer, including before->after and why; the doc-test-alignment check passes.
-  - Docs explicitly list tool parameter-name aliasing and structured retry as out-of-scope follow-ups, and never claim a --no-hooks flag, an MCP surface, or a router.
+  - Docs explicitly list tool parameter-name aliasing and structured retry as out-of-scope follow-ups, and never claim a hook-bypass escape hatch, an MCP surface, or a router.
 
 ### t8 — Integration + guard tests: strict no-op byte-identity, all-engines parity, and contract stability across profiles.
 
