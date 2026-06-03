@@ -1,9 +1,9 @@
 """The tool surface the agentic loop offers an engine, plus a repo-confined executor.
 
-Eight tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
-``culture``, ``devague``, ``subagent``, and ``finish`` — are exposed to the model
-as OpenAI function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor` runs a
-requested call against a fixed repo root.
+Nine tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
+``culture``, ``devague``, ``subagent``, ``subagents``, and ``finish`` — are exposed
+to the model as OpenAI function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor`
+runs a requested call against a fixed repo root.
 
 Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``list_dir``
 resolve their path against the root and refuse anything that escapes it (``..``
@@ -206,6 +206,57 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "subagents",
+            "description": (
+                "Fan out a batch of scoped sub-tasks to nested in-process child drives "
+                "that run in parallel, each optionally on a different engine or model. "
+                "Each child drive runs the full bounded tool-loop (no git handoff) and "
+                "returns a result summary; a final merge child integrates each child's "
+                "branch back into the working tree. All sub-results (children + merge) "
+                "are recorded on the parent drive. "
+                "Use this to parallelise independent work across multiple children. "
+                "Capped at 3 instructions per batch (one slot is reserved for the merge "
+                "child within the MAX_SUBAGENT_FANOUT=4 limit)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instructions": {
+                        "type": "array",
+                        "description": (
+                            "A list of scoped sub-tasks to fan out in parallel (1–3 items)."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "instruction": {
+                                    "type": "string",
+                                    "description": "A scoped sub-task for a nested child drive.",
+                                },
+                                "engine": {
+                                    "type": "string",
+                                    "description": (
+                                        "Engine wheel for this child (omit to inherit parent)."
+                                    ),
+                                },
+                                "model": {
+                                    "type": "string",
+                                    "description": (
+                                        "Model override for this child (omit to inherit parent)."
+                                    ),
+                                },
+                            },
+                            "required": ["instruction"],
+                        },
+                    },
+                },
+                "required": ["instructions"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -245,6 +296,7 @@ class ToolExecutor:
         root: str | Path,
         *,
         spawn=None,
+        batch_spawn=None,
         max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
     ) -> None:
         self.root = Path(root).resolve()
@@ -254,6 +306,9 @@ class ToolExecutor:
         # loop snapshots it onto DriveStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
         self._spawn = spawn
+        # Batch spawn callable: ``batch_spawn(items) -> list[SubResult]``.
+        # Injected by the loop (t5); None means the subagents tool is unavailable.
+        self._batch_spawn = batch_spawn
         # Cap on each tool result fed back to the model so a huge file/command
         # can't blow the context window. Resolved from EngineConfig (env
         # COLLEAGUE_MAX_OUTPUT_CHARS); sized for the served model's window.
@@ -288,6 +343,8 @@ class ToolExecutor:
             return self._devague(arguments)
         if name == "subagent":
             return self._subagent(arguments)
+        if name == "subagents":
+            return self._subagents(arguments)
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -463,4 +520,67 @@ class ToolExecutor:
             f"subagent[{sub.engine}/{sub.model}] {sub.status}: {sub.summary}\n"
             f"changed files: " + (", ".join(sub.changed_files) or "(none)")
         )
+        return ToolOutcome(result=self._truncate(result))
+
+    def _subagents(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Fan out a batch of sub-tasks to nested child drives via the injected batch spawn.
+
+        The actual launching lives in the injected ``batch_spawn`` callable (set by
+        the loop in t5); here we validate inputs, enforce the per-drive batch
+        fan-out cap (MAX_SUBAGENT_FANOUT - 1 = 3 parallel children, reserving one
+        slot for the merge child), call the batch spawn, and translate any
+        non-ToolError exception into a clean :class:`ToolError`.
+
+        The returned list includes N child ``SubResult`` objects (in input order)
+        followed by exactly one merge child — the shape produced by
+        :func:`colleague.subagents.make_batch_spawn`. All are appended to
+        ``self.sub_results``; the engine cannot exceed the operator's
+        COLLEAGUE_SUBAGENT_CONCURRENCY, which governs actual parallelism.
+        """
+        if self._batch_spawn is None:
+            raise ToolError("subagents delegation is not available in this drive")
+
+        raw_instructions = arguments.get("instructions")
+        if not raw_instructions or not isinstance(raw_instructions, list):
+            raise ToolError("subagents tool requires a non-empty 'instructions' list")
+
+        # Validate each item has a non-empty 'instruction' string.
+        items = []
+        for i, item in enumerate(raw_instructions):
+            if not isinstance(item, dict):
+                raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
+            instruction = item.get("instruction")
+            if not instruction or not isinstance(instruction, str):
+                raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
+            items.append(
+                {
+                    "instruction": instruction,
+                    "engine": item.get("engine") or None,
+                    "model": item.get("model") or None,
+                }
+            )
+
+        # Fan-out cap: reserve one slot for the merge child.  The batch may have
+        # at most MAX_SUBAGENT_FANOUT - 1 parallel children.
+        _batch_cap = MAX_SUBAGENT_FANOUT - 1
+        if len(items) > _batch_cap:
+            raise ToolError(
+                f"subagents fan-out limit ({_batch_cap} parallel children) exceeded; "
+                f"got {len(items)} instructions (one slot is reserved for the merge child)"
+            )
+
+        try:
+            batch_results = self._batch_spawn(items)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(f"subagents failed: {exc}") from exc
+
+        self.sub_results.extend(batch_results)
+
+        # Build a summary line: report each child's status + the merge outcome.
+        lines = []
+        for sub in batch_results:
+            lines.append(f"  [{sub.engine}/{sub.model}] {sub.status}: {sub.summary}")
+        result = f"subagents batch ({len(items)} children):\n" + "\n".join(lines)
         return ToolOutcome(result=self._truncate(result))

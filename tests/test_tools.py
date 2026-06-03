@@ -11,7 +11,8 @@ from colleague.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
 def test_schemas_cover_base_five_plus_culture_and_devague() -> None:
     # The five base tools, plus the curated shared culture tool (t3), the
-    # curated shared devague tool (t2), and the subagent delegation tool (t4).
+    # curated shared devague tool (t2), the subagent delegation tool (t4), and
+    # the parallel batch subagents tool (t4).
     assert set(TOOL_NAMES) == {
         "read_file",
         "write_file",
@@ -21,6 +22,7 @@ def test_schemas_cover_base_five_plus_culture_and_devague() -> None:
         "culture",
         "devague",
         "subagent",
+        "subagents",
     }
     for schema in SCHEMAS:
         assert schema["type"] == "function"
