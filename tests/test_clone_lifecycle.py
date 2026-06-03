@@ -325,6 +325,29 @@ class TestNeverExecuteConfinement:
                 {"command": 'sh .colleague/neighbours/ext/run.sh "unbalanced'},
             )
 
+    def test_run_command_blocks_clone_path_when_clone_root_unresolvable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If clone_root can't be resolved the guard falls back to substring (never raises).
+
+        Qodo PR #95: `Path.resolve()` for clone_root sat outside the try/except, so a
+        resolve failure (symlink loop / permissions) would escape as a non-ToolError
+        and abort the drive. The guard now fails closed to the substring check.
+        """
+        _make_fake_clone(tmp_path, "ext", "run.sh", "echo run\n")
+        executor = ToolExecutor(tmp_path)  # construct BEFORE patching resolve
+
+        def boom_resolve(_self: Path, *_a: object, **_k: object) -> Path:
+            raise OSError("resolve failed")
+
+        monkeypatch.setattr("colleague.tools.Path.resolve", boom_resolve)
+
+        with pytest.raises(ToolError, match="clone"):
+            executor.execute(
+                "run_command",
+                {"command": "sh .colleague/neighbours/ext/run.sh"},
+            )
+
     def test_run_command_confinement_via_loop(self, tmp_path: Path) -> None:
         """The never-execute guard is visible through the full loop path.
 

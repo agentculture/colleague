@@ -433,12 +433,19 @@ class ToolExecutor:
         # through. Honest limit: like the rest of this gate (D2), it is bypassable
         # by sh -c, pipelines, and shell expansion — a guard, not a sandbox.
         clone_rel = self._CLONE_SUBDIR
-        clone_root = (self.root / clone_rel).resolve()
+        # The guard must NEVER raise — a raw exception here would escape tool
+        # execution and abort the whole drive. Resolving the clone root can fail on
+        # a pathological tree (symlink loop → RuntimeError, permissions → OSError),
+        # so compute it defensively and fall back to the unresolved substring check.
+        try:
+            clone_root: Path | None = (self.root / clone_rel).resolve()
+        except (OSError, RuntimeError, ValueError):
+            clone_root = None
 
         def _targets_clone(token: str) -> bool:
             try:
                 candidate = (self.root / token).resolve()
-            except (ValueError, OSError):
+            except (OSError, RuntimeError, ValueError):
                 # Unresolvable token (e.g. an embedded NUL byte) is not a clone-dir
                 # target; let it fall through to subprocess.run, whose own error is
                 # mapped to a clean ToolError below rather than escaping the guard.
@@ -449,11 +456,14 @@ class ToolExecutor:
             tokens: list[str] | None = shlex.split(command)
         except ValueError:
             tokens = None  # unparseable command → conservative substring fallback
-        blocked = (
-            any(_targets_clone(t) for t in tokens)
-            if tokens is not None
-            else (clone_rel in command or str(clone_root) in command)
-        )
+        if clone_root is not None and tokens is not None:
+            blocked = any(_targets_clone(t) for t in tokens)
+        else:
+            # Token-aware check unavailable (unresolvable clone root or unparseable
+            # command) → conservative substring fallback on the *unresolved* absolute
+            # path, which never raises.
+            clone_abs = str(self.root / clone_rel)
+            blocked = clone_rel in command or clone_abs in command
         if blocked:
             raise ToolError(
                 f"run_command refused: commands must not execute paths inside the "
