@@ -7,6 +7,7 @@ is rendered on its own line with a status glyph prefix.
 
 from __future__ import annotations
 
+from colleague.tui.render.layout import SKILL_COL_WIDTH
 from colleague.tui.state import CockpitState
 
 # Status glyph map
@@ -18,36 +19,40 @@ _STATUS_GLYPH: dict[str, str] = {
 _DEFAULT_GLYPH = "○"
 
 _BORDER = "─"
-_PANEL_WIDTH = 30
 
 
-def _hline(title: str = "") -> str:
+def _hline(width: int, title: str = "") -> str:
     if title:
         inner = f" {title} "
-        pad = max(0, _PANEL_WIDTH - len(inner) - 2)
+        pad = max(0, width - len(inner) - 2)
         return "┌" + inner + _BORDER * pad + "┐"
-    return "└" + _BORDER * (_PANEL_WIDTH - 2) + "┘"
+    return "└" + _BORDER * (width - 2) + "┘"
 
 
-def render_skill_panel(state: CockpitState) -> str:
-    """Return a box-drawn skills panel string, or ``""`` if absent/hidden."""
+def render_skill_panel(state: CockpitState, *, width: int = SKILL_COL_WIDTH) -> str:
+    """Return a box-drawn skills panel string, or ``""`` if absent/hidden.
+
+    *width* defaults to the fixed left-column width so a skills-only render is
+    unchanged; the side-by-side layout in :mod:`~colleague.tui.render.ansi`
+    passes this column width explicitly.
+    """
     panel = next((p for p in state.panels if p.id == "skills"), None)
     if panel is None or not panel.visible:
         return ""
 
     lines: list[str] = []
-    lines.append(_hline(panel.title or "Skills"))
+    lines.append(_hline(width, panel.title or "Skills"))
     if panel.content_summary:
-        lines.append(f"│ {panel.content_summary:<{_PANEL_WIDTH - 4}} │")
+        lines.append(f"│ {panel.content_summary:<{max(1, width - 4)}} │")
 
     for item in panel.items:
         glyph = _STATUS_GLYPH.get(item.status, _DEFAULT_GLYPH)
         label = item.label
         # Truncate if too wide
-        max_label = _PANEL_WIDTH - 7
+        max_label = max(1, width - 7)
         if len(label) > max_label:
             label = label[: max_label - 1] + "…"
         lines.append(f"│ {glyph} {label:<{max_label}} │")
 
-    lines.append(_hline())
+    lines.append(_hline(width))
     return "\n".join(lines)

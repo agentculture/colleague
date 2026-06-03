@@ -8,7 +8,10 @@ TDD: tests written before implementation, covering:
 - determinism: same state → same output; differing frame → may differ
 """
 
+import re
+
 from colleague.tui.render.ansi import render
+from colleague.tui.render.layout import MIN_WIDTH
 from colleague.tui.state import (
     Action,
     Background,
@@ -18,6 +21,18 @@ from colleague.tui.state import (
     Popup,
     Status,
 )
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _visible_lines(frame: str) -> list[str]:
+    """Frame lines with ANSI escapes stripped (so ``len`` is visible width)."""
+    return [_ANSI_RE.sub("", line) for line in frame.splitlines()]
+
+
+def _max_visible_width(frame: str) -> int:
+    return max(len(line) for line in _visible_lines(frame))
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -186,7 +201,7 @@ def test_prompt_input_shows_focus_indicator() -> None:
     state = CockpitState(focused="input.prompt")
     result = render(state)
     # We just need SOME indicator of the prompt input; the exact glyph is impl detail
-    assert ">" in result or "»" in result or "▶" in result or "│" in result
+    assert ">" in result or "»" in result or "▶" in result or "❯" in result or "│" in result
 
 
 def test_popup_action_label_in_output() -> None:
@@ -224,3 +239,103 @@ def test_empty_state_renders_without_error() -> None:
     state = CockpitState()
     result = render(state)
     assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# Width / full-width / prompt tests (cockpit full-width fix)
+# ---------------------------------------------------------------------------
+
+
+def _conversation_state(summary: str = "hi") -> CockpitState:
+    return CockpitState(
+        panels=[Panel(id="panel.conversation", title="Session", content_summary=summary)]
+    )
+
+
+def test_render_width_is_honored() -> None:
+    """A wider width produces wider frame separators / boxes than a narrow one."""
+    state = _conversation_state()
+    wide = _max_visible_width(render(state, width=120))
+    narrow = _max_visible_width(render(state, width=40))
+    assert wide == 120
+    assert narrow == 40
+    assert wide > narrow
+
+
+def test_lone_conversation_gets_full_width() -> None:
+    """With no skills panel (the session shape) the conversation fills the width."""
+    out = render(_conversation_state("x"), width=100)
+    borders = [line for line in _visible_lines(out) if line[:1] in ("╔", "╚")]
+    assert borders
+    assert all(len(line) == 100 for line in borders)
+
+
+def test_side_by_side_split_widths() -> None:
+    """Skills (fixed 30) + conversation (rest, minus the 2-space gap) tile to width."""
+    skills = Panel(id="skills", title="Skills", items=[PanelItem(id="s1", label="explore")])
+    conv = Panel(id="panel.conversation", title="Session", content_summary="hello")
+    out = render(CockpitState(panels=[skills, conv]), width=100)
+    # The top-border row joins a ┌…┐ skills box and a ╔…╗ conversation box.
+    joined = [line for line in _visible_lines(out) if line.startswith("┌") and "╔" in line]
+    assert joined, "expected a side-by-side top-border row"
+    row = joined[0]
+    assert len(row) == 100  # 30 (skills) + 2 (gap) + 68 (conversation)
+    assert row[:30].startswith("┌")  # skills column is the fixed 30-wide left col
+    assert row[32:].startswith("╔")  # conversation starts after the 2-space gap
+
+
+def test_long_word_not_split_at_full_width() -> None:
+    """The /help line that mangled at the old 46-char box stays intact at full width."""
+    summary = "  /config             configuration readiness (doctor)"
+    out = render(_conversation_state(summary), width=80)
+    assert "readiness" in out  # not broken into "readines" + "s"
+
+
+def test_tiny_width_does_not_raise() -> None:
+    """A width below the clamp floor still renders (no negative-pad crash)."""
+    out = render(_conversation_state("x"), width=10)
+    assert isinstance(out, str) and out
+
+
+def test_narrow_both_panels_stack_without_overflow() -> None:
+    """A terminal too narrow for two columns stacks the panels and never overflows."""
+    skills = Panel(id="skills", title="Skills", items=[PanelItem(id="s1", label="explore")])
+    conv = Panel(id="panel.conversation", title="Session", content_summary="hello there")
+    out = render(CockpitState(panels=[skills, conv]), width=60)  # 60 < 30+2+40
+    assert _max_visible_width(out) <= 60  # no row exceeds the requested width
+    assert "explore" in out and "hello there" in out  # both panels still visible
+
+
+def test_pathologically_small_width_does_not_hang_or_raise() -> None:
+    """width < 4 must not infinite-loop the wrap or raise on a negative field width."""
+    state = _conversation_state("a fairly long conversation line that forces wrapping")
+    out = render(state, width=3)
+    assert isinstance(out, str) and out
+
+
+def test_include_prompt_toggles_prompt_line() -> None:
+    """include_prompt=False omits the prompt line; the default keeps it."""
+    state = CockpitState(focused="input.prompt")
+    assert "colleague ❯" in render(state, include_prompt=True)
+    assert "colleague ❯" not in render(state, include_prompt=False)
+
+
+def test_prompt_is_colleague_chevron_without_mode_label() -> None:
+    """The prompt is the clean 'colleague ❯' chevron, not the confusing [planning]."""
+    out = render(CockpitState())
+    assert "colleague ❯" in out
+    assert "[planning]" not in out
+
+
+def test_detect_width_clamps_to_min(monkeypatch) -> None:
+    """detect_width never returns below MIN_WIDTH even on a tiny terminal."""
+    import os
+
+    from colleague.tui.render import layout
+
+    monkeypatch.setattr(
+        layout.shutil,
+        "get_terminal_size",
+        lambda fallback=(80, 24): os.terminal_size((10, 24)),
+    )
+    assert layout.detect_width() == MIN_WIDTH
