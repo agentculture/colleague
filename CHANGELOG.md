@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- docs: converged spec for model-tailored runtime surfaces (the model-profile layer) — a per-model .colleague/<model>/profile.json tailoring tool aliases/availability/descriptions, default-limit hints, and a terminal system-prompt overlay, keyed by sanitize_model(config.model) and overriding a shipped package default, while keeping the Task->TaskResult contract, the artifact (canonical tool names), and the all-engines/zero-deps conventions stable (#89).
+- docs: converged spec for model-tailored runtime surfaces (the model-profile layer) — a per-model `.colleague/<model>/profile.json` tailoring tool aliases/availability/descriptions, default-limit hints, and a terminal system-prompt overlay, keyed by `sanitize_model(config.model)` and overriding a shipped package default, while keeping the `Task`→`TaskResult` contract, the artifact (canonical tool names), and the all-engines/zero-deps conventions stable (#89).
 
 ## [0.29.4] - 2026-06-03
 
