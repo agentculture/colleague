@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.contract import Task
+from colleague.contract import NO_RESULT_PRODUCED, Task
 from colleague.hooks import HookConfig
 from colleague.loop import ModelResponse, ToolCall, run
 from colleague.tools import ToolError, ToolExecutor
@@ -105,7 +105,10 @@ class TestCleanupAtFinish:
         task = Task.new(str(tmp_path), "loop forever")
         result = run(never_finish, task, max_steps=2, hooks=HookConfig())
 
-        assert "budget" in result.summary
+        # No content was produced, so the summary is the NO_RESULT_PRODUCED
+        # sentinel (t2, #109).  Budget exhaustion is preserved via stats.step_count.
+        assert result.summary == NO_RESULT_PRODUCED
+        assert result.stats.step_count == 2
         assert (
             not clone_root.exists()
         ), "cleanup() must fire on budget exhaustion — clones must be gone after drive"
