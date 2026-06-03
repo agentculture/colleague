@@ -44,6 +44,7 @@ from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
     ERROR,
+    NO_RESULT_PRODUCED,
     OK,
     HookFiring,
     Step,
@@ -292,6 +293,13 @@ class _Drive:
     # ``None`` (the default) is a strict no-op — no windowing, no reactive retry.
     context_budget: int | None = None
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
+    # Last non-empty ``resp.content`` seen across ALL turns (including turns that
+    # also made tool calls).  Updated in ``_drive_loop`` unconditionally whenever
+    # ``resp.content`` is non-empty — this is the t2 "last-substantive-content"
+    # candidate used as the no-finish summary fallback in ``run``.  Stored as a
+    # mutable list[str] (single element) so the frozen ``_Drive`` dataclass can
+    # still update it through the binding.
+    _last_substantive: list[str] = field(default_factory=list)
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -559,8 +567,19 @@ def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> bool:
         ctx.result.stats.add_generated(reasoning=resp.reasoning, answer=resp.content)
         ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
 
+        # Track the last substantive assistant content (t2): update on EVERY turn
+        # that has non-empty ``resp.content``, including turns that also make tool
+        # calls (the gap at the original line ~568).  Stored via the mutable proxy
+        # so the frozen ``_Drive`` binding stays intact.
+        if resp.content:
+            ctx._last_substantive[:] = [resp.content]
+
         if not resp.tool_calls:
             # Model answered without requesting a tool — treat as done.
+            # Already recorded as last_substantive above; set it directly so the
+            # no-finish-tool path (line 565 in the original numbering) keeps its
+            # semantics: a no-tool-call terminating turn with content becomes the
+            # summary immediately, before the finalize fallback in run().
             if resp.content:
                 ctx.result.summary = resp.content
             return True
@@ -694,7 +713,6 @@ def run(
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
-    finished = False
 
     # Neighbour clone lifecycle — runtime-owned (all-engines rule).
     # clone_all() runs before the loop so allow-listed neighbours are available
@@ -740,7 +758,7 @@ def run(
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
     try:
-        finished = _drive_loop(ctx, complete, max_steps)
+        _drive_loop(ctx, complete, max_steps)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
         aborted = exc
         result.status = ERROR
@@ -775,6 +793,11 @@ def run(
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 
+    # Resolve the last-substantive-content candidate from the drive loop.
+    # ``ctx._last_substantive`` is a single-element list (or empty) updated
+    # unconditionally on every turn — including turns that made tool calls.
+    _last_sub = ctx._last_substantive[0] if ctx._last_substantive else ""
+
     if aborted is not None:
         # Carry the populated partial result out via DriveAborted; the drive path
         # writes it (non-empty steps/usage/changed_files + trace) then re-surfaces
@@ -784,8 +807,21 @@ def run(
         )
         raise DriveAborted(result) from aborted
 
-    if not finished:
-        result.summary = result.summary or f"stopped at the {max_steps}-step budget"
-    elif not result.summary:
-        result.summary = f"completed in {len(result.steps)} step(s)"
+    # Summary precedence (t2, #109):
+    #   1. finish_summary set by the finish tool (already on result.summary via
+    #      _apply_finish at line ~305 — highest priority, untouched here).
+    #   2. A no-tool-call terminating turn's content (already set at the
+    #      resp.content path in _drive_loop above — second priority, also already
+    #      on result.summary before we reach here).
+    #   3. Last substantive assistant content seen across the drive (the t2 gap:
+    #      narration emitted on a tool-call turn is now recoverable).
+    #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
+    #
+    # The not-finished / budget-exhaustion STATUS is now preserved via
+    # ``result.stats.step_count`` (equals ``max_steps`` when the budget was hit)
+    # rather than encoded in the summary string.  Callers that previously
+    # matched ``"budget" in result.summary`` should instead compare
+    # ``result.stats.step_count >= max_steps`` (or check ``finished`` on their end).
+    if not result.summary:
+        result.summary = _last_sub or NO_RESULT_PRODUCED
     return result

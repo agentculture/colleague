@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.contract import ERROR, OK, Task
+from colleague.contract import ERROR, NO_RESULT_PRODUCED, OK, Task
 from colleague.loop import (
     CompleteFn,
     DriveAborted,
@@ -63,7 +63,11 @@ def test_loop_stops_at_budget_when_never_finishing(tmp_path: Path) -> None:
 
     assert result.status == OK
     assert len(result.steps) == 3
-    assert "budget" in result.summary
+    # No content was ever produced, so the summary is the NO_RESULT_PRODUCED
+    # sentinel (t2, #109).  Budget exhaustion is preserved in stats.step_count
+    # (== max_steps) rather than encoded in the summary string.
+    assert result.summary == NO_RESULT_PRODUCED
+    assert result.stats.step_count == 3
 
 
 def test_loop_terminates_on_empty_tool_calls(tmp_path: Path) -> None:
@@ -425,7 +429,10 @@ def test_finish_hook_fires_on_budget_exhaustion(tmp_path: Path) -> None:
     task = Task.new(str(tmp_path), "loop forever")
     result = run(never_finish, task, max_steps=2)
 
-    assert "budget" in result.summary
+    # No content was produced, so the summary is the NO_RESULT_PRODUCED sentinel
+    # (t2, #109).  Budget exhaustion is preserved via stats.step_count == max_steps.
+    assert result.summary == NO_RESULT_PRODUCED
+    assert result.stats.step_count == 2
     finish_firings = [f for f in result.hook_firings if f.event == "finish"]
     assert len(finish_firings) == 1
 
