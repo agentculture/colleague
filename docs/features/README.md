@@ -38,6 +38,7 @@ boundary — what is deliberately *not* built — is restated under
 | Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Runtime (per-model hooks overlay) | `hooks list --model` |
 | Outsource (a different mind) | [outsource.md](outsource.md) | A first-party skill that hands a task to a different mind | `outsource` skill (drives `drive`) |
 | Drive stats & feedback (ROI) | [stats-and-feedback.md](stats-and-feedback.md) | Run report (stats) + Feedback (the ROI loop) | always-on in the artifact; `feedback`, `outsource feedback` |
+| Escalation (agtag continuation) | [escalation.md](escalation.md) | Runtime finalize hook — files one tracked agtag continuation issue on abort or step-budget exhaustion | opt-in via `COLLEAGUE_ESCALATE`; no CLI verb |
 
 ## How the features fit together
 
