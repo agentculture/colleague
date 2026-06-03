@@ -1,0 +1,204 @@
+{
+  "slug": "colleague-fans-a-large-read-only-audit-out-across",
+  "title": "colleague fans a large read-only audit out across scoped subagents and aggregates their findings into one ranked report \u2014 past the single-drive context wall",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T17:24:20Z",
+  "updated": "2026-06-03T18:25:20Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague fans a large read-only audit out across scoped subagents and aggregates their findings into one ranked report \u2014 past the single-drive context wall",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "a repo-wide audit that exceeds one drive's context/timeout on the reference 27B completes when fanned out, yielding one ranked report \u2014 proven by a doc-review that fails as a single drive but succeeds fanned out",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "an agent or operator outsourcing a repo-wide audit (e.g. doc-review) to colleague on a small-context local model",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "the target user is an agent/operator whose audit is too large for one drive on a small-context model \u2014 pitched at reliability for the constrained case, not speedup for a fast machine",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "a full-repo audit accumulates all content into one growing drive context; each turn slows until a request exceeds the per-request timeout (#104 runs 2-4); only a bounded-scope audit completes (README-sized: 7 steps / 355s)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "on the reference 27B a full-repo audit measurably grows per-turn latency until a request exceeds the timeout, while a bounded-scope audit on the same model completes \u2014 both observed (#104 runs 2-4 vs the 7-step README run), not assumed",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "the audit is split by surface; each child drive gets a small fixed context, completes fast and reliably calls finish, and the per-surface findings are aggregated into one ranked report",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "after the split, each scoped drive's context stays small enough to finish, and the per-surface results combine into one report with no surface silently lost",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "reliability, not speed: on a serializing vLLM there is no wall-clock speedup, but a small per-child context fixes the timeout that kills the single growing drive",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "fan-out is justified by reliability even at zero wall-clock speedup on a serializing server; if it delivered neither speed nor reliability it would not be worth building",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not a general parallel-speedup feature and not a task->backend routing policy; in-drive subagents fan-out stays bounded by the existing caps (one level, <=3 children + 1 merge)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "the design adds NO parallelism beyond the existing caps and NO routing policy; any in-drive fan-out still obeys one-level / <=3 children / nested-batches-forbidden",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "not git-merge aggregation for read-only audits: a text audit yields findings text, not commits, so the merge child's git-branch merge (subagents.py merge child) does not fit",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "a read-only audit's output is findings text; git-merging sub-branches would not combine it, so the chosen aggregation is text-level, not a git merge",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "a full doc-review that times out as a single drive completes when fanned out, producing one ranked report covering every surface, with what-was-dropped logged when coverage is capped",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "concrete acceptance: a doc-review that fails as one drive on the rig completes via fan-out, yields one ranked report covering every surface, and logs any surface dropped to the cap",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "a text-aggregation mode for fanned-out read-only work: aggregate each child's SubResult.summary into one ranked report instead of git-merging sub/<id> branches",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "a read-only fan-out produces a single ranked report from child summaries with NO git merge, and a doc-review that previously timed out as one drive now completes via this path",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "honest coverage accounting: when the fan-out cap (MAX_SUBAGENT_FANOUT=4 -> <=3 children) bounds coverage, log() exactly which surfaces were dropped \u2014 never silently truncate",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "when more surfaces exist than the cap allows, the report names exactly which surfaces were NOT covered (no silent truncation)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "operator-driven fan-out (assign-to-workforce: N scoped 'colleague drive --command doc-review <surface>' in parallel worktrees, then synthesize) is the reliable path today; in-drive subagents fan-out is bounded to 3 parallel/one level and assumes a git-merge that does not fit a text audit",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "non_goal",
+      "text": "no nested batches (v0 forbids a batch child spawning another batch \u2014 subagents.py:182-188); no raising MAX_SUBAGENT_DEPTH/FANOUT; no automatic task->backend routing",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "exact surface-splitting heuristic for doc-review (per-file vs per-doc-group, and how to size each group to stay under the per-request timeout)",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "in-drive subagents text-aggregation merge mode (for a template-driven fan-out path) \u2014 deferred follow-up, not v0; revisit if/when in-drive read-only fan-out is wanted",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
