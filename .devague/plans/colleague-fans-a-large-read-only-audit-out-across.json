@@ -1,0 +1,160 @@
+{
+  "slug": "colleague-fans-a-large-read-only-audit-out-across",
+  "title": "colleague fans a large read-only audit out across scoped subagents and aggregates their findings into one ranked report \u2014 past the single-drive context wall",
+  "frame_slug": "colleague-fans-a-large-read-only-audit-out-across",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T18:28:25Z",
+  "updated": "2026-06-03T18:33:55Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague fans a large read-only audit out across scoped subagents and aggregates their findings into one ranked report \u2014 past the single-drive context wall"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a repo-wide audit that exceeds one drive's context/timeout on the reference 27B completes when fanned out, yielding one ranked report \u2014 proven by a doc-review that fails as a single drive but succeeds fanned out"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "an agent or operator outsourcing a repo-wide audit (e.g. doc-review) to colleague on a small-context local model"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the target user is an agent/operator whose audit is too large for one drive on a small-context model \u2014 pitched at reliability for the constrained case, not speedup for a fast machine"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "a full-repo audit accumulates all content into one growing drive context; each turn slows until a request exceeds the per-request timeout (#104 runs 2-4); only a bounded-scope audit completes (README-sized: 7 steps / 355s)"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "on the reference 27B a full-repo audit measurably grows per-turn latency until a request exceeds the timeout, while a bounded-scope audit on the same model completes \u2014 both observed (#104 runs 2-4 vs the 7-step README run), not assumed"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "the audit is split by surface; each child drive gets a small fixed context, completes fast and reliably calls finish, and the per-surface findings are aggregated into one ranked report"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "after the split, each scoped drive's context stays small enough to finish, and the per-surface results combine into one report with no surface silently lost"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "reliability, not speed: on a serializing vLLM there is no wall-clock speedup, but a small per-child context fixes the timeout that kills the single growing drive"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "fan-out is justified by reliability even at zero wall-clock speedup on a serializing server; if it delivered neither speed nor reliability it would not be worth building"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not a general parallel-speedup feature and not a task->backend routing policy; in-drive subagents fan-out stays bounded by the existing caps (one level, <=3 children + 1 merge)"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the design adds NO parallelism beyond the existing caps and NO routing policy; any in-drive fan-out still obeys one-level / <=3 children / nested-batches-forbidden"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "not git-merge aggregation for read-only audits: a text audit yields findings text, not commits, so the merge child's git-branch merge (subagents.py merge child) does not fit"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "a read-only audit's output is findings text; git-merging sub-branches would not combine it, so the chosen aggregation is text-level, not a git merge"
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "a full doc-review that times out as a single drive completes when fanned out, producing one ranked report covering every surface, with what-was-dropped logged when coverage is capped"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "concrete acceptance: a doc-review that fails as one drive on the rig completes via fan-out, yields one ranked report covering every surface, and logs any surface dropped to the cap"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "honest coverage accounting: when the fan-out cap (MAX_SUBAGENT_FANOUT=4 -> <=3 children) bounds coverage, log() exactly which surfaces were dropped \u2014 never silently truncate"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "when more surfaces exist than the cap allows, the report names exactly which surfaces were NOT covered (no silent truncation)"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Make the doc-review command reliably scopeable to a single surface so a fanned-out per-surface drive completes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "running 'colleague drive --command doc-review <surface> --engine mock --no-pr' audits only the named surface and the drive calls finish with a report",
+        "on budget/timeout exhaustion the scoped drive finishes with an INCOMPLETE report naming covered vs remaining surfaces, never a silent no-finish",
+        "a surface that previously contributed to a timed-out full-repo drive completes when run as its own scoped drive (empirical proof recorded)"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "c8",
+        "h5",
+        "h6",
+        "h10"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Document the operator-driven audit fan-out recipe (assign-to-workforce) with honest coverage accounting and the bounded-fan-out boundaries",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/audit-fanout.md describes the recipe end to end: split surfaces -> run N scoped doc-review drives in parallel worktrees -> synthesize one ranked report",
+        "the doc states the reliability-not-speed rationale (zero wall-clock gain on a serializing server) and the boundaries: in-drive fan-out is one-level / <=3 children + 1 merge, nested batches forbidden, git-merge does not fit a read-only text audit",
+        "the coverage-accounting section requires the synthesized report to name exactly which surfaces were NOT covered when the surface set exceeds what was run (no silent truncation)",
+        "linked from the README feature table and docs/features/README.md index"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "c2",
+        "c3",
+        "c5",
+        "c6",
+        "c7",
+        "c10",
+        "h2",
+        "h3",
+        "h4",
+        "h7",
+        "h8",
+        "h9"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "the exact surface-splitting heuristic (per-file vs per-doc-group, sizing to stay under the per-request timeout) is left to operator judgment in v0; a built-in splitter is a follow-up",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}

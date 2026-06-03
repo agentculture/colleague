@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.11] - 2026-06-03
+
+### Added
+
+- Spec + plan: fan out a large read-only audit across scoped drives — operator-driven (assign-to-workforce); in-drive subagents text-aggregation deferred (issue #107)
+- Spec + plan: escalate via agtag when a drive cannot withstand a request — runtime-auto finalize hook, opt-in + offline/CI + approval-gated + idempotent, 5-section continuation contract; build gated on #109 (issue #106)
+
 ## [0.29.10] - 2026-06-03
 
 ### Fixed

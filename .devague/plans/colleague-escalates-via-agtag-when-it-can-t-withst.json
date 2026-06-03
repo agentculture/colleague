@@ -1,0 +1,215 @@
+{
+  "slug": "colleague-escalates-via-agtag-when-it-can-t-withst",
+  "title": "colleague escalates via agtag when it can't withstand a request \u2014 opening one tracked continuation issue with what it finished, what's needed, and a suggested split",
+  "frame_slug": "colleague-escalates-via-agtag-when-it-can-t-withst",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T18:30:55Z",
+  "updated": "2026-06-03T18:33:55Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague escalates via agtag when it can't withstand a request \u2014 opening one tracked continuation issue with what it finished, what's needed, and a suggested split"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a deliberately-capped drive (tiny step budget / forced timeout) with escalation enabled files exactly ONE agtag issue carrying its preserved partial result; with escalation disabled the run is byte-identical to today (no post)"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "an agent or operator who outsourced a task to colleague that hit a limit (timeout, step/context exhaustion) and needs the work tracked and continued, not silently dropped"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the beneficiary is whoever outsourced the failed task and needs it tracked/continued \u2014 the escalation serves them, not colleague's own logs"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "when a drive can't withstand a request it fails hard (aborted: TimeoutError) or under-delivers; the degradation layer preserves a partial result and DriveStats quantify the cost, but that signal is thrown away instead of escalated"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "today the partial result + DriveStats exist at failure time but become no outward tracked artifact \u2014 verifiable by inspecting the abort / not-finished paths"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "on a limit, colleague recognizes the wall and (when escalation is enabled) opens a tracked agtag issue carrying continuation (what it finished / artifact id), what's-needed (more budget / longer timeout / smaller context / a split), and a suggested pre-process & split with why + concrete suggestions"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "on a limit with escalation enabled, exactly one tracked issue appears carrying continuation + needs + suggested split + why, all derived from real drive state, not boilerplate"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "turns a dead-end into actionable, tracked continuation \u2014 the AgentCulture mesh pattern (agents file issues and request help) \u2014 instead of discarding what the drive already knew at failure time"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the escalation produces an actionable, continuable artifact a human/agent can pick up \u2014 not merely a failure notification"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "not an always-on auto-poster: an outward issue-post is a side effect, so it is opt-in/gated (like handoff's offline/CI guard + the approval gate) and idempotent (one issue per task, no duplicates across retries)"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "escalation never fires unless explicitly enabled and is a strict no-op offline / in CI / in tests / in a throwaway worktree \u2014 provable by those paths posting nothing"
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "a full-repo doc-review that times out on the local 27B leaves behind one tracked continuation issue stating what was covered, what remains, and how to split it \u2014 and a repeat run of the same task does not file a duplicate"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "concrete acceptance: a timed-out full doc-review leaves exactly one continuation issue, and a second identical run files zero additional issues (idempotent)"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "a finalize-time escalation seam in loop.py (the DriveAborted / not-finished branches, ~loop.py:778-790) that, when enabled and a limit was hit, builds a continuation record from the preserved partial result + DriveStats and posts it via the culture/agtag path"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the finalize seam fires on BOTH the DriveAborted and the not-finished branches, reads the already-preserved partial result + DriveStats, and posts via the existing culture/agtag subprocess path (no new dep/socket/daemon)"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "gating: escalation is opt-in (env/flag), offline/CI-safe (skips like handoff), respects the approval gate, and never fires from a throwaway-worktree audit or in tests"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "in CI/offline or a throwaway worktree, escalation is a strict no-op; an agtag invocation not allowed by the approval gate is denied; default-off unless the operator opts in"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "idempotency: a given task escalates at most one issue; a retry of the same task updates or skips rather than filing a duplicate"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "running the same failing task twice files one issue total, not two (idempotency keyed on task_id or equivalent)"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "a structured continuation-issue contract with five sections: continuation/state, remaining, what's-needed, suggested split, why"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the filed issue body contains all five sections (continuation/remaining/needs/split/why) and reads as a tracked, continuable task"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add a continuation-record builder (colleague/escalation.py) that renders the 5-section body from a partial TaskResult + DriveStats",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "build_continuation(result, stats) returns a body with all five labelled sections: continuation/state, remaining, what's-needed, suggested split, why",
+        "the body reflects real drive state (step/turn counts, elapsed, artifact id) drawn from DriveStats, not boilerplate",
+        "pure function: no network/subprocess/filesystem I/O; unit-tested in tests/test_escalation.py"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "c11",
+        "h5",
+        "h8"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Add escalation gating + idempotency in colleague/escalation.py (opt-in, offline/CI-safe, approval-gated, one issue per task)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "should_escalate() returns False by default; True only when the opt-in env flag is set AND not offline/CI (reusing handoff's guard) AND not in a throwaway worktree/test",
+        "an agtag invocation not permitted by the approval gate (colleague/policy.py) is denied",
+        "idempotency keyed on task_id: a second escalation for the same task_id is skipped \u2014 a test running the same failing task twice asserts exactly one issue"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c6",
+        "c9",
+        "c10",
+        "h3",
+        "h4",
+        "h10",
+        "h11"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Wire the finalize-time escalation seam into colleague/loop.py on the DriveAborted and not-finished branches, posting via the culture/agtag path",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with escalation enabled, a deliberately-capped drive (tiny step budget / forced timeout) files exactly ONE agtag issue carrying the preserved partial result",
+        "with escalation disabled the run is byte-identical to today (no post); the seam fires on BOTH the DriveAborted and not-finished branches",
+        "fires identically for mock and vllm-openai (all-engines rule); guarded by the e2e shape test and a zero-deps check (no new runtime dep/socket/daemon)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c7",
+        "c8",
+        "h1",
+        "h2",
+        "h7"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Document the escalation feature (docs/features/escalation.md): what the filed issue looks like, the opt-in/gating model, and the runtime-auto-over-model-judged rationale",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/escalation.md explains who the continuation issue serves, the opt-in default-off gating, and why runtime-auto was chosen over model-judged escalation",
+        "the doc frames the output as an actionable, continuable artifact (not a failure notification) and is linked from the README feature table + docs/features/README.md"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c2",
+        "c5",
+        "h6",
+        "h9"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "build is gated on colleague#109 (result fidelity): until a drive reliably surfaces its partial state at the wall, the continuation body has nothing to carry \u2014 implement #109 first, then this plan",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
