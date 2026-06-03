@@ -1,0 +1,384 @@
+{
+  "slug": "colleague-turns-a-model-into-a-repo-worker-by-tail",
+  "title": "Colleague turns a model into a repo worker by tailoring the model-facing runtime surface \u2014 tool names, availability, descriptions, default limits, and a short prompt overlay \u2014 to that model's mind, while the operator's Task to TaskResult contract stays stable. One runtime, tailored minds. A per-model 'profile.json' (repo-local, overriding a shipped package default) declares the tailoring.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T13:13:39Z",
+  "updated": "2026-06-03T13:23:45Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague turns a model into a repo worker by tailoring the model-facing runtime surface \u2014 tool names, availability, descriptions, default limits, and a short prompt overlay \u2014 to that model's mind, while the operator's Task to TaskResult contract stays stable. One runtime, tailored minds. A per-model 'profile.json' (repo-local, overriding a shipped package default) declares the tailoring.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Tailoring is real and visible: 'colleague profile show' renders a tool/limit/prompt surface that differs per model, while a drive's Task/TaskResult artifact shape stays byte-identical across models \u2014 tailoring touches the model-facing surface only.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators running colleague against a specific served model (who author the per-model profile), the model itself (which receives the tailored tool/prompt surface), and calling agents (who still see the unchanged Task to TaskResult contract).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "An operator can author a profile.json AND a calling agent's Task->TaskResult round-trip is unaffected \u2014 the three audiences are served by one artifact without conflict.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "A per-model model-profile manifest at '.colleague/<model>/profile.json' (repo-local, overriding a colleague-shipped package default) tailors the model-facing surface: tool-name aliases, tool availability, tool-description overrides, default limit hints, and a short system-prompt overlay; 'colleague profile show --model <m>' renders the composed surface plus which AGENTS/skills/hooks/policy layers apply.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "After shipping, a repo-local .colleague/<model>/profile.json and a shipped package default both resolve, and 'colleague profile show --model <m>' reflects the composed result \u2014 demonstrated end-to-end.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today colleague is framed as a swappable model harness: per-model AGENTS/skills/hooks/policy overlays exist (colleague/layers.py, hooks.py, policy.py) but there is no per-model tool-surface tailoring, no per-model default-limit hint, no single umbrella view of the model-facing surface, and the README thesis reads 'swappable model harness'.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "The claim is accurate today: there is no per-model tool-surface/limit tailoring and no 'colleague profile' verb in the current tree (grep confirms).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Different minds differ in tool-use behavior, naming sensitivity, schema tolerance, context preference, and failure modes; a better-fitting model-facing surface raises drive success while the operator contract stays stable. The product thesis shifts from 'models are interchangeable' to 'each model gets a better-fitting surface'.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The reframe changes presentation, not the contract: switching profiles changes the model-facing surface but never the Task/TaskResult schema, so 'better-fitting surface' is achieved without making 'models interchangeable' the value prop.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "non_goal",
+      "text": "Does NOT remove the Task to TaskResult contract, make every model bespoke, change or break '--model' selection, rename 'model-gear', add a router/sandbox/daemon/live-MCP, or rename the existing per-model files; tool aliases are model-FACING only (canonical internal tool names are always preserved); zero new runtime deps (stdlib json only).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "decision",
+      "text": "Name = 'model profile'; manifest file = '.colleague/<model>/profile.json' keyed by sanitize_model(config.model); introspection noun = 'colleague profile' (overview + show + explain). Product tagline may still say 'minds'.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "decision",
+      "text": "Profiles resolve repo-local-over-package: colleague ships built-in default profiles for known model families, and a repo-local '.colleague/<model>/profile.json' overrides the shipped default.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "decision",
+      "text": "Scope includes a short system-prompt overlay carried in the manifest (the broadest scope option), composed as the terminal layer in the existing system_prompt_for cascade rather than a replacement for AGENTS layers.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The profile manifest is stdlib-JSON with sections: 'tools' (aliases = canonical->model-facing name map; disable = list of optional tool names to hide; describe = canonical->override-description map), 'limits' (max_steps, context_budget_tokens, max_output_chars), and 'system_prompt' (short overlay text). Unknown keys are ignored; an absent or malformed file is a strict no-op.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A profile.json round-trips through the loader (save -> load -> identical surface); unknown keys are ignored; an absent or malformed file yields the same in-memory surface as today with no exception raised.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Tool aliasing is applied at the schema boundary in colleague/tools.py: the model-facing SCHEMAS present aliased names and overridden descriptions; the loop translates an incoming aliased tool call back to its canonical name before dispatch AND before recording, so the artifact step-trace and DriveStats per-tool counts always record the canonical name (write_file, never edit).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "A drive whose profile aliases write_file->edit: the model emits a call named 'edit', the write_file handler runs, and the artifact step-trace + DriveStats per-tool counts record 'write_file' (canonical) \u2014 verified by a test; Task/TaskResult shape unchanged.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Tool availability filtering removes only OPTIONAL tools (culture, devague, subagent, subagents) from the model-facing schema; the base five (read_file, write_file, list_dir, run_command, finish) cannot be disabled \u2014 a profile attempting to disable a base tool is ignored with a warning, preserving termination and the contract.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "A profile listing 'finish' or any base-five tool in 'disable' is ignored with a warning; read_file/write_file/list_dir/run_command/finish always remain in the model-facing schema \u2014 termination preserved \u2014 verified by a test.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Profile default limits enter EngineConfig.resolve as a layer between env vars and built-in defaults: explicit arg > COLLEAGUE_*/CONVERTIBLE_* env > profile limits > built-in default, so an operator flag/env always wins and a profile only sets the per-model default.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "A COLLEAGUE_MAX_STEPS env var overrides a profile max_steps, and a profile max_steps overrides the built-in default of 40 \u2014 precedence explicit-arg > env > profile > built-in \u2014 verified by a test.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "The profile system_prompt overlay is appended as the terminal layer of system_prompt_for (after AGENTS.colleague.<model>.md), giving ONE documented composition order; it is for short per-model quirk/guardrail/refusal-repair guidance, not a replacement for AGENTS files.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "With both AGENTS.colleague.<model>.md and a profile system_prompt present, the composed prompt contains both in the documented order (AGENTS layers, then profile overlay last) \u2014 one composition order, no replacement \u2014 verified by a test.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Package-default profiles ship as bundled JSON data for known model families and resolve under existing config precedence so a repo-local profile.json overrides them field-by-field; resolution reuses sanitize_model exact-path construction (no sibling globbing, no model-gear change).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "A bundled default profile for a model family applies when no repo-local profile exists; a repo-local profile.json overrides it field-by-field; resolution uses sanitize_model exact paths so model X never loads model Y's profile \u2014 verified by a test.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "A new 'colleague profile' introspection noun exposes overview, show --model <m> [--repo PATH] [--json] (rendering the composed model-facing surface: effective tool names with aliases, disabled tools, limits, and which AGENTS/skills/hooks/policy/profile layers are present), and an explain catalog entry \u2014 following the agents/skills/hooks noun pattern.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "colleague profile show --model <m> --json emits the composed surface (effective tool names, disabled tools, limits, present layers); a model with no profile reports a clean default state (not an error); overview and an explain catalog entry exist \u2014 verified by a test.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The profile layer is runtime-owned: loaded once via config.model and applied in colleague/tools.py + colleague/loop.py + EngineConfig, so mock and vllm-openai receive an identical tailored surface (all-engines rule).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The same task with the same profile yields an identical tailored tool schema and limits under both --engine mock and --engine vllm-openai \u2014 verified by the e2e shape test (tests/test_e2e_mock.py).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "README and CLAUDE.md are reframed from 'swappable model harness' to 'one runtime, model-tailored work surfaces / tailored minds', documenting the model-profile layer and its honest limits.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "README and CLAUDE.md describe model-tailored runtime surfaces and the model-profile layer with its honest limits (no param-aliasing, no MCP, no router, no hook-bypass escape hatch); the doc-test-alignment check passes.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "success_signal",
+      "text": "A repo with no profile and no matching package default produces a byte-identical SCHEMAS list, system prompt, limits, and artifact to today: the e2e shape test (tests/test_e2e_mock.py) and zero-deps guard (tests/test_zero_deps.py) pass unchanged.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "A test asserts the no-profile path yields the pre-feature SCHEMAS list, system prompt, and limits; tests/test_e2e_mock.py and tests/test_zero_deps.py run green in CI unchanged.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c20",
+      "kind": "success_signal",
+      "text": "An aliased drive round-trips: the model calls the alias, the canonical handler runs, and the artifact/stats record the canonical name \u2014 proven by a test.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "A dedicated test drives mock with a profile aliasing write_file->edit and asserts the artifact step-trace + DriveStats record 'write_file' (canonical); it lives in the suite and runs in CI.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "colleague profile show --model <m> renders the composed surface for a model with a profile, and reports a clean default state (not an error) for a model without one.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "A test invokes 'colleague profile show --model <m>' for both a profiled and an unprofiled model and asserts the composed surface vs a clean default state; it lives in the suite.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "Tool PARAMETER-name aliasing and any structured (non-prose) refusal/retry/repair mechanism are OUT of this increment (most fragile to model schema tolerance); v1 tailors tool NAMES, descriptions, availability, default limits, and a prose system-prompt overlay only.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The exported spec + docs list tool parameter-name aliasing and structured retry as out-of-scope follow-ups, and no v1 code path reads a parameter-alias map (verifiable by absence).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c23",
+      "kind": "assumption",
+      "text": "The served-model id resolved today (the same one feeding AGENTS/skills/hooks/policy via config.model) is the correct profile key; model-gear discovery already resolves it, so no new selection mechanism is needed.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "q1 resolved: v1 ships the package-default LOADING MECHANISM plus exactly ONE worked-example default profile; curated per-family default profiles are a follow-up (keeps v1 tight, avoids premature model-quirk guesses).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Tool PARAMETER-name aliasing (renaming tool argument keys per model) \u2014 most fragile to model schema tolerance; deferred to a follow-up increment.",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Structured (non-prose) refusal/retry/repair mechanism beyond a system-prompt overlay \u2014 e.g. profile-declared retry budgets or repair templates.",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Automatic task->model->profile routing policy (a multi-backend router that picks the model/profile) \u2014 explicitly re-spec territory, out of scope.",
+      "kind": "out_of_scope",
+      "claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Curate package-default profiles for additional known model families beyond the single v1 worked example.",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
