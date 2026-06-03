@@ -1,0 +1,198 @@
+{
+  "slug": "a-colleague-drive-never-reports-an-empty-looking-s",
+  "title": "A colleague drive never reports an empty-looking success: when the model doesn't call finish, the result still carries the model's actual produced content, and a genuinely empty drive is explicitly signalled rather than disguised as a normal completion",
+  "frame_slug": "a-colleague-drive-never-reports-an-empty-looking-s",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-03T19:14:30Z",
+  "updated": "2026-06-03T19:16:24Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "A colleague drive never reports an empty-looking success: when the model doesn't call finish, the result still carries the model's actual produced content, and a genuinely empty drive is explicitly signalled rather than disguised as a normal completion"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a drive that generated content but did not call finish surfaces that content in --json result.summary; a drive that generated nothing prints an explicit empty marker \u2014 neither reads as a bare step count"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "an agent or operator who outsourced a drive (explore/review/write/doc-review) and folds the --json result back \u2014 they need the model's actual output IN the result, not a step count that hides it in the artifact"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the outsource/explore/review/write caller reads the model's actual output from the --json result without opening .colleague/<id>.json"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "result.summary is set only from the finish tool (loop.py:305) or a no-tool-call terminating turn's content (loop.py:564-565); assistant prose on a turn that ALSO made a tool call is appended to history (loop.py:568) but is never a summary candidate, so a no-finish drive falls back to content-free 'completed in N step(s)' / 'stopped at the N-step budget' (loop.py:782-790) even when stats.answer_chars proves content existed"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "verifiable in code: result.summary has exactly the three sources at loop.py:305 / 564-565 / 782-790, and prose on a tool-call turn (line 568) never reaches summary \u2014 reproduced by a drive with answer_chars>0 but a step-count summary"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "on a no-finish exit the result surfaces the model's last substantive assistant content as the summary (or a clearly-labelled 'no result produced' when there genuinely was none), so a folded-back --json result is informative without parsing the artifact JSON"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "a no-finish drive's result.summary equals the model's last substantive message (not a step count); when no content existed it equals an explicit 'no result produced' marker"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "the --json result is the contract a caller folds back; a successful drive that reads as empty forces every caller to parse steps[] or lose the output \u2014 the exact failure that made the #106 explore and doc-review run 1 look empty despite generating content"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "without this a caller folding the result gets nothing actionable on a no-finish drive; with it the same transcript's result carries the answer \u2014 shown on a previously-empty-looking explore"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "this only changes how the runtime turns an already-produced (or absent) answer into the result/artifact; it does NOT make the model call finish (that is #104 prompt discipline) and does NOT signal a limit (that is #106 escalation)"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the change touches only result/summary finalization in loop.py; it adds NO finish nudge and NO agtag/escalation call; with the model's finish suppressed, a useful result still comes purely from already-emitted content"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "no LLM-generated summary and no extra model call to synthesize a result \u2014 the fallback reuses content the model already emitted, zero extra turns (consistent with the no-summary-in-degradation rule in CLAUDE.md)"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "no new model request is issued to build the summary; for a given transcript the turn/token counts are unchanged vs today \u2014 only the summary string differs"
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "a no-finish doc-review/explore that previously printed 'completed in N step(s)' with answer_chars>0 instead surfaces the model's last substantive message in result.summary and --json; a genuinely empty drive prints an explicit 'no result produced' marker a caller can branch on"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "a regression test reproduces the old empty-summary case and asserts the new behavior: last-substantive content surfaced when present, explicit empty marker when absent"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "track the last substantive assistant content during the loop (a last_assistant candidate updated on every turn with non-empty content, INCLUDING tool-call turns) and use it as the no-finish summary fallback ahead of the generic step-count text"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the last-substantive candidate is updated on EVERY turn with non-empty content including tool-call turns, so multi-turn narration that ends on a tool-call turn is still recoverable"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "the generic fallback explicitly signals absence: when no content was ever produced, the result marks 'no result produced' (distinguishable by a caller) instead of a step-count that looks like a normal completion"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "a caller can programmatically distinguish 'no result produced' from a real summary (a stable sentinel/flag), not by string-matching a step count"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "all-engines: identical result shape for mock and vllm-openai (pinned by the e2e shape test); no new runtime dep; the artifact records the recovered last-assistant content so the answer is never lost"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "mock and vllm-openai produce the identical result shape (e2e shape test passes); zero new runtime deps; the artifact persists the recovered last-assistant content"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add a stable, programmatic 'no result produced' signal to the result shape (colleague/contract.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult exposes a stable sentinel/flag a caller can branch on to detect 'no output was produced', without string-matching a step-count summary",
+        "the signal is identical for every backend and adds no runtime dependency"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h10"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Track the last substantive assistant content and use it as the no-finish summary fallback in colleague/loop.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a last-substantive-content candidate is updated on EVERY turn with non-empty content, including tool-call turns (the loop.py:568 gap)",
+        "finalize summary precedence is finish_summary > last-substantive content > the t1 empty sentinel; the generic step-count text is only used when truly nothing was produced",
+        "no extra model request is issued to build the summary; for a fixed transcript the model turn/token counts are unchanged vs today (only the summary string differs)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c4",
+        "c6",
+        "c7",
+        "c9",
+        "h1",
+        "h3",
+        "h4",
+        "h6",
+        "h7",
+        "h9"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Add a regression test reproducing the empty-summary case and asserting the new fidelity behavior (tests/)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a mock drive that emits content on a tool-call turn then stops WITHOUT finish surfaces that content in result.summary and --json (not a step count)",
+        "a mock drive that produces no content yields the explicit empty sentinel, programmatically distinguishable",
+        "the e2e shape test passes: mock and vllm-openai produce the identical result shape; no new runtime dep"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c2",
+        "c5",
+        "c8",
+        "c11",
+        "h2",
+        "h5",
+        "h8",
+        "h11"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "v0 takes the last non-empty assistant content as 'substantive'; a relevance filter to drop pure tool-call narration ('let me read X next') is a follow-up",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
