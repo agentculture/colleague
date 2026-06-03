@@ -39,6 +39,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from colleague import escalation as _escalation
 from colleague.context import is_context_overflow, window_messages
 from colleague.contract import (
     DECISION_DENY,
@@ -806,6 +807,11 @@ def run(
         result.summary = result.summary or (
             f"aborted after {len(result.steps)} step(s): {result.error}"
         )
+        # Escalation seam — aborted path (#106 t3): best-effort, observe-only.
+        # A timeout / context-overflow / engine error is a limit worth escalating.
+        # Wrapped in suppress so any escalation failure never masks the drive result.
+        with suppress(Exception):
+            _escalation.escalate(result, result.stats, task.repo_path, model=model)
         raise DriveAborted(result) from aborted
 
     # Explicit not-finished flag (#106 t5): set from the _drive_loop return value,
@@ -816,6 +822,12 @@ def run(
     # this from stats.step_count: max_steps bounds model *turns* while step_count
     # counts *tool calls* (a turn may issue several), so they are not comparable.
     result.not_finished = not finished
+    # Escalation seam — not-finished path (#106 t3): step budget exhausted without
+    # calling finish.  Best-effort and observe-only; suppress so it cannot mask the
+    # drive result.
+    if result.not_finished:
+        with suppress(Exception):
+            _escalation.escalate(result, result.stats, task.repo_path, model=model)
 
     # Summary precedence (t2, #109):
     #   1. finish_summary set by the finish tool (already on result.summary via
