@@ -224,4 +224,5 @@ class VllmOpenAIEngine(Engine):
             spawn=config.subagent_spawn,
             context_budget=config.context_budget_tokens,
             count_tokens=self._make_count_tokens(config),
+            max_output_chars=config.max_output_chars,
         )

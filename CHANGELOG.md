@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-06-03
+
+### Added
+
+- Configurable per-tool-result output cap: COLLEAGUE_MAX_OUTPUT_CHARS (EngineConfig.max_output_chars, default 100000), raised from the old hardcoded 20000 so a large read_file/run_command result is not truncated inside the bigger context window. Threaded through the loop and forwarded by every engine (all-engines rule).
+
+### Changed
+
+- Context budget default raised 24000 -> 192000 tokens and drive step budget default 25 -> 40, sized for the upgraded 256k (262144-token) vLLM reference rig (model-gear). Override per environment with COLLEAGUE_CONTEXT_BUDGET / COLLEAGUE_MAX_STEPS.
+
 ## [0.27.2] - 2026-06-03
 
 ### Changed

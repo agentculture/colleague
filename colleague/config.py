@@ -28,14 +28,21 @@ _DEFAULT_BASE_URL = "http://localhost:8001/v1"
 # reaches a live model instead of a 404 "model does not exist". Override per
 # environment with COLLEAGUE_MODEL or --model.
 _DEFAULT_MODEL = "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
-_DEFAULT_MAX_STEPS = 25
+_DEFAULT_MAX_STEPS = 40
 _DEFAULT_TEMPERATURE = 0.0
 _DEFAULT_TIMEOUT = 120.0
 # Proactive context budget in tokens. Counted exactly via the served model's
 # /tokenize endpoint when reachable; char-based fallback otherwise (best-effort
 # exact, char-approximate fallback, never token-exact-guaranteed — no tokenizer
-# library is bundled).
-_DEFAULT_CONTEXT_BUDGET = 24000
+# library is bundled). Sized for the 256k (262144-token) reference rig, leaving
+# headroom for the completion + system/tools prompt. Override per environment
+# with COLLEAGUE_CONTEXT_BUDGET (e.g. lower it for a small-context model).
+_DEFAULT_CONTEXT_BUDGET = 192000
+# Cap on each tool result (read_file / run_command / list_dir / subagent) fed
+# back to the model, in characters. Raised from the old hardcoded 20000 to suit
+# the 256k window so a large file read isn't truncated. Tunable per environment
+# with COLLEAGUE_MAX_OUTPUT_CHARS.
+_DEFAULT_MAX_OUTPUT_CHARS = 100000
 
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
@@ -96,6 +103,7 @@ class EngineConfig:
     temperature: float = _DEFAULT_TEMPERATURE
     timeout: float = _DEFAULT_TIMEOUT
     context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
+    max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI drive path, not by
@@ -121,6 +129,7 @@ class EngineConfig:
         temperature: float | None = None,
         timeout: float | None = None,
         context_budget_tokens: int | None = None,
+        max_output_chars: int | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, then defaults."""
         return cls(
@@ -171,6 +180,14 @@ class EngineConfig:
                     default=str(_DEFAULT_CONTEXT_BUDGET),
                 )
             ),
+            max_output_chars=int(
+                _pick(
+                    _str(max_output_chars),
+                    "COLLEAGUE_MAX_OUTPUT_CHARS",
+                    "CONVERTIBLE_MAX_OUTPUT_CHARS",
+                    default=str(_DEFAULT_MAX_OUTPUT_CHARS),
+                )
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -182,6 +199,7 @@ class EngineConfig:
             "temperature": self.temperature,
             "timeout": self.timeout,
             "context_budget_tokens": self.context_budget_tokens,
+            "max_output_chars": self.max_output_chars,
         }
 
 

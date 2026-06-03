@@ -39,6 +39,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS
 from colleague.context import is_context_overflow, window_messages
 from colleague.contract import (
     DECISION_DENY,
@@ -588,6 +589,7 @@ def run(
     spawn: Callable | None = None,
     context_budget: int | None = None,
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None,
+    max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -647,7 +649,9 @@ def run(
     :class:`DriveAborted` carrying that result, so the drive path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
-    executor = executor or ToolExecutor(task.repo_path, spawn=spawn)
+    executor = executor or ToolExecutor(
+        task.repo_path, spawn=spawn, max_output_chars=max_output_chars
+    )
     hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
     # Telemetry defaults like hooks do: resolved from the environment, a no-op
     # unless explicitly enabled. Tool spans auto-nest under the drive span the

@@ -57,6 +57,7 @@ def test_to_dict_has_expected_keys() -> None:
         "temperature",
         "timeout",
         "context_budget_tokens",
+        "max_output_chars",
     }
     assert set(snapshot.keys()) == expected_keys
 
