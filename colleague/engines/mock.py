@@ -13,6 +13,7 @@ from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.engine import Engine
 from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
+from colleague.tools import ToolExecutor
 
 #: Where the mock writes its marker file (relative to the repo root).
 OUTPUT_FILE = "colleague-mock.md"
@@ -66,9 +67,15 @@ class MockEngine(Engine):
             system_prompt=self.system_prompt(task, config),
             model=config.model,
             progress=config.progress,
-            spawn=config.subagent_spawn,
+            # The engine builds the repo-confined executor so the config-derived
+            # output cap (and subagent spawn) ride the existing ``executor`` seam
+            # — keeps ``run()`` from growing another parameter (all-engines rule).
+            executor=ToolExecutor(
+                task.repo_path,
+                spawn=config.subagent_spawn,
+                max_output_chars=config.max_output_chars,
+            ),
             # All-engines rule: the mock exercises the SAME loop windowing path.
             # No count_tokens → the loop uses the char estimate via window_messages.
             context_budget=config.context_budget_tokens,
-            max_output_chars=config.max_output_chars,
         )
