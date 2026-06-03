@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.12] - 2026-06-03
+
+### Added
+
+- Operator-driven audit fan-out recipe (docs/features/audit-fanout.md): split a too-large doc-review into per-surface scoped drives via assign-to-workforce and synthesize one ranked report (#107)
+
+### Changed
+
+- doc-review command template instructs single-surface-only coverage when given a scope argument (names out-of-scope surfaces), making it fan-out-ready (#107)
+
 ## [0.29.11] - 2026-06-03
 
 ### Added
