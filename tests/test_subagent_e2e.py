@@ -41,7 +41,7 @@ from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
 from colleague.engines import mock as mock_mod
 from colleague.engines import vllm_openai
-from colleague.loop import ModelResponse, ToolCall, run
+from colleague.loop import ModelResponse, Spawns, ToolCall, run
 from colleague.subagents import make_spawn
 from colleague.tools import SCHEMAS, TOOL_NAMES
 
@@ -126,7 +126,7 @@ def test_mock_to_mock_subagent_round_trip(tmp_path: Path) -> None:
         ]
     )
 
-    result = run(parent_complete, task, max_steps=10, spawn=spawn)
+    result = run(parent_complete, task, max_steps=10, spawns=Spawns(single=spawn))
 
     assert result.status == OK
 
@@ -203,7 +203,7 @@ def test_mock_to_mock_subagent_step_trace_is_accurate(tmp_path: Path) -> None:
         ]
     )
 
-    result = run(parent_complete, task, max_steps=10, spawn=spawn)
+    result = run(parent_complete, task, max_steps=10, spawns=Spawns(single=spawn))
 
     subagent_steps = [s for s in result.steps if s.tool == "subagent"]
     assert len(subagent_steps) == 1, "Expected exactly one subagent step"
@@ -244,7 +244,7 @@ def test_mock_to_mock_serialised_round_trip_json_stable(tmp_path: Path) -> None:
         ]
     )
 
-    result = run(parent_complete, task, max_steps=10, spawn=spawn)
+    result = run(parent_complete, task, max_steps=10, spawns=Spawns(single=spawn))
 
     d = result.to_dict()
     # Must be JSON-serialisable.
@@ -360,7 +360,7 @@ def test_subagent_drive_with_telemetry_off_is_noop(tmp_path: Path) -> None:
     )
 
     # Use loop.run directly so we control the telemetry parameter (None = default noop).
-    result = run(parent_complete, task, max_steps=10, spawn=spawn)
+    result = run(parent_complete, task, max_steps=10, spawns=Spawns(single=spawn))
 
     # The drive succeeded and sub_results are recorded — telemetry off is a no-op.
     assert result.status == OK
@@ -464,7 +464,7 @@ def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_
     # Inject the telemetry directly into the parent loop.run so its spans are
     # captured.  Open the outer drive_span context first so tool spans auto-nest.
     with t.drive_span(task_id=task.id, engine="mock", model="mock-model", max_steps=10):
-        result = run(parent_complete, task, max_steps=10, spawn=spawn, telemetry=t)
+        result = run(parent_complete, task, max_steps=10, spawns=Spawns(single=spawn), telemetry=t)
 
     assert result.status == OK
     assert len(result.sub_results) == 1

@@ -573,6 +573,22 @@ def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class Spawns:
+    """The two optional delegation callbacks injected into the tool executor.
+
+    ``single`` backs the ``subagent`` tool (built by
+    :func:`colleague.subagents.make_spawn`); ``batch`` backs the ``subagents``
+    (plural) tool (built by :func:`colleague.subagents.make_batch_spawn`).
+    Bundling the pair keeps :func:`run`'s signature within the parameter budget
+    while preserving the convenience path for callers that do not build their own
+    executor. Both default ``None`` (the tool is simply unavailable).
+    """
+
+    single: Callable | None = None
+    batch: Callable | None = None
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -585,7 +601,7 @@ def run(
     model: str | None = None,
     progress: ProgressFn | None = None,
     policy: Policy | None = None,
-    spawn: Callable | None = None,
+    spawns: Spawns | None = None,
     context_budget: int | None = None,
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None,
 ) -> TaskResult:
@@ -618,15 +634,20 @@ def run(
     Like hooks/telemetry it is chassis-owned — every engine forwards
     ``config.progress`` so the behavior is identical across engines.
 
-    ``spawn`` is an optional subagent launch callback
-    ``spawn(instruction, engine=None, model=None) -> SubResult`` (built by
-    :func:`colleague.subagents.make_spawn`); when given it is injected into the
-    :class:`~colleague.tools.ToolExecutor` so the ``subagent`` tool can delegate
-    a scoped sub-task to a nested child drive. ``None`` (the default) leaves the
-    tool unavailable (it reports so to the model). Like progress it is chassis-owned
-    — every engine forwards ``config.subagent_spawn``. Any nested results the
-    executor accumulates are snapshotted onto ``result.sub_results`` on every exit
-    path (alongside ``changed_files``).
+    ``spawns`` is an optional :class:`Spawns` bundle of the two delegation
+    callbacks. ``spawns.single`` ``(instruction, engine=None, model=None) ->
+    SubResult`` (built by :func:`colleague.subagents.make_spawn`) backs the
+    ``subagent`` tool; ``spawns.batch`` ``(items) -> list[SubResult]`` (built by
+    :func:`colleague.subagents.make_batch_spawn`) backs the ``subagents`` (plural)
+    parallel-batch tool. When given they are injected into the
+    :class:`~colleague.tools.ToolExecutor` so the corresponding tool can delegate
+    to nested child drives; ``None`` (the default), or a field left ``None``,
+    leaves that tool unavailable (it reports so to the model). This is chassis-owned
+    — engines build their own executor from ``config.subagent_spawn`` /
+    ``config.subagent_batch_spawn`` (the ``executor`` seam), so the ``spawns``
+    convenience path is for direct callers. Any nested results the executor
+    accumulates are snapshotted onto ``result.sub_results`` on every exit path
+    (alongside ``changed_files``).
 
     ``context_budget`` is an optional proactive token budget (t4). When a positive
     int, the running history is windowed to it (via :func:`window_messages`)
@@ -647,7 +668,10 @@ def run(
     :class:`DriveAborted` carrying that result, so the drive path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
-    executor = executor or ToolExecutor(task.repo_path, spawn=spawn)
+    _spawns = spawns or Spawns()
+    executor = executor or ToolExecutor(
+        task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
+    )
     hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
     # Telemetry defaults like hooks do: resolved from the environment, a no-op
     # unless explicitly enabled. Tool spans auto-nest under the drive span the

@@ -227,6 +227,7 @@ class VllmOpenAIEngine(Engine):
             executor=ToolExecutor(
                 task.repo_path,
                 spawn=config.subagent_spawn,
+                batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
             ),
             context_budget=config.context_budget_tokens,

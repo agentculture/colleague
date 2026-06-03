@@ -36,7 +36,7 @@ from colleague.config import EngineConfig, resolve_engine
 from colleague.contract import OK, Task, TaskResult
 from colleague.feedback import set_last_drive
 from colleague.handoff import HandoffError, handoff, untracked_snapshot
-from colleague.subagents import make_spawn
+from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.telemetry import Telemetry, load_telemetry
 
 
@@ -245,6 +245,7 @@ def execute_drive(
             # 1; the launcher binds each child to depth+1, so recursion is bounded
             # by MAX_SUBAGENT_DEPTH.
             config.subagent_spawn = make_spawn(task.repo_path, config, task.engine)
+            config.subagent_batch_spawn = make_batch_spawn(task.repo_path, config, task.engine)
             try:
                 result = engine.drive(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)

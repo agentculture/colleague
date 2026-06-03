@@ -159,6 +159,46 @@ def test_inheritance_preserves_base_fields(tmp_path) -> None:
     assert parent.subagent_spawn is None
 
 
+def test_child_config_forbids_nested_batches(tmp_path, monkeypatch) -> None:
+    """A child drive's config has ``subagent_batch_spawn = None`` (Qodo #5).
+
+    Nested batches are forbidden in v0 (parked risk r2): the parent's batch-spawn
+    closure is bound to the PARENT's repo_path/depth, so inheriting it would let a
+    child run a batch against the wrong worktree without incrementing depth. The
+    single-child ``subagent_spawn`` IS still rebound (depth-bounded delegation
+    survives). The parent config object is left untouched.
+    """
+    from colleague import registry as _registry
+
+    real_mock = _registry.load("mock")
+    captured: dict = {}
+
+    class _CapturingEngine:
+        def drive(self, task, config):
+            captured["config"] = config
+            return real_mock.drive(task, config)
+
+    monkeypatch.setattr("colleague.subagents.registry.load", lambda name: _CapturingEngine())
+
+    parent = EngineConfig()
+    # Simulate the top-level drive having a batch-spawn closure set.
+    parent.subagent_batch_spawn = lambda items: []
+
+    run_subagent(
+        "task",
+        repo_path=str(tmp_path),
+        parent_config=parent,
+        parent_engine="mock",
+        depth=1,
+    )
+
+    child_cfg = captured["config"]
+    assert child_cfg.subagent_batch_spawn is None, "child must NOT inherit the parent's batch spawn"
+    assert child_cfg.subagent_spawn is not None, "single-child delegation must still be wired"
+    # Parent object is not mutated by the launch.
+    assert parent.subagent_batch_spawn is not None
+
+
 # ---------------------------------------------------------------------------
 # Criterion 3: recursion past the cap is refused BEFORE any child starts.
 # ---------------------------------------------------------------------------
