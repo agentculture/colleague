@@ -41,7 +41,7 @@ class Engine(abc.ABC):
         """Compose the model-specific system prompt (AGENTS + skills layers).
 
         Resolved here on the base class — not in each ``drive`` — so *every*
-        engine wheel inherits the layered instruction injection for free (the
+        backend plugin inherits the layered instruction injection for free (the
         all-engines rule), mirroring how hooks are inherited via the loop.
         Subclasses pass the return value as ``system_prompt=`` to
         :func:`colleague.loop.run`. Returns ``None`` when no AGENTS/skills

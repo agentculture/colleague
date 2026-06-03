@@ -122,7 +122,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
 )
 
 # Ordered registry of check-groups. Identity first (who am I), then the
-# engine/provider plumbing (provider config, usage-readiness, engine wheels),
+# backend/provider plumbing (provider config, usage-readiness, backend plugins),
 # then observability, then the broader environment. The order here is the report
 # order. Every group registered here is contractually read-only and opens no
 # socket / makes no network call (see the check-group contract above) — the

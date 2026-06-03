@@ -51,7 +51,7 @@ def cmd_wheels_list(args: argparse.Namespace) -> int:
             json_mode=True,
         )
     elif not catalog:
-        emit_result("(no engine wheels installed)", json_mode=False)
+        emit_result("(no backend plugins installed)", json_mode=False)
     else:
         emit_result("\n".join(f"{w.name}\t{w.target}" for w in catalog), json_mode=False)
     return 0
@@ -64,7 +64,7 @@ def _no_verb(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "wheels",
-        help="Discover installed engine wheels (see 'colleague wheels overview').",
+        help="Discover installed backend plugins (see 'colleague wheels overview').",
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)

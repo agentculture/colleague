@@ -109,7 +109,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
-    # Colleague's working surface: assign repo work + inspect engine wheels.
+    # Colleague's working surface: assign repo work + inspect backend plugins.
     _drive_cmd.register(sub)
     _wheels_group.register(sub)
     # ROI loop: grade a drive after the fact (stats say cost; feedback says quality).

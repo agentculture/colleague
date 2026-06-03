@@ -23,8 +23,8 @@ rename the package, and edit culture.yaml to mint a new agent.
 
 Commands
 --------
-  colleague drive <task>       Run a repo task through a coder engine.
-  colleague wheels list        List discovered engine wheels.
+  colleague drive <task>       Run a repo task through a coder backend.
+  colleague wheels list        List discovered backend plugins.
   colleague whoami             Identity from culture.yaml.
   colleague learn              This self-teaching prompt.
   colleague explain <path>...  Markdown docs for any noun/verb path.
@@ -47,7 +47,7 @@ Exit-code policy
 Outsourcing to a different mind
 -------------------------------
 The first-party `outsource` skill (.claude/skills/outsource/) hands a scoped task
-to colleague itself — a different engine/mind, not a stronger one; diversity
+to colleague itself — a different backend/mind, not a stronger one; diversity
 helps. Verbs: outsource explore | review | write (review = a second opinion on a
 diff). See: colleague explain outsource.
 
@@ -63,8 +63,8 @@ def _as_json_payload() -> dict[str, object]:
         "version": __version__,
         "purpose": "Clonable scaffold for a new AgentCulture mesh agent.",
         "commands": [
-            {"path": ["drive"], "summary": "Run a repo task through a coder engine."},
-            {"path": ["wheels", "list"], "summary": "List discovered engine wheels."},
+            {"path": ["drive"], "summary": "Run a repo task through a coder backend."},
+            {"path": ["wheels", "list"], "summary": "List discovered backend plugins."},
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
             {"path": ["explain"], "summary": "Markdown docs by path."},

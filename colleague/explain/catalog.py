@@ -26,7 +26,7 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 - `colleague drive <goal>` — drive toward a goal/instruction; work autonomously
   through a coder backend and hand off the result.
 - `colleague session` — foreground interactive palette over the drive path.
-- `colleague wheels list` — list discovered engine wheels.
+- `colleague wheels list` — list discovered backend plugins.
 - `colleague whoami` — identity probe from `culture.yaml`.
 - `colleague learn` — structured self-teaching prompt.
 - `colleague explain <path>` — markdown docs for any noun/verb.

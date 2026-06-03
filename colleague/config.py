@@ -72,7 +72,7 @@ def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
 
 
 def resolve_engine(explicit: str | None) -> str:
-    """Resolve the engine wheel name to drive.
+    """Resolve the backend plugin name to drive.
 
     Precedence, highest first: an explicit value (the ``--engine`` flag), the
     ``COLLEAGUE_ENGINE`` environment variable (legacy ``CONVERTIBLE_ENGINE`` is

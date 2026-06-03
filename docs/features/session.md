@@ -30,7 +30,7 @@ to Claude Code / Codex), independent of the render tier:
 | `/skills` | Resolved skill docs (`skills list`). |
 | `/agents` | Resolved AGENTS instruction layers (`agents list`). |
 | `/config` | Configuration readiness (the `doctor` rubric). |
-| `/engines` | Discovered engine wheels (`wheels list`). |
+| `/engines` | Discovered backend plugins (`wheels list`). |
 | `/telemetry` | Telemetry configuration (`telemetry status`). |
 | `/feedback` | Feedback record for the last drive (`feedback show last`). |
 | `/engine <name>` | Switch the engine used by the next drive (validated). |

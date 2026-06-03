@@ -1,4 +1,4 @@
-"""``colleague drive`` — assign a repo task to a coder engine.
+"""``colleague drive`` — assign a repo task to a coder backend.
 
 The headline verb: select an engine (a discovered wheel), run the bounded
 agentic loop against a repo, write the result artifact, and hand the change off
@@ -150,7 +150,7 @@ def execute_drive(
     repo:
         Absolute path to the target repository.
     engine_name:
-        Name of the engine wheel to load (e.g. ``"mock"``).
+        Name of the backend plugin to load (e.g. ``"mock"``).
     task:
         A fully constructed :class:`~colleague.contract.Task`.
     open_pr:
@@ -419,7 +419,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "drive",
         help=(
             "Drive toward a goal: work autonomously on a request or instruction "
-            "through a coder engine, then hand off the result."
+            "through a coder backend, then hand off the result."
         ),
     )
     # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
@@ -444,7 +444,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--engine",
         default=None,
-        help="Engine wheel to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help="Backend plugin to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
     )
     p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")

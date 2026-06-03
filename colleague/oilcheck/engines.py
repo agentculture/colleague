@@ -31,7 +31,7 @@ _BUNDLED_ENGINES = ("mock", "vllm-openai")
 
 
 def checks() -> list[dict]:
-    """Return engine-wheel health checks (see module docstring)."""
+    """Return backend-plugin health checks (see module docstring)."""
     out: list[dict] = []
 
     # 1. Discover all registered engines.
