@@ -41,7 +41,10 @@ always safe — make it a habit on tasks that fit:
 - **`review` — the standing reflex.** You (or a subagent) just produced a
   non-trivial *committed* diff and are about to present it or open a PR. Get a
   diverse second opinion *first*. A different mind catches what the author's mind
-  glides past — that's the whole point, and it costs you nothing but ~20s.
+  glides past — that's the whole point. A real review on a local model takes tens
+  of seconds to a few minutes (it reads the diff + touched files), so **kick it
+  off in the background and keep working** rather than blocking on it; fold the
+  findings in when it lands.
 - **`explore`** — you need to understand an unfamiliar area whose answer is
   **independent of your current context**, and you could be doing something else
   meanwhile. Fan it out, fold the findings back.

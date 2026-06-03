@@ -105,7 +105,10 @@ def cmd_whoami(args: argparse.Namespace) -> None:
     if json_mode:
         emit_result(identity, json_mode=True)
         return
-    drive_model = identity["drive_model"] or "(mock backend — no model)"
+    # ``is not None`` (not ``or``): the fallback labels the mock case specifically
+    # — only ``None`` means "no model", never a falsy-but-present model string.
+    raw_drive_model = identity["drive_model"]
+    drive_model = raw_drive_model if raw_drive_model is not None else "(mock backend — no model)"
     text = (
         f"nick: {identity['nick']}\n"
         f"version: {identity['version']}\n"
