@@ -32,6 +32,11 @@ Four checks (two behavioral, two structural):
 
 5. STRUCTURAL — No ``importlib.import_module`` / ``__import__`` applied to
    command or hook file paths anywhere in the package.
+
+6. STRUCTURAL — ``threading`` / ``concurrent.futures`` are confined to
+   ``colleague/subagents.py``.  That is the ONE module permitted to use
+   thread-pool concurrency (the parallel convoy path).  All other modules
+   must not import either primitive.
 """
 
 from __future__ import annotations
@@ -474,7 +479,88 @@ class TestNoMcpJsonReference:
 
 
 # ---------------------------------------------------------------------------
-# Structural check 7 — mesh-member feature modules use no daemon primitives
+# Structural check 7 — threading / concurrent.futures confined to subagents.py
+# ---------------------------------------------------------------------------
+
+# The ONLY module permitted to import threading or concurrent.futures.
+# colleague/subagents.py uses a ThreadPoolExecutor for the parallel convoy path.
+# Every other colleague module must never import either primitive directly.
+_THREADS_ALLOWED: frozenset[str] = frozenset(
+    {
+        "colleague/subagents.py",
+    }
+)
+
+_THREAD_IMPORT_RE = re.compile(
+    r"^\s*import threading\b"
+    r"|^\s*from threading\b"
+    r"|^\s*import concurrent\.futures\b"
+    r"|^\s*from concurrent\.futures\b"
+    r"|^\s*from concurrent import futures\b",
+)
+
+
+class TestThreadConfinement:
+    """threading / concurrent.futures imports must only appear in subagents.py."""
+
+    @pytest.mark.parametrize(
+        "py_file",
+        _all_py_sources(),
+        ids=lambda p: str(p.relative_to(_PACKAGE_DIR.parent)),
+    )
+    def test_threads_only_in_sanctioned_files(self, py_file: Path) -> None:
+        """Assert threading/concurrent.futures is only imported by its sanctioned consumer."""
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        lines = source.splitlines()
+
+        if rel in _THREADS_ALLOWED:
+            # Sanctioned file — verify it actually does import a thread primitive
+            # so the allow-list does not drift with dead entries.
+            has_thread = any(_THREAD_IMPORT_RE.search(line) for line in lines)
+            assert has_thread, (
+                f"{rel} is listed as a sanctioned thread consumer "
+                "but does not import threading or concurrent.futures — "
+                "remove it from _THREADS_ALLOWED."
+            )
+            return
+
+        # All other files must not import threading or concurrent.futures.
+        violations: list[str] = []
+        for lineno, line in enumerate(lines, start=1):
+            if _THREAD_IMPORT_RE.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()!r}")
+
+        assert not violations, (
+            "threading / concurrent.futures imported outside sanctioned files "
+            f"(allowed: {sorted(_THREADS_ALLOWED)}):\n" + "\n".join(violations)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Boundary decision — worktrees.py subprocess allowance and mesh exclusion
+# ---------------------------------------------------------------------------
+
+
+def test_worktrees_py_in_subprocess_allowed_and_not_in_mesh_modules() -> None:
+    """Confirm the worktrees.py boundary decision is recorded correctly.
+
+    colleague/worktrees.py drives git-worktree add/remove via subprocess — it
+    belongs in _SUBPROCESS_ALLOWED.  It is NOT a mesh-member module (no culture
+    CLI delegation), so it must NOT appear in _MESH_MODULES.
+    """
+    assert "colleague/worktrees.py" in _SUBPROCESS_ALLOWED, (
+        "colleague/worktrees.py must be listed in _SUBPROCESS_ALLOWED "
+        "(it drives git worktree commands via subprocess)."
+    )
+    assert "colleague/worktrees.py" not in _MESH_MODULES, (
+        "colleague/worktrees.py must NOT be listed in _MESH_MODULES "
+        "(it is not a mesh/culture CLI delegator)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Structural check 8 — mesh-member feature modules use no daemon primitives
 # ---------------------------------------------------------------------------
 
 # The culture / neighbours modules shell out to operator CLIs — they must
@@ -509,7 +595,7 @@ _DAEMON_PRIMITIVE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 class TestMeshModulesNoDaemonPrimitives:
-    """culture.py, neighbours.py, and identity.py must not spawn daemon processes."""
+    """culture.py, neighbours.py, identity.py, and devague.py must not spawn daemon processes."""
 
     @pytest.mark.parametrize("rel_path", _MESH_MODULES)
     def test_no_daemon_primitives(self, rel_path: str) -> None:
