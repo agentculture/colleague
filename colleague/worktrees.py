@@ -335,24 +335,14 @@ def teardown_all(repo_path: str) -> None:
     wt_root = repo / _WORKTREES_SUBDIR
 
     # Collect child IDs ONLY from worktrees we own: the directory names under the
-    # worktrees root, plus registered worktrees whose path is under that root
+    # worktrees root, plus git-registered worktrees whose path is under that root
     # (catches entries whose directories were already removed externally).
     child_ids: set[str] = set()
-
     if wt_root.is_dir():
         for entry in wt_root.iterdir():
             if entry.is_dir():
                 child_ids.add(entry.name)
-
-    # Scan git's own worktree list for worktrees pointing under our root.
-    proc = _git(repo, "worktree", "list", "--porcelain", check=False)
-    if proc.returncode == 0:
-        wt_root_str = str(wt_root)
-        for line in proc.stdout.splitlines():
-            if line.startswith("worktree "):
-                wt = line[len("worktree ") :].strip()
-                if wt.startswith(wt_root_str):
-                    child_ids.add(Path(wt).name)
+    child_ids |= _registered_child_ids(repo, wt_root)
 
     # Remove each child worktree + its branch idempotently. These are children WE
     # created (a worktree exists/existed under our root), so deleting their
@@ -362,3 +352,24 @@ def teardown_all(repo_path: str) -> None:
 
     # Final prune to flush any remaining stale metadata.
     _git(repo, "worktree", "prune", check=False)
+
+
+def _registered_child_ids(repo: Path, wt_root: Path) -> set[str]:
+    """Child IDs of git-registered worktrees whose path is under *wt_root*.
+
+    Extracted from :func:`teardown_all` so each function stays within the
+    cognitive-complexity budget. Returns an empty set if ``git worktree list``
+    fails (tolerated, like every other git call here).
+    """
+    proc = _git(repo, "worktree", "list", "--porcelain", check=False)
+    if proc.returncode != 0:
+        return set()
+    wt_root_str = str(wt_root)
+    found: set[str] = set()
+    for line in proc.stdout.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        wt = line[len("worktree ") :].strip()
+        if wt.startswith(wt_root_str):
+            found.add(Path(wt).name)
+    return found

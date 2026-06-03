@@ -28,7 +28,7 @@ import pytest
 from colleague import registry
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task
-from colleague.loop import _DEFAULT_SYSTEM, ModelResponse, ToolCall, run
+from colleague.loop import _DEFAULT_SYSTEM, ModelResponse, Spawns, ToolCall, run
 from colleague.subagents import make_spawn
 
 
@@ -86,7 +86,7 @@ def test_subagent_call_records_sub_result_and_merges_changed_files(tmp_path: Pat
         ]
     )
 
-    result = run(complete, task, max_steps=10, spawn=spawn)
+    result = run(complete, task, max_steps=10, spawns=Spawns(single=spawn))
 
     assert result.status == OK
     # Exactly one nested child was recorded.

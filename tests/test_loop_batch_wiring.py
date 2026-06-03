@@ -27,7 +27,7 @@ import pytest
 from colleague import registry
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task
-from colleague.loop import ModelResponse, ToolCall, run
+from colleague.loop import ModelResponse, Spawns, ToolCall, run
 from colleague.tools import ToolExecutor
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def test_run_injects_batch_spawn_into_executor(tmp_path: Path) -> None:
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):
-        result = run(_finish_complete, task, max_steps=10, batch_spawn=sentinel)
+        result = run(_finish_complete, task, max_steps=10, spawns=Spawns(batch=sentinel))
 
     assert result.status == OK
     # At least one ToolExecutor was constructed; the one the loop built must carry
@@ -170,8 +170,8 @@ def test_vllm_engine_batch_spawn_reaches_executor(tmp_path: Path) -> None:
 
 
 def test_single_spawn_wiring_unchanged(tmp_path: Path) -> None:
-    """The existing ``spawn`` (single-child) wiring still works after batch wiring
-    is added — a ``loop.run(...)`` with ``spawn=<sentinel>`` injects it into the
+    """The existing single-child wiring still works after batch wiring is added —
+    a ``loop.run(..., spawns=Spawns(single=<sentinel>))`` injects it into the
     executor's ``_spawn``."""
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -189,7 +189,7 @@ def test_single_spawn_wiring_unchanged(tmp_path: Path) -> None:
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):
-        result = run(_finish_complete, task, max_steps=10, spawn=spawn_sentinel)
+        result = run(_finish_complete, task, max_steps=10, spawns=Spawns(single=spawn_sentinel))
 
     assert result.status == OK
     assert any(
@@ -221,8 +221,7 @@ def test_both_spawn_and_batch_spawn_injected_together(tmp_path: Path) -> None:
             _finish_complete,
             task,
             max_steps=10,
-            spawn=spawn_sentinel,
-            batch_spawn=batch_sentinel,
+            spawns=Spawns(single=spawn_sentinel, batch=batch_sentinel),
         )
 
     assert result.status == OK
