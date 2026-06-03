@@ -157,6 +157,46 @@ def test_not_finished_body_contains_task_id_and_continuation(tmp_path: Path, mon
     assert "Continuation State" in body or "continuation" in body.lower()
 
 
+def test_not_finished_body_carries_last_substantive_content(tmp_path: Path, monkeypatch) -> None:
+    """Regression (Qodo #114): escalation runs AFTER summary resolution, so the
+    continuation body carries the model's last substantive content (narration
+    emitted on a tool-call turn) rather than an empty placeholder.
+
+    Under the bug — escalation invoked before the summary-precedence block — the
+    body rendered an empty summary and this narration would be absent.
+    """
+    repo = _make_main_repo(tmp_path)
+    _arm_escalation(monkeypatch, repo)
+
+    body_captured: list[str] = []
+
+    def capturing_run(cli, args, *, root):
+        if "--body-file" in args:
+            body_path = Path(args[args.index("--body-file") + 1])
+            if body_path.is_file():
+                body_captured.append(body_path.read_text(encoding="utf-8"))
+        return "exit=0\nhttps://github.com/example/repo/issues/100\n"
+
+    narration = "FINDING: the login module lacks rate limiting"
+
+    def narrate_then_loop(_messages):
+        return ModelResponse(
+            content=narration,
+            tool_calls=[ToolCall("1", "list_dir", {"path": "."})],
+        )
+
+    task = Task.new(str(repo), "audit the login module")
+    with patch.object(escalation_mod, "run_culture", capturing_run):
+        result = run(narrate_then_loop, task, max_steps=2)
+
+    assert body_captured, "Body file was not read"
+    assert narration in body_captured[0], (
+        "Escalation body must carry the last substantive content — proves the "
+        "seam runs after summary resolution (Qodo #114)"
+    )
+    assert result.summary == narration
+
+
 # ---------------------------------------------------------------------------
 # Test 2 — default-off (flag unset) is byte-identical
 # ---------------------------------------------------------------------------
