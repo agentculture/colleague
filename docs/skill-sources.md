@@ -34,7 +34,7 @@ is load-bearing, even where guildmaster's upstream copy omits it.
 | `think` | `../guildmaster/.claude/skills/think/` | **devague** (re-broadcast via guildmaster) | idea→spec leg of the devague workflow chain. Verbatim (already carried `type: command` at guildmaster). Origin/broadcast prose left verbatim. | 2026-05-26 (guildmaster 0.6.0) |
 | `spec-to-plan` | `../guildmaster/.claude/skills/spec-to-plan/` | **devague** (re-broadcast via guildmaster) | spec→plan leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
 | `assign-to-workforce` | `../guildmaster/.claude/skills/assign-to-workforce/` | **devague** (re-broadcast via guildmaster) | plan→parallel-implementation leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
-| `outsource` | — (first-party) | **colleague** | Authored here, not vendored: a portable wrapper (`scripts/outsource.sh`) that drives the `colleague` CLI for `explore`/`review`/`write` — hand a scoped task to a different engine/mind. Carries `type: command`. | n/a (origin) |
+| `outsource` | — (first-party) | **colleague** | Authored here, not vendored: a portable wrapper (`scripts/outsource.sh`) that drives the `colleague` CLI for `explore`/`review`/`write` — hand a scoped task to a different backend/mind. Carries `type: command`. | n/a (origin) |
 
 ## Re-sync procedure
 

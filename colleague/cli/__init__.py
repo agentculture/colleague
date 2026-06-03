@@ -109,7 +109,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
-    # Colleague's working surface: assign repo work + inspect engine wheels.
+    # Colleague's working surface: assign repo work + inspect backend plugins.
     _drive_cmd.register(sub)
     _wheels_group.register(sub)
     # ROI loop: grade a drive after the fact (stats say cost; feedback says quality).
@@ -120,7 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # Layered per-model config: AGENTS instructions + skills.
     _agents_group.register(sub)
     _skills_group.register(sub)
-    # GPS: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
+    # Telemetry: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
     _telemetry_group.register(sub)
     # Interactive foreground palette (c28/R8).
     _session_cmd.register(sub)

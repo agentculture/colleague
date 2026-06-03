@@ -1,7 +1,7 @@
 """oilcheck — the configuration-readiness health spine behind ``colleague doctor``.
 
-This package is the **chassis-level** home for health diagnostics, the same way
-:mod:`colleague.telemetry` is the chassis-level home for GPS. The ``doctor``
+This package is the **runtime-level** home for health diagnostics, the same way
+:mod:`colleague.telemetry` is the runtime-level home for telemetry. The ``doctor``
 CLI verb (:mod:`colleague.cli._commands.doctor`) is the thin presentation
 layer; *all* the diagnostic logic lives here so it can be reused, tested, and
 extended without touching the CLI.
@@ -122,7 +122,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
 )
 
 # Ordered registry of check-groups. Identity first (who am I), then the
-# engine/provider plumbing (provider config, usage-readiness, engine wheels),
+# backend/provider plumbing (provider config, usage-readiness, backend plugins),
 # then observability, then the broader environment. The order here is the report
 # order. Every group registered here is contractually read-only and opens no
 # socket / makes no network call (see the check-group contract above) — the

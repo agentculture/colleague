@@ -6,10 +6,10 @@
 Hooks are operator-authored shell commands registered in
 `.colleague/hooks.json` (repo-level, falling back to user-level at
 `~/.colleague/hooks.json`; repo wins). They fire at four lifecycle events
-during a drive. Crucially, hook firing lives in the **chassis**
-(`colleague/loop.py`), not in any engine — so a hook config that fires on
-`mock` fires identically on `vllm-openai` (the all-engines rule). New engine
-wheels inherit the full lifecycle layer for free.
+during a drive. Crucially, hook firing lives in the **runtime**
+(`colleague/loop.py`), not in any backend — so a hook config that fires on
+`mock` fires identically on `vllm-openai` (the all-engines rule). New backend
+plugins inherit the full lifecycle layer for free.
 
 ## Config format
 
@@ -100,7 +100,7 @@ want hooks without trusting any repo's config.
 ## Key files
 
 - `colleague/hooks.py` — config loading + the `run_hook` I/O contract.
-- `colleague/loop.py` — `_fire_hooks`; the chassis owns lifecycle firing.
+- `colleague/loop.py` — `_fire_hooks`; the runtime owns lifecycle firing.
 - `colleague/cli/_commands/hooks.py` — the `hooks list`/`overview` verb.
 
 ## See also

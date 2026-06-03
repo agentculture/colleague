@@ -1,6 +1,6 @@
-"""OTel (GPS) readiness check-group.
+"""OTel (telemetry) readiness check-group.
 
-Reports on GPS / OpenTelemetry readiness without enabling telemetry or
+Reports on OpenTelemetry readiness without enabling telemetry or
 importing the SDK eagerly.  The zero-deps guard (``tests/test_zero_deps.py``)
 must keep passing: no ``import opentelemetry`` at module top level.
 
@@ -101,7 +101,7 @@ def _checks() -> list[dict]:
                 True,
                 "info",
                 "telemetry disabled by the OTEL_SDK_DISABLED kill-switch "
-                "(unset it, then set COLLEAGUE_OTEL_ENABLED=1, to enable GPS)",
+                "(unset it, then set COLLEAGUE_OTEL_ENABLED=1, to enable telemetry)",
             )
         )
     else:
@@ -110,7 +110,7 @@ def _checks() -> list[dict]:
                 "otel_enabled",
                 True,
                 "info",
-                "telemetry disabled (set COLLEAGUE_OTEL_ENABLED=1 to enable GPS)",
+                "telemetry disabled (set COLLEAGUE_OTEL_ENABLED=1 to enable telemetry)",
             )
         )
 

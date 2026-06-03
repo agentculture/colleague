@@ -145,9 +145,9 @@ scripted and agent use (no TTY required):
 All subcommands support `--json`; failures raise `CliError` (no tracebacks leak)
 — standard agent-first CLI conventions.
 
-## Renderer-is-a-wheel
+## Renderer-is-a-plugin
 
-The TUI renderer follows the same extension seam as engines:
+The TUI renderer follows the same extension seam as backends:
 
 ```toml
 [project.entry-points."colleague.renderers"]
@@ -157,21 +157,21 @@ ansi = "colleague.tui.render.ansi:render"
 An external package that installs a `colleague.renderers` entry-point
 (e.g. `rich = "mypackage.render_rich:render"`) will be discovered at runtime
 without any core change — the same mechanism `colleague wheels list` uses for
-engines.
+backends.
 
 The built-in `ansi` renderer (`colleague/tui/render.ansi`) is **hand-rolled
 ANSI SGR** — no third-party rendering library, no network, no subprocess. It
 works out of the box with zero extras installed.
 
 Rich and Textual are an **opt-in `[tui]` extra** for future richer renderer
-wheels. They are never base dependencies:
+plugins. They are never base dependencies:
 
 ```bash
 pip install 'colleague[tui]'     # or: uv sync --extra tui
 ```
 
 Installing the extra does not activate the richer renderer automatically — it
-only makes the packages available for an external renderer wheel that declares
+only makes the packages available for an external renderer plugin that declares
 them. The `ansi` renderer remains the built-in default regardless.
 
 ## Zero-deps guarantee
@@ -211,12 +211,12 @@ A real `drive` feeds the cockpit, not just authored/snapshot state:
 - The **interactive `session` cockpit (#74 A2)** is the remaining follow-up:
   `session` still uses its readline numbered palette, not the live cockpit (a
   drive *inside* a session keeps the plain `step N:` lines). The pure reducer,
-  TAUI mirror, snapshot, replay, diagnose, the live TTY driver (`tui live`), and
+  TAUI mirror, snapshot, replay, diagnose, the live TTY view (`tui live`), and
   the live-drive integration above are all complete.
-- The **Rich/Textual renderer wheel** is a post-MVP follow-up. The entry-point
+- The **Rich/Textual renderer plugin** is a post-MVP follow-up. The entry-point
   seam is registered and the `[tui]` extra packages the deps, but no
   Rich/Textual renderer ships in core today — the stdlib ANSI renderer is the
-  default and only wheel.
+  default and only plugin.
 
 ## Key files
 
@@ -228,12 +228,12 @@ A real `drive` feeds the cockpit, not just authored/snapshot state:
 - `colleague/tui/snapshot.py` — snapshot triple write + read.
 - `colleague/tui/replay.py` — deterministic event-log replay.
 - `colleague/tui/diagnose.py` — 7-bug-class cross-mirror differ.
-- `colleague/tui/render/ansi.py` — stdlib ANSI renderer (the default wheel).
+- `colleague/tui/render/ansi.py` — stdlib ANSI renderer (the default plugin).
 
 ## See also
 
 - [artifact.md](artifact.md) — the per-drive JSON artifact TAUI complements.
-- [telemetry.md](telemetry.md) — GPS (OTel) follows the same opt-in extra +
+- [telemetry.md](telemetry.md) — Telemetry (OTel) follows the same opt-in extra +
   lazy-import pattern as the `[tui]` extra.
 - [engines.md](engines.md) — the `colleague.engines` entry-point group that
   `colleague.renderers` mirrors.

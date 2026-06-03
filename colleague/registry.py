@@ -6,7 +6,7 @@ this repo's ``pyproject.toml``; an out-of-tree wheel does the *identical* thing
 in its own metadata, and :func:`catalog` discovers it with no change to
 Colleague core (honesty condition h4).
 
-This is the "garage": ``colleague wheels list`` reads :func:`catalog`, and
+This is the registry: ``colleague wheels list`` reads :func:`catalog`, and
 ``colleague drive --engine <name>`` resolves the choice through :func:`load`.
 """
 
@@ -26,7 +26,7 @@ class UnknownEngine(Exception):
 
 @dataclass(frozen=True)
 class WheelInfo:
-    """A discovered engine wheel: its selectable name and entry-point target."""
+    """A discovered backend plugin: its selectable name and entry-point target."""
 
     name: str
     target: str
@@ -38,7 +38,7 @@ def _engine_entry_points() -> list[EntryPoint]:
 
 
 def catalog() -> list[WheelInfo]:
-    """Every discovered engine wheel, sorted by name."""
+    """Every discovered backend plugin, sorted by name."""
     infos = [WheelInfo(name=ep.name, target=ep.value) for ep in _engine_entry_points()]
     return sorted(infos, key=lambda w: w.name)
 

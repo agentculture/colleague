@@ -125,7 +125,7 @@ CompleteFn = Callable[[list[dict[str, Any]]], ModelResponse]
 
 # A progress sink: (step_index, tool, target, ok) -> None. Default ``None`` in the
 # loop is a strict no-op; the CLI wires one that writes a line per step to stderr
-# (#38). Lives in the loop, fired per tool call, so every engine inherits it
+# (#38). Lives in the loop, fired per tool call, so every backend inherits it
 # identically (the all-engines rule), exactly like hooks and telemetry.
 ProgressFn = Callable[[int, str, str, bool], None]
 
@@ -196,7 +196,7 @@ def _fire_hooks(
     control-bearing, so scanning continues past them.
 
     A firing is appended for *every* hook that runs — including the allow/observe
-    ones leading up to a decisive one — so the dashboard sees the full sequence.
+    ones leading up to a decisive one — so the run report sees the full sequence.
 
     When *policy* is given and its ``hooks`` section is present, each entry's
     command is checked via :func:`~colleague.hooks.hook_approval_verdict` before
@@ -613,7 +613,7 @@ def run(
     :class:`~colleague.hooks.HookConfig` (e.g. an empty one) to override or
     suppress repo loading. Returns a uniform :class:`TaskResult` with the
     per-step trace, accumulated usage, and every hook firing in order. The tool
-    schemas live with each engine's ``complete`` closure, not here.
+    schemas live with each backend's ``complete`` closure, not here.
 
     ``model`` threads into per-model hook resolution: when given,
     :func:`~colleague.hooks.load_hooks` additionally loads the per-model
@@ -631,8 +631,8 @@ def run(
 
     ``progress`` is an optional per-step sink ``(step_index, tool, target, ok)``
     fired after each tool call (#38); ``None`` (the default) is a strict no-op.
-    Like hooks/telemetry it is chassis-owned — every engine forwards
-    ``config.progress`` so the behavior is identical across engines.
+    Like hooks/telemetry it is runtime-owned — every backend forwards
+    ``config.progress`` so the behavior is identical across backends.
 
     ``spawns`` is an optional :class:`Spawns` bundle of the two delegation
     callbacks. ``spawns.single`` ``(instruction, engine=None, model=None) ->
@@ -642,8 +642,8 @@ def run(
     parallel-batch tool. When given they are injected into the
     :class:`~colleague.tools.ToolExecutor` so the corresponding tool can delegate
     to nested child drives; ``None`` (the default), or a field left ``None``,
-    leaves that tool unavailable (it reports so to the model). This is chassis-owned
-    — engines build their own executor from ``config.subagent_spawn`` /
+    leaves that tool unavailable (it reports so to the model). This is runtime-owned
+    — backends build their own executor from ``config.subagent_spawn`` /
     ``config.subagent_batch_spawn`` (the ``executor`` seam), so the ``spawns``
     convenience path is for direct callers. Any nested results the executor
     accumulates are snapshotted onto ``result.sub_results`` on every exit path
@@ -658,7 +658,7 @@ def run(
     token counter handed to ``window_messages``; ``None`` falls back to the
     char-based estimate. Both default ``None`` → no windowing, no reactive retry
     (a strict no-op, byte-identical to the pre-feature loop). Like hooks/progress
-    this is chassis-owned, so every engine that forwards ``config.context_budget_tokens``
+    this is runtime-owned, so every backend that forwards ``config.context_budget_tokens``
     inherits it identically (the all-engines rule).
 
     If ``complete`` raises mid-loop (e.g. a per-request timeout, or a
@@ -696,7 +696,7 @@ def run(
     result = TaskResult(task_id=task.id, status=OK)
     finished = False
 
-    # Neighbour clone lifecycle — chassis-owned (all-engines rule).
+    # Neighbour clone lifecycle — runtime-owned (all-engines rule).
     # clone_all() runs before the loop so allow-listed neighbours are available
     # to read during the drive. With no allow-list this is a safe no-op (verified
     # by NeighbourManager itself). cleanup() runs unconditionally after the loop

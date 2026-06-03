@@ -31,6 +31,18 @@ def test_wheels_no_verb_prints_overview(capsys: pytest.CaptureFixture[str]) -> N
     assert "colleague wheels" in capsys.readouterr().out
 
 
+def test_wheels_list_empty_catalog_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With no backend plugins discovered, `wheels list` prints the empty-state message."""
+    from colleague import registry
+
+    monkeypatch.setattr(registry, "catalog", lambda: [])
+    rc = main(["wheels", "list"])
+    assert rc == 0
+    assert "(no backend plugins installed)" in capsys.readouterr().out
+
+
 def test_wheels_overview_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["wheels", "overview", "--json"])
     assert rc == 0

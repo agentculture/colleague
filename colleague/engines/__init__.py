@@ -1,4 +1,4 @@
-"""Bundled engine wheels.
+"""Bundled backend plugins.
 
 Each engine is a class implementing :class:`colleague.engine.Engine`, advertised
 through the ``colleague.engines`` entry-point group in ``pyproject.toml`` and

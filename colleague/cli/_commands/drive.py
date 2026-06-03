@@ -1,12 +1,12 @@
-"""``colleague drive`` — assign a repo task to a coder engine.
+"""``colleague drive`` — assign a repo task to a coder backend.
 
 The headline verb: select an engine (a discovered wheel), run the bounded
 agentic loop against a repo, write the result artifact, and hand the change off
-as a branch + PR. The *same* invocation works for every engine — only
+as a branch + PR. The *same* invocation works for every backend — only
 ``--engine`` changes (honesty conditions h11/h12).
 
 A failed drive still writes a result artifact (``status=error``) before exiting
-non-zero, so a crash never leaves an empty dashboard (h5).
+non-zero, so a crash never leaves an empty run report (h5).
 
 ``--command NAME`` (and optional positional args) expands a saved command
 template into the Task via :func:`colleague.commands.expand_command` and
@@ -46,7 +46,7 @@ def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
     stdout carries only the result stream (the ``--json`` ``TaskResult``), so a
     progress line here never pollutes the parseable output — it is emitted in all
     modes. Wired onto :class:`~colleague.config.EngineConfig` by
-    :func:`execute_drive`, so both ``drive`` and ``session`` (and every engine)
+    :func:`execute_drive`, so both ``drive`` and ``session`` (and every backend)
     report progress identically.
     """
     detail = f" {target}" if target else ""
@@ -150,7 +150,7 @@ def execute_drive(
     repo:
         Absolute path to the target repository.
     engine_name:
-        Name of the engine wheel to load (e.g. ``"mock"``).
+        Name of the backend plugin to load (e.g. ``"mock"``).
     task:
         A fully constructed :class:`~colleague.contract.Task`.
     open_pr:
@@ -162,7 +162,7 @@ def execute_drive(
     command_name:
         Originating command-template name (``None`` for a plain instruction).
         Recorded on the result before *every* artifact write — including the
-        failure path — so the dashboard never loses the origin (R5 / c12).
+        failure path — so the run report never loses the origin (R5 / c12).
     tui:
         Live-cockpit activation (#74 A1): ``True`` forces it on, ``False`` off,
         ``None`` (default) is auto — on when stderr is an interactive TTY. When
@@ -194,7 +194,7 @@ def execute_drive(
             EXIT_USER_ERROR, str(exc), "list engines with: colleague wheels list"
         ) from exc
 
-    # GPS: the root span wraps engine.drive() + handoff() + the artifact write, so
+    # Telemetry: the root span wraps engine.drive() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
     # The same shared path serves `drive` and `session`, so both are instrumented.
     telemetry = load_telemetry()
@@ -224,7 +224,7 @@ def execute_drive(
                     baseline_untracked.append(ev_rel)
 
             # Per-step progress (#38) — wired here so both `drive` and `session`,
-            # and every engine (which forwards `config.progress`), report
+            # and every backend (which forwards `config.progress`), report
             # identically. By default the plain `step N:` stderr sink; with the
             # cockpit active (#74 A1, auto-on a TTY) and/or `--tui-events` (A3) the
             # sinks are composed with per-sink failure isolation. When neither TUI
@@ -240,7 +240,7 @@ def execute_drive(
                 external_sink=progress_sink,
             )
             # Subagent delegation (t6) — the top-level spawn callback is built here
-            # so both `drive` and `session`, and every engine (which forwards
+            # so both `drive` and `session`, and every backend (which forwards
             # `config.subagent_spawn`), can delegate identically. depth defaults to
             # 1; the launcher binds each child to depth+1, so recursion is bounded
             # by MAX_SUBAGENT_DEPTH.
@@ -419,7 +419,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "drive",
         help=(
             "Drive toward a goal: work autonomously on a request or instruction "
-            "through a coder engine, then hand off the result."
+            "through a coder backend, then hand off the result."
         ),
     )
     # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
@@ -444,7 +444,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--engine",
         default=None,
-        help="Engine wheel to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help="Backend plugin to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
     )
     p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")

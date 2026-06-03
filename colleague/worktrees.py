@@ -22,7 +22,7 @@ remove cycle:
   worktree and every ``sub/*`` branch, then run ``git worktree prune``; safe to call
   when none exist.
 
-Design constraints (matching the rest of the colleague chassis):
+Design constraints (matching the rest of the colleague runtime):
 - **Zero runtime dependencies** — stdlib only (``pathlib``, ``subprocess``).
 - **subprocess-only git** — all git operations use ``subprocess.run([...])`` with a
   list argv (never ``shell=True``) for clarity and security.  This module is

@@ -21,42 +21,42 @@
                                 `.   " "                               
 ```
 
-> Colleague CLI is a swappable coder-agent harness that turns different models
-> into repo workers behind one shared task contract.
+> Colleague CLI is a swappable coder-agent harness that turns different model
+> backends into repo workers behind one shared task runtime.
 >
-> **One harness, many engines.**
+> **One runtime, many minds.**
 
-Colleague is the **car around the model**. The model is the engine;
-Colleague is the chassis, controls, task contract, and handoff that turn that
-engine into a usable repo worker. Point it at a repo task and it drives the work
-through whichever coder engine you select — and the caller never has to care
-which one ran.
+Colleague is the harness around the model. The model is the backend; Colleague
+supplies the task runtime, controls, shared task contract, and handoff that turn
+that backend into a usable repo worker. Point it at a repo task and it runs the
+work through whichever coder backend you select — and the caller never has to
+care which one ran.
 
-## The metaphor, as architecture
+## Architecture
 
 | Part | In Colleague |
 |------|----------------|
-| **Engine** | the model/coder backend (a local vLLM model, …) |
-| **Driver** | the adapter that invokes and controls one engine (`colleague/engines/`) |
-| **Chassis** | the shared task contract + lifecycle (`Task` → `TaskResult`) |
-| **Tool-loop** | the bounded agentic loop the engine drives the repo through |
-| **Wheels** | replaceable engine plugins, discovered via Python entry points |
-| **Dashboard** | the JSON result artifact + step trace each run writes |
-| **GPS** | opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`) |
+| **Mind / backend** | the model/coder backend (a local vLLM model, an OpenAI-compatible endpoint, …) |
+| **Adapter** | the code that invokes and controls one backend (`colleague/engines/`) |
+| **Task runtime** | the shared task contract + lifecycle (`Task` → `TaskResult`) |
+| **Tool loop** | the bounded agentic loop the backend drives the repo through |
+| **Plugins** | replaceable backend adapters, discovered via Python entry points |
+| **Run report** | the JSON result artifact + step trace each run writes |
+| **Telemetry** | opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`) |
 | **Handoff** | branch/commit/push + `gh pr create`, gated for offline/CI (`colleague/handoff.py`) |
-| **Oilcheck** | `colleague doctor` — read-only configuration-readiness health check (`colleague/oilcheck/`) |
-| **Garage** | `colleague wheels list` — the engines installed in this env |
+| **Doctor** | `colleague doctor` — read-only configuration-readiness health check (`colleague/oilcheck/`) |
+| **Registry** | `colleague wheels list` — the backend plugins installed in this environment |
 | **Approval gate** | `colleague/policy.py` — operator-declared `.colleague/approvals.json` that controls what the harness executes |
 
 ## What ships in v0
 
-- A **shared task contract** — a typed `Task` and `TaskResult` that every engine
+- A **shared task contract** — a typed `Task` and `TaskResult` that every backend
   consumes and produces identically.
-- A **bounded agentic tool-loop** — the engine calls `read_file`, `write_file`,
+- A **bounded agentic tool-loop** — the backend calls `read_file`, `write_file`,
   `list_dir`, `run_command`, `culture` (AgentCulture CLIs), and `finish`,
   confined to the target repo, until it finishes or hits the step budget.
-- **Two engines**, both registered through the same `colleague.engines`
-  entry-point group an out-of-tree wheel would use:
+- **Two backends**, both registered through the same `colleague.engines`
+  entry-point group an out-of-tree plugin would use:
   - `mock` — deterministic and networkless; the CI workhorse.
   - `vllm-openai` — drives any **OpenAI-compatible** `/v1/chat/completions`
     endpoint with tool calling. The built-in default model is
@@ -71,7 +71,7 @@ which one ran.
   or selected in the interactive palette.
 - **Lifecycle hooks** — operator-authored shell commands that fire at
   `task_start`, `pre_tool`, `post_tool`, and `finish` events; a `pre_tool` hook
-  can allow, deny, or rewrite tool calls before the engine executes them. A
+  can allow, deny, or rewrite tool calls before the backend executes them. A
   **per-model hooks overlay** (`.colleague/<model>/hooks.json`) layers
   model-specific fixes **ahead of** the base hooks, giving the operator a
   precision tool for recurring model biases — applied only for the targeted
@@ -84,10 +84,10 @@ which one ran.
   skills (`.colleague/skills/*.md` → `.colleague/<model>/skills/*.md`)
   compose into a model-specific system prompt, with strict per-model isolation;
   inspect them with `colleague agents list` / `colleague skills list`.
-- **GPS: OpenTelemetry observability** — opt-in traces + metrics over OTLP,
-  emitted identically by every engine; off by default and a strict no-op, with
+- **Telemetry: OpenTelemetry observability** — opt-in traces + metrics over OTLP,
+  emitted identically by every backend; off by default and a strict no-op, with
   the SDK as an optional `[otel]` extra so the base install stays dep-free.
-- **`doctor` (oilcheck)** — a read-only configuration-readiness health check
+- **`doctor`** — a read-only configuration-readiness health check
   across identity, provider, engines, otel-readiness, and environment; emits a
   rubric-shaped report and exits non-zero when unhealthy.
 - **Mesh-member integration** — a drive resolves a process-level identity (the
@@ -97,13 +97,13 @@ which one ran.
   operator-installed CLIs with the identity injected. Operators opt into
   read-only ephemeral neighbour clones via `.colleague/neighbours.json`
   (defaults to empty; no new runtime dependency).
-- **Destination** — colleague's sibling to GPS. When a task warrants it, an
-  engine can set a curated `devague` loop tool to open and converge a goal-frame
+- **Destination** — colleague's sibling to telemetry. When a task warrants it, a
+  backend can set a curated `devague` loop tool to open and converge a goal-frame
   before driving the repo, and declare the announcement on arrival. The
   destination (frame slug + announcement) is recorded in the JSON artifact; the
   curated allow-list excludes `confirm`/`reject` (user-only) and `export`
   (operator-only), and convergence is advisory — only human-confirmed claims are
-  authoritative. Setting a destination is optional and engine-judged.
+  authoritative. Setting a destination is optional and backend-judged.
 - **Approval gate** — an operator-declared `.colleague/approvals.json` that
   gates what the harness *executes*. Approval is tamper-protection, not just a
   name list: `approve` records a file's content checksum; if the file changes
@@ -118,13 +118,13 @@ which one ran.
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
   pollutes the stdout result stream or agent-parsed output.
 
-**Not in v0** (by design): a multi-engine router/policy gearbox, an execution
-sandbox, a daemon mode, Codex/Claude/Gemini drivers, a `--no-hooks` escape hatch
+**Not in v0** (by design): a multi-backend router / routing policy, an execution
+sandbox, a daemon mode, Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch
 (there is no such flag; the approval gate is the landed hook-trust increment —
 a policy gate, not a sandbox), and a live MCP runtime (no `mcp.json`, no `mcp`
 verb; the curated `culture` tool shells out to operator CLIs — no socket, no MCP
 transport). The runtime package has **no third-party dependencies** — the vLLM
-driver speaks the OpenAI wire format over the standard library.
+adapter speaks the OpenAI wire format over the standard library.
 
 ## Feature docs
 
@@ -135,7 +135,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Feature | Doc |
 |---------|-----|
 | Drive & the tool-loop | [drive-and-loop.md](docs/features/drive-and-loop.md) |
-| Engines & wheels | [engines.md](docs/features/engines.md) |
+| Backends & plugins | [engines.md](docs/features/engines.md) |
 | Model & endpoint selection | [model-selection.md](docs/features/model-selection.md) |
 | Git/PR handoff | [handoff.md](docs/features/handoff.md) |
 | Result artifact | [artifact.md](docs/features/artifact.md) |
@@ -144,13 +144,13 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Interactive palette | [session.md](docs/features/session.md) |
 | Cockpit views (tui / TAUI) | [tui.md](docs/features/tui.md) |
 | Layered per-model config | [layered-config.md](docs/features/layered-config.md) |
-| GPS: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
+| Telemetry: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
 | Drive stats & feedback (ROI) | [stats-and-feedback.md](docs/features/stats-and-feedback.md) |
-| `doctor` (oilcheck) | [doctor.md](docs/features/doctor.md) |
+| `doctor` (health check) | [doctor.md](docs/features/doctor.md) |
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 | Destination | [destination.md](docs/features/destination.md) |
-| Subagents (the convoy) | [subagents.md](docs/features/subagents.md) |
+| Subagents | [subagents.md](docs/features/subagents.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
 | Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |
@@ -166,7 +166,7 @@ and `write_file` executed unconditionally, and every task had to be typed from
 scratch.
 
 **After**, operators drop files into `.colleague/` and gain three things that
-work identically across every engine (the all-engines rule):
+work identically across every backend (the all-engines rule):
 
 1. **Command templates** — author a recipe once, invoke it by name with
    positional arguments; `drive --command <name> [args…]` expands it into the
@@ -180,8 +180,8 @@ work identically across every engine (the all-engines rule):
    chosen task through the same drive path, loop, hooks, and artifact — no
    parallel code path.
 
-This extensibility lives in the chassis (`colleague/loop.py`), not in any one
-engine, so it binds equally to `mock`, `vllm-openai`, and any future wheel.
+This extensibility lives in the runtime (`colleague/loop.py`), not in any one
+backend, so it binds equally to `mock`, `vllm-openai`, and any future plugin.
 
 ## Quickstart
 
@@ -192,10 +192,10 @@ uv run pytest -n auto                          # full suite, no network needed
 # Open the interactive harness (the session palette) at a terminal:
 uv run colleague
 
-# Discover the engines installed in this environment:
+# Discover the backends installed in this environment:
 uv run colleague wheels list
 
-# Drive toward a goal with the deterministic mock engine (no model, no network):
+# Drive toward a goal with the deterministic mock backend (no model, no network):
 uv run colleague drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
 ```
 
@@ -213,7 +213,7 @@ vllm serve Qwen/Qwen3-32B \
 The right `--tool-call-parser` depends on the model **and** the vLLM build:
 `hermes` works for many models (including `Qwen/Qwen3-32B` above), while other
 builds need a different one — e.g. an NVFP4 Qwen3 checkpoint served via vLLM may
-want `qwen3_coder`. The engine itself is parser-agnostic — any parser that makes
+want `qwen3_coder`. The backend itself is parser-agnostic — any parser that makes
 the server emit OpenAI-format tool calls works.
 
 > **Tip (anecdotal).** With an NVFP4 Qwen3 checkpoint, `qwen3_coder` handled
@@ -236,7 +236,7 @@ uv run colleague drive "fix the typo in the README title" \
 Configuration resolves in the order: explicit flag → `COLLEAGUE_*` env →
 `OPENAI_*` env → default. The built-in default `--model` is
 `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`; the example above overrides it with
-`--model` to match the server you started. Because the driver only touches the
+`--model` to match the server you started. Because the adapter only touches the
 OpenAI surface, pointing `--base-url` at any compatible server (llama.cpp, an
 OpenAI proxy) needs no code change.
 
@@ -412,7 +412,7 @@ namespace, akin to Claude Code / Codex:
   preserving the machine contract); the cockpit renders to stderr as chrome.
 
 Running `colleague` with no arguments **at a terminal** opens this same cockpit
-(engine resolved like `drive`: `--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`,
+(backend resolved like `drive`: `--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`,
 never a silent `mock`). By default it is a "talk + iterate" loop — each drive
 commits locally but does **not** push or open a PR; `/pr` or `--pr` opts in.
 
@@ -467,11 +467,11 @@ steps, usage, and changed files accumulated so far.
 
 See [`docs/features/tui.md`](docs/features/tui.md) for the full surface.
 
-## GPS: OpenTelemetry observability
+## Telemetry: OpenTelemetry observability
 
 A drive can emit **OpenTelemetry traces + metrics** so it's observable against an
 OTLP collector — not just the per-run JSON artifact. Telemetry lives in the
-chassis (the loop + the shared drive path), so **every engine** emits it
+runtime (the loop + the shared drive path), so **every backend** emits it
 identically, exactly like lifecycle hooks.
 
 It is **off by default** and a strict no-op when off (no spans, no SDK import,
@@ -515,7 +515,7 @@ It records the request, ISO start + wall-clock duration, model turns, step count
 per-tool counts, files changed, exact UTF-8 `bytes_written`, and
 reasoning-vs-answer char/byte sizes. Exact token counts stay on `usage`, verbatim
 from the model response (never estimated). Like hooks and telemetry, stats are
-chassis-owned — identical for `mock` and `vllm-openai`.
+runtime-owned — identical for `mock` and `vllm-openai`.
 
 > **Honest token limit.** Colleague has no tokenizer (zero deps), and the
 > served model reports no reasoning-token breakdown — so "thought vs written" is
@@ -535,24 +535,24 @@ uv run colleague feedback overview
 The agent-facing entry is the `outsource feedback` skill verb. See
 [`docs/features/stats-and-feedback.md`](docs/features/stats-and-feedback.md).
 
-## Configuration readiness: `doctor` (the oilcheck)
+## Configuration readiness: `doctor`
 
 Before you hand colleague work, `colleague doctor` answers "is this install
-actually ready to drive?" It is colleague's **oilcheck**: a **read-only**,
-diagnose-only health check (no `--fix`, zero new runtime deps) that emits a
+actually ready to drive?" It is colleague's **read-only**, diagnose-only
+**health check** (no `--fix`, zero new runtime deps) that emits a
 rubric-shaped `{healthy, checks[]}` report across five ordered check-groups:
 
 | Group | Checks (severity) |
 |-------|-------------------|
 | **identity** | `prompt_file_present` / `backend_consistency` (error), `skills_present` (warning) |
 | **provider** | resolved `base_url`/`model` with redacted `api_key` (info); credentials + budget advisories (warning) on a non-default provider |
-| **engines** | engines discovered + both bundled engines present + each wheel loads (error; all-engines rule) |
+| **engines** | backends discovered + both bundled backends present + each plugin loads (error; all-engines rule) |
 | **otel** | telemetry enabled / SDK importable / endpoint configured (info; error only when enabled but the `[otel]` extra is missing) |
 | **environment** | `.colleague/` config, `hooks.json` validity, command-template parsing, AGENTS/skills layering, `git` (error) + `gh` (warning) on PATH, CLI integrity |
 
 Only a **failed `error`** check flips the report unhealthy; warnings and info are
 advisory. `doctor` exits `1` when unhealthy, else `0`. The diagnostic logic lives
-in the chassis-level `colleague/oilcheck/` package (like telemetry); the verb
+in the runtime-level `colleague/oilcheck/` package (like telemetry); the verb
 is a thin renderer. Add a check-group by appending a read-only `checks()` callable
 to `CHECK_GROUPS` — see `colleague explain doctor` and
 [`docs/features/doctor.md`](docs/features/doctor.md).
@@ -607,25 +607,25 @@ uv run colleague skills list --model Qwen/Qwen3-32B --repo .
 > connect to any MCP server today; a live MCP client needs its own spec. There
 > is no `mcp` verb — don't rely on a non-existent surface.
 
-## Subagents (the convoy)
+## Subagents
 
-Mid-drive, an engine **may** delegate a scoped sub-task to a nested in-process
+Mid-drive, a backend **may** delegate a scoped sub-task to a nested in-process
 child drive via the `subagent` loop tool. The child runs the *same* bounded
 tool-loop — a plain synchronous function call, **no** thread, process, socket, or
 fork, zero new runtime deps — and its result is returned to the parent and folded
 into `TaskResult.sub_results` (omitted when empty). An optional `engine`/`model`
-parameter lets the child run on a different wheel or model, resolved through the
+parameter lets the child run on a different backend or model, resolved through the
 existing `registry.load` + `EngineConfig` inheritance (a config-level switch, no
-engine code change).
+backend code change).
 
-Delegation is **engine-judged and optional** (like the `devague` destination
+Delegation is **backend-judged and optional** (like the `devague` destination
 tool), never a forced gate. Termination is structural: `MAX_SUBAGENT_DEPTH=2`
 (checked before any child work) and `MAX_SUBAGENT_FANOUT=4` (per-drive). Only the
 top-level drive hands off — sub-drives never branch, commit, or open a PR.
 **v0 is sequential-only**; parallel subagents + per-subagent worktree isolation are
-a parked follow-up. This is chassis-owned (the tool fires identically for every
-engine) and is explicitly **not** the out-of-scope multi-engine router/"gearbox":
-there is no automatic task→engine routing.
+a parked follow-up. This is runtime-owned (the tool fires identically for every
+backend) and is explicitly **not** the out-of-scope multi-backend router / routing
+policy: there is no automatic task→backend routing.
 
 ```bash
 uv run colleague explain subagent   # the loop tool's contract (not a CLI verb)
@@ -635,7 +635,7 @@ uv run colleague explain subagent   # the loop tool's contract (not a CLI verb)
 
 `outsource` is colleague's one **first-party** Claude Code skill — the inverse of
 the vendored skills. It lets another agent hand a scoped task to colleague: a
-*different* engine/model (e.g. a local vLLM Qwen), not a stronger one — **diversity
+*different* backend/model (e.g. a local vLLM Qwen), not a stronger one — **diversity
 is the point**. Four verbs over `colleague drive`:
 
 | Verb | What it does |
@@ -779,7 +779,7 @@ in the current version. Do not rely on a non-existent flag.
 
 | Verb | What it does |
 |------|--------------|
-| `drive <goal>` | Drive toward a goal/instruction: work autonomously through a coder engine; write the artifact; hand off. |
+| `drive <goal>` | Drive toward a goal/instruction: work autonomously through a coder backend; write the artifact; hand off. |
 | `drive --command <name> [args…]` | Expand a saved command template and drive it. |
 | `commands list` | List discovered command templates for a repo (shows approval status). |
 | `commands approve <name>` | Record a checksum approval for a command template. |
@@ -791,24 +791,24 @@ in the current version. Do not rely on a non-existent flag.
 | `agents overview` | Describe the agents surface. |
 | `skills list` | List resolved skill docs for a model. |
 | `skills overview` | Describe the skills surface. |
-| `telemetry status` | Show the resolved GPS / OpenTelemetry config + whether the SDK is installed. |
+| `telemetry status` | Show the resolved telemetry / OpenTelemetry config + whether the SDK is installed. |
 | `telemetry overview` | Describe the telemetry surface. |
 | `session` | Open a foreground interactive palette. |
-| `wheels list` | List discovered engine wheels (the garage). |
+| `wheels list` | List discovered backend plugins (the registry). |
 | `whoami` | Report this agent's nick, version, backend, and model. |
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
-| `doctor` | Configuration-readiness health check (colleague's oilcheck): identity, provider, engines, otel, environment. |
+| `doctor` | Configuration-readiness health check: identity, provider, engines, otel, environment. |
 | `cli overview` | Describe the CLI surface itself. |
 
 Every command supports `--json`. Results go to stdout, errors/diagnostics to
 stderr (never mixed). Exit codes: `0` success, `1` user error, `2` environment
 error, `3+` reserved.
 
-## Writing your own engine wheel
+## Writing your own backend plugin
 
-An engine is a class implementing `colleague.engine.Engine` (one method:
+A backend is a class implementing `colleague.engine.Engine` (one method:
 `drive(task, config) -> TaskResult`). Advertise it under the entry-point group
 and `colleague wheels list` discovers it — no change to Colleague core:
 
@@ -817,9 +817,9 @@ and `colleague wheels list` discovers it — no change to Colleague core:
 my-engine = "my_package.engine:MyEngine"
 ```
 
-Most engines never re-implement the loop — they delegate to
+Most backends never re-implement the loop — they delegate to
 `colleague.loop.run` and only supply *how the model is called*. Because the
-loop owns hook firing, a custom engine inherits the full lifecycle extensibility
+loop owns hook firing, a custom backend inherits the full lifecycle extensibility
 layer for free.
 
 ## License

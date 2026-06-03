@@ -396,7 +396,7 @@ _HELP_TEXT = (
     "  /skills               resolved skill docs\n"
     "  /agents               resolved AGENTS layers\n"
     "  /config               configuration readiness (doctor)\n"
-    "  /engines              discovered engine wheels\n"
+    "  /engines              discovered backend plugins\n"
     "  /telemetry            telemetry configuration\n"
     "  /feedback             feedback for the last drive\n"
     "  /engine <name>        switch the engine for the next drive\n"
@@ -549,7 +549,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--engine",
         default=None,
-        help="Engine wheel to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help="Backend plugin to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
     )
     p.add_argument(
         "--pr",

@@ -1,7 +1,7 @@
-"""GPS — OpenTelemetry observability for a drive (issue #22).
+"""Telemetry — OpenTelemetry observability for a drive (issue #22).
 
-Colleague's "dashboard" (the JSON result artifact + step trace) is per-run and
-blind across runs. This package adds **GPS**: live OTel traces + metrics so a
+Colleague's run report (the JSON result artifact + step trace) is per-run and
+blind across runs. This package adds **telemetry**: live OTel traces + metrics so a
 drive can be observed against the same collector the sibling repos already feed
 (``../culture`` runs a full ``culture/telemetry/`` package).
 
@@ -19,8 +19,8 @@ Two hard invariants shape the design:
    unchanged. The artifact-shape and zero-deps guards pass untouched.
 
 The facade mirrors the lifecycle the loop already exposes for hooks, so
-telemetry belongs to the **chassis** (the loop + the shared drive path), not to
-any engine — every engine inherits it (the all-engines rule).
+telemetry belongs to the **runtime** (the loop + the shared drive path), not to
+any backend — every backend inherits it (the all-engines rule).
 """
 
 from __future__ import annotations

@@ -4,10 +4,10 @@
 Every drive's artifact records, always-on, what the drive **cost**; a feedback
 record says how **good** it was. Together — time + tokens + bytes written + a
 quality grade — they let a caller (human or agent) retro a delegated task and
-decide whether to outsource again, and to which engine.
+decide whether to outsource again, and to which backend.
 
-This is the **Dashboard** (stats) and a new sibling, **Feedback**, working
-together. Both are chassis-owned (the all-engines rule): identical for `mock`
+This is the **Run report** (stats) and a new sibling, **Feedback**, working
+together. Both are runtime-owned (the all-engines rule): identical for `mock`
 and `vllm-openai`.
 
 ## Part A — always-on drive statistics
@@ -50,7 +50,7 @@ that needs a tokenizer dependency — a deliberate non-goal in v0.
 
 ### Where it's populated
 
-Chassis-side, in `colleague/loop.py`: per-turn fields accumulate in
+Runtime-side, in `colleague/loop.py`: per-turn fields accumulate in
 `_drive_loop`; the rest are filled by `_finalize_stats` on every exit path
 (model finish / empty turn / step budget / mid-loop abort), so even a partial
 drive carries populated stats. `ToolExecutor` (`colleague/tools.py`)

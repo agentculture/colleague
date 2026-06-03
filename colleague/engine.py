@@ -1,12 +1,12 @@
-"""The engine protocol — the driver contract every coder backend implements.
+"""The engine protocol — the adapter contract every coder backend implements.
 
-An :class:`Engine` is the *driver* in the car metaphor: it knows how to invoke
+An :class:`Engine` is the *adapter*: it knows how to invoke
 and control one specific model, but it speaks the shared task contract on both
 ends. Given a :class:`~colleague.contract.Task` and an
 :class:`~colleague.config.EngineConfig`, it returns a
 :class:`~colleague.contract.TaskResult` of the uniform shape.
 
-Engines do not re-implement the agentic loop — they delegate to
+Backends do not re-implement the agentic loop — they delegate to
 :func:`colleague.loop.run` and only supply *how the model is called*
 (a ``complete`` function). The repo, the tool set, and the step budget that the
 loop needs are derived from the task (``repo_path``) and the config
@@ -41,7 +41,7 @@ class Engine(abc.ABC):
         """Compose the model-specific system prompt (AGENTS + skills layers).
 
         Resolved here on the base class — not in each ``drive`` — so *every*
-        engine wheel inherits the layered instruction injection for free (the
+        backend plugin inherits the layered instruction injection for free (the
         all-engines rule), mirroring how hooks are inherited via the loop.
         Subclasses pass the return value as ``system_prompt=`` to
         :func:`colleague.loop.run`. Returns ``None`` when no AGENTS/skills
