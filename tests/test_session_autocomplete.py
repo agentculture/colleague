@@ -155,6 +155,64 @@ def test_reader_uses_fallback_when_not_a_tty() -> None:
     assert used == [True]
 
 
+class _BadTTY:
+    """isatty() lies True but fileno() fails — raw mode can't actually start."""
+
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        raise OSError("no fileno here")
+
+
+def test_reader_falls_back_when_raw_mode_fails_at_runtime() -> None:
+    """isatty() True but a termios/fileno op raises → fall back, don't crash."""
+    used: list[bool] = []
+
+    def _fb() -> str:
+        used.append(True)
+        return "fallback line"
+
+    result = read_line_with_popup(
+        _SLASH_COMMANDS,
+        lambda _b, _m, _s: "",
+        filter_slash,
+        stream=_BadTTY(),
+        fallback=_fb,
+    )
+    assert result == "fallback line"
+    assert used == [True]
+
+
+def test_getch_reassembles_multibyte_utf8() -> None:
+    """A multi-byte keystroke (2- and 3-byte UTF-8) is not dropped."""
+    import os
+
+    from colleague.cli._commands._session_input import _getch
+
+    for ch in ("é", "❯", "a"):  # 2-byte, 3-byte, 1-byte
+        r, w = os.pipe()
+        os.write(w, ch.encode("utf-8"))
+        os.close(w)
+        try:
+            assert _getch(r) == ch
+        finally:
+            os.close(r)
+
+
+def test_getch_returns_empty_on_eof() -> None:
+    import os
+
+    from colleague.cli._commands._session_input import _getch
+
+    r, w = os.pipe()
+    os.close(w)  # immediate EOF
+    try:
+        assert _getch(r) == ""
+    finally:
+        os.close(r)
+
+
 # The raw per-keystroke loop's I/O shell (``_raw_loop``) needs a real terminal;
 # pytest's fd capture deadlocks a pty-backed test, so it is verified by the PR's
 # manual pty smoke test. Its key-handling logic lives in the pure ``reduce_key``

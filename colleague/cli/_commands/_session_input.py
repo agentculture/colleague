@@ -75,26 +75,43 @@ def read_line_with_popup(
     """
     stream = sys.stdin if stream is None else stream
     out = sys.stdout if out is None else out
-    if not supports_raw_mode(stream):
-        if fallback is not None:
-            return fallback()
+    if supports_raw_mode(stream):
+        import termios
+
         try:
-            return input()
-        except EOFError:
-            return None
-    return _raw_loop(specs, render, filter_fn, stream, out)
+            return _raw_loop(specs, render, filter_fn, stream, out)
+        except (OSError, ValueError, AttributeError, termios.error):
+            # isatty() said yes but a termios op failed at runtime — fall back to
+            # plain line input rather than crashing the session.
+            pass
+    if fallback is not None:
+        return fallback()
+    try:
+        return input()
+    except EOFError:
+        return None
 
 
 def _getch(fd: int) -> str:
     """Read one keystroke from *fd*, unbuffered (``os.read``, not a text stream).
 
     Raw keystroke reading must bypass the buffered text stream: ``stream.read(1)``
-    over-reads to fill its buffer and blocks on an interactive fd. Returns ``""``
-    on EOF.
+    over-reads to fill its buffer and blocks on an interactive fd. A multi-byte
+    UTF-8 keystroke (e.g. ``é`` / ``❯``) arrives as several bytes, so the leading
+    byte's width is decoded and the continuation bytes are pulled too — otherwise
+    non-ASCII input would be silently dropped. Returns ``""`` on EOF.
     """
     data = os.read(fd, 1)
     if not data:
         return ""
+    lead = data[0]
+    if lead >= 0x80:  # multi-byte UTF-8 lead → fetch its continuation bytes
+        extra = 3 if lead >= 0xF0 else 2 if lead >= 0xE0 else 1 if lead >= 0xC0 else 0
+        for _ in range(extra):
+            more = os.read(fd, 1)
+            if not more:
+                break
+            data += more
     return data.decode("utf-8", errors="ignore")
 
 
