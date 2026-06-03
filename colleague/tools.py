@@ -436,7 +436,13 @@ class ToolExecutor:
         clone_root = (self.root / clone_rel).resolve()
 
         def _targets_clone(token: str) -> bool:
-            candidate = (self.root / token).resolve()
+            try:
+                candidate = (self.root / token).resolve()
+            except (ValueError, OSError):
+                # Unresolvable token (e.g. an embedded NUL byte) is not a clone-dir
+                # target; let it fall through to subprocess.run, whose own error is
+                # mapped to a clean ToolError below rather than escaping the guard.
+                return False
             return candidate == clone_root or clone_root in candidate.parents
 
         try:
@@ -475,6 +481,13 @@ class ToolExecutor:
         except OSError as exc:
             # Launch/IO failure (e.g. too many open files, no shell) → clean error.
             raise ToolError(f"run_command failed to launch: {exc}") from exc
+        except Exception as exc:
+            # Any other failure from subprocess.run (e.g. ValueError on an embedded
+            # NUL byte in a model-issued command) must ALSO be recoverable, not
+            # abort the drive — the whole point of run_command error mapping. Mirrors
+            # the _subagent/_subagents catch-all in this module. KeyboardInterrupt is
+            # a BaseException and still propagates.
+            raise ToolError(f"run_command failed: {type(exc).__name__}: {exc}") from exc
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
         return ToolOutcome(result=self._truncate(result))

@@ -388,6 +388,18 @@ class TestRunCommandSubprocessErrors:
         with pytest.raises(ToolError, match="failed to launch"):
             executor.execute("run_command", {"command": "echo hi"})
 
+    def test_run_command_embedded_nul_maps_to_tool_error(self, tmp_path: Path) -> None:
+        """A command with an embedded NUL makes subprocess.run raise ValueError.
+
+        That is neither TimeoutExpired nor OSError, so without the catch-all it
+        would escape the executor and abort the drive (Qodo PR #94 review). Real
+        (un-monkeypatched) exercise of the catch-all branch.
+        """
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="run_command failed"):
+            executor.execute("run_command", {"command": "echo a\x00b"})
+
     def test_run_command_timeout_continues_drive_via_loop(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

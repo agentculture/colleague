@@ -19,7 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- `run_command` now maps a subprocess failure to a recoverable `ToolError` instead of aborting the whole drive: a hung model-issued command (`subprocess.TimeoutExpired`) or a launch failure (`OSError`) is fed back to the model as a non-ok step so the drive continues, matching the culture/devague/hooks subprocess error handling (all-engines rule). The 300s budget is now the named `_COMMAND_TIMEOUT_SECONDS` constant (#92).
+- `run_command` now maps **any** subprocess failure to a recoverable `ToolError` instead of aborting the whole drive: a hung command (`subprocess.TimeoutExpired`), a launch failure (`OSError`), or any other error (e.g. `ValueError` on an embedded NUL byte in a model-issued command) is fed back to the model as a non-ok step so the drive continues — matching the `_subagent`/`_subagents` catch-all and the culture/devague/hooks subprocess handling (all-engines rule). `KeyboardInterrupt` still propagates. The 300s budget is now the named `_COMMAND_TIMEOUT_SECONDS` constant (#92).
 
 ## [0.29.2] - 2026-06-03
 
