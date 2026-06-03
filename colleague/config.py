@@ -44,6 +44,11 @@ _DEFAULT_CONTEXT_BUDGET = 192000
 # with COLLEAGUE_MAX_OUTPUT_CHARS.
 _DEFAULT_MAX_OUTPUT_CHARS = 100000
 
+# Opt-in concurrency width for subagent delegation (how many may run in
+# parallel). Clamped to [1, MAX_SUBAGENT_FANOUT - 1] by effective_concurrency().
+# Tunable per environment with COLLEAGUE_SUBAGENT_CONCURRENCY.
+_DEFAULT_SUBAGENT_CONCURRENCY = 1
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -104,6 +109,7 @@ class EngineConfig:
     timeout: float = _DEFAULT_TIMEOUT
     context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
     max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
+    subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI drive path, not by
@@ -130,6 +136,7 @@ class EngineConfig:
         timeout: float | None = None,
         context_budget_tokens: int | None = None,
         max_output_chars: int | None = None,
+        subagent_concurrency: int | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, then defaults."""
         return cls(
@@ -188,6 +195,15 @@ class EngineConfig:
                     default=str(_DEFAULT_MAX_OUTPUT_CHARS),
                 )
             ),
+            subagent_concurrency=_try_int(
+                _pick(
+                    _str(subagent_concurrency),
+                    "COLLEAGUE_SUBAGENT_CONCURRENCY",
+                    "CONVERTIBLE_SUBAGENT_CONCURRENCY",
+                    default=str(_DEFAULT_SUBAGENT_CONCURRENCY),
+                ),
+                default=_DEFAULT_SUBAGENT_CONCURRENCY,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -206,3 +222,25 @@ class EngineConfig:
 def _str(value: object | None) -> str | None:
     """None-preserving str() so an unset numeric arg falls through to env/default."""
     return None if value is None else str(value)
+
+
+def _try_int(value: str | None, default: int) -> int:
+    """Try to parse an int from a string; return default if None, empty, or non-numeric."""
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def effective_concurrency(requested: int) -> int:
+    """Clamp a requested concurrency width to the valid range [1, MAX_SUBAGENT_FANOUT - 1].
+
+    Args:
+        requested: The requested concurrency level (may be 0, negative, or > max).
+
+    Returns:
+        The clamped concurrency: min(max(1, requested), MAX_SUBAGENT_FANOUT - 1).
+    """
+    return min(max(1, requested), MAX_SUBAGENT_FANOUT - 1)
