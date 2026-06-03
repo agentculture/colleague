@@ -228,6 +228,7 @@ class TestNoFinishResultFidelity:
             "command",
             "destination",
             "announcement",
+            "not_finished",
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields
