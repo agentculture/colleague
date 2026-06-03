@@ -54,7 +54,7 @@ else an install hint.
 | `--repo PATH` | Target repo (default: `.`). |
 | `--base BRANCH` | Base for the `review` diff (default: `main`). |
 | `--engine NAME` | Backend plugin (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
-| `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `mmangkad/Qwen3.6-27B-NVFP4`). |
+| `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`). |
 | `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
 | `--max-steps N` | Loop step budget (default: 20). |
 | `--apply` | (`write`) apply the change in place (drive branch) instead of previewing. |

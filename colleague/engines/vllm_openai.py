@@ -59,6 +59,18 @@ def _post_json(
         raise urllib.error.HTTPError(
             url, exc.code, f"{exc.msg}: {detail}", exc.headers, None
         ) from exc
+    except urllib.error.URLError as exc:
+        # A connection-level failure (server down/refused, DNS error, TLS) — NOT an
+        # HTTP response. HTTPError is a URLError subclass, so this clause sits
+        # *after* it and only sees the no-response case. Without it the loop would
+        # surface a cryptic "URLError: <urlopen error [Errno 111] Connection
+        # refused>"; raise a legible error that names the endpoint so a down rig or
+        # a wrong --base-url is diagnosable (mirrors the graceful URLError handling
+        # already in _tokenize_count).
+        raise ConnectionError(
+            f"vLLM endpoint unreachable at {url}: {exc.reason}. "
+            f"Is the server running, and is --base-url correct?"
+        ) from exc
 
 
 def _read_error_body(exc: urllib.error.HTTPError) -> str:
