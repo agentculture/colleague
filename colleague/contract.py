@@ -27,6 +27,15 @@ DECISION_DENY = "deny"
 DECISION_REWRITE = "rewrite"
 DECISION_OBSERVE = "observe"
 
+# Sentinel assigned to TaskResult.summary when a drive ended without calling
+# ``finish`` and produced no substantive model content.  Callers compare
+# ``result.summary == NO_RESULT_PRODUCED`` to detect the empty case without
+# string-matching a step-count fallback such as "completed in N step(s)".
+# The loop (loop.py, task t2) is responsible for assigning this value; the
+# contract owns the stable string so every backend and every caller share one
+# importable reference.
+NO_RESULT_PRODUCED = "no result produced"
+
 
 @dataclass
 class HookFiring:
