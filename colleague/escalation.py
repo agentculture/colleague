@@ -37,14 +37,17 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
+from typing import Callable, Sequence
 
 from colleague.artifact import artifact_dir
 from colleague.contract import DriveStats, TaskResult
+from colleague.culture import run_culture
 from colleague.handoff import gh_available, has_remote
 from colleague.policy import load_policy
 
-__all__ = ["build_continuation", "mark_escalated", "should_escalate"]
+__all__ = ["build_continuation", "escalate", "mark_escalated", "run_culture", "should_escalate"]
 
 # ---------------------------------------------------------------------------
 # Env-flag helpers
@@ -276,6 +279,102 @@ def build_continuation(result: TaskResult, stats: DriveStats) -> str:  # noqa: W
             section_why,
         ]
     )
+
+
+# ---------------------------------------------------------------------------
+# Escalation orchestrator (t3)
+# ---------------------------------------------------------------------------
+
+# Type alias matching the run_culture signature for injection.
+_RunFn = Callable[[str, Sequence[str]], str]
+
+
+def escalate(
+    result: TaskResult,
+    stats: DriveStats,
+    repo: str | Path,
+    *,
+    model: str | None = None,
+    run: Callable | None = None,
+) -> str | None:
+    """Orchestrate one escalation attempt for a partial drive result.
+
+    Returns the issue URL string (or the raw output if no URL is parseable) on
+    success, or ``None`` when the gate is closed, the post fails, or posting
+    raises.  On a non-zero exit or any exception the idempotency marker is NOT
+    written so a future drive may retry.
+
+    Parameters
+    ----------
+    result:
+        The :class:`~colleague.contract.TaskResult` from the interrupted drive.
+    stats:
+        The :class:`~colleague.contract.DriveStats` attached to the same drive.
+    repo:
+        The repo root path.
+    model:
+        Optional model name; forwarded to :func:`should_escalate` so per-model
+        overlays are respected.
+    run:
+        Callable with the same signature as :func:`colleague.culture.run_culture`
+        — injected in tests to avoid network/subprocess calls.  When ``None``
+        (the default), the module-level :data:`run_culture` is used at call time
+        so test patches to ``escalation_mod.run_culture`` are honoured.
+
+    Returns
+    -------
+    str | None
+        The issue URL / raw output on success, ``None`` otherwise.
+    """
+    # Resolve the run callable at call time so module-level patches work.
+    _run = run if run is not None else run_culture
+
+    repo_path = Path(repo).resolve()
+
+    if not should_escalate(repo_path, result.task_id, model=model):
+        return None
+
+    body = build_continuation(result, stats)
+
+    # Write body to a tempfile — agtag has no stdin mode (mirrors post-issue.sh).
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".md",
+        prefix="colleague-escalation-",
+        delete=False,
+        encoding="utf-8",
+    ) as tmp:
+        tmp.write(body)
+        tmp_path = tmp.name
+
+    try:
+        title = f"colleague: continuation needed for drive {result.task_id}"
+        raw = _run(
+            "agtag",
+            ["issue", "post", "--title", title, "--body-file", tmp_path],
+            root=repo_path,
+        )
+    finally:
+        # Best-effort cleanup of the tempfile.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    # Success iff the output starts with "exit=0".
+    if not raw.startswith("exit=0"):
+        return None
+
+    # Best-effort URL extraction: scan for a line that looks like an https:// URL.
+    url: str = raw
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.startswith("https://"):
+            url = line
+            break
+
+    mark_escalated(repo_path, result.task_id, url)
+    return url
 
 
 # ---------------------------------------------------------------------------
