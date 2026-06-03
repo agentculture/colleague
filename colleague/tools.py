@@ -14,6 +14,7 @@ later wheel.
 
 from __future__ import annotations
 
+import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
 from dataclasses import dataclass
 from pathlib import Path
@@ -423,13 +424,31 @@ class ToolExecutor:
         """
         command = str(arguments["command"])
 
-        # Best-effort guard: refuse commands that reference the clone dir.
-        # Checks both the canonical relative prefix and the absolute path so
-        # that both "sh .colleague/neighbours/foo/bar.sh" and
-        # "sh /abs/path/.colleague/neighbours/foo/bar.sh" are blocked.
+        # Best-effort guard: refuse commands that EXECUTE a path inside the clone
+        # dir. Token-aware (shlex) so a benign command that merely *mentions* the
+        # path inside a quoted string (e.g. echo "see .colleague/neighbours") is no
+        # longer a false positive — only a token that resolves to the clone root,
+        # or under it, is refused. On unbalanced quotes (shlex ValueError) fall back
+        # to the stricter substring check so a malformed command never slips
+        # through. Honest limit: like the rest of this gate (D2), it is bypassable
+        # by sh -c, pipelines, and shell expansion — a guard, not a sandbox.
         clone_rel = self._CLONE_SUBDIR
-        clone_abs = str(self.root / clone_rel)
-        if clone_rel in command or clone_abs in command:
+        clone_root = (self.root / clone_rel).resolve()
+
+        def _targets_clone(token: str) -> bool:
+            candidate = (self.root / token).resolve()
+            return candidate == clone_root or clone_root in candidate.parents
+
+        try:
+            tokens: list[str] | None = shlex.split(command)
+        except ValueError:
+            tokens = None  # unparseable command → conservative substring fallback
+        blocked = (
+            any(_targets_clone(t) for t in tokens)
+            if tokens is not None
+            else (clone_rel in command or str(clone_root) in command)
+        )
+        if blocked:
             raise ToolError(
                 f"run_command refused: commands must not execute paths inside the "
                 f"neighbour clone directory ('{clone_rel}'). "

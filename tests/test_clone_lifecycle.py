@@ -293,6 +293,38 @@ class TestNeverExecuteConfinement:
                 {"command": "cd .colleague/neighbours/lib && sh build.sh"},
             )
 
+    def test_run_command_allows_clone_path_in_quoted_string(self, tmp_path: Path) -> None:
+        """A command that only MENTIONS the clone path in a string is allowed.
+
+        The old substring guard false-positived here; the token-aware guard
+        resolves each shlex token and only blocks one that targets the clone root.
+        """
+        _make_fake_clone(tmp_path, "lib", "tool.py", "print('x')\n")
+        executor = ToolExecutor(tmp_path)
+
+        outcome = executor.execute(
+            "run_command",
+            {"command": 'echo "see .colleague/neighbours for clones"'},
+        )
+        assert "see .colleague/neighbours for clones" in outcome.result
+
+    def test_run_command_blocks_clone_path_with_unbalanced_quotes_via_fallback(
+        self, tmp_path: Path
+    ) -> None:
+        """An unparseable command (shlex ValueError) still blocks a clone path.
+
+        The conservative fallback keeps the substring check, so a malformed command
+        can never slip a clone-path execution through the token-aware guard.
+        """
+        _make_fake_clone(tmp_path, "ext", "run.sh", "echo run\n")
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="clone"):
+            executor.execute(
+                "run_command",
+                {"command": 'sh .colleague/neighbours/ext/run.sh "unbalanced'},
+            )
+
     def test_run_command_confinement_via_loop(self, tmp_path: Path) -> None:
         """The never-execute guard is visible through the full loop path.
 
