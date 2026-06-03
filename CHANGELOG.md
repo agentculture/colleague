@@ -18,6 +18,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Threads (`concurrent.futures`) are sanctioned in exactly one module (`colleague/subagents.py`) via a new thread-confinement check in `tests/test_boundary.py`; forbidden in every other colleague module. `colleague/worktrees.py` is added to the subprocess allow-list.
 - The single-child `subagent` tool, the `mock`/`vllm-openai` engines, and the result/artifact shape are unchanged; the new `subagents` tool is wired through both engines (all-engines rule). Documented in CLAUDE.md and a new `docs/features/parallel-subagents.md`.
 
+### Fixed
+
+- Review hardening (PR #90): a CONFLICTED child's `sub/<id>` branch is now RETAINED on teardown (was force-deleted), so its committed work survives for manual integration as the merge child's summary promises. `teardown_all` is scoped to worktrees under `.colleague/worktrees/` and no longer sweeps every `sub/*` branch (could delete unrelated user branches). `worktree_add` no longer writes the shared `.gitignore` (a thread-race that dirtied the working tree during the parallel phase; `/.colleague/*` is already ignored). Nested batches are forbidden in v0: a child drive's `subagent_batch_spawn` is nulled so it can't run a batch against the parent's worktree/depth.
+
 ## [0.28.0] - 2026-06-03
 
 ### Added

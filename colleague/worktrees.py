@@ -44,7 +44,6 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 _WORKTREES_SUBDIR = ".colleague/worktrees"
-_GITIGNORE_ENTRY = ".colleague/worktrees/"
 
 
 def _git(
@@ -60,24 +59,6 @@ def _git(
         text=True,
         check=check,
     )
-
-
-def _ensure_gitignore(repo: Path) -> None:
-    """Append ``.colleague/worktrees/`` to the repo's ``.gitignore`` if not already there.
-
-    Creates the file if it does not exist.  Never writes a duplicate entry.
-    """
-    gitignore = repo / ".gitignore"
-    if gitignore.exists():
-        existing = gitignore.read_text(encoding="utf-8")
-        # Check line-by-line to avoid a false positive from a partial substring match.
-        if any(line.strip() == _GITIGNORE_ENTRY for line in existing.splitlines()):
-            return
-        # Append, ensuring there is a trailing newline before our entry.
-        sep = "" if existing.endswith("\n") else "\n"
-        gitignore.write_text(existing + sep + _GITIGNORE_ENTRY + "\n", encoding="utf-8")
-    else:
-        gitignore.write_text(_GITIGNORE_ENTRY + "\n", encoding="utf-8")
 
 
 def _worktree_path(repo: Path, child_id: str) -> Path:
@@ -134,7 +115,9 @@ def worktree_add(repo_path: str, child_id: str) -> str:
 
     The worktree is placed at ``<repo_path>/.colleague/worktrees/<child_id>/``.
     The parent ``.colleague/worktrees/`` directory is ensured before the git call.
-    The entry is appended to ``.gitignore`` (idempotent — no duplicate writes).
+    This function does NOT modify the repo's ``.gitignore`` — it is called from
+    parallel worker threads and must never write the shared working tree (the repo
+    already ignores ``/.colleague/*``).
 
     Args:
         repo_path: Absolute (or relative) path to the git repository root.
@@ -154,10 +137,14 @@ def worktree_add(repo_path: str, child_id: str) -> str:
     # Ensure the parent directory exists so git can place the worktree.
     wt_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Register .colleague/worktrees/ in .gitignore before creating the worktree
-    # so the new directory is excluded from the very first status/add scan.
-    _ensure_gitignore(repo)
-
+    # NOTE: we deliberately do NOT touch the repo's .gitignore here. worktree_add
+    # is called from parallel worker threads (the batch path), and a
+    # read/append/write of the shared .gitignore would (a) race across threads and
+    # (b) dirty the main working tree DURING the parallel phase — both forbidden by
+    # the spec (the parallel phase never writes the shared tree). It is also
+    # unnecessary: the repo already ignores ``/.colleague/*`` (which covers
+    # ``.colleague/worktrees/``). A git worktree lives in its own administrative
+    # space anyway; the directory is not added to the parent index.
     _git(repo, "worktree", "add", str(wt_path), "-b", branch)
 
     return str(wt_path)
@@ -284,19 +271,28 @@ def merge_branch(repo_path: str, child_id: str) -> MergeOutcome:
     return MergeOutcome(child_id, MergeOutcome.CONFLICT, conflicts, combined.strip())
 
 
-def worktree_remove(repo_path: str, child_id: str) -> None:
-    """Remove the worktree and branch for *child_id*. IDEMPOTENT.
+def worktree_remove(repo_path: str, child_id: str, *, delete_branch: bool = True) -> None:
+    """Remove the worktree (and optionally the branch) for *child_id*. IDEMPOTENT.
 
     Steps (each tolerating "not found"):
     1. ``git worktree remove --force <path>``
-    2. ``git branch -D sub/<child_id>``
+    2. ``git worktree prune``
+    3. ``git branch -D sub/<child_id>`` — ONLY when ``delete_branch`` is True.
 
     If the worktree directory or the branch do not exist, the step is skipped
     silently — this function never raises on a "not found" condition.
 
+    ``delete_branch=False`` removes the worktree directory but PRESERVES the
+    ``sub/<child_id>`` branch. The batch teardown uses this to retain a child
+    whose merge CONFLICTED, so its committed work is not dropped and can be
+    integrated manually (the merge child's summary points the operator at it).
+    The commits live on the branch, not in the worktree dir, so removing the dir
+    never loses them.
+
     Args:
         repo_path: Absolute (or relative) path to the git repository root.
-        child_id: The child identifier whose worktree and branch should be removed.
+        child_id: The child identifier whose worktree (and maybe branch) to remove.
+        delete_branch: When False, keep the ``sub/<child_id>`` branch.
     """
     repo = Path(repo_path).resolve()
     wt_path = _worktree_path(repo, child_id)
@@ -312,12 +308,22 @@ def worktree_remove(repo_path: str, child_id: str) -> None:
 
     # Step 3: delete the per-child branch.  ``-D`` (force delete) is required
     # because the branch has not been merged to HEAD.  "not found" is non-zero
-    # and silently tolerated.
-    _git(repo, "branch", "-D", branch, check=False)
+    # and silently tolerated. Skipped entirely when delete_branch is False so a
+    # conflicted child's work survives.
+    if delete_branch:
+        _git(repo, "branch", "-D", branch, check=False)
 
 
 def teardown_all(repo_path: str) -> None:
-    """Idempotently remove ALL ``.colleague/worktrees/*`` worktrees and ``sub/*`` branches.
+    """Idempotently remove the worktrees colleague created under ``.colleague/worktrees/``.
+
+    Scope is DELIBERATELY limited to worktrees registered under this repo's
+    ``.colleague/worktrees/`` root — both the on-disk directories and git's own
+    worktree list. It does NOT enumerate ``git branch --list sub/*``: a blanket
+    ``sub/*`` sweep would force-delete unrelated user branches that happen to use
+    the ``sub/`` prefix, and would also clobber a conflicted child's branch that
+    the batch intentionally retained. A ``sub/<id>`` branch with NO worktree under
+    our root is therefore left untouched.
 
     Safe to call when no child worktrees exist (the function becomes a no-op in
     that case).  Ends with ``git worktree prune`` to flush any stale metadata.
@@ -328,9 +334,9 @@ def teardown_all(repo_path: str) -> None:
     repo = Path(repo_path).resolve()
     wt_root = repo / _WORKTREES_SUBDIR
 
-    # Collect child IDs from the filesystem (the directory names under the
-    # worktrees root) and from registered worktrees that might not have a dir
-    # anymore (e.g. after an external crash).
+    # Collect child IDs ONLY from worktrees we own: the directory names under the
+    # worktrees root, plus registered worktrees whose path is under that root
+    # (catches entries whose directories were already removed externally).
     child_ids: set[str] = set()
 
     if wt_root.is_dir():
@@ -338,33 +344,19 @@ def teardown_all(repo_path: str) -> None:
             if entry.is_dir():
                 child_ids.add(entry.name)
 
-    # Also scan git's own worktree list for sub/<id> branches pointing under
-    # our worktrees root — catches entries whose directories were already removed.
+    # Scan git's own worktree list for worktrees pointing under our root.
     proc = _git(repo, "worktree", "list", "--porcelain", check=False)
     if proc.returncode == 0:
-        lines = proc.stdout.splitlines()
         wt_root_str = str(wt_root)
-        current_path: str | None = None
-        for line in lines:
+        for line in proc.stdout.splitlines():
             if line.startswith("worktree "):
-                current_path = line[len("worktree ") :].strip()
-            elif line.startswith("branch ") and current_path is not None:
-                if current_path.startswith(wt_root_str):
-                    # Derive child_id from the last path component.
-                    child_ids.add(Path(current_path).name)
-                current_path = None
-            elif not line.strip():
-                current_path = None
+                wt = line[len("worktree ") :].strip()
+                if wt.startswith(wt_root_str):
+                    child_ids.add(Path(wt).name)
 
-    # Also pick up any sub/* branches that don't have a worktree dir.
-    br_proc = _git(repo, "branch", "--list", "sub/*", check=False)
-    if br_proc.returncode == 0:
-        for branch_line in br_proc.stdout.splitlines():
-            branch = branch_line.strip().lstrip("* ").strip()
-            if branch.startswith("sub/"):
-                child_ids.add(branch[len("sub/") :])
-
-    # Remove each child worktree + branch idempotently.
+    # Remove each child worktree + its branch idempotently. These are children WE
+    # created (a worktree exists/existed under our root), so deleting their
+    # ``sub/<id>`` branch is safe — unlike a blanket ``sub/*`` sweep.
     for child_id in child_ids:
         worktree_remove(repo_path, child_id)
 

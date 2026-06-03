@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 
 from colleague.config import EngineConfig
-from colleague.contract import OK, SubResult, Usage
+from colleague.contract import ERROR, OK, SubResult, Usage
 from colleague.subagents import make_batch_spawn
 
 # ---------------------------------------------------------------------------
@@ -177,11 +177,15 @@ class TestBatchShape:
         # Two DISTINCT worktree paths (one per child).
         assert len(set(resolved)) == 2
 
-        # Cleanup: no leftover worktrees / sub branches after the batch.
+        # Cleanup: no leftover worktree DIRECTORIES after the batch (the isolation
+        # dirs are always removed — no disk leak). Branch retention is exercised
+        # precisely in TestMerge: a cleanly-merged child's branch is deleted, a
+        # CONFLICTED child's branch is retained. Here both real-mock children write
+        # the same fixed mock output file, so the second conflicts and its sub/<id>
+        # branch is intentionally kept; we only require the worktree dirs are gone.
         wt_dir = str((git_repo / ".colleague" / "worktrees").resolve())
         leftover = [p for p in _worktree_paths(git_repo) if p.startswith(wt_dir)]
         assert leftover == [], f"Leftover worktrees: {leftover}"
-        assert [b for b in _branch_list(git_repo) if b.startswith("sub/")] == []
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +294,14 @@ class TestMerge:
         status = _git(git_repo, "status", "--porcelain")
         assert "UU" not in status.stdout, "an unresolved merge conflict leaked to the tree"
 
-    def test_no_worktree_or_branch_leak_on_conflict(self, git_repo: Path) -> None:
-        """Even on a conflicting batch, teardown leaves no worktree/branch dangling."""
+    def test_conflict_removes_worktree_but_RETAINS_branch(self, git_repo: Path) -> None:
+        """On conflict: worktree DIRS are removed (no disk leak) but the conflicted
+        child's ``sub/<id>`` branch is RETAINED so its committed work is not dropped.
+
+        This is the corrected behavior (Qodo #2): the merge child's summary tells
+        the operator to integrate the conflicted branch manually, so teardown must
+        NOT force-delete it. The cleanly-merged child's branch IS deleted.
+        """
         import colleague.subagents as sa
         from colleague import worktrees
 
@@ -307,6 +317,8 @@ class TestMerge:
             model=None,
         ):
             wt = worktrees.worktree_add(repo_path, child_id)
+            # Both children write the SAME path with DIFFERENT content -> the
+            # second branch conflicts when merged after the first.
             (Path(wt) / "shared.txt").write_text(f"{instruction}\n", encoding="utf-8")
             worktrees.commit_all(wt, f"child {child_id}")
             return SubResult(
@@ -323,13 +335,34 @@ class TestMerge:
         sa._run_child_in_worktree = _fake_child
         try:
             batch = make_batch_spawn(str(git_repo), EngineConfig(), "mock")
-            batch(_items("p", "q"))
+            results = batch(_items("p", "q"))
         finally:
             sa._run_child_in_worktree = orig
 
+        # No worktree DIRECTORY leak.
         wt_dir = str((git_repo / ".colleague" / "worktrees").resolve())
         assert [p for p in _worktree_paths(git_repo) if p.startswith(wt_dir)] == []
-        assert [b for b in _branch_list(git_repo) if b.startswith("sub/")] == []
+
+        # The merge child (last result) surfaces the conflict — it is NOT silent.
+        merge_child = results[-1]
+        assert merge_child.status == ERROR
+        assert "CONFLICT" in merge_child.summary
+        assert "manually" in merge_child.summary
+
+        # Exactly the conflicted child's branch is RETAINED (work preserved); the
+        # cleanly-merged child's branch is gone.
+        retained = [b for b in _branch_list(git_repo) if b.startswith("sub/")]
+        assert len(retained) == 1, f"expected the 1 conflicted branch retained, got {retained}"
+
+        # And that retained branch actually carries a commit (the work survives).
+        log = subprocess.run(
+            ["git", "log", "--oneline", retained[0]],
+            cwd=git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert log.stdout.strip(), "retained conflicted branch should carry the child's commit"
 
 
 # ---------------------------------------------------------------------------

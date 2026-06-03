@@ -146,27 +146,28 @@ class TestWorktreeAdd:
         branch = proc.stdout.strip()
         assert branch == "sub/child-5", f"Expected branch sub/child-5, got {branch!r}"
 
-    def test_gitignore_entry_added(self, git_repo: Path) -> None:
+    def test_worktree_add_does_not_touch_gitignore(self, git_repo: Path) -> None:
+        """worktree_add MUST NOT write the shared .gitignore.
+
+        It is called from parallel worker threads (the batch path); a
+        read/append/write of the shared .gitignore would race and dirty the main
+        working tree during the parallel phase. The repo already ignores
+        ``/.colleague/*``, so the write is unnecessary as well as unsafe. Adding a
+        worktree must leave .gitignore byte-identical (or absent if it was absent).
+        """
         from colleague.worktrees import worktree_add
+
+        gitignore = git_repo / ".gitignore"
+        before = gitignore.read_text(encoding="utf-8") if gitignore.exists() else None
 
         worktree_add(str(git_repo), "child-6")
-        gitignore = git_repo / ".gitignore"
-        assert gitignore.exists(), ".gitignore should exist after worktree_add"
-        content = gitignore.read_text(encoding="utf-8")
-        assert (
-            ".colleague/worktrees/" in content
-        ), f".colleague/worktrees/ not found in .gitignore: {content!r}"
+        worktree_add(str(git_repo), "child-7")
 
-    def test_gitignore_not_duplicated(self, git_repo: Path) -> None:
-        """Adding multiple children should not duplicate the gitignore entry."""
-        from colleague.worktrees import worktree_add
-
-        worktree_add(str(git_repo), "dup-1")
-        worktree_add(str(git_repo), "dup-2")
-        gitignore = git_repo / ".gitignore"
-        content = gitignore.read_text(encoding="utf-8")
-        count = content.count(".colleague/worktrees/")
-        assert count == 1, f"Expected 1 gitignore entry, found {count}: {content!r}"
+        after = gitignore.read_text(encoding="utf-8") if gitignore.exists() else None
+        assert after == before, (
+            "worktree_add modified .gitignore — it must never write the shared "
+            f"working tree. before={before!r} after={after!r}"
+        )
 
     def test_subprocess_only_no_git_import(self, git_repo: Path) -> None:
         """worktrees.py must not import the git Python library — stdlib subprocess only."""
@@ -296,6 +297,28 @@ class TestTeardownAll:
         # Running prune again must succeed (returncode 0) — nothing left to clean.
         proc = _git_unchecked(git_repo, "worktree", "prune")
         assert proc.returncode == 0, f"git worktree prune failed: {proc.stderr}"
+
+    def test_teardown_all_preserves_unrelated_sub_branch(self, git_repo: Path) -> None:
+        """teardown_all must NOT delete a user's own ``sub/*`` branch (Qodo #4).
+
+        Scope is limited to worktrees under ``.colleague/worktrees/``; a branch that
+        merely uses the ``sub/`` prefix but has no worktree under our root (e.g. a
+        user's own ``sub/user-feature``) is left untouched, while colleague's own
+        child worktree + branch are still cleaned.
+        """
+        from colleague.worktrees import teardown_all, worktree_add
+
+        # A user branch that merely uses the sub/ prefix — NOT created by colleague.
+        _git_unchecked(git_repo, "branch", "sub/user-feature")
+
+        # A real colleague worktree + branch.
+        worktree_add(str(git_repo), "ours-1")
+
+        teardown_all(str(git_repo))
+
+        branches = _git_unchecked(git_repo, "branch", "--list").stdout
+        assert "sub/user-feature" in branches, "teardown_all deleted an UNRELATED user branch"
+        assert "sub/ours-1" not in branches, "colleague's own child branch should be cleaned"
 
 
 # ---------------------------------------------------------------------------

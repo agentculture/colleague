@@ -179,6 +179,13 @@ def run_subagent(
     # delegate further, still bounded. (The loop won't consume this until t6
     # wires it, but binding it now makes the recursion structurally bounded.)
     child_config.subagent_spawn = make_spawn(repo_path, child_config, child_engine, depth + 1)
+    # NESTED BATCHES ARE FORBIDDEN IN v0 (parked risk r2). The parent's
+    # ``subagent_batch_spawn`` closure is bound to the PARENT's repo_path/depth;
+    # inheriting it via ``dataclasses.replace`` would let a child run a batch
+    # against the wrong worktree and without incrementing depth. Null it so a
+    # child drive simply has no ``subagents`` tool — single-child delegation
+    # (depth-bounded ``subagent_spawn`` above) still works.
+    child_config.subagent_batch_spawn = None
 
     # (e) Build + run the nested child drive. engine.drive runs the bounded loop
     # and never hands off; the call is synchronous (no thread/process/socket).
@@ -266,7 +273,7 @@ def _merge_children(
     *,
     merge_engine: str,
     merge_model: str,
-) -> SubResult:
+) -> tuple[SubResult, List[str]]:
     """Sequentially merge each child branch into the working branch (the merge child).
 
     Runs in the MAIN thread after the parallel join, so it never races child
@@ -278,6 +285,11 @@ def _merge_children(
     are named in the summary. The merge child is the final element of the batch's
     returned list and COUNTS against ``MAX_SUBAGENT_FANOUT`` (the batch reserves a
     slot for it).
+
+    Returns a ``(merge_child, conflicted_child_ids)`` pair. ``conflicted_child_ids``
+    is the list of children whose merge conflicted; the caller MUST preserve those
+    children's ``sub/<id>`` branches during teardown (do not delete them) so the
+    "integrate manually" instruction in the summary is honoured.
     """
     merged: List[str] = []
     noop: List[str] = []
@@ -311,7 +323,7 @@ def _merge_children(
     summary = "; ".join(parts) if parts else "nothing to merge"
 
     status = ERROR if conflicted else OK
-    return SubResult(
+    merge_child = SubResult(
         task_id="merge-" + (child_ids[0] if child_ids else "empty"),
         engine=merge_engine,
         model=merge_model,
@@ -320,6 +332,7 @@ def _merge_children(
         changed_files=[],
         usage=Usage(),
     )
+    return merge_child, conflicted
 
 
 def make_batch_spawn(
@@ -378,14 +391,13 @@ def _run_batch(
     if not items:
         # An empty batch still returns a (no-op) merge child so the shape is
         # uniform: callers always get the children + exactly one merge child.
-        return [
-            _merge_children(
-                repo_path,
-                [],
-                merge_engine=parent_engine,
-                merge_model=parent_config.model,
-            )
-        ]
+        empty_merge, _ = _merge_children(
+            repo_path,
+            [],
+            merge_engine=parent_engine,
+            merge_model=parent_config.model,
+        )
+        return [empty_merge]
 
     # (b) Resolve the effective concurrency width. Width 1 (the default) is the
     # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to the
@@ -399,6 +411,11 @@ def _run_batch(
     child_ids = [_child_id(batch_token, i) for i in range(len(items))]
 
     child_results: List[Optional[SubResult]] = [None] * len(items)
+    # Children whose merge CONFLICTED — their sub/<id> branch must survive
+    # teardown so the work can be integrated manually. Empty unless _merge_children
+    # runs and reports conflicts; on an exceptional exit (a worker raised before
+    # the merge) it stays empty and the normal full cleanup applies.
+    conflicted_ids: set[str] = set()
 
     try:
         if width <= 1:
@@ -443,12 +460,13 @@ def _run_batch(
                     child_results[future_index[fut]] = fut.result()
 
         # (d) SEQUENTIAL merge child, AFTER the join — never races child writes.
-        merge_child = _merge_children(
+        merge_child, conflicted = _merge_children(
             repo_path,
             child_ids,
             merge_engine=parent_engine,
             merge_model=parent_config.model,
         )
+        conflicted_ids = set(conflicted)
 
         # (e) Flat list: children in input order + the single merge child.
         ordered = [r for r in child_results if r is not None]
@@ -456,9 +474,15 @@ def _run_batch(
         return ordered
     finally:
         # (f) Teardown on EVERY exit path (success, partial, exception): remove
-        # each per-child worktree + sub/<child_id> branch so nothing leaks. Use
-        # the per-child remove (idempotent) so even children whose worktree was
-        # never created are tolerated; a final teardown_all sweeps any stragglers.
+        # each per-child worktree so no worktree dir leaks. The per-child branch
+        # is deleted too — EXCEPT for children whose merge CONFLICTED, whose
+        # sub/<id> branch is PRESERVED (delete_branch=False) so their committed
+        # work survives for manual integration (the merge child's summary points
+        # at it). teardown_all then sweeps only worktrees under our own root (it
+        # never touches a branch that has no worktree, so the retained conflicted
+        # branches stay put).
         for child_id in child_ids:
-            worktrees.worktree_remove(repo_path, child_id)
+            worktrees.worktree_remove(
+                repo_path, child_id, delete_branch=(child_id not in conflicted_ids)
+            )
         worktrees.teardown_all(repo_path)
