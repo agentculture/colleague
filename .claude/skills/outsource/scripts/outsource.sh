@@ -64,7 +64,7 @@ Options:
   --repo PATH        Target repo (default: .)
   --base BRANCH      Base for `review` diff (default: main)
   --engine NAME      Engine wheel (default: $COLLEAGUE_ENGINE or vllm-openai)
-  --model NAME       Model (default: $COLLEAGUE_MODEL or mmangkad/Qwen3.6-27B-NVFP4)
+  --model NAME       Model (default: $COLLEAGUE_MODEL or sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP)
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20)
   --timeout N        Per-request timeout, seconds (default: $COLLEAGUE_TIMEOUT or 300)
@@ -127,7 +127,7 @@ REPO="."
 BASE="main"
 # COLLEAGUE_* wins; the legacy CONVERTIBLE_* names are honored as a deprecated fallback.
 ENGINE="${COLLEAGUE_ENGINE:-${CONVERTIBLE_ENGINE:-vllm-openai}}"
-MODEL="${COLLEAGUE_MODEL:-${CONVERTIBLE_MODEL:-mmangkad/Qwen3.6-27B-NVFP4}}"
+MODEL="${COLLEAGUE_MODEL:-${CONVERTIBLE_MODEL:-sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP}}"
 BASE_URL="${COLLEAGUE_BASE_URL:-${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}}"
 MAX_STEPS=20
 TIMEOUT="${COLLEAGUE_TIMEOUT:-${CONVERTIBLE_TIMEOUT:-300}}"

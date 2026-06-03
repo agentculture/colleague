@@ -6,7 +6,7 @@
 
 `outsource` is a **first-party Claude Code skill** (`.claude/skills/outsource/`)
 that drives the `colleague` CLI so another agent can delegate a scoped task to
-a different engine (default: a local vLLM `mmangkad/Qwen3.6-27B-NVFP4` on
+a different engine (default: a local vLLM `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` on
 `:8001`). Colleague's model is **not assumed to be stronger** than the caller —
 a second, independent perspective catches what the author's mind glides past,
 which is why **review** is the headline verb.

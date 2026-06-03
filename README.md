@@ -609,23 +609,32 @@ uv run colleague skills list --model Qwen/Qwen3-32B --repo .
 
 ## Subagents
 
-Mid-drive, a backend **may** delegate a scoped sub-task to a nested in-process
-child drive via the `subagent` loop tool. The child runs the *same* bounded
-tool-loop — a plain synchronous function call, **no** thread, process, socket, or
-fork, zero new runtime deps — and its result is returned to the parent and folded
-into `TaskResult.sub_results` (omitted when empty). An optional `engine`/`model`
-parameter lets the child run on a different backend or model, resolved through the
-existing `registry.load` + `EngineConfig` inheritance (a config-level switch, no
-backend code change).
+Mid-drive, a backend **may** delegate scoped sub-tasks via two loop tools:
+`subagent` (a single child) or `subagents` (a batch that runs concurrently). Each
+child runs the *same* bounded tool-loop as a nested in-process call, isolated in
+its own throwaway git worktree on a `sub/<id>` branch; its result is returned to
+the parent and folded into `TaskResult.sub_results` (omitted when empty). A
+sequential **merge-subagent** integrates the branches afterward, surfacing (never
+force-merging) unresolvable conflicts. An optional `engine`/`model` parameter lets
+a child run on a different backend or model, resolved through the existing
+`registry.load` + `EngineConfig` inheritance (a config-level switch, no backend
+code change).
 
-Delegation is **backend-judged and optional** (like the `devague` destination
-tool), never a forced gate. Termination is structural: `MAX_SUBAGENT_DEPTH=2`
-(checked before any child work) and `MAX_SUBAGENT_FANOUT=4` (per-drive). Only the
-top-level drive hands off — sub-drives never branch, commit, or open a PR.
-**v0 is sequential-only**; parallel subagents + per-subagent worktree isolation are
-a parked follow-up. This is runtime-owned (the tool fires identically for every
-backend) and is explicitly **not** the out-of-scope multi-backend router / routing
-policy: there is no automatic task→backend routing.
+Concurrency is **opt-in**: `COLLEAGUE_SUBAGENT_CONCURRENCY` (default `1` =
+byte-identical sequential behavior); with width > 1, up to
+`MIN(width, MAX_SUBAGENT_FANOUT-1)` children run in parallel via
+`concurrent.futures` (threads confined to `colleague/subagents.py`), reserving one
+slot for the merge child. Delegation is **backend-judged and optional** (like the
+`devague` destination tool), never a forced gate. Termination is structural:
+`MAX_SUBAGENT_DEPTH=2` (checked before any child work) and `MAX_SUBAGENT_FANOUT=4`
+(per-drive, including the merge child). Only the top-level drive hands off —
+sub-drives never branch, commit, or open a PR. This is runtime-owned (the tools
+fire identically for every backend) and is explicitly **not** the out-of-scope
+multi-backend router / routing policy: there is no automatic task→backend routing.
+
+**Honest limit:** real wall-clock speedup requires the served model to handle
+concurrent requests; on a serializing server, gain is bounded by overlapped I/O
+wait, not model compute.
 
 ```bash
 uv run colleague explain subagent   # the loop tool's contract (not a CLI verb)

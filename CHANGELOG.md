@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.2] - 2026-06-03
+
+### Changed
+
+- README "Subagents" section rewritten to match the shipped v0.29.0 parallel-subagents behavior (COLLEAGUE_SUBAGENT_CONCURRENCY, the subagents batch tool, per-child `sub/<id>` worktrees, the sequential merge-subagent); it had still described v0 as sequential-only (#92).
+
+### Fixed
+
+- outsource skill default model was stale (mmangkad/Qwen3.6-27B-NVFP4) and no longer matched config._DEFAULT_MODEL or the live rig; aligned the skill script, SKILL.md, docs/features/outsource.md, and the skill test to the served sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP so a bare-default `outsource explore` no longer 404s the rig (#92).
+- vLLM engine now raises a legible ConnectionError naming the endpoint when the server is unreachable (urllib URLError: connection refused / DNS / server down), instead of letting the loop surface a cryptic bare `URLError: <urlopen error [Errno 111] Connection refused>`; mirrors the graceful URLError handling already in _tokenize_count, with a regression test (#92).
+
 ## [0.29.1] - 2026-06-03
 
 ### Changed

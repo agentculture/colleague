@@ -78,6 +78,26 @@ def test_post_json_preserves_vllm_error_body(monkeypatch: pytest.MonkeyPatch) ->
     assert "Qwen/Qwen3-32B" in str(exc.value)
 
 
+def test_post_json_raises_legible_error_when_server_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection-level URLError (server down/refused) becomes a legible,
+    endpoint-named error instead of the cryptic bare "URLError: <urlopen error
+    ...>" the loop would otherwise surface (#92)."""
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> object:
+        raise urllib.error.URLError("[Errno 111] Connection refused")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(ConnectionError) as exc:
+        _post_json("http://localhost:8001/v1/chat/completions", {}, api_key="EMPTY", timeout=1)
+
+    msg = str(exc.value)
+    assert "http://localhost:8001/v1/chat/completions" in msg
+    assert "unreachable" in msg
+
+
 def test_drive_runs_full_loop_over_mocked_http(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

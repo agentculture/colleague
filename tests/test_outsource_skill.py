@@ -120,7 +120,7 @@ def test_help_lists_the_feedback_verb() -> None:
 
 def test_help_documents_the_default_model() -> None:
     r = _run("--help")
-    assert "mmangkad/Qwen3.6-27B-NVFP4" in r.stdout
+    assert "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP" in r.stdout
 
 
 def test_help_documents_preview_by_default_and_apply() -> None:
