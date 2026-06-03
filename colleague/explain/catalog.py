@@ -27,7 +27,7 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
   through a coder backend and hand off the result.
 - `colleague session` — foreground interactive palette over the drive path.
 - `colleague wheels list` — list discovered backend plugins.
-- `colleague whoami` — identity probe from `culture.yaml`.
+- `colleague whoami` — mesh identity (`culture.yaml`) + the live drive engine/model.
 - `colleague learn` — structured self-teaching prompt.
 - `colleague explain <path>` — markdown docs for any noun/verb.
 - `colleague overview` — descriptive snapshot of the agent.
