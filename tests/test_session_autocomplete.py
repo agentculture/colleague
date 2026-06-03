@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import sys
 
-from colleague.cli._commands._session_input import read_line_with_popup, supports_raw_mode
+from colleague.cli._commands._session_input import (
+    read_line_with_popup,
+    reduce_key,
+    supports_raw_mode,
+)
 from colleague.cli._commands.session import (
     _CONFIG_ACTIONS,
     _HELP_TEXT,
@@ -151,6 +155,69 @@ def test_reader_uses_fallback_when_not_a_tty() -> None:
     assert used == [True]
 
 
-# The raw per-keystroke loop (``_raw_loop``) needs a real terminal; pytest's fd
-# capture deadlocks a pty-backed test, so it is verified by the PR's manual pty
-# smoke test (see docs/plans/...autocomplete-popup.md) rather than here.
+# The raw per-keystroke loop's I/O shell (``_raw_loop``) needs a real terminal;
+# pytest's fd capture deadlocks a pty-backed test, so it is verified by the PR's
+# manual pty smoke test. Its key-handling logic lives in the pure ``reduce_key``
+# reducer below and IS unit-tested without a TTY.
+
+
+# ---------------------------------------------------------------------------
+# reduce_key — the pure key-handling transition (TTY-free)
+# ---------------------------------------------------------------------------
+
+
+def test_reduce_enter_submits_buffer() -> None:
+    assert reduce_key("ENTER", "/help", 0, []) == ("/help", 0, "submit")
+
+
+def test_reduce_eof_quits_even_mid_line() -> None:
+    """True EOF must quit even with a partial buffer (else _raw_loop busy-loops)."""
+    assert reduce_key("EOF", "/co", 0, [])[2] == "quit"
+
+
+def test_reduce_ctrl_c_quits() -> None:
+    assert reduce_key("CTRL_C", "", 0, [])[2] == "quit"
+
+
+def test_reduce_ctrl_d_quits_only_on_empty_line() -> None:
+    assert reduce_key("CTRL_D", "", 0, [])[2] == "quit"
+    # Ctrl-D mid-line is ignored (redraw), buffer untouched.
+    assert reduce_key("CTRL_D", "/co", 0, []) == ("/co", 0, "redraw")
+
+
+def test_reduce_tab_completes_to_selected_match() -> None:
+    matches = filter_slash("co")  # commands, config
+    buf, _sel, action = reduce_key("TAB", "/co", 1, matches)
+    assert buf == "/config"  # no arg_hint → no trailing space
+    assert action == "redraw"
+
+
+def test_reduce_tab_adds_trailing_space_when_arg_hint() -> None:
+    matches = [s for s in _SLASH_COMMANDS if s.name == "engine"]  # arg_hint "<name>"
+    buf, _sel, _action = reduce_key("TAB", "/engine", 0, matches)
+    assert buf == "/engine "
+
+
+def test_reduce_tab_without_matches_is_noop() -> None:
+    assert reduce_key("TAB", "/zzz", 0, []) == ("/zzz", 0, "redraw")
+
+
+def test_reduce_arrows_move_selection() -> None:
+    assert reduce_key("DOWN", "/c", 0, filter_slash("c"))[1] == 1
+    assert reduce_key("UP", "/c", 1, filter_slash("c"))[1] == 0
+
+
+def test_reduce_esc_dismisses_by_clearing_buffer() -> None:
+    assert reduce_key("ESC", "/co", 1, filter_slash("co")) == ("", 0, "redraw")
+
+
+def test_reduce_backspace_deletes_last_char() -> None:
+    assert reduce_key("BACKSPACE", "/co", 0, [])[0] == "/c"
+
+
+def test_reduce_printable_char_is_appended() -> None:
+    assert reduce_key("x", "/c", 0, [])[0] == "/cx"
+
+
+def test_reduce_ignored_key_is_a_noop_redraw() -> None:
+    assert reduce_key(None, "/c", 0, []) == ("/c", 0, "redraw")

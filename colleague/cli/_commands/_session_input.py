@@ -112,6 +112,64 @@ def _read_escape(fd: int) -> str:
     return {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}.get(_getch(fd), "ESC")
 
 
+def _classify_key(ch: str, fd: int) -> Optional[str]:
+    """Normalise a raw keystroke into a token, resolving arrow escape sequences.
+
+    Returns ``"EOF"`` / ``"CTRL_C"`` / ``"CTRL_D"`` / ``"ENTER"`` / ``"TAB"`` /
+    ``"UP"`` / ``"DOWN"`` / ``"ESC"`` / ``"BACKSPACE"``, a single printable
+    character, or ``None`` for an ignored control char.
+    """
+    if ch == "":
+        return "EOF"
+    if ch == _CTRL_C:
+        return "CTRL_C"
+    if ch == _CTRL_D:
+        return "CTRL_D"
+    if ch in _ENTER:
+        return "ENTER"
+    if ch == _TAB:
+        return "TAB"
+    if ch == _ESC:
+        return _read_escape(fd)  # UP / DOWN / ESC / RIGHT / LEFT
+    if ch in _BACKSPACE:
+        return "BACKSPACE"
+    if ch.isprintable():
+        return ch
+    return None
+
+
+def reduce_key(
+    token: Optional[str], buffer: str, selected: int, matches: list
+) -> tuple[str, int, str]:
+    """Pure transition for one key token → ``(buffer, selected, action)``.
+
+    *action* is ``"quit"`` (return ``None``), ``"submit"`` (return *buffer*), or
+    ``"redraw"`` (keep looping). TTY-free, so the whole key map is unit-testable.
+    """
+    if token in ("EOF", "CTRL_C"):
+        return buffer, selected, "quit"
+    if token == "CTRL_D":  # quit on an empty line; ignore mid-line
+        return (buffer, selected, "quit") if buffer == "" else (buffer, selected, "redraw")
+    if token == "ENTER":
+        return buffer, selected, "submit"
+    if token == "TAB":
+        if matches:
+            chosen = matches[selected]
+            buffer = f"/{chosen.name} " if chosen.arg_hint else f"/{chosen.name}"
+        return buffer, 0, "redraw"
+    if token == "UP":
+        return buffer, selected - 1, "redraw"
+    if token == "DOWN":
+        return buffer, selected + 1, "redraw"
+    if token == "ESC":  # dismiss the popup (clear the slash buffer)
+        return "", 0, "redraw"
+    if token == "BACKSPACE":
+        return buffer[:-1], 0, "redraw"
+    if token is not None and len(token) == 1 and token.isprintable():
+        return buffer + token, 0, "redraw"
+    return buffer, selected, "redraw"  # ignored key
+
+
 def _raw_loop(
     specs: Sequence[object], render: RenderFn, filter_fn: FilterFn, stream: object, out: object
 ) -> Optional[str]:
@@ -128,44 +186,16 @@ def _raw_loop(
             matches = filter_fn(buffer[1:], specs) if buffer.startswith("/") else []
             selected = max(0, min(selected, len(matches) - 1)) if matches else 0
             # Raw mode disables NL->CRNL translation, so emit CRLF for clean redraw.
-            screen = render(buffer, matches, selected).replace("\n", "\r\n")
-            out.write(screen)  # type: ignore[attr-defined]
+            out.write(render(buffer, matches, selected).replace("\n", "\r\n"))  # type: ignore[attr-defined]  # noqa: E501
             out.flush()  # type: ignore[attr-defined]
 
-            ch = _getch(fd)
-            if ch == "" or ch == _CTRL_D:
-                if buffer == "":
-                    return None  # EOF / Ctrl-D on an empty line → quit
-                continue
-            if ch == _CTRL_C:
-                return None  # clean exit, no traceback
-            if ch in _ENTER:
+            token = _classify_key(_getch(fd), fd)
+            buffer, selected, action = reduce_key(token, buffer, selected, matches)
+            if action == "quit":
+                return None
+            if action == "submit":
                 out.write("\r\n")  # type: ignore[attr-defined]
                 out.flush()  # type: ignore[attr-defined]
                 return buffer
-            if ch == _TAB:
-                if matches:
-                    sel = matches[selected]
-                    buffer = f"/{sel.name} " if sel.arg_hint else f"/{sel.name}"
-                    selected = 0
-                continue
-            if ch == _ESC:
-                seq = _read_escape(fd)
-                if seq == "UP":
-                    selected -= 1
-                elif seq == "DOWN":
-                    selected += 1
-                else:  # bare ESC → dismiss the popup (clear the slash buffer)
-                    buffer = ""
-                    selected = 0
-                continue
-            if ch in _BACKSPACE:
-                buffer = buffer[:-1]
-                selected = 0
-                continue
-            if ch.isprintable():
-                buffer += ch
-                selected = 0
-            # other control chars are ignored
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
