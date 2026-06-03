@@ -195,7 +195,7 @@ def test_getch_reassembles_multibyte_utf8() -> None:
 
     from colleague.cli._commands._session_input import _getch
 
-    for ch in ("é", "❯", "a"):  # 2-byte, 3-byte, 1-byte
+    for ch in ("é", "❯", "😀", "a"):  # 2-byte, 3-byte, 4-byte, 1-byte
         r, w = os.pipe()
         os.write(w, ch.encode("utf-8"))
         os.close(w)

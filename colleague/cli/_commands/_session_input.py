@@ -92,26 +92,34 @@ def read_line_with_popup(
         return None
 
 
+def _utf8_continuation_len(lead: int) -> int:
+    """Number of continuation bytes that follow a UTF-8 *lead* byte (0 for ASCII)."""
+    if lead >= 0xF0:
+        return 3
+    if lead >= 0xE0:
+        return 2
+    if lead >= 0xC0:
+        return 1
+    return 0
+
+
 def _getch(fd: int) -> str:
     """Read one keystroke from *fd*, unbuffered (``os.read``, not a text stream).
 
     Raw keystroke reading must bypass the buffered text stream: ``stream.read(1)``
     over-reads to fill its buffer and blocks on an interactive fd. A multi-byte
-    UTF-8 keystroke (e.g. ``é`` / ``❯``) arrives as several bytes, so the leading
-    byte's width is decoded and the continuation bytes are pulled too — otherwise
-    non-ASCII input would be silently dropped. Returns ``""`` on EOF.
+    UTF-8 keystroke (e.g. ``é`` / ``❯``) arrives as several bytes, so the lead
+    byte's continuation bytes are pulled too — otherwise non-ASCII input would be
+    silently dropped. Returns ``""`` on EOF.
     """
     data = os.read(fd, 1)
     if not data:
         return ""
-    lead = data[0]
-    if lead >= 0x80:  # multi-byte UTF-8 lead → fetch its continuation bytes
-        extra = 3 if lead >= 0xF0 else 2 if lead >= 0xE0 else 1 if lead >= 0xC0 else 0
-        for _ in range(extra):
-            more = os.read(fd, 1)
-            if not more:
-                break
-            data += more
+    for _ in range(_utf8_continuation_len(data[0])):
+        more = os.read(fd, 1)
+        if not more:
+            break
+        data += more
     return data.decode("utf-8", errors="ignore")
 
 
@@ -155,6 +163,56 @@ def _classify_key(ch: str, fd: int) -> Optional[str]:
     return None
 
 
+def _key_quit(buffer: str, selected: int, _matches: list) -> tuple[str, int, str]:
+    return buffer, selected, "quit"
+
+
+def _key_ctrl_d(buffer: str, selected: int, _matches: list) -> tuple[str, int, str]:
+    # Ctrl-D quits on an empty line; mid-line it is ignored (redraw).
+    return (buffer, selected, "quit") if buffer == "" else (buffer, selected, "redraw")
+
+
+def _key_enter(buffer: str, selected: int, _matches: list) -> tuple[str, int, str]:
+    return buffer, selected, "submit"
+
+
+def _key_tab(buffer: str, _selected: int, matches: list) -> tuple[str, int, str]:
+    if matches:
+        chosen = matches[_selected]
+        buffer = f"/{chosen.name} " if chosen.arg_hint else f"/{chosen.name}"
+    return buffer, 0, "redraw"
+
+
+def _key_up(buffer: str, selected: int, _matches: list) -> tuple[str, int, str]:
+    return buffer, selected - 1, "redraw"
+
+
+def _key_down(buffer: str, selected: int, _matches: list) -> tuple[str, int, str]:
+    return buffer, selected + 1, "redraw"
+
+
+def _key_esc(_buffer: str, _selected: int, _matches: list) -> tuple[str, int, str]:
+    return "", 0, "redraw"  # dismiss the popup (clear the slash buffer)
+
+
+def _key_backspace(buffer: str, _selected: int, _matches: list) -> tuple[str, int, str]:
+    return buffer[:-1], 0, "redraw"
+
+
+#: Named-key → transition. Printable chars and unknowns are handled in reduce_key.
+_KEY_HANDLERS: dict[str, Callable[[str, int, list], tuple[str, int, str]]] = {
+    "EOF": _key_quit,
+    "CTRL_C": _key_quit,
+    "CTRL_D": _key_ctrl_d,
+    "ENTER": _key_enter,
+    "TAB": _key_tab,
+    "UP": _key_up,
+    "DOWN": _key_down,
+    "ESC": _key_esc,
+    "BACKSPACE": _key_backspace,
+}
+
+
 def reduce_key(
     key: Optional[str], buffer: str, selected: int, matches: list
 ) -> tuple[str, int, str]:
@@ -163,27 +221,11 @@ def reduce_key(
     *action* is ``"quit"`` (return ``None``), ``"submit"`` (return *buffer*), or
     ``"redraw"`` (keep looping). TTY-free, so the whole key map is unit-testable.
     """
-    if key in ("EOF", "CTRL_C"):
-        return buffer, selected, "quit"
-    if key == "CTRL_D":  # quit on an empty line; ignore mid-line
-        return (buffer, selected, "quit") if buffer == "" else (buffer, selected, "redraw")
-    if key == "ENTER":
-        return buffer, selected, "submit"
-    if key == "TAB":
-        if matches:
-            chosen = matches[selected]
-            buffer = f"/{chosen.name} " if chosen.arg_hint else f"/{chosen.name}"
-        return buffer, 0, "redraw"
-    if key == "UP":
-        return buffer, selected - 1, "redraw"
-    if key == "DOWN":
-        return buffer, selected + 1, "redraw"
-    if key == "ESC":  # dismiss the popup (clear the slash buffer)
-        return "", 0, "redraw"
-    if key == "BACKSPACE":
-        return buffer[:-1], 0, "redraw"
+    handler = _KEY_HANDLERS.get(key) if key is not None else None
+    if handler is not None:
+        return handler(buffer, selected, matches)
     if key is not None and len(key) == 1 and key.isprintable():
-        return buffer + key, 0, "redraw"
+        return buffer + key, 0, "redraw"  # a printable character
     return buffer, selected, "redraw"  # ignored key
 
 
