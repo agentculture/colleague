@@ -12,6 +12,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 import colleague.neighbours as nb
 from colleague.neighbours import NeighbourManager
 
@@ -258,3 +260,44 @@ def test_allowed_public_methods_cover_contract(tmp_path: Path) -> None:
     required = {"clone_all", "clone_path", "refresh", "cleanup", "neighbours"}
     for method in required:
         assert hasattr(manager, method), f"NeighbourManager must expose '{method}'"
+
+
+# ---------------------------------------------------------------------------
+# Path-traversal guard — _dest_for must never let a clone land outside
+# .colleague/neighbours/ even for a hostile or typo'd neighbour name.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    ["", ".", "..", "../escape", "/etc/passwd", "a/b", "a\\b", "\\", "/"],
+)
+def test_dest_for_rejects_traversal_names(tmp_path: Path, bad_name: str) -> None:
+    """A name with a separator, '.'/'..', or absolute path is refused.
+
+    _dest_for is the single chokepoint that turns an operator-config name into a
+    destination path; a bad name must raise NeighbourError, never resolve outside
+    the clone root.
+    """
+    repo = _make_consumer_repo(tmp_path / "consumer")
+    manager = NeighbourManager(repo)
+
+    with pytest.raises(nb.NeighbourError):
+        manager._dest_for(bad_name)
+
+
+def test_clone_all_traversal_name_blocked_before_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A traversal name in neighbours.json is refused before any git call runs."""
+    repo = _make_consumer_repo(tmp_path / "consumer")
+    _write_neighbours_json(repo, [{"name": "../escape", "url": "file:///nonexistent"}])
+    manager = NeighbourManager(repo)
+
+    def _no_git(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("git must not run for a traversal name")
+
+    monkeypatch.setattr(manager, "_git_clone", _no_git)
+
+    with pytest.raises(nb.NeighbourError):
+        manager.clone_all()

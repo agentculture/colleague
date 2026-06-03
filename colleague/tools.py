@@ -25,6 +25,10 @@ from colleague.contract import SubResult
 
 FINISH = "finish"
 
+#: Bound a runaway model-issued command so it cannot stall the loop indefinitely
+#: (mirrors culture/devague ``_TIMEOUT_SECONDS`` and neighbours ``_GIT_TIMEOUT_SECONDS``).
+_COMMAND_TIMEOUT_SECONDS = 300
+
 
 class ToolError(Exception):
     """A tool call that cannot be honored (bad path, escape attempt, missing file)."""
@@ -432,14 +436,26 @@ class ToolExecutor:
                 f"Clone files are read-only source — use read_file to inspect them."
             )
 
-        proc = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
-            command,
-            shell=True,
-            cwd=str(self.root),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        try:
+            proc = subprocess.run(  # nosec B602 - shell by design; trusted operator env (D2)
+                command,
+                shell=True,
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                timeout=_COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # A hung command must surface as a recoverable ToolError, not an
+            # uncaught exception that escapes the executor and aborts the whole
+            # drive — the loop only catches ToolError around tool execution
+            # (see colleague/loop.py), mirroring culture/devague/hooks.
+            raise ToolError(
+                f"run_command timed out after {_COMMAND_TIMEOUT_SECONDS}s: {command}"
+            ) from exc
+        except OSError as exc:
+            # Launch/IO failure (e.g. too many open files, no shell) → clean error.
+            raise ToolError(f"run_command failed to launch: {exc}") from exc
         body = (proc.stdout or "") + (proc.stderr or "")
         result = f"exit={proc.returncode}\n{body}"
         return ToolOutcome(result=self._truncate(result))

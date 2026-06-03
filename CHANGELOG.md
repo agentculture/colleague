@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.3] - 2026-06-03
+
+### Changed
+
+- Added direct test coverage for the neighbours `_dest_for` path-traversal guard (malicious/typo names: separators, dot/dotdot, absolute, empty) — previously only exercised indirectly (#92).
+
+### Fixed
+
+- `run_command` now maps a subprocess failure to a recoverable `ToolError` instead of aborting the whole drive: a hung model-issued command (`subprocess.TimeoutExpired`) or a launch failure (`OSError`) is fed back to the model as a non-ok step so the drive continues, matching the culture/devague/hooks subprocess error handling (all-engines rule). The 300s budget is now the named `_COMMAND_TIMEOUT_SECONDS` constant (#92).
+
 ## [0.29.2] - 2026-06-03
 
 ### Changed

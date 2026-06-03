@@ -22,6 +22,7 @@ clone required.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -319,3 +320,64 @@ class TestNeverExecuteConfinement:
         assert run_steps, "a run_command step must be recorded"
         assert run_steps[0].ok is False
         assert "clone" in run_steps[0].result
+
+
+# ---------------------------------------------------------------------------
+# run_command subprocess-failure mapping: a hung or unlaunchable command must
+# become a recoverable ToolError fed back to the model, never an uncaught
+# exception that aborts the whole drive (mirrors culture/devague/hooks).
+# ---------------------------------------------------------------------------
+
+
+class TestRunCommandSubprocessErrors:
+    """subprocess failures in run_command map to ToolError, not a drive abort."""
+
+    def test_run_command_timeout_maps_to_tool_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*_args: object, **_kwargs: object) -> object:
+            raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
+
+        monkeypatch.setattr("colleague.tools.subprocess.run", boom)
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="timed out"):
+            executor.execute("run_command", {"command": "sleep 999"})
+
+    def test_run_command_oserror_maps_to_tool_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*_args: object, **_kwargs: object) -> object:
+            raise OSError("Too many open files")
+
+        monkeypatch.setattr("colleague.tools.subprocess.run", boom)
+        executor = ToolExecutor(tmp_path)
+
+        with pytest.raises(ToolError, match="failed to launch"):
+            executor.execute("run_command", {"command": "echo hi"})
+
+    def test_run_command_timeout_continues_drive_via_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A timed-out command yields a non-ok Step; the drive CONTINUES.
+
+        Regression lock: before the fix, subprocess.TimeoutExpired escaped the
+        executor and aborted the whole drive via DriveAborted.
+        """
+
+        def boom(*_args: object, **_kwargs: object) -> object:
+            raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=300)
+
+        monkeypatch.setattr("colleague.tools.subprocess.run", boom)
+        responses = [
+            ModelResponse(tool_calls=[ToolCall("c1", "run_command", {"command": "sleep 999"})]),
+            ModelResponse(tool_calls=[ToolCall("f1", "finish", {"summary": "done"})]),
+        ]
+        task = Task.new(str(tmp_path), "run a slow command")
+        result = run(scripted(responses), task, max_steps=10, hooks=HookConfig())
+
+        assert result.status == "ok"
+        run_steps = [s for s in result.steps if s.tool == "run_command"]
+        assert run_steps, "a run_command step must be recorded"
+        assert run_steps[0].ok is False
+        assert "timed out" in run_steps[0].result
