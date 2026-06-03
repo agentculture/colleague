@@ -3,7 +3,7 @@
 The TUI cockpit is a state machine with a single agent-readable mirror (TAUI).
 This verb exposes that machine **headlessly** — no real terminal — so an agent
 (or a test) can render a frame, read the semantic mirror, resolve and operate
-selectors, replay an event log, capture/diagnose a snapshot triple, and run a
+selectors, replay an event log, capture/diagnose a snapshot quad, and run a
 JSON scenario as an assertion. Every verb supports ``--json``, sends results to
 stdout and diagnostics/errors to stderr, and raises :class:`CliError` on failure
 (no traceback ever leaks).
@@ -139,7 +139,7 @@ def _tui_sections() -> list[dict[str, object]]:
                 "tui inspect --select <sel> [--state <file>] — resolve a selector to a node",
                 "tui action --select <sel> [--state <file>] — operate the UI by selector",
                 "tui replay <events.jsonl> | --trace <id>.trace.jsonl — fold a drive into a mirror",
-                "tui snapshot --name <n> [--state/--events/--dir] — write the triple",
+                "tui snapshot --name <n> [--state/--events/--dir] — write the quad",
                 "tui test --scenario <file.json> — run a scenario (exit 1 on FAIL)",
                 "tui diagnose (--dir <d> --name <n> | --taui/--ansi/--events) — classify bugs",
                 "tui live — foreground TTY loop (requires an interactive terminal)",
@@ -286,7 +286,15 @@ def cmd_tui_snapshot(args: argparse.Namespace) -> int:
     if json_mode:
         emit_result(str_paths, json_mode=True)
     else:
-        emit_result("\n".join(str_paths[k] for k in ("taui", "ansi", "events")), json_mode=False)
+        # List every file written (the quad), in a stable order — the ``.md``
+        # was added to the snapshot but the text output kept listing only the
+        # original triple, so an agent reading stdout never saw the markdown
+        # frame (``--json`` already carried it). Iterate the written paths,
+        # leading with the known keys, so the text and JSON outputs agree.
+        order = ("taui", "ansi", "events", "markdown")
+        keys = [k for k in order if k in str_paths]
+        keys += [k for k in str_paths if k not in order]
+        emit_result("\n".join(str_paths[k] for k in keys), json_mode=False)
     return 0
 
 
@@ -565,8 +573,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     _add_json(rep)
     rep.set_defaults(func=cmd_tui_replay)
 
-    snap = noun_sub.add_parser("snapshot", help="Write a snapshot triple (taui/ansi/events).")
-    snap.add_argument("--name", required=True, help="Base name for the three files.")
+    snap = noun_sub.add_parser("snapshot", help="Write a snapshot quad (taui/ansi/events/md).")
+    snap.add_argument(
+        "--name", required=True, help="Base name for the four files (taui/ansi/events/md)."
+    )
     snap.add_argument("--state", default=None, help="State JSON file (default: empty).")
     snap.add_argument("--events", default=None, help="Events JSONL file (default: empty).")
     snap.add_argument("--dir", default=None, help="Target directory (default: cwd).")
@@ -578,7 +588,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     _add_json(tst)
     tst.set_defaults(func=cmd_tui_test)
 
-    dia = noun_sub.add_parser("diagnose", help="Classify cross-mirror bugs in a triple.")
+    dia = noun_sub.add_parser("diagnose", help="Classify cross-mirror bugs in a snapshot quad.")
     dia.add_argument("--dir", default=None, help="Snapshot directory (with --name).")
     dia.add_argument("--name", default=None, help="Snapshot base name (with --dir).")
     dia.add_argument("--taui", default=None, help="TAUI mirror JSON file (with --ansi).")

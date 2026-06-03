@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.9] - 2026-06-03
+
+### Fixed
+
+- `colleague tui snapshot` text output now lists **every** file it writes (the quad). It wrote four files — `.taui.json` / `.ansi` / `.events.jsonl` / `.md` — but the text stdout joined only `("taui", "ansi", "events")`, so the `.md` it had just written was invisible on stdout (the `--json` output already listed it). Text and JSON now agree. Found by exercising `tui snapshot`/`diagnose` for issue #99.
+- Refreshed stale `tui` help/doc wording that still called the snapshot a *triple*: the `snapshot`/`diagnose` subcommand help, the `--name` help (was "Base name for the three files" → the four files taui/ansi/events/md), the `tui` module docstring, and the overview verb line. The `legacy triple` references in `tui/snapshot.py` / `tui/diagnose.py` are left intact — a pre-`.md` snapshot genuinely is a triple (back-compat).
+
 ## [0.29.8] - 2026-06-03
 
 ### Fixed
