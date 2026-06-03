@@ -81,6 +81,11 @@ def test_widget_clamps_selection() -> None:
     assert render_slash_autocomplete(matches, 99).count("\x1b[7m") == 1
 
 
+def test_widget_truncates_rows_at_narrow_width() -> None:
+    out = render_slash_autocomplete(filter_slash("co"), 0, width=14)
+    assert "…" in out  # a narrow width forces row truncation
+
+
 def test_widget_has_no_termios_import() -> None:
     import inspect
     import re
@@ -211,6 +216,182 @@ def test_getch_returns_empty_on_eof() -> None:
         assert _getch(r) == ""
     finally:
         os.close(r)
+
+
+def test_getch_truncated_multibyte_is_dropped_safely() -> None:
+    """A lead byte with no continuation (truncated UTF-8) decodes to '' — no crash."""
+    import os
+
+    from colleague.cli._commands._session_input import _getch
+
+    r, w = os.pipe()
+    os.write(w, b"\xc3")  # 2-byte lead, no continuation
+    os.close(w)
+    try:
+        assert _getch(r) == ""
+    finally:
+        os.close(r)
+
+
+# ---------------------------------------------------------------------------
+# _classify_key / _read_escape — raw keystroke normalisation
+# ---------------------------------------------------------------------------
+
+
+def test_classify_key_maps_control_and_printable() -> None:
+    from colleague.cli._commands._session_input import _classify_key
+
+    assert _classify_key("", 0) == "EOF"
+    assert _classify_key("\x03", 0) == "CTRL_C"
+    assert _classify_key("\x04", 0) == "CTRL_D"
+    assert _classify_key("\r", 0) == "ENTER"
+    assert _classify_key("\n", 0) == "ENTER"
+    assert _classify_key("\t", 0) == "TAB"
+    assert _classify_key("\x7f", 0) == "BACKSPACE"
+    assert _classify_key("a", 0) == "a"
+    assert _classify_key("\x01", 0) is None  # ignored control char
+
+
+def test_read_escape_resolves_arrows_and_bare_esc() -> None:
+    import os
+
+    from colleague.cli._commands._session_input import _classify_key, _read_escape
+
+    # Arrow up: "[A" after the ESC.
+    r, w = os.pipe()
+    os.write(w, b"[A")
+    assert _read_escape(r) == "UP"
+    os.close(r)
+    os.close(w)
+
+    # ESC dispatched through _classify_key with a down-arrow sequence.
+    r, w = os.pipe()
+    os.write(w, b"[B")
+    assert _classify_key("\x1b", r) == "DOWN"
+    os.close(r)
+    os.close(w)
+
+    # Bare ESC: nothing follows → select times out → "ESC" (w kept open).
+    r, w = os.pipe()
+    try:
+        assert _read_escape(r) == "ESC"
+    finally:
+        os.close(r)
+        os.close(w)
+
+    # ESC followed by a non-'[' byte → "ESC".
+    r, w = os.pipe()
+    os.write(w, b"x")
+    assert _read_escape(r) == "ESC"
+    os.close(r)
+    os.close(w)
+
+
+# ---------------------------------------------------------------------------
+# read_line_with_popup — builtin-input fallback when no fallback fn is given
+# ---------------------------------------------------------------------------
+
+
+def test_reader_uses_builtin_input_without_fallback(monkeypatch) -> None:
+    monkeypatch.setattr("builtins.input", lambda *_: "via input")
+    result = read_line_with_popup(
+        _SLASH_COMMANDS, lambda _b, _m, _s: "", filter_slash, stream=_NonTTY()
+    )
+    assert result == "via input"
+
+
+def test_reader_returns_none_on_eof_without_fallback(monkeypatch) -> None:
+    def _raise_eof(*_: object) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _raise_eof)
+    result = read_line_with_popup(
+        _SLASH_COMMANDS, lambda _b, _m, _s: "", filter_slash, stream=_NonTTY()
+    )
+    assert result is None
+
+
+def test_supports_raw_mode_false_when_isatty_raises() -> None:
+    class _Boom:
+        def isatty(self) -> bool:
+            raise RuntimeError("boom")
+
+    assert supports_raw_mode(_Boom()) is False
+
+
+# ---------------------------------------------------------------------------
+# _read_live_ansi — the live-TTY entry: popup render closure + fallback path
+# ---------------------------------------------------------------------------
+
+
+def test_read_live_ansi_renders_popup_and_runs_fallback(tmp_path, monkeypatch) -> None:
+    """Exercise the _render popup closure and the _fallback closure of the live read."""
+    import colleague.cli._commands._session_input as si
+    from colleague.cli._commands.session import _Session
+    from colleague.config import EngineConfig
+
+    sess = _Session(
+        repo=tmp_path,
+        engine_name="mock",
+        open_pr=False,
+        base="main",
+        config=EngineConfig.resolve(),
+        json_mode=False,
+        view="ansi",
+        out=lambda *a, **k: None,
+        err=lambda *a, **k: None,
+        drive_fn=lambda **k: None,
+    )
+
+    captured: dict = {}
+    monkeypatch.setattr("builtins.input", lambda *a: "fallback typed")
+
+    def _fake_reader(specs, render, filter_fn, *, stream=None, out=None, fallback=None):
+        captured["frame"] = render("/co", filter_fn("co", specs), 0)  # _render closure
+        captured["fallback"] = fallback()  # _fallback closure
+        return "/help"
+
+    monkeypatch.setattr(si, "read_line_with_popup", _fake_reader)
+
+    result = sess._read_live_ansi()
+    assert result == "/help"
+    assert "commands" in captured["frame"]  # the popup rendered for "/co"
+    assert "\x1b[7m" in captured["frame"]  # a highlighted row was drawn
+    assert captured["fallback"] == "fallback typed"
+
+
+def test_read_live_ansi_fallback_returns_none_on_eof(tmp_path, monkeypatch) -> None:
+    """The _fallback closure returns None when stdin hits EOF (Ctrl-D)."""
+    import colleague.cli._commands._session_input as si
+    from colleague.cli._commands.session import _Session
+    from colleague.config import EngineConfig
+
+    sess = _Session(
+        repo=tmp_path,
+        engine_name="mock",
+        open_pr=False,
+        base="main",
+        config=EngineConfig.resolve(),
+        json_mode=False,
+        view="ansi",
+        out=lambda *a, **k: None,
+        err=lambda *a, **k: None,
+        drive_fn=lambda **k: None,
+    )
+
+    def _raise_eof(*_: object) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _raise_eof)
+    captured: dict = {}
+
+    def _fake_reader(specs, render, filter_fn, *, stream=None, out=None, fallback=None):
+        captured["fallback"] = fallback()
+        return None
+
+    monkeypatch.setattr(si, "read_line_with_popup", _fake_reader)
+    assert sess._read_live_ansi() is None
+    assert captured["fallback"] is None
 
 
 # The raw per-keystroke loop's I/O shell (``_raw_loop``) needs a real terminal;

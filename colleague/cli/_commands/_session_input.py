@@ -53,7 +53,7 @@ def supports_raw_mode(stream: object = None) -> bool:
     try:
         import termios  # noqa: F401
         import tty  # noqa: F401
-    except Exception:
+    except Exception:  # pragma: no cover - termios is always present on the POSIX target
         return False
     return True
 
@@ -156,38 +156,38 @@ def _classify_key(ch: str, fd: int) -> Optional[str]:
 
 
 def reduce_key(
-    token: Optional[str], buffer: str, selected: int, matches: list
+    key: Optional[str], buffer: str, selected: int, matches: list
 ) -> tuple[str, int, str]:
     """Pure transition for one key token → ``(buffer, selected, action)``.
 
     *action* is ``"quit"`` (return ``None``), ``"submit"`` (return *buffer*), or
     ``"redraw"`` (keep looping). TTY-free, so the whole key map is unit-testable.
     """
-    if token in ("EOF", "CTRL_C"):
+    if key in ("EOF", "CTRL_C"):
         return buffer, selected, "quit"
-    if token == "CTRL_D":  # quit on an empty line; ignore mid-line
+    if key == "CTRL_D":  # quit on an empty line; ignore mid-line
         return (buffer, selected, "quit") if buffer == "" else (buffer, selected, "redraw")
-    if token == "ENTER":
+    if key == "ENTER":
         return buffer, selected, "submit"
-    if token == "TAB":
+    if key == "TAB":
         if matches:
             chosen = matches[selected]
             buffer = f"/{chosen.name} " if chosen.arg_hint else f"/{chosen.name}"
         return buffer, 0, "redraw"
-    if token == "UP":
+    if key == "UP":
         return buffer, selected - 1, "redraw"
-    if token == "DOWN":
+    if key == "DOWN":
         return buffer, selected + 1, "redraw"
-    if token == "ESC":  # dismiss the popup (clear the slash buffer)
+    if key == "ESC":  # dismiss the popup (clear the slash buffer)
         return "", 0, "redraw"
-    if token == "BACKSPACE":
+    if key == "BACKSPACE":
         return buffer[:-1], 0, "redraw"
-    if token is not None and len(token) == 1 and token.isprintable():
-        return buffer + token, 0, "redraw"
+    if key is not None and len(key) == 1 and key.isprintable():
+        return buffer + key, 0, "redraw"
     return buffer, selected, "redraw"  # ignored key
 
 
-def _raw_loop(
+def _raw_loop(  # pragma: no cover - termios I/O shell; verified by manual pty test
     specs: Sequence[object], render: RenderFn, filter_fn: FilterFn, stream: object, out: object
 ) -> Optional[str]:
     import termios
@@ -206,8 +206,8 @@ def _raw_loop(
             out.write(render(buffer, matches, selected).replace("\n", "\r\n"))  # type: ignore[attr-defined]  # noqa: E501
             out.flush()  # type: ignore[attr-defined]
 
-            token = _classify_key(_getch(fd), fd)
-            buffer, selected, action = reduce_key(token, buffer, selected, matches)
+            key = _classify_key(_getch(fd), fd)
+            buffer, selected, action = reduce_key(key, buffer, selected, matches)
             if action == "quit":
                 return None
             if action == "submit":
