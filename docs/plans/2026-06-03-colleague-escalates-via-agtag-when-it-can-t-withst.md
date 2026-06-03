@@ -23,9 +23,16 @@ slug: `colleague-escalates-via-agtag-when-it-can-t-withst` · status: `exported`
   - an agtag invocation not permitted by the approval gate (colleague/policy.py) is denied
   - idempotency keyed on task_id: a second escalation for the same task_id is skipped — a test running the same failing task twice asserts exactly one issue
 
+### t5 — Add an explicit not-finished flag to TaskResult, set in loop.py finalize when the drive exhausts the step budget without calling finish
+
+- acceptance:
+  - TaskResult carries an explicit boolean (e.g. not_finished) that is True iff the drive ran out the step budget without calling finish and without raising DriveAborted; False on a clean finish or a no-tool-call answer
+  - the flag is set in loop.py finalize and does NOT rely on stats.step_count (which counts tool calls, not the max_steps turn budget); all-engines (mock and vllm), zero new deps
+  - the #109 TaskResult-field-set guard (tests/test_result_fidelity.py) and the e2e shape test are updated for the new field; mock and vllm produce the identical shape
+
 ### t3 — Wire the finalize-time escalation seam into colleague/loop.py on the DriveAborted and not-finished branches, posting via the culture/agtag path
 
-- depends on: t1, t2
+- depends on: t1, t2, t5
 - covers: c1, c3, c7, c8, h1, h2, h7
 - acceptance:
   - with escalation enabled, a deliberately-capped drive (tiny step budget / forced timeout) files exactly ONE agtag issue carrying the preserved partial result
