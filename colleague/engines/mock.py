@@ -1,9 +1,9 @@
 """The mock engine — a deterministic, networkless coder backend (R6).
 
-It runs the *exact same* chassis as a real engine — the shared task contract and
+It runs the *exact same* runtime as a real backend — the shared task contract and
 the bounded tool-loop — but supplies a scripted ``complete`` instead of calling a
 model. That makes it the CI workhorse (h6): it proves the harness end to end with
-no network and no flakiness, and it is the reference against which a live engine's
+no network and no flakiness, and it is the reference against which a live backend's
 result *shape* is compared (h8).
 """
 

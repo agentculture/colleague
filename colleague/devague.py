@@ -1,7 +1,7 @@
 """Curated devague loop tool — shell out to the operator-installed devague CLI.
 
-The chassis offers the model a *single* shared ``devague`` tool (registered into
-the closed tool surface in :mod:`colleague.tools`) that lets an engine set and
+The runtime offers the model a *single* shared ``devague`` tool (registered into
+the closed tool surface in :mod:`colleague.tools`) that lets a backend set and
 converge a goal-frame when a task warrants one, drive toward it, and declare the
 announcement on arrival — so colleague knows where it's going, not just where
 it is.

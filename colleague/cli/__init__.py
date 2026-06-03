@@ -120,7 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # Layered per-model config: AGENTS instructions + skills.
     _agents_group.register(sub)
     _skills_group.register(sub)
-    # GPS: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
+    # Telemetry: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
     _telemetry_group.register(sub)
     # Interactive foreground palette (c28/R8).
     _session_cmd.register(sub)

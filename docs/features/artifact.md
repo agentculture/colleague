@@ -1,9 +1,9 @@
-# Result artifact (the dashboard)
+# Result artifact (the run report)
 
 > Every drive writes its full result as JSON plus a per-step trace — the handoff
 > payload and the operator's record.
 
-The artifact (`colleague/artifact.py`) is the car's **dashboard**: a durable,
+The artifact (`colleague/artifact.py`) is the **run report**: a durable,
 machine-readable record of what a drive did. Every drive produces two files under
 an artifact directory (`.colleague/` in the repo by default):
 
@@ -28,7 +28,7 @@ code, reason), and the originating `command` template name. See
 ## Always written — even on failure
 
 `write()` always succeeds for any result it is given, **including a failed run**
-(`status == "error"`). A crash never leaves an empty dashboard: the CLI builds an
+(`status == "error"`). A crash never leaves an empty run report: the CLI builds an
 error result via `failed_result(task_id, error)` and still calls `write()` before
 exiting non-zero. The originating command is persisted on the failure path too.
 

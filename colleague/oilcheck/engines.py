@@ -1,8 +1,8 @@
-"""Engines check-group — engine-wheel discovery and loadability (all-engines rule).
+"""Engines check-group — backend-plugin discovery and loadability (all-engines rule).
 
-Probes every engine discovered via the ``colleague.engines`` entry-point group
-uniformly. No engine is special-cased; behaviour must be symmetric across all
-engines including out-of-tree wheels.
+Probes every backend discovered via the ``colleague.engines`` entry-point group
+uniformly. No backend is special-cased; behaviour must be symmetric across all
+backends including out-of-tree plugins.
 
 Checks emitted (in order):
 1. ``engines_discovered`` (error) — fails if fewer than one engine is registered.

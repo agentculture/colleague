@@ -1,6 +1,6 @@
 # Destination
 
-> Colleague's destination tells the engine where it's going, not just where it
+> Colleague's destination tells the backend where it's going, not just where it
 > is. An engine MAY set a curated `devague` loop tool to open and converge a
 > goal-frame when a task warrants one, drive toward it, and declare the
 > announcement on arrival — so colleague knows its destination before it drives.
@@ -9,7 +9,7 @@
 
 **Before** this feature, a `colleague drive` had only one compass:
 
-- GPS/telemetry reported *where the drive was* (execution trace, step count,
+- Telemetry reported *where the drive was* (execution trace, step count,
   time elapsed).
 - But there was no shared notion of *where it was going* — a vague task was
   driven straight on vibes; 'done' just meant the loop finished or hit its step
@@ -35,25 +35,25 @@ before driving**.
 - Setting a destination is *optional and engine-judged* — a clear task just
   drives; only vague/new tasks that benefit from goal-setting open a frame.
 
-## The GPS + Destination metaphor
+## Telemetry and Destination: two compasses
 
 Colleague has two compasses:
 
-- **GPS** (telemetry): tells colleague *where it is* right now — execution
+- **Telemetry**: tells colleague *where it is* right now — execution
   trace, metrics, live step count. Off by default (the `[otel]` extra).
 - **Destination**: tells colleague *where it's going* — the converged goal-frame
-  and the announced arrival. Off by default (only set when the engine judges it
+  and the announced arrival. Off by default (only set when the backend judges it
   necessary).
 
-Together they bound the drive: destination = the goal, GPS = the journey.
+Together they bound the drive: destination = the goal, telemetry = the journey.
 
 ## How it works
 
 ### The `devague` loop tool
 
-The chassis offers a single `devague` tool (registered in `colleague/tools.py`,
+The runtime offers a single `devague` tool (registered in `colleague/tools.py`,
 exactly like the `culture` tool) that shells out to the operator-installed
-`devague` CLI. An engine can:
+`devague` CLI. A backend can:
 
 - **`new`** — open a fresh goal-frame.
 - **`capture`** — record a claim into the current frame.
@@ -186,7 +186,7 @@ destination, everyone agrees on what "better" means before the work starts.
 - **Convergence remains user-authoritative.** The engine's own convergence signal
   is advisory; only human-confirmed claims carry weight. The user-only discipline
   is enforced structurally (the allow-list excludes `confirm` / `reject`).
-- **The destination tool belongs to the chassis.** `colleague/tools.py` owns
+- **The destination tool belongs to the runtime.** `colleague/tools.py` owns
   the tool schema and dispatch; `colleague/devague.py` owns the subprocess
   launch, identity injection, and allow-list enforcement. No engine module touches
   devague directly. The all-engines rule applies: every engine sees the tool
@@ -209,7 +209,7 @@ destination, everyone agrees on what "better" means before the work starts.
   tool surface.
 - [layered-config.md](layered-config.md) — how the engine's system prompt
   (AGENTS instructions) provides guidance on destination-setting.
-- [mesh-member.md](mesh-member.md) — the `culture` tool, a sibling chassis-owned
+- [mesh-member.md](mesh-member.md) — the `culture` tool, a sibling runtime-owned
   tool following the same shell-out + allow-list pattern.
 - The spec and plan that converged this feature:
   [`docs/specs/2026-05-29-colleague-knows-its-destination-before-it-drives.md`](../specs/2026-05-29-colleague-knows-its-destination-before-it-drives.md)

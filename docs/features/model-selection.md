@@ -126,7 +126,7 @@ single-model invariant is fail-closed.
 
 ## See also
 
-- [engines.md](engines.md) — the engine/driver/wheel model and the `vllm-openai`
+- [engines.md](engines.md) — the backend/adapter/plugin model and the `vllm-openai`
   backend (including the `--tool-call-parser` the *server* needs).
 - [doctor.md](doctor.md) — the `provider` check-group reports the resolved
   base_url + model; `--probe` pings the endpoint.

@@ -1,6 +1,6 @@
 """Curated culture loop tools — shell out to operator-installed AgentCulture CLIs.
 
-The chassis offers the model a *single* shared ``culture`` tool (registered into
+The runtime offers the model a *single* shared ``culture`` tool (registered into
 the closed tool surface in :mod:`colleague.tools`) rather than one tool per CLI.
 A single tool keeps the surface minimal — "less tools is good" — while an
 allow-list (:data:`ALLOWED_CLIS`) restricts which CLI it may launch: exactly

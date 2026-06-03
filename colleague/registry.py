@@ -6,7 +6,7 @@ this repo's ``pyproject.toml``; an out-of-tree wheel does the *identical* thing
 in its own metadata, and :func:`catalog` discovers it with no change to
 Colleague core (honesty condition h4).
 
-This is the "garage": ``colleague wheels list`` reads :func:`catalog`, and
+This is the registry: ``colleague wheels list`` reads :func:`catalog`, and
 ``colleague drive --engine <name>`` resolves the choice through :func:`load`.
 """
 

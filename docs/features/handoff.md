@@ -4,7 +4,7 @@
 > when allowed — push and open a pull request.
 
 The handoff (`colleague/handoff.py`) is the last leg of a drive: it turns the
-working-tree changes an engine made into a reviewable artifact. The sequence is
+working-tree changes a backend made into a reviewable artifact. The sequence is
 **branch → commit → push → `gh pr create`**, but every step past the commit is
 gated so offline and CI runs never reach the network.
 

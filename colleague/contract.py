@@ -1,4 +1,4 @@
-"""Colleague task contract — the shared chassis.
+"""Colleague task contract — the shared task runtime.
 
 Every engine driver consumes a :class:`Task` and produces a :class:`TaskResult`
 of the *same shape*, regardless of which model ran underneath. That uniformity
@@ -124,8 +124,8 @@ class DriveStats:
     Sits alongside :class:`Usage` (which holds the exact API-reported token
     counts) and captures everything else worth knowing about a drive so a caller
     can compute the **ROI of outsourcing**: how long it took, what it did, and
-    how much it produced. Populated chassis-side by :func:`colleague.loop.run`
-    (the all-engines rule), so every engine fills it identically.
+    how much it produced. Populated runtime-side by :func:`colleague.loop.run`
+    (the all-engines rule), so every backend fills it identically.
 
     Token honesty (decision c11/c17): tokens live on :class:`Usage` and are taken
     *verbatim* from the model response ``usage`` — never estimated. This model
@@ -356,7 +356,7 @@ class Task:
 
 @dataclass
 class TaskResult:
-    """The shape every engine produces for a driven task.
+    """The shape every backend produces for a driven task.
 
     ``branch`` / ``pr_url`` are populated by the git/PR handoff; ``pr_url`` is
     ``None`` when the run stays local (``--no-pr`` or no remote). ``error`` is
@@ -374,7 +374,7 @@ class TaskResult:
     Sits beside ``usage`` (exact API token counts); together they make a drive's
     cost — and, with a feedback record, its ROI — readable from the artifact.
     Unlike destination/sub_results this key is ALWAYS serialized (it is never
-    empty for a real drive); the e2e shape test pins it on every engine."""
+    empty for a real drive); the e2e shape test pins it on every backend."""
     artifacts_path: Optional[str] = None
     error: Optional[str] = None
     branch: Optional[str] = None

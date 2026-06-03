@@ -1,6 +1,6 @@
 # `outsource` — use colleague as a different mind
 
-> Hand a scoped repo task to colleague — a *different* engine/model than the
+> Hand a scoped repo task to colleague — a *different* backend/model than the
 > calling agent. The point isn't a stronger model; it's a **different mind**, and
 > diversity helps.
 

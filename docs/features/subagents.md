@@ -1,16 +1,16 @@
-# Subagents (the convoy)
+# Subagents
 
-> Mid-drive, an engine can delegate a scoped sub-task to a nested in-process
-> child drive — same loop, optional different engine/model, bounded and
+> Mid-drive, a backend can delegate a scoped sub-task to a nested in-process
+> child drive — same loop, optional different backend/model, bounded and
 > sequential.
 
-Subagents (the "convoy") let an engine, *while driving*, hand a scoped sub-task
+Subagents let a backend, *while driving*, hand a scoped sub-task
 to a nested child drive via the `subagent` loop tool. The child runs the **same**
 bounded tool-loop the parent runs; its result is returned to the parent as the
 tool result and appended to `TaskResult.sub_results` (the field is omitted when
-empty). Delegation lives in the **chassis** (`colleague/tools.py` owns the tool
+empty). Delegation lives in the **runtime** (`colleague/tools.py` owns the tool
 schema, `colleague/subagents.py` owns the launcher), so the tool is offered to
-every engine identically (the all-engines rule) — no engine module re-implements
+every backend identically (the all-engines rule) — no backend module re-implements
 it.
 
 ## Key properties
@@ -19,10 +19,10 @@ it.
   plain function call into `engine.drive(child_task, child_config)`. No thread,
   process, asyncio, socket, or fork; zero new runtime dependencies (the
   no-socket / no-daemon convention holds).
-- **Engine/model switch.** Optional `engine` and `model` parameters let the child
-  run on a different wheel or model. Resolution goes through
+- **Backend/model switch.** Optional `engine` and `model` parameters let the child
+  run on a different backend or model. Resolution goes through
   `registry.load` + `EngineConfig` inheritance (`dataclasses.replace` with only
-  the model overridden) — a config-level switch, never an engine code change.
+  the model overridden) — a config-level switch, never a backend code change.
 - **Bounded.** `MAX_SUBAGENT_DEPTH=2` (recursion cap, checked *before* any child
   work starts) and `MAX_SUBAGENT_FANOUT=4` (per-drive fan-out cap). A child
   refused at the depth cap does zero work and returns an error immediately, so
@@ -43,7 +43,7 @@ The `subagent` loop tool takes:
 | Parameter | Meaning |
 |-----------|---------|
 | `instruction` (required) | The sub-task to hand to the child drive. |
-| `engine` (optional) | Engine wheel name; defaults to the parent's engine. |
+| `engine` (optional) | Backend plugin name; defaults to the parent's backend. |
 | `model` (optional) | Model override; defaults to the parent's model. |
 
 ## Cost accounting
@@ -52,11 +52,11 @@ A subagent's cost stays in its own `SubResult.usage` (nested-only, matching the
 existing usage rule). Rolling sub-results into a parent total is a parked
 follow-up — see [stats-and-feedback.md](stats-and-feedback.md).
 
-## NOT the gearbox
+## Not a router
 
-This is **not** the out-of-scope multi-engine router/"gearbox": there is no
+This is **not** the out-of-scope multi-backend router / routing policy: there is no
 operator-configured policy that automatically routes a task to a particular
-engine. Delegation is always the model's choice at call time. (The gearbox
+backend. Delegation is always the model's choice at call time. (That router
 remains deliberately out of v0 scope.)
 
 ## Usage

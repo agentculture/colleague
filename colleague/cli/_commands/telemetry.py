@@ -1,4 +1,4 @@
-"""``colleague telemetry`` — inspect the GPS (OpenTelemetry) configuration.
+"""``colleague telemetry`` — inspect the telemetry (OpenTelemetry) configuration.
 
 ``telemetry status`` reports the resolved :class:`~colleague.telemetry.TelemetryConfig`
 (enabled flag, OTLP endpoint/protocol, service name, traces/metrics toggles) and
@@ -25,10 +25,10 @@ def _telemetry_sections() -> list[dict[str, object]]:
         {
             "title": "What it does",
             "items": [
-                "GPS for a drive: OpenTelemetry traces + metrics over OTLP",
+                "Telemetry for a drive: OpenTelemetry traces + metrics over OTLP",
                 "Off by default; opt in with COLLEAGUE_OTEL_ENABLED=1",
                 "Needs the optional extra: pip install 'colleague[otel]'",
-                "Instrumented in the loop + shared drive path, so every engine emits it",
+                "Instrumented in the loop + shared drive path, so every backend emits it",
             ],
         },
         {
@@ -100,7 +100,7 @@ def _no_verb(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "telemetry",
-        help="Inspect the GPS / OpenTelemetry config (see 'colleague telemetry overview').",
+        help="Inspect the telemetry / OpenTelemetry config (see 'colleague telemetry overview').",
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)

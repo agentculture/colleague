@@ -1,20 +1,20 @@
-# `doctor` — configuration-readiness (oilcheck)
+# `doctor` — configuration-readiness health check
 
-> Colleague's oilcheck: a read-only health check across identity, provider,
+> Colleague's read-only health check across identity, provider,
 > engines, otel-readiness, and environment. Exits 1 when unhealthy.
 
-`colleague doctor` is colleague's **oilcheck** — a configuration-readiness
-health check that answers "is this install actually ready to drive?" before you
+`colleague doctor` is colleague's **health check** — a configuration-readiness
+diagnostic that answers "is this install actually ready to drive?" before you
 hand it work. It is **read-only** and **diagnose-only** (no `--fix`), with **zero
 new runtime dependencies**.
 
-The diagnostic logic lives in a chassis-level package, `colleague/oilcheck/`
+The diagnostic logic lives in a runtime-level package, `colleague/oilcheck/`
 (the same way telemetry lives in `colleague/telemetry/`). The `doctor` CLI verb
 is a thin presentation layer that renders the report and maps it to an exit code.
 
 ## The check-group contract
 
-oilcheck aggregates many small, independent **check-groups** into one report.
+The health check aggregates many small, independent **check-groups** into one report.
 Each check is a dict with exactly five keys: `id`, `passed`, `severity`
 (`error` / `warning` / `info`), `message`, and `remediation`. The report is the
 rubric shape `{healthy, checks: [...]}`.
@@ -57,7 +57,7 @@ No `error` is ever emitted here.
 
 ### 3. engines — `colleague/oilcheck/engines.py`
 
-Engine-wheel discovery and loadability, probed uniformly (all-engines rule):
+Backend-plugin discovery and loadability, probed uniformly (all-engines rule):
 
 - `engines_discovered` (**error**) — at least one engine is registered.
 - `bundled_engines_present` (**error**) — both `mock` and `vllm-openai` are in
@@ -67,7 +67,7 @@ Engine-wheel discovery and loadability, probed uniformly (all-engines rule):
 
 ### 4. otel — `colleague/oilcheck/otel.py`
 
-GPS readiness, **without** enabling telemetry or importing the SDK eagerly
+Telemetry readiness, **without** enabling telemetry or importing the SDK eagerly
 (`importlib.util.find_spec` only — the zero-deps guard must keep passing):
 
 - `otel_enabled` (**info**) — whether telemetry is enabled (notes the

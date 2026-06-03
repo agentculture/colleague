@@ -1,22 +1,22 @@
-# Engines & wheels
+# Backends & plugins
 
-> The engine is the model; the driver is the adapter; wheels are how drivers
-> are discovered. Swapping engines is a one-flag change.
+> The backend is the model; the adapter invokes it; plugins are how adapters
+> are discovered. Swapping backends is a one-flag change.
 
-In the car metaphor, the **engine** is the model/coder backend and the
-**driver** is the adapter that invokes and controls one engine. A driver is a
-class implementing the `Engine` protocol (`colleague/engine.py`) — one
-abstract method, `drive(task, config) -> TaskResult`. Drivers don't
-re-implement the loop; they delegate to `colleague.loop.run` and only supply
-*how the model is called* (a `complete` function).
+The **backend** is the model/coder backend and the **adapter** is the code that
+invokes and controls one backend. An adapter is a class implementing the
+`Engine` protocol (`colleague/engine.py`) — one abstract method,
+`drive(task, config) -> TaskResult`. Adapters don't re-implement the loop; they
+delegate to `colleague.loop.run` and only supply *how the model is called* (a
+`complete` function).
 
-## Wheels: entry-point discovery
+## Plugins: entry-point discovery
 
-An engine becomes available by advertising itself under the
-`colleague.engines` **Python entry-point group**. The two bundled engines do
-this in this repo's `pyproject.toml`; an out-of-tree wheel does the *identical*
+A backend becomes available by advertising itself under the
+`colleague.engines` **Python entry-point group**. The two bundled backends do
+this in this repo's `pyproject.toml`; an out-of-tree plugin does the *identical*
 thing in its own metadata, and `colleague wheels list` discovers it with no
-change to colleague core (`colleague/registry.py` — the "garage").
+change to colleague core (`colleague/registry.py` — the registry).
 
 ```toml
 [project.entry-points."colleague.engines"]
@@ -24,24 +24,24 @@ my-engine = "my_package.engine:MyEngine"
 ```
 
 ```bash
-colleague wheels list          # the garage: engines installed in this env
+colleague wheels list          # the registry: backends installed in this env
 colleague wheels list --json
 colleague drive "..." --engine my-engine
 ```
 
-Requesting an unknown engine raises `UnknownEngine`, listing the available
+Requesting an unknown backend name raises `UnknownEngine`, listing the available
 names.
 
-## The two bundled engines
+## The two bundled backends
 
-### `mock` — the reference engine
+### `mock` — the reference backend
 
 Deterministic and networkless (`colleague/engines/mock.py`). It runs the exact
-same chassis as a real engine — the shared contract and the bounded loop — but
+same runtime as a real backend — the shared contract and the bounded loop — but
 supplies a scripted two-turn `complete` (write a marker file
 `colleague-mock.md`, then `finish`) instead of calling a model. That makes it
 the **CI workhorse**: it proves the harness end-to-end with no network and no
-flakiness, and it is the reference against which a live engine's result *shape*
+flakiness, and it is the reference against which a live backend's result *shape*
 is compared (the all-engines rule). The e2e shape test
 (`tests/test_e2e_mock.py`) is the guard.
 
@@ -63,7 +63,7 @@ vllm serve Qwen/Qwen3-32B --port 8001 \
 
 The right parser depends on the model **and** the vLLM build: `hermes` works for
 many models (including `Qwen/Qwen3-32B`); some Qwen3 builds (e.g. an NVFP4
-checkpoint) want `qwen3_coder`. The engine is parser-agnostic — any parser that
+checkpoint) want `qwen3_coder`. The backend is parser-agnostic — any parser that
 makes the server emit OpenAI-format tool calls works. The opt-in live test
 proves the path against a real server:
 
@@ -71,7 +71,7 @@ proves the path against a real server:
 COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
-## Writing your own engine wheel
+## Writing your own backend plugin
 
 ```python
 from colleague.engine import Engine
@@ -91,7 +91,7 @@ class MyEngine(Engine):
 
 Because the loop owns [hook firing](hooks.md) and [telemetry](telemetry.md), and
 the base class injects the [layered system prompt](layered-config.md) via
-`self.system_prompt(...)`, a custom engine inherits the full lifecycle layer for
+`self.system_prompt(...)`, a custom backend inherits the full lifecycle layer for
 free. Advertise it under the entry-point group and it's discoverable — no change
 to colleague core.
 
@@ -99,14 +99,14 @@ to colleague core.
 
 - `colleague/engine.py` — the `Engine` ABC + the `system_prompt()` base helper.
 - `colleague/registry.py` — entry-point discovery (`catalog`, `names`, `load`).
-- `colleague/engines/mock.py` — the reference engine.
-- `colleague/engines/vllm_openai.py` — the OpenAI-compatible driver.
+- `colleague/engines/mock.py` — the reference backend.
+- `colleague/engines/vllm_openai.py` — the OpenAI-compatible adapter.
 
 ## See also
 
 - [model-selection.md](model-selection.md) — how colleague resolves the model
   and endpoint (flags → env → defaults), and keeping it synced to a local server.
-- [drive-and-loop.md](drive-and-loop.md) — the contract + loop drivers delegate to.
+- [drive-and-loop.md](drive-and-loop.md) — the contract + loop adapters delegate to.
 - [layered-config.md](layered-config.md) — the per-model system prompt every
-  engine inherits.
-- [doctor.md](doctor.md) — the `engines` check-group probes all wheels uniformly.
+  backend inherits.
+- [doctor.md](doctor.md) — the `engines` check-group probes all plugins uniformly.

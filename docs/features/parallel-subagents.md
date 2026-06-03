@@ -1,12 +1,12 @@
 # Parallel subagents — run a batch of child drives concurrently
 
-> An engine fans out a batch of scoped child instructions that run concurrently,
+> A backend fans out a batch of scoped child instructions that run concurrently,
 > each isolated in its own throwaway git worktree/branch, and a sequential
 > merge-subagent integrates them afterward. Opt-in via an operator-controlled
 > concurrency width (default 1 = sequential, byte-identical to before).
 
-The convoy now supports **parallel children** — instead of one instruction at a
-time, an engine can ship a batch of independent tasks that run at the same time.
+Subagents now support **parallel children** — instead of one instruction at a
+time, a backend can ship a batch of independent tasks that run at the same time.
 Each child is **completely isolated** in its own git worktree, so file writes
 don't interfere; a **sequential merge-subagent** brings changes back to the main
 branch and resolves conflicts via the engine's judgment.
@@ -147,8 +147,8 @@ means:
 ## See also
 
 - **Specification & plan:** [`docs/specs/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md`](../specs/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md) and [`docs/plans/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md`](../plans/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md)
-- **Issue #86** — model-gear gains concurrent-request support; the convoy
-  reclaims that capacity when the operator opts in.
+- **Issue #86** — model-gear gains concurrent-request support; subagents
+  reclaim that capacity when the operator opts in.
 - **The `subagent` tool (singular)** — use it for single children or when
   worktree isolation isn't needed.
 - **Outsource skill** — [`docs/features/outsource.md`](outsource.md) — a

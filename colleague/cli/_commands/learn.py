@@ -29,7 +29,7 @@ Commands
   colleague learn              This self-teaching prompt.
   colleague explain <path>...  Markdown docs for any noun/verb path.
   colleague overview           Descriptive snapshot of the agent.
-  colleague doctor             Check configuration readiness (oilcheck).
+  colleague doctor             Check configuration readiness (health check).
   colleague cli overview       Describe the CLI surface itself.
 
 Machine-readable output

@@ -1,4 +1,4 @@
-"""Colleague TUI — terminal user-interface for the cockpit dashboard.
+"""Colleague TUI — terminal user-interface for the cockpit.
 
 This package contains the state model (:mod:`colleague.tui.state`), the event
 definitions (:mod:`colleague.tui.events`), reducer, TAUI serializer, renderer,

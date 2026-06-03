@@ -1,10 +1,10 @@
 # Drive & the tool-loop
 
-> The chassis: a shared task contract and a bounded agentic loop that every
-> engine drives a repo through.
+> The runtime: a shared task contract and a bounded agentic loop that every
+> backend drives a repo through.
 
 `colleague drive "<goal>"` is colleague's working surface. You hand it a
-goal or instruction and it works autonomously — selecting an engine wheel,
+goal or instruction and it works autonomously — selecting a backend plugin,
 running a bounded agentic tool-loop against the target repo, writing a result
 artifact, and handing the change off as a branch/PR. The repo is the *target*
 (`--repo`, default cwd), not the headline; the same invocation works for every
@@ -25,7 +25,7 @@ round-trips through JSON unchanged (`colleague/contract.py`).
 | `instruction` | The goal/instruction text. |
 | `context` | Optional extra context appended to the user message. |
 | `constraints` | Optional list, rendered as a bulleted "Constraints:" block. |
-| `engine` | The driver to run it through (default `mock`). |
+| `engine` | The backend to run it through (default `mock`). |
 
 | `TaskResult` field | Meaning |
 |--------------------|---------|
@@ -67,7 +67,7 @@ OpenAI function schemas — the original five base tools plus one curated
 `read_file` / `write_file` / `list_dir` resolve their path against the repo root
 and refuse anything that escapes it (`..` traversal, absolute paths outside the
 tree). `run_command` runs with `cwd` pinned to the root. v0 **trusts the command
-itself** (decision D2) — there is no sandbox; that is a later wheel. Tool output
+itself** (decision D2) — there is no sandbox; that is a later increment. Tool output
 fed back to the model is truncated at 20,000 chars so a huge file or command
 can't blow the context window.
 
@@ -102,10 +102,10 @@ exiting non-zero.
 
 ## Configuration
 
-Engine settings resolve in precedence order (`colleague/config.py`): explicit
+Backend settings resolve in precedence order (`colleague/config.py`): explicit
 flag → `COLLEAGUE_*` env → `OPENAI_*` env → built-in default. Defaults target
 the vLLM reference rig (`http://localhost:8001/v1`, `Qwen/Qwen3-32B`,
-`max_steps=25`, `temperature=0.0`). Because the driver only speaks the OpenAI
+`max_steps=25`, `temperature=0.0`). Because the adapter only speaks the OpenAI
 surface, pointing `base_url` elsewhere is always a config change, never a code
 change.
 
@@ -118,8 +118,8 @@ change.
 
 ## See also
 
-- [engines.md](engines.md) — the drivers that supply `complete`.
+- [engines.md](engines.md) — the adapters that supply `complete`.
 - [handoff.md](handoff.md) — what happens after the loop edits the tree.
 - [artifact.md](artifact.md) — the JSON result + step trace the loop produces.
-- [hooks.md](hooks.md) and [telemetry.md](telemetry.md) — chassis behavior the
-  loop owns for every engine.
+- [hooks.md](hooks.md) and [telemetry.md](telemetry.md) — runtime behavior the
+  loop owns for every backend.

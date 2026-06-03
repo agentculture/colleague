@@ -1,14 +1,14 @@
-# GPS: OpenTelemetry observability
+# Telemetry: OpenTelemetry observability
 
 > Opt-in OpenTelemetry traces + metrics for a drive — observable against an OTLP
 > collector, not just the per-run artifact.
 
-GPS makes a drive observable: it emits **OpenTelemetry traces + metrics** over
+Telemetry makes a drive observable: it emits **OpenTelemetry traces + metrics** over
 OTLP so a run shows up in a collector, complementing the per-run JSON
-[artifact](artifact.md). Telemetry lives in the **chassis** — instrumented once
+[artifact](artifact.md). Telemetry lives in the **runtime** — instrumented once
 in the loop (`colleague/loop.py`, per tool call) and the shared drive path
-(root + handoff spans) — so *every* engine emits identical signals (the
-all-engines rule), exactly like lifecycle hooks. No engine module touches the
+(root + handoff spans) — so *every* backend emits identical signals (the
+all-engines rule), exactly like lifecycle hooks. No backend module touches the
 `telemetry` package.
 
 ## Off by default; a strict no-op
@@ -70,6 +70,6 @@ colleague telemetry overview
 
 ## See also
 
-- [doctor.md](doctor.md) — the `otel` check-group reports GPS readiness without
+- [doctor.md](doctor.md) — the `otel` check-group reports telemetry readiness without
   enabling telemetry or importing the SDK.
-- [artifact.md](artifact.md) — the per-run record GPS complements.
+- [artifact.md](artifact.md) — the per-run record telemetry complements.

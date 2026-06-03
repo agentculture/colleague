@@ -24,14 +24,14 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 ## Verbs
 
 - `colleague drive <goal>` — drive toward a goal/instruction; work autonomously
-  through a coder engine and hand off the result.
+  through a coder backend and hand off the result.
 - `colleague session` — foreground interactive palette over the drive path.
 - `colleague wheels list` — list discovered engine wheels.
 - `colleague whoami` — identity probe from `culture.yaml`.
 - `colleague learn` — structured self-teaching prompt.
 - `colleague explain <path>` — markdown docs for any noun/verb.
 - `colleague overview` — descriptive snapshot of the agent.
-- `colleague doctor` — configuration-readiness health check (oilcheck).
+- `colleague doctor` — configuration-readiness health check.
 - `colleague cli overview` — describe the CLI surface.
 
 ## Exit-code policy
@@ -101,16 +101,16 @@ ignored `target` so a stray path never hard-fails.
 _DOCTOR = """\
 # colleague doctor
 
-Colleague's oilcheck: a configuration-readiness health check emitting a
+Colleague's health check: a configuration-readiness diagnostic emitting a
 rubric-shaped report across ordered check-groups: **identity**, **provider**
-(config + budget), **usage** (which engine a bare drive actually picks),
-**engines** (all installed wheels), **otel-readiness**, and **environment**
+(config + budget), **usage** (which backend a bare drive actually picks),
+**engines** (all installed plugins), **otel-readiness**, and **environment**
 (repo config / layering / handoff prereqs / CLI integrity).
 
 Exits 1 when unhealthy (when any error-severity check fails). Only
 error-severity failures make the report unhealthy; warnings and info are
 advisory — e.g. `usage_effective_engine` warns (but stays healthy) when a bare
-run would drive the no-op `mock` engine.
+run would drive the no-op `mock` backend.
 
 `--probe` adds an opt-in `provider_reachable` check that pings the provider
 server (`{base_url}/models`). It is the one check that opens a network
@@ -140,7 +140,7 @@ _DRIVE = """\
 # colleague drive
 
 Drive toward a goal: hand colleague a request or instruction and it works
-autonomously — selecting an engine wheel, running the bounded agentic tool-loop,
+autonomously — selecting a backend plugin, running the bounded agentic tool-loop,
 writing a result artifact, and handing off the change as a branch + PR. The repo
 is the target (`--repo`, default cwd); the same invocation works for every
 engine — only `--engine` changes.
@@ -151,19 +151,19 @@ engine — only `--engine` changes.
     colleague drive "fix the typo in README" --engine vllm-openai --no-pr
     colleague drive "..." --engine vllm-openai --base-url http://localhost:8001/v1 --json
 
-## Engine selection
+## Backend selection
 
 Resolved highest-first: the `--engine` flag, then the `COLLEAGUE_ENGINE` env
-var, then the built-in default `vllm-openai` (the real bundled engine). A bare
+var, then the built-in default `vllm-openai` (the real bundled backend). A bare
 `drive` never silently falls back to the no-op `mock` reference — use
 `--engine mock` (or `COLLEAGUE_ENGINE=mock`) when you explicitly want it.
 
 ## Key flags
 
 - `--repo PATH` — target repository (default: cwd).
-- `--engine NAME` — engine wheel (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
+- `--engine NAME` — backend plugin (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
 - `--no-pr` — commit locally; do not push or open a PR.
-- `--base-url / --model / --api-key / --max-steps` — engine overrides.
+- `--base-url / --model / --api-key / --max-steps` — backend overrides.
 
 A failed drive still writes a `status=error` artifact before exiting non-zero.
 """
@@ -171,9 +171,9 @@ A failed drive still writes a `status=error` artifact before exiting non-zero.
 _WHEELS = """\
 # colleague wheels
 
-Discover the engine plugins ("wheels") installed in this environment. Engines
+Discover the backend plugins installed in this environment. Backends
 register under the `colleague.engines` entry-point group; bundled and
-out-of-tree wheels are discovered identically.
+out-of-tree plugins are discovered identically.
 
 ## Usage
 
@@ -251,10 +251,10 @@ PR by default.) Engine selection matches `drive`: `--engine` > `COLLEAGUE_ENGINE
 ## Key flags
 
 - `--repo PATH` — target repository (default: cwd).
-- `--engine NAME` — engine wheel (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
+- `--engine NAME` — backend plugin (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
 - `--pr` — push and open a PR after each drive (default: commit locally only, no PR).
 - `--base BRANCH` — base branch for the PR (default: `main`).
-- `--base-url / --model / --api-key / --max-steps` — engine overrides.
+- `--base-url / --model / --api-key / --max-steps` — backend overrides.
 
 ## See also
 
@@ -438,7 +438,7 @@ A drive's artifact already records what it *cost* (the always-on `stats` block:
 elapsed time, tokens read/generated, tools used, bytes written, reasoning-vs-answer
 sizes); `feedback` records how *good* it was. Together they let a caller — human
 or agent — decide whether outsourcing that task to colleague (and to which
-engine) paid off.
+backend) paid off.
 
 A drive is named by its `task_id`, or the literal `last` for the most recent
 drive in the repo. Feedback is a **single record per drive** (re-grading
@@ -475,9 +475,9 @@ reasoning/written sizes are exact chars/bytes, never estimated tokens — see
 _TELEMETRY = """\
 # colleague telemetry
 
-GPS for a drive: opt-in OpenTelemetry **traces + metrics** over OTLP. Telemetry
-belongs to the chassis — it is instrumented once in the loop and the shared drive
-path, so *every* engine emits identical signals (the all-engines rule), exactly
+Telemetry for a drive: opt-in OpenTelemetry **traces + metrics** over OTLP. Telemetry
+belongs to the runtime — it is instrumented once in the loop and the shared drive
+path, so *every* backend emits identical signals (the all-engines rule), exactly
 like lifecycle hooks.
 
 Off by default. The OpenTelemetry SDK is an **optional extra** (the base install
@@ -524,9 +524,9 @@ default. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
 
 
 _SUBAGENT = """\
-# colleague subagent (convoy)
+# colleague subagent
 
-Mid-drive, an engine can delegate a scoped sub-task to a nested in-process child
+Mid-drive, a backend can delegate a scoped sub-task to a nested in-process child
 drive via the `subagent` loop tool. The child runs the same bounded tool-loop
 with **no** git handoff; its result is returned to the parent as the tool result
 and appended to `TaskResult.sub_results` (omitted when empty).
@@ -535,34 +535,34 @@ and appended to `TaskResult.sub_results` (omitted when empty).
 
 - **In-process, synchronous** — plain function call, no thread, process, socket,
   or fork; zero new runtime dependencies.
-- **Engine/model switch** — the optional `engine` and `model` parameters let the
-  child run on a different wheel or model. Resolution goes through
+- **Backend/model switch** — the optional `engine` and `model` parameters let the
+  child run on a different backend or model. Resolution goes through
   `registry.load` + `EngineConfig` inheritance (config-level switch only, no
-  engine code change).
+  backend code change).
 - **Bounded** — `MAX_SUBAGENT_DEPTH=2` (recursion cap, checked before any child
   work starts) and `MAX_SUBAGENT_FANOUT=4` (per-drive fan-out cap). A child
   refused at the depth cap does zero work and returns an error immediately.
-- **Engine-judged, optional** — the model decides whether to delegate per call,
+- **Backend-judged, optional** — the model decides whether to delegate per call,
   like the `devague` destination tool. There is no operator-configured automatic
-  task→engine routing.
+  task→backend routing.
 - **Sequential only in v0** — parallel/concurrent subagents and per-subagent
   worktree isolation are a parked follow-up that would require a re-spec.
 - **No per-subagent handoff** — only the top-level drive branches, commits, and
   opens a PR. Sub-drives run purely in-process.
-- **Chassis-owned (all-engines rule)** — the tool schema lives in
+- **Runtime-owned (all-engines rule)** — the tool schema lives in
   `colleague/tools.py`; the launcher lives in `colleague/subagents.py`. No
-  engine module touches either; the tool is offered to every engine identically.
+  backend module touches either; the tool is offered to every backend identically.
 
-## NOT the gearbox
+## Not a router
 
-This is **not** the out-of-scope multi-engine router: there is no
+This is **not** the out-of-scope multi-backend router: there is no
 operator-configured policy that automatically routes a task to a particular
-engine. Delegation is always the model's choice at call time.
+backend. Delegation is always the model's choice at call time.
 
 ## Tool parameters
 
 - `instruction` (required) — the sub-task to hand to the child drive.
-- `engine` (optional) — engine wheel name; defaults to the parent's engine.
+- `engine` (optional) — backend plugin name; defaults to the parent's backend.
 - `model` (optional) — model override; defaults to the parent's model.
 
 ## Implementation
@@ -583,7 +583,7 @@ _OUTSOURCE = """\
 
 `outsource` is a **first-party** Claude Code skill (`.claude/skills/outsource/`),
 not a CLI verb — the inverse of the vendored skills (origin = colleague). It
-lets another agent hand a scoped task to colleague: a *different* engine/mind,
+lets another agent hand a scoped task to colleague: a *different* backend/mind,
 not a stronger one. Diversity is the point — a second, independent perspective
 catches what the author's mind glides past, which is why **review** is the
 headline verb.
@@ -625,7 +625,7 @@ _TUI = """\
 Headless, agent-facing inspection of the TUI cockpit — a state machine whose
 single agent-readable mirror is the **TAUI** (a plain JSON dict). This verb runs
 entirely **without a terminal** and opens no socket: it is a set of pure
-`state -> mirror/frame` transforms. The live TTY driver is a separate concern.
+`state -> mirror/frame` transforms. The live TTY view is a separate concern.
 
 The cockpit exposes **three views** of the same `CockpitState`:
 

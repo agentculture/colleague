@@ -2,7 +2,7 @@
 name: outsource
 type: command
 description: >
-  Hand a scoped repo task to colleague — a *different* engine/model than you
+  Hand a scoped repo task to colleague — a *different* backend/model than you
   (e.g. a local vLLM Qwen) — and fold its answer back. The point isn't a stronger
   model; it's a different mind, and diversity helps: `outsource review` gets an
   independent second opinion on a diff, `outsource explore` gets a fresh read of
@@ -17,7 +17,7 @@ description: >
 # outsource — use colleague as a different mind
 
 `outsource` drives the **`colleague`** CLI so a Claude agent can hand a scoped
-task to a *different* engine (default: a local vLLM `Qwen3.6-27B` on
+task to a *different* backend (default: a local vLLM `Qwen3.6-27B` on
 `:8001`). Colleague's model is **not** assumed to be stronger than you — its
 value is **diversity**. A second, independent mind catches things the author's
 mind glides past, which is why **review** is the headline verb.
@@ -53,7 +53,7 @@ else an install hint.
 |--------|---------|
 | `--repo PATH` | Target repo (default: `.`). |
 | `--base BRANCH` | Base for the `review` diff (default: `main`). |
-| `--engine NAME` | Engine wheel (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
+| `--engine NAME` | Backend plugin (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
 | `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `mmangkad/Qwen3.6-27B-NVFP4`). |
 | `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
 | `--max-steps N` | Loop step budget (default: 20). |
@@ -85,7 +85,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   tokens read/generated, tools used, bytes written, reasoning-vs-answer sizes);
   `feedback` adds a 1–5 quality grade. Stats say what it *cost*, feedback says how
   *good* it was — together they let you compute the **ROI of outsourcing** and
-  decide whether to outsource again (and to which engine). Grade the most recent
+  decide whether to outsource again (and to which backend). Grade the most recent
   drive with `outsource feedback last --rating 4 --notes "…"`.
 
 ## Hard rules (do not violate)
@@ -100,7 +100,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   pass `--allow-dirty` — this guards the dirty-tree hazard: `colleague drive
   --no-pr` commits *uncommitted* edits onto the drive branch and leaves you there.
   Commit or stash first before applying.
-- **Outsourced output is a second opinion, not authority.** The engine may be a
+- **Outsourced output is a second opinion, not authority.** The backend may be a
   smaller/different model; weigh its findings, verify its claims, and own the
   decision yourself.
 
@@ -111,7 +111,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   still run arbitrary *read-only* commands.
 - `review` covers **committed** changes only (`<base>...HEAD`). To review
   uncommitted work, commit it first.
-- The default engine is whatever single model is running locally; a multi-model
+- The default backend is whatever single model is running locally; a multi-model
   fleet (different model per verb) is separate infrastructure.
 
 ## Provenance

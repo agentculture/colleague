@@ -1,11 +1,11 @@
 # Per-model configuration
 
-> The harness adjusts the seat and mirrors for whoever is driving — same car,
-> tuned to the specific model behind the wheel.
+> Per-model configuration tunes the shared runtime to the specific model
+> running — leaving every other drive untouched.
 
-Colleague's car metaphor extends to how operator-declared fixes apply to
-specific models. The **chassis** (loop, hooks, config resolution) is shared
-across every engine. But different models have different biases — quirks in how
+Per-model configuration governs how operator-declared fixes apply to specific
+models. The **runtime** (loop, hooks, config resolution) is shared
+across every backend. But different models have different biases — quirks in how
 they write files, what they assume about paths, or how they structure output.
 Per-model configuration lets operators declare those fixes precisely, applying
 them only to the targeted model and leaving all other drives untouched.
@@ -244,10 +244,10 @@ colleague hooks list --repo . --model mmangkad/Qwen3.6-27B-NVFP4 --json
 ## The all-engines rule
 
 Per-model hooks load in `colleague/loop.py` via `load_hooks(repo_path,
-model=config.model)`. Both bundled engines (`mock` and `vllm-openai`) pass
+model=config.model)`. Both bundled backends (`mock` and `vllm-openai`) pass
 `model=config.model` — so a per-model overlay that fires on `mock` fires
-identically on `vllm-openai`. New engine wheels inherit this for free because
-hook firing is chassis-owned, not engine-owned.
+identically on `vllm-openai`. New backend plugins inherit this for free because
+hook firing is runtime-owned, not backend-owned.
 
 ## Key files
 
@@ -255,7 +255,7 @@ hook firing is chassis-owned, not engine-owned.
   overlay load + composition.
 - `colleague/layers.py` — `sanitize_model`: model-id → filename-safe token.
 - `colleague/loop.py` — passes `model=config.model` to `load_hooks`; the
-  chassis owns all hook firing.
+  runtime owns all hook firing.
 - `colleague/cli/_commands/hooks.py` — `hooks list --model <m>` shows the
   composed set with `scope` tags.
 

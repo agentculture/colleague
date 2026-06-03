@@ -81,7 +81,7 @@ Colleague's culture tool standardizes on the `devex` name here, matching the
 cicd skill's PR lifecycle (`devex pr`) (issue #33). Some vendored skill scripts
 still print `agex` in help text — those are upstream-owned (tracked via
 `docs/skill-sources.md`) and migrate on their own re-vendor, independent of this
-chassis allow-list.
+runtime allow-list.
 
 ### Neighbour repos (opt-in, defaults to empty)
 
@@ -132,8 +132,8 @@ The tool is **ungated** — it follows the same trusted-operator-env model (D2)
 as `run_command`.
 
 Because the `culture` tool is registered in `colleague/tools.py` (the shared
-`SCHEMAS` list), every engine sees it identically — the all-engines rule. The
-chassis owns it; no engine module touches `colleague/culture.py`.
+`SCHEMAS` list), every backend sees it identically — the all-engines rule. The
+runtime owns it; no backend module touches `colleague/culture.py`.
 
 ### Neighbour clone manager (`colleague/neighbours.py`)
 

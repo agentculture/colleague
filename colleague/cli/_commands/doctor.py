@@ -1,7 +1,7 @@
-"""``colleague doctor`` — configuration-readiness health check (oilcheck).
+"""``colleague doctor`` — configuration-readiness health check.
 
 Thin presentation layer over :mod:`colleague.oilcheck`. The diagnostic logic
-lives in the oilcheck check-group spine (a chassis-level package, like
+lives in the health-check spine (a runtime-level package, like
 :mod:`colleague.telemetry`); ``doctor`` only renders the aggregated report and
 maps it to an exit code.
 

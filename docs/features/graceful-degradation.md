@@ -56,7 +56,7 @@ enables the feature.
 The loop takes an injected `count_tokens(messages) -> int` callable. This is a
 pluggable seam, like the `complete` function itself.
 
-### vLLM engine — exact via `/tokenize`
+### vLLM backend — exact via `/tokenize`
 
 The vLLM engine's `_make_count_tokens` returns a counter that POSTs the
 candidate messages to `{base_url-root}/tokenize` with `{"model": model,
@@ -107,14 +107,14 @@ The trade-off is acceptable:
   would add latency and cost per drive.
 - **Not a context router or multi-model fallback:** An overflow never
   auto-switches to a bigger model. That is the out-of-scope
-  "gearbox" (multi-engine automatic routing). Degradation is about making the
-  chosen engine work, not picking a different one.
+  router / routing policy (multi-backend automatic routing). Degradation is about
+  making the chosen backend work, not picking a different one.
 - **Not unbounded retries:** Trim-and-retry is capped (`_MAX_OVERFLOW_RETRIES =
   3`) so the loop's termination guarantee still holds. No new exit path, no
   daemon, no new runtime dependency. Once retries exhaust or the floor is
   reached, the loop stops and preserves the partial result.
 
-## Chassis-owned (all-engines rule)
+## Runtime-owned (all-engines rule)
 
 The feature lives in `colleague/loop.py` and `colleague/context.py`:
 
@@ -125,7 +125,7 @@ The feature lives in `colleague/loop.py` and `colleague/context.py`:
 - `is_context_overflow` — detect overflow error phrases.
 - `count_tokens_chars` — zero-dep char estimator.
 
-Both engines (`mock` and `vllm-openai`) inherit the feature identically via
+Both backends (`mock` and `vllm-openai`) inherit the feature identically via
 `run(..., context_budget=config.context_budget_tokens, count_tokens=...)`. The
 engine does not re-implement windowing; it only supplies the counter. The
 all-engines rule applies: if a change makes `mock` and `vllm-openai` diverge in

@@ -6,7 +6,7 @@
 Colleague composes a model-specific **system prompt** for every drive from two
 layered families, resolved *relative to the model currently driving*
 (`colleague/layers.py`). It is injected once on the `Engine` base class
-(`system_prompt()`), so every engine inherits it — the all-engines rule, exactly
+(`system_prompt()`), so every backend inherits it — the all-engines rule, exactly
 like hooks and telemetry.
 
 **Per-model isolation is structural.** When driving model X, the loader builds

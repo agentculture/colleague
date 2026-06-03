@@ -1,7 +1,7 @@
 """oilcheck — the configuration-readiness health spine behind ``colleague doctor``.
 
-This package is the **chassis-level** home for health diagnostics, the same way
-:mod:`colleague.telemetry` is the chassis-level home for GPS. The ``doctor``
+This package is the **runtime-level** home for health diagnostics, the same way
+:mod:`colleague.telemetry` is the runtime-level home for telemetry. The ``doctor``
 CLI verb (:mod:`colleague.cli._commands.doctor`) is the thin presentation
 layer; *all* the diagnostic logic lives here so it can be reused, tested, and
 extended without touching the CLI.

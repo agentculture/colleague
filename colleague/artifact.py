@@ -1,4 +1,4 @@
-"""The dashboard: result artifact + structured trace log (R5).
+"""The run report: result artifact + structured trace log (R5).
 
 Every drive produces two files under an artifact directory (``.colleague/`` in
 the repo by default):
@@ -10,7 +10,7 @@ the repo by default):
 :func:`write` always succeeds for any result it is given — including a failed
 run whose ``status == "error"`` (honesty condition h5). The caller is
 responsible for constructing an error result and still calling :func:`write`
-so a crash never leaves an empty dashboard; :func:`failed_result` builds that
+so a crash never leaves an empty run report; :func:`failed_result` builds that
 error result.
 """
 

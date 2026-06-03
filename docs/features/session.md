@@ -8,7 +8,7 @@
 [command templates](command-templates.md), accepts a selection or a free-text
 instruction, and runs each through the **same `drive` path** as `colleague
 drive` — identical `Task`, loop, hooks, telemetry, and artifact. It is a thin
-front-end, not a second engine path, and it is **not** a daemon: it is a plain
+front-end, not a second code path, and it is **not** a daemon: it is a plain
 foreground loop over the shared drive code.
 
 ## Interaction
@@ -85,7 +85,7 @@ colleague                       # at a terminal: opens the palette
 colleague | cat                 # piped: prints usage instead
 ```
 
-Driver flags accepted by `drive` (`--engine`, `--base`, `--base-url`, `--model`,
+Backend flags accepted by `drive` (`--engine`, `--base`, `--base-url`, `--model`,
 `--api-key`, `--max-steps`) are also accepted by `session`; in place of `drive`'s
 `--no-pr`, session takes `--pr` (handoff is opt-in here — commit-local is the
 default). Errors/diagnostics route to stderr and `--json` is honored (one JSON
