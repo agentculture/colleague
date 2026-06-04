@@ -12,11 +12,11 @@ from __future__ import annotations
 _ROOT = """\
 # colleague
 
-A clonable template for AgentCulture mesh agents. It carries an agent-first CLI
-(cited from the teken `python-cli` reference), a mesh identity (`culture.yaml` +
-`CLAUDE.md`), the canonical guildmaster skill kit under `.claude/skills/`, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent.
+A swappable coder-agent harness: hand it a scoped repo task and it drives a model
+backend through a bounded tool-loop, then returns a JSON run report. One runtime,
+many minds. Another agent works *with* it through the first-party `outsource`
+skill (`outsource explore | review | write | feedback`) or `colleague drive`
+directly — `colleague learn` is the self-teaching entry point for collaborators.
 
 Run `colleague` with no verb at a terminal to open the interactive harness (the
 `session` palette); piped or non-interactive, it prints this usage instead.
@@ -71,13 +71,24 @@ Reports two identities in one glance, plus the package version. Read-only.
 _LEARN = """\
 # colleague learn
 
-Prints a structured self-teaching prompt covering purpose, command map,
-exit-code policy, `--json` support, and the `explain` pointer.
+Prints a structured self-teaching prompt aimed at *another agent that wants to
+work with colleague* — delegate a scoped task to it and fold the answer back. It
+foregrounds the `outsource` verbs (explore / review / write / feedback), the
+`drive` contract, the ROI loop, and **what skills to author** so colleague
+drives your repo well (`.colleague/skills/*.md` + the `AGENTS` cascade). It also
+covers the command map, exit-code policy, `--json` support, and the `explain`
+pointer.
 
 ## Usage
 
     colleague learn
     colleague learn --json
+
+## See also
+
+- `colleague explain outsource`
+- `colleague explain skills`
+- `colleague explain drive`
 """
 
 _EXPLAIN = """\

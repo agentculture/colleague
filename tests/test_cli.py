@@ -109,6 +109,25 @@ def test_learn_text(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Exit-code policy" in out
     assert "--json" in out
     assert "explain" in out
+    # reoriented for collaborating agents: foreground outsource + drive + skills.
+    assert "outsource" in out
+    assert "drive" in out
+    assert ".colleague/skills/" in out
+    # positively pin the new harness identity (not just the removal below).
+    assert "swappable" in out
+    assert "coder-agent" in out
+    # per-model overlay <model> is the *sanitized* token, not the raw id — say so,
+    # else an agent creates a literal .colleague/<org>/<model>/ that never loads.
+    assert "filename-safe" in out
+    assert "Qwen/Qwen3-32B -> Qwen-Qwen3-32B" in out
+    # the "become a template" framing is intentionally gone.
+    assert "clonable" not in out.lower()
+    assert "scaffold" not in out.lower()
+    # mirror the CI `afi rubric gate` learnability markers so a missing one
+    # fails here (locally) before it fails in CI.
+    low = out.lower()
+    for marker in ("purpose", "commands", "exit", "--json", "explain"):
+        assert marker in low, f"learn output missing rubric marker: {marker}"
 
 
 def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
@@ -118,6 +137,12 @@ def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["tool"] == "colleague"
     assert payload["version"] == __version__
     assert payload["json_support"] is True
+    # collaboration + skills guidance are first-class in the payload.
+    assert "work_with" in payload
+    assert "teach_with_skills" in payload
+    assert payload["work_with"]["verbs"][0]["verb"].startswith("outsource")
+    # the overlay <model> placeholder is documented as sanitized in the payload too.
+    assert "filename-safe" in payload["teach_with_skills"]["model_placeholder"]
 
 
 # --- explain --------------------------------------------------------------
