@@ -66,7 +66,7 @@ treat ❌-by-staleness the same as never-validated.
 | 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ✅ | `304002a` · 2026-06-04 (3a/3c/3d live, 3b/3e deterministic); see §3 result | [#123](https://github.com/agentculture/colleague/issues/123) |
 | 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ✅ | `7a12d1e` · 2026-06-05 (4a `2395f7d5d9b9`, 4b `80cb15c5f9cd`); see §4 result | [#124](https://github.com/agentculture/colleague/issues/124) |
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ✅ | `64361da` · 2026-06-05 (drive `711505cb4c3f`); see §5 result | [#125](https://github.com/agentculture/colleague/issues/125) |
-| 6 | Telemetry end-to-end | `colleague/telemetry/` | ❌ | — (never run w/ collector) | [#126](https://github.com/agentculture/colleague/issues/126) |
+| 6 | Telemetry end-to-end | `colleague/telemetry/` | ✅ | `d5c9312` · 2026-06-05 (e2e in CI + live drive `eff14af763d4`); see §6 result | [#126](https://github.com/agentculture/colleague/issues/126) |
 | 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ❌ | — (only step-budget seen live) | [#127](https://github.com/agentculture/colleague/issues/127) |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
@@ -344,6 +344,41 @@ Confirm root + per-tool + handoff spans and the metrics
 flag off there are no spans and no SDK import (strict no-op).
 
 **Acceptance.** Spans + metrics observed when on; verified no-op when off.
+
+**Result — 2026-06-05 (validated).** Telemetry is **engine-agnostic** (the
+all-engines rule): the spans/metrics fire identically for every backend, so the
+core proof drives the full production `execute_drive` path with the `[otel]` SDK
+installed and an in-memory (debug) exporter — the procedure's allowed
+file/debug-exporter alternative to a wire collector. A gated live drive adds the
+real-model composition stamp.
+
+- **Full span tree + metrics — ✅ (engine-agnostic, runs in CI).**
+  `tests/test_telemetry_e2e.py` drives `execute_drive` (mock backend) and captures,
+  in one trace: the root `colleague.drive` span, per-tool `colleague.tool.*` spans,
+  and the `colleague.handoff` span — every child parented under the drive span, and
+  the handoff `committed=True`. Metrics emitted: `colleague.steps`,
+  `colleague.tokens`, `colleague.generated.chars`, `colleague.bytes_written`,
+  `colleague.tool.calls`, `colleague.tool.latency`, `colleague.drive.duration`. A
+  second test exercises a `pre_tool` deny to emit the previously-untested
+  `colleague.hook.denials`. (Before this, no test went through `execute_drive`; the
+  handoff span, drive.duration, and hook.denials had no coverage at all.)
+- **Live composition — ✅ LIVE.** Drives `eff14af763d4` and `02c811085cb6`
+  (`tests/test_vllm_live_telemetry.py`, `COLLEAGUE_VLLM_E2E=1`) against the
+  reference rig emitted the same span tree (`colleague.drive`, `colleague.tool.*`,
+  and `colleague.handoff`; trace `36af5dd80d0f…`) and the headline metrics with
+  **real** model usage — `colleague.tokens` from the response, `generated.chars`
+  from real reasoning/answer text, `bytes_written` from a real `HELLO.txt` write.
+- **Strict no-op when off — ✅ DETERMINISTIC (cited, not re-proven live).** With
+  telemetry off (the default) there are no spans and the OTel SDK / `_otel` is never
+  imported — even when the `[otel]` extra IS installed. Locked by
+  `tests/test_zero_deps.py::test_no_third_party_imports` (loading `colleague.loop`/
+  `colleague.telemetry`/`colleague.cli` introduces no third-party import) and
+  `tests/test_telemetry.py::test_loop_default_telemetry_is_noop`. Config resolution
+  and SDK-backed emission are unit-proven by `tests/test_telemetry.py`.
+- **Honest limit.** Capture is via an in-memory/debug exporter, not a wire OTLP
+  collector; OTLP-over-HTTP shipping is the SDK's concern (exporter construction is
+  unit-proven, `tests/test_telemetry.py`). All telemetry config lives in env/
+  fixtures — the repo ships telemetry off by default and no collector config.
 
 ### 7. Context-overflow graceful degradation live
 

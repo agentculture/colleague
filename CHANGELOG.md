@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.8] - 2026-06-05
+
+### Added
+
+- End-to-end telemetry validation through the production `execute_drive` path: `tests/test_telemetry_e2e.py` (engine-agnostic, runs in CI when the `[otel]` extra is installed) asserts the full root + per-tool + handoff span tree (nested in one trace) and all metrics, and covers the previously-untested `colleague.handoff` span, `colleague.drive.duration`, and `colleague.hook.denials`. `tests/test_vllm_live_telemetry.py` (gated by `COLLEAGUE_VLLM_E2E`) adds a live-model composition stamp (#126).
+
+### Changed
+
+- Live-testing ledger (`docs/live-testing.md`) row 6 (Telemetry end-to-end) marked validated with the §6 result block (live drives `eff14af763d4`, `02c811085cb6`).
+
 ## [0.33.7] - 2026-06-05
 
 ### Added

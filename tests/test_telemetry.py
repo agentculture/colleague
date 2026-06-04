@@ -139,7 +139,10 @@ def test_loop_default_telemetry_is_noop(tmp_path: Path) -> None:
 # SDK-backed emission (requires the [otel] extra)
 # --------------------------------------------------------------------------- #
 
-pytest.importorskip("opentelemetry", reason="install the [otel] extra to test SDK emission")
+# Guard on ``opentelemetry.sdk`` (not the bare namespace, which ``opentelemetry-api``
+# alone provides): the tests below import ``opentelemetry.sdk.*`` and would error at
+# collection in an API-only env. See ``telemetry.sdk_available``.
+pytest.importorskip("opentelemetry.sdk", reason="install the [otel] extra to test SDK emission")
 
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E402
