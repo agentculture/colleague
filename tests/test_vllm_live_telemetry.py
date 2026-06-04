@@ -29,7 +29,10 @@ pytestmark = pytest.mark.skipif(
     reason="set COLLEAGUE_VLLM_E2E=1 (with a live vLLM server) to run the live proof",
 )
 
-pytest.importorskip("opentelemetry", reason="install the [otel] extra to test SDK emission")
+# Guard on the SDK package, not the bare ``opentelemetry`` namespace (api-only envs
+# provide the namespace but not ``opentelemetry.sdk`` — guarding the namespace would
+# error at collection instead of skipping). See ``telemetry.sdk_available``.
+pytest.importorskip("opentelemetry.sdk", reason="install the [otel] extra to test SDK emission")
 
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E402

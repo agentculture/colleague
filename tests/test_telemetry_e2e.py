@@ -32,7 +32,11 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("opentelemetry", reason="install the [otel] extra to test SDK emission")
+# Guard on the SDK package, not the bare ``opentelemetry`` namespace: ``opentelemetry``
+# is a namespace package that ``opentelemetry-api`` alone provides, but these tests
+# import ``opentelemetry.sdk.*`` — guarding on the namespace would error at collection
+# (instead of skipping) in an API-only env. See ``telemetry.sdk_available``'s docstring.
+pytest.importorskip("opentelemetry.sdk", reason="install the [otel] extra to test SDK emission")
 
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader  # noqa: E402
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E402
