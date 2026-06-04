@@ -182,10 +182,16 @@ no-op.
 
 **Evidence of the gap.** Off by default; never run against a collector.
 
-**Procedure.** `uv sync --extra otel`; run an OTLP collector (or point at a
-file/debug exporter); `COLLEAGUE_OTEL_ENABLED=1
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 colleague drive … --no-pr`;
-confirm root + per-tool + handoff spans and the metrics
+**Procedure.** `uv sync --extra otel`, run an OTLP collector (or point at a
+file/debug exporter), then drive with telemetry on:
+
+```bash
+COLLEAGUE_OTEL_ENABLED=1 \
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+  colleague drive "<task>" --repo . --no-pr
+```
+
+Confirm root + per-tool + handoff spans and the metrics
 `colleague.generated.chars` / `colleague.bytes_written`. Re-confirm that with the
 flag off there are no spans and no SDK import (strict no-op).
 
