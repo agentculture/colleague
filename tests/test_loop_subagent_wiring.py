@@ -162,6 +162,11 @@ def test_default_system_advertises_subagent_as_optional() -> None:
     lower = _DEFAULT_SYSTEM.lower()
     assert "subagent" in lower, "_DEFAULT_SYSTEM must mention the subagent tool"
     assert "optional" in lower, "_DEFAULT_SYSTEM must frame the subagent tool as optional"
+    # The plural batch tool and its parallel nature must be named too (#122): the
+    # prompt previously described only the singular tool, which left the live model
+    # unaware the parallel `subagents` tool exists.
+    assert "subagents" in lower, "_DEFAULT_SYSTEM must mention the plural subagents tool"
+    assert "parallel" in lower, "_DEFAULT_SYSTEM must describe parallel batch delegation"
     # The destination guidance is untouched (the new paragraph is additive).
     assert "destination" in lower
     assert "announcement" in lower
