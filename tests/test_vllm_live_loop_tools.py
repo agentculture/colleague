@@ -95,6 +95,9 @@ _CULTURE_TASK = (
 
 def test_4a_culture_shells_out_to_devex(git_repo: Path) -> None:
     result = _drive(git_repo, _CULTURE_TASK, "4a-culture")
+    # The whole drive must finish OK — a successful tool call followed by a later
+    # drive error must not read as a false "validated live" (parity with 4b).
+    assert result.status == OK, result.error
     culture_steps = [(s.arguments.get("cli"), s.ok) for s in result.steps if s.tool == "culture"]
     # Require the SPECIFIC tool the task named (devex) — accepting any allow-listed
     # cli would let the test pass without proving devex actually shelled out.
