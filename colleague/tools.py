@@ -339,6 +339,10 @@ class ToolExecutor:
         return candidate
 
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch a single tool call by name to its handler.
+
+        Returns the matching handler's ToolOutcome.
+        """
         if name == "read_file":
             return self._read_file(arguments)
         if name == "write_file":
