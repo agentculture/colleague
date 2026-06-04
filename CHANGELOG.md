@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- docs/live-testing.md §1 marked ✅: outsource write validated live (#121) — 3 write --apply + 1 write --pr drive, each diff-verified.
+- docs/live-testing.md §1 marked ✅: outsource write validated live (#121) — 3 consecutive write --apply + 1 write --pr drive, each diff-verified.
 - Lock-in tests that the write prompt leads with the task (descriptive commit subject) and asks for lint-clean edits (tests/test_outsource_skill.py).
 
 ### Changed

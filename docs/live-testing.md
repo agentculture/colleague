@@ -97,7 +97,7 @@ diff (and lint), never trusted from the summary.
 6. Run `outsource write "<task>" --pr` once; confirm a real PR opens against the
    correct base.
 
-**Acceptance.** 3 `write --apply` runs verified by diff + tests; one `write --pr`
+**Acceptance.** 3 consecutive `write --apply` runs verified by diff + tests; one `write --pr`
 opens a correct PR; the root cause of any prior "flake" is understood.
 
 **Result — 2026-06-04 (validated).** 3 `--apply` drives (`b885fbb` tools.py,
