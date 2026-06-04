@@ -39,6 +39,22 @@ class _FakeResponse:
         return json.dumps(self.payload).encode("utf-8")
 
 
+class _RawResponse:
+    """Response whose body is arbitrary (possibly non-JSON) bytes."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def __enter__(self) -> "_RawResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self.body
+
+
 def _ok(*_args: object, **_kwargs: object) -> _FakeResponse:
     return _FakeResponse(
         {
@@ -107,6 +123,96 @@ def test_reachable_when_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert c is not None
     assert c["passed"] is True
     assert c["severity"] == "info"
+
+
+# ---------------------------------------------------------------------------
+# provider_model_available: match / empty / unparseable / partial config
+#
+# The configured model id is resolved via EngineConfig (explicit > COLLEAGUE_* >
+# CONVERTIBLE_* > OPENAI_* > default), so these tests set COLLEAGUE_MODEL /
+# COLLEAGUE_BASE_URL to stay independent of the rig's defaults.
+# ---------------------------------------------------------------------------
+
+
+def test_model_available_passes_when_served(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Happy path: the configured model IS in the served list → info/passed."""
+    monkeypatch.setenv("COLLEAGUE_MODEL", "served/model")
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *_a, **_k: _FakeResponse({"object": "list", "data": [{"id": "served/model"}]}),
+    )
+    c = _find(checks(), "provider_model_available")
+    assert c is not None
+    assert c["passed"] is True
+    assert c["severity"] == "info"
+    assert "served/model" in c["message"]
+    assert c["remediation"] == "", "a passing check carries empty remediation"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"object": "list", "data": []},  # reachable, but nothing served
+        {"object": "list", "data": [{"name": "m"}]},  # entries without an "id" key
+    ],
+    ids=["empty-list", "entries-without-id"],
+)
+def test_model_available_warns_when_nothing_served(
+    monkeypatch: pytest.MonkeyPatch, payload: dict
+) -> None:
+    """Reachable but the served set is empty → warning naming '(none)'."""
+    monkeypatch.setenv("COLLEAGUE_MODEL", "wanted/model")
+    monkeypatch.setattr("urllib.request.urlopen", lambda *_a, **_k: _FakeResponse(payload))
+    c = _find(checks(), "provider_model_available")
+    assert c is not None
+    assert c["passed"] is False
+    assert c["severity"] == "warning"
+    assert "wanted/model" in c["message"]
+    assert "(none)" in c["message"]
+    assert c["remediation"]
+
+
+@pytest.mark.parametrize(
+    "make_response",
+    [
+        lambda: _RawResponse(b"<html>not json</html>"),  # body is not JSON
+        lambda: _FakeResponse({"object": "list", "data": "not-a-list"}),  # data not a list
+        lambda: _FakeResponse({"object": "list"}),  # no data key at all
+    ],
+    ids=["non-json", "data-not-list", "no-data-key"],
+)
+def test_model_available_omitted_when_list_unparseable(
+    monkeypatch: pytest.MonkeyPatch, make_response
+) -> None:
+    """Unparseable /models body → omit the model verdict ('we cannot tell, say
+    nothing'), but the server DID respond so reachability still passes."""
+    monkeypatch.setattr("urllib.request.urlopen", lambda *_a, **_k: make_response())
+    results = checks()
+    assert _find(results, "provider_model_available") is None
+    reachable = _find(results, "provider_reachable")
+    assert reachable is not None and reachable["passed"] is True
+
+
+def test_probe_targets_resolved_url_with_partial_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial config (only base_url overridden) → the probe targets the resolved
+    {base_url}/models and the default model is still compared."""
+    monkeypatch.setenv("COLLEAGUE_BASE_URL", "http://example.test:1234/v1")
+    monkeypatch.delenv("COLLEAGUE_MODEL", raising=False)
+    monkeypatch.delenv("CONVERTIBLE_MODEL", raising=False)
+    captured: dict[str, str] = {}
+
+    def _capture(request: object, *_a: object, **_k: object) -> _FakeResponse:
+        captured["url"] = getattr(request, "full_url", request)  # urllib.request.Request
+        return _FakeResponse({"object": "list", "data": []})
+
+    monkeypatch.setattr("urllib.request.urlopen", _capture)
+    results = checks()
+    assert captured["url"] == "http://example.test:1234/v1/models"
+    assert _find(results, "provider_reachable")["passed"] is True
+    # The default model was resolved and compared even with only base_url set.
+    assert _find(results, "provider_model_available") is not None
 
 
 # ---------------------------------------------------------------------------
