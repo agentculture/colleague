@@ -394,10 +394,12 @@ def test_read_live_ansi_fallback_returns_none_on_eof(tmp_path, monkeypatch) -> N
     assert captured["fallback"] is None
 
 
-# The raw per-keystroke loop's I/O shell (``_raw_loop``) needs a real terminal;
-# pytest's fd capture deadlocks a pty-backed test, so it is verified by the PR's
-# manual pty smoke test. Its key-handling logic lives in the pure ``reduce_key``
-# reducer below and IS unit-tested without a TTY.
+# The raw per-keystroke loop's I/O shell (``_raw_loop``) needs a real terminal.
+# Its key-handling logic lives in the pure ``reduce_key`` reducer below (unit-tested
+# without a TTY); the orchestration shell itself is driven end-to-end over an
+# explicit ``os.openpty()`` pair in the "raw loop over a real pty" section at the
+# bottom of this file — pytest's fd capture only intercepts stdio, so a pty pair
+# passed as ``stream``/``out`` sidesteps it.
 
 
 # ---------------------------------------------------------------------------
@@ -460,3 +462,148 @@ def test_reduce_printable_char_is_appended() -> None:
 
 def test_reduce_ignored_key_is_a_noop_redraw() -> None:
     assert reduce_key(None, "/c", 0, []) == ("/c", 0, "redraw")
+
+
+# ---------------------------------------------------------------------------
+# _raw_loop over a real pty — the termios I/O shell, end-to-end
+#
+# `_raw_loop` operates on the *passed* stream/out, not sys.stdin, so an explicit
+# `os.openpty()` pair drives it through pytest's fd capture (which only touches
+# stdio). This exercises the production catalog (`_SLASH_COMMANDS`), the real
+# autofilter (`filter_slash`), and the real popup widget through the actual raw
+# loop: setraw/restore, _getch, _classify_key (printable / TAB / arrows / Ctrl-C
+# / ENTER), reduce_key, and the submit/quit returns.
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+import pytest  # noqa: E402
+
+# Only the pty-driven raw-loop tests below need a POSIX terminal (os.openpty /
+# termios). Scope the skip to *those* tests via this marker — calling
+# importorskip at module scope would abort collection of the whole file and skip
+# the ~38 TTY-free unit tests above on a platform without termios (e.g. Windows).
+_needs_pty = pytest.mark.skipif(
+    not hasattr(os, "openpty"),
+    reason="raw-mode pty tests need POSIX os.openpty/termios",
+)
+
+
+def _render_live(buffer: str, matches: list, selected: int) -> str:
+    """A bounded production-faithful render: the popup widget plus a prompt line."""
+    parts = []
+    if matches:
+        parts.append(render_slash_autocomplete(matches, selected, width=60))
+    parts.append("❯ " + buffer)
+    return "\n".join(parts)
+
+
+def _drive_raw_loop(keystrokes: bytes, timeout: float = 5.0):
+    """Run `read_line_with_popup` over a pty, feed *keystrokes*, return its result.
+
+    A daemon drain thread consumes the slave's render output so the writer never
+    blocks on a full pty buffer regardless of render size.
+    """
+    master, slave = os.openpty()
+    stream = os.fdopen(slave, "r")
+    out = os.fdopen(os.dup(slave), "w")
+
+    def _drain() -> None:
+        try:
+            while os.read(master, 4096):
+                pass
+        except OSError:
+            pass
+
+    drain = threading.Thread(target=_drain, daemon=True)
+    drain.start()
+
+    box: dict = {}
+
+    def _run() -> None:
+        # Capture any exception so it surfaces in the main thread as the real
+        # error, not as a misleading KeyError on a missing box["result"].
+        try:
+            box["result"] = read_line_with_popup(
+                _SLASH_COMMANDS, _render_live, filter_slash, stream=stream, out=out
+            )
+        except Exception as exc:  # re-raised verbatim in the main thread below
+            box["error"] = exc
+
+    # daemon=True so a genuinely stuck reader can never wedge the pytest worker.
+    reader = threading.Thread(target=_run, daemon=True)
+    reader.start()
+    time.sleep(0.1)  # let the reader enter raw mode before bytes arrive
+    os.write(master, keystrokes)
+    reader.join(timeout=timeout)
+
+    # Close the fds first — EOF on the master unblocks a stuck os.read() in
+    # _getch — then re-join briefly so a hung reader can actually terminate.
+    for fd_obj in (stream, out):
+        try:
+            fd_obj.close()
+        except OSError:
+            pass
+    try:
+        os.close(master)
+    except OSError:
+        pass
+    if reader.is_alive():
+        reader.join(timeout=1.0)
+
+    if "error" in box:
+        raise box["error"]
+    assert not reader.is_alive(), "raw loop did not return — possible deadlock"
+    return box["result"]
+
+
+@_needs_pty
+def test_raw_loop_tab_completes_and_submits() -> None:
+    # "/co" → [commands, config]; TAB completes to the selected (first), ENTER submits.
+    expected = "/" + filter_slash("co")[0].name  # "/commands"
+    assert _drive_raw_loop(b"/co\t\r") == expected
+
+
+@_needs_pty
+def test_raw_loop_submits_plain_free_text() -> None:
+    assert _drive_raw_loop(b"fix the bug\r") == "fix the bug"
+
+
+@_needs_pty
+def test_raw_loop_arrow_down_then_tab_selects_second_match() -> None:
+    # "/c" → [commands, config]; one DOWN selects index 1, TAB completes to it.
+    matches = filter_slash("c")
+    second = matches[1]
+    expected = f"/{second.name} " if second.arg_hint else f"/{second.name}"
+    assert _drive_raw_loop(b"/c\x1b[B\t\r") == expected
+
+
+@_needs_pty
+def test_raw_loop_arg_hint_completion_adds_trailing_space() -> None:
+    # An arg_hint command (e.g. /engine) completes with a trailing space. Select
+    # it by the index it actually holds in the live match list — computed, not
+    # hard-coded — so adding/reordering same-prefix commands can't break this.
+    matches = filter_slash("engine")
+    names = [m.name for m in matches]
+    assert "engine" in names
+    idx = names.index("engine")
+    assert matches[idx].arg_hint  # the command under test carries an arg hint
+    assert _drive_raw_loop(b"/engine" + b"\x1b[B" * idx + b"\t\r") == "/engine "
+
+
+@_needs_pty
+def test_raw_loop_backspace_edits_before_submit() -> None:
+    # type "/cox", delete the "x", then submit the raw buffer (no TAB).
+    assert _drive_raw_loop(b"/cox\x7f\r") == "/co"
+
+
+@_needs_pty
+def test_raw_loop_ctrl_c_quits_with_none() -> None:
+    assert _drive_raw_loop(b"\x03") is None
+
+
+@_needs_pty
+def test_raw_loop_ctrl_d_on_empty_line_quits_with_none() -> None:
+    assert _drive_raw_loop(b"\x04") is None

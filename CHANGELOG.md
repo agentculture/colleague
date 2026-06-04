@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.2] - 2026-06-04
+
+### Added
+
+- pty-driven regression tests that drive the session raw-mode autocomplete loop (`_raw_loop`) end-to-end over an explicit `os.openpty()` pair, using the production slash-command catalog, autofilter, and popup widget — TAB-complete, free-text submit, arrow select, arg-hint trailing space, backspace edit, Ctrl-C/Ctrl-D quit
+
+### Changed
+
+- Removed the now-stale `# pragma: no cover` on `_raw_loop` (it is genuinely covered by the new pty tests) and corrected the comments in `_session_input.py` / `test_session_autocomplete.py` that claimed the raw loop could not be pty-tested under pytest fd capture
+
 ## [0.32.1] - 2026-06-04
 
 ### Changed
