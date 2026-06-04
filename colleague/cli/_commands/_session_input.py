@@ -10,9 +10,12 @@ platform is Windows — :func:`read_line_with_popup` calls the caller-supplied
 *fallback* (the plain :func:`input` path), so piped / agent / ``--json`` callers
 stay **byte-identical** to the pre-popup behaviour.
 
-The raw loop itself needs a real terminal and is intentionally thin; the testable
-surface is :func:`supports_raw_mode` (the gate) plus the fallback branch. The
-pure filter and the popup widget are tested independently.
+The raw loop itself needs a real terminal and is intentionally thin: each piece
+(:func:`supports_raw_mode`, the fallback branch, :func:`reduce_key`, the pure
+filter, the popup widget) is unit-tested without a TTY, and the orchestration
+shell :func:`_raw_loop` is driven end-to-end over an explicit ``os.openpty()``
+pair in ``tests/test_session_autocomplete.py`` (a pty pair passed as the
+stream/out sidesteps pytest's stdio capture).
 """
 
 from __future__ import annotations
@@ -229,7 +232,7 @@ def reduce_key(
     return buffer, selected, "redraw"  # ignored key
 
 
-def _raw_loop(  # pragma: no cover - termios I/O shell; verified by manual pty test
+def _raw_loop(
     specs: Sequence[object], render: RenderFn, filter_fn: FilterFn, stream: object, out: object
 ) -> Optional[str]:
     import termios
