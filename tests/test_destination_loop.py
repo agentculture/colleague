@@ -78,6 +78,23 @@ def test_default_system_preserves_original_coding_agent_text() -> None:
     assert "finish" in _DEFAULT_SYSTEM.lower()
 
 
+def test_default_system_advertises_culture_tools() -> None:
+    """_DEFAULT_SYSTEM names the culture tool + the agtag/devex CLIs as optional (#124).
+
+    Like the subagents gap fixed in #122, an unnamed loop tool is invisible to the
+    live model — so the prompt must name it. Additive: the existing destination +
+    subagents guidance stays intact."""
+    lower = _DEFAULT_SYSTEM.lower()
+    assert "culture" in lower, "_DEFAULT_SYSTEM must mention the culture tool"
+    assert "agtag" in lower, "_DEFAULT_SYSTEM must name the agtag CLI"
+    assert "devex" in lower, "_DEFAULT_SYSTEM must name the devex CLI"
+    assert "optional" in lower or "advisory" in lower
+    # The destination + subagents guidance is untouched (the new paragraph is additive).
+    assert "destination" in lower
+    assert "announcement" in lower
+    assert "subagent" in lower
+
+
 # ---------------------------------------------------------------------------
 # 2. Both engines inherit the guidance (no-layers path uses _DEFAULT_SYSTEM)
 # ---------------------------------------------------------------------------

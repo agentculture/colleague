@@ -87,6 +87,16 @@ _DEFAULT_SYSTEM = (
     "entirely your own judgement: a simple, single-file task needs none, so never delegate "
     "just to delegate. Delegation is bounded (a capped depth and per-drive fan-out), so it "
     "always terminates."
+    "\n\n"
+    "Culture tools (optional). Two operator-installed AgentCulture CLIs are reachable "
+    "through the culture tool, with your agent identity auto-injected and the working "
+    "directory pinned at the repo root. Use cli='agtag' to work the mesh issue tracker "
+    "(e.g. fetch or post issues on a sibling repo) and cli='devex' to inspect a repo's "
+    "agent-first surface (e.g. explain/overview/learn). Reach for them only when the task "
+    "genuinely needs the mesh issue tracker or another repo's surface — never for casual "
+    "mutating actions. Only agtag and devex are permitted, and identity is injected for "
+    "you, so you never pass it yourself. This is advisory and entirely your own judgement: "
+    "a self-contained in-repo task needs neither."
 )
 
 
