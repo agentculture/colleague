@@ -95,13 +95,18 @@ _CULTURE_TASK = (
 
 def test_4a_culture_shells_out_to_devex(git_repo: Path) -> None:
     result = _drive(git_repo, _CULTURE_TASK, "4a-culture")
-    calls = [s for s in result.steps if s.tool == "culture" and s.ok]
-    assert calls, "the model never made a successful culture tool call"
+    culture_steps = [(s.arguments.get("cli"), s.ok) for s in result.steps if s.tool == "culture"]
+    # Require the SPECIFIC tool the task named (devex) — accepting any allow-listed
+    # cli would let the test pass without proving devex actually shelled out.
+    devex_calls = [
+        s
+        for s in result.steps
+        if s.tool == "culture" and s.ok and s.arguments.get("cli") == "devex"
+    ]
+    assert devex_calls, f"no successful culture(cli='devex') call: {culture_steps}"
     # The tool returns 'exit=<code>\n<output>'; --version exits 0. Robust to the
     # exact version string — assert on the shell-out result, not the model's prose.
-    assert any("exit=0" in s.result for s in calls), [s.result[:80] for s in calls]
-    # The cli the model chose is allow-listed (the schema enum permits only these).
-    assert any(s.arguments.get("cli") in {"devex", "agtag"} for s in calls)
+    assert any("exit=0" in s.result for s in devex_calls), [s.result[:80] for s in devex_calls]
 
 
 # ---------------------------------------------------------------------------
@@ -118,13 +123,14 @@ _DEVAGUE_TASK = (
 
 def test_4b_devague_opens_a_goal_frame(git_repo: Path) -> None:
     result = _drive(git_repo, _DEVAGUE_TASK, "4b-devague")
-    calls = [s for s in result.steps if s.tool == "devague" and s.ok]
-    assert calls, "the model never made a successful devague tool call"
-    # A `new` (frame created) or a `status`/`show` (read-only) proves the shell-out.
-    # Filter on the allow-listed move + ok, never on prose.
-    moves = {s.arguments.get("move") for s in calls}
-    assert moves & {"new", "status", "show"}, f"unexpected devague moves: {moves}"
-    assert any("exit=0" in s.result for s in calls), [s.result[:80] for s in calls]
+    devague_steps = [(s.arguments.get("move"), s.ok) for s in result.steps if s.tool == "devague"]
+    # Require an actual `new` move (the test name claims a frame is OPENED) — accepting
+    # a read-only `status`/`show` would let the test pass without the frame being created.
+    new_calls = [
+        s for s in result.steps if s.tool == "devague" and s.ok and s.arguments.get("move") == "new"
+    ]
+    assert new_calls, f"no successful devague(move='new') call: {devague_steps}"
+    assert any("exit=0" in s.result for s in new_calls), [s.result[:80] for s in new_calls]
     # Soft: did the model also declare arrival (destination/announcement) on finish?
     # Printed, never hard-asserted — that path is flaky and is proven deterministically
     # by tests/test_destination_e2e.py. (.devague/ written by `new` is committed to the

@@ -90,13 +90,14 @@ _DEFAULT_SYSTEM = (
     "\n\n"
     "Culture tools (optional). Two operator-installed AgentCulture CLIs are reachable "
     "through the culture tool, with your agent identity auto-injected and the working "
-    "directory pinned at the repo root. Use cli='agtag' to work the mesh issue tracker "
-    "(e.g. fetch or post issues on a sibling repo) and cli='devex' to inspect a repo's "
+    "directory pinned at the repo root. Use cli='agtag' to READ the mesh issue tracker "
+    "(e.g. fetch issues from a sibling repo) and cli='devex' to inspect a repo's "
     "agent-first surface (e.g. explain/overview/learn). Reach for them only when the task "
-    "genuinely needs the mesh issue tracker or another repo's surface — never for casual "
-    "mutating actions. Only agtag and devex are permitted, and identity is injected for "
-    "you, so you never pass it yourself. This is advisory and entirely your own judgement: "
-    "a self-contained in-repo task needs neither."
+    "explicitly calls for the mesh or another repo's surface; a MUTATING action (e.g. "
+    "posting an issue) needs the operator's explicit instruction, never your own "
+    "initiative. Only agtag and devex are permitted, and identity is injected for you, so "
+    "you never pass it yourself. This is advisory and entirely your own judgement: a "
+    "self-contained in-repo task needs neither."
 )
 
 
