@@ -64,7 +64,7 @@ treat ❌-by-staleness the same as never-validated.
 | 1 | `outsource write` reliability | `.claude/skills/outsource/`, `colleague/handoff.py` | ✅ | `6eb843d` · 2026-06-04 (apply `b885fbb`,`5bc48e7`,`f51427e` + PR `221b4ce`/#130); see §1 caveats | [#121](https://github.com/agentculture/colleague/issues/121) |
 | 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ✅ | `61d15cc` · 2026-06-04 (drive `6c27147eb917`); see §2 caveat | [#122](https://github.com/agentculture/colleague/issues/122) |
 | 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ✅ | `304002a` · 2026-06-04 (3a/3c/3d live, 3b/3e deterministic); see §3 result | [#123](https://github.com/agentculture/colleague/issues/123) |
-| 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ❌ | — (0 live calls) | [#124](https://github.com/agentculture/colleague/issues/124) |
+| 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ✅ | `7a12d1e` · 2026-06-05 (4a `2395f7d5d9b9`, 4b `80cb15c5f9cd`); see §4 result | [#124](https://github.com/agentculture/colleague/issues/124) |
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ❌ | — (no `neighbours.json`) | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ❌ | — (never run w/ collector) | [#126](https://github.com/agentculture/colleague/issues/126) |
 | 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ❌ | — (only step-budget seen live) | [#127](https://github.com/agentculture/colleague/issues/127) |
@@ -253,6 +253,34 @@ throwaway `tmp_path` fixtures — the repo still ships none.
 
 **Acceptance.** A live drive invokes each tool; identity injection + allow-list
 exclusions verified; artifact carries the destination when one is set.
+
+**Result — 2026-06-05 (validated).** Two gated live drives
+(`tests/test_vllm_live_loop_tools.py`, `COLLEAGUE_VLLM_E2E=1`) prove the model
+reaches each tool and it shells out to the real operator-installed CLI. The
+**root-cause fix mirrored #122**: `_DEFAULT_SYSTEM` named `devague`/`subagent` but
+never `culture`, so a "Culture tools (optional)" paragraph was added (pinned by
+`tests/test_destination_loop.py::test_default_system_advertises_culture_tools`).
+
+- **4a `culture` — ✅ LIVE.** Drive `2395f7d5d9b9`: the model called
+  `culture(cli='devex', args=['--version'])` and it shelled out (`exit=0`, identity
+  injected, cwd at repo root). Constrained to `--version` — zero side effects;
+  `agtag` cannot post without an explicit `--repo` and the tmp repo has no remote.
+- **4b `devague` — ✅ LIVE.** Drive `80cb15c5f9cd`: the model called
+  `devague(move='new', …)` then `devague(move='status')`, both shelling out
+  (`exit=0`). `new` wrote only a self-contained `.devague/` in the tmp repo (no
+  global `~/.devague`, no network). **Bonus:** the model also declared
+  `destination='users-can-export-their-dashboard-as-a-pdf'` on finish, so the
+  artifact carried it (announcement was `None`) — a live confirmation on top of the
+  deterministic proof.
+- **DETERMINISTIC (cited, not re-proven live).** The allow-lists and the
+  `confirm`/`reject`/`export` exclusions are enforced by the schema `enum` **and**
+  in code, so a compliant model cannot emit a forbidden `cli`/`move` — these are
+  reachable only deterministically, never live: culture allow-list/identity
+  (`tests/test_culture_tools.py`, `tests/test_identity.py`); devague
+  allow-list/exclusions/identity (`tests/test_devague.py`,
+  `tests/test_devague_tool.py`); destination+announcement-in-artifact
+  (`tests/test_destination_e2e.py`). The live drives prove the *positive* path
+  (model calls the tool → it shells out); the gates are deterministic by construction.
 
 ### 5. Neighbours read-only clones live
 

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.6] - 2026-06-05
+
+### Added
+
+- docs/live-testing.md §4 marked ✅: loop tools `culture` + `devague` validated live (#124). 4a — drive `2395f7d5d9b9` called `culture(cli='devex', args=['--version'])` and it shelled out (`exit=0`, identity injected). 4b — drive `80cb15c5f9cd` called `devague` `new` + `status` (both `exit=0`; `new` wrote only a self-contained `.devague/`), and the model declared a `destination` on finish as a live bonus. Allow-lists / `confirm`/`reject`/`export` exclusions / identity injection / destination-in-artifact stay DETERMINISTIC (schema `enum` makes a forbidden value unreachable live) — cited, not re-proven.
+- tests/test_vllm_live_loop_tools.py — gated (`COLLEAGUE_VLLM_E2E=1`) live proof that a real model reaches the `culture` + `devague` tools and they shell out to the operator-installed CLIs; tasks constrained to zero-side-effect subcommands.
+
+### Changed
+
+- `_DEFAULT_SYSTEM` (colleague/loop.py) now names the `culture` tool and its `agtag`/`devex` CLIs — the same #122-style gap (an unnamed loop tool is invisible to the live model). Advisory, runtime-owned (all-engines). Pinned by `tests/test_destination_loop.py::test_default_system_advertises_culture_tools`.
+
 ## [0.33.5] - 2026-06-04
 
 ### Added
