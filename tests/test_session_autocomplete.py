@@ -481,7 +481,14 @@ import time  # noqa: E402
 
 import pytest  # noqa: E402
 
-_termios = pytest.importorskip("termios")  # POSIX-only; skip on Windows
+# Only the pty-driven raw-loop tests below need a POSIX terminal (os.openpty /
+# termios). Scope the skip to *those* tests via this marker — calling
+# importorskip at module scope would abort collection of the whole file and skip
+# the ~38 TTY-free unit tests above on a platform without termios (e.g. Windows).
+_needs_pty = pytest.mark.skipif(
+    not hasattr(os, "openpty"),
+    reason="raw-mode pty tests need POSIX os.openpty/termios",
+)
 
 
 def _render_live(buffer: str, matches: list, selected: int) -> str:
@@ -516,17 +523,24 @@ def _drive_raw_loop(keystrokes: bytes, timeout: float = 5.0):
     box: dict = {}
 
     def _run() -> None:
-        box["result"] = read_line_with_popup(
-            _SLASH_COMMANDS, _render_live, filter_slash, stream=stream, out=out
-        )
+        # Capture any exception so it surfaces in the main thread as the real
+        # error, not as a misleading KeyError on a missing box["result"].
+        try:
+            box["result"] = read_line_with_popup(
+                _SLASH_COMMANDS, _render_live, filter_slash, stream=stream, out=out
+            )
+        except Exception as exc:  # re-raised verbatim in the main thread below
+            box["error"] = exc
 
-    reader = threading.Thread(target=_run)
+    # daemon=True so a genuinely stuck reader can never wedge the pytest worker.
+    reader = threading.Thread(target=_run, daemon=True)
     reader.start()
     time.sleep(0.1)  # let the reader enter raw mode before bytes arrive
     os.write(master, keystrokes)
     reader.join(timeout=timeout)
-    ran = not reader.is_alive()
 
+    # Close the fds first — EOF on the master unblocks a stuck os.read() in
+    # _getch — then re-join briefly so a hung reader can actually terminate.
     for fd_obj in (stream, out):
         try:
             fd_obj.close()
@@ -536,21 +550,28 @@ def _drive_raw_loop(keystrokes: bytes, timeout: float = 5.0):
         os.close(master)
     except OSError:
         pass
+    if reader.is_alive():
+        reader.join(timeout=1.0)
 
-    assert ran, "raw loop did not return — possible deadlock"
+    if "error" in box:
+        raise box["error"]
+    assert not reader.is_alive(), "raw loop did not return — possible deadlock"
     return box["result"]
 
 
+@_needs_pty
 def test_raw_loop_tab_completes_and_submits() -> None:
     # "/co" → [commands, config]; TAB completes to the selected (first), ENTER submits.
     expected = "/" + filter_slash("co")[0].name  # "/commands"
     assert _drive_raw_loop(b"/co\t\r") == expected
 
 
+@_needs_pty
 def test_raw_loop_submits_plain_free_text() -> None:
     assert _drive_raw_loop(b"fix the bug\r") == "fix the bug"
 
 
+@_needs_pty
 def test_raw_loop_arrow_down_then_tab_selects_second_match() -> None:
     # "/c" → [commands, config]; one DOWN selects index 1, TAB completes to it.
     matches = filter_slash("c")
@@ -559,21 +580,30 @@ def test_raw_loop_arrow_down_then_tab_selects_second_match() -> None:
     assert _drive_raw_loop(b"/c\x1b[B\t\r") == expected
 
 
+@_needs_pty
 def test_raw_loop_arg_hint_completion_adds_trailing_space() -> None:
-    # "/engine" → [engines, engine]; DOWN selects "engine" (arg_hint), TAB adds a space.
+    # An arg_hint command (e.g. /engine) completes with a trailing space. Select
+    # it by the index it actually holds in the live match list — computed, not
+    # hard-coded — so adding/reordering same-prefix commands can't break this.
     matches = filter_slash("engine")
-    assert matches[1].name == "engine" and matches[1].arg_hint
-    assert _drive_raw_loop(b"/engine\x1b[B\t\r") == "/engine "
+    names = [m.name for m in matches]
+    assert "engine" in names
+    idx = names.index("engine")
+    assert matches[idx].arg_hint  # the command under test carries an arg hint
+    assert _drive_raw_loop(b"/engine" + b"\x1b[B" * idx + b"\t\r") == "/engine "
 
 
+@_needs_pty
 def test_raw_loop_backspace_edits_before_submit() -> None:
     # type "/cox", delete the "x", then submit the raw buffer (no TAB).
     assert _drive_raw_loop(b"/cox\x7f\r") == "/co"
 
 
+@_needs_pty
 def test_raw_loop_ctrl_c_quits_with_none() -> None:
     assert _drive_raw_loop(b"\x03") is None
 
 
+@_needs_pty
 def test_raw_loop_ctrl_d_on_empty_line_quits_with_none() -> None:
     assert _drive_raw_loop(b"\x04") is None
