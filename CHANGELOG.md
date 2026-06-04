@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.1] - 2026-06-04
+
+### Changed
+
+- CI: bump SonarSource/sonarqube-scan-action v6 -> v8.1.0 (node24 runtime, scanner GPG signature verification). Note: the intermittent 403 from binaries.sonarsource.com is a SonarSource CDN flake and is unaffected by the action version; re-run the job if it recurs.
+
 ## [0.32.0] - 2026-06-04
 
 ### Added
