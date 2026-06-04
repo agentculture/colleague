@@ -20,9 +20,10 @@ report. One runtime, many minds.
 
 Work with colleague from another agent
 --------------------------------------
-colleague is a *different* mind you can delegate to — not a stronger one.
-Diversity is the point: a second, independent perspective catches what your own
-glides past. Reach for it before you present work or open a PR.
+Its purpose for you: a *different* mind you can delegate scoped repo work to —
+not a stronger one. Diversity is the point: a second, independent perspective
+catches what your own glides past. Reach for it before you present work or open
+a PR.
 
 The first-party `outsource` Claude Code skill (.claude/skills/outsource/) is the
 front door:

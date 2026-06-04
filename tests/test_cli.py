@@ -119,6 +119,11 @@ def test_learn_text(capsys: pytest.CaptureFixture[str]) -> None:
     # the "become a template" framing is intentionally gone.
     assert "clonable" not in out.lower()
     assert "scaffold" not in out.lower()
+    # mirror the CI `afi rubric gate` learnability markers so a missing one
+    # fails here (locally) before it fails in CI.
+    low = out.lower()
+    for marker in ("purpose", "commands", "exit", "--json", "explain"):
+        assert marker in low, f"learn output missing rubric marker: {marker}"
 
 
 def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
