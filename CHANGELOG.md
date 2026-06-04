@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.9] - 2026-06-05
+
+### Added
+
+- Live-validation test `tests/test_vllm_live_context_budget.py` (gated by `COLLEAGUE_VLLM_E2E`) proving context-overflow graceful degradation end-to-end against a real served model: proactive history windowing (a small budget + a chained read task drops oldest turns and inserts the placeholder in real model requests) and reactive trim+retry recovery (an induced overflow shrinks the budget and the retry recovers against the live model) (#127).
+
+### Changed
+
+- Live-testing ledger (`docs/live-testing.md`) row 7 (Context-overflow graceful degradation) marked validated with the §7 result block (proactive drive `36b022abc7f0`, reactive drive `0323db53b1dd`); every matrix row + epic #128 is now validated live.
+
 ## [0.33.8] - 2026-06-05
 
 ### Added
