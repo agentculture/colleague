@@ -129,7 +129,7 @@ def _as_json_payload() -> dict[str, object]:
         "teach_with_skills": {
             "skills": ".colleague/skills/<name>.md (per-model overlay: .colleague/<model>/skills/)",
             "agents": "AGENTS.md -> AGENTS.colleague.md -> AGENTS.colleague.<model>.md",
-            "model_token": (
+            "model_placeholder": (
                 "<model> in overlay paths is the filename-safe id, not the raw one: "
                 "slashes collapse to dashes (Qwen/Qwen3-32B -> Qwen-Qwen3-32B)."
             ),

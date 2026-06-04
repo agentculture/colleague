@@ -17,7 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- colleague learn now states that the per-model overlay `<model>` token is the *filename-safe* model id (slashes collapse to dashes, e.g. `Qwen/Qwen3-32B` -> `Qwen-Qwen3-32B`), in both the text and `--json` (`teach_with_skills.model_token`) — following the old wording verbatim would have created a literal `.colleague/<org>/<model>/` overlay that never loads (Qodo review)
+- colleague learn now states that the per-model overlay `<model>` token is the *filename-safe* model id (slashes collapse to dashes, e.g. `Qwen/Qwen3-32B` -> `Qwen-Qwen3-32B`), in both the text and `--json` (`teach_with_skills.model_placeholder`) — following the old wording verbatim would have created a literal `.colleague/<org>/<model>/` overlay that never loads (Qodo review)
 
 ## [0.32.2] - 2026-06-04
 

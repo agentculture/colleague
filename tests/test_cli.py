@@ -141,8 +141,8 @@ def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert "work_with" in payload
     assert "teach_with_skills" in payload
     assert payload["work_with"]["verbs"][0]["verb"].startswith("outsource")
-    # the overlay <model> token is documented as sanitized in the payload too.
-    assert "filename-safe" in payload["teach_with_skills"]["model_token"]
+    # the overlay <model> placeholder is documented as sanitized in the payload too.
+    assert "filename-safe" in payload["teach_with_skills"]["model_placeholder"]
 
 
 # --- explain --------------------------------------------------------------
