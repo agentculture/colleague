@@ -53,6 +53,9 @@ prompt on every drive — author them so colleague drives your repo well:
                                  Per-model overlay: .colleague/<model>/skills/.
   AGENTS.md, AGENTS.colleague.md, AGENTS.colleague.<model>.md
                                  Broader standing instructions, general->specific.
+In both overlays <model> is the filename-safe model id, not the raw one:
+slashes collapse to dashes (Qwen/Qwen3-32B -> Qwen-Qwen3-32B), so a literal
+.colleague/<org>/<model>/ never loads.
 Skills are instructional text only (no execution model in v0). Inspect what
 resolves with:  colleague skills list  and  colleague agents list
 
@@ -126,6 +129,10 @@ def _as_json_payload() -> dict[str, object]:
         "teach_with_skills": {
             "skills": ".colleague/skills/<name>.md (per-model overlay: .colleague/<model>/skills/)",
             "agents": "AGENTS.md -> AGENTS.colleague.md -> AGENTS.colleague.<model>.md",
+            "model_token": (
+                "<model> in overlay paths is the filename-safe id, not the raw one: "
+                "slashes collapse to dashes (Qwen/Qwen3-32B -> Qwen-Qwen3-32B)."
+            ),
             "what_to_create": (
                 "One skill per repo convention every drive should honor: the test "
                 "command, the lint gate, code style, a domain glossary, files not "

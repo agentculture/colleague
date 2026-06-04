@@ -15,6 +15,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - colleague learn reoriented for agents that work WITH colleague: foregrounds outsource explore/review/write/feedback, the drive contract, the ROI loop, and what skills to create; dropped the clone-the-template framing. Root explain entry and CLI description now lead with the swappable coder-agent harness identity to match
 
+### Fixed
+
+- colleague learn now states that the per-model overlay `<model>` token is the *filename-safe* model id (slashes collapse to dashes, e.g. `Qwen/Qwen3-32B` -> `Qwen-Qwen3-32B`), in both the text and `--json` (`teach_with_skills.model_token`) — following the old wording verbatim would have created a literal `.colleague/<org>/<model>/` overlay that never loads (Qodo review)
+
 ## [0.32.2] - 2026-06-04
 
 ### Added

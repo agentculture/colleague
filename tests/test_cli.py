@@ -116,6 +116,10 @@ def test_learn_text(capsys: pytest.CaptureFixture[str]) -> None:
     # positively pin the new harness identity (not just the removal below).
     assert "swappable" in out
     assert "coder-agent" in out
+    # per-model overlay <model> is the *sanitized* token, not the raw id — say so,
+    # else an agent creates a literal .colleague/<org>/<model>/ that never loads.
+    assert "filename-safe" in out
+    assert "Qwen/Qwen3-32B -> Qwen-Qwen3-32B" in out
     # the "become a template" framing is intentionally gone.
     assert "clonable" not in out.lower()
     assert "scaffold" not in out.lower()
@@ -137,6 +141,8 @@ def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert "work_with" in payload
     assert "teach_with_skills" in payload
     assert payload["work_with"]["verbs"][0]["verb"].startswith("outsource")
+    # the overlay <model> token is documented as sanitized in the payload too.
+    assert "filename-safe" in payload["teach_with_skills"]["model_token"]
 
 
 # --- explain --------------------------------------------------------------
