@@ -65,7 +65,7 @@ treat ❌-by-staleness the same as never-validated.
 | 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ✅ | `61d15cc` · 2026-06-04 (drive `6c27147eb917`); see §2 caveat | [#122](https://github.com/agentculture/colleague/issues/122) |
 | 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ✅ | `304002a` · 2026-06-04 (3a/3c/3d live, 3b/3e deterministic); see §3 result | [#123](https://github.com/agentculture/colleague/issues/123) |
 | 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ✅ | `7a12d1e` · 2026-06-05 (4a `2395f7d5d9b9`, 4b `80cb15c5f9cd`); see §4 result | [#124](https://github.com/agentculture/colleague/issues/124) |
-| 5 | Neighbours read-only clones | `colleague/neighbours.py` | ❌ | — (no `neighbours.json`) | [#125](https://github.com/agentculture/colleague/issues/125) |
+| 5 | Neighbours read-only clones | `colleague/neighbours.py` | ✅ | `64361da` · 2026-06-05 (drive `711505cb4c3f`); see §5 result | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ❌ | — (never run w/ collector) | [#126](https://github.com/agentculture/colleague/issues/126) |
 | 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ❌ | — (only step-budget seen live) | [#127](https://github.com/agentculture/colleague/issues/127) |
 
@@ -292,6 +292,39 @@ that reads a neighbour file; confirm a shallow clone appears under
 
 **Acceptance.** Clone-on-demand + cleanup observed; empty-config default still a
 no-op.
+
+**Result — 2026-06-05 (validated).** A gated live test
+(`tests/test_vllm_live_neighbours.py`, `COLLEAGUE_VLLM_E2E=1`) proves this
+config-present-to-fire surface works end-to-end against a real model. The
+neighbour is a hermetic local git repo (file:// URL), so the only live element is
+the model performing the read.
+
+- **Clone-on-start + read — ✅ LIVE.** Drives `711505cb4c3f` and `09d31abcf160`
+  (two clean runs): with one `{name, url}` in `.colleague/neighbours.json`, the
+  runtime shallow-cloned the neighbour into `.colleague/neighbours/sibling/`
+  *before* the loop, and the model read a sentinel file out of it
+  (`read_file(.colleague/neighbours/sibling/GREETING.txt)`, Step `ok=True`, the
+  result carried the sentinel). A successful read of the sentinel proves the clone
+  was present and readable mid-drive.
+- **Cleanup-on-finish — ✅ LIVE.** After each drive `.colleague/neighbours/` was
+  gone — `cleanup()` fires on every loop exit, before the handoff (asserted in the
+  test).
+- **Gitignored — ✅ LIVE.** The clone root is matched by the repo's `.gitignore`
+  (`git check-ignore` exits 0) and never tracked (`git ls-files` empty), so a
+  neighbour cannot leak into the drive branch commit.
+- **No `_DEFAULT_SYSTEM` change needed (the honest distinction from #122/#124).**
+  Neighbours is not a model-chosen tool: the clone is automatic (runtime-owned,
+  all-engines rule) and the model consults it via the base `read_file` tool.
+  Handing it the explicit path fired the read reliably — no prompt paragraph
+  required, unlike the subagents (#122) and culture/devague (#124) gaps.
+- **Empty-config no-op — ✅ DETERMINISTIC (cited, not re-proven live).** A drive
+  with no `neighbours.json` never creates `.colleague/neighbours/` — purely
+  model-independent loop mechanics, proven by
+  `tests/test_clone_lifecycle.py::TestCleanupAtFinish::test_empty_allowlist_noop`.
+  The clone/refresh/cleanup mechanics, path-traversal guards, and never-execute
+  confinement are unit-proven (`tests/test_neighbours.py`,
+  `tests/test_clone_lifecycle.py`). All validation config lives in throwaway
+  `tmp_path` fixtures — the repo still ships no `neighbours.json`.
 
 ### 6. Telemetry end-to-end live
 

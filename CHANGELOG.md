@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.7] - 2026-06-05
+
+### Added
+
+- Live-validation test `tests/test_vllm_live_neighbours.py` (gated by `COLLEAGUE_VLLM_E2E`) proving operator-configured neighbour read-only clones fire end-to-end against a real served model: clone-on-start + read, cleanup-on-finish, and gitignored (#125).
+
+### Changed
+
+- Live-testing ledger (`docs/live-testing.md`) row 5 (Neighbours read-only clones) marked validated with the §5 result block (drives `711505cb4c3f`, `09d31abcf160`).
+
 ## [0.33.6] - 2026-06-05
 
 ### Added
