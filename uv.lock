@@ -145,7 +145,7 @@ wheels = [
 
 [[package]]
 name = "colleague"
-version = "0.33.2"
+version = "0.33.3"
 source = { editable = "." }
 
 [package.optional-dependencies]

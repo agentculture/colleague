@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.3] - 2026-06-04
+
+### Added
+
+- docs/live-testing.md §1 marked ✅: outsource write validated live (#121) — 3 write --apply + 1 write --pr drive, each diff-verified.
+- Lock-in tests that the write prompt leads with the task (descriptive commit subject) and asks for lint-clean edits (tests/test_outsource_skill.py).
+
+### Changed
+
+- outsource write prompt (.claude/skills/outsource/prompts/write.md) now leads with $ARGUMENTS so the drive commit subject / PR title describes the change instead of the boilerplate preamble, and adds a lint-clean rule (max line length + one trailing newline) to curb W292/E501 in whole-file rewrites (#121).
+- Added docstrings to ToolExecutor.execute, subagents.spawn/batch_spawn, and VllmOpenAIEngine.drive (the real micro-improvements produced by the write validation drives).
+
 ## [0.33.2] - 2026-06-04
 
 ### Added

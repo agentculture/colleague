@@ -104,6 +104,23 @@ def test_review_prompt_uses_the_base_diff() -> None:
     assert "$BASE" not in out
 
 
+def test_write_prompt_leads_with_the_task_so_the_commit_subject_describes_it() -> None:
+    """handoff._commit_subject takes the instruction's first line; the write prompt
+    must lead with the task (not a boilerplate preamble) so the drive's commit
+    subject / PR title describes the change instead of a generic template line (#121)."""
+    out = _render("write", "Add a docstring to foo()", "main")
+    first = next(ln for ln in out.splitlines() if ln.strip())
+    assert first.strip() == "Add a docstring to foo()"
+
+
+def test_write_prompt_asks_for_lint_clean_edits() -> None:
+    """A whole-file rewrite can drop the EOF newline (W292) or overshoot the max
+    line length (E501); the write prompt nudges the model to keep edits lint-clean (#121)."""
+    out = _render("write", "x", "main").lower()
+    assert "newline" in out
+    assert "line length" in out
+
+
 def test_help_lists_the_verbs() -> None:
     r = _run("--help")
     assert r.returncode == 0

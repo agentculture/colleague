@@ -61,7 +61,7 @@ treat ❌-by-staleness the same as never-validated.
 | — | Command templates | `colleague/commands.py` | ✅ | `83fe6aa` · 2026-06-04 (`doc-review`) | — |
 | — | Drive stats | `colleague/loop.py`, `colleague/contract.py` | ⚠️ | present in artifacts; not field-audited live | — |
 | — | Step-budget termination | `colleague/loop.py` | ✅ | `83fe6aa` · 2026-06-04 (drive `99d1a4ee9572`, `901e9d61bf31`) | — |
-| 1 | `outsource write` reliability | `.claude/skills/outsource/`, `colleague/handoff.py` | ⚠️ | flaky — drive `1bcabd9095d3` rated 1 | [#121](https://github.com/agentculture/colleague/issues/121) |
+| 1 | `outsource write` reliability | `.claude/skills/outsource/`, `colleague/handoff.py` | ✅ | `6eb843d` · 2026-06-04 (apply `b885fbb`,`5bc48e7`,`f51427e` + PR `221b4ce`/#130); see §1 caveats | [#121](https://github.com/agentculture/colleague/issues/121) |
 | 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ❌ | — (0 live calls) | [#122](https://github.com/agentculture/colleague/issues/122) |
 | 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ❌ | — (no config present) | [#123](https://github.com/agentculture/colleague/issues/123) |
 | 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ❌ | — (0 live calls) | [#124](https://github.com/agentculture/colleague/issues/124) |
@@ -80,30 +80,51 @@ validated` SHA/date + evidence drive id) and closing the linked issue.
 
 **Why it matters.** `explore`/`review` are read-only and validated. `write
 --apply` lands a drive branch; `write --pr` opens a PR. The drive's
-commit/summary can drop or misreport edits, and a stale base or silent `mock`
-fallback can produce a no-op.
-
-**Evidence of the gap.** Drive `1bcabd9095d3` (rated 1): branched from an old
-base, produced a stray `colleague-mock.md` with the doc-review command template
-as the commit message, never touched the target file. Counter-example
-`8cc1b4528a34` succeeded on the same task — so `write` is **flaky**, not broken.
-`write --pr` has never opened a PR end-to-end.
+commit/summary can drop or misreport edits, so the result must be verified by
+diff (and lint), never trusted from the summary.
 
 **Procedure.**
 
 1. Pick a small, well-scoped change with a clear target file.
 2. `outsource write "<task>" --apply` (live backend).
 3. **Verify by diff, not by the drive summary:** `git diff main...HEAD --stat`
-   and inspect — confirm the target file changed and no stray files (e.g.
-   `colleague-mock.md`) appeared.
+   and inspect — confirm the target file changed, no stray files (e.g.
+   `colleague-mock.md`) appeared, **and the diff is lint-clean** (run `flake8` on
+   the touched file — a whole-file rewrite can drop the EOF newline or overshoot
+   the line length).
 4. Re-run the affected tests; confirm green.
 5. Repeat 1–4 three times on different tasks.
 6. Run `outsource write "<task>" --pr` once; confirm a real PR opens against the
    correct base.
 
-**Acceptance.** 3 consecutive `write --apply` runs verified clean by diff + tests;
-one `write --pr` opens a correct PR; the stale-base / mock-fallback root cause is
-understood (and filed separately if it recurs).
+**Acceptance.** 3 `write --apply` runs verified by diff + tests; one `write --pr`
+opens a correct PR; the root cause of any prior "flake" is understood.
+
+**Result — 2026-06-04 (validated).** 3 `--apply` drives (`b885fbb` tools.py,
+`5bc48e7` subagents.py, `f51427e` vllm_openai.py) + 1 `--pr` drive (`221b4ce`,
+opened **PR #130** against `main`), each a real docstring micro-improvement,
+diff-verified.
+
+- **Intent reliability: 4/4.** Every drive touched the right file with the right
+  change on the live vLLM engine; no stray `colleague-mock.md`. `--pr` pushed +
+  opened a correct PR against `main`.
+- **Edit fidelity to lint: the weak spot.** 2 of 3 `--apply` outputs were
+  lint-failing before cleanup — `f51427e` dropped the trailing newline (W292),
+  `b885fbb` overshot 100 cols (E501). The lint gate + verify-by-diff catch these;
+  a whole-file rewrite is the failure mode. **Mitigated** by a new `write.md` rule
+  ("keep edits lint-clean: max line length + one trailing newline").
+- **Commit subject was boilerplate.** Every write commit/PR title came out as
+  `colleague: Implement the following task in this repository:` — `write.md` led
+  with the preamble and `handoff._commit_subject` takes the instruction's first
+  line. **Fixed** by leading `write.md` with `$ARGUMENTS` (locked by
+  `tests/test_outsource_skill.py`).
+- **Prior "flake" evidence was confounded, not a write bug.** The rated-1 drive
+  `1bcabd9095d3` is an `outsource explore` probe, misattributed via `feedback
+  record last` (the `last_drive` pointer is shared across verbs). The stray
+  `colleague-mock.md` files came from explicit `--engine mock` smoke drives
+  (`8b8d43bd26cf` et al.); there is **no silent mock fallback** (`resolve_engine`,
+  pinned by `tests/test_config.py`). The render-order bug (#63 #3) is **already
+  fixed** here (single-pass `re.sub` in `outsource.sh`).
 
 ### 2. Subagents end-to-end live
 
