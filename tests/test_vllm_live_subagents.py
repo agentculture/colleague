@@ -14,7 +14,11 @@ through the **production** ``execute_drive`` path — the only path that wires t
 *structural* facts robust to model-text variance:
 
 * the drive populated ``result.sub_results`` (the model reached a delegation tool);
-* the throwaway worktrees under ``.colleague/worktrees/`` were cleaned up.
+* the *batch* path specifically ran — a ``subagents`` call in the trace, a
+  ``merge-`` child, and >=2 parallel children (so a singular ``subagent`` call
+  alone, which also fills ``sub_results``, cannot satisfy the test);
+* the throwaway worktrees under ``.colleague/worktrees/`` were cleaned up (checked
+  in git's worktree registry AND on disk).
 
 ``COLLEAGUE_SUBAGENT_CONCURRENCY=2`` exercises the parallel batch path. The caps
 (``MAX_SUBAGENT_DEPTH=2`` / ``MAX_SUBAGENT_FANOUT=4``) and the no-force-merge
@@ -116,16 +120,36 @@ def test_live_drive_delegates_to_subagents(git_repo: Path, monkeypatch: pytest.M
     print(f"[live #122] sub_results: {[(s.task_id, s.status) for s in result.sub_results]}")
 
     assert result.status == OK, result.error
-    # The delegation signal: the model reached the subagent/subagents tool, so the
-    # loop folded child results into the artifact (omitted entirely when empty).
+    # The delegation signal: the model reached a delegation tool, so the loop folded
+    # child results into the artifact (omitted entirely when empty).
     assert result.sub_results, "the model never delegated (no sub_results in the artifact)"
 
-    # Worktree lifecycle: every throwaway `sub/<id>` worktree was torn down. Assert
-    # on worktree DIRECTORIES, not branches — a conflicted child's branch is
+    # Prove the *batch* `subagents` path specifically — `sub_results` alone is also
+    # populated by the singular `subagent` tool, so it cannot distinguish the two.
+    # Two independent, robust structural signals of the batch path:
+    #   1. the loop trace shows a `subagents` tool call, and
+    #   2. the batch always appends exactly one merge child (task_id prefixed
+    #      `merge-`); the singular tool never produces one.
+    # The task asked for one child per file, so require >=2 non-merge children too.
+    tools_called = sorted({s.tool for s in result.steps})
+    assert (
+        "subagents" in tools_called
+    ), f"the batch `subagents` tool was never called: {tools_called}"
+    children = [s for s in result.sub_results if not s.task_id.startswith("merge-")]
+    merges = [s for s in result.sub_results if s.task_id.startswith("merge-")]
+    assert merges, "no merge child — the parallel worktree+merge path did not run"
+    assert len(children) >= 2, f"expected >=2 parallel children (one per file), got {len(children)}"
+
+    # Worktree lifecycle: every throwaway `sub/<id>` worktree was torn down. Check
+    # BOTH git's registry AND the on-disk tree — a registry prune that left an
+    # orphaned directory behind would otherwise read as a false "cleaned" pass.
+    # Assert on worktree DIRECTORIES, not branches — a conflicted child's branch is
     # intentionally retained while its worktree dir is still removed.
-    wt_root = str((git_repo / ".colleague" / "worktrees").resolve())
-    leftover = [p for p in _worktree_paths(git_repo) if p.startswith(wt_root)]
-    assert leftover == [], f"subagent worktrees not cleaned up: {leftover}"
+    wt_root = (git_repo / ".colleague" / "worktrees").resolve()
+    registered = [p for p in _worktree_paths(git_repo) if p.startswith(str(wt_root))]
+    assert registered == [], f"subagent worktrees still registered with git: {registered}"
+    on_disk = [p.name for p in wt_root.iterdir() if p.is_dir()] if wt_root.exists() else []
+    assert on_disk == [], f"orphaned worktree dirs left on disk under {wt_root}: {on_disk}"
 
     # The on-disk artifact carries the folded sub_results (#122 checklist).
     assert artifact_path.exists()
