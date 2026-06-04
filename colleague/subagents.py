@@ -359,6 +359,12 @@ def make_batch_spawn(
     """
 
     def batch_spawn(items: List[dict]) -> List[SubResult]:
+        """Run a batch of child subagents, each in its own isolated worktree.
+
+        Children run sequentially by default, or concurrently when
+        COLLEAGUE_SUBAGENT_CONCURRENCY > 1 (bounded by MAX_SUBAGENT_FANOUT).
+        Returns the list of their :class:`~colleague.contract.SubResult` objects.
+        """
         return _run_batch(
             items,
             repo_path=repo_path,
