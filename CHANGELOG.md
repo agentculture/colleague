@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.2] - 2026-06-04
+
+### Added
+
+- docs/live-testing.md — live-testing ledger tracking end-to-end validation against a real served model (the layer the unit suite cannot reach: tools the model must choose to invoke + config surfaces that must be present to fire), with a per-feature commit+date staleness stamp. Wired to tracking epic #128 and per-item issues #121-#127.
+
 ## [0.33.1] - 2026-06-04
 
 ### Added
