@@ -28,7 +28,7 @@ from colleague.contract import OK, Task
 from colleague.engines.vllm_openai import VllmOpenAIEngine
 
 pytestmark = pytest.mark.skipif(
-    (os.environ.get("COLLEAGUE_VLLM_E2E") or os.environ.get("CONVERTIBLE_VLLM_E2E")) != "1",
+    "1" not in (os.environ.get("COLLEAGUE_VLLM_E2E"), os.environ.get("CONVERTIBLE_VLLM_E2E")),
     reason="set COLLEAGUE_VLLM_E2E=1 (with a live vLLM server) to run the live proof",
 )
 

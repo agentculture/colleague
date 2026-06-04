@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -41,10 +42,24 @@ from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
 from colleague.layers import sanitize_model
 
+# Run only when either gate var is explicitly "1" (the deprecated CONVERTIBLE_*
+# is honored as a fallback). Membership — not `A or B` — so a truthy non-"1"
+# primary (e.g. "0") cannot mask a "1" fallback.
 pytestmark = pytest.mark.skipif(
-    (os.environ.get("COLLEAGUE_VLLM_E2E") or os.environ.get("CONVERTIBLE_VLLM_E2E")) != "1",
+    "1" not in (os.environ.get("COLLEAGUE_VLLM_E2E"), os.environ.get("CONVERTIBLE_VLLM_E2E")),
     reason="set COLLEAGUE_VLLM_E2E=1 (with a live vLLM server) to run the live proof",
 )
+
+
+def _hook_cmd(script_rel: str) -> str:
+    """A hook command that runs *script_rel* with THIS interpreter.
+
+    Uses ``sys.executable`` (an absolute path), not a bare ``python3`` on PATH:
+    the hook runner maps a launch failure / non-zero exit to a *deny*, so a
+    missing ``python3`` would silently flip a hook's decision for the wrong reason.
+    """
+    return f"{sys.executable} {script_rel}"
+
 
 # Dependency-free hook scripts (read the JSON tool-call payload from stdin, emit a
 # decision on stdout). Written into the repo at setup; no jq, no third-party deps.
@@ -162,7 +177,10 @@ def test_3c_pre_tool_hook_denies_write(git_repo: Path) -> None:
         {
             "hooks": {
                 "pre_tool": [
-                    {"matcher": "write_file", "command": "python3 .colleague/hooks/deny_writes.py"}
+                    {
+                        "matcher": "write_file",
+                        "command": _hook_cmd(".colleague/hooks/deny_writes.py"),
+                    }
                 ]
             }
         },
@@ -183,7 +201,10 @@ def test_3c_pre_tool_hook_rewrites_write(git_repo: Path) -> None:
         {
             "hooks": {
                 "pre_tool": [
-                    {"matcher": "write_file", "command": "python3 .colleague/hooks/rewrite_path.py"}
+                    {
+                        "matcher": "write_file",
+                        "command": _hook_cmd(".colleague/hooks/rewrite_path.py"),
+                    }
                 ]
             }
         },
@@ -217,7 +238,10 @@ def test_3d_per_model_overlay_hook_fires(git_repo: Path) -> None:
         {
             "hooks": {
                 "pre_tool": [
-                    {"matcher": "write_file", "command": "python3 .colleague/hooks/deny_writes.py"}
+                    {
+                        "matcher": "write_file",
+                        "command": _hook_cmd(".colleague/hooks/deny_writes.py"),
+                    }
                 ]
             }
         },
