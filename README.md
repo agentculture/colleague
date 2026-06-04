@@ -1,6 +1,6 @@
 # colleague
 
-> Colleague CLI is a swappable coder-agent harness that turns different model
+> Colleague is a swappable coder-agent harness that turns different model
 > backends into repo workers behind one shared task runtime.
 >
 > **One runtime, many minds.**
