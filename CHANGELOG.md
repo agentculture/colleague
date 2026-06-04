@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.5] - 2026-06-04
+
+### Added
+
+- docs/live-testing.md §3 marked ✅: gated configs enforcement validated (#123). 3a/3c/3d proven LIVE against the reference rig (drives `324819918d83`/`21dff9b0fb93` run_command deny/allow, `a30324e89aa3`/`23fa581fc19a` hook deny/rewrite, `5a590ffb360f` per-model overlay); 3b (checksum-void + command-expand-refused) and 3e (per-model AGENTS/skills composition) proven DETERMINISTICALLY (engine-agnostic — a live model adds no signal).
+- tests/test_vllm_live_gated_configs.py — gated (`COLLEAGUE_VLLM_E2E=1`) live proof that a real model's run_command/write_file call hits the approval gate / pre_tool hooks, and that the per-model hooks overlay loads via `load_hooks(model=config.model)`.
+- tests/test_gated_configs_enforcement.py — fast deterministic proof of 3b (checksum drift voids a hook approval → skipped; a drifted command template is refused at expand time) and 3e (`system_prompt_for` folds per-model AGENTS/skills into the prompt; a sibling model sees neither). All config lives in throwaway tmp_path — the repo still ships none.
+
 ## [0.33.4] - 2026-06-04
 
 ### Added

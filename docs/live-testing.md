@@ -63,7 +63,7 @@ treat ❌-by-staleness the same as never-validated.
 | — | Step-budget termination | `colleague/loop.py` | ✅ | `83fe6aa` · 2026-06-04 (drive `99d1a4ee9572`, `901e9d61bf31`) | — |
 | 1 | `outsource write` reliability | `.claude/skills/outsource/`, `colleague/handoff.py` | ✅ | `6eb843d` · 2026-06-04 (apply `b885fbb`,`5bc48e7`,`f51427e` + PR `221b4ce`/#130); see §1 caveats | [#121](https://github.com/agentculture/colleague/issues/121) |
 | 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ✅ | `61d15cc` · 2026-06-04 (drive `6c27147eb917`); see §2 caveat | [#122](https://github.com/agentculture/colleague/issues/122) |
-| 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ❌ | — (no config present) | [#123](https://github.com/agentculture/colleague/issues/123) |
+| 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ✅ | `304002a` · 2026-06-04 (3a/3c/3d live, 3b/3e deterministic); see §3 result | [#123](https://github.com/agentculture/colleague/issues/123) |
 | 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ❌ | — (0 live calls) | [#124](https://github.com/agentculture/colleague/issues/124) |
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ❌ | — (no `neighbours.json`) | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ❌ | — (never run w/ collector) | [#126](https://github.com/agentculture/colleague/issues/126) |
@@ -202,6 +202,40 @@ repo; `doctor` reports `0 AGENTS layer(s), 0 skill(s)`; none has fired live.
 
 **Acceptance.** Each sub-check observed live; all config removed afterward (this
 repo ships none by default — keep it that way).
+
+**Result — 2026-06-04 (validated).** Gated live tests
+(`tests/test_vllm_live_gated_configs.py`, `COLLEAGUE_VLLM_E2E=1`) prove the
+config-present gates fire in a real drive; the engine-agnostic mechanics (3b
+checksum-void, 3e prompt composition) are proven deterministically
+(`tests/test_gated_configs_enforcement.py`). All validation config lives in
+throwaway `tmp_path` fixtures — the repo still ships none.
+
+- **3a Approvals `run_command` — ✅ LIVE.** Drive `324819918d83`: a real
+  `run_command("curl …")` was blocked by `_deny_by_policy` (Step `ok=False`,
+  "on the deny list"). Drive `21dff9b0fb93`: an allowed `echo` ran (Step
+  `ok=True`, `exit=0`).
+- **3b Checksum-void + command-expand-refused — ✅ DETERMINISTIC**
+  (engine-agnostic). An approved deny-hook fires; editing the script voids the
+  approval → `HookFiring(decision="skipped")` and the tool is no longer blocked;
+  a drifted command template raises `CommandError` at expand time. Pinned by
+  `tests/test_gated_configs_enforcement.py`. The live model adds no signal — the
+  skip is model-independent loop mechanics.
+- **3c Hooks deny + rewrite — ✅ LIVE.** Drive `a30324e89aa3`: a `pre_tool` hook
+  denied a real `write_file` (`HookFiring` deny + Step `ok=False`, file not
+  written). Drive `23fa581fc19a`: a rewrite hook swapped the `write_file` path
+  (`HookFiring` rewrite + `rewritten.txt` in `changed_files`, original gone).
+- **3d Per-model hooks overlay — ✅ LIVE.** Drive `5a590ffb360f`: a deny hook
+  present ONLY in `.colleague/sakamakismile-Qwen3.6-27B-Text-NVFP4-MTP/hooks.json`
+  (no base `hooks.json`) fired — proving `load_hooks(repo, model=config.model)`
+  loads the overlay. Precedence/isolation unit-proven by
+  `tests/test_hooks_per_model.py`.
+- **3e Per-model AGENTS/skills — ✅ DETERMINISTIC** (per the #123 decision;
+  colleague records the composed prompt nowhere). `system_prompt_for(repo, model,
+  base=_DEFAULT_SYSTEM)` — the EXACT engine path (`engine.py`, parity locked by
+  `tests/test_layers_engine_parity.py`) — folds the `AGENTS.colleague.<model>.md`
+  marker + skill summary into the prompt; a sibling model sees neither
+  (exact-path isolation). A soft live marker drive (`f41df9a91008`) saw the model
+  echo the layer's requested summary, but that is advisory only.
 
 ### 4. Loop tools live — `culture` + `devague`
 
