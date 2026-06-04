@@ -62,7 +62,7 @@ treat ❌-by-staleness the same as never-validated.
 | — | Drive stats | `colleague/loop.py`, `colleague/contract.py` | ⚠️ | present in artifacts; not field-audited live | — |
 | — | Step-budget termination | `colleague/loop.py` | ✅ | `83fe6aa` · 2026-06-04 (drive `99d1a4ee9572`, `901e9d61bf31`) | — |
 | 1 | `outsource write` reliability | `.claude/skills/outsource/`, `colleague/handoff.py` | ✅ | `6eb843d` · 2026-06-04 (apply `b885fbb`,`5bc48e7`,`f51427e` + PR `221b4ce`/#130); see §1 caveats | [#121](https://github.com/agentculture/colleague/issues/121) |
-| 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ❌ | — (0 live calls) | [#122](https://github.com/agentculture/colleague/issues/122) |
+| 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ✅ | `61d15cc` · 2026-06-04 (drive `6c27147eb917`); see §2 caveat | [#122](https://github.com/agentculture/colleague/issues/122) |
 | 3 | Gated configs (approvals / hooks / per-model layers) | `colleague/policy.py`, `colleague/hooks.py`, `colleague/layers.py` | ❌ | — (no config present) | [#123](https://github.com/agentculture/colleague/issues/123) |
 | 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ❌ | — (0 live calls) | [#124](https://github.com/agentculture/colleague/issues/124) |
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ❌ | — (no `neighbours.json`) | [#125](https://github.com/agentculture/colleague/issues/125) |
@@ -146,6 +146,38 @@ the sequential merge child are unexercised against a real model.
 
 **Acceptance.** A live drive shows subagent delegation, worktree create+cleanup,
 conflict surfaced, caps enforced, and `sub_results` in the artifact.
+
+**Result — 2026-06-04 (validated).** Live drive `6c27147eb917` against the
+reference rig delegated via the parallel `subagents` tool with
+`COLLEAGUE_SUBAGENT_CONCURRENCY=2`: two children (`9eb32e45cacd`, `6a95f13eb2e7`)
+ran in isolated `sub/<id>` worktrees, a sequential merge child
+(`merge-d9b20b4d3896-0`) integrated both branches cleanly, the worktrees were
+torn down, and `sub_results` was folded into the artifact. Pinned by the gated
+`tests/test_vllm_live_subagents.py` (`COLLEAGUE_VLLM_E2E=1`,
+`COLLEAGUE_SUBAGENT_CONCURRENCY=2`).
+
+- **Delegation needs an explicit invite.** The improved `_DEFAULT_SYSTEM`
+  subagents paragraph now names the parallel `subagents` tool (it previously
+  described only the singular `subagent` and called delegation "sequential", so
+  the live model had no signal the batch tool existed). A task that *explicitly*
+  asks to "delegate as parallel subagents" reliably fires the tool. A purely
+  *implicit* two-file task (drive `65ab1129dbe0`: "Make two changes: in x.py …; in
+  y.py …") still did the work itself with the base five — **no spontaneous
+  delegation**. So this row is ✅ for the *capability* — the machinery (tool
+  choice → parallel worktrees → merge child → `sub_results` in the artifact) runs
+  end-to-end against a real model — with the honest caveat that the live model
+  does not yet delegate unprompted.
+- **Caps + conflict-surfacing are unit-proven, not forced live.**
+  `MAX_SUBAGENT_DEPTH=2` / `MAX_SUBAGENT_FANOUT=4` are enforced structurally
+  (`colleague/config.py`, checked before any child work) and pinned by
+  `tests/test_subagents.py` (`test_depth_cap_refuses_before_work`) and
+  `tests/test_config_subagent.py`. The no-force-merge conflict path is pinned by
+  `tests/test_subagents_parallel.py::TestMerge`
+  (`test_conflicting_merge_surfaces_conflict`,
+  `test_conflict_removes_worktree_but_RETAINS_branch`). Deterministically inducing
+  two children that edit the *same lines* with a live model is unreliable, so the
+  conflict checkbox rests on the unit proof rather than a flaky live trigger; the
+  live drive above exercised a *clean* merge.
 
 ### 3. Gated configs enforcement live (approvals / hooks / per-model layers)
 

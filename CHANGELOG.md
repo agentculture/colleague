@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.4] - 2026-06-04
+
+### Added
+
+- docs/live-testing.md §2 marked ✅: subagents validated live (#122). Live drive `6c27147eb917` against the reference rig delegated via the parallel `subagents` tool (`COLLEAGUE_SUBAGENT_CONCURRENCY=2`) — two children in isolated `sub/<id>` worktrees, a merge child integrated both branches cleanly, worktrees torn down, `sub_results` folded into the artifact.
+- tests/test_vllm_live_subagents.py — gated (`COLLEAGUE_VLLM_E2E=1`) end-to-end proof that a real model reaches the `subagents` tool and the worktree create→merge→cleanup lifecycle runs; asserts on structural facts (`sub_results` populated, worktrees cleaned) robust to model-text variance.
+
+### Changed
+
+- `_DEFAULT_SYSTEM` subagents guidance (colleague/loop.py) now names the parallel `subagents` batch tool and its isolated-worktree/merge-child/conflict-surfacing nature, and invites delegation on naturally-parallel multi-file tasks — it previously described only the singular `subagent` and called delegation "sequential", leaving the live model unaware the batch tool existed (#122). Runtime-owned, so both bundled backends inherit it (all-engines rule). Honest caveat recorded in the ledger: the live model delegates when explicitly invited but not yet spontaneously on a purely implicit task.
+
 ## [0.33.3] - 2026-06-04
 
 ### Added
