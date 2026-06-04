@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.1] - 2026-06-04
+
+### Added
+
+- Test coverage for `doctor --probe` model-availability gaps: the happy-path match (info/passed), an empty/no-id served set (warning naming "(none)"), an unparseable /models body (verdict omitted, reachability still passes), and partial config (probe targets the resolved {base_url}/models, default model still compared).
+- CLI-wrapper tests crossing the `cmd_doctor -> diagnose(probe=...)` seam: `doctor --probe` runs the reachability check and a bare `doctor` omits it (opt-in contract).
+
 ## [0.33.0] - 2026-06-04
 
 ### Added

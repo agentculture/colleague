@@ -89,3 +89,40 @@ def test_doctor_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["checks"]
     for check in payload["checks"]:
         assert {"id", "passed", "severity", "message", "remediation"} <= set(check)
+
+
+def _fake_models_ok(*_args: object, **_kwargs: object):
+    """Stand-in /models response so --probe needs no live server."""
+
+    class _R:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return b'{"object": "list", "data": []}'
+
+    return _R()
+
+
+def test_doctor_probe_runs_reachability_check(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # cmd_doctor → diagnose(probe=True) is the only seam exercising the flag; the
+    # underlying probe is unit-tested in test_oilcheck_reachability. Stub urlopen
+    # so this stays a no-network CLI test.
+    monkeypatch.setattr("urllib.request.urlopen", _fake_models_ok)
+    rc = main(["doctor", "--probe"])
+    assert rc in (0, 1)
+    assert "provider_reachable" in capsys.readouterr().out
+
+
+def test_doctor_without_probe_omits_reachability_check(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # No --probe ⇒ no network call, no reachability check (opt-in contract).
+    rc = main(["doctor"])
+    assert rc in (0, 1)
+    assert "provider_reachable" not in capsys.readouterr().out
