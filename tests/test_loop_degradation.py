@@ -28,7 +28,7 @@ from colleague.context import count_tokens_chars
 from colleague.contract import ERROR, OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine
-from colleague.loop import ModelResponse, ToolCall, WorkAborted, run
+from colleague.loop import ContextControls, ModelResponse, ToolCall, WorkAborted, run
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -83,8 +83,7 @@ def test_proactive_windowing_trims_history_each_turn(tmp_path: Path) -> None:
         never_finish,
         task,
         max_steps=12,
-        context_budget=20,
-        count_tokens=_word_count_tokens,
+        context=ContextControls(budget=20, count_tokens=_word_count_tokens),
     )
 
     # Many turns ran, and the per-turn message length is bounded — the late turns
@@ -149,8 +148,7 @@ def test_reactive_retry_then_recover(tmp_path: Path) -> None:
         flaky,
         task,
         max_steps=10,
-        context_budget=10,
-        count_tokens=_word_count_tokens,
+        context=ContextControls(budget=10, count_tokens=_word_count_tokens),
     )
 
     assert result.status == OK
@@ -183,8 +181,7 @@ def test_non_recoverable_overflow_preserves_partial(tmp_path: Path) -> None:
             always_overflow,
             task,
             max_steps=10,
-            context_budget=10,
-            count_tokens=_word_count_tokens,
+            context=ContextControls(budget=10, count_tokens=_word_count_tokens),
         )
 
     result = excinfo.value.result
@@ -211,7 +208,12 @@ def test_non_overflow_error_propagates_immediately(tmp_path: Path) -> None:
 
     task = Task.new(str(tmp_path), "generic failure")
     with pytest.raises(WorkAborted) as excinfo:
-        run(boom, task, max_steps=10, context_budget=10, count_tokens=_word_count_tokens)
+        run(
+            boom,
+            task,
+            max_steps=10,
+            context=ContextControls(budget=10, count_tokens=_word_count_tokens),
+        )
 
     assert calls["n"] == 1  # not retried
     assert excinfo.value.result.status == ERROR

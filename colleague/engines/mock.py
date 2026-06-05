@@ -12,7 +12,7 @@ from __future__ import annotations
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.engine import Engine
-from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
+from colleague.loop import CompleteFn, ContextControls, ModelResponse, ToolCall, run
 from colleague.tools import ToolExecutor
 
 #: Where the mock writes its marker file (relative to the repo root).
@@ -76,7 +76,12 @@ class MockEngine(Engine):
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
             ),
-            # All-engines rule: the mock exercises the SAME loop windowing path.
-            # No count_tokens → the loop uses the char estimate via window_messages.
-            context_budget=config.context_budget_tokens,
+            # All-engines rule: the mock exercises the SAME loop windowing path and
+            # arms reactive auto-split (#151) identically (dormant unless an
+            # exhausted overflow fires it). No count_tokens → the loop uses the char
+            # estimate via window_messages.
+            context=ContextControls(
+                budget=config.context_budget_tokens,
+                autosplit_target=config.autosplit_target_tokens,
+            ),
         )

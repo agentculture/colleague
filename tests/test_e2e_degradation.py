@@ -42,7 +42,7 @@ from colleague.context import count_tokens_chars
 from colleague.contract import ERROR, OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine, _tokenize_url
-from colleague.loop import ModelResponse, ToolCall, WorkAborted, run
+from colleague.loop import ContextControls, ModelResponse, ToolCall, WorkAborted, run
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -125,8 +125,7 @@ def test_overflow_once_then_recover_completes_ok(tmp_path: Path) -> None:
         flaky_complete,
         task,
         max_steps=10,
-        context_budget=20,
-        count_tokens=_word_count_tokens,
+        context=ContextControls(budget=20, count_tokens=_word_count_tokens),
     )
 
     assert result.status == OK, f"expected ok, got: {result.status!r}, error={result.error!r}"

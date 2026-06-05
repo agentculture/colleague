@@ -98,3 +98,95 @@ def test_resolve_engine_blank_explicit_and_env_falls_through_to_default(
 def test_resolve_engine_strips_surrounding_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CONVERTIBLE_ENGINE", raising=False)
     assert resolve_engine("  mock  ") == "mock"
+
+
+# ---------------------------------------------------------------------------
+# autosplit_target_tokens: tunable split-capacity knob (issue #151).
+# ---------------------------------------------------------------------------
+
+
+def test_autosplit_target_tokens_default() -> None:
+    """autosplit_target_tokens defaults to 1_000_000 when no env or arg is set."""
+    cfg = EngineConfig.resolve()
+    assert cfg.autosplit_target_tokens == 1_000_000
+
+
+def test_autosplit_target_tokens_colleague_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """COLLEAGUE_AUTOSPLIT_TARGET overrides the default."""
+    monkeypatch.setenv("COLLEAGUE_AUTOSPLIT_TARGET", "500000")
+    monkeypatch.delenv("CONVERTIBLE_AUTOSPLIT_TARGET", raising=False)
+    cfg = EngineConfig.resolve()
+    assert cfg.autosplit_target_tokens == 500_000
+
+
+def test_autosplit_target_tokens_colleague_wins_over_convertible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """COLLEAGUE_AUTOSPLIT_TARGET is preferred over CONVERTIBLE_AUTOSPLIT_TARGET."""
+    monkeypatch.setenv("COLLEAGUE_AUTOSPLIT_TARGET", "300000")
+    monkeypatch.setenv("CONVERTIBLE_AUTOSPLIT_TARGET", "999999")
+    cfg = EngineConfig.resolve()
+    assert cfg.autosplit_target_tokens == 300_000
+
+
+def test_autosplit_target_tokens_explicit_wins_over_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit resolve(autosplit_target_tokens=...) arg beats the env var."""
+    monkeypatch.setenv("COLLEAGUE_AUTOSPLIT_TARGET", "500000")
+    cfg = EngineConfig.resolve(autosplit_target_tokens=800_000)
+    assert cfg.autosplit_target_tokens == 800_000
+
+
+def test_autosplit_target_tokens_in_to_dict() -> None:
+    """autosplit_target_tokens appears in to_dict() snapshot."""
+    cfg = EngineConfig.resolve(autosplit_target_tokens=750_000)
+    snapshot = cfg.to_dict()
+    assert "autosplit_target_tokens" in snapshot
+    assert snapshot["autosplit_target_tokens"] == 750_000
+
+
+# ---------------------------------------------------------------------------
+# autosplit_children: derived-children helper (issue #151).
+# ---------------------------------------------------------------------------
+
+
+def test_autosplit_children_clamps_to_max_fanout_minus_one() -> None:
+    """1_000_000 / 192_000 = ceil(5.2) = 6, clamped down to MAX_SUBAGENT_FANOUT - 1 == 3."""
+    from colleague.config import MAX_SUBAGENT_FANOUT, autosplit_children
+
+    result = autosplit_children(1_000_000, 192_000)
+    assert result == MAX_SUBAGENT_FANOUT - 1
+
+
+def test_autosplit_children_returns_one_for_small_target() -> None:
+    """200_000 / 250_000 = ceil(0.8) = 1."""
+    from colleague.config import autosplit_children
+
+    assert autosplit_children(200_000, 250_000) == 1
+
+
+def test_autosplit_children_returns_two_for_equal_halves() -> None:
+    """500_000 / 250_000 = ceil(2.0) = 2."""
+    from colleague.config import autosplit_children
+
+    assert autosplit_children(500_000, 250_000) == 2
+
+
+def test_autosplit_children_non_positive_budget_guard() -> None:
+    """A non-positive per_child_budget returns MAX_SUBAGENT_FANOUT - 1."""
+    from colleague.config import MAX_SUBAGENT_FANOUT, autosplit_children
+
+    assert autosplit_children(10, 0) == MAX_SUBAGENT_FANOUT - 1
+
+
+def test_autosplit_children_huge_target_no_overflow() -> None:
+    """Regression (#151 Qodo): an absurd target uses integer ceiling math, never a float.
+
+    ``math.ceil(target / budget)`` would raise OverflowError once ``target`` exceeds
+    float range; integer ceiling division stays exact and clamps cleanly.
+    """
+    from colleague.config import MAX_SUBAGENT_FANOUT, autosplit_children
+
+    huge = 10**400  # well beyond float range — float division would OverflowError
+    assert autosplit_children(huge, 192_000) == MAX_SUBAGENT_FANOUT - 1

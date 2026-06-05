@@ -145,6 +145,22 @@ The architecture, part by part:
   This is explicitly NOT the out-of-scope multi-backend router / routing policy: there is
   no operator-configured automatic task→backend routing policy. Runtime-owned
   (all-engines rule): the tools fire identically for every backend.
+- **Auto-split** — when an assignment is too large for one context window,
+  colleague recommends splitting it into up to ~4 coherent child assignments
+  (via the existing `subagents` tool) instead of degrading lossily or failing.
+  The reactive trigger fires at the degradation-exhaustion point (when
+  `_MAX_OVERFLOW_RETRIES` are exhausted) and sequences BEFORE escalation, injecting
+  one structured recommendation message that points the model at `subagents` with
+  concrete per-child budget and child-count numbers; the model decides whether to
+  act. A coarser up-front estimate of the task instruction text provides an early
+  advisory hint. The actual fan-out + merge reuse `colleague.subagents.make_batch_spawn`
+  / `batch_spawn` unchanged (isolated per-child worktrees + sequential merge-subagent).
+  Capacity is tunable via `COLLEAGUE_AUTOSPLIT_TARGET` (env, default ≈1M tokens ≈ 4 children)
+  and structurally clamped to `MAX_SUBAGENT_FANOUT - 1` (caps unchanged: FANOUT=4, DEPTH=2).
+  The feature is runtime-owned (all-engines rule): fires identically for `mock` and
+  `vllm-openai`; when no trigger fires it is a strict no-op with TaskResult shape
+  unchanged. Specification + plan: `docs/specs/2026-06-05-colleague-auto-splits-a-too-large-assignment-into.md`
+  and `docs/plans/2026-06-05-colleague-auto-splits-a-too-large-assignment-into.md`.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
   (`colleague/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
