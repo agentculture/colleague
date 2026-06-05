@@ -10,7 +10,7 @@ graceful-degradation layer: the loop already preserves a partial `TaskResult`
 and `WorkStats` when it aborts; escalation converts those into a tracked issue
 in the AgentCulture mesh via `agtag`.
 
-This feature serves **whoever outsourced the task**: the operator or agent that
+This feature serves **whoever delegated the task**: the operator or agent that
 delegated work to colleague and needs to know it hit a limit and how to restart.
 
 ## When it fires
