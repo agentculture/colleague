@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-06-05
+
+### Added
+
+- Auto-split (#151): when an assignment is too large for one context window, colleague now recommends splitting it into up to ~4 hand-over child assignments via the existing `subagents` tool instead of degrading lossily or failing. Advisory and backend-judged: the reactive trigger fires at the degradation-exhaustion point (when bounded overflow retries are exhausted) and is sequenced BEFORE escalation; the model decides whether to split. A coarse up-front instruction estimate adds an early advisory hint. The fan-out + merge reuse `colleague.subagents.make_batch_spawn`/`batch_spawn` verbatim. Capacity is a tunable `COLLEAGUE_AUTOSPLIT_TARGET` knob (default ~1M tokens), structurally clamped to `MAX_SUBAGENT_FANOUT - 1`. Runtime-owned (all-engines rule); zero new deps; a strict no-op when no trigger fires.
+
 ## [0.38.0] - 2026-06-05
 
 ### Added
