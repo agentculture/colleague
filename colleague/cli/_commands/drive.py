@@ -78,6 +78,13 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
         lines.append(f"branch: {result.branch}")
     lines.append(f"PR: {result.pr_url or '(none)'}")
     lines.append(f"artifact: {artifact_path}")
+    # The ROI-loop nudge: every completed drive is gradable (the artifact survives
+    # even on a failed drive — a 1/5 is exactly the ROI signal), so mirror the
+    # outsource wrapper's `grade:` hint here pointing at the native feedback verb.
+    # `_render` is the text path only; the `--json` branch bypasses it, so the
+    # hint never pollutes machine output.
+    if result.task_id:
+        lines.append(f"grade: colleague feedback record {result.task_id} --rating <1-5>")
     return "\n".join(lines)
 
 

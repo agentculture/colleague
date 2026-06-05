@@ -99,7 +99,18 @@ def cmd_feedback_record(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
     repo = Path(args.repo).expanduser()
     task_id = _resolve(repo, args.ref)
-    by = args.by or resolve_identity(repo) or ""
+    resolved = resolve_identity(repo)
+    by = args.by or resolved or ""
+    # Don't attribute a grade to a silent ``(unknown)``: when neither an explicit
+    # ``--by`` nor a repo identity resolves, say so (stderr, never the result) and
+    # point at the two fixes. Contextual ``feedback:`` prefix — ``hint:`` is
+    # reserved for the ``error:``/``hint:`` rubric pair. The record still writes.
+    if not args.by and resolved is None:
+        emit_diagnostic(
+            "feedback: no identity resolved for this repo; recording 'by' as "
+            "(unknown). Pass --by NAME, or add a culture.yaml nick or "
+            '.colleague/identity.json "as".'
+        )
     try:
         record = fb.write_feedback(repo, task_id, rating=args.rating, notes=args.notes or "", by=by)
     except FeedbackError as exc:

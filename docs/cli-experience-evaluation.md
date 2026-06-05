@@ -95,23 +95,31 @@ resolves the drive engine/model the same way a real drive does, so this is
 wiring, not new resolution. Locked by
 `tests/test_cli_introspection.py::test_overview_identity_surfaces_drive_model_consistent_with_whoami`.
 
-### P2 — Bare `colleague drive` doesn't echo the `grade:` hint — [#144]
+### P2 — Bare `colleague drive` doesn't echo the `grade:` hint — FIXED [#144]
 
-CLAUDE.md says "every drive echoes `task:` + a `grade:` hint", but the hint is
+CLAUDE.md says "every drive echoes `task:` + a `grade:` hint", but the hint was
 emitted only by the `outsource` wrapper (`outsource.sh`), not the runtime drive
 command. A live `outsource explore` printed
 `grade: outsource feedback ee3850dc7858 --rating <1-5>`; a bare
-`colleague drive` printed `task:` but no `grade:` line (stdout or stderr). The
-ROI loop is less discoverable for the direct-CLI path. Tracked in
-[#144](https://github.com/agentculture/colleague/issues/144).
+`colleague drive` printed `task:` but no `grade:` line (stdout or stderr).
 
-### P3 — Grading in an identity-less repo attributes to `(unknown)` with no hint — [#145]
+**Fix ([#144]):** the drive result block now ends with
+`grade: colleague feedback record <task_id> --rating <1-5>` (in `_render`,
+`drive.py`), pointing at the native feedback verb — so the bare-CLI path gets the
+same ROI-loop nudge, and the CLAUDE.md claim becomes literally true. The `--json`
+path bypasses the text renderer, so machine output stays clean.
+
+### P3 — Grading in an identity-less repo attributes to `(unknown)` with no hint — FIXED [#145]
 
 `by` correctly defaults to the target repo's resolved identity, but a repo with
-no `culture.yaml` / `.colleague/identity.json` records `by: (unknown)` with no
-signal that `--by` exists or where identity is resolved from. A one-line stderr
-hint would close it. Tracked in
-[#145](https://github.com/agentculture/colleague/issues/145).
+no `culture.yaml` / `.colleague/identity.json` recorded `by: (unknown)` with no
+signal that `--by` exists or where identity is resolved from.
+
+**Fix ([#145]):** `feedback record` now emits a stderr advisory
+(`feedback: no identity resolved for this repo; … pass --by NAME, or add a
+culture.yaml nick / .colleague/identity.json "as"`) when neither an explicit
+`--by` nor a repo identity resolves. The record still writes (exit 0) and the
+`--json` stdout payload is untouched.
 
 ## Bottom line
 
@@ -120,8 +128,8 @@ genuine stdout/stderr separation, the faithful always-on stats, and a working,
 *verifiable* `outsource explore` are all real strengths — and the recent
 trail-off (#143) and `last`-safety (#132) fixes hold up under live use. The only
 real wart was the `overview` vs `whoami` model disagreement (P1), fixed here; the
-remainder are discoverability nits tracked as [#144] / [#145]. The reproduction
-recipe above regenerates every observation against the live rig.
+two remaining discoverability nits ([#144] / [#145]) are now fixed too. The
+reproduction recipe above regenerates every observation against the live rig.
 
 [#144]: https://github.com/agentculture/colleague/issues/144
 [#145]: https://github.com/agentculture/colleague/issues/145
