@@ -275,7 +275,7 @@ if ap:
 # the ROI signal, so the hint must not be gated on `ok` (#139 qodo). It prints to
 # `out` (stderr on failure), matching the rest of the failure digest.
 if tid and os.environ.get("OUTSOURCE_GRADABLE") == "1":
-    print("grade:", "outsource feedback", tid, "--rating <1-5>", file=out)
+    print("grade:", "outsource feedback", tid, "--rating N", file=out)
 sys.exit(0 if ok else 1)
 '
 }

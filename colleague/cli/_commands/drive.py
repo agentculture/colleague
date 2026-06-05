@@ -84,7 +84,7 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
     # `_render` is the text path only; the `--json` branch bypasses it, so the
     # hint never pollutes machine output.
     if result.task_id:
-        lines.append(f"grade: colleague feedback record {result.task_id} --rating <1-5>")
+        lines.append(f"grade: colleague feedback record {result.task_id} --rating N")
     return "\n".join(lines)
 
 

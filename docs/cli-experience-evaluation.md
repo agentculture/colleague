@@ -100,14 +100,16 @@ wiring, not new resolution. Locked by
 CLAUDE.md says "every drive echoes `task:` + a `grade:` hint", but the hint was
 emitted only by the `outsource` wrapper (`outsource.sh`), not the runtime drive
 command. A live `outsource explore` printed
-`grade: outsource feedback ee3850dc7858 --rating <1-5>`; a bare
+`grade: outsource feedback ee3850dc7858 --rating N`; a bare
 `colleague drive` printed `task:` but no `grade:` line (stdout or stderr).
 
 **Fix ([#144]):** the drive result block now ends with
-`grade: colleague feedback record <task_id> --rating <1-5>` (in `_render`,
+`grade: colleague feedback record <task_id> --rating N` (in `_render`,
 `drive.py`), pointing at the native feedback verb — so the bare-CLI path gets the
-same ROI-loop nudge, and the CLAUDE.md claim becomes literally true. The `--json`
-path bypasses the text renderer, so machine output stays clean.
+same ROI-loop nudge, and the CLAUDE.md claim becomes literally true. The
+placeholder is `N` (not `<1-5>`, whose `<` a shell reads as redirection) so the
+line is genuinely copy-pasteable; the `--json` path bypasses the text renderer,
+so machine output stays clean.
 
 ### P3 — Grading in an identity-less repo attributes to `(unknown)` with no hint — FIXED [#145]
 
@@ -116,10 +118,10 @@ no `culture.yaml` / `.colleague/identity.json` recorded `by: (unknown)` with no
 signal that `--by` exists or where identity is resolved from.
 
 **Fix ([#145]):** `feedback record` now emits a stderr advisory
-(`feedback: no identity resolved for this repo; … pass --by NAME, or add a
-culture.yaml nick / .colleague/identity.json "as"`) when neither an explicit
-`--by` nor a repo identity resolves. The record still writes (exit 0) and the
-`--json` stdout payload is untouched.
+(`feedback: no identity resolved for this repo; the grade's 'by' will be empty.
+Pass --by NAME, or add a culture.yaml nick / .colleague/identity.json "as"`) when
+neither an explicit `--by` nor a repo identity resolves. The record still writes
+(exit 0, `by` stored as `""`) and the `--json` stdout payload is untouched.
 
 ## Bottom line
 

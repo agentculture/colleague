@@ -76,7 +76,9 @@ def test_drive_text_output_includes_grade_hint(
     out = capsys.readouterr().out
     artifacts = list((tmp_path / ".colleague").glob("*.json"))
     task_id = json.loads(artifacts[0].read_text())["task_id"]
-    assert f"grade: colleague feedback record {task_id} --rating <1-5>" in out
+    # Shell-safe placeholder (`N`, not `<1-5>` which `<` would redirect) so the
+    # nudge is genuinely copy-pasteable (#147 qodo).
+    assert f"grade: colleague feedback record {task_id} --rating N" in out
 
 
 def test_drive_json_output_excludes_grade_hint(

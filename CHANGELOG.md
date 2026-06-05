@@ -9,8 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Bare `colleague drive` now echoes a `grade: colleague feedback record <task_id> --rating <1-5>` hint in its result block (#144) — the ROI-loop nudge was previously emitted only by the `outsource` wrapper. JSON output is unaffected.
-- `colleague feedback record` now emits a stderr advisory when no identity resolves (no `--by`, no `culture.yaml` nick / `.colleague/identity.json`), instead of silently recording `by: (unknown)` (#145). The record still writes; `--json` stdout is untouched.
+- Bare `colleague drive` now echoes a `grade: colleague feedback record <task_id> --rating N` hint in its result block (#144) — the ROI-loop nudge was previously emitted only by the `outsource` wrapper. The placeholder is shell-safe (`N`, not `<1-5>`) so the line is copy-pasteable; JSON output is unaffected.
+- `colleague feedback record` now emits a stderr advisory when no identity resolves (no `--by`, no `culture.yaml` nick / `.colleague/identity.json`), instead of silently leaving `by` empty (rendered as `(unknown)` in text) (#145). The record still writes; `--json` stdout is untouched.
 
 ## [0.35.1] - 2026-06-05
 
