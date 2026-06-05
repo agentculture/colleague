@@ -1,10 +1,10 @@
 # Work statistics & feedback — the ROI loop
 
-**The headline:** you can calculate the *ROI of outsourcing* to colleague.
+**The headline:** you can calculate the *ROI of delegating* to colleague.
 Every work item's artifact records, always-on, what the work item **cost**; a feedback
 record says how **good** it was. Together — time + tokens + bytes written + a
 quality grade — they let a caller (human or agent) retro a delegated task and
-decide whether to outsource again, and to which backend.
+decide whether to delegate again, and to which backend.
 
 This is the **Run report** (stats) and a new sibling, **Feedback**, working
 together. Both are runtime-owned (the all-engines rule): identical for `mock`
@@ -109,7 +109,7 @@ every verb supports `--json`.
 ### From the `ask-colleague` skill
 
 The agent-facing entry is the `ask-colleague feedback` verb — close the loop right
-after an outsourced drive:
+after a delegated work item:
 
 ```bash
 ask-colleague feedback last --rating 4 --notes "good, but missed an edge case"

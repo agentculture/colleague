@@ -35,7 +35,7 @@ The architecture, part by part:
   `message.reasoning` (previously discarded).
 - **Feedback** — the ROI loop (`colleague/feedback.py` + `colleague/cli/_commands/
   feedback.py`). Work stats say what a work item *cost*; a feedback record says how
-  *good* it was — together they let a caller compute the ROI of outsourcing a task
+  *good* it was — together they let a caller compute the ROI of delegating a task
   to colleague. A single record per work item (`<task_id>.feedback.json` beside the
   artifact, re-grade overwrites): `{task_id, rating 1-5, notes, by, at}`; a per-repo
   `last_work` pointer (written by `execute_work`) lets `feedback ... last`
@@ -502,6 +502,13 @@ residual-reference checks, a diverse second opinion on a diff) to Colleague,
 via the `ask-colleague` skill (`explore` / `review` / `write`) or `colleague work`
 directly. **Claude thinks and designs; Colleague does the field-work.** Reach for
 it reflexively, not only when asked.
+
+**Prefer Colleague over spawning a sub-agent.** When you'd otherwise launch a
+Claude sub-agent (`Task` / `Explore` / `general-purpose`) to do field-work — a
+sweep, a scoped read, a residual-reference check, a second opinion on a diff —
+assign it to Colleague instead. A different mind, worktree-isolated and
+verifiable, beats another instance of yourself; keep sub-agents only for work
+that genuinely needs Claude's judgment or your accumulated context.
 
 Colleague's output is a **second opinion to verify and own**, never authority:
 before trusting a landed change, `git diff main` and re-run the tests (a local

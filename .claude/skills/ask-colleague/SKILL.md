@@ -8,7 +8,7 @@ description: >
   the value: `ask-colleague review` gets a candid second opinion on a diff,
   `ask-colleague explore` gets a fresh read of an area, `ask-colleague write`
   hands off a small implementation, and `ask-colleague feedback` grades a finished
-  drive (the ROI loop). Reach for it REFLEXIVELY, the way you'd lean over to the
+  work item (the ROI loop). Reach for it REFLEXIVELY, the way you'd lean over to the
   teammate at the next desk — not only when asked: before you present or open a PR
   on a non-trivial committed diff, run `review` for a diverse second opinion; for a
   fresh read of an unfamiliar area whose answer is independent of your current
@@ -17,7 +17,7 @@ description: >
   `write --apply` / `write --pr` still needs the user's go-ahead. Triggers when the
   user says "ask colleague", "ask a colleague to review/explore/write this", "have
   colleague take a look", "get a second opinion", "ask the other model", "rate that
-  drive" — and still on the legacy "outsource this". Colleague's output is a second
+  work item" — and still on the legacy "outsource this". Colleague's output is a second
   opinion to verify and own, never authority.
 ---
 
@@ -32,7 +32,7 @@ you'd turn to the colleague at the next desk: a quick, low-ceremony ask, not a
 heavyweight handoff.
 
 This skill is the operator: a portable wrapper that resolves the CLI and turns
-each verb into a `colleague drive`, then prints the drive's result summary.
+each verb into a `colleague work`, then prints the work item's result summary.
 
 ## The reflex — when to ask colleague *unprompted*
 
@@ -62,13 +62,13 @@ always safe — make it a habit on tasks that fit:
 - Anything **outward-facing or destructive** without a user nod: `write --apply` /
   `write --pr`, posting, deleting. The read-only verbs are the unprompted reflex;
   side-effecting ones are not.
-- Trivial work that's faster to just do (a one-line edit) — the drive + fold-back
+- Trivial work that's faster to just do (a one-line edit) — the work item + fold-back
   costs more than the edit.
 - Output you can't verify cheaply — if you can't check it, diversity is just noise.
 
 **Guardrails (always):**
 
-- **One-glance readiness.** `colleague whoami` names the live drive engine +
+- **One-glance readiness.** `colleague whoami` names the live work engine +
   model; if it reports `mock` or you're unsure the server is up, run `colleague
   doctor --probe`. Don't burn time on a dead or no-op backend.
 - **Second opinion, not authority.** colleague is a *different* mind, not a
@@ -97,8 +97,8 @@ else an install hint.
 |------|--------------|--------------|
 | `explore "<question or area>"` | Read-only investigation of the repo; the model reads and reports findings. | **None** — runs in a throwaway worktree at HEAD. |
 | `review "<what to focus on>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; reviews committed changes only. |
-| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a drive branch in place; `--pr` pushes + opens a PR. | **None** by default (preview); a `colleague/<id>` drive branch / PR only with `--apply` / `--pr`. |
-| `feedback <id\|last> [--rating N]` | **Grade a finished drive** (the ROI loop). With `--rating N` (1–5, plus `--notes`) it records feedback; without, it shows the drive's existing feedback. `last` resolves the most recent drive in `--repo`. | Writes `.colleague/<id>.feedback.json` only when `--rating` is given; read-only otherwise. |
+| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default** (throwaway worktree, prints the would-be diff); `--apply` lands a work branch in place; `--pr` pushes + opens a PR. | **None** by default (preview); a `colleague/<id>` work branch / PR only with `--apply` / `--pr`. |
+| `feedback <id\|last> [--rating N]` | **Grade a finished work item** (the ROI loop). With `--rating N` (1–5, plus `--notes`) it records feedback; without, it shows the work item's existing feedback. `last` resolves the most recent work item in `--repo`. | Writes `.colleague/<id>.feedback.json` only when `--rating` is given; read-only otherwise. |
 
 ### Options
 
@@ -110,15 +110,15 @@ else an install hint.
 | `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`). |
 | `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
 | `--max-steps N` | Loop step budget (default: 20). |
-| `--apply` | (`write`) apply the change in place (drive branch) instead of previewing. |
+| `--apply` | (`write`) apply the change in place (work branch) instead of previewing. |
 | `--allow-dirty` | (`write`) allow running on a dirty tree (only matters with `--apply` / `--pr`). |
-| `--pr` | (`write`) push + open a PR instead of a local drive branch (implies `--apply`). |
-| `--rating N` | (`feedback`) record a 1–5 quality rating for the drive. |
+| `--pr` | (`write`) push + open a PR instead of a local work branch (implies `--apply`). |
+| `--rating N` | (`feedback`) record a 1–5 quality rating for the work item. |
 | `--notes "..."` | (`feedback`) free-text notes stored with the rating. |
 | `--by NAME` | (`feedback`) who is grading (default: colleague's resolved identity). |
 
-The result printed to stdout is the drive's `TaskResult.summary` (plus
-`changed_files` / drive branch for `write`), parsed from `colleague drive
+The result printed to stdout is the work item's `TaskResult.summary` (plus
+`changed_files` / work branch for `write`), parsed from `colleague work
 --json`. Per-step progress streams to stderr while it runs.
 
 ## When to reach for which verb
@@ -131,15 +131,15 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
 - **write** — a small, well-scoped implementation you're happy to delegate. It
   **previews by default** (runs in a throwaway worktree and prints the would-be
   diff without touching your tree); pass `--apply` to land it on a
-  `colleague/<id>` drive branch you can inspect, merge, or discard, or `--pr` to
+  `colleague/<id>` work branch you can inspect, merge, or discard, or `--pr` to
   open a PR.
-- **feedback** — *after* colleague finishes a drive, close the loop: record how
-  good it was. Every drive's artifact already carries always-on **stats** (elapsed
+- **feedback** — *after* colleague finishes a work item, close the loop: record how
+  good it was. Every work item's artifact already carries always-on **stats** (elapsed
   time, tokens read/generated, tools used, bytes written, reasoning-vs-answer
   sizes); `feedback` adds a 1–5 quality grade. Stats say what it *cost*, feedback
   says how *good* it was — together they let you compute the **ROI of asking
   colleague** and decide whether to ask again (and which backend). Grade the most
-  recent drive with `ask-colleague feedback last --rating 4 --notes "…"`.
+  recent work item with `ask-colleague feedback last --rating 4 --notes "…"`.
 
 ## Hard rules (do not violate)
 
@@ -151,7 +151,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   in an isolated worktree and never touches your tree, so it is safe even when
   dirty. `--apply` / `--pr` (the in-place path) refuses a dirty tree unless you
   pass `--allow-dirty` — this guards the dirty-tree hazard: committing
-  *uncommitted* edits onto the drive branch and leaving you there. Commit or
+  *uncommitted* edits onto the work branch and leaving you there. Commit or
   stash first before applying. `--allow-dirty` is propagated to the runtime,
   which since colleague#149 enforces the same guard directly (a bare
   `colleague work`/`drive` also refuses uncommitted *tracked* changes).
