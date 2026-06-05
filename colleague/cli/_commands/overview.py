@@ -40,14 +40,22 @@ _VERBS = [
 def agent_sections() -> list[dict[str, object]]:
     """Sections describing the agent (used by the global verb)."""
     ident = report()
+    # Mirror ``whoami``'s two-identity split (mesh vs drive) instead of showing a
+    # bare ``model`` — which is the *mesh* model (often ``unknown`` when
+    # culture.yaml declares none) and silently disagrees with ``whoami``'s live
+    # drive model. ``report()`` already resolves the drive engine/model the same
+    # way a real drive does; surface that. ``None`` means the mock backend.
+    drive_model = ident["drive_model"]
+    drive_model = drive_model if drive_model is not None else "(mock backend — no model)"
     return [
         {
             "title": "Identity",
             "items": [
                 f"nick: {ident['nick']}",
                 f"version: {ident['version']}",
-                f"backend: {ident['backend']}",
-                f"model: {ident['model']}",
+                f"mesh backend: {ident['backend']}",
+                f"drive engine: {ident['drive_engine']}",
+                f"drive model: {drive_model}",
             ],
         },
         {"title": "Verbs", "items": list(_VERBS)},

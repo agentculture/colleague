@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1] - 2026-06-05
+
+### Added
+
+- docs/cli-experience-evaluation.md — a hands-on, live-rig evaluation of the agent-facing CLI/DX experience (companion to the TUI-rendering evaluation).
+
+### Fixed
+
+- `overview` Identity now mirrors `whoami` — it surfaces the live-resolved `drive engine` + `drive model` instead of a bare `model:` (the mesh model, often `unknown`) that silently disagreed with `whoami`.
+
 ## [0.35.0] - 2026-06-05
 
 ### Added
