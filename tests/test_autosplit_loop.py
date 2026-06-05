@@ -23,7 +23,7 @@ import pytest
 
 from colleague import loop as loop_mod
 from colleague.contract import OK, SubResult, Task, Usage
-from colleague.loop import ModelResponse, Spawns, ToolCall, run
+from colleague.loop import ContextControls, ModelResponse, Spawns, ToolCall, run
 
 _OVERFLOW = "This model's maximum context length is 4096 tokens"
 
@@ -39,9 +39,19 @@ def _task(tmp_path: Path, instruction: str = "do a large thing") -> Task:
 
 def _run(complete, task, **kwargs):
     """run() with the subagents-free system prompt so `subagents` only appears in
-    the loop's own injected hint/recommendation messages."""
+    the loop's own injected hint/recommendation messages.
+
+    Translates the convenience kwargs ``context_budget`` / ``count_tokens`` /
+    ``autosplit_target`` into the :class:`ContextControls` bundle so the test bodies
+    stay readable.
+    """
     kwargs.setdefault("system_prompt", _SYS)
-    return run(complete, task, **kwargs)
+    cc = ContextControls(
+        budget=kwargs.pop("context_budget", None),
+        count_tokens=kwargs.pop("count_tokens", None),
+        autosplit_target=kwargs.pop("autosplit_target", None),
+    )
+    return run(complete, task, context=cc, **kwargs)
 
 
 @pytest.fixture(autouse=True)

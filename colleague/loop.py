@@ -737,6 +737,77 @@ class Spawns:
     batch: Callable | None = None
 
 
+@dataclass(frozen=True)
+class ContextControls:
+    """Optional context-window-management knobs injected into :func:`run`.
+
+    Bundles the three settings that govern how the loop manages the context window
+    — mirroring :class:`Spawns` — so ``run``'s signature stays within the parameter
+    budget:
+
+    - ``budget`` — proactive token budget (t4): the running history is windowed to
+      it before every turn and a context-overflow triggers a bounded
+      shrink-and-retry. ``None`` (the default) disables windowing — a strict no-op.
+    - ``count_tokens`` — the token counter handed to :func:`window_messages`;
+      ``None`` falls back to the char-based estimate.
+    - ``autosplit_target`` — arms reactive auto-split (#151): with ``budget`` also
+      positive, an exhausted overflow recommends splitting via the ``subagents``
+      tool *before* escalating, and a coarse up-front instruction estimate adds an
+      early hint. ``None``/0 leaves it dormant.
+
+    All fields default ``None`` → byte-identical to the pre-feature loop. Runtime-
+    owned: every backend forwards ``config.context_budget_tokens`` /
+    ``config.autosplit_target_tokens`` here (the all-engines rule).
+    """
+
+    budget: int | None = None
+    count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
+    autosplit_target: int | None = None
+
+
+def _build_user_message(task: Task) -> str:
+    """Compose the first user turn from the instruction + optional context/constraints.
+
+    Extracted from :func:`run` (a pure string build, no behavior change) so that
+    function's cognitive complexity stays within budget.
+    """
+    user = task.instruction
+    if task.context:
+        user += f"\n\nContext:\n{task.context}"
+    if task.constraints:
+        user += "\n\nConstraints:\n" + "\n".join(f"- {c}" for c in task.constraints)
+    return user
+
+
+def _maybe_inject_upfront_hint(ctx: _Work) -> None:
+    """Append the up-front advisory split hint when armed and the task looks big (#151).
+
+    A COARSE estimate of the instruction alone (it cannot see the repo surface the
+    work will touch — the parked limit r2): when armed and that estimate already
+    exceeds one context window, append ONE optional early suggestion to split via
+    the ``subagents`` tool. Advisory only — it never blocks and adds NO model turn
+    (just context the first turn sees). It almost never fires for a normal-sized
+    task, so the default path stays byte-identical. Extracted from :func:`run` to
+    keep that function's cognitive complexity within budget.
+    """
+    if not _autosplit_armed(ctx):
+        return
+    budget = int(ctx.context_budget)
+    estimate = _autosplit.estimate_instruction_tokens(ctx.task.instruction, ctx.count_tokens)
+    if estimate <= budget:
+        return
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": _autosplit.build_upfront_hint(
+                estimate_tokens=estimate,
+                per_child_budget_tokens=budget,
+                max_children=_autosplit.child_count(int(ctx.autosplit_target), budget),
+            ),
+        }
+    )
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -750,9 +821,7 @@ def run(
     progress: ProgressFn | None = None,
     policy: Policy | None = None,
     spawns: Spawns | None = None,
-    context_budget: int | None = None,
-    count_tokens: Callable[[list[dict[str, Any]]], int] | None = None,
-    autosplit_target: int | None = None,
+    context: ContextControls | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -798,29 +867,17 @@ def run(
     accumulates are snapshotted onto ``result.sub_results`` on every exit path
     (alongside ``changed_files``).
 
-    ``context_budget`` is an optional proactive token budget (t4). When a positive
-    int, the running history is windowed to it (via :func:`window_messages`)
-    *before* every model turn, and a context-overflow raised by ``complete``
-    triggers a bounded shrink-and-retry (the budget is reduced and the history
-    re-windowed, up to ``_MAX_OVERFLOW_RETRIES`` times, before the error is
-    re-raised into the preserved-partial path). ``count_tokens`` is the matching
-    token counter handed to ``window_messages``; ``None`` falls back to the
-    char-based estimate. Both default ``None`` → no windowing, no reactive retry
-    (a strict no-op, byte-identical to the pre-feature loop). Like hooks/progress
-    this is runtime-owned, so every backend that forwards ``config.context_budget_tokens``
-    inherits it identically (the all-engines rule).
-
-    ``autosplit_target`` arms the reactive auto-split (#151). When it AND
-    ``context_budget`` are positive ints, an exhausted context-overflow (the
-    degradation shrink-and-retry gave up) injects ONE advisory recommendation to
-    split the work into up to ``MAX_SUBAGENT_FANOUT - 1`` child hand-over
-    assignments via the existing ``subagents`` tool, *before* the error propagates
-    to the abort+escalate path. A coarse up-front instruction estimate exceeding one
-    window adds a softer early hint. Backend-judged (the model decides) and bounded
-    (offered at most once; the children reuse the capped subagent fan-out). ``None``
-    (the default) leaves it dormant — a strict no-op, byte-identical to the
-    pre-feature loop. Runtime-owned: every backend that forwards
-    ``config.autosplit_target_tokens`` inherits it (the all-engines rule).
+    ``context`` is an optional :class:`ContextControls` bundle of the three
+    context-window-management knobs (``budget`` / ``count_tokens`` /
+    ``autosplit_target``) — see that class for the per-field contract. In short:
+    ``budget`` windows the history before every turn and drives the bounded
+    overflow shrink-and-retry; ``count_tokens`` is the counter handed to
+    :func:`window_messages`; and ``autosplit_target`` (with ``budget`` also
+    positive) arms reactive auto-split (#151) — an exhausted overflow recommends
+    splitting via the ``subagents`` tool *before* escalating, plus a coarse up-front
+    hint. ``None`` (the default), or any field left ``None``/0, is a strict no-op
+    byte-identical to the pre-feature loop. Runtime-owned (the all-engines rule):
+    every backend forwards its ``config`` budget + autosplit target here.
 
     If ``complete`` raises mid-loop (e.g. a per-request timeout, or a
     context-overflow the bounded retry could not recover), the partial work is
@@ -830,6 +887,7 @@ def run(
     non-empty artifact + trace before surfacing the error (#37).
     """
     _spawns = spawns or Spawns()
+    _context = context or ContextControls()
     executor = executor or ToolExecutor(
         task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
     )
@@ -843,15 +901,9 @@ def run(
     # callers that never set policy= keep byte-identical behavior.
     policy = policy if policy is not None else load_policy(task.repo_path, model=model)
 
-    user = task.instruction
-    if task.context:
-        user += f"\n\nContext:\n{task.context}"
-    if task.constraints:
-        user += "\n\nConstraints:\n" + "\n".join(f"- {c}" for c in task.constraints)
-
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt or _DEFAULT_SYSTEM},
-        {"role": "user", "content": user},
+        {"role": "user", "content": _build_user_message(task)},
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
@@ -884,31 +936,14 @@ def run(
         messages=messages,
         policy=policy,
         progress=progress,
-        context_budget=context_budget,
-        count_tokens=count_tokens,
-        autosplit_target=autosplit_target,
+        context_budget=_context.budget,
+        count_tokens=_context.count_tokens,
+        autosplit_target=_context.autosplit_target,
     )
 
-    # Up-front advisory hint (#151): a COARSE estimate of the instruction alone (it
-    # cannot see the repo surface the work will touch — the parked limit r2). When
-    # armed and the estimate already exceeds one context window, append ONE optional
-    # early suggestion to split via `subagents`. Advisory only: it never blocks and
-    # adds NO model turn (just context the first turn sees). It almost never fires
-    # for a normal-sized task, so the default path stays byte-identical.
-    if _autosplit_armed(ctx):
-        _estimate = _autosplit.estimate_instruction_tokens(task.instruction, count_tokens)
-        if _estimate > int(context_budget):
-            _per_child = int(context_budget)
-            ctx.messages.append(
-                {
-                    "role": "user",
-                    "content": _autosplit.build_upfront_hint(
-                        estimate_tokens=_estimate,
-                        per_child_budget_tokens=_per_child,
-                        max_children=_autosplit.child_count(int(autosplit_target), _per_child),
-                    ),
-                }
-            )
+    # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
+    # complexity within budget; a strict no-op unless armed and the task looks big.
+    _maybe_inject_upfront_hint(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto

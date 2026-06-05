@@ -24,7 +24,7 @@ from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
 from colleague.engine import Engine
-from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
+from colleague.loop import CompleteFn, ContextControls, ModelResponse, ToolCall, run
 from colleague.tools import SCHEMAS, ToolExecutor
 
 
@@ -247,10 +247,12 @@ class VllmOpenAIEngine(Engine):
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
             ),
-            context_budget=config.context_budget_tokens,
-            count_tokens=self._make_count_tokens(config),
-            # Arm reactive auto-split (#151): an exhausted overflow offers a split
-            # via `subagents` before escalating. Forwarded identically by every
-            # backend (all-engines rule); dormant unless a trigger fires.
-            autosplit_target=config.autosplit_target_tokens,
+            # Context-window management (windowing + reactive auto-split #151),
+            # forwarded identically by every backend (all-engines rule); dormant
+            # unless a trigger fires.
+            context=ContextControls(
+                budget=config.context_budget_tokens,
+                count_tokens=self._make_count_tokens(config),
+                autosplit_target=config.autosplit_target_tokens,
+            ),
         )

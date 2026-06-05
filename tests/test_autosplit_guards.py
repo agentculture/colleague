@@ -33,7 +33,7 @@ from colleague import loop as loop_mod
 from colleague.config import MAX_SUBAGENT_DEPTH, MAX_SUBAGENT_FANOUT, EngineConfig
 from colleague.context import window_messages
 from colleague.contract import OK, Task, TaskResult
-from colleague.loop import ModelResponse, ToolCall, run
+from colleague.loop import ContextControls, ModelResponse, ToolCall, run
 
 # Overflow string shared with test_autosplit_loop.py.
 _OVERFLOW = "This model's maximum context length is 4096 tokens"
@@ -54,9 +54,18 @@ def _task(tmp_path: Path, instruction: str = "do a thing") -> Task:
 
 
 def _run(complete, task, **kwargs):
-    """run() with the subagents-free system prompt."""
+    """run() with the subagents-free system prompt.
+
+    Translates the ``context_budget`` / ``count_tokens`` / ``autosplit_target``
+    convenience kwargs into the :class:`ContextControls` bundle.
+    """
     kwargs.setdefault("system_prompt", _SYS)
-    return run(complete, task, **kwargs)
+    cc = ContextControls(
+        budget=kwargs.pop("context_budget", None),
+        count_tokens=kwargs.pop("count_tokens", None),
+        autosplit_target=kwargs.pop("autosplit_target", None),
+    )
+    return run(complete, task, context=cc, **kwargs)
 
 
 def _scripted_finish() -> tuple[list, object]:
@@ -177,9 +186,9 @@ def test_mock_engine_forwards_autosplit_target(tmp_path):
     with patch("colleague.engines.mock.run", side_effect=fake_run):
         engine.work(task, config)
 
-    assert "autosplit_target" in captured, "MockEngine did not pass autosplit_target to run()"
-    assert captured["autosplit_target"] == config.autosplit_target_tokens, (
-        f"MockEngine forwarded autosplit_target={captured['autosplit_target']!r} "
+    assert "context" in captured, "MockEngine did not pass a ContextControls bundle to run()"
+    assert captured["context"].autosplit_target == config.autosplit_target_tokens, (
+        f"MockEngine forwarded autosplit_target={captured['context'].autosplit_target!r} "
         f"instead of config.autosplit_target_tokens={config.autosplit_target_tokens}"
     )
 
@@ -201,9 +210,9 @@ def test_vllm_engine_forwards_autosplit_target(tmp_path):
     with patch("colleague.engines.vllm_openai.run", side_effect=fake_run):
         engine.work(task, config)
 
-    assert "autosplit_target" in captured, "VllmOpenAIEngine did not pass autosplit_target to run()"
-    assert captured["autosplit_target"] == config.autosplit_target_tokens, (
-        f"VllmOpenAIEngine forwarded autosplit_target={captured['autosplit_target']!r} "
+    assert "context" in captured, "VllmOpenAIEngine did not pass a ContextControls bundle to run()"
+    assert captured["context"].autosplit_target == config.autosplit_target_tokens, (
+        f"VllmOpenAIEngine forwarded autosplit_target={captured['context'].autosplit_target!r} "
         f"instead of config.autosplit_target_tokens={config.autosplit_target_tokens}"
     )
 
