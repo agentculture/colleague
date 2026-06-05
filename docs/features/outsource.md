@@ -73,7 +73,7 @@ task: 7f3a91c0b2e4
 # colleague
 
 artifact: /repo/.colleague/7f3a91c0b2e4.report-the-top-level-markdown-title.json
-grade: outsource feedback 7f3a91c0b2e4 --rating <1-5>
+grade: outsource feedback 7f3a91c0b2e4 --rating N
 ```
 
 The drive ran entirely in a throwaway worktree — `git status`, the current
@@ -115,7 +115,7 @@ Created greet.py with a single function greet(name) that returns 'hi, ' + name.
 
 changed files: greet.py
 drive branch: colleague/3acc192d27e1-create-greet-py-with-greet-name
-grade: outsource feedback 3acc192d27e1 --rating <1-5>
+grade: outsource feedback 3acc192d27e1 --rating N
 ```
 
 The drive branch and artifact carry a slug of the request, so the drive is

@@ -66,6 +66,34 @@ def test_drive_json_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
     assert payload["pr_url"] is None
 
 
+def test_drive_text_output_includes_grade_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Every completed drive nudges toward the ROI loop: the result block carries a
+    # copy-paste `grade:` line pointing at the native feedback verb (#144).
+    rc = main(["drive", "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    artifacts = list((tmp_path / ".colleague").glob("*.json"))
+    task_id = json.loads(artifacts[0].read_text())["task_id"]
+    # Shell-safe placeholder (`N`, not `<1-5>` which `<` would redirect) so the
+    # nudge is genuinely copy-pasteable (#147 qodo).
+    assert f"grade: colleague feedback record {task_id} --rating N" in out
+
+
+def test_drive_json_output_excludes_grade_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The hint is a human nudge — it must never leak into machine (`--json`) output.
+    rc = main(
+        ["drive", "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "grade:" not in out
+    json.loads(out)  # still clean, parseable JSON
+
+
 def test_drive_in_git_repo_creates_branch(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -46,6 +46,68 @@ def test_record_text_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     assert "rating: 5/5" in out
 
 
+def test_record_no_identity_warns_on_stderr_and_still_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Empty repo + clean HOME → resolve_identity returns None. The record still
+    # writes (exit 0), `by` renders (unknown), and a stderr advisory points at the
+    # fix — without polluting the stdout result (#145).
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    rc = main(["feedback", "record", "d4", "--rating", "4", "--repo", str(repo)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "feedback: no identity resolved" in captured.err
+    assert "(unknown)" in captured.out
+    assert "no identity resolved" not in captured.out  # advisory stays off stdout
+
+
+def test_record_with_identity_emits_no_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A culture.yaml nick is source 1 (checked before any home fallback), so this
+    # is hermetic regardless of host home: identity resolves, no advisory fires.
+    (tmp_path / "culture.yaml").write_text("nick: testbot\n", encoding="utf-8")
+    rc = main(["feedback", "record", "d5", "--rating", "4", "--repo", str(tmp_path)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "no identity resolved" not in captured.err
+    assert "testbot" in captured.out
+
+
+def test_record_explicit_by_suppresses_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # An explicit --by is a deliberate attribution choice; no advisory even with
+    # no resolvable identity.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    rc = main(["feedback", "record", "d6", "--rating", "4", "--by", "me", "--repo", str(tmp_path)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "no identity resolved" not in captured.err
+    assert "me" in captured.out
+
+
+def test_record_no_identity_json_stdout_stays_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # --json + no identity: the advisory is stderr-only; stdout stays clean,
+    # parseable JSON with an empty `by`.
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    rc = main(["feedback", "record", "d7", "--rating", "4", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    rec = json.loads(captured.out)
+    assert rec["by"] == ""
+    assert "feedback: no identity resolved" in captured.err
+
+
 def test_show_ungraded_is_clean_no_op(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["feedback", "show", "never", "--repo", str(tmp_path)])
     assert rc == 0  # not an error

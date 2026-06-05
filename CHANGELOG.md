@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.2] - 2026-06-05
+
+### Fixed
+
+- Bare `colleague drive` now echoes a `grade: colleague feedback record <task_id> --rating N` hint in its result block (#144) — the ROI-loop nudge was previously emitted only by the `outsource` wrapper. The placeholder is shell-safe (`N`, not `<1-5>`) so the line is copy-pasteable; JSON output is unaffected.
+- `colleague feedback record` now emits a stderr advisory when no identity resolves (no `--by`, no `culture.yaml` nick / `.colleague/identity.json`), instead of silently leaving `by` empty (rendered as `(unknown)` in text) (#145). The record still writes; `--json` stdout is untouched.
+
 ## [0.35.1] - 2026-06-05
 
 ### Added
