@@ -21,6 +21,17 @@ Read and cross-check these against the actual code and CLI behavior:
 - colleague/explain/catalog.py (the in-CLI `explain` entries) — every verb
   and noun should have one
 
+Budget discipline (important):
+When the scope is ALL docs, do NOT try to read every surface in one pass —
+reading everything bloats context until each completion slows and the request
+times out. Instead, audit a small batch of surfaces at a time (about 2–3).
+The moment your context is getting large OR you are within a few steps of your
+budget, STOP reading and finish with an INCOMPLETE report (see below) that
+recommends splitting the remaining surfaces into per-surface sub-audits (for
+example one `colleague work --command doc-review <surface>` per surface). A
+focused audit of a few surfaces plus a clear split plan is far more useful
+than a broad read that times out before it can call finish.
+
 Report a concrete, itemized list. For each finding give the file path and say
 which category it is:
   (a) STALE  — a doc describes behavior the code no longer matches
@@ -48,4 +59,6 @@ If the docs are too large to audit fully within your budget, do NOT silently run
 out. Finish with an **INCOMPLETE** report: name the surfaces you covered, the
 ones still to do, and suggest how to split the rest (e.g. one sub-audit per doc
 surface). A clear "here's what's left and how to split it" is far more useful
-than a drive that dies mid-read.
+than a drive that dies mid-read. Preferring a per-surface pass is the normal
+mode for a large doc set, not a failure mode — splitting early is expected,
+not a last resort.
