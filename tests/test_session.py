@@ -6,6 +6,7 @@ is driven through a scripted ``input_fn`` so no real TTY is required.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Iterator
 
@@ -50,6 +51,7 @@ def _make_args(
     engine: str = "mock",
     no_pr: bool = True,
     base: str = "main",
+    allow_dirty: bool = False,
 ) -> "object":
     """Build a minimal Namespace-like args object for run_session."""
     import argparse
@@ -64,6 +66,7 @@ def _make_args(
         api_key=None,
         max_steps=None,
         json=False,
+        allow_dirty=allow_dirty,
     )
     return ns
 
@@ -198,6 +201,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         open_pr: bool,
         base: str,
         config: EngineConfig,
+        allow_dirty: bool = False,
         command_name: str | None = None,
         tui: bool | None = None,
         tui_events: str | None = None,
@@ -210,6 +214,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
             open_pr=open_pr,
             base=base,
             config=config,
+            allow_dirty=allow_dirty,
             command_name=command_name,
             tui=tui,
             tui_events=tui_events,
@@ -434,6 +439,75 @@ def test_session_slash_pr_toggles_handoff(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert [c["open_pr"] for c in calls] == [False, True]  # off, then on after /pr
+
+
+def test_session_forwards_allow_dirty_to_work(tmp_path: Path) -> None:
+    """--allow-dirty threads through the session to the shared work path (#149)."""
+    calls: list = []
+    rc = run_session(
+        _make_args(tmp_path, allow_dirty=True),
+        input_fn=iter(["do a thing", "q"]),
+        out=_CollectingOut(),
+        _work_fn=_ok_drive(tmp_path, calls),
+        _color=False,
+    )
+    assert rc == 0
+    assert [c["allow_dirty"] for c in calls] == [True]
+
+
+def test_session_defaults_allow_dirty_false(tmp_path: Path) -> None:
+    """Without --allow-dirty the session asks the shared work path to guard (#149)."""
+    calls: list = []
+    rc = run_session(
+        _make_args(tmp_path),
+        input_fn=iter(["do a thing", "q"]),
+        out=_CollectingOut(),
+        _work_fn=_ok_drive(tmp_path, calls),
+        _color=False,
+    )
+    assert rc == 0
+    assert [c["allow_dirty"] for c in calls] == [False]
+
+
+def test_session_refuses_dirty_tracked_tree_end_to_end(tmp_path: Path) -> None:
+    """The real shared work path refuses a dirty tracked tree in-session (#149).
+
+    Proves session inherits the runtime guard (not just the fake seam): the
+    CliError surfaces via _run_work as a stderr `error:` line, the loop keeps
+    going, and no work branch is created.
+    """
+    for cmd in (
+        ["init", "-q"],
+        ["config", "user.email", "t@e.com"],
+        ["config", "user.name", "T"],
+    ):
+        subprocess.run(["git", *cmd], cwd=str(tmp_path), check=True, capture_output=True)
+    (tmp_path / "f.txt").write_text("committed\n")
+    subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True, capture_output=True
+    )
+    (tmp_path / "f.txt").write_text("in-progress edit\n")  # dirty TRACKED
+
+    err = _CollectingOut()
+    rc = run_session(  # real default work_fn (execute_work)
+        _make_args(tmp_path),
+        input_fn=iter(["do a thing", "q"]),
+        out=_CollectingOut(),
+        err=err,
+        _color=False,
+    )
+    assert rc == 0  # the session loop exits cleanly even though the item was refused
+    assert "uncommitted changes" in err.text()
+    branches = subprocess.run(
+        ["git", "branch", "--list", "colleague/*"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert branches.strip() == ""  # nothing committed
+    assert (tmp_path / "f.txt").read_text() == "in-progress edit\n"  # edit survives
 
 
 def test_session_failed_step_surfaces_error_popup(tmp_path: Path) -> None:

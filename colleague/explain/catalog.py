@@ -185,6 +185,9 @@ var, then the built-in default `vllm-openai` (the real bundled backend). A bare
 - `--repo PATH` — target repository (default: cwd).
 - `--engine NAME` — backend plugin (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
 - `--no-pr` — commit locally; do not push or open a PR.
+- `--allow-dirty` — run even when the working tree has uncommitted tracked
+  changes (they get committed onto the work branch). Default: refuse, so a work
+  item never silently sweeps your in-progress edits onto a branch (#149).
 - `--base-url / --model / --api-key / --max-steps` — backend overrides.
 
 A failed work item still writes a `status=error` artifact before exiting non-zero.
@@ -291,6 +294,8 @@ PR by default.) Engine selection matches `work`: `--engine` > `COLLEAGUE_ENGINE`
 - `--repo PATH` — target repository (default: cwd).
 - `--engine NAME` — backend plugin (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
 - `--pr` — push and open a PR after each work item (default: commit locally only, no PR).
+- `--allow-dirty` — run work items even when the working tree has uncommitted
+  tracked changes (they get committed onto the work branch). Default: refuse (#149).
 - `--base BRANCH` — base branch for the PR (default: `main`).
 - `--base-url / --model / --api-key / --max-steps` — backend overrides.
 

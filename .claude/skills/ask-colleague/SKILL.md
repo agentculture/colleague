@@ -150,9 +150,11 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
 - **`write` previews by default; applying refuses a dirty tree.** A preview runs
   in an isolated worktree and never touches your tree, so it is safe even when
   dirty. `--apply` / `--pr` (the in-place path) refuses a dirty tree unless you
-  pass `--allow-dirty` — this guards the dirty-tree hazard: `colleague drive
-  --no-pr` commits *uncommitted* edits onto the drive branch and leaves you there.
-  Commit or stash first before applying.
+  pass `--allow-dirty` — this guards the dirty-tree hazard: committing
+  *uncommitted* edits onto the drive branch and leaving you there. Commit or
+  stash first before applying. `--allow-dirty` is propagated to the runtime,
+  which since colleague#149 enforces the same guard directly (a bare
+  `colleague work`/`drive` also refuses uncommitted *tracked* changes).
 - **Colleague's output is a second opinion, not authority.** The backend may be a
   smaller/different model; weigh its findings, verify its claims, and own the
   decision yourself.

@@ -456,6 +456,12 @@ run_write() {
         echo "hint: 'colleague drive --no-pr' commits uncommitted edits onto the drive branch" >&2
         exit 2
     fi
+    # The runtime now enforces its own dirty-tree guard (colleague#149); pass
+    # --allow-dirty through so an operator opt-in here isn't re-refused by the
+    # CLI. Append to the always-non-empty COMMON_FLAGS (not the global one at the
+    # top — read-only/preview verbs run in a clean worktree and must not get it),
+    # which sidesteps the `set -u` empty-array expansion hazard.
+    [[ "$ALLOW_DIRTY" -eq 1 ]] && COMMON_FLAGS+=(--allow-dirty)
     # `|| true`: a failed drive (`colleague drive` returns 1 when status != ok,
     # printing the result JSON to stdout) must still flow into print_result so the
     # digest is emitted (to stderr) and the wrapper exits non-zero — not aborted by

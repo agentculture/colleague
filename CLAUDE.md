@@ -491,9 +491,14 @@ Colleague's output is a **second opinion to verify and own**, never authority:
 before trusting a landed change, `git diff main` and re-run the tests (a local
 model can drop or misreport edits). Keep design judgment, the risky core, and
 anything needing accumulated context with Claude; hand the legwork to Colleague.
-**Never run a bare `colleague work`/`drive --repo .` against a dirty tree** — it
-commits your uncommitted edits onto the work branch (see issue #149); the
-`ask-colleague` verbs are safe (worktree-isolated).
+**A bare `colleague work`/`drive`/`session --repo .` now refuses a dirty tree**
+unless you pass `--allow-dirty` (issue #149): the runtime guard
+(`colleague/handoff.py` `working_tree_dirty` → the dirty-tree check in
+`execute_work`) blocks a work item from sweeping your uncommitted **tracked**
+edits onto the work branch. The check is tracked-changes-only — pre-existing
+untracked WIP is already protected by the handoff's baseline snapshot. The
+`ask-colleague` verbs remain safe (worktree-isolated) and propagate
+`--allow-dirty` through to the runtime.
 
 ## Git workflow
 

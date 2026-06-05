@@ -161,6 +161,7 @@ class _Session:
         base: str,
         config: EngineConfig,
         json_mode: bool,
+        allow_dirty: bool = False,
         view: str,
         out: Callable[..., None],
         err: Callable[..., None],
@@ -170,6 +171,7 @@ class _Session:
         self.repo = repo
         self.engine_name = engine_name  # mutable via /engine
         self.open_pr = open_pr  # mutable via /pr
+        self.allow_dirty = allow_dirty  # dirty-tree guard opt-out (#149)
         self.base = base  # mutable via /base
         self.config = config  # .model mutable via /model
         self.json_mode = json_mode
@@ -388,6 +390,7 @@ class _Session:
                 engine_name=self.engine_name,
                 task=task,
                 open_pr=self.open_pr,
+                allow_dirty=self.allow_dirty,
                 base=self.base,
                 config=self.config,
                 command_name=command_name,
@@ -560,6 +563,7 @@ def run_session(
     # Resolve the engine like ``work`` (explicit > COLLEAGUE_ENGINE > vllm-openai).
     engine_name = resolve_engine(args.engine)
     open_pr = bool(getattr(args, "pr", False))
+    allow_dirty = bool(getattr(args, "allow_dirty", False))
     base = args.base
     json_mode = bool(getattr(args, "json", False))
     if err is None:
@@ -579,6 +583,7 @@ def run_session(
         repo=repo,
         engine_name=engine_name,
         open_pr=open_pr,
+        allow_dirty=allow_dirty,
         base=base,
         config=config,
         json_mode=json_mode,
@@ -613,6 +618,15 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--pr",
         action="store_true",
         help="Push and open a PR after each work item (default: commit locally only, no PR).",
+    )
+    p.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help=(
+            "Run work items even when the working tree has uncommitted tracked "
+            "changes (they get committed onto the work branch). Default: refuse, "
+            "to protect in-progress work (#149)."
+        ),
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
