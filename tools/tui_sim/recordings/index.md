@@ -28,4 +28,3 @@ each event-driven scenario's key moment.
 | `full-ride` | Full ride — palette -> config -> drive -> popup -> quit | 30 | 16.8s | clean |
 
 All snapshots pass `colleague.tui.diagnose` cross-mirror checks (zero findings).
-

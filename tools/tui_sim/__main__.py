@@ -123,7 +123,9 @@ def _render_index(summaries: List[dict]) -> str:
         lines.append(
             "All snapshots pass `colleague.tui.diagnose` cross-mirror checks (zero findings)."
         )
-        lines.append("")
+    # Trim trailing blanks so the final "\n" yields exactly one EOF newline (MD012).
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines) + "\n"
 
 
