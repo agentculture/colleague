@@ -99,16 +99,29 @@ def report() -> dict[str, object]:
     }
 
 
+# ``None`` drive_model means the mock backend (which calls no model). Label it
+# specifically rather than printing a bare ``None`` or a misleading default model
+# id. One literal, one place — ``whoami`` and ``overview`` both render through
+# ``format_drive_model`` so the two identity commands can never desync.
+MOCK_DRIVE_MODEL_LABEL = "(mock backend — no model)"
+
+
+def format_drive_model(drive_model: object) -> str:
+    """Render a resolved drive model for display, shared by whoami + overview.
+
+    ``is not None`` (not ``or``): only ``None`` means "no model" (the mock
+    backend), never a falsy-but-present model string.
+    """
+    return MOCK_DRIVE_MODEL_LABEL if drive_model is None else str(drive_model)
+
+
 def cmd_whoami(args: argparse.Namespace) -> None:
     identity = report()
     json_mode = bool(getattr(args, "json", False))
     if json_mode:
         emit_result(identity, json_mode=True)
         return
-    # ``is not None`` (not ``or``): the fallback labels the mock case specifically
-    # — only ``None`` means "no model", never a falsy-but-present model string.
-    raw_drive_model = identity["drive_model"]
-    drive_model = raw_drive_model if raw_drive_model is not None else "(mock backend — no model)"
+    drive_model = format_drive_model(identity["drive_model"])
     text = (
         f"nick: {identity['nick']}\n"
         f"version: {identity['version']}\n"

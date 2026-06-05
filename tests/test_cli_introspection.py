@@ -25,18 +25,16 @@ def test_overview_identity_surfaces_drive_model_consistent_with_whoami(
     """overview's Identity block must agree with whoami, not show a bare
     ``model: unknown`` (the mesh model) while whoami reports the live drive
     model. Regression for the overview/whoami model disagreement."""
-    from colleague.cli._commands.whoami import report
+    from colleague.cli._commands.whoami import format_drive_model, report
 
     ident = report()
     rc = main(["overview"])
     assert rc == 0
     out = capsys.readouterr().out
-    # The useful, live-resolved drive engine/model are surfaced...
+    # The useful, live-resolved drive engine/model are surfaced — derived from
+    # the same shared renderer overview uses, so editing the label can't desync.
     assert f"drive engine: {ident['drive_engine']}" in out
-    expected_model = (
-        ident["drive_model"] if ident["drive_model"] is not None else "(mock backend — no model)"
-    )
-    assert f"drive model: {expected_model}" in out
+    assert f"drive model: {format_drive_model(ident['drive_model'])}" in out
     # ...and the bare, often-``unknown`` mesh ``model:`` line is gone.
     assert "\n- model:" not in out and "model: unknown" not in out
 

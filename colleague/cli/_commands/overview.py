@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._commands.whoami import report
+from colleague.cli._commands.whoami import format_drive_model, report
 from colleague.cli._output import emit_result
 
 _ARTIFACTS = [
@@ -44,9 +44,9 @@ def agent_sections() -> list[dict[str, object]]:
     # bare ``model`` — which is the *mesh* model (often ``unknown`` when
     # culture.yaml declares none) and silently disagrees with ``whoami``'s live
     # drive model. ``report()`` already resolves the drive engine/model the same
-    # way a real drive does; surface that. ``None`` means the mock backend.
-    drive_model = ident["drive_model"]
-    drive_model = drive_model if drive_model is not None else "(mock backend — no model)"
+    # way a real drive does; ``format_drive_model`` is the one shared renderer so
+    # the two commands can never desync (incl. the mock ``None`` case).
+    drive_model = format_drive_model(ident["drive_model"])
     return [
         {
             "title": "Identity",
