@@ -424,7 +424,9 @@ class TestIsRequestTimeout:
     def test_full_timeout_message(self):
         from colleague.context import is_request_timeout
 
-        assert is_request_timeout("request to http://localhost:8001/v1/chat/completions timed out after 120s")
+        assert is_request_timeout(
+            "request to http://localhost:8001/v1/chat/completions timed out after 120s"
+        )
 
     def test_case_insensitive(self):
         from colleague.context import is_request_timeout
