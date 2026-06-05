@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   alias** (still resolves; `--help` row labelled deprecated), so existing invocations,
   scripts, and the `ask-colleague` wrapper keep working. `colleague explain drive`
   still resolves. Reflected in `colleague learn`, `colleague explain`, and all docs.
+- `Engine.drive()` → **`Engine.work()`** carries a **back-compat bridge** for
+  out-of-tree plugins: a legacy backend that still implements `drive()` (not
+  `work()`) is bridged automatically (`Engine.__init_subclass__` aliases its
+  `work` to `drive` with a `DeprecationWarning`), and the base `Engine.drive()`
+  delegates to `work()` so callers using the old method name still work — so a
+  pre-rename plugin keeps instantiating and running via `registry.load`.
 - The `feedback` "last" pointer file is now `.colleague/last_work`; the legacy
   `.colleague/last_drive` is still **read** as a fallback (old repos resolve `last`).
 - TUI/TAUI: the cockpit `Drive` snapshot class → `WorkItem`; the snapshot JSON key

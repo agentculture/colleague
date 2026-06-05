@@ -168,15 +168,15 @@ def get_last_work(repo_path: str | Path) -> Optional[str]:
 def resolve_task_id(repo_path: str | Path, ref: str) -> str:
     """Resolve a feedback reference: the literal ``"last"`` or an explicit task-id.
 
-    Raises :class:`FeedbackError` when ``"last"`` is asked for but no drive has
-    been recorded in this repo yet.
+    Raises :class:`FeedbackError` when ``"last"`` is asked for but no work item
+    has been recorded in this repo yet.
     """
     if ref == "last":
         task_id = get_last_work(repo_path)
         if not task_id:
             raise FeedbackError(
-                "no 'last' drive recorded for this repo yet — run a work item first, "
-                "or pass an explicit task-id"
+                "no 'last' work item recorded for this repo yet — run a work item "
+                "first, or pass an explicit task-id"
             )
         return task_id
     return ref

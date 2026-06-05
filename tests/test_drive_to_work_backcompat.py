@@ -71,3 +71,49 @@ def test_whoami_json_uses_work_keys(capsys: pytest.CaptureFixture[str]) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert "work_engine" in payload
     assert "work_model" in payload
+
+
+def test_legacy_drive_only_engine_still_instantiates_and_runs() -> None:
+    """A pre-rename plugin that implements `drive()` (not `work()`) keeps working.
+
+    The Engine ABC bridges its `work` to the legacy `drive` (with a
+    DeprecationWarning) so `registry.load(...)` can still instantiate it (Qodo #3).
+    """
+    import warnings
+
+    from colleague.config import EngineConfig
+    from colleague.contract import Task, TaskResult
+    from colleague.engine import Engine
+
+    class LegacyEngine(Engine):  # only implements the OLD method name
+        name = "legacy"
+
+        def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+            return TaskResult(task_id=task.id, status="ok", summary="legacy ok")
+
+    eng = LegacyEngine()  # would raise "abstract method work" without the bridge
+    task = Task(id="t1", repo_path=".", instruction="x")
+    cfg = EngineConfig.resolve()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = eng.work(task, cfg)
+    assert result.summary == "legacy ok"
+    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+
+def test_base_drive_delegates_to_work() -> None:
+    """A new-style engine (implements `work`) is still callable via the old `.drive()`."""
+    from colleague.config import EngineConfig
+    from colleague.contract import Task, TaskResult
+    from colleague.engine import Engine
+
+    class NewEngine(Engine):
+        name = "new"
+
+        def work(self, task: Task, config: EngineConfig) -> TaskResult:
+            return TaskResult(task_id=task.id, status="ok", summary="new ok")
+
+    eng = NewEngine()
+    task = Task(id="t2", repo_path=".", instruction="x")
+    assert eng.drive(task, EngineConfig.resolve()).summary == "new ok"
