@@ -16,6 +16,7 @@ pointing ``base_url`` elsewhere is a config change, never a code change (h2).
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -48,6 +49,13 @@ _DEFAULT_MAX_OUTPUT_CHARS = 100000
 # parallel). Clamped to [1, MAX_SUBAGENT_FANOUT - 1] by effective_concurrency().
 # Tunable per environment with COLLEAGUE_SUBAGENT_CONCURRENCY.
 _DEFAULT_SUBAGENT_CONCURRENCY = 1
+
+# Auto-split capacity target in tokens (issue #151). The operator-tunable
+# "~1M effective capacity" knob: colleague recommends splitting a too-large
+# assignment into children whose count is derived from this target divided by
+# the per-child context budget, then structurally clamped to the subagent
+# fan-out cap. Override with COLLEAGUE_AUTOSPLIT_TARGET.
+_DEFAULT_AUTOSPLIT_TARGET_TOKENS = 1_000_000
 
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
@@ -110,6 +118,7 @@ class EngineConfig:
     context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
     max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
+    autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -142,6 +151,7 @@ class EngineConfig:
         context_budget_tokens: int | None = None,
         max_output_chars: int | None = None,
         subagent_concurrency: int | None = None,
+        autosplit_target_tokens: int | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, then defaults."""
         return cls(
@@ -209,6 +219,14 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_SUBAGENT_CONCURRENCY,
             ),
+            autosplit_target_tokens=int(
+                _pick(
+                    _str(autosplit_target_tokens),
+                    "COLLEAGUE_AUTOSPLIT_TARGET",
+                    "CONVERTIBLE_AUTOSPLIT_TARGET",
+                    default=str(_DEFAULT_AUTOSPLIT_TARGET_TOKENS),
+                )
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -220,6 +238,7 @@ class EngineConfig:
             "temperature": self.temperature,
             "timeout": self.timeout,
             "context_budget_tokens": self.context_budget_tokens,
+            "autosplit_target_tokens": self.autosplit_target_tokens,
             "max_output_chars": self.max_output_chars,
         }
 
@@ -249,3 +268,17 @@ def effective_concurrency(requested: int) -> int:
         The clamped concurrency: min(max(1, requested), MAX_SUBAGENT_FANOUT - 1).
     """
     return min(max(1, requested), MAX_SUBAGENT_FANOUT - 1)
+
+
+def autosplit_children(target_tokens: int, per_child_budget_tokens: int) -> int:
+    """Derive the number of child hand-over assignments for a split.
+
+    children = ceil(target_tokens / per_child_budget_tokens), then structurally
+    clamped to [1, MAX_SUBAGENT_FANOUT - 1] (the batch reserves one fan-out slot
+    for the sequential merge child). Guards a non-positive per-child budget by
+    returning the max usable children.
+    """
+    if per_child_budget_tokens <= 0:
+        return MAX_SUBAGENT_FANOUT - 1
+    raw = math.ceil(target_tokens / per_child_budget_tokens)
+    return min(max(1, raw), MAX_SUBAGENT_FANOUT - 1)
