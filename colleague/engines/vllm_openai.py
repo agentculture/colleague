@@ -48,6 +48,19 @@ def _post_json(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
             return json.loads(response.read().decode("utf-8"))
+    except TimeoutError as exc:
+        # A read-phase timeout (the server accepted the request but didn't answer
+        # within ``timeout``) raises a bare ``TimeoutError`` — ``socket.timeout is
+        # TimeoutError`` on the >=3.12 floor — which is NOT a ``URLError`` subclass,
+        # so it would otherwise escape this function unwrapped as a cryptic "timed
+        # out". Re-raise it legibly, keeping the phrase "timed out" so the loop's
+        # request-timeout detector (``colleague.context.is_request_timeout``) matches
+        # and the degradation / auto-split path fires (#154), and naming the
+        # ``COLLEAGUE_TIMEOUT`` knob to raise for a big-context audit.
+        raise TimeoutError(
+            f"request to {url} timed out after {timeout:.0f}s — "
+            f"raise COLLEAGUE_TIMEOUT for big-context audits"
+        ) from exc
     except urllib.error.HTTPError as exc:
         # vLLM/OpenAI carry the actionable detail (e.g. "model `X` does not
         # exist") in the response *body*, which the bare HTTPError str() drops.
