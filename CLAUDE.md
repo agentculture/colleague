@@ -41,8 +41,8 @@ The architecture, part by part:
   `last_drive` pointer (written by `execute_drive`) lets `feedback ... last`
   resolve the most recent drive. Stdlib JSON only; an ungraded drive reads back as
   a clean "no feedback yet" state, never an error. Surfaced as `colleague
-  feedback record|show|list|overview` and as the `outsource feedback` skill verb.
-  **`last` is writes-only across the outsource flow (#132):** `outsource explore`
+  feedback record|show|list|overview` and as the `ask-colleague feedback` skill verb.
+  **`last` is writes-only across the ask-colleague flow (#132):** `ask-colleague explore`
   / `review` run read-only in a throwaway worktree and **preserve** their artifact
   but **do not move** `last_drive` (the skill's `_preserve_artifact` no longer
   writes the pointer) — so a read-only probe can never steal a grade meant for a
@@ -272,7 +272,7 @@ ROI loop):
 always-on per-drive `DriveStats` in the artifact (`colleague/contract.py` +
 `colleague/loop.py`) and a single-record-per-drive feedback store
 (`colleague/feedback.py`) surfaced as `colleague feedback` and the
-`outsource feedback` skill verb. All integrated features (mesh-member, culture
+`ask-colleague feedback` skill verb. All integrated features (mesh-member, culture
 tool, destination, approval gate, subagents, and stats+feedback) were added via
 explicit re-specs (spec + plan committed under `docs/specs/` / `docs/plans/`);
 they extend the runtime within the zero-deps / no-socket / no-daemon conventions.
@@ -420,7 +420,7 @@ test (`tests/test_e2e_mock.py`) is the guard.
 ```bash
 uv sync                                   # install (incl. dev group)
 uv run pytest -n auto                     # tests (parallel)
-uv run colleague wheels list            # discovered backends
+uv run colleague backends list          # discovered backends (wheels = deprecated alias)
 uv run colleague drive "<task>" --repo . --engine mock --no-pr
 # Backend resolution: --engine > COLLEAGUE_ENGINE > vllm-openai (never silent mock, #53).
 
@@ -463,20 +463,21 @@ The live vLLM proof is opt-in (the reference rig must expose tool calling:
 COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live.py -v
 ```
 
-## The `outsource` skill (first-party)
+## The `ask-colleague` skill (first-party)
 
 colleague ships one **first-party** Claude Code skill,
-[`outsource`](.claude/skills/outsource/) — the *inverse* of the vendored skills
-(origin = colleague; see [`docs/skill-sources.md`](docs/skill-sources.md)). It
-lets another agent hand a scoped task to colleague — a *different* backend/mind,
+[`ask-colleague`](.claude/skills/ask-colleague/) — the *inverse* of the vendored
+skills (origin = colleague; see [`docs/skill-sources.md`](docs/skill-sources.md)).
+It lets another agent hand a scoped task to colleague — a *different* backend/mind,
 not a stronger one; diversity is the point. Three verbs over `colleague drive`:
-`outsource explore` (read-only investigation), `outsource review` (a diverse
-second opinion on the committed `<base>...HEAD` diff — the headline verb), and
-`outsource write` (delegate a small change — previews by default; `--apply` lands
-a drive branch, `--pr` opens a PR). explore/review run in a throwaway `git
-worktree` (no side effects); `write` previews in one too unless `--apply`/`--pr`,
-and guards against a dirty tree when applying. Details + worked examples:
-[`docs/features/outsource.md`](docs/features/outsource.md).
+`ask-colleague explore` (read-only investigation), `ask-colleague review` (a
+diverse second opinion on the committed `<base>...HEAD` diff — the headline verb),
+and `ask-colleague write` (delegate a small change — previews by default;
+`--apply` lands a drive branch, `--pr` opens a PR). explore/review run in a
+throwaway `git worktree` (no side effects); `write` previews in one too unless
+`--apply`/`--pr`, and guards against a dirty tree when applying. (Renamed from
+`outsource`; "outsource this" still triggers it.) Details + worked examples:
+[`docs/features/ask-colleague.md`](docs/features/ask-colleague.md).
 
 ## Git workflow
 

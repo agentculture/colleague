@@ -53,4 +53,4 @@ name exactly which surfaces were **not** covered. Never silently truncate.
 
 - [subagents.md](subagents.md) — the in-drive child-drive tool (not suitable for audits).
 - [parallel-subagents.md](parallel-subagents.md) — parallel child drives (file-changing work).
-- [outsource.md](outsource.md) — the first-party skill that delegates a task to a different mind.
+- [ask-colleague.md](ask-colleague.md) — the first-party skill that delegates a task to a different mind.

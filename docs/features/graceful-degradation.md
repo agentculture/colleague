@@ -146,8 +146,8 @@ colleague drive "read all files" --engine vllm-openai
 # Turn off (0 disables proactive windowing; reactive retry still engages on overflow):
 COLLEAGUE_CONTEXT_BUDGET=0 colleague drive "read all files" --engine vllm-openai
 
-# From outsource skill (inherits the budget):
-outsource write "refactor parser" --pr
+# From ask-colleague skill (inherits the budget):
+ask-colleague write "refactor parser" --pr
 ```
 
 On an overflow, the loop logs the shrink + retry to stderr and continues. On

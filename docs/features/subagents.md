@@ -65,7 +65,7 @@ The tool fires mid-drive, not from the CLI — there is no `subagent` verb. Read
 its full contract with:
 
 ```bash
-colleague explain subagent      # aliases: subagents, convoy
+colleague explain subagent      # alias: subagents
 ```
 
 ## Key files

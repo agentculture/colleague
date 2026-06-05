@@ -156,7 +156,7 @@ ansi = "colleague.tui.render.ansi:render"
 
 An external package that installs a `colleague.renderers` entry-point
 (e.g. `rich = "mypackage.render_rich:render"`) will be discovered at runtime
-without any core change — the same mechanism `colleague wheels list` uses for
+without any core change — the same mechanism `colleague backends list` uses for
 backends.
 
 The built-in `ansi` renderer (`colleague/tui/render.ansi`) is **hand-rolled

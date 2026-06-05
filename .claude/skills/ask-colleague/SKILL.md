@@ -1,38 +1,42 @@
 ---
-name: outsource
+name: ask-colleague
 type: command
 description: >
-  Hand a scoped repo task to colleague — a *different* backend/model than you
-  (e.g. a local vLLM Qwen) — and fold its answer back. The point isn't a stronger
-  model; it's a different mind, and diversity helps: `outsource review` gets an
-  independent second opinion on a diff, `outsource explore` gets a fresh read of
-  an area, `outsource write` delegates a small implementation, and `outsource
-  feedback` grades a finished drive (the ROI loop). Reach for it PROACTIVELY, not
-  only when asked: before you present or open a PR on a non-trivial committed
-  diff, run `review` for a diverse second opinion; for a fresh read of an
-  unfamiliar area whose answer is independent of your current context, run
-  `explore`. Both are read-only — isolated in a throwaway git worktree, zero side
-  effects — so the reflex is always safe; the side-effecting `write --apply` /
-  `write --pr` still needs the user's go-ahead. Also triggers when the user says
-  "outsource this", "get a second opinion", "have colleague review/explore/
-  write", "ask the other model", or "rate that drive". Outsourced output is a
-  second opinion to verify and own, never authority.
+  Ask colleague — a *different* backend/model than you (e.g. a local vLLM Qwen) —
+  to take a scoped repo task off your plate, then fold its answer back. The point
+  isn't a stronger model; it's a second, independent mind, and that diversity is
+  the value: `ask-colleague review` gets a candid second opinion on a diff,
+  `ask-colleague explore` gets a fresh read of an area, `ask-colleague write`
+  hands off a small implementation, and `ask-colleague feedback` grades a finished
+  drive (the ROI loop). Reach for it REFLEXIVELY, the way you'd lean over to the
+  teammate at the next desk — not only when asked: before you present or open a PR
+  on a non-trivial committed diff, run `review` for a diverse second opinion; for a
+  fresh read of an unfamiliar area whose answer is independent of your current
+  context, run `explore`. Both are read-only — isolated in a throwaway git
+  worktree, zero side effects — so the reflex is always safe; the side-effecting
+  `write --apply` / `write --pr` still needs the user's go-ahead. Triggers when the
+  user says "ask colleague", "ask a colleague to review/explore/write this", "have
+  colleague take a look", "get a second opinion", "ask the other model", "rate that
+  drive" — and still on the legacy "outsource this". Colleague's output is a second
+  opinion to verify and own, never authority.
 ---
 
-# outsource — use colleague as a different mind
+# ask-colleague — lean on colleague as a different mind
 
-`outsource` drives the **`colleague`** CLI so a Claude agent can hand a scoped
+`ask-colleague` drives the **`colleague`** CLI so a Claude agent can hand a scoped
 task to a *different* backend (default: a local vLLM `Qwen3.6-27B` on
 `:8001`). Colleague's model is **not** assumed to be stronger than you — its
 value is **diversity**. A second, independent mind catches things the author's
-mind glides past, which is why **review** is the headline verb.
+mind glides past, which is why **review** is the headline verb. Treat it the way
+you'd turn to the colleague at the next desk: a quick, low-ceremony ask, not a
+heavyweight handoff.
 
 This skill is the operator: a portable wrapper that resolves the CLI and turns
 each verb into a `colleague drive`, then prints the drive's result summary.
 
-## The reflex — when to reach for colleague *unprompted*
+## The reflex — when to ask colleague *unprompted*
 
-Don't wait to be told "outsource this." The two read-only verbs have **zero side
+Don't wait to be told. The two read-only verbs have **zero side
 effects** (throwaway worktree, can't touch your tree), so reaching for them is
 always safe — make it a habit on tasks that fit:
 
@@ -70,16 +74,17 @@ always safe — make it a habit on tasks that fit:
 - **Second opinion, not authority.** colleague is a *different* mind, not a
   stronger one. Weigh its findings, verify its claims, own the decision. Diversity
   is the value; verification is the price.
-- **Close the loop.** Occasionally `outsource feedback last --rating N` so the ROI
-  of outsourcing this *kind* of task is measurable — and you learn when to stop.
+- **Close the loop.** Occasionally `ask-colleague feedback last --rating N` so the
+  ROI of asking colleague for this *kind* of task is measurable — and you learn
+  when to stop.
 
 ## How to run
 
-The entry point is `scripts/outsource.sh`. Invoke it from the repo you want
+The entry point is `scripts/ask-colleague.sh`. Invoke it from the repo you want
 colleague to work on:
 
 ```bash
-bash .claude/skills/outsource/scripts/outsource.sh <verb> "<text>" [options]
+bash .claude/skills/ask-colleague/scripts/ask-colleague.sh <verb> "<text>" [options]
 ```
 
 It resolves the CLI portably — an installed `colleague` on `PATH` (the normal
@@ -128,13 +133,13 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   diff without touching your tree); pass `--apply` to land it on a
   `colleague/<id>` drive branch you can inspect, merge, or discard, or `--pr` to
   open a PR.
-- **feedback** — *after* an outsourced drive, close the loop: record how good it
-  was. Every drive's artifact already carries always-on **stats** (elapsed time,
-  tokens read/generated, tools used, bytes written, reasoning-vs-answer sizes);
-  `feedback` adds a 1–5 quality grade. Stats say what it *cost*, feedback says how
-  *good* it was — together they let you compute the **ROI of outsourcing** and
-  decide whether to outsource again (and to which backend). Grade the most recent
-  drive with `outsource feedback last --rating 4 --notes "…"`.
+- **feedback** — *after* colleague finishes a drive, close the loop: record how
+  good it was. Every drive's artifact already carries always-on **stats** (elapsed
+  time, tokens read/generated, tools used, bytes written, reasoning-vs-answer
+  sizes); `feedback` adds a 1–5 quality grade. Stats say what it *cost*, feedback
+  says how *good* it was — together they let you compute the **ROI of asking
+  colleague** and decide whether to ask again (and which backend). Grade the most
+  recent drive with `ask-colleague feedback last --rating 4 --notes "…"`.
 
 ## Hard rules (do not violate)
 
@@ -148,7 +153,7 @@ The result printed to stdout is the drive's `TaskResult.summary` (plus
   pass `--allow-dirty` — this guards the dirty-tree hazard: `colleague drive
   --no-pr` commits *uncommitted* edits onto the drive branch and leaves you there.
   Commit or stash first before applying.
-- **Outsourced output is a second opinion, not authority.** The backend may be a
+- **Colleague's output is a second opinion, not authority.** The backend may be a
   smaller/different model; weigh its findings, verify its claims, and own the
   decision yourself.
 

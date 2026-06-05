@@ -1,10 +1,10 @@
-# `outsource` — use colleague as a different mind
+# `ask-colleague` — use colleague as a different mind
 
 > Hand a scoped repo task to colleague — a *different* backend/model than the
 > calling agent. The point isn't a stronger model; it's a **different mind**, and
 > diversity helps.
 
-`outsource` is a **first-party Claude Code skill** (`.claude/skills/outsource/`)
+`ask-colleague` is a **first-party Claude Code skill** (`.claude/skills/ask-colleague/`)
 that drives the `colleague` CLI so another agent can delegate a scoped task to
 a different engine (default: a local vLLM `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` on
 `:8001`). Colleague's model is **not assumed to be stronger** than the caller —
@@ -31,7 +31,7 @@ stderr while it runs.
 ## The reflex — reach for it *unprompted*
 
 The skill is meant to fire **proactively**, not only when a user says "outsource
-this." The two read-only verbs have zero side effects (throwaway worktree), so
+this" (now ask-colleague). The two read-only verbs have zero side effects (throwaway worktree), so
 the reflex is always safe:
 
 - **`review` is the standing reflex** — before presenting or opening a PR on a
@@ -39,7 +39,7 @@ the reflex is always safe:
   catches what the author's mind glides past, at the cost of ~20s.
 - **`explore`** when you need a fresh read of an unfamiliar area whose answer is
   independent of your current context.
-- **Don't** outsource work that needs your accumulated context or the user's
+- **Don't** ask-colleague to do work that needs your accumulated context or the user's
   intent, anything outward-facing/destructive without a nod (`write --apply` /
   `--pr`), trivial edits, or output you can't verify cheaply.
 - **Guardrails:** check readiness in one glance (`colleague whoami` names the live
@@ -47,12 +47,12 @@ the reflex is always safe:
   opinion to verify and own, never authority; close the loop with `feedback` so
   the ROI is measurable.
 
-See the [skill](../../.claude/skills/outsource/SKILL.md) for the full GO/NO-GO rule.
+See the [skill](../../.claude/skills/ask-colleague/SKILL.md) for the full GO/NO-GO rule.
 
 ## How to run
 
 ```bash
-bash .claude/skills/outsource/scripts/outsource.sh <verb> "<text>" [options]
+bash .claude/skills/ask-colleague/scripts/ask-colleague.sh <verb> "<text>" [options]
 ```
 
 Common options: `--repo PATH` (default `.`), `--base BRANCH` (review base,
@@ -65,7 +65,7 @@ previews unless `--apply` or `--pr` is given).
 ### explore (read-only)
 
 ```text
-$ outsource explore "report the top-level markdown title of README.md"
+$ ask-colleague explore "report the top-level markdown title of README.md"
 status: ok
 task: 7f3a91c0b2e4
 
@@ -73,7 +73,7 @@ task: 7f3a91c0b2e4
 # colleague
 
 artifact: /repo/.colleague/7f3a91c0b2e4.report-the-top-level-markdown-title.json
-grade: outsource feedback 7f3a91c0b2e4 --rating N
+grade: ask-colleague feedback 7f3a91c0b2e4 --rating N
 ```
 
 The drive ran entirely in a throwaway worktree — `git status`, the current
@@ -81,7 +81,7 @@ branch, and the worktree list are byte-for-byte identical before and after. A
 read-only probe **preserves** its artifact (so you can grade it by the printed
 `task_id`) but does **not** move the `last` pointer (#132), so a probe can never
 steal a grade meant for a write. Grade it by its id, or find it later with
-`outsource feedback list`.
+`ask-colleague feedback list`.
 
 ### write (previews by default)
 
@@ -89,7 +89,7 @@ Without `--apply`, `write` runs the change in a throwaway worktree and prints th
 would-be diff — nothing touches your working tree:
 
 ```text
-$ outsource write "create greet.py with greet(name) returning 'hi, ' + name" --repo /tmp/demo
+$ ask-colleague write "create greet.py with greet(name) returning 'hi, ' + name" --repo /tmp/demo
 status: ok
 
 Created greet.py with a single function greet(name) that returns 'hi, ' + name.
@@ -108,14 +108,14 @@ Pass `--apply` to land it on a `colleague/<id>` drive branch you can inspect,
 merge, or discard (or `--pr` to push + open a PR):
 
 ```text
-$ outsource write "create greet.py with greet(name) …" --repo /tmp/demo --apply
+$ ask-colleague write "create greet.py with greet(name) …" --repo /tmp/demo --apply
 status: ok
 
 Created greet.py with a single function greet(name) that returns 'hi, ' + name.
 
 changed files: greet.py
 drive branch: colleague/3acc192d27e1-create-greet-py-with-greet-name
-grade: outsource feedback 3acc192d27e1 --rating N
+grade: ask-colleague feedback 3acc192d27e1 --rating N
 ```
 
 The drive branch and artifact carry a slug of the request, so the drive is
@@ -124,30 +124,30 @@ recognisable in a `git branch` / `ls .colleague/` listing.
 ### feedback — close the ROI loop
 
 ```text
-$ outsource feedback list                          # find a drive by its request
+$ ask-colleague feedback list                          # find a drive by its request
 ID            WHEN              STATUS  GRADE  REQUEST
 3acc192d27e1  2026-06-05 14:02  ok      --     create greet.py with greet(name) …
 7f3a91c0b2e4  2026-06-05 13:55  ok      --     report the top-level markdown title …
 
-$ outsource feedback 3acc192d27e1 --rating 4 --notes "clean"   # grade by id
+$ ask-colleague feedback 3acc192d27e1 --rating 4 --notes "clean"   # grade by id
 ```
 
-`outsource feedback last` grades the most recent **write** (read-only probes
+`ask-colleague feedback last` grades the most recent **write** (read-only probes
 don't move `last`). Grade a probe by the `task_id` it printed, or use
-`outsource feedback list`.
+`ask-colleague feedback list`.
 
 ### review — the headline verb
 
 `review` gets an independent second opinion on the committed diff. This skill
-was itself reviewed this way — `outsource review` was pointed at the wrapper's
+was itself reviewed this way — `ask-colleague review` was pointed at the wrapper's
 own diff, and the 27B (a different mind) flagged a real gap the author had
 missed:
 
 ```text
-$ outsource review "the print_result and worktree-cleanup changes" --base <prev>
+$ ask-colleague review "the print_result and worktree-cleanup changes" --base <prev>
 status: ok
 
-## Review of outsource.sh changes
+## Review of ask-colleague.sh changes
 ### 1. Correctness risks / likely bugs
 No bugs found. The changes are correct.
 - print_result heredoc→-c fix: a real bug fix …
@@ -187,4 +187,4 @@ now covers exactly that path. A different mind earned its keep.
   fleet (a different model per verb) is separate infrastructure.
 
 See the skill itself for the full contract:
-[`.claude/skills/outsource/SKILL.md`](../../.claude/skills/outsource/SKILL.md).
+[`.claude/skills/ask-colleague/SKILL.md`](../../.claude/skills/ask-colleague/SKILL.md).

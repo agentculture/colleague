@@ -20,7 +20,7 @@ boundary — what is deliberately *not* built — is restated under
 | Feature | Doc | Role | CLI surface |
 |---------|-----|------|-------------|
 | Drive & the tool-loop | [drive-and-loop.md](drive-and-loop.md) | Task runtime + tool loop | `drive` |
-| Backends & plugins | [engines.md](engines.md) | Backend + adapter + plugins | `wheels list`, `--engine` |
+| Backends & plugins | [engines.md](engines.md) | Backend + adapter + plugins | `backends list`, `--engine` |
 | Model & endpoint selection | [model-selection.md](model-selection.md) | Backend config (model + endpoint) | `--model`, `--base-url`, env |
 | Git/PR handoff | [handoff.md](handoff.md) | Handoff | `drive` (`--no-pr`, `--base`) |
 | Result artifact | [artifact.md](artifact.md) | Run report | written by `drive` |
@@ -36,8 +36,8 @@ boundary — what is deliberately *not* built — is restated under
 | Subagents | [subagents.md](subagents.md) | Subagents (nested in-process child drives) | `subagent` loop tool (mid-drive) |
 | Audit fan-out | [audit-fanout.md](audit-fanout.md) | Operator-driven audit fan-out (assign-to-workforce) | `drive --command` (per-surface) |
 | Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Runtime (per-model hooks overlay) | `hooks list --model` |
-| Outsource (a different mind) | [outsource.md](outsource.md) | A first-party skill that hands a task to a different mind | `outsource` skill (drives `drive`) |
-| Drive stats & feedback (ROI) | [stats-and-feedback.md](stats-and-feedback.md) | Run report (stats) + Feedback (the ROI loop) | always-on in the artifact; `feedback`, `outsource feedback` |
+| Ask colleague (a different mind) | [ask-colleague.md](ask-colleague.md) | A first-party skill that hands a task to a different mind | `ask-colleague` skill (drives `drive`) |
+| Drive stats & feedback (ROI) | [stats-and-feedback.md](stats-and-feedback.md) | Run report (stats) + Feedback (the ROI loop) | always-on in the artifact; `feedback`, `ask-colleague feedback` |
 | Escalation (agtag continuation) | [escalation.md](escalation.md) | Runtime finalize hook — files one tracked agtag continuation issue on abort or step-budget exhaustion | opt-in via `COLLEAGUE_ESCALATE`; no CLI verb |
 
 ## How the features fit together

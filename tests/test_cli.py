@@ -109,8 +109,8 @@ def test_learn_text(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Exit-code policy" in out
     assert "--json" in out
     assert "explain" in out
-    # reoriented for collaborating agents: foreground outsource + drive + skills.
-    assert "outsource" in out
+    # reoriented for collaborating agents: foreground ask-colleague + drive + skills.
+    assert "ask-colleague" in out
     assert "drive" in out
     assert ".colleague/skills/" in out
     # positively pin the new harness identity (not just the removal below).
@@ -140,7 +140,7 @@ def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
     # collaboration + skills guidance are first-class in the payload.
     assert "work_with" in payload
     assert "teach_with_skills" in payload
-    assert payload["work_with"]["verbs"][0]["verb"].startswith("outsource")
+    assert payload["work_with"]["verbs"][0]["verb"].startswith("ask-colleague")
     # the overlay <model> placeholder is documented as sanitized in the payload too.
     assert "filename-safe" in payload["teach_with_skills"]["model_placeholder"]
 

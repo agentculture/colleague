@@ -149,14 +149,14 @@ def test_json_failure_diagnostic_on_stderr(
 
 
 # ---------------------------------------------------------------------------
-# 4. outsource.sh-style consumer: json.loads(stdout) succeeds (clean JSON).
+# 4. ask-colleague.sh-style consumer: json.loads(stdout) succeeds (clean JSON).
 # ---------------------------------------------------------------------------
 
 
 def test_json_failure_stdout_is_clean_json_parseable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Simulate the outsource.sh consumer: stdout must be directly loadable."""
+    """Simulate the ask-colleague.sh consumer: stdout must be directly loadable."""
     monkeypatch.setattr(registry, "load", lambda name: _FlakyPartialEngine())
 
     main(
@@ -172,7 +172,7 @@ def test_json_failure_stdout_is_clean_json_parseable(
         ]
     )
     stdout_text = capsys.readouterr().out
-    # This is what outsource.sh does: json.loads(stdout)
+    # This is what ask-colleague.sh does: json.loads(stdout)
     obj = json.loads(stdout_text)
     assert "status" in obj
     assert "task_id" in obj

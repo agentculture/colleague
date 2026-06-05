@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# outsource — hand a scoped repo task to colleague (a different engine/mind).
+# ask-colleague — hand a scoped repo task to colleague (a different engine/mind).
 #
 # Colleague's engine is not necessarily stronger than the calling agent; it is
 # a *different* mind, and diversity helps — which is why `review` is the headline
 # verb. Three verbs drive `colleague drive` and print the result:
 #
-#   outsource explore "<question or area>"   read-only investigation -> findings
-#   outsource review  "<what to focus on>"   diverse second-opinion on the diff
-#   outsource write   "<task>" [--apply]     implement a change (preview by default)
-#   outsource feedback <id|last> --rating N  grade a past drive (ROI loop); no rating -> show
-#   outsource feedback list                  list every recorded drive by request + grade
+#   ask-colleague explore "<question or area>"   read-only investigation -> findings
+#   ask-colleague review  "<what to focus on>"   diverse second-opinion on the diff
+#   ask-colleague write   "<task>" [--apply]     implement a change (preview by default)
+#   ask-colleague feedback <id|last> --rating N  grade a past drive (ROI loop); no rating -> show
+#   ask-colleague feedback list                  list every recorded drive by request + grade
 #
 # explore/review run in a throwaway `git worktree` at HEAD, so they can never
 # touch your working tree or branch (any stray write is discarded). write also
@@ -58,19 +58,19 @@ EOF
 
 usage() {
     cat <<'EOF'
-outsource — hand a scoped repo task to colleague (a different engine/mind).
+ask-colleague — hand a scoped repo task to colleague (a different engine/mind).
 
 Usage:
-  outsource explore "<question or area>"     Read-only investigation -> findings (no side effects)
-  outsource review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
-  outsource write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
-  outsource feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
-  outsource feedback list                    List every recorded drive by request + grade (find one by its request)
+  ask-colleague explore "<question or area>"     Read-only investigation -> findings (no side effects)
+  ask-colleague review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
+  ask-colleague write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
+  ask-colleague feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
+  ask-colleague feedback list                    List every recorded drive by request + grade (find one by its request)
 
 Options:
   --repo PATH        Target repo (default: .)
   --base BRANCH      Base for `review` diff (default: main)
-  --engine NAME      Engine wheel (default: $COLLEAGUE_ENGINE or vllm-openai)
+  --engine NAME      Backend plugin (default: $COLLEAGUE_ENGINE or vllm-openai)
   --model NAME       Model (default: $COLLEAGUE_MODEL or sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP)
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20)
@@ -88,7 +88,7 @@ write previews in a throwaway worktree too unless --apply (or --pr) is given.
 feedback grades a finished drive: stats (in the artifact) say what it cost,
 feedback says how good it was — together, the ROI of outsourcing. explore/review
 do not move `last` (they are read-only) — grade them by their printed task-id, or
-run `outsource feedback list` to find a drive by its request.
+run `ask-colleague feedback list` to find a drive by its request.
 EOF
 }
 
@@ -100,7 +100,7 @@ case "$VERB" in
     "") usage >&2; exit 2 ;;
     *)
         echo "error: unknown verb '$VERB' (expected explore|review|write|feedback)" >&2
-        echo "hint: run 'outsource --help'" >&2
+        echo "hint: run 'ask-colleague --help'" >&2
         exit 2
         ;;
 esac
@@ -114,7 +114,7 @@ require_tools() {
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo "error: missing required tool(s): ${missing[*]}" >&2
-        echo "hint: outsource needs python3, git, grep, and mktemp on PATH." >&2
+        echo "hint: ask-colleague needs python3, git, grep, and mktemp on PATH." >&2
         exit 2
     fi
 }
@@ -124,7 +124,7 @@ require_tools() {
 need_value() {  # $1 = remaining arg count ($#), $2 = flag name
     [[ "$1" -ge 2 ]] || {
         echo "error: $2 requires a value" >&2
-        echo "hint: run 'outsource --help'" >&2
+        echo "hint: run 'ask-colleague --help'" >&2
         exit 2
     }
 }
@@ -165,7 +165,7 @@ while [[ $# -gt 0 ]]; do
         --by) need_value "$#" "$1"; BY="$2"; shift 2 ;;
         -h | --help) usage; exit 0 ;;
         --) shift; while [[ $# -gt 0 ]]; do ARG="${ARG:+$ARG }$1"; shift; done ;;
-        -*) echo "error: unknown option '$1'" >&2; echo "hint: run 'outsource --help'" >&2; exit 2 ;;
+        -*) echo "error: unknown option '$1'" >&2; echo "hint: run 'ask-colleague --help'" >&2; exit 2 ;;
         *) ARG="${ARG:+$ARG }$1"; shift ;;
     esac
 done
@@ -229,7 +229,7 @@ print_result() {
     # real repo) -> print a copy-paste `grade:` hint with the explicit task-id, so
     # the caller never has to rely on `last` (issue #132). A preview leaves it
     # empty (its artifact was discarded with the worktree, so it is not gradable).
-    OUTSOURCE_REAL_ARTIFACT_DIR="${1:-}" OUTSOURCE_GRADABLE="${2:-}" python3 -c '
+    ASK_COLLEAGUE_REAL_ARTIFACT_DIR="${1:-}" ASK_COLLEAGUE_GRADABLE="${2:-}" python3 -c '
 import sys, json, os
 raw = sys.stdin.read().strip()
 if not raw:
@@ -265,7 +265,7 @@ if cf:
 if d.get("branch"):
     print("drive branch:", d["branch"], file=out)
 ap = d.get("artifacts_path")
-real_dir = os.environ.get("OUTSOURCE_REAL_ARTIFACT_DIR") or ""
+real_dir = os.environ.get("ASK_COLLEAGUE_REAL_ARTIFACT_DIR") or ""
 if ap and real_dir:
     ap = os.path.join(real_dir, os.path.basename(ap))
 if ap:
@@ -274,8 +274,8 @@ if ap:
 # (colleague writes an artifact on failure too, h5): a failure rated 1/5 is exactly
 # the ROI signal, so the hint must not be gated on `ok` (#139 qodo). It prints to
 # `out` (stderr on failure), matching the rest of the failure digest.
-if tid and os.environ.get("OUTSOURCE_GRADABLE") == "1":
-    print("grade:", "outsource feedback", tid, "--rating N", file=out)
+if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1":
+    print("grade:", "ask-colleague feedback", tid, "--rating N", file=out)
 sys.exit(0 if ok else 1)
 '
 }
@@ -346,7 +346,7 @@ _valid_segment() {
 # Read-only verbs drive in a throwaway worktree that _cleanup_worktree deletes, so
 # the artifact written under <worktree>/.colleague/ would vanish with it. Copy it
 # back to the real repo's .colleague/ so the drive can still be graded afterwards
-# by its task-id (`outsource feedback <id>` / `outsource feedback list`).
+# by its task-id (`ask-colleague feedback <id>` / `ask-colleague feedback list`).
 #
 # Deliberately does NOT write a last_drive pointer (issue #132): explore/review
 # are read-only probes and must not move `last`, or a later probe would steal a
@@ -361,7 +361,7 @@ _preserve_artifact() {
     local art_name="$1"
     [[ -n "$art_name" && -n "$_WT" ]] || return 1
     if ! _valid_segment "$art_name"; then
-        printf 'outsource: refusing to preserve unsafe artifact name %q\n' "$art_name" >&2
+        printf 'ask-colleague: refusing to preserve unsafe artifact name %q\n' "$art_name" >&2
         return 1
     fi
     local src="$_WT/.colleague"
@@ -371,7 +371,7 @@ _preserve_artifact() {
     # The JSON artifact is the record of the drive — surface a copy failure rather
     # than swallow it, so the caller can fall back to honest path reporting.
     if ! cp -f "$src/$art_name" "$dst/$art_name"; then
-        printf 'outsource: could not preserve artifact %s\n' "$art_name" >&2
+        printf 'ask-colleague: could not preserve artifact %s\n' "$art_name" >&2
         return 1
     fi
     # The trace shares the artifact stem (.json -> .trace.jsonl); a best-effort
@@ -386,7 +386,7 @@ _preserve_artifact() {
 # verbs and the write preview share). `mktemp -d` is given an explicit template:
 # GNU mktemp tolerates a bare `-d`, but BSD/macOS mktemp requires one.
 _add_worktree() {
-    _WT="$(mktemp -d "${TMPDIR:-/tmp}/outsource.XXXXXX")"
+    _WT="$(mktemp -d "${TMPDIR:-/tmp}/ask-colleague.XXXXXX")"
     trap _cleanup_worktree EXIT
     git -C "$REPO" worktree add -q --detach "$_WT" HEAD
 }
@@ -398,7 +398,7 @@ run_readonly() {
     out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
     # Preserve the artifact to the real repo BEFORE the EXIT trap removes the
-    # worktree, so the drive can be graded by its task-id (`outsource feedback
+    # worktree, so the drive can be graded by its task-id (`ask-colleague feedback
     # <id>`). Only point print_result at the real repo — and mark the drive
     # gradable — when the copy actually landed; otherwise the printed `artifact:`
     # would name a file preservation never wrote, and the grade hint would point

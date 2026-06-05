@@ -89,7 +89,7 @@ def test_handoff_commits_locally_without_pushing(tmp_path: Path) -> None:
 
 
 def test_handoff_restores_detached_head(tmp_path: Path) -> None:
-    """C2: a drive that starts on a detached HEAD (the `outsource` worktree case,
+    """C2: a drive that starts on a detached HEAD (the `ask-colleague` worktree case,
     `git worktree add --detach`) is returned to that same commit — detached, not
     stranded on the drive branch."""
     repo = tmp_path / "repo"

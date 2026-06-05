@@ -254,13 +254,13 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
     assert set(serialized.keys()) == expected_keys
 
 
-def test_drive_cli_then_wheels_list(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_drive_cli_then_backends_list(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["drive", "go", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"])
     assert rc == 0
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == OK
 
-    assert main(["wheels", "list", "--json"]) == 0
+    assert main(["backends", "list", "--json"]) == 0
     names = {e["name"] for e in json.loads(capsys.readouterr().out)["engines"]}
     assert {"mock", "vllm-openai"} <= names
 

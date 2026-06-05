@@ -74,7 +74,7 @@ A per-repo `last_drive` pointer (written by `execute_drive` after each drive)
 lets you grade the most recent drive without quoting its id. An ungraded drive
 reads back as a clean "no feedback yet" state — never an error.
 
-**`last` resolves to the most recent *consequential* drive (#132).** `outsource
+**`last` resolves to the most recent *consequential* drive (#132).** `ask-colleague
 explore` / `review` run read-only in a throwaway worktree and **preserve** their
 artifact but **do not move** `last` — so a later read-only probe can never steal
 a grade meant for a write. Grade a probe by its printed `task_id` (every drive
@@ -106,19 +106,19 @@ it lists every drive. `--rating` must be an integer 1–5. `--by` defaults to
 colleague's resolved identity. Results go to stdout, diagnostics to stderr;
 every verb supports `--json`.
 
-### From the `outsource` skill
+### From the `ask-colleague` skill
 
-The agent-facing entry is the `outsource feedback` verb — close the loop right
+The agent-facing entry is the `ask-colleague feedback` verb — close the loop right
 after an outsourced drive:
 
 ```bash
-outsource feedback last --rating 4 --notes "good, but missed an edge case"
-outsource feedback <task_id>          # no --rating → show existing feedback
-outsource feedback list               # find a past drive by its request
+ask-colleague feedback last --rating 4 --notes "good, but missed an edge case"
+ask-colleague feedback <task_id>          # no --rating → show existing feedback
+ask-colleague feedback list               # find a past drive by its request
 ```
 
 Because read-only probes don't move `last`, prefer grading a probe by the
-`task_id` it printed (or `outsource feedback list`); `outsource feedback last`
+`task_id` it printed (or `ask-colleague feedback list`); `ask-colleague feedback last`
 grades the most recent **write**.
 
 ## Reading ROI off one drive

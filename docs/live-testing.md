@@ -170,20 +170,20 @@ diff-verified.
   `colleague: Implement the following task in this repository:` — `write.md` led
   with the preamble and `handoff._commit_subject` takes the instruction's first
   line. **Fixed** by leading `write.md` with `$ARGUMENTS` (locked by
-  `tests/test_outsource_skill.py`).
+  `tests/test_ask_colleague_skill.py`).
 - **Prior "flake" evidence was confounded, not a write bug.** The rated-1 drive
   `1bcabd9095d3` is an `outsource explore` probe, misattributed via `feedback
   record last` (the `last_drive` pointer is shared across verbs). The stray
   `colleague-mock.md` files came from explicit `--engine mock` smoke drives
   (`8b8d43bd26cf` et al.); there is **no silent mock fallback** (`resolve_engine`,
   pinned by `tests/test_config.py`). The render-order bug (#63 #3) is **already
-  fixed** here (single-pass `re.sub` in `outsource.sh`).
+  fixed** here (single-pass `re.sub` in `ask-colleague.sh`).
   **Fixed (#132):** read-only probes (`explore`/`review`) no longer move `last`
   (the skill's `_preserve_artifact` stopped writing the pointer), so `last`
   tracks the most recent **write**; resolving `last` echoes the id + request to
-  stderr, and `colleague feedback list` / `outsource feedback list` surfaces
+  stderr, and `colleague feedback list` / `ask-colleague feedback list` surfaces
   every drive by request + grade so a drive is recoverable without trusting
-  order. Locked by `tests/test_feedback*.py` + `tests/test_outsource_skill.py`.
+  order. Locked by `tests/test_feedback*.py` + `tests/test_ask_colleague_skill.py`.
 
 ### 2. Subagents end-to-end live
 

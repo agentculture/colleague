@@ -15,7 +15,7 @@ delegate to `colleague.loop.run` and only supply *how the model is called* (a
 A backend becomes available by advertising itself under the
 `colleague.engines` **Python entry-point group**. The two bundled backends do
 this in this repo's `pyproject.toml`; an out-of-tree plugin does the *identical*
-thing in its own metadata, and `colleague wheels list` discovers it with no
+thing in its own metadata, and `colleague backends list` discovers it with no
 change to colleague core (`colleague/registry.py` — the registry).
 
 ```toml
@@ -24,8 +24,8 @@ my-engine = "my_package.engine:MyEngine"
 ```
 
 ```bash
-colleague wheels list          # the registry: backends installed in this env
-colleague wheels list --json
+colleague backends list          # the registry: backends installed in this env
+colleague backends list --json
 colleague drive "..." --engine my-engine
 ```
 

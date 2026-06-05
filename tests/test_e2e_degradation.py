@@ -5,7 +5,7 @@ the INTEGRATION / e2e layer, not a duplicate of the unit tests in
 ``test_loop_degradation.py``.  The key signal is that the original bug from
 issue #76 is fixed: a context-overflow that the loop cannot recover from must
 still produce parseable JSON on stdout (NOT empty stdout) when ``drive --json``
-is used.  An ``outsource.sh``-style consumer that does ``json.loads(stdout)``
+is used.  An ``ask-colleague.sh``-style consumer that does ``json.loads(stdout)``
 gets a usable result object, not a parse error.
 
 Tests
@@ -211,7 +211,7 @@ def test_non_recoverable_overflow_emits_parseable_json_to_stdout(
     assert "status" in payload, f"result JSON missing 'status': {payload}"
     assert payload["status"] == "error", f"expected status=error, got: {payload['status']!r}"
 
-    # A 'task_id' must be present (outsource.sh-style consumers rely on this).
+    # A 'task_id' must be present (ask-colleague.sh-style consumers rely on this).
     assert "task_id" in payload, f"result JSON missing 'task_id': {payload}"
 
     # The human diagnostic must appear on stderr, not stdout.
@@ -231,12 +231,12 @@ def test_non_recoverable_overflow_emits_parseable_json_to_stdout(
     ), f"POST was called {post_call_count['n']} times — looks like an infinite retry loop"
 
 
-def test_non_recoverable_overflow_stdout_is_clean_json_for_outsource_consumer(
+def test_non_recoverable_overflow_stdout_is_clean_json_for_ask_colleague_consumer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Simulate the outsource.sh consumer: json.loads(stdout) succeeds without error.
+    """Simulate the ask-colleague.sh consumer: json.loads(stdout) succeeds without error.
 
     This is the direct reproduction of the #76 failure mode: before the fix,
     stdout was empty or contained diagnostic text, making json.loads raise.
@@ -270,7 +270,7 @@ def test_non_recoverable_overflow_stdout_is_clean_json_for_outsource_consumer(
     )
 
     stdout_text = capsys.readouterr().out
-    # outsource.sh-style: this must not raise
+    # ask-colleague.sh-style: this must not raise
     obj = json.loads(stdout_text)
     assert "status" in obj
     assert "task_id" in obj

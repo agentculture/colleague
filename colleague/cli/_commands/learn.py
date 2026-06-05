@@ -25,15 +25,15 @@ not a stronger one. Diversity is the point: a second, independent perspective
 catches what your own glides past. Reach for it before you present work or open
 a PR.
 
-The first-party `outsource` Claude Code skill (.claude/skills/outsource/) is the
-front door:
-  outsource explore "<area>"     Read-only investigation; reports findings.
-  outsource review  "<focus>"    A diverse second opinion on your committed
-                                 <base>...HEAD diff. The headline verb.
-  outsource write   "<task>"     Delegate a small change. Previews by default
-                                 (throwaway worktree, no side effects); --apply
-                                 lands a drive branch, --pr opens a PR.
-  outsource feedback ...         Grade a finished drive (closes the ROI loop).
+The first-party `ask-colleague` Claude Code skill (.claude/skills/ask-colleague/)
+is the front door:
+  ask-colleague explore "<area>"   Read-only investigation; reports findings.
+  ask-colleague review  "<focus>"  A diverse second opinion on your committed
+                                   <base>...HEAD diff. The headline verb.
+  ask-colleague write   "<task>"   Delegate a small change. Previews by default
+                                   (throwaway worktree, no side effects); --apply
+                                   lands a drive branch, --pr opens a PR.
+  ask-colleague feedback ...       Grade a finished drive (closes the ROI loop).
 explore/review are read-only (worktree-isolated) — always safe to run.
 
 Or drive it directly:
@@ -62,7 +62,7 @@ resolves with:  colleague skills list  and  colleague agents list
 Commands
 --------
   colleague drive <task>       Run a repo task through a coder backend.
-  colleague wheels list        List discovered backend plugins.
+  colleague backends list      List discovered backend plugins.
   colleague whoami             Mesh identity + the live drive engine/model.
   colleague feedback ...       Grade a drive / read its ROI record.
   colleague skills list        Show the skill docs resolved for a model.
@@ -87,7 +87,7 @@ Exit-code policy
 More detail
 -----------
   colleague explain colleague    The architecture, part by part.
-  colleague explain outsource    The collaboration verbs in depth.
+  colleague explain ask-colleague  The collaboration verbs in depth.
   colleague explain skills       What skills to author, and how they layer.
   colleague explain drive        The task contract a drive runs.
 """
@@ -104,22 +104,22 @@ def _as_json_payload() -> dict[str, object]:
             "the point."
         ),
         "work_with": {
-            "skill": ".claude/skills/outsource/",
+            "skill": ".claude/skills/ask-colleague/",
             "verbs": [
                 {
-                    "verb": "outsource explore",
+                    "verb": "ask-colleague explore",
                     "summary": "Read-only investigation of an area (worktree-isolated).",
                 },
                 {
-                    "verb": "outsource review",
+                    "verb": "ask-colleague review",
                     "summary": "A diverse second opinion on a <base>...HEAD diff (headline).",
                 },
                 {
-                    "verb": "outsource write",
+                    "verb": "ask-colleague write",
                     "summary": "Delegate a small change; previews unless --apply/--pr.",
                 },
                 {
-                    "verb": "outsource feedback",
+                    "verb": "ask-colleague feedback",
                     "summary": "Grade a finished drive (closes the ROI loop).",
                 },
             ],
@@ -142,7 +142,7 @@ def _as_json_payload() -> dict[str, object]:
         },
         "commands": [
             {"path": ["drive"], "summary": "Run a repo task through a coder backend."},
-            {"path": ["wheels", "list"], "summary": "List discovered backend plugins."},
+            {"path": ["backends", "list"], "summary": "List discovered backend plugins."},
             {"path": ["whoami"], "summary": "Mesh identity + the live drive engine/model."},
             {"path": ["feedback"], "summary": "Grade a drive / read its ROI record."},
             {"path": ["skills", "list"], "summary": "Show the skill docs resolved for a model."},
