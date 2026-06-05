@@ -144,10 +144,11 @@ def test_live_small_budget_windows_history_with_placeholder(
     print(f"[live #127 proactive] chat-request message counts per turn: {sizes}")
     print(f"[live #127 proactive] steps: {[(s.tool, s.ok) for s in result.steps]}")
 
-    # The drive reached a terminal result (graceful degradation, no crash/hang).
-    assert result.status in (OK, "error"), result.status
+    # Graceful degradation: despite aggressive windowing every turn, the drive still
+    # completed successfully (it didn't crash, hang, or abort on the trimmed context).
+    assert result.status == OK, result.error
     # Windowing fired live: the placeholder landed in a real chat request, proving
-    # the loop dropped oldest history to fit the 800-token budget.
+    # the loop dropped oldest history to fit the small budget.
     placeholder_seen = any(
         _PLACEHOLDER_TEXT in (m.get("content") or "")
         for msgs in chat_msgs
@@ -187,8 +188,9 @@ def test_live_induced_overflow_retries_and_recovers(
 
     monkeypatch.setattr(vllm_openai, "_post_json", induce)
 
-    # Positive budget so the reactive shrink-and-retry path engages at all.
-    config = EngineConfig.resolve(max_steps=8)
+    # Pin a positive budget so the reactive shrink-and-retry path engages regardless
+    # of the environment — a COLLEAGUE_CONTEXT_BUDGET of 0/negative would disable it.
+    config = EngineConfig.resolve(context_budget_tokens=192000, max_steps=8)
     task = Task.new(str(repo), _RECOVER_TASK, engine="vllm-openai")
     result, artifact_path = execute_drive(
         repo=repo,
@@ -207,8 +209,12 @@ def test_live_induced_overflow_retries_and_recovers(
     # The induced overflow forced a retry (≥2 chat calls)...
     assert chat_calls["n"] >= 2, "the induced overflow did not trigger a retry"
     # ...and the retry recovered against the REAL model: the drive finished OK and
-    # the real write happened on the recovered turn.
+    # the recovered turn actually created HELLO.txt (not merely "some" write).
     assert result.status == OK, result.error
-    assert any(s.tool == "write_file" and s.ok for s in result.steps), [
-        (s.tool, s.ok) for s in result.steps
+    assert "HELLO.txt" in result.changed_files, result.changed_files
+    wrote_hello = [
+        s
+        for s in result.steps
+        if s.tool == "write_file" and s.ok and s.arguments.get("path") == "HELLO.txt"
     ]
+    assert wrote_hello, [(s.tool, s.ok, s.arguments.get("path")) for s in result.steps]
