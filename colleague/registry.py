@@ -1,4 +1,4 @@
-"""Wheel discovery: find and select engines via Python entry points (R4).
+"""Backend discovery: find and select engines via Python entry points (R4).
 
 An engine becomes available to Colleague by advertising itself under the
 ``colleague.engines`` entry-point group. The two bundled engines do this in
@@ -6,7 +6,7 @@ this repo's ``pyproject.toml``; an out-of-tree wheel does the *identical* thing
 in its own metadata, and :func:`catalog` discovers it with no change to
 Colleague core (honesty condition h4).
 
-This is the registry: ``colleague wheels list`` reads :func:`catalog`, and
+This is the registry: ``colleague backends list`` reads :func:`catalog`, and
 ``colleague drive --engine <name>`` resolves the choice through :func:`load`.
 """
 
@@ -25,7 +25,7 @@ class UnknownEngine(Exception):
 
 
 @dataclass(frozen=True)
-class WheelInfo:
+class BackendInfo:
     """A discovered backend plugin: its selectable name and entry-point target."""
 
     name: str
@@ -37,10 +37,10 @@ def _engine_entry_points() -> list[EntryPoint]:
     return list(entry_points(group=ENTRY_POINT_GROUP))
 
 
-def catalog() -> list[WheelInfo]:
+def catalog() -> list[BackendInfo]:
     """Every discovered backend plugin, sorted by name."""
-    infos = [WheelInfo(name=ep.name, target=ep.value) for ep in _engine_entry_points()]
-    return sorted(infos, key=lambda w: w.name)
+    infos = [BackendInfo(name=ep.name, target=ep.value) for ep in _engine_entry_points()]
+    return sorted(infos, key=lambda b: b.name)
 
 
 def names() -> list[str]:

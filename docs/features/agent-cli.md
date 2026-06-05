@@ -5,7 +5,7 @@
 
 Colleague is built as an **agent-first CLI** (cited from the teken `python-cli`
 reference). Beyond the working verbs ([`drive`](drive-and-loop.md),
-[`session`](session.md), [`wheels`](engines.md), [`commands`](command-templates.md),
+[`session`](session.md), [`backends`](engines.md), [`commands`](command-templates.md),
 [`hooks`](hooks.md), [`agents`/`skills`](layered-config.md),
 [`telemetry`](telemetry.md), [`doctor`](doctor.md)), it carries a set of
 **read-only introspection verbs** so an agent — or a person — can discover what
@@ -21,7 +21,7 @@ the tool is and how to use it without guessing.
   missing arg) route through the same format and honor `--json`.
 - **Exit-code policy:** `0` success, `1` user-input error, `2` environment/setup
   error, `3+` reserved.
-- **Nouns expose `overview`.** A noun group with action-verbs (e.g. `wheels`,
+- **Nouns expose `overview`.** A noun group with action-verbs (e.g. `backends`,
   `commands`, `hooks`, `telemetry`) exposes an `overview`; the global `cli
   overview` describes the CLI surface itself.
 

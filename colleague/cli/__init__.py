@@ -74,6 +74,7 @@ def _stdio_is_interactive() -> bool:
 
 def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import agents as _agents_group
+    from colleague.cli._commands import backends as _backends_group
     from colleague.cli._commands import cli as _cli_group
     from colleague.cli._commands import commands as _commands_group
     from colleague.cli._commands import doctor as _doctor_cmd
@@ -87,7 +88,6 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import skills as _skills_group
     from colleague.cli._commands import telemetry as _telemetry_group
     from colleague.cli._commands import tui as _tui_cmd
-    from colleague.cli._commands import wheels as _wheels_group
     from colleague.cli._commands import whoami as _whoami_cmd
 
     parser = _CliArgumentParser(
@@ -111,7 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _cli_group.register(sub)
     # Colleague's working surface: assign repo work + inspect backend plugins.
     _drive_cmd.register(sub)
-    _wheels_group.register(sub)
+    _backends_group.register(sub)  # registers `backends` (+ the deprecated `wheels` alias)
     # ROI loop: grade a drive after the fact (stats say cost; feedback says quality).
     _feedback_group.register(sub)
     # Extensibility layer: command templates + lifecycle hooks.

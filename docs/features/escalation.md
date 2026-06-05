@@ -39,7 +39,7 @@ gates is open:
 |------|-----------|
 | **Opt-in** | `COLLEAGUE_ESCALATE` env var is set to a truthy value (legacy `CONVERTIBLE_ESCALATE` honored as fallback). Values `""`, `"0"`, `"false"`, and `"no"` are falsy. |
 | **Online** | `handoff.has_remote(repo)` is `True` (a git remote is configured) AND `handoff.gh_available()` is `True` (`gh` is on `PATH`). |
-| **Main checkout** | `(repo / ".git")` is a **directory**, not a file. A linked git worktree (colleague's subagent worktrees, `outsource explore/review` throwaway worktrees) has `.git` as a file; escalation is skipped there. |
+| **Main checkout** | `(repo / ".git")` is a **directory**, not a file. A linked git worktree (colleague's subagent worktrees, `ask-colleague explore/review` throwaway worktrees) has `.git` as a file; escalation is skipped there. |
 | **Approval gate** | The policy loaded from `.colleague/approvals.json` (and any per-model overlay) must allow the `agtag` program token. Absent or non-configured policy is a strict no-op (deny by default for the gate). |
 | **Idempotency** | No escalation marker (`<task_id>.escalation.json`) already exists for this task id. A prior successful escalation prevents a duplicate issue on a retry. |
 

@@ -56,7 +56,7 @@ def _checks() -> list[dict]:
                 ),
                 remediation=(
                     "set COLLEAGUE_ENGINE=vllm-openai (or pass --engine <name>) to "
-                    "drive a real model; list engines with: colleague wheels list"
+                    "drive a real model; list engines with: colleague backends list"
                 ),
             )
         ]

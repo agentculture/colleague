@@ -80,7 +80,7 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
     lines.append(f"artifact: {artifact_path}")
     # The ROI-loop nudge: every completed drive is gradable (the artifact survives
     # even on a failed drive — a 1/5 is exactly the ROI signal), so mirror the
-    # outsource wrapper's `grade:` hint here pointing at the native feedback verb.
+    # ask-colleague wrapper's `grade:` hint here pointing at the native feedback verb.
     # `_render` is the text path only; the `--json` branch bypasses it, so the
     # hint never pollutes machine output.
     if result.task_id:
@@ -198,7 +198,7 @@ def execute_drive(
         engine = registry.load(engine_name)
     except registry.UnknownEngine as exc:
         raise CliError(
-            EXIT_USER_ERROR, str(exc), "list engines with: colleague wheels list"
+            EXIT_USER_ERROR, str(exc), "list engines with: colleague backends list"
         ) from exc
 
     # Telemetry: the root span wraps engine.drive() + handoff() + the artifact write, so
@@ -412,7 +412,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to
-        # stdout (--json only) so machine consumers (e.g. outsource.sh) can parse it.
+        # stdout (--json only) so machine consumers (e.g. ask-colleague.sh) can parse it.
         # The diagnostic stays on stderr and the exit code stays non-zero — both are
         # handled by the _dispatch layer that catches this re-raise.
         if json_mode and exc.result is not None:

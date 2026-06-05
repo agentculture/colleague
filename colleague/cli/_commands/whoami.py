@@ -2,7 +2,7 @@
 
 Two identities, one glance. The *mesh identity* is declared in ``culture.yaml``:
 the agent's nick (``suffix``) and the persona backend it runs as in the Culture
-mesh. The *drive identity* is what actually executes outsourced repo work — the
+mesh. The *drive identity* is what actually executes delegated repo work — the
 engine a bare ``colleague drive`` would pick (``vllm-openai`` by default) and the
 model it would call. These are resolved live from the same precedence a real
 drive uses (``--engine`` flag > ``COLLEAGUE_ENGINE`` > default; provider config

@@ -395,7 +395,7 @@ def test_drive_unknown_engine_errors(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert rc == 1
     err = capsys.readouterr().err
     assert err.startswith("error:")
-    assert "wheels list" in err
+    assert "backends list" in err
 
 
 def test_drive_bad_repo_errors(capsys: pytest.CaptureFixture[str]) -> None:

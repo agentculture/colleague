@@ -151,7 +151,7 @@ means:
   reclaim that capacity when the operator opts in.
 - **The `subagent` tool (singular)** — use it for single children or when
   worktree isolation isn't needed.
-- **Outsource skill** — [`docs/features/outsource.md`](outsource.md) — a
+- **Ask-colleague skill** — [`docs/features/ask-colleague.md`](ask-colleague.md) — a
   first-party skill that delegates a task to colleague; parallel subagents are
-  an internal tool that colleague uses, not what the outsource skill exposes
+  an internal tool that colleague uses, not what the ask-colleague skill exposes
   directly.

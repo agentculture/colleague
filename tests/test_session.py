@@ -365,9 +365,9 @@ def test_session_slash_help_lists_commands(tmp_path: Path) -> None:
     assert "/engine" in out.text() and "/skills" in out.text()
 
 
-def test_session_slash_engines_folds_wheels_output(tmp_path: Path) -> None:
+def test_session_slash_engines_folds_backends_output(tmp_path: Path) -> None:
     """A read-only slash command runs the real noun in-process and folds its
-    output into the cockpit (here `/engines` → `wheels list`)."""
+    output into the cockpit (here `/engines` → `backends list`)."""
     out = _CollectingOut()
     rc = run_session(_make_args(tmp_path), input_fn=iter(["/engines", "q"]), out=out, _color=False)
     assert rc == 0

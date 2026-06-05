@@ -14,8 +14,8 @@ _ROOT = """\
 
 A swappable coder-agent harness: hand it a scoped repo task and it drives a model
 backend through a bounded tool-loop, then returns a JSON run report. One runtime,
-many minds. Another agent works *with* it through the first-party `outsource`
-skill (`outsource explore | review | write | feedback`) or `colleague drive`
+many minds. Another agent works *with* it through the first-party `ask-colleague`
+skill (`ask-colleague explore | review | write | feedback`) or `colleague drive`
 directly — `colleague learn` is the self-teaching entry point for collaborators.
 
 Run `colleague` with no verb at a terminal to open the interactive harness (the
@@ -26,7 +26,7 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 - `colleague drive <goal>` — drive toward a goal/instruction; work autonomously
   through a coder backend and hand off the result.
 - `colleague session` — foreground interactive palette over the drive path.
-- `colleague wheels list` — list discovered backend plugins.
+- `colleague backends list` — list discovered backend plugins.
 - `colleague whoami` — mesh identity (`culture.yaml`) + the live drive engine/model.
 - `colleague learn` — structured self-teaching prompt.
 - `colleague explain <path>` — markdown docs for any noun/verb.
@@ -44,7 +44,7 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 ## See also
 
 - `colleague explain drive`
-- `colleague explain wheels`
+- `colleague explain backends`
 - `colleague explain whoami`
 """
 
@@ -73,7 +73,7 @@ _LEARN = """\
 
 Prints a structured self-teaching prompt aimed at *another agent that wants to
 work with colleague* — delegate a scoped task to it and fold the answer back. It
-foregrounds the `outsource` verbs (explore / review / write / feedback), the
+foregrounds the `ask-colleague` verbs (explore / review / write / feedback), the
 `drive` contract, the ROI loop, and **what skills to author** so colleague
 drives your repo well (`.colleague/skills/*.md` + the `AGENTS` cascade). It also
 covers the command map, exit-code policy, `--json` support, and the `explain`
@@ -86,7 +86,7 @@ pointer.
 
 ## See also
 
-- `colleague explain outsource`
+- `colleague explain ask-colleague`
 - `colleague explain skills`
 - `colleague explain drive`
 """
@@ -187,18 +187,21 @@ var, then the built-in default `vllm-openai` (the real bundled backend). A bare
 A failed drive still writes a `status=error` artifact before exiting non-zero.
 """
 
-_WHEELS = """\
-# colleague wheels
+_BACKENDS = """\
+# colleague backends
 
-Discover the backend plugins installed in this environment. Backends
-register under the `colleague.engines` entry-point group; bundled and
+Discover the backend plugins (the "minds") installed in this environment.
+Backends register under the `colleague.engines` entry-point group; bundled and
 out-of-tree plugins are discovered identically.
+
+`wheels` is a **deprecated alias** of `backends` (the old car-themed name) — it
+still resolves and its `--help` row is labelled deprecated, but prefer `backends`.
 
 ## Usage
 
-    colleague wheels list
-    colleague wheels list --json
-    colleague wheels overview
+    colleague backends list
+    colleague backends list --json
+    colleague backends overview
 """
 
 _COMMANDS = """\
@@ -476,7 +479,7 @@ A drive is named by its `task_id`, or the literal `last` for the most recent
 drive in the repo. Feedback is a **single record per drive** (re-grading
 overwrites), stored as `.colleague/<task_id>.feedback.json` beside the artifact.
 
-`last` resolves to the most recent **consequential** drive: `outsource explore`
+`last` resolves to the most recent **consequential** drive: `ask-colleague explore`
 / `review` run read-only in a throwaway worktree and **do not move** `last` (they
 preserve their artifact and are graded by their printed `task_id`). When you ask
 for `last`, the resolved drive's id + request is echoed to stderr, so a
@@ -512,7 +515,7 @@ reasoning/written sizes are exact chars/bytes, never estimated tokens — see
 ## See also
 
 - `colleague explain drive`
-- `colleague explain outsource`
+- `colleague explain ask-colleague`
 """
 
 _TELEMETRY = """\
@@ -626,26 +629,28 @@ backend. Delegation is always the model's choice at call time.
 ## See also
 
 - `colleague explain drive`
-- `colleague explain wheels`
+- `colleague explain backends`
 """
 
-_OUTSOURCE = """\
-# colleague outsource (a different mind)
+_ASK_COLLEAGUE = """\
+# colleague ask-colleague (a different mind)
 
-`outsource` is a **first-party** Claude Code skill (`.claude/skills/outsource/`),
-not a CLI verb — the inverse of the vendored skills (origin = colleague). It
-lets another agent hand a scoped task to colleague: a *different* backend/mind,
-not a stronger one. Diversity is the point — a second, independent perspective
-catches what the author's mind glides past, which is why **review** is the
-headline verb.
+`ask-colleague` is a **first-party** Claude Code skill
+(`.claude/skills/ask-colleague/`), not a CLI verb — the inverse of the vendored
+skills (origin = colleague). It lets another agent hand a scoped task to
+colleague: a *different* backend/mind, not a stronger one. Diversity is the point
+— a second, independent perspective catches what the author's mind glides past,
+which is why **review** is the headline verb. (Formerly named `outsource`; the
+"outsource this" phrasing still triggers it and `explain outsource` still resolves
+here.)
 
 ## Verbs
 
-- `outsource explore "<question or area>"` — read-only investigation; the model
+- `ask-colleague explore "<question or area>"` — read-only investigation; the model
   reads and reports findings.
-- `outsource review "<focus>" [--base main]` — a diverse second opinion on the
+- `ask-colleague review "<focus>" [--base main]` — a diverse second opinion on the
   committed diff (`<base>...HEAD`).
-- `outsource write "<task>" [--apply|--pr]` — delegate a small implementation.
+- `ask-colleague write "<task>" [--apply|--pr]` — delegate a small implementation.
   Previews by default (throwaway worktree + would-be diff, no side effects);
   `--apply` lands a `colleague/<id>` drive branch, `--pr` opens a PR.
 
@@ -660,10 +665,10 @@ headline verb.
 
 ## Run
 
-    bash .claude/skills/outsource/scripts/outsource.sh <verb> "<text>" [options]
+    bash .claude/skills/ask-colleague/scripts/ask-colleague.sh <verb> "<text>" [options]
 
 Defaults to a local vLLM model; override with `--engine` / `--model` /
-`--base-url` or `COLLEAGUE_*` env. See `docs/features/outsource.md`.
+`--base-url` or `COLLEAGUE_*` env. See `docs/features/ask-colleague.md`.
 
 ## See also
 
@@ -763,9 +768,12 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("colleague",): _ROOT,
     ("drive",): _DRIVE,
     ("session",): _SESSION,
-    ("wheels",): _WHEELS,
-    ("wheels", "list"): _WHEELS,
-    ("wheels", "overview"): _WHEELS,
+    ("backends",): _BACKENDS,
+    ("backends", "list"): _BACKENDS,
+    ("backends", "overview"): _BACKENDS,
+    ("wheels",): _BACKENDS,  # deprecated alias — explain still resolves the old name
+    ("wheels", "list"): _BACKENDS,
+    ("wheels", "overview"): _BACKENDS,
     ("whoami",): _WHOAMI,
     ("learn",): _LEARN,
     ("explain",): _EXPLAIN,
@@ -798,8 +806,8 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("telemetry", "overview"): _TELEMETRY,
     ("subagent",): _SUBAGENT,
     ("subagents",): _SUBAGENT,
-    ("convoy",): _SUBAGENT,
-    ("outsource",): _OUTSOURCE,
+    ("ask-colleague",): _ASK_COLLEAGUE,
+    ("outsource",): _ASK_COLLEAGUE,  # deprecated alias — explain still resolves the old name
     ("tui",): _TUI,
     ("tui", "render"): _TUI,
     ("tui", "state"): _TUI,

@@ -471,7 +471,7 @@ _INTROSPECT: dict[str, Callable[["_Session"], list[str]]] = {
     "skills": lambda s: ["skills", "list", "--repo", str(s.repo), "--model", s.config.model],
     "agents": lambda s: ["agents", "list", "--repo", str(s.repo), "--model", s.config.model],
     "config": lambda s: ["doctor"],
-    "engines": lambda s: ["wheels", "list"],
+    "engines": lambda s: ["backends", "list"],
     "telemetry": lambda s: ["telemetry", "status"],
     "feedback": lambda s: ["feedback", "show", "last", "--repo", str(s.repo)],
 }

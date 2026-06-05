@@ -24,7 +24,7 @@ care which one ran.
 | **Telemetry** | opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`) |
 | **Handoff** | branch/commit/push + `gh pr create`, gated for offline/CI (`colleague/handoff.py`) |
 | **Doctor** | `colleague doctor` — read-only configuration-readiness health check (`colleague/oilcheck/`) |
-| **Registry** | `colleague wheels list` — the backend plugins installed in this environment |
+| **Registry** | `colleague backends list` — the backend plugins installed in this environment |
 | **Approval gate** | `colleague/policy.py` — operator-declared `.colleague/approvals.json` that controls what the harness executes |
 
 ## What ships in v0
@@ -131,11 +131,11 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
 | Destination | [destination.md](docs/features/destination.md) |
 | Subagents | [subagents.md](docs/features/subagents.md) |
-| Parallel subagents (convoy) | [parallel-subagents.md](docs/features/parallel-subagents.md) |
+| Parallel subagents | [parallel-subagents.md](docs/features/parallel-subagents.md) |
 | Audit fan-out | [audit-fanout.md](docs/features/audit-fanout.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
-| Outsource (a different mind) | [outsource.md](docs/features/outsource.md) |
+| Ask colleague (a different mind) | [ask-colleague.md](docs/features/ask-colleague.md) |
 | Escalation (agtag continuation) | [escalation.md](docs/features/escalation.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
@@ -176,7 +176,7 @@ uv run pytest -n auto                          # full suite, no network needed
 uv run colleague
 
 # Discover the backends installed in this environment:
-uv run colleague wheels list
+uv run colleague backends list
 
 # Drive toward a goal with the deterministic mock backend (no model, no network):
 uv run colleague drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
@@ -515,7 +515,7 @@ uv run colleague feedback show last --repo .
 uv run colleague feedback overview
 ```
 
-The agent-facing entry is the `outsource feedback` skill verb. See
+The agent-facing entry is the `ask-colleague feedback` skill verb. See
 [`docs/features/stats-and-feedback.md`](docs/features/stats-and-feedback.md).
 
 ## Configuration readiness: `doctor`
@@ -623,23 +623,24 @@ wait, not model compute.
 uv run colleague explain subagent   # the loop tool's contract (not a CLI verb)
 ```
 
-## Outsource (a different mind)
+## Ask colleague (a different mind)
 
-`outsource` is colleague's one **first-party** Claude Code skill — the inverse of
-the vendored skills. It lets another agent hand a scoped task to colleague: a
+`ask-colleague` is colleague's one **first-party** Claude Code skill — the inverse
+of the vendored skills. It lets another agent hand a scoped task to colleague: a
 *different* backend/model (e.g. a local vLLM Qwen), not a stronger one — **diversity
 is the point**. Four verbs over `colleague drive`:
 
 | Verb | What it does |
 |------|--------------|
-| `outsource explore` | Read-only investigation of an area (worktree-isolated). |
-| `outsource review` | A diverse second opinion on the committed `<base>...HEAD` diff (the headline verb). |
-| `outsource write` | Delegate a small change — previews by default; `--apply` lands a drive branch, `--pr` opens a PR. |
-| `outsource feedback` | Grade a finished drive (close the ROI loop). |
+| `ask-colleague explore` | Read-only investigation of an area (worktree-isolated). |
+| `ask-colleague review` | A diverse second opinion on the committed `<base>...HEAD` diff (the headline verb). |
+| `ask-colleague write` | Delegate a small change — previews by default; `--apply` lands a drive branch, `--pr` opens a PR. |
+| `ask-colleague feedback` | Grade a finished drive (close the ROI loop). |
 
 `explore`/`review` run in a throwaway `git worktree` (no working-tree side effects);
-`write` previews in one too unless `--apply`/`--pr`. See
-[`docs/features/outsource.md`](docs/features/outsource.md).
+`write` previews in one too unless `--apply`/`--pr`. (Renamed from `outsource`;
+"outsource this" still triggers it.) See
+[`docs/features/ask-colleague.md`](docs/features/ask-colleague.md).
 
 ## Approval gate
 
@@ -786,8 +787,8 @@ in the current version. Do not rely on a non-existent flag.
 | `telemetry status` | Show the resolved telemetry / OpenTelemetry config + whether the SDK is installed. |
 | `telemetry overview` | Describe the telemetry surface. |
 | `session` | Open a foreground interactive palette. |
-| `wheels list` | List discovered backend plugins (the registry). |
-| `whoami` | Report nick, version, mesh backend, and the live drive engine + model (the delegate an `outsource` would actually run). |
+| `backends list` | List discovered backend plugins (the registry; `wheels` is a deprecated alias). |
+| `whoami` | Report nick, version, mesh backend, and the live drive engine + model (the delegate an `ask-colleague` would actually run). |
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
@@ -802,7 +803,7 @@ error, `3+` reserved.
 
 A backend is a class implementing `colleague.engine.Engine` (one method:
 `drive(task, config) -> TaskResult`). Advertise it under the entry-point group
-and `colleague wheels list` discovers it — no change to Colleague core:
+and `colleague backends list` discovers it — no change to Colleague core:
 
 ```toml
 [project.entry-points."colleague.engines"]

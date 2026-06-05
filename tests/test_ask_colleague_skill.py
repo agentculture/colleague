@@ -1,4 +1,4 @@
-"""Offline guards for the `outsource` skill (no live model).
+"""Offline guards for the `ask-colleague` skill (no live model).
 
 These exercise the parts of the skill that do NOT invoke a drive: the prompt
 templates render, the wrapper resolves verbs/flags, and the error paths exit
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-SKILL = Path(__file__).resolve().parents[1] / ".claude" / "skills" / "outsource"
-SCRIPT = SKILL / "scripts" / "outsource.sh"
+SKILL = Path(__file__).resolve().parents[1] / ".claude" / "skills" / "ask-colleague"
+SCRIPT = SKILL / "scripts" / "ask-colleague.sh"
 PROMPTS = SKILL / "prompts"
 
 VERBS = ("explore", "review", "write")
@@ -79,7 +79,7 @@ def _worktree_count(repo: Path) -> int:
 def test_skill_layout_exists() -> None:
     assert (SKILL / "SKILL.md").is_file()
     assert SCRIPT.is_file()
-    assert os.access(SCRIPT, os.X_OK), "outsource.sh must be executable"
+    assert os.access(SCRIPT, os.X_OK), "ask-colleague.sh must be executable"
     for verb in VERBS:
         assert (PROMPTS / f"{verb}.md").is_file(), f"missing prompt: {verb}.md"
 
@@ -226,7 +226,7 @@ def test_wrapper_prints_drive_summary_with_a_fake_colleague(tmp_path) -> None:
 
 
 def test_feedback_verb_shells_to_colleague_feedback(tmp_path) -> None:
-    """`outsource feedback <ref> --rating N` must invoke `colleague feedback
+    """`ask-colleague feedback <ref> --rating N` must invoke `colleague feedback
     record <ref> --rating N --repo <repo>` (the ROI loop pass-through, t9). A
     stub colleague records its argv so we can assert the mapping without a model."""
     bindir = tmp_path / "bin"
@@ -290,7 +290,7 @@ def test_feedback_verb_without_rating_shows(tmp_path) -> None:
 
 
 def test_feedback_verb_list_shells_to_colleague_feedback_list(tmp_path) -> None:
-    """`outsource feedback list` → `colleague feedback list --repo <repo>` (#132)."""
+    """`ask-colleague feedback list` → `colleague feedback list --repo <repo>` (#132)."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     argv_log = tmp_path / "argv.txt"
@@ -316,7 +316,7 @@ def test_feedback_verb_list_shells_to_colleague_feedback_list(tmp_path) -> None:
 
 def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
     """explore/review (run_readonly) must run in a throwaway worktree and remove
-    it afterwards. Stub `colleague`, run `outsource explore`, and assert the
+    it afterwards. Stub `colleague`, run `ask-colleague explore`, and assert the
     summary comes back AND the worktree count is unchanged (no leak). Covers the
     run_readonly path a 27B dogfood-review flagged as untested."""
     bindir = tmp_path / "bin"
@@ -447,7 +447,7 @@ def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
     assert str(art) in r.stdout
     # The digest echoes the task-id and a copy-paste grade hint (graded by id).
     assert "task: tid123" in r.stdout
-    assert "grade: outsource feedback tid123 --rating" in r.stdout
+    assert "grade: ask-colleague feedback tid123 --rating" in r.stdout
 
 
 def test_grade_hint_shown_on_failed_but_gradable_drive(tmp_path) -> None:
@@ -487,7 +487,7 @@ def test_grade_hint_shown_on_failed_but_gradable_drive(tmp_path) -> None:
     # The artifact was preserved (gradable), and the grade hint is emitted to the
     # failure digest on stderr — not suppressed because status != ok.
     assert (repo / ".colleague" / "failtid.json").exists()
-    assert "grade: outsource feedback failtid --rating" in r.stderr
+    assert "grade: ask-colleague feedback failtid --rating" in r.stderr
 
 
 def test_readonly_rejects_unsafe_artifact_path(tmp_path) -> None:

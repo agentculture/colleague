@@ -26,7 +26,7 @@ _ARTIFACTS = [
 
 _VERBS = [
     "drive <instruction> — run a repo task through a coder backend",
-    "wheels list — list discovered backend plugins",
+    "backends list — list discovered backend plugins",
     "agents list — inspect layered AGENTS instruction files for a model",
     "skills list — inspect layered skill docs for a model",
     "whoami — mesh identity (nick, version, backend) + live drive engine/model",

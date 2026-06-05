@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-06-05
+
+### Changed
+
+- **Renamed the first-party `outsource` skill to `ask-colleague`** — a peer-framed name (you *ask a colleague*; you don't *outsource* to a vendor) that fits colleague as a daily work partner and lowers the bar to reach for it. The four verbs are unchanged: `ask-colleague explore | review | write | feedback`. Back-compat: the "outsource this" trigger phrase still fires the skill, and `colleague explain outsource` still resolves. The wrapper is now `.claude/skills/ask-colleague/scripts/ask-colleague.sh`; the feature doc is `docs/features/ask-colleague.md`. Reflected in `colleague learn` and `colleague explain`.
+- **Renamed the `wheels` CLI noun to `backends`** (`colleague backends list | overview`) — retiring the old *convertible*-era car-themed name in favour of colleague's "one runtime, many minds" vocabulary. `wheels` is kept as a **deprecated alias** (it still resolves; its `--help` row is labelled deprecated, and `colleague explain wheels` resolves to the `backends` entry). `registry.WheelInfo` → `registry.BackendInfo`.
+
+### Removed
+
+- Retired the trucking-themed `convoy` alias for `colleague explain subagent` (the `subagent` / `subagents` names are unchanged).
+
 ## [0.35.2] - 2026-06-05
 
 ### Fixed
