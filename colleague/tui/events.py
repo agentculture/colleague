@@ -1,7 +1,7 @@
 """Event types for the TUI reducer — a discriminated union with JSONL helpers.
 
 Events represent discrete interactions (user input, key presses, ticks) and
-drive progress (drive steps, skill suggestions). The reducer folds these into
+work progress (work steps, skill suggestions). The reducer folds these into
 state, and the render function displays the resulting UI. Each event type
 carries an explicit string discriminator (`type` class attribute) so the union
 round-trips through JSON cleanly.
@@ -99,10 +99,13 @@ class Dismiss:
 
 
 @dataclass
-class DriveStep:
-    """A step in the drive — a tool call, its summary, and success status."""
+class WorkStep:
+    """A step in the work item — a tool call, its summary, and success status."""
 
-    type: ClassVar[str] = "drive_step"
+    type: ClassVar[str] = "work_step"
+    # Pre-rename traces/event logs serialized this as ``"drive_step"``; the loader
+    # (_EVENT_REGISTRY) still accepts that legacy discriminator.
+    legacy_type: ClassVar[str] = "drive_step"
     tool: str
     summary: str = ""
     ok: bool = True
@@ -116,7 +119,7 @@ class DriveStep:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DriveStep":
+    def from_dict(cls, data: dict[str, Any]) -> "WorkStep":
         return cls(
             tool=str(data["tool"]),
             summary=str(data.get("summary", "")),
@@ -125,7 +128,7 @@ class DriveStep:
 
 
 # Discriminated union type alias for type hints.
-Event = UserInput | KeyPress | Tick | SkillSuggested | Dismiss | DriveStep
+Event = UserInput | KeyPress | Tick | SkillSuggested | Dismiss | WorkStep
 
 # Registry mapping type discriminator to event class.
 _EVENT_REGISTRY: dict[str, type] = {
@@ -134,7 +137,8 @@ _EVENT_REGISTRY: dict[str, type] = {
     Tick.type: Tick,
     SkillSuggested.type: SkillSuggested,
     Dismiss.type: Dismiss,
-    DriveStep.type: DriveStep,
+    WorkStep.type: WorkStep,
+    WorkStep.legacy_type: WorkStep,  # back-compat: old "drive_step" trace lines
 }
 
 

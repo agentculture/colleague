@@ -5,11 +5,11 @@ import json
 from colleague.tui.state import (
     Action,
     CockpitState,
-    Drive,
     Panel,
     PanelItem,
     Popup,
     Status,
+    WorkItem,
 )
 from colleague.tui.taui import SCHEMA_VERSION, serialize
 
@@ -51,7 +51,7 @@ def _make_state() -> CockpitState:
         popups=[popup],
         panels=[panel],
         status=status,
-        drive=Drive(task_id="t-123", engine="mock", step_count=3, running=True),
+        work_item=WorkItem(task_id="t-123", engine="mock", step_count=3, running=True),
     )
 
 
@@ -118,7 +118,7 @@ def test_top_level_fields_present():
         "popups",
         "background",
         "status",
-        "drive",
+        "work",
         "problems",
         "available_actions",
     ):
@@ -245,14 +245,14 @@ def test_status_has_severity_and_message():
 
 
 # ---------------------------------------------------------------------------
-# Drive
+# WorkItem
 # ---------------------------------------------------------------------------
 
 
 def test_drive_present_when_set():
     state = _make_state()
     result = serialize(state)
-    drive = result["drive"]
+    drive = result["work"]
     assert drive is not None
     assert drive["task_id"] == "t-123"
     assert drive["running"] is True
@@ -261,7 +261,7 @@ def test_drive_present_when_set():
 def test_drive_none_when_not_set():
     state = CockpitState()
     result = serialize(state)
-    assert result["drive"] is None
+    assert result["work"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -357,5 +357,5 @@ def test_empty_state_serializes_cleanly():
     assert result["taui_version"] == "0.1"
     assert result["panels"] == []
     assert result["popups"] == []
-    assert result["drive"] is None
+    assert result["work"] is None
     assert result["problems"] == []

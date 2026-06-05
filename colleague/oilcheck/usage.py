@@ -1,7 +1,7 @@
-"""Usage-readiness check-group — will a bare drive actually do real work?
+"""Usage-readiness check-group — will a bare work item actually do real work?
 
 This group answers the question ``doctor`` previously could not: *which engine
-will a bare ``colleague drive`` / ``colleague session`` pick, and is it a
+will a bare ``colleague work`` / ``colleague session`` pick, and is it a
 real one?* (issue #53 — "doctor reported healthy while the tool was unusable
 because the default engine was the no-op mock").
 
@@ -41,7 +41,7 @@ def checks() -> list[dict]:
 
 
 def _checks() -> list[dict]:
-    # What a bare ``drive``/``session`` (no --engine flag) would resolve to.
+    # What a bare ``work``/``session`` (no --engine flag) would resolve to.
     engine = resolve_engine(None)
 
     if engine == "mock":
@@ -52,11 +52,11 @@ def _checks() -> list[dict]:
                 "warning",
                 (
                     "effective engine is 'mock' (a no-op contract reference); "
-                    "real drives will not call a model — they only write a marker file"
+                    "real work items will not call a model — they only write a marker file"
                 ),
                 remediation=(
                     "set COLLEAGUE_ENGINE=vllm-openai (or pass --engine <name>) to "
-                    "drive a real model; list engines with: colleague backends list"
+                    "run a real model; list engines with: colleague backends list"
                 ),
             )
         ]
@@ -66,6 +66,6 @@ def _checks() -> list[dict]:
             "usage_effective_engine",
             True,
             "info",
-            f"effective engine: {engine!r} (a bare drive/session uses this)",
+            f"effective engine: {engine!r} (a bare work item/session uses this)",
         )
     ]

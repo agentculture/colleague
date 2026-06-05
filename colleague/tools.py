@@ -44,7 +44,7 @@ class ToolOutcome:
     finished: bool = False
     finish_summary: str = ""
     destination: str | None = None
-    """The devague goal-frame slug the drive aimed at, or ``None`` when the
+    """The devague goal-frame slug the work item aimed at, or ``None`` when the
     engine did not declare a destination on finish."""
     announcement: str | None = None
     """The announcement text declared on arrival at the destination, or ``None``
@@ -185,8 +185,8 @@ SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "subagent",
             "description": (
-                "Delegate a scoped sub-task to a nested in-process child drive, "
-                "optionally on a different engine or model. The child drive runs "
+                "Delegate a scoped sub-task to a nested in-process child work item, "
+                "optionally on a different engine or model. The child work item runs "
                 "the full bounded tool-loop (no git handoff) and returns a result "
                 "summary; any files the child writes are merged into the parent's "
                 "changed-file set so they reach the single top-level handoff. "
@@ -198,7 +198,7 @@ SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "instruction": {
                         "type": "string",
-                        "description": "A scoped sub-task for a nested child drive.",
+                        "description": "A scoped sub-task for a nested child work item.",
                     },
                     "engine": {
                         "type": "string",
@@ -218,9 +218,9 @@ SCHEMAS: list[dict[str, Any]] = [
         "function": {
             "name": "subagents",
             "description": (
-                "Fan out a batch of scoped sub-tasks to nested in-process child drives "
+                "Fan out a batch of scoped sub-tasks to nested in-process child work items "
                 "that run in parallel, each optionally on a different engine or model. "
-                "Each child drive runs the full bounded tool-loop (no git handoff) and "
+                "Each child work item runs the full bounded tool-loop (no git handoff) and "
                 "returns a result summary; a final merge child integrates each child's "
                 "branch back into the working tree. All sub-results (children + merge) "
                 "are recorded on the parent drive. "
@@ -241,7 +241,9 @@ SCHEMAS: list[dict[str, Any]] = [
                             "properties": {
                                 "instruction": {
                                     "type": "string",
-                                    "description": "A scoped sub-task for a nested child drive.",
+                                    "description": (
+                                        "A scoped sub-task for a nested child work item."
+                                    ),
                                 },
                                 "engine": {
                                     "type": "string",
@@ -276,9 +278,9 @@ SCHEMAS: list[dict[str, Any]] = [
                     "destination": {
                         "type": "string",
                         "description": (
-                            "Optional. The devague goal-frame slug the drive aimed at "
+                            "Optional. The devague goal-frame slug the work item aimed at "
                             "(e.g. 'ship-core-widget', 'improve-test-suite') — match the "
-                            "frame slug created/used during the drive. Omit when no "
+                            "frame slug created/used during the work item. Omit when no "
                             "destination was set."
                         ),
                     },
@@ -311,9 +313,9 @@ class ToolExecutor:
     ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
-        # Total UTF-8 bytes written to files via write_file across the drive — the
+        # Total UTF-8 bytes written to files via write_file across the work item — the
         # exact "tokens written" measure (no tokenizer, so bytes not tokens). The
-        # loop snapshots it onto DriveStats, mirroring the changed_files snapshot.
+        # loop snapshots it onto WorkStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
         self._spawn = spawn
         # Batch spawn callable: ``batch_spawn(items) -> list[SubResult]``.
@@ -401,7 +403,7 @@ class ToolExecutor:
         path.write_text(content, encoding="utf-8", newline="")
         self.changed.add(rel)
         # Accumulate exact UTF-8 bytes written (== the on-disk size, given
-        # newline=""), summed across every write_file — snapshotted into DriveStats.
+        # newline=""), summed across every write_file — snapshotted into WorkStats.
         n_bytes = len(content.encode("utf-8"))
         self.bytes_written += n_bytes
         return ToolOutcome(result=f"wrote {n_bytes} bytes to {rel}", changed_file=rel)
@@ -503,7 +505,7 @@ class ToolExecutor:
         except Exception as exc:
             # Any other failure from subprocess.run (e.g. ValueError on an embedded
             # NUL byte in a model-issued command) must ALSO be recoverable, not
-            # abort the drive — the whole point of run_command error mapping. Mirrors
+            # abort the work item — the whole point of run_command error mapping. Mirrors
             # the _subagent/_subagents catch-all in this module. KeyboardInterrupt is
             # a BaseException and still propagates.
             raise ToolError(f"run_command failed: {type(exc).__name__}: {exc}") from exc
@@ -546,10 +548,10 @@ class ToolExecutor:
         return ToolOutcome(result=output)
 
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
-        """Delegate a scoped sub-task to a nested child drive via the injected spawn.
+        """Delegate a scoped sub-task to a nested child work item via the injected spawn.
 
         The actual launching lives in the injected ``spawn`` callable (set by the
-        loop in t6); here we only validate inputs, enforce the per-drive fan-out
+        loop in t6); here we only validate inputs, enforce the per-work-item fan-out
         cap, call the spawn, and translate any non-ToolError exception into a clean
         :class:`ToolError` so a launcher/engine error is fed back to the model and
         never crashes the parent drive.
@@ -590,10 +592,10 @@ class ToolExecutor:
         return ToolOutcome(result=self._truncate(result))
 
     def _subagents(self, arguments: dict[str, Any]) -> ToolOutcome:
-        """Fan out a batch of sub-tasks to nested child drives via the injected batch spawn.
+        """Fan out a batch of sub-tasks to nested child work items via the injected batch spawn.
 
         The actual launching lives in the injected ``batch_spawn`` callable (set by
-        the loop in t5); here we validate inputs, enforce the per-drive batch
+        the loop in t5); here we validate inputs, enforce the per-work-item batch
         fan-out cap (MAX_SUBAGENT_FANOUT - 1 = 3 parallel children, reserving one
         slot for the merge child), call the batch spawn, and translate any
         non-ToolError exception into a clean :class:`ToolError`.

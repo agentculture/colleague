@@ -174,7 +174,7 @@ def test_trailing_value_flag_errors_cleanly() -> None:
     assert "unbound variable" not in r.stderr
 
 
-def test_wrapper_prints_drive_summary_with_a_fake_colleague(tmp_path) -> None:
+def test_wrapper_prints_work_summary_with_a_fake_colleague(tmp_path) -> None:
     """End-to-end wrapper path (resolve -> render -> drive -> print_result) with a
     stubbed `colleague` that echoes a canned TaskResult. Guards the result
     extraction (in particular: print_result must read the piped JSON from stdin,

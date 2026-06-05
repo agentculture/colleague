@@ -61,7 +61,7 @@ def test_subagent_call_records_sub_result_and_merges_changed_files(tmp_path: Pat
     config = EngineConfig.resolve()
     task = Task.new(str(repo), "delegate something", engine="mock")
 
-    # The top-level spawn callback, exactly as execute_drive builds it.
+    # The top-level spawn callback, exactly as execute_work builds it.
     spawn = make_spawn(str(repo), config, "mock")
 
     # Scripted parent: delegate once via the subagent tool, then finish.
@@ -146,7 +146,7 @@ def test_subagent_sub_results_surface_through_mock_engine_drive(tmp_path: Path) 
     import unittest.mock as umock
 
     with umock.patch.object(mock_mod, "_script", _delegating_script):
-        result = registry.load("mock").drive(task=Task.new(str(repo), "parent task"), config=config)
+        result = registry.load("mock").work(task=Task.new(str(repo), "parent task"), config=config)
 
     assert result.status == OK
     assert len(result.sub_results) == 1
@@ -211,7 +211,7 @@ def test_no_subagent_drive_omits_sub_results_key(tmp_path: Path) -> None:
     config = EngineConfig.resolve()
 
     # A plain mock drive (no spawn injected) never delegates.
-    result = registry.load("mock").drive(Task.new(str(repo), "do work"), config)
+    result = registry.load("mock").work(Task.new(str(repo), "do work"), config)
 
     assert result.status == OK
     assert result.changed_files  # the drive really ran

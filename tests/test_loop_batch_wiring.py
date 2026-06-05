@@ -142,7 +142,7 @@ def test_mock_engine_batch_spawn_reaches_executor(tmp_path: Path) -> None:
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):
-        result = registry.load("mock").drive(
+        result = registry.load("mock").work(
             task=Task.new(str(repo), "batch wiring mock"), config=config
         )
 

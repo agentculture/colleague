@@ -94,7 +94,7 @@ def test_load_disabled_returns_noop() -> None:
     assert t.enabled is False
     assert t.trace_id_hex() is None
     # No-op context managers and recorders never raise.
-    with t.drive_span(task_id="x", engine="mock", model="m", max_steps=1) as span:
+    with t.work_span(task_id="x", engine="mock", model="m", max_steps=1) as span:
         span.set(status="ok")
     with t.tool_span(tool="read_file", step_index=0) as span:
         span.set(ok=True)
@@ -194,17 +194,17 @@ def test_loop_emits_tool_spans(tmp_path: Path, otel_capture) -> None:
     assert "colleague.tool.finish" in names
 
 
-def test_drive_span_parents_tool_spans(tmp_path: Path, otel_capture) -> None:
+def test_work_span_parents_tool_spans(tmp_path: Path, otel_capture) -> None:
     t, span_exporter, _reader = otel_capture
     responses = [ModelResponse(tool_calls=[ToolCall("1", "finish", {"summary": "ok"})])]
     task = Task.new(str(tmp_path), "x")
 
-    with t.drive_span(task_id=task.id, engine="mock", model="m", max_steps=5) as d:
+    with t.work_span(task_id=task.id, engine="mock", model="m", max_steps=5) as d:
         d.set(status="ok")
         run(_scripted(responses), task, max_steps=5, telemetry=t)
 
     spans = {s.name: s for s in span_exporter.get_finished_spans()}
-    drive = spans["colleague.drive"]
+    drive = spans["colleague.work"]
     tool = spans["colleague.tool.finish"]
     # The tool span auto-nested under the drive span (shared trace + parent).
     assert tool.context.trace_id == drive.context.trace_id

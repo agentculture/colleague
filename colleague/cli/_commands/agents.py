@@ -8,7 +8,7 @@ exist, in general -> specific order. ``agents overview`` describes the noun
 ``overview``).
 
 These layers are composed (with the engine default and the skills catalog) into
-the system prompt every drive sends — so what ``agents list`` reports for a model
+the system prompt every work item sends — so what ``agents list`` reports for a model
 is exactly what that model is instructed with. Per-model isolation is structural:
 only the named model's overlay is read, never a sibling model's.
 """
@@ -33,7 +33,7 @@ def _agents_sections() -> list[dict[str, object]]:
                 "Cascade (general -> specific): AGENTS.md, AGENTS.colleague.md, "
                 "AGENTS.colleague.<model>.md",
                 "Read from the repo root, with a ~/.colleague/ user-level fallback",
-                "Composed into the system prompt every drive sends to the engine",
+                "Composed into the system prompt every work item sends to the engine",
             ],
         },
         {

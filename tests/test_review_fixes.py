@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from colleague import registry
-from colleague.cli._commands import drive as drive_mod
+from colleague.cli._commands import work as drive_mod
 from colleague.cli._commands.session import run_session
 from colleague.cli._errors import CliError
 from colleague.config import EngineConfig
@@ -150,7 +150,7 @@ def test_session_json_mode_stdout_is_pure_json(tmp_path: Path) -> None:
         return TaskResult(task_id="x", status=OK, summary="done"), tmp_path / "art.json"
 
     args = _session_args(tmp_path, json_mode=True)
-    rc = run_session(args, input_fn=iter(["greet", "q"]), out=out, err=err, _drive_fn=fake_drive)
+    rc = run_session(args, input_fn=iter(["greet", "q"]), out=out, err=err, _work_fn=fake_drive)
     assert rc == 0
 
     # stdout carries exactly one JSON object — the drive result — and no chrome.
@@ -170,7 +170,7 @@ def test_session_errors_go_to_stderr(tmp_path: Path) -> None:
 
     args = _session_args(tmp_path, json_mode=False)
     # No commands discovered → '99' is an out-of-range palette index.
-    rc = run_session(args, input_fn=iter(["99", "q"]), out=out, err=err, _drive_fn=fake_drive)
+    rc = run_session(args, input_fn=iter(["99", "q"]), out=out, err=err, _work_fn=fake_drive)
     assert rc == 0
     assert any("no entry 99" in line for line in err_lines)
     assert not any("no entry" in line for line in out_lines)
@@ -181,14 +181,14 @@ def test_session_errors_go_to_stderr(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 def test_command_persisted_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class _BoomEngine:
-        def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+        def work(self, task: Task, config: EngineConfig) -> TaskResult:
             raise RuntimeError("engine exploded")
 
     monkeypatch.setattr(registry, "load", lambda _name: _BoomEngine())
 
     task = Task.new(str(tmp_path), "do it", engine="mock")
     with pytest.raises(CliError):
-        drive_mod.execute_drive(
+        drive_mod.execute_work(
             repo=tmp_path,
             engine_name="mock",
             task=task,

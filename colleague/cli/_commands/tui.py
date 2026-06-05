@@ -26,7 +26,7 @@ from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
 from colleague.tui.diagnose import diagnose, diagnose_snapshot
 from colleague.tui.events import event_from_dict, loads_events
-from colleague.tui.from_drive import trace_to_drive_steps
+from colleague.tui.from_work import trace_to_work_steps
 from colleague.tui.reducer import reduce
 from colleague.tui.render.ansi import render
 from colleague.tui.render.markdown import render_markdown
@@ -93,11 +93,11 @@ def _load_events(path_str: Optional[str], *, kind: str = "events") -> list:
 
 
 def _load_trace_steps(path_str: str) -> list:
-    """Read a drive's loop-step trace (``<id>.trace.jsonl``) into DriveStep events.
+    """Read a work item's loop-step trace (``<id>.trace.jsonl``) into WorkStep events.
 
     Each line is a ``{index, tool, arguments, result, ok}`` object (what
-    :mod:`colleague.artifact` writes per step).  :func:`trace_to_drive_steps`
-    maps them so a real drive replays into the cockpit identically to the live
+    :mod:`colleague.artifact` writes per step).  :func:`trace_to_work_steps`
+    maps them so a real work item replays into the cockpit identically to the live
     view.  A malformed line maps to a :class:`CliError`, never a traceback.
     """
     raw = _read_text(path_str, kind="trace")
@@ -112,7 +112,7 @@ def _load_trace_steps(path_str: str) -> list:
             raise CliError(
                 EXIT_USER_ERROR, f"cannot parse trace JSONL (line {num}): {exc}"
             ) from exc
-    return trace_to_drive_steps(lines)
+    return trace_to_work_steps(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ def _tui_sections() -> list[dict[str, object]]:
                 "tui state [--state <file>] — print the TAUI mirror as JSON",
                 "tui inspect --select <sel> [--state <file>] — resolve a selector to a node",
                 "tui action --select <sel> [--state <file>] — operate the UI by selector",
-                "tui replay <events.jsonl> | --trace <id>.trace.jsonl — fold a drive into a mirror",
+                "tui replay <events.jsonl> | --trace <id>.trace.jsonl — fold work into a mirror",
                 "tui snapshot --name <n> [--state/--events/--dir] — write the quad",
                 "tui test --scenario <file.json> — run a scenario (exit 1 on FAIL)",
                 "tui diagnose (--dir <d> --name <n> | --taui/--ansi/--events) — classify bugs",
@@ -253,9 +253,9 @@ def cmd_tui_replay(args: argparse.Namespace) -> int:
 def _resolve_replay_events(args: argparse.Namespace) -> list:
     """Resolve the replay source: exactly one of a positional log or ``--trace``.
 
-    The positional ``events_file`` is a TAUI events JSONL (DriveStep-style);
-    ``--trace`` is a real drive's loop-step trace (``<id>.trace.jsonl``), which is
-    converted to the same DriveStep events.  Requiring exactly one keeps the two
+    The positional ``events_file`` is a TAUI events JSONL (WorkStep-style);
+    ``--trace`` is a real work item's loop-step trace (``<id>.trace.jsonl``), which is
+    converted to the same WorkStep events.  Requiring exactly one keeps the two
     sources from silently combining or both being empty.
     """
     events_file = getattr(args, "events_file", None)
@@ -559,7 +559,7 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     rep = noun_sub.add_parser(
         "replay",
-        help="Fold an events JSONL log (or a drive's --trace) into a TAUI mirror.",
+        help="Fold an events JSONL log (or a work item's --trace) into a TAUI mirror.",
     )
     rep.add_argument(
         "events_file", nargs="?", default=None, help="Path to a TAUI events JSONL log."
@@ -567,7 +567,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     rep.add_argument(
         "--trace",
         default=None,
-        help="Path to a drive's <id>.trace.jsonl (converted to DriveStep events).",
+        help="Path to a work item's <id>.trace.jsonl (converted to WorkStep events).",
     )
     rep.add_argument("--state", default=None, help="Initial state JSON file (default: empty).")
     _add_json(rep)

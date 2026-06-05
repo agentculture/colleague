@@ -1,10 +1,10 @@
 """Deterministic request → filesystem/branch slug (stdlib only, zero deps).
 
-A drive's request is free text; a *slug* of it makes the drive recognisable in an
+A work item's request is free text; a *slug* of it makes the work item recognisable in an
 ``ls`` of ``.colleague/`` or a ``git branch`` listing without quoting an opaque
 task-id. The slug is a stable, lossy label — never an identifier (the ``task_id``
 stays the key; see :mod:`colleague.feedback`). Two callers share this one
-implementation so the artifact filename and the drive branch always agree:
+implementation so the artifact filename and the work branch always agree:
 :func:`colleague.artifact.write` and :func:`colleague.handoff._branch_name`.
 
 Stdlib ``re`` only — keeps ``dependencies = []`` and the zero-deps / module

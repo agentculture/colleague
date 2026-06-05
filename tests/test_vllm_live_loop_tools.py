@@ -39,7 +39,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.cli._commands.drive import execute_drive
+from colleague.cli._commands.work import execute_work
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
 
@@ -69,7 +69,7 @@ def git_repo(tmp_path: Path) -> Path:
 
 def _drive(repo: Path, instruction: str, label: str) -> TaskResult:
     task = Task.new(str(repo), instruction, engine="vllm-openai")
-    result, artifact_path = execute_drive(
+    result, artifact_path = execute_work(
         repo=repo,
         engine_name="vllm-openai",
         task=task,

@@ -1,9 +1,9 @@
 # Graceful degradation — context budgets
 
-> Colleague drives degrade instead of hard-failing when a task exceeds a
+> Colleague work items degrade instead of hard-failing when a task exceeds a
 > model's context window. The loop proactively windows its message history to
 > a configurable token budget and, if an overflow error is detected,
-> reactively trims and retries a bounded number of times. If the drive still
+> reactively trims and retries a bounded number of times. If the work item still
 > cannot finish, the caller gets a readable partial result instead of empty
 > stdout.
 
@@ -36,7 +36,7 @@ recent turn) still overflows, the loop stops.
 
 **Preserved partial result:** If the loop cannot finish, it returns the partial
 `TaskResult` (status=error, non-empty steps, usage, changed files) to stdout via
-the `--json` drive path — not empty output plus an opaque error.
+the `--json` work path — not empty output plus an opaque error.
 
 ## How the knob works
 
@@ -104,7 +104,7 @@ The trade-off is acceptable:
 - **No LLM-generated rolling summary in v0:** Windowing drops the oldest history
   entirely and leaves a short placeholder note `[earlier steps elided to fit the
   context budget]`. A model-based summarization pass is a parked follow-up — it
-  would add latency and cost per drive.
+  would add latency and cost per work item.
 - **Not a context router or multi-model fallback:** An overflow never
   auto-switches to a bigger model. That is the out-of-scope
   router / routing policy (multi-backend automatic routing). Degradation is about
@@ -138,13 +138,13 @@ unchanged even with the feature enabled.
 
 ```bash
 # Explicit budget (tokens):
-COLLEAGUE_CONTEXT_BUDGET=16000 colleague drive "read all files" --engine vllm-openai
+COLLEAGUE_CONTEXT_BUDGET=16000 colleague work "read all files" --engine vllm-openai
 
 # Default budget (24,000 tokens, suitable for a 32k-window model):
-colleague drive "read all files" --engine vllm-openai
+colleague work "read all files" --engine vllm-openai
 
 # Turn off (0 disables proactive windowing; reactive retry still engages on overflow):
-COLLEAGUE_CONTEXT_BUDGET=0 colleague drive "read all files" --engine vllm-openai
+COLLEAGUE_CONTEXT_BUDGET=0 colleague work "read all files" --engine vllm-openai
 
 # From ask-colleague skill (inherits the budget):
 ask-colleague write "refactor parser" --pr
@@ -170,9 +170,9 @@ final give-up, the partial result is returned.
 
 ## See also
 
-- [stats-and-feedback.md](stats-and-feedback.md) — how a partial drive's
+- [stats-and-feedback.md](stats-and-feedback.md) — how a partial work item's
   cost/quality is recorded.
-- [drive-and-loop.md](drive-and-loop.md) — the loop lifecycle and termination
+- [work-and-loop.md](work-and-loop.md) — the loop lifecycle and termination
   guarantees.
 - [model-selection.md](model-selection.md) — configuring the model and server.
 

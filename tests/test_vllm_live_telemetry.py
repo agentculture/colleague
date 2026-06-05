@@ -6,7 +6,7 @@ so the mock e2e already proves the production wiring; this adds the live composi
 stamp — a real model drive whose **real** token usage and reasoning/answer text flow
 into ``colleague.tokens`` / ``colleague.generated.chars``, and whose real file write
 flows into ``colleague.bytes_written`` — captured through the production
-``execute_drive`` path into an in-memory (debug) exporter (no collector needed; the
+``execute_work`` path into an in-memory (debug) exporter (no collector needed; the
 in-memory exporter is the ledger procedure's allowed file/debug-exporter alternative).
 
 Gated on BOTH ``COLLEAGUE_VLLM_E2E=1`` (a live vLLM server) and the ``[otel]`` extra.
@@ -40,7 +40,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E4
 )
 
 import colleague.telemetry as tel  # noqa: E402
-from colleague.cli._commands.drive import execute_drive  # noqa: E402
+from colleague.cli._commands.work import execute_work  # noqa: E402
 from colleague.config import EngineConfig  # noqa: E402
 from colleague.contract import OK, Task  # noqa: E402
 from colleague.telemetry import _otel  # noqa: E402
@@ -75,7 +75,7 @@ def _metric_names(metric_reader: InMemoryMetricReader) -> set[str]:
 
 @pytest.fixture
 def captured_drive(monkeypatch):
-    """Capture telemetry from the real execute_drive path (see test_telemetry_e2e.py).
+    """Capture telemetry from the real execute_work path (see test_telemetry_e2e.py).
 
     Patches BOTH ``load_telemetry`` import sites to one captured instance so the
     drive/handoff/tool spans land in one exporter and metrics on one reader.
@@ -88,7 +88,7 @@ def captured_drive(monkeypatch):
         span_exporter=span_exporter,
         metric_reader=metric_reader,
     )
-    monkeypatch.setattr("colleague.cli._commands.drive.load_telemetry", lambda *a, **k: captured)
+    monkeypatch.setattr("colleague.cli._commands.work.load_telemetry", lambda *a, **k: captured)
     monkeypatch.setattr("colleague.loop.load_telemetry", lambda *a, **k: captured)
     yield captured, span_exporter, metric_reader
     _otel.reset_for_tests()
@@ -102,7 +102,7 @@ def test_live_drive_emits_telemetry(captured_drive, tmp_path: Path) -> None:
     _captured, span_exporter, metric_reader = captured_drive
 
     task = Task.new(str(repo), _TELEMETRY_TASK, engine="vllm-openai")
-    result, artifact_path = execute_drive(
+    result, artifact_path = execute_work(
         repo=repo,
         engine_name="vllm-openai",
         task=task,
@@ -119,7 +119,7 @@ def test_live_drive_emits_telemetry(captured_drive, tmp_path: Path) -> None:
     assert result.status == OK, result.error
 
     # Root + per-tool + handoff spans, robust to which tools the live model chooses.
-    assert "colleague.drive" in span_names
+    assert "colleague.work" in span_names
     assert any(n.startswith("colleague.tool.") for n in span_names), span_names
     assert "colleague.handoff" in span_names
 
@@ -130,6 +130,6 @@ def test_live_drive_emits_telemetry(captured_drive, tmp_path: Path) -> None:
         "colleague.generated.chars",
         "colleague.bytes_written",
         "colleague.steps",
-        "colleague.drive.duration",
+        "colleague.work.duration",
     ):
         assert metric_name in metric_names, metric_name

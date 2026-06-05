@@ -340,7 +340,7 @@ def test_read_live_ansi_renders_popup_and_runs_fallback(tmp_path, monkeypatch) -
         view="ansi",
         out=lambda *a, **k: None,
         err=lambda *a, **k: None,
-        drive_fn=lambda **k: None,
+        work_fn=lambda **k: None,
     )
 
     captured: dict = {}
@@ -376,7 +376,7 @@ def test_read_live_ansi_fallback_returns_none_on_eof(tmp_path, monkeypatch) -> N
         view="ansi",
         out=lambda *a, **k: None,
         err=lambda *a, **k: None,
-        drive_fn=lambda **k: None,
+        work_fn=lambda **k: None,
     )
 
     def _raise_eof(*_: object) -> str:

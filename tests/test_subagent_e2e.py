@@ -417,10 +417,10 @@ def _otel_capture():
 
 
 @pytest.mark.skipif(not _HAS_OTEL, reason="install the [otel] extra to test SDK span nesting")
-def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_capture) -> None:
+def test_subagent_tool_span_nests_under_parent_work_span(tmp_path: Path, _otel_capture) -> None:
     """When telemetry is ON and injected into the parent drive, the parent's
     ``colleague.tool.subagent`` span nests correctly under the outer
-    ``colleague.drive`` span (shared trace ID, parent span_id matches).
+    ``colleague.work`` span (shared trace ID, parent span_id matches).
 
     The parent's tool-loop spans are emitted to the injected telemetry because
     ``loop.run`` receives ``telemetry=t``.  The child drive runs synchronously
@@ -464,8 +464,8 @@ def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_
     )
 
     # Inject the telemetry directly into the parent loop.run so its spans are
-    # captured.  Open the outer drive_span context first so tool spans auto-nest.
-    with t.drive_span(task_id=task.id, engine="mock", model="mock-model", max_steps=10):
+    # captured.  Open the outer work_span context first so tool spans auto-nest.
+    with t.work_span(task_id=task.id, engine="mock", model="mock-model", max_steps=10):
         result = run(parent_complete, task, max_steps=10, spawns=Spawns(single=spawn), telemetry=t)
 
     assert result.status == OK
@@ -478,23 +478,23 @@ def test_subagent_tool_span_nests_under_parent_drive_span(tmp_path: Path, _otel_
 
     # The outer drive span was explicitly opened above.
     assert (
-        "colleague.drive" in span_by_name
-    ), f"Expected 'colleague.drive' in spans, got: {list(span_by_name)}"
+        "colleague.work" in span_by_name
+    ), f"Expected 'colleague.work' in spans, got: {list(span_by_name)}"
     # The subagent tool call must emit a span from the parent's telemetry.
     assert (
         "colleague.tool.subagent" in span_by_name
     ), f"Expected 'colleague.tool.subagent' in spans, got: {list(span_by_name)}"
 
-    parent_drive_span = span_by_name["colleague.drive"][0]
+    parent_work_span = span_by_name["colleague.work"][0]
     subagent_tool_span = span_by_name["colleague.tool.subagent"][0]
 
-    # All spans share the same trace (the outer drive_span opened it).
+    # All spans share the same trace (the outer work_span opened it).
     assert (
-        subagent_tool_span.context.trace_id == parent_drive_span.context.trace_id
+        subagent_tool_span.context.trace_id == parent_work_span.context.trace_id
     ), "colleague.tool.subagent span must share the parent drive's trace ID"
 
     # The subagent tool span's parent is the outer drive span.
     assert subagent_tool_span.parent is not None, "colleague.tool.subagent span must have a parent"
     assert (
-        subagent_tool_span.parent.span_id == parent_drive_span.context.span_id
+        subagent_tool_span.parent.span_id == parent_work_span.context.span_id
     ), "The subagent tool span's parent span_id must match the outer drive span"

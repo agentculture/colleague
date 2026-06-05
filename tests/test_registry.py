@@ -15,7 +15,7 @@ class ThirdPartyEngine(Engine):
 
     name = "third-party"
 
-    def drive(self, task, config):  # type: ignore[no-untyped-def]
+    def work(self, task, config):  # type: ignore[no-untyped-def]
         raise NotImplementedError
 
 

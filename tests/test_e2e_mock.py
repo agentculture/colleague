@@ -115,8 +115,8 @@ def test_same_task_yields_identical_result_shape_across_engines(
     vllm_repo.mkdir()
 
     # Engines are chosen by name, through the registry — only the name differs.
-    mock_result = registry.load("mock").drive(Task.new(str(mock_repo), "do work"), cfg)
-    vllm_result = registry.load("vllm-openai").drive(Task.new(str(vllm_repo), "do work"), cfg)
+    mock_result = registry.load("mock").work(Task.new(str(mock_repo), "do work"), cfg)
+    vllm_result = registry.load("vllm-openai").work(Task.new(str(vllm_repo), "do work"), cfg)
 
     assert mock_result.status == OK
     assert vllm_result.status == OK
@@ -175,7 +175,7 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
     repo.mkdir()
     cfg = EngineConfig.resolve()
 
-    result = registry.load("mock").drive(Task.new(str(repo), "do work"), cfg)
+    result = registry.load("mock").work(Task.new(str(repo), "do work"), cfg)
 
     assert result.status == OK
     # The drive really ran (it edited the repo), so this is a live, not-empty result.
@@ -223,7 +223,7 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
     repo.mkdir()
     cfg = EngineConfig.resolve()
 
-    result = registry.load("mock").drive(Task.new(str(repo), "do work"), cfg)
+    result = registry.load("mock").work(Task.new(str(repo), "do work"), cfg)
 
     assert result.status == OK
     # The drive really ran and the sub_results list is empty.
@@ -286,8 +286,8 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
     repo_b.mkdir()
 
     cfg = EngineConfig.resolve()
-    result_a = registry.load("mock").drive(Task.new(str(repo_a), "do work"), cfg)
-    result_b = registry.load("mock").drive(Task.new(str(repo_b), "do work"), cfg)
+    result_a = registry.load("mock").work(Task.new(str(repo_a), "do work"), cfg)
+    result_b = registry.load("mock").work(Task.new(str(repo_b), "do work"), cfg)
 
     # Both must succeed.
     assert result_a.status == OK
@@ -582,7 +582,7 @@ def test_batch_sub_results_present_in_taskresult_when_non_empty(
     # drive includes 'stats' at the top level (pinned by the existing guard).
     plain_repo = tmp_path / "plain"
     plain_repo.mkdir()
-    plain_result = registry.load("mock").drive(Task.new(str(plain_repo), "work"), cfg)
+    plain_result = registry.load("mock").work(Task.new(str(plain_repo), "work"), cfg)
     assert plain_result.status == OK
     plain_dict = plain_result.to_dict()
     assert "stats" in plain_dict, "'stats' must always be present in TaskResult.to_dict()"

@@ -1,9 +1,9 @@
 """Tests for the explicit not_finished flag on TaskResult (issue #106, task t5).
 
 AC1: ``TaskResult.not_finished`` is a boolean field with default ``False``.
-AC2: Set from ``_drive_loop``'s return value (NOT from step_count).
+AC2: Set from ``_work_loop``'s return value (NOT from step_count).
 AC3: True iff the drive exhausted the step budget without calling finish AND
-     without raising ``DriveAborted``.
+     without raising ``WorkAborted``.
 AC4: False on a clean finish (finish tool called).
 AC5: False on a no-tool-call terminating answer.
 AC6: False on the aborted path (that is a different signal).
@@ -46,7 +46,7 @@ def test_not_finished_default_is_false():
 def test_budget_exhaustion_sets_not_finished_true(tmp_path: Path) -> None:
     """A drive that burns all steps without calling ``finish`` → not_finished is True.
 
-    This is the primary AC: the _drive_loop returns False (budget hit),
+    This is the primary AC: the _work_loop returns False (budget hit),
     run() captures that and sets result.not_finished = True.
     """
 
@@ -111,7 +111,7 @@ def test_finish_tool_sets_not_finished_false(tmp_path: Path) -> None:
 def test_no_tool_call_answer_sets_not_finished_false(tmp_path: Path) -> None:
     """A drive where the model answers without tool calls → not_finished is False.
 
-    _drive_loop returns True when the model stops calling tools; the flag
+    _work_loop returns True when the model stops calling tools; the flag
     must remain False (the drive DID finish, just without the finish tool).
     """
     from colleague.contract import Task
@@ -133,10 +133,10 @@ def test_no_tool_call_answer_sets_not_finished_false(tmp_path: Path) -> None:
 def test_aborted_drive_leaves_not_finished_false(tmp_path: Path) -> None:
     """A drive aborted by an engine exception must NOT set not_finished = True.
 
-    DriveAborted is a separate signal; not_finished is only for the
+    WorkAborted is a separate signal; not_finished is only for the
     budget-exhaustion case. The default False must hold through the aborted path.
     """
-    from colleague.loop import DriveAborted
+    from colleague.loop import WorkAborted
 
     call_count = {"n": 0}
 
@@ -149,13 +149,13 @@ def test_aborted_drive_leaves_not_finished_false(tmp_path: Path) -> None:
     from colleague.contract import Task
 
     task = Task.new(str(tmp_path), "aborted drive test")
-    with pytest.raises(DriveAborted) as exc_info:
+    with pytest.raises(WorkAborted) as exc_info:
         run(blows_up, task, max_steps=10)
 
     result = exc_info.value.result
     assert (
         result.not_finished is False
-    ), "Aborted drives must leave not_finished=False — DriveAborted is the signal, not this flag"
+    ), "Aborted drives must leave not_finished=False — WorkAborted is the signal, not this flag"
 
 
 # ---------------------------------------------------------------------------

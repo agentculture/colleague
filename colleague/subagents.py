@@ -1,19 +1,19 @@
-"""The subagent launcher — nested in-process child drives, depth-bounded.
+"""The subagent launcher — nested in-process child work items, depth-bounded.
 
-Mid-drive, an engine can delegate a scoped sub-task to a NESTED child drive on a
+Mid-work, an engine can delegate a scoped sub-task to a NESTED child work item on a
 chosen engine/model. This module is the launcher. It offers two paths:
 
-**Single child (``run_subagent`` / ``make_spawn``).** Runs ONE nested child drive
-and returns its :class:`~colleague.contract.SubResult`. A child drive is exactly
-*a drive without handoff*: the git/PR handoff lives only in the CLI
-``execute_drive`` path, never in :meth:`Engine.drive`, so calling
-``engine.drive(child_task, child_config)`` runs the bounded tool-loop and returns
+**Single child (``run_subagent`` / ``make_spawn``).** Runs ONE nested child work item
+and returns its :class:`~colleague.contract.SubResult`. A child work item is exactly
+*a work item without handoff*: the git/PR handoff lives only in the CLI
+``execute_work`` path, never in :meth:`Engine.work`, so calling
+``engine.work(child_task, child_config)`` runs the bounded tool-loop and returns
 a uniform ``TaskResult`` with **no** branch, commit, or PR side effects. This
 single-child launch is SYNCHRONOUS: a plain function call — no thread, process,
 asyncio, or socket.
 
 **Parallel batch (``batch_spawn`` / ``make_batch_spawn``).** Runs a BATCH of child
-drives and integrates them. Each child drives inside its OWN throwaway git
+drives and integrates them. Each child work items inside its OWN throwaway git
 worktree on branch ``sub/<child_id>`` (created via :mod:`colleague.worktrees`), so
 concurrent writes never touch the shared working tree. The concurrency width is
 ``effective_concurrency(parent_config.subagent_concurrency)``:
@@ -140,7 +140,7 @@ def run_subagent(
     engine: Optional[str] = None,
     model: Optional[str] = None,
 ) -> SubResult:
-    """Run one nested child drive and return its :class:`SubResult`.
+    """Run one nested child work item and return its :class:`SubResult`.
 
     ``depth`` is the nesting level of THIS child (top-level children = 1). The
     cap is enforced *first, before any work*: a child past
@@ -154,11 +154,11 @@ def run_subagent(
     code change. The child is given its own ``subagent_spawn`` bound to
     ``depth + 1`` so it can delegate further, still bounded.
 
-    The drive runs via ``engine.drive`` — the bounded loop, **no** git handoff,
+    The work item runs via ``engine.work`` — the bounded loop, **no** git handoff,
     fully synchronous.
     """
     # (a) Depth cap FIRST — before loading an engine or building any config, so a
-    # refused level does zero work and starts no child drive. This is what makes
+    # refused level does zero work and starts no child work item. This is what makes
     # the recursion provably terminating.
     if depth > MAX_SUBAGENT_DEPTH:
         raise SubagentError(f"subagent depth limit ({MAX_SUBAGENT_DEPTH}) exceeded")
@@ -189,14 +189,14 @@ def run_subagent(
     # ``subagent_batch_spawn`` closure is bound to the PARENT's repo_path/depth;
     # inheriting it via ``dataclasses.replace`` would let a child run a batch
     # against the wrong worktree and without incrementing depth. Null it so a
-    # child drive simply has no ``subagents`` tool — single-child delegation
+    # child work item simply has no ``subagents`` tool — single-child delegation
     # (depth-bounded ``subagent_spawn`` above) still works.
     child_config.subagent_batch_spawn = None
 
-    # (e) Build + run the nested child drive. engine.drive runs the bounded loop
+    # (e) Build + run the nested child work item. engine.work runs the bounded loop
     # and never hands off; the call is synchronous (no thread/process/socket).
     child_task = Task.new(repo_path, instruction, engine=child_engine)
-    result = eng.drive(child_task, child_config)
+    result = eng.work(child_task, child_config)
 
     # (f) Project the child's TaskResult onto the nested-only SubResult shape.
     return SubResult(
@@ -246,7 +246,7 @@ def _run_child_in_worktree(
     Steps:
     1. Create the worktree on branch ``sub/<child_id>`` via
        :func:`colleague.worktrees.worktree_add`.
-    2. Run the nested child drive via :func:`run_subagent`, with its ``repo_path``
+    2. Run the nested child work item via :func:`run_subagent`, with its ``repo_path``
        set to the worktree path so all its file writes land on the child branch.
     3. Commit the child's changes onto its branch via
        :func:`colleague.worktrees.commit_all` (an empty diff is a no-op, not an

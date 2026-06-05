@@ -1,4 +1,4 @@
-"""Always-on per-drive statistics (DriveStats) — contract, loop, engines (t1/t2/t3/t5).
+"""Always-on per-drive statistics (WorkStats) — contract, loop, engines (t1/t2/t3/t5).
 
 Proves the ROI-stats feature end to end without a network: the contract
 round-trips, the loop populates timing / tool-counts / bytes / reasoning sizes,
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from colleague import registry
 from colleague.config import EngineConfig
-from colleague.contract import OK, DriveStats, Task, TaskResult
+from colleague.contract import OK, Task, TaskResult, WorkStats
 from colleague.engines import vllm_openai
 from colleague.engines.mock import OUTPUT_FILE
 from colleague.tools import ToolExecutor
@@ -22,7 +22,7 @@ from colleague.tools import ToolExecutor
 
 
 def test_drivestats_round_trips() -> None:
-    stats = DriveStats(
+    stats = WorkStats(
         request="do the thing",
         started_at="2026-05-31T00:00:00+00:00",
         duration_seconds=1.25,
@@ -36,7 +36,7 @@ def test_drivestats_round_trips() -> None:
         answer_chars=10,
         answer_bytes=12,
     )
-    assert DriveStats.from_dict(stats.to_dict()) == stats
+    assert WorkStats.from_dict(stats.to_dict()) == stats
 
 
 def test_taskresult_always_emits_stats_and_round_trips() -> None:
@@ -64,7 +64,7 @@ def test_taskresult_from_dict_tolerates_missing_stats_block() -> None:
         "command": None,
     }
     loaded = TaskResult.from_dict(legacy)
-    assert loaded.stats == DriveStats()  # defaulted, not crashed
+    assert loaded.stats == WorkStats()  # defaulted, not crashed
 
 
 # --- t2: vLLM captures message.reasoning; tokens verbatim from usage --------
@@ -140,13 +140,13 @@ def test_bytes_written_matches_on_disk_size_no_newline_translation(tmp_path: Pat
     assert b"\r\n" not in on_disk  # no newline translation
 
 
-# --- t5: the loop populates DriveStats on a real (mock) drive ---------------
+# --- t5: the loop populates WorkStats on a real (mock) drive ---------------
 
 
 def test_mock_drive_populates_drive_stats(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    result = registry.load("mock").drive(
+    result = registry.load("mock").work(
         Task.new(str(repo), "build a thing"), EngineConfig.resolve()
     )
     stats = result.stats

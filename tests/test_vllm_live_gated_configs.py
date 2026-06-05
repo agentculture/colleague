@@ -37,7 +37,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.cli._commands.drive import execute_drive
+from colleague.cli._commands.work import execute_work
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
 from colleague.layers import sanitize_model
@@ -108,7 +108,7 @@ def _write_json(repo: Path, rel: str, payload: dict) -> Path:
 
 def _drive(repo: Path, instruction: str, label: str) -> TaskResult:
     task = Task.new(str(repo), instruction, engine="vllm-openai")
-    result, artifact_path = execute_drive(
+    result, artifact_path = execute_work(
         repo=repo,
         engine_name="vllm-openai",
         task=task,
@@ -214,7 +214,7 @@ def test_3c_pre_tool_hook_rewrites_write(git_repo: Path) -> None:
     assert rewrites, "the pre_tool rewrite hook never fired"
     # The loop records the EXECUTED (rewritten) write_file path in changed_files —
     # the robust signal that the rewrite took effect. We do NOT check the file on
-    # disk: execute_drive's handoff commits drive output to the colleague/<id>
+    # disk: execute_work's handoff commits drive output to the colleague/<id>
     # branch and restores the working tree, so drive-produced files aren't present
     # afterward (an on-disk check would be confounded by the handoff, not the hook).
     assert "rewritten.txt" in result.changed_files, "the rewritten path is not in changed_files"

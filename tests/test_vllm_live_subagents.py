@@ -8,7 +8,7 @@ trace the live model invoked only the base five tools and *never* the
 child were unexercised against a real model.
 
 It drives a delegation-inviting task (two independent edits in separate files)
-through the **production** ``execute_drive`` path — the only path that wires the
+through the **production** ``execute_work`` path — the only path that wires the
 ``make_spawn``/``make_batch_spawn`` callbacks (a bare ``engine.drive`` leaves them
 ``None``, so the tools would report "not available"). It then asserts, on
 *structural* facts robust to model-text variance:
@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.cli._commands.drive import execute_drive
+from colleague.cli._commands.work import execute_work
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task
 
@@ -106,7 +106,7 @@ def test_live_drive_delegates_to_subagents(git_repo: Path, monkeypatch: pytest.M
     config = EngineConfig.resolve()
 
     task = Task.new(str(git_repo), DELEGATION_TASK, engine="vllm-openai")
-    result, artifact_path = execute_drive(
+    result, artifact_path = execute_work(
         repo=git_repo,
         engine_name="vllm-openai",
         task=task,

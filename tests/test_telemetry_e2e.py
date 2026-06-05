@@ -1,13 +1,13 @@
-"""End-to-end telemetry through the production ``execute_drive`` path (#126, §6).
+"""End-to-end telemetry through the production ``execute_work`` path (#126, §6).
 
 ``tests/test_telemetry.py`` proves the ``Telemetry`` object and the loop's tool
 spans/metrics in isolation, but it calls ``run()`` directly with a single shared
 instance and hand-assembles the drive span. It does NOT exercise the real
-production orchestration: the root ``colleague.drive`` span and the
-``colleague.handoff`` span live in ``execute_drive`` / ``_handoff_result``, not the
-loop, and ``execute_drive`` and the loop each call ``load_telemetry()``
+production orchestration: the root ``colleague.work`` span and the
+``colleague.handoff`` span live in ``execute_work`` / ``_handoff_result``, not the
+loop, and ``execute_work`` and the loop each call ``load_telemetry()``
 independently. This module closes that gap — and covers the previously-untested
-``colleague.handoff`` span, ``colleague.drive.duration``, and
+``colleague.handoff`` span, ``colleague.work.duration``, and
 ``colleague.hook.denials`` metrics — by driving the **whole** production path and
 capturing every span/metric in one in-memory (debug) exporter.
 
@@ -44,7 +44,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E4
 )
 
 import colleague.telemetry as tel  # noqa: E402
-from colleague.cli._commands.drive import execute_drive  # noqa: E402
+from colleague.cli._commands.work import execute_work  # noqa: E402
 from colleague.config import EngineConfig  # noqa: E402
 from colleague.contract import OK, Task  # noqa: E402
 from colleague.telemetry import _otel  # noqa: E402
@@ -82,9 +82,9 @@ def _metric_names(metric_reader: InMemoryMetricReader) -> set[str]:
 
 @pytest.fixture
 def captured_drive(monkeypatch):
-    """Capture telemetry from the REAL execute_drive path into in-memory exporters.
+    """Capture telemetry from the REAL execute_work path into in-memory exporters.
 
-    ``execute_drive`` (drive span + handoff span) and the loop (tool spans +
+    ``execute_work`` (drive span + handoff span) and the loop (tool spans +
     metrics) each call ``load_telemetry()`` independently. Both modules bind the
     name via ``from colleague.telemetry import load_telemetry``, so patch BOTH
     rebound import-site symbols to ONE captured instance — then every span lands
@@ -100,19 +100,19 @@ def captured_drive(monkeypatch):
         span_exporter=span_exporter,
         metric_reader=metric_reader,
     )
-    monkeypatch.setattr("colleague.cli._commands.drive.load_telemetry", lambda *a, **k: captured)
+    monkeypatch.setattr("colleague.cli._commands.work.load_telemetry", lambda *a, **k: captured)
     monkeypatch.setattr("colleague.loop.load_telemetry", lambda *a, **k: captured)
     yield captured, span_exporter, metric_reader
     _otel.reset_for_tests()
 
 
-def test_execute_drive_emits_full_span_tree_and_metrics(tmp_path: Path, captured_drive) -> None:
+def test_execute_work_emits_full_span_tree_and_metrics(tmp_path: Path, captured_drive) -> None:
     """A full mock drive emits root + per-tool + handoff spans (nested) and metrics."""
     repo = _init_repo(tmp_path / "repo")
     _captured, span_exporter, metric_reader = captured_drive
 
     task = Task.new(str(repo), "do the mock task", engine="mock")
-    result, _artifact = execute_drive(
+    result, _artifact = execute_work(
         repo=repo,
         engine_name="mock",
         task=task,
@@ -124,13 +124,13 @@ def test_execute_drive_emits_full_span_tree_and_metrics(tmp_path: Path, captured
 
     spans = {s.name: s for s in span_exporter.get_finished_spans()}
     # Root + per-tool + handoff spans all present.
-    assert "colleague.drive" in spans
+    assert "colleague.work" in spans
     assert "colleague.tool.write_file" in spans
     assert "colleague.tool.finish" in spans
     assert "colleague.handoff" in spans
 
     # One nested trace: every child parented under the root drive span.
-    drive = spans["colleague.drive"]
+    drive = spans["colleague.work"]
     for child_name in ("colleague.tool.write_file", "colleague.tool.finish", "colleague.handoff"):
         child = spans[child_name]
         assert child.context.trace_id == drive.context.trace_id, child_name
@@ -150,12 +150,12 @@ def test_execute_drive_emits_full_span_tree_and_metrics(tmp_path: Path, captured
         "colleague.bytes_written",
         "colleague.tool.calls",
         "colleague.tool.latency",
-        "colleague.drive.duration",
+        "colleague.work.duration",
     ):
         assert metric_name in names, metric_name
 
 
-def test_execute_drive_hook_denial_records_metric(tmp_path: Path, captured_drive) -> None:
+def test_execute_work_hook_denial_records_metric(tmp_path: Path, captured_drive) -> None:
     """A pre_tool deny records colleague.hook.denials (previously untested).
 
     The deny matcher targets ``write_file`` — the mock's only non-finish tool. The
@@ -184,7 +184,7 @@ def test_execute_drive_hook_denial_records_metric(tmp_path: Path, captured_drive
     _captured, _span_exporter, metric_reader = captured_drive
 
     task = Task.new(str(repo), "do the mock task", engine="mock")
-    result, _artifact = execute_drive(
+    result, _artifact = execute_work(
         repo=repo,
         engine_name="mock",
         task=task,

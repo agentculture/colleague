@@ -51,8 +51,8 @@ def _capture_both(monkeypatch, repo: Path, model: str) -> dict:
 
     config = EngineConfig(model=model)
     task = Task(id="t4-1", repo_path=str(repo), instruction="do a thing")
-    MockEngine().drive(task, config)
-    VllmOpenAIEngine().drive(task, config)
+    MockEngine().work(task, config)
+    VllmOpenAIEngine().work(task, config)
     return captured
 
 

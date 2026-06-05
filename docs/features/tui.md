@@ -28,7 +28,7 @@ or calls the model. State changes only through events.
 ### Events
 
 Events are a discriminated union (`colleague/tui/events.py`) covering user
-interaction (`UserInput`, `Key`), model progress (`DriveStep`), UI lifecycle
+interaction (`UserInput`, `Key`), model progress (`WorkStep`), UI lifecycle
 (`Tick`, `Dismiss`), and suggestions (`SkillSuggested`). Each event carries a
 string `type` discriminator and round-trips through JSON cleanly — the JSONL
 event log is a full replay record.
@@ -138,7 +138,7 @@ scripted and agent use (no TTY required):
 |-----------|--------------|
 | `tui render <snapshot>` | Re-render a snapshot's state to ANSI (stdout). |
 | `tui replay <events.jsonl>` | Fold an events log and emit the final TAUI JSON. |
-| `tui replay --trace <id>.trace.jsonl` | Fold a real drive's loop-step trace (#74 A4). |
+| `tui replay --trace <id>.trace.jsonl` | Fold a real work item's loop-step trace (#74 A4). |
 | `tui diagnose <snapshot>` | Run the 7-bug-class differ and report findings. |
 | `tui selectors <snapshot>` | List every addressable selector in the TAUI mirror. |
 
@@ -187,21 +187,21 @@ enforced by `tests/test_zero_deps.py`:
   `colleague/tui/*.py` and asserts no `rich`, `textual`, `urllib`, `socket`,
   `http`, or `subprocess` import appears.
 
-## Live drive integration (#74)
+## Live work integration (#74)
 
-A real `drive` feeds the cockpit, not just authored/snapshot state:
+A real `work` feeds the cockpit, not just authored/snapshot state:
 
-- **Live cockpit (A1)** — `colleague drive` renders the cockpit on stderr as it
+- **Live cockpit (A1)** — `colleague work` renders the cockpit on stderr as it
   runs (conversation per step; an `error` popup when a tool step fails). Auto-on an
   interactive TTY; `--tui` / `--no-tui` force it. Off a TTY it falls back to the
   plain `step N: <tool> [ok|err]` lines, byte-identical. Escapes are stripped when
   `NO_COLOR` is set or the stream isn't a TTY.
-- **Live event stream (A3)** — `drive --tui-events <path>` appends one `DriveStep`
-  JSONL line per step as the drive runs (the same format `replay`/`snapshot`
+- **Live event stream (A3)** — `work --tui-events <path>` appends one `WorkStep`
+  JSONL line per step as the work item runs (the same format `replay`/`snapshot`
   consume). A stream written into the driven repo is treated as harness telemetry,
-  never swept into the drive branch.
-- **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
-  finished drive's loop-step trace into the cockpit. Live and replayed steps read
+  never swept into the work branch.
+- **Replay a real work item (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
+  finished work item's loop-step trace into the cockpit. Live and replayed steps read
   identically — both go through one converter (`colleague/tui/from_drive.py`)
   and the same pure reducer, so a failed step opens the same popup live and on
   replay.
@@ -210,9 +210,9 @@ A real `drive` feeds the cockpit, not just authored/snapshot state:
 
 - The **interactive `session` cockpit (#74 A2)** is the remaining follow-up:
   `session` still uses its readline numbered palette, not the live cockpit (a
-  drive *inside* a session keeps the plain `step N:` lines). The pure reducer,
+  work item *inside* a session keeps the plain `step N:` lines). The pure reducer,
   TAUI mirror, snapshot, replay, diagnose, the live TTY view (`tui live`), and
-  the live-drive integration above are all complete.
+  the live-work integration above are all complete.
 - The **Rich/Textual renderer plugin** is a post-MVP follow-up. The entry-point
   seam is registered and the `[tui]` extra packages the deps, but no
   Rich/Textual renderer ships in core today — the stdlib ANSI renderer is the
@@ -232,7 +232,7 @@ A real `drive` feeds the cockpit, not just authored/snapshot state:
 
 ## See also
 
-- [artifact.md](artifact.md) — the per-drive JSON artifact TAUI complements.
+- [artifact.md](artifact.md) — the per-work-item JSON artifact TAUI complements.
 - [telemetry.md](telemetry.md) — Telemetry (OTel) follows the same opt-in extra +
   lazy-import pattern as the `[tui]` extra.
 - [engines.md](engines.md) — the `colleague.engines` entry-point group that

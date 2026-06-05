@@ -4,11 +4,11 @@ import pytest
 
 from colleague.tui.events import (
     Dismiss,
-    DriveStep,
     KeyPress,
     SkillSuggested,
     Tick,
     UserInput,
+    WorkStep,
     dumps_events,
     event_from_dict,
     loads_events,
@@ -73,30 +73,30 @@ class TestEventTypes:
         assert evt.to_dict() == {"type": "dismiss", "target": "error-popup"}
         assert event_from_dict(evt.to_dict()) == evt
 
-    def test_drive_step_defaults(self):
-        evt = DriveStep(tool="read_file")
+    def test_work_step_defaults(self):
+        evt = WorkStep(tool="read_file")
         assert evt.to_dict() == {
-            "type": "drive_step",
+            "type": "work_step",
             "tool": "read_file",
             "summary": "",
             "ok": True,
         }
         assert event_from_dict(evt.to_dict()) == evt
 
-    def test_drive_step_full(self):
-        evt = DriveStep(tool="run_command", summary="compiled ok", ok=True)
+    def test_work_step_full(self):
+        evt = WorkStep(tool="run_command", summary="compiled ok", ok=True)
         assert evt.to_dict() == {
-            "type": "drive_step",
+            "type": "work_step",
             "tool": "run_command",
             "summary": "compiled ok",
             "ok": True,
         }
         assert event_from_dict(evt.to_dict()) == evt
 
-    def test_drive_step_failed(self):
-        evt = DriveStep(tool="run_command", summary="build failed", ok=False)
+    def test_work_step_failed(self):
+        evt = WorkStep(tool="run_command", summary="build failed", ok=False)
         assert evt.to_dict() == {
-            "type": "drive_step",
+            "type": "work_step",
             "tool": "run_command",
             "summary": "build failed",
             "ok": False,
@@ -144,7 +144,7 @@ class TestJSONL:
             Tick(delta=2),
             SkillSuggested(skill="review", reason="bug", confidence=0.8),
             Dismiss(target="popup"),
-            DriveStep(tool="read_file", summary="ok", ok=True),
+            WorkStep(tool="read_file", summary="ok", ok=True),
         ]
         serialized = dumps_events(events)
         deserialized = loads_events(serialized)
@@ -177,7 +177,7 @@ class TestJSONL:
             Tick(delta=3),
             SkillSuggested(skill="write", reason="new feature", confidence=0.9),
             Dismiss(target="error"),
-            DriveStep(tool="run_command", summary="tests pass", ok=True),
+            WorkStep(tool="run_command", summary="tests pass", ok=True),
         ]
         serialized = dumps_events(original)
         deserialized = loads_events(serialized)

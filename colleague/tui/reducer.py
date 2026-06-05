@@ -14,7 +14,7 @@ import copy
 from dataclasses import replace
 from typing import Any
 
-from colleague.tui.events import Dismiss, DriveStep, KeyPress, SkillSuggested, Tick, UserInput
+from colleague.tui.events import Dismiss, KeyPress, SkillSuggested, Tick, UserInput, WorkStep
 from colleague.tui.state import Action, CockpitState, Panel, Popup
 
 # ---------------------------------------------------------------------------
@@ -46,8 +46,8 @@ def reduce(state: CockpitState, event: Any) -> CockpitState:
         return _reduce_dismiss(state, event)
     if isinstance(event, UserInput):
         return _reduce_user_input(state, event)
-    if isinstance(event, DriveStep):
-        return _reduce_drive_step(state, event)
+    if isinstance(event, WorkStep):
+        return _reduce_work_step(state, event)
     if isinstance(event, KeyPress):
         # KeyPress handling (focus/navigation) is the driver's concern — return unchanged copy.
         return copy.deepcopy(state)
@@ -120,8 +120,8 @@ def _reduce_user_input(state: CockpitState, event: UserInput) -> CockpitState:
     return new_state
 
 
-def _reduce_drive_step(state: CockpitState, event: DriveStep) -> CockpitState:
-    """Increment the drive step counter (if a drive is active) and log a conversation line.
+def _reduce_work_step(state: CockpitState, event: WorkStep) -> CockpitState:
+    """Increment the work-item step counter (if one is active) and log a conversation line.
 
     A failed step (``event.ok is False``) additionally opens an ``error`` popup so
     the failure surfaces in the cockpit.  Keeping this in the pure reducer (rather
@@ -130,10 +130,10 @@ def _reduce_drive_step(state: CockpitState, event: DriveStep) -> CockpitState:
     """
     new_state = copy.deepcopy(state)
 
-    if new_state.drive is not None:
-        new_state.drive = replace(
-            new_state.drive,
-            step_count=new_state.drive.step_count + 1,
+    if new_state.work_item is not None:
+        new_state.work_item = replace(
+            new_state.work_item,
+            step_count=new_state.work_item.step_count + 1,
         )
 
     line = f"[{event.tool}] {event.summary}"
@@ -144,8 +144,8 @@ def _reduce_drive_step(state: CockpitState, event: DriveStep) -> CockpitState:
     return new_state
 
 
-def _open_error_popup(popups: list[Popup], event: DriveStep) -> list[Popup]:
-    """Return a new popups list with an ``error`` popup for a failed drive step.
+def _open_error_popup(popups: list[Popup], event: WorkStep) -> list[Popup]:
+    """Return a new popups list with an ``error`` popup for a failed work item step.
 
     Deduped by id (``popup.error.<tool>``) so a tool failing repeatedly refreshes
     one popup rather than stacking.  Non-blocking with a dismiss action — an

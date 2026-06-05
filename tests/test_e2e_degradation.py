@@ -42,7 +42,7 @@ from colleague.context import count_tokens_chars
 from colleague.contract import ERROR, OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine, _tokenize_url
-from colleague.loop import DriveAborted, ModelResponse, ToolCall, run
+from colleague.loop import ModelResponse, ToolCall, WorkAborted, run
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -454,7 +454,7 @@ def test_vllm_engine_drives_with_windowing_on_mock_http(
     config = EngineConfig.resolve()
     repo = tmp_path / "repo"
     repo.mkdir()
-    result = engine.drive(Task.new(str(repo), "do work"), config)
+    result = engine.work(Task.new(str(repo), "do work"), config)
 
     assert result.status == OK
     assert "out.txt" in result.changed_files
@@ -468,7 +468,7 @@ def test_overflow_retry_is_bounded_in_vllm_engine(
     """The vLLM engine's retry loop terminates with a bounded POST call count.
 
     Drives the vLLM engine directly (not via the CLI) with a POST that always
-    raises a context-overflow error, and asserts DriveAborted is raised with a
+    raises a context-overflow error, and asserts WorkAborted is raised with a
     partial result and that POST was called a small finite number of times.
 
     This is the loop-level complement to the CLI-level test above.
@@ -491,8 +491,8 @@ def test_overflow_retry_is_bounded_in_vllm_engine(
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    with pytest.raises(DriveAborted) as excinfo:
-        engine.drive(Task.new(str(repo), "impossible task"), config)
+    with pytest.raises(WorkAborted) as excinfo:
+        engine.work(Task.new(str(repo), "impossible task"), config)
 
     result = excinfo.value.result
     assert result.status == ERROR

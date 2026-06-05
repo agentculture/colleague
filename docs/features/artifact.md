@@ -1,10 +1,10 @@
 # Result artifact (the run report)
 
-> Every drive writes its full result as JSON plus a per-step trace — the handoff
+> Every work item writes its full result as JSON plus a per-step trace — the handoff
 > payload and the operator's record.
 
 The artifact (`colleague/artifact.py`) is the **run report**: a durable,
-machine-readable record of what a drive did. Every drive produces two files under
+machine-readable record of what a work item did. Every work item produces two files under
 an artifact directory (`.colleague/` in the repo by default):
 
 | File | Contents |
@@ -23,7 +23,7 @@ The serialized `TaskResult` carries the task id and status, the finish summary,
 `changed_files`, the full `steps` trace, token `usage`, the handoff `branch` /
 `pr_url`, every `hook_firings` entry (event, matched command, decision, exit
 code, reason), and the originating `command` template name. See
-[drive-and-loop.md](drive-and-loop.md#the-task-contract) for the field table.
+[work-and-loop.md](work-and-loop.md#the-task-contract) for the field table.
 
 ## Always written — even on failure
 
@@ -34,16 +34,16 @@ exiting non-zero. The originating command is persisted on the failure path too.
 
 ## Usage
 
-The artifact is written automatically by `colleague drive` and
+The artifact is written automatically by `colleague work` and
 `colleague session`; there is no separate artifact verb. To consume it:
 
 ```bash
-colleague drive "..." --repo . --engine mock --no-pr
+colleague work "..." --repo . --engine mock --no-pr
 cat .colleague/<task-id>.json        # the full result
 cat .colleague/<task-id>.trace.jsonl # one line per step
 ```
 
-The `--json` flag on `drive` additionally streams the same result to stdout for
+The `--json` flag on `work` additionally streams the same result to stdout for
 inline consumption.
 
 ## Key files
@@ -53,7 +53,7 @@ inline consumption.
 
 ## See also
 
-- [drive-and-loop.md](drive-and-loop.md) — the `TaskResult` field reference.
+- [work-and-loop.md](work-and-loop.md) — the `TaskResult` field reference.
 - [hooks.md](hooks.md) — hook firings recorded in the artifact.
 - [telemetry.md](telemetry.md) — the live-observability complement to the
   per-run artifact.

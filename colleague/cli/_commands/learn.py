@@ -15,7 +15,7 @@ from colleague.cli._output import emit_result
 
 _TEXT = """\
 colleague — a swappable coder-agent harness. Hand it a scoped repo task and it
-drives a model backend through a bounded tool-loop, then returns a JSON run
+works a model backend through through a bounded tool-loop, then returns a JSON run
 report. One runtime, many minds.
 
 Work with colleague from another agent
@@ -32,22 +32,22 @@ is the front door:
                                    <base>...HEAD diff. The headline verb.
   ask-colleague write   "<task>"   Delegate a small change. Previews by default
                                    (throwaway worktree, no side effects); --apply
-                                   lands a drive branch, --pr opens a PR.
-  ask-colleague feedback ...       Grade a finished drive (closes the ROI loop).
+                                   lands a work branch, --pr opens a PR.
+  ask-colleague feedback ...       Grade a finished work item (closes the ROI loop).
 explore/review are read-only (worktree-isolated) — always safe to run.
 
-Or drive it directly:
-  colleague drive "<task>" --repo . --engine <backend> --no-pr
+Or run it directly:
+  colleague work "<task>" --repo . --engine <backend> --no-pr
 Backend resolution: --engine > COLLEAGUE_ENGINE > vllm-openai (never a silent
-mock). Each drive writes a run report (TaskResult JSON + step trace) with an
+mock). Each work item writes a run report (TaskResult JSON + step trace) with an
 always-on stats block (what it cost); pair it with a feedback record (how good
 it was) to compute the ROI of outsourcing the task.
 
 Teach colleague with skills
 ---------------------------
 colleague folds two layered, instructional-text surfaces into the backend system
-prompt on every drive — author them so colleague drives your repo well:
-  .colleague/skills/<name>.md    One skill per convention every drive should
+prompt on every work item — author them so colleague works your repo well:
+  .colleague/skills/<name>.md    One skill per convention every work item should
                                  honor: the test command, the lint gate, code
                                  style, a domain glossary, "never touch <X>".
                                  Per-model overlay: .colleague/<model>/skills/.
@@ -61,10 +61,10 @@ resolves with:  colleague skills list  and  colleague agents list
 
 Commands
 --------
-  colleague drive <task>       Run a repo task through a coder backend.
+  colleague work <task>       Run a repo task through a coder backend.
   colleague backends list      List discovered backend plugins.
-  colleague whoami             Mesh identity + the live drive engine/model.
-  colleague feedback ...       Grade a drive / read its ROI record.
+  colleague whoami             Mesh identity + the live work engine/model.
+  colleague feedback ...       Grade a work item / read its ROI record.
   colleague skills list        Show the skill docs resolved for a model.
   colleague agents list        Show the AGENTS instructions resolved for a model.
   colleague learn              This self-teaching prompt.
@@ -89,7 +89,7 @@ More detail
   colleague explain colleague    The architecture, part by part.
   colleague explain ask-colleague  The collaboration verbs in depth.
   colleague explain skills       What skills to author, and how they layer.
-  colleague explain drive        The task contract a drive runs.
+  colleague explain work        The task contract a work item runs.
 """
 
 
@@ -99,7 +99,7 @@ def _as_json_payload() -> dict[str, object]:
         "version": __version__,
         "purpose": (
             "A swappable coder-agent harness you delegate scoped repo tasks to: "
-            "it drives a model backend through a bounded tool-loop and returns a "
+            "it works a model backend through through a bounded tool-loop and returns a "
             "JSON run report. A different mind, not a stronger one — diversity is "
             "the point."
         ),
@@ -120,10 +120,10 @@ def _as_json_payload() -> dict[str, object]:
                 },
                 {
                     "verb": "ask-colleague feedback",
-                    "summary": "Grade a finished drive (closes the ROI loop).",
+                    "summary": "Grade a finished work item (closes the ROI loop).",
                 },
             ],
-            "drive": 'colleague drive "<task>" --repo . --engine <backend> --no-pr',
+            "work": 'colleague work "<task>" --repo . --engine <backend> --no-pr',
             "backend_resolution": "--engine > COLLEAGUE_ENGINE > vllm-openai (never a silent mock)",
         },
         "teach_with_skills": {
@@ -134,17 +134,17 @@ def _as_json_payload() -> dict[str, object]:
                 "slashes collapse to dashes (Qwen/Qwen3-32B -> Qwen-Qwen3-32B)."
             ),
             "what_to_create": (
-                "One skill per repo convention every drive should honor: the test "
+                "One skill per repo convention every work item should honor: the test "
                 "command, the lint gate, code style, a domain glossary, files not "
                 "to touch. Instructional text only (no execution model in v0)."
             ),
             "inspect": ["colleague skills list", "colleague agents list"],
         },
         "commands": [
-            {"path": ["drive"], "summary": "Run a repo task through a coder backend."},
+            {"path": ["work"], "summary": "Run a repo task through a coder backend."},
             {"path": ["backends", "list"], "summary": "List discovered backend plugins."},
-            {"path": ["whoami"], "summary": "Mesh identity + the live drive engine/model."},
-            {"path": ["feedback"], "summary": "Grade a drive / read its ROI record."},
+            {"path": ["whoami"], "summary": "Mesh identity + the live work engine/model."},
+            {"path": ["feedback"], "summary": "Grade a work item / read its ROI record."},
             {"path": ["skills", "list"], "summary": "Show the skill docs resolved for a model."},
             {
                 "path": ["agents", "list"],

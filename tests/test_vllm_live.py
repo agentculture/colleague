@@ -43,7 +43,7 @@ def test_live_drive_edits_a_real_repo(tmp_path: Path) -> None:
         "Create a file named HELLO.txt containing exactly the text: hello from colleague",
         engine="vllm-openai",
     )
-    result = VllmOpenAIEngine().drive(task, EngineConfig.resolve())
+    result = VllmOpenAIEngine().work(task, EngineConfig.resolve())
 
     assert result.status == OK, result.error
     assert result.changed_files, "the model made no edits"

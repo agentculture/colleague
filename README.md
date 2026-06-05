@@ -18,7 +18,7 @@ care which one ran.
 | **Mind / backend** | the model/coder backend (a local vLLM model, an OpenAI-compatible endpoint, …) |
 | **Adapter** | the code that invokes and controls one backend (`colleague/engines/`) |
 | **Task runtime** | the shared task contract + lifecycle (`Task` → `TaskResult`) |
-| **Tool loop** | the bounded agentic loop the backend drives the repo through |
+| **Tool loop** | the bounded agentic loop the backend works the repo through |
 | **Plugins** | replaceable backend adapters, discovered via Python entry points |
 | **Run report** | the JSON result artifact + step trace each run writes |
 | **Telemetry** | opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`) |
@@ -46,7 +46,7 @@ care which one ran.
 - A **result artifact** (`.colleague/<task-id>.json`) for handoff back to
   Guildmaster / Taskmaster / Steward.
 - **Command templates** — reusable, parameterized task recipes stored under
-  `.colleague/commands/*.md`, invoked with `drive --command <name> [args…]`
+  `.colleague/commands/*.md`, invoked with `work --command <name> [args…]`
   or selected in the interactive palette.
 - **Lifecycle hooks** — operator-authored shell commands that fire at
   `task_start`, `pre_tool`, `post_tool`, and `finish` events; a `pre_tool` hook
@@ -69,7 +69,7 @@ care which one ran.
 - **`doctor`** — a read-only configuration-readiness health check
   across identity, provider, engines, otel-readiness, and environment; emits a
   rubric-shaped report and exits non-zero when unhealthy.
-- **Mesh-member integration** — a drive resolves a process-level identity (the
+- **Mesh-member integration** — a work item resolves a process-level identity (the
   repo's `culture.yaml` nick or `.colleague/identity.json`) and propagates it
   to subcommands via `COLLEAGUE_IDENTITY`. The loop exposes one curated
   `culture` tool (allow-list: `agtag`, `devex`) that shells out to the
@@ -92,7 +92,7 @@ care which one ran.
   and AGENTS instructions load freely — they are never gated. See the
   [Approval gate](#approval-gate) section below for the full config shape and
   usage.
-- **Startup banner** — `colleague drive` and `colleague session` greet an
+- **Startup banner** — `colleague work` and `colleague session` greet an
   interactive terminal with an ASCII banner. It's decorative chrome: written to
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
   pollutes the stdout result stream or agent-parsed output.
@@ -113,7 +113,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 
 | Feature | Doc |
 |---------|-----|
-| Drive & the tool-loop | [drive-and-loop.md](docs/features/drive-and-loop.md) |
+| Work & the tool-loop | [work-and-loop.md](docs/features/work-and-loop.md) |
 | Context budget / graceful degradation | [graceful-degradation.md](docs/features/graceful-degradation.md) |
 | Backends & plugins | [engines.md](docs/features/engines.md) |
 | Model & endpoint selection | [model-selection.md](docs/features/model-selection.md) |
@@ -125,7 +125,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Cockpit views (tui / TAUI) | [tui.md](docs/features/tui.md) |
 | Layered per-model config | [layered-config.md](docs/features/layered-config.md) |
 | Telemetry: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
-| Drive stats & feedback (ROI) | [stats-and-feedback.md](docs/features/stats-and-feedback.md) |
+| Work stats & feedback (ROI) | [stats-and-feedback.md](docs/features/stats-and-feedback.md) |
 | `doctor` (health check) | [doctor.md](docs/features/doctor.md) |
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
@@ -143,7 +143,7 @@ per-feature source pointers and cross-links.
 
 ## Before → after: the extensibility layer
 
-**Before** this layer, `colleague drive` accepted one raw instruction string
+**Before** this layer, `colleague work` accepted one raw instruction string
 and ran the tool-loop with no operator gate and no saved recipes: `run_command`
 and `write_file` executed unconditionally, and every task had to be typed from
 scratch.
@@ -152,15 +152,15 @@ scratch.
 work identically across every backend (the all-engines rule):
 
 1. **Command templates** — author a recipe once, invoke it by name with
-   positional arguments; `drive --command <name> [args…]` expands it into the
-   same `Task` shape a raw `drive "…"` produces.
+   positional arguments; `work --command <name> [args…]` expands it into the
+   same `Task` shape a raw `work "…"` produces.
 2. **Lifecycle hooks** — `pre_tool` hooks can allow, deny (reason fed back to
    the model), or rewrite tool arguments before they execute; `post_tool` hooks
    run formatters or linters after; `task_start` and `finish` hooks bracket the
-   whole drive. Every firing is recorded in the result artifact.
+   whole work item. Every firing is recorded in the result artifact.
 3. **Interactive palette** — `colleague session` lists discovered templates,
    accepts a selection (by number or name) plus optional arguments, and runs the
-   chosen task through the same drive path, loop, hooks, and artifact — no
+   chosen task through the same work path, loop, hooks, and artifact — no
    parallel code path.
 
 This extensibility lives in the runtime (`colleague/loop.py`), not in any one
@@ -178,8 +178,8 @@ uv run colleague
 # Discover the backends installed in this environment:
 uv run colleague backends list
 
-# Drive toward a goal with the deterministic mock backend (no model, no network):
-uv run colleague drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
+# Work toward a goal with the deterministic mock backend (no model, no network):
+uv run colleague work "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
 ```
 
 ### Driving a real model (vLLM)
@@ -209,7 +209,7 @@ the server emit OpenAI-format tool calls works.
 Then point Colleague at it (defaults already target `localhost:8001`):
 
 ```bash
-uv run colleague drive "fix the typo in the README title" \
+uv run colleague work "fix the typo in the README title" \
   --repo /path/to/target/repo \
   --engine vllm-openai \
   --base-url http://localhost:8001/v1 \
@@ -275,8 +275,8 @@ If no `---` block is present, the entire file content is the body.
 ### Running a command template
 
 ```bash
-# One-shot via drive:
-uv run colleague drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
+# One-shot via work:
+uv run colleague work --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
 
 # List all discovered templates:
 uv run colleague commands list --repo .
@@ -366,14 +366,14 @@ uv run colleague hooks overview
 
 `colleague session` opens a foreground interactive **cockpit** (#74 A2): it
 renders one `CockpitState` — a command palette + a running conversation + popups —
-and runs each selection through the same `drive` path (same `Task`, loop, hooks,
+and runs each selection through the same `work` path (same `Task`, loop, hooks,
 and artifact — no parallel code path):
 
 ```bash
 uv run colleague session --repo /path/to/repo --engine vllm-openai
 ```
 
-**Input is line-based.** At the prompt, plain text runs a drive — a **number**
+**Input is line-based.** At the prompt, plain text runs a work item — a **number**
 (palette entry), a **template name**, or a **free-text instruction** (ad-hoc
 task). A line starting with `/` is a **slash command** — the meta/system
 namespace, akin to Claude Code / Codex:
@@ -388,15 +388,15 @@ namespace, akin to Claude Code / Codex:
 **Three render tiers of the one state, chosen automatically:**
 
 - **Interactive (a colour TTY)** — the dynamic ANSI cockpit: redraw-in-place, and
-  popups on real events (an `error` popup when a drive step fails).
+  popups on real events (an `error` popup when a work item step fails).
 - **Non-interactive (piped / captured)** — **Markdown** menus (the static but
   *full* agent-readable view), the default off a TTY. `--no-tui` forces it on a TTY.
-- **`--json`** — stdout carries only the drive `TaskResult` (one JSON object each,
+- **`--json`** — stdout carries only the work item `TaskResult` (one JSON object each,
   preserving the machine contract); the cockpit renders to stderr as chrome.
 
 Running `colleague` with no arguments **at a terminal** opens this same cockpit
-(backend resolved like `drive`: `--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`,
-never a silent `mock`). By default it is a "talk + iterate" loop — each drive
+(backend resolved like `work`: `--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`,
+never a silent `mock`). By default it is a "talk + iterate" loop — each work item
 commits locally but does **not** push or open a PR; `/pr` or `--pr` opts in.
 
 ## Cockpit views (tui)
@@ -421,26 +421,26 @@ uv run colleague tui render --format markdown --state <file>
 uv run colleague tui overview
 ```
 
-**Watching a live drive.** A real `drive` feeds the cockpit (#74):
+**Watching a live work item.** A real `work` feeds the cockpit (#74):
 
 ```bash
-uv run colleague drive "<task>" --engine mock       # auto: live cockpit on a TTY
-uv run colleague drive "<task>" --engine mock --no-tui   # force the plain step lines
-uv run colleague drive "<task>" --engine mock --tui-events run.jsonl   # live event stream
-uv run colleague tui replay --trace .colleague/<id>.trace.jsonl      # replay a finished drive
+uv run colleague work "<task>" --engine mock       # auto: live cockpit on a TTY
+uv run colleague work "<task>" --engine mock --no-tui   # force the plain step lines
+uv run colleague work "<task>" --engine mock --tui-events run.jsonl   # live event stream
+uv run colleague tui replay --trace .colleague/<id>.trace.jsonl      # replay a finished work item
 ```
 
-- **Live cockpit (A1)** — on an interactive terminal a drive renders the cockpit
+- **Live cockpit (A1)** — on an interactive terminal a work item renders the cockpit
   as it runs (conversation per step, popups on real events — e.g. an `error`
   popup when a tool step fails). Auto-on a TTY; `--tui` / `--no-tui` force it.
   Off a TTY (pipes/agents/CI) it falls back to the plain `step N: <tool> [ok|err]`
   stderr lines, byte-for-byte unchanged.
-- **Live event stream (A3)** — `--tui-events <path>` appends one `DriveStep` JSONL
-  line per step as the drive runs, so an agent can follow it turn-by-turn or
+- **Live event stream (A3)** — `--tui-events <path>` appends one `WorkStep` JSONL
+  line per step as the work item runs, so an agent can follow it turn-by-turn or
   `tui replay` it. (A stream written into the driven repo is treated as harness
-  telemetry — never swept into the drive branch.)
-- **Replay a real drive (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
-  finished drive's loop-step trace into the cockpit (live and replayed steps read
+  telemetry — never swept into the work branch.)
+- **Replay a real work item (A4)** — `tui replay --trace <id>.trace.jsonl` folds a
+  finished work item's loop-step trace into the cockpit (live and replayed steps read
   identically — one shared converter).
 - **Interactive cockpit (A2)** — `colleague session` is now cockpit-rendered with
   slash commands; see [Interactive cockpit (session)](#interactive-cockpit-session).
@@ -452,9 +452,9 @@ See [`docs/features/tui.md`](docs/features/tui.md) for the full surface.
 
 ## Telemetry: OpenTelemetry observability
 
-A drive can emit **OpenTelemetry traces + metrics** so it's observable against an
+A work item can emit **OpenTelemetry traces + metrics** so it's observable against an
 OTLP collector — not just the per-run JSON artifact. Telemetry lives in the
-runtime (the loop + the shared drive path), so **every backend** emits it
+runtime (the loop + the shared work path), so **every backend** emits it
 identically, exactly like lifecycle hooks.
 
 It is **off by default** and a strict no-op when off (no spans, no SDK import,
@@ -465,17 +465,17 @@ the base install keeps zero runtime dependencies:
 pip install 'colleague[otel]'                 # or: uv sync --extra otel
 export COLLEAGUE_OTEL_ENABLED=1
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # OTLP/HTTP collector
-uv run colleague drive "<task>" --repo . --engine mock --no-pr
+uv run colleague work "<task>" --repo . --engine mock --no-pr
 #   -> stderr prints "trace: <id>"; the collector receives the spans + metrics
 ```
 
 Requested without the extra installed, colleague degrades to a no-op with a
-one-line stderr notice — it never fails the drive.
+one-line stderr notice — it never fails the work item.
 
-**Signals.** Spans: `colleague.drive` (root) → `colleague.tool.*` (per tool
+**Signals.** Spans: `colleague.work` (root) → `colleague.tool.*` (per tool
 call) → `colleague.handoff`. Metrics: `colleague.steps`, `colleague.tokens`,
 `colleague.tool.latency`, `colleague.tool.calls`, `colleague.hook.denials`,
-`colleague.drive.duration`.
+`colleague.work.duration`.
 
 **Config** (precedence: explicit > `COLLEAGUE_OTEL_*` > standard `OTEL_*` >
 default): `COLLEAGUE_OTEL_ENABLED`, `COLLEAGUE_OTEL_ENDPOINT` /
@@ -487,13 +487,13 @@ uv run colleague telemetry status      # resolved config + whether the SDK is in
 uv run colleague telemetry overview    # describe the surface
 ```
 
-## Drive stats & the feedback loop (ROI)
+## Work stats & the feedback loop (ROI)
 
 Together these let a caller compute the **ROI of outsourcing** a task: the stats
-say what a drive *cost*, a feedback record says how *good* it was.
+say what a work item *cost*, a feedback record says how *good* it was.
 
 **Always-on stats.** Every `TaskResult` carries a `stats` block
-(`DriveStats`), written into the artifact on **every** drive — no flag, no opt-in.
+(`WorkStats`), written into the artifact on **every** work item — no flag, no opt-in.
 It records the request, ISO start + wall-clock duration, model turns, step count,
 per-tool counts, files changed, exact UTF-8 `bytes_written`, and
 reasoning-vs-answer char/byte sizes. Exact token counts stay on `usage`, verbatim
@@ -504,9 +504,9 @@ runtime-owned — identical for `mock` and `vllm-openai`.
 > served model reports no reasoning-token breakdown — so "thought vs written" is
 > measured as **chars/bytes**, not tokens.
 
-**Feedback.** A single record per drive (re-grading overwrites) lives beside the
-artifact at `.colleague/<task_id>.feedback.json`; a per-repo `last_drive` pointer
-lets you grade the most recent drive without quoting its id. An ungraded drive
+**Feedback.** A single record per work item (re-grading overwrites) lives beside the
+artifact at `.colleague/<task_id>.feedback.json`; a per-repo `last_work` pointer
+lets you grade the most recent work item without quoting its id. An ungraded work item
 reads back as a clean "no feedback yet" state, never an error.
 
 ```bash
@@ -521,7 +521,7 @@ The agent-facing entry is the `ask-colleague feedback` skill verb. See
 ## Configuration readiness: `doctor`
 
 Before you hand colleague work, `colleague doctor` answers "is this install
-actually ready to drive?" It is colleague's **read-only**, diagnose-only
+actually ready to work?" It is colleague's **read-only**, diagnose-only
 **health check** (no `--fix`, zero new runtime deps) that emits a
 rubric-shaped `{healthy, checks[]}` report across five ordered check-groups:
 
@@ -553,7 +553,7 @@ default `doctor` stays network-free.
 
 ## Per-model instructions & skills
 
-Colleague composes a model-specific **system prompt** for every drive from two
+Colleague composes a model-specific **system prompt** for every work item from two
 layered families, resolved *relative to the model currently driving*. Strict
 per-model isolation: driving model X reads only X's overlay plus the shared base
 — it never even opens model Y's files (isolation is structural, built from exact
@@ -592,7 +592,7 @@ uv run colleague skills list --model Qwen/Qwen3-32B --repo .
 
 ## Subagents
 
-Mid-drive, a backend **may** delegate scoped sub-tasks via two loop tools:
+Mid-work, a backend **may** delegate scoped sub-tasks via two loop tools:
 `subagent` (a single child) or `subagents` (a batch that runs concurrently). Each
 child runs the *same* bounded tool-loop as a nested in-process call, isolated in
 its own throwaway git worktree on a `sub/<id>` branch; its result is returned to
@@ -610,7 +610,7 @@ byte-identical sequential behavior); with width > 1, up to
 slot for the merge child. Delegation is **backend-judged and optional** (like the
 `devague` destination tool), never a forced gate. Termination is structural:
 `MAX_SUBAGENT_DEPTH=2` (checked before any child work) and `MAX_SUBAGENT_FANOUT=4`
-(per-drive, including the merge child). Only the top-level drive hands off —
+(per-work-item, including the merge child). Only the top-level work item hands off —
 sub-drives never branch, commit, or open a PR. This is runtime-owned (the tools
 fire identically for every backend) and is explicitly **not** the out-of-scope
 multi-backend router / routing policy: there is no automatic task→backend routing.
@@ -628,14 +628,14 @@ uv run colleague explain subagent   # the loop tool's contract (not a CLI verb)
 `ask-colleague` is colleague's one **first-party** Claude Code skill — the inverse
 of the vendored skills. It lets another agent hand a scoped task to colleague: a
 *different* backend/model (e.g. a local vLLM Qwen), not a stronger one — **diversity
-is the point**. Four verbs over `colleague drive`:
+is the point**. Four verbs over `colleague work`:
 
 | Verb | What it does |
 |------|--------------|
 | `ask-colleague explore` | Read-only investigation of an area (worktree-isolated). |
 | `ask-colleague review` | A diverse second opinion on the committed `<base>...HEAD` diff (the headline verb). |
-| `ask-colleague write` | Delegate a small change — previews by default; `--apply` lands a drive branch, `--pr` opens a PR. |
-| `ask-colleague feedback` | Grade a finished drive (close the ROI loop). |
+| `ask-colleague write` | Delegate a small change — previews by default; `--apply` lands a work branch, `--pr` opens a PR. |
+| `ask-colleague feedback` | Grade a finished work item (close the ROI loop). |
 
 `explore`/`review` run in a throwaway `git worktree` (no working-tree side effects);
 `write` previews in one too unless `--apply`/`--pr`. (Renamed from `outsource`;
@@ -739,7 +739,7 @@ Status values:
 
 > **This is a code-execution risk. Read before driving an untrusted repo.**
 
-When you run `colleague drive` (or `colleague session`) against a repo that
+When you run `colleague work` (or `colleague session`) against a repo that
 contains a `.colleague/hooks.json`, **those hooks execute automatically** with
 your operating-system privileges. There is no confirmation prompt and no
 sandboxing. Cloning a malicious repository and pointing Colleague at it will
@@ -748,7 +748,7 @@ run whatever shell commands that repository's hooks.json specifies.
 This behavior is intentional under Colleague's **trusted-operator-env model**
 (D2): the same design tradeoff Claude Code and Codex make for their `.claude/`
 and `.codex/` hook configs. You are expected to trust (or audit) the repos you
-drive.
+work in.
 
 **What is implemented:** the [approval gate](#approval-gate) lets you gate hook
 scripts by checksum — an unapproved or tampered hook script is skipped (not a
@@ -763,8 +763,8 @@ in the current version. Do not rely on a non-existent flag.
 
 **Safe practices until the trust gate ships:**
 
-- Only drive repos you own or have audited.
-- Review `.colleague/hooks.json` before running `drive` in an unfamiliar repo.
+- Only run colleague on repos you own or have audited.
+- Review `.colleague/hooks.json` before running `work` in an unfamiliar repo.
 - Use user-level (`~/.colleague/hooks.json`) hooks as an allow-list approach
   if you want hooks without trusting any repo's config.
 
@@ -772,8 +772,8 @@ in the current version. Do not rely on a non-existent flag.
 
 | Verb | What it does |
 |------|--------------|
-| `drive <goal>` | Drive toward a goal/instruction: work autonomously through a coder backend; write the artifact; hand off. |
-| `drive --command <name> [args…]` | Expand a saved command template and drive it. |
+| `work <goal>` | Work toward a goal/instruction: work autonomously through a coder backend; write the artifact; hand off. |
+| `work --command <name> [args…]` | Expand a saved command template and run it. |
 | `commands list` | List discovered command templates for a repo (shows approval status). |
 | `commands approve <name>` | Record a checksum approval for a command template. |
 | `commands overview` | Describe the commands surface. |
@@ -788,7 +788,7 @@ in the current version. Do not rely on a non-existent flag.
 | `telemetry overview` | Describe the telemetry surface. |
 | `session` | Open a foreground interactive palette. |
 | `backends list` | List discovered backend plugins (the registry; `wheels` is a deprecated alias). |
-| `whoami` | Report nick, version, mesh backend, and the live drive engine + model (the delegate an `ask-colleague` would actually run). |
+| `whoami` | Report nick, version, mesh backend, and the live work engine + model (the delegate an `ask-colleague` would actually run). |
 | `learn` | Print a structured self-teaching prompt. |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
@@ -802,7 +802,7 @@ error, `3+` reserved.
 ## Writing your own backend plugin
 
 A backend is a class implementing `colleague.engine.Engine` (one method:
-`drive(task, config) -> TaskResult`). Advertise it under the entry-point group
+`work(task, config) -> TaskResult`). Advertise it under the entry-point group
 and `colleague backends list` discovers it — no change to Colleague core:
 
 ```toml

@@ -6,7 +6,7 @@
 Hooks are operator-authored shell commands registered in
 `.colleague/hooks.json` (repo-level, falling back to user-level at
 `~/.colleague/hooks.json`; repo wins). They fire at four lifecycle events
-during a drive. Crucially, hook firing lives in the **runtime**
+during a work item. Crucially, hook firing lives in the **runtime**
 (`colleague/loop.py`), not in any backend — so a hook config that fires on
 `mock` fires identically on `vllm-openai` (the all-engines rule). New backend
 plugins inherit the full lifecycle layer for free.
@@ -72,7 +72,7 @@ matched command, decision, exit code, reason) is recorded in
 
 ## Fail-closed, never fatal
 
-A hook must never abort the drive. A subprocess timeout, a launch failure, an
+A hook must never abort the work item. A subprocess timeout, a launch failure, an
 invalid matcher regex, or any unexpected error maps to a structured fail-closed
 **deny** firing rather than crashing the loop.
 
@@ -86,13 +86,13 @@ colleague hooks overview
 
 ## ⚠ Security: repo-shipped hooks run by default
 
-When you drive a repo that contains `.colleague/hooks.json`, **those hooks
+When you run colleague on a repo that contains `.colleague/hooks.json`, **those hooks
 execute automatically** with your OS privileges — no confirmation prompt, no
 sandbox. This is intentional under colleague's **trusted-operator-env model
 (D2)**, the same tradeoff Claude Code and Codex make for their hook configs.
 
 There is **no `--no-hooks` flag and no per-repo trust gate today** — that
-hardening is a tracked follow-up, not yet built. Until it ships: only drive
+hardening is a tracked follow-up, not yet built. Until it ships: only run colleague on
 repos you own or have audited, review `.colleague/hooks.json` before driving an
 unfamiliar repo, and prefer user-level (`~/.colleague/hooks.json`) hooks if you
 want hooks without trusting any repo's config.
@@ -110,4 +110,4 @@ want hooks without trusting any repo's config.
   targeted model only.
 - [command-templates.md](command-templates.md) — the other half of the
   extensibility layer.
-- [drive-and-loop.md](drive-and-loop.md) — the tool-loop that fires hooks.
+- [work-and-loop.md](work-and-loop.md) — the tool-loop that fires hooks.

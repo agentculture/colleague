@@ -1,9 +1,9 @@
-# Drive & the tool-loop
+# Work & the tool-loop
 
 > The runtime: a shared task contract and a bounded agentic loop that every
-> backend drives a repo through.
+> backend works a repo through.
 
-`colleague drive "<goal>"` is colleague's working surface. You hand it a
+`colleague work "<goal>"` is colleague's working surface. You hand it a
 goal or instruction and it works autonomously — selecting a backend plugin,
 running a bounded agentic tool-loop against the target repo, writing a result
 artifact, and handing the change off as a branch/PR. The repo is the *target*
@@ -44,7 +44,7 @@ round-trips through JSON unchanged (`colleague/contract.py`).
 
 The loop (`colleague/loop.py`) is **engine-agnostic**. It is handed a
 `complete` callable that performs *one* model turn (given the running message
-list, return the assistant reply and any tool calls) and drives it in a loop:
+list, return the assistant reply and any tool calls) and runs it in a loop:
 execute each requested tool against the repo, feed the result back, repeat. The
 mock engine supplies a scripted `complete`; the vLLM engine supplies one that
 POSTs to an OpenAI-compatible endpoint. The loop never knows the difference.
@@ -82,22 +82,22 @@ cannot extend the budget.
 
 ```bash
 # Deterministic mock engine — no model, no network:
-colleague drive "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
+colleague work "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
 
 # A real model over an OpenAI-compatible endpoint:
-colleague drive "fix the typo in the README title" \
+colleague work "fix the typo in the README title" \
   --repo /path/to/repo --engine vllm-openai \
   --base-url http://localhost:8001/v1 --model Qwen/Qwen3-32B
 
 # Machine-readable result:
-colleague drive "..." --engine mock --no-pr --json
+colleague work "..." --engine mock --no-pr --json
 ```
 
 Key flags: `--repo PATH`, `--engine NAME`, `--no-pr`, `--base BRANCH`, and the
 engine overrides `--base-url / --model / --api-key / --max-steps`. The live
 cockpit flags `--tui` / `--no-tui` (default: auto — on an interactive TTY) and
-`--tui-events PATH` (append a live `DriveStep` JSONL stream) are documented in
-[tui.md](tui.md). A failed drive still writes a `status=error` artifact before
+`--tui-events PATH` (append a live `WorkStep` JSONL stream) are documented in
+[tui.md](tui.md). A failed work item still writes a `status=error` artifact before
 exiting non-zero.
 
 ## Configuration

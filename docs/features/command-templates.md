@@ -5,8 +5,8 @@
 
 Command templates let operators save reusable task recipes as Markdown files
 under `.colleague/commands/<name>.md` and invoke them by name. A template
-expands into the *same* `Task` shape a raw `drive "<text>"` produces — it is a
-front-end over the drive path, not a parallel one (`colleague/commands.py`).
+expands into the *same* `Task` shape a raw `work "<text>"` produces — it is a
+front-end over the work path, not a parallel one (`colleague/commands.py`).
 
 Templates resolve repo-level first, then user-level: `.colleague/commands/`
 in the repo shadows `~/.colleague/commands/` by file stem
@@ -50,8 +50,8 @@ Fix all lint errors under $1. Then run the formatter. $ARGUMENTS
 ## Usage
 
 ```bash
-# One-shot via drive — tokens after the name are template arguments:
-colleague drive --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
+# One-shot via work — tokens after the name are template arguments:
+colleague work --command fix-lint src/ --repo /path/to/repo --engine mock --no-pr
 
 # List discovered templates / describe the surface:
 colleague commands list --repo .
@@ -73,4 +73,4 @@ originating command name is recorded as `TaskResult.command` in the
 
 - [hooks.md](hooks.md) — the other half of the extensibility layer.
 - [session.md](session.md) — the interactive palette lists and runs templates.
-- [drive-and-loop.md](drive-and-loop.md) — the `Task` a template expands into.
+- [work-and-loop.md](work-and-loop.md) — the `Task` a template expands into.

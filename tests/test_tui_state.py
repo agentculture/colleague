@@ -6,11 +6,11 @@ from colleague.tui.state import (
     Action,
     Background,
     CockpitState,
-    Drive,
     Panel,
     PanelItem,
     Popup,
     Status,
+    WorkItem,
     Zone,
 )
 
@@ -49,7 +49,7 @@ def rich_state() -> CockpitState:
     zone = Zone(visible=True)
     bg = Background(theme="dark", animation="pulse", frame=42, semantic="busy")
     status = Status(severity="warn", message="Heads up")
-    drive = Drive(task_id="abc123", engine="vllm-openai", step_count=3, running=True)
+    drive = WorkItem(task_id="abc123", engine="vllm-openai", step_count=3, running=True)
     return CockpitState(
         screen="drive",
         mode="executing",
@@ -59,7 +59,7 @@ def rich_state() -> CockpitState:
         popups=[popup],
         background=bg,
         status=status,
-        drive=drive,
+        work_item=drive,
         problems=[{"code": "E001", "message": "Something went wrong"}],
     )
 
@@ -108,11 +108,13 @@ class TestRoundTrip:
         assert CockpitState.from_dict(s.to_dict()) == s
 
     def test_drive_none_round_trip(self) -> None:
-        s = CockpitState(drive=None)
+        s = CockpitState(work_item=None)
         assert CockpitState.from_dict(s.to_dict()) == s
 
     def test_drive_present_round_trip(self) -> None:
-        s = CockpitState(drive=Drive(task_id="t1", engine="mock", step_count=0, running=False))
+        s = CockpitState(
+            work_item=WorkItem(task_id="t1", engine="mock", step_count=0, running=False)
+        )
         assert CockpitState.from_dict(s.to_dict()) == s
 
     def test_problems_list_round_trip(self) -> None:
@@ -197,7 +199,7 @@ class TestFieldPresence:
 
     def test_drive_field_default_none(self) -> None:
         s = CockpitState()
-        assert s.drive is None
+        assert s.work_item is None
 
     def test_problems_field_default_empty(self) -> None:
         s = CockpitState()
@@ -214,7 +216,7 @@ class TestFieldPresence:
             "popups",
             "background",
             "status",
-            "drive",
+            "work",
             "problems",
         ):
             assert key in d, f"Missing key: {key}"
@@ -253,7 +255,7 @@ class TestFieldPresence:
         assert item.status == "available"
 
     def test_drive_dataclass_fields(self) -> None:
-        d = Drive(task_id="t1", engine="mock", step_count=2, running=True)
+        d = WorkItem(task_id="t1", engine="mock", step_count=2, running=True)
         assert d.task_id == "t1"
         assert d.engine == "mock"
         assert d.step_count == 2

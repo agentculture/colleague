@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-06-05
+
+### Changed
+
+- **Renamed the core operation `drive` → `work`** — the last car-themed term, now
+  aligned with colleague's work-partner framing. The CLI verb is **`colleague work`**;
+  the run/record noun is a **"work item"** (`WorkStats`, `WorkItem`, `WorkStep`,
+  `WorkSummary`, `WorkAborted`, `execute_work`, `_work_loop`). `Engine.drive()` →
+  **`Engine.work()`** (every backend). Back-compat: **`colleague drive` is a deprecated
+  alias** (still resolves; `--help` row labelled deprecated), so existing invocations,
+  scripts, and the `ask-colleague` wrapper keep working. `colleague explain drive`
+  still resolves. Reflected in `colleague learn`, `colleague explain`, and all docs.
+- The `feedback` "last" pointer file is now `.colleague/last_work`; the legacy
+  `.colleague/last_drive` is still **read** as a fallback (old repos resolve `last`).
+- TUI/TAUI: the cockpit `Drive` snapshot class → `WorkItem`; the snapshot JSON key
+  `"drive"` → `"work"` and the Markdown section `## Drive` → `## Work`; the trace event
+  type `"drive_step"` → `"work_step"`. Old snapshots/traces (carrying `"drive"` /
+  `"drive_step"`) are still **read** (back-compat fallbacks), so `tui replay`/`diagnose`
+  on pre-rename artifacts keep working.
+
+### Breaking
+
+- **OTel span/metric renamed** `colleague.drive` → `colleague.work` and
+  `colleague.drive.duration` → `colleague.work.duration`. A span name cannot be
+  aliased transparently, so existing dashboards/queries on `colleague.drive` must be
+  updated.
+- **`whoami` / `overview` JSON keys renamed** `drive_engine`/`drive_model` →
+  `work_engine`/`work_model` (text labels: "work engine:" / "work model:"). Consumers
+  parsing these keys must update.
+
 ## [0.36.0] - 2026-06-05
 
 ### Changed

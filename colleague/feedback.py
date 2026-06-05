@@ -1,20 +1,20 @@
-"""Per-drive feedback store — grade a drive after the fact (the ROI loop).
+"""Per-work-item feedback store — grade a work item after the fact (the ROI loop).
 
-Drive statistics (:class:`~colleague.contract.DriveStats`) say what a drive
+Work statistics (:class:`~colleague.contract.WorkStats`) say what a work item
 *cost*; feedback says how *good* it was. Together they let a caller — human or
-agent — compute the ROI of outsourcing a task to colleague and decide whether
+agent — compute the ROI of asking colleague to do a task and decide whether
 to do it again (and on which engine).
 
-A drive is identified by its ``task_id``. Feedback is a **single record per
-drive** (re-grading overwrites — decision c16), persisted as
-``<task_id>.feedback.json`` beside the drive's artifact in
-:func:`~colleague.artifact.artifact_dir`. A per-repo *last-drive pointer*
-(``last_drive``) lets a caller grade the most recent drive without quoting its id
-(``feedback ... last``).
+A work item is identified by its ``task_id``. Feedback is a **single record per
+work item** (re-grading overwrites — decision c16), persisted as
+``<task_id>.feedback.json`` beside the work item's artifact in
+:func:`~colleague.artifact.artifact_dir`. A per-repo *last-work pointer*
+(``last_work``) lets a caller grade the most recent work item without quoting its
+id (``feedback ... last``).
 
 Stdlib only (zero runtime deps): ``json`` / ``datetime`` / ``pathlib``. An absent
 feedback file or pointer is a clean no-op — :func:`read_feedback` /
-:func:`get_last_drive` return ``None`` (never raise) so "no feedback yet" is a
+:func:`get_last_work` return ``None`` (never raise) so "no feedback yet" is a
 first-class state, not an error.
 """
 
@@ -29,14 +29,16 @@ from typing import Any, Optional
 
 from colleague.artifact import artifact_dir, artifact_read_dirs
 
-#: Per-repo pointer file (in the artifact dir) naming the most recent drive.
+#: Per-repo pointer file (in the artifact dir) naming the most recent work item.
+LAST_WORK_FILENAME = "last_work"
+#: Legacy pointer filename (pre drive→work rename); still read as a fallback.
 LAST_DRIVE_FILENAME = "last_drive"
 
 #: Inclusive rating bounds (decision c16: a 1–5 quality grade).
 MIN_RATING = 1
 MAX_RATING = 5
 
-#: A drive id must be a single safe path segment. Real ids are uuid hex, but the
+#: A work item id must be a single safe path segment. Real ids are uuid hex, but the
 #: CLI accepts an arbitrary ``ref`` (``resolve_task_id`` passes explicit refs
 #: through unchanged), so the id is validated before it is joined into a filename.
 _SAFE_TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -70,7 +72,7 @@ def _now_iso() -> str:
 
 @dataclass
 class Feedback:
-    """One quality grade for a drive (single record per ``task_id``)."""
+    """One quality grade for a work item (single record per ``task_id``)."""
 
     task_id: str
     rating: int
@@ -99,7 +101,7 @@ class Feedback:
 
 
 def feedback_path(repo_path: str | Path, task_id: str) -> Path:
-    """The feedback-record WRITE path for ``task_id`` (beside the drive artifact).
+    """The feedback-record WRITE path for ``task_id`` (beside the work-item artifact).
 
     ``task_id`` is validated as a single safe path segment first — this is the
     single chokepoint that protects both :func:`write_feedback` and
@@ -126,38 +128,40 @@ def feedback_read_path(repo_path: str | Path, task_id: str) -> Path:
     return candidates[0]
 
 
-def last_drive_path(repo_path: str | Path) -> Path:
-    """The per-repo last-drive pointer WRITE path (new ``.colleague/`` dir)."""
-    return artifact_dir(repo_path) / LAST_DRIVE_FILENAME
+def last_work_path(repo_path: str | Path) -> Path:
+    """The per-repo last-work pointer WRITE path (new ``.colleague/`` dir)."""
+    return artifact_dir(repo_path) / LAST_WORK_FILENAME
 
 
-def set_last_drive(repo_path: str | Path, task_id: str) -> None:
-    """Record ``task_id`` as the most recent drive for this repo.
+def set_last_work(repo_path: str | Path, task_id: str) -> None:
+    """Record ``task_id`` as the most recent work item for this repo.
 
-    Called by the drive path after an artifact is written, so ``feedback ... last``
+    Called by the work path after an artifact is written, so ``feedback ... last``
     resolves to it. Best-effort: creates the artifact dir if needed.
     """
-    path = last_drive_path(repo_path)
+    path = last_work_path(repo_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"{task_id}\n", encoding="utf-8")
 
 
-def get_last_drive(repo_path: str | Path) -> Optional[str]:
-    """The most recent drive's ``task_id`` for this repo, or ``None`` if unrecorded.
+def get_last_work(repo_path: str | Path) -> Optional[str]:
+    """The most recent work item's ``task_id`` for this repo, or ``None`` if unrecorded.
 
-    Reads the new ``.colleague/`` pointer first, falling back to the legacy
-    ``.convertible/`` pointer (back-compat for the rename).
+    Reads the new ``last_work`` pointer first, then falls back to the legacy
+    ``last_drive`` pointer (pre drive→work rename) — across both the new
+    ``.colleague/`` dir and the legacy ``.convertible/`` dir.
     """
     for directory in artifact_read_dirs(repo_path):
-        path = directory / LAST_DRIVE_FILENAME
-        if not path.is_file():
-            continue
-        try:
-            value = path.read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
-        if value:
-            return value
+        for filename in (LAST_WORK_FILENAME, LAST_DRIVE_FILENAME):
+            path = directory / filename
+            if not path.is_file():
+                continue
+            try:
+                value = path.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if value:
+                return value
     return None
 
 
@@ -168,10 +172,10 @@ def resolve_task_id(repo_path: str | Path, ref: str) -> str:
     been recorded in this repo yet.
     """
     if ref == "last":
-        task_id = get_last_drive(repo_path)
+        task_id = get_last_work(repo_path)
         if not task_id:
             raise FeedbackError(
-                "no 'last' drive recorded for this repo yet — run a drive first, "
+                "no 'last' drive recorded for this repo yet — run a work item first, "
                 "or pass an explicit task-id"
             )
         return task_id
@@ -191,7 +195,7 @@ def write_feedback(
 
     ``rating`` must be an integer in ``[MIN_RATING, MAX_RATING]`` — anything else
     raises :class:`FeedbackError`. A second write for the same ``task_id``
-    overwrites the first (single record per drive, decision c16).
+    overwrites the first (single record per work item, decision c16).
     """
     # bool is an int subclass — reject it explicitly so True/False aren't ratings.
     if (
@@ -227,13 +231,13 @@ def read_feedback(repo_path: str | Path, task_id: str) -> Optional[Feedback]:
 
 
 @dataclass
-class DriveSummary:
-    """One row of :func:`list_drives`: a drive identified by its request + grade.
+class WorkSummary:
+    """One row of :func:`list_work_items`: a work item identified by its request + grade.
 
     The durable answer to "which drive was that?" when the order is forgotten and
-    ``last`` can't be trusted — every recorded drive, recognisable by its request
+    ``last`` can't be trusted — every recorded work item, recognisable by its request
     and result, gradable by its ``task_id``. ``rating`` is ``None`` for an
-    ungraded drive (a clean state, not an error).
+    ungraded work item (a clean state, not an error).
     """
 
     task_id: str
@@ -254,11 +258,11 @@ class DriveSummary:
         }
 
 
-def _load_drive_artifact(path: Path) -> Optional[dict[str, Any]]:
+def _load_work_artifact(path: Path) -> Optional[dict[str, Any]]:
     """Parse a result-artifact JSON file, or ``None`` to skip it.
 
     Skips feedback records (``*.feedback.json``) and any unreadable/corrupt file —
-    :func:`list_drives` is best-effort and must never raise on a stray file.
+    :func:`list_work_items` is best-effort and must never raise on a stray file.
     """
     if path.name.endswith(".feedback.json"):
         return None
@@ -268,7 +272,7 @@ def _load_drive_artifact(path: Path) -> Optional[dict[str, Any]]:
         return None
 
 
-def _drive_rating(repo_path: str | Path, task_id: str) -> Optional[int]:
+def _work_rating(repo_path: str | Path, task_id: str) -> Optional[int]:
     """The recorded rating for ``task_id``, or ``None`` (corrupt feedback ignored)."""
     try:
         record = read_feedback(repo_path, task_id)
@@ -277,25 +281,25 @@ def _drive_rating(repo_path: str | Path, task_id: str) -> Optional[int]:
     return record.rating if record is not None else None
 
 
-def _drive_summary(repo_path: str | Path, data: dict[str, Any]) -> DriveSummary:
-    """Build a :class:`DriveSummary` from a parsed artifact + its feedback grade."""
+def _work_summary(repo_path: str | Path, data: dict[str, Any]) -> WorkSummary:
+    """Build a :class:`WorkSummary` from a parsed artifact + its feedback grade."""
     stats = data.get("stats") or {}
     task_id = str(data.get("task_id") or "")
-    return DriveSummary(
+    return WorkSummary(
         task_id=task_id,
         started_at=str(stats.get("started_at") or ""),
         status=str(data.get("status") or ""),
         request=str(stats.get("request") or ""),
         summary=str(data.get("summary") or ""),
-        rating=_drive_rating(repo_path, task_id),
+        rating=_work_rating(repo_path, task_id),
     )
 
 
-def list_drives(repo_path: str | Path) -> list[DriveSummary]:
-    """Every recorded drive in the repo, newest-first, with its grade folded in.
+def list_work_items(repo_path: str | Path) -> list[WorkSummary]:
+    """Every recorded work item in the repo, newest-first, with its grade folded in.
 
     Scans the artifact dirs (new then legacy) for result-JSON files — excluding
-    each drive's ``<task_id>.feedback.json`` — reads the authoritative ``task_id``
+    each work item's ``<task_id>.feedback.json`` — reads the authoritative ``task_id``
     from the JSON *contents* (so the filename scheme, bare or slugged, doesn't
     matter), and pairs it with its feedback rating (``None`` when ungraded).
     Tolerant: an unreadable or corrupt file is skipped, never raised. Deduped by
@@ -303,17 +307,17 @@ def list_drives(repo_path: str | Path) -> list[DriveSummary]:
     descending (drives without a timestamp sort last).
     """
     seen: set[str] = set()
-    rows: list[DriveSummary] = []
+    rows: list[WorkSummary] = []
     for directory in artifact_read_dirs(repo_path):
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.json")):
-            data = _load_drive_artifact(path)
+            data = _load_work_artifact(path)
             if data is None:
                 continue
             task_id = str(data.get("task_id") or "")
             if task_id and task_id not in seen:
                 seen.add(task_id)
-                rows.append(_drive_summary(repo_path, data))
+                rows.append(_work_summary(repo_path, data))
     rows.sort(key=lambda r: r.started_at, reverse=True)
     return rows

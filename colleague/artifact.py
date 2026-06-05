@@ -1,6 +1,6 @@
 """The run report: result artifact + structured trace log (R5).
 
-Every drive produces two files under an artifact directory (``.colleague/`` in
+Every work item produces two files under an artifact directory (``.colleague/`` in
 the repo by default):
 
 * ``<task_id>.json`` — the full :class:`~colleague.contract.TaskResult` as JSON,
@@ -40,16 +40,16 @@ def artifact_dir(repo_path: str | Path) -> Path:
 def artifact_read_dirs(repo_path: str | Path) -> list[Path]:
     """Artifact dirs to consult on READS, new name first then legacy fallback.
 
-    A caller that reads a per-drive artifact (feedback record, last-drive pointer)
+    A caller that reads a per-work-item artifact (feedback record, last-work pointer)
     should look under the new ``.colleague/`` first and fall back to the legacy
-    ``.convertible/`` so a drive recorded before the rename stays readable.
+    ``.convertible/`` so a work item recorded before the rename stays readable.
     """
     repo_path = Path(repo_path)
     return [repo_path / DEFAULT_ARTIFACT_DIRNAME, repo_path / LEGACY_ARTIFACT_DIRNAME]
 
 
 def failed_result(task_id: str, error: str, *, request: str = "") -> TaskResult:
-    """Build an error-status result for a drive that raised before completing.
+    """Build an error-status result for a work item that raised before completing.
 
     When ``request`` (the task instruction) is given, it is recorded on the
     result's ``stats`` along with a start timestamp — so even an early-failure
@@ -58,7 +58,7 @@ def failed_result(task_id: str, error: str, *, request: str = "") -> TaskResult:
     filename is slugged like any other (#132). Omitting it preserves the prior
     empty-stats behavior byte-for-byte.
     """
-    result = TaskResult(task_id=task_id, status=ERROR, summary="drive failed", error=error)
+    result = TaskResult(task_id=task_id, status=ERROR, summary="work item failed", error=error)
     if request:
         result.stats.request = request
         result.stats.started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -66,11 +66,11 @@ def failed_result(task_id: str, error: str, *, request: str = "") -> TaskResult:
 
 
 def artifact_stem(task_id: str, request: str) -> str:
-    """The filename stem for a drive's artifacts: ``<task_id>.<slug>`` or bare id.
+    """The filename stem for a work item's artifacts: ``<task_id>.<slug>`` or bare id.
 
     The ``task_id`` stays the authoritative key; the request *slug* is a lossy
-    label appended so the drive is recognisable in an ``ls`` of ``.colleague/``
-    (and matches the slug in the drive branch — see
+    label appended so the work item is recognisable in an ``ls`` of ``.colleague/``
+    (and matches the slug in the work branch — see
     :func:`colleague.handoff._branch_name`). An empty slug (no request, all
     punctuation) falls back to the bare ``task_id`` so the name is always valid.
     """
@@ -82,7 +82,7 @@ def write(result: TaskResult, directory: str | Path) -> Path:
     """Write the result JSON + trace JSONL into ``directory``; return the result path.
 
     Names the files ``<task_id>.<slug>.json`` / ``.trace.jsonl`` where the slug is
-    derived from the drive's request (bare ``<task_id>`` when no slug is
+    derived from the work item's request (bare ``<task_id>`` when no slug is
     derivable). Sets ``result.artifacts_path`` to the result-JSON path so the
     value travels inside the artifact itself — the authoritative path for any
     reader, regardless of the naming scheme.
@@ -115,8 +115,8 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
 
     Resolves **both** the bare legacy name (``<task_id>.json``) and the slugged
     name (``<task_id>.<slug>.json``) across the new ``.colleague/`` dir then the
-    legacy ``.convertible/`` dir, so a drive recorded under either scheme stays
-    findable. The drive's own ``<task_id>.feedback.json`` is never mistaken for
+    legacy ``.convertible/`` dir, so a work item recorded under either scheme stays
+    findable. The work item's own ``<task_id>.feedback.json`` is never mistaken for
     its artifact. Returns ``None`` for an unsafe (traversal) id.
     """
     if not _is_safe_segment(task_id):
@@ -138,7 +138,7 @@ def find_artifact(repo_path: str | Path, task_id: str) -> Optional[Path]:
 def read_request(repo_path: str | Path, task_id: str) -> Optional[str]:
     """The original request recorded for ``task_id``, or ``None`` (best-effort).
 
-    Reads the drive's artifact (:func:`find_artifact`) and returns
+    Reads the work item's artifact (:func:`find_artifact`) and returns
     ``stats.request``. Any failure — missing artifact, unreadable/corrupt JSON,
     absent field — yields ``None`` so a caller (e.g. the ``feedback last``
     resolution note) never breaks on a gone or malformed artifact.

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from colleague.artifact import failed_result, find_artifact, read_request, write
-from colleague.contract import ERROR, OK, DriveStats, HookFiring, Step, Task, TaskResult, Usage
+from colleague.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage, WorkStats
 from colleague.loop import ModelResponse, ToolCall, run
 
 
@@ -49,7 +49,7 @@ def test_write_slugs_filename_from_request(tmp_path: Path) -> None:
         status=OK,
         summary="x",
         steps=[Step(0, "finish", {}, "done")],
-        stats=DriveStats(request="Add a Hello Function!"),
+        stats=WorkStats(request="Add a Hello Function!"),
     )
     path = write(result, out)
     assert path.name == "abc123.add-a-hello-function.json"
@@ -60,14 +60,14 @@ def test_write_slugs_filename_from_request(tmp_path: Path) -> None:
 def test_write_falls_back_to_bare_name_when_no_request(tmp_path: Path) -> None:
     """No request (or all-punctuation) → bare <task_id>.json (always a valid name)."""
     out = tmp_path / ".colleague"
-    path = write(TaskResult(task_id="bare1", status=OK, stats=DriveStats(request="")), out)
+    path = write(TaskResult(task_id="bare1", status=OK, stats=WorkStats(request="")), out)
     assert path.name == "bare1.json"
 
 
 def test_find_artifact_resolves_bare_and_slugged(tmp_path: Path) -> None:
     out = tmp_path / ".colleague"
-    write(TaskResult(task_id="slug1", status=OK, stats=DriveStats(request="refactor parser")), out)
-    write(TaskResult(task_id="bare2", status=OK, stats=DriveStats(request="")), out)
+    write(TaskResult(task_id="slug1", status=OK, stats=WorkStats(request="refactor parser")), out)
+    write(TaskResult(task_id="bare2", status=OK, stats=WorkStats(request="")), out)
     assert find_artifact(tmp_path, "slug1").name == "slug1.refactor-parser.json"
     assert find_artifact(tmp_path, "bare2").name == "bare2.json"
     assert find_artifact(tmp_path, "missing") is None
@@ -85,7 +85,7 @@ def test_find_artifact_ignores_feedback_file_and_unsafe_id(tmp_path: Path) -> No
 
 def test_read_request_returns_recorded_request(tmp_path: Path) -> None:
     write(
-        TaskResult(task_id="r1", status=OK, stats=DriveStats(request="do the thing")),
+        TaskResult(task_id="r1", status=OK, stats=WorkStats(request="do the thing")),
         tmp_path / ".colleague",
     )
     assert read_request(tmp_path, "r1") == "do the thing"
@@ -111,7 +111,7 @@ def test_failed_result_with_request_is_discoverable(tmp_path: Path) -> None:
     payload = json.loads(path.read_text())
     assert payload["status"] == ERROR
     assert payload["stats"]["request"] == "refactor the parser"
-    assert payload["stats"]["started_at"]  # stamped, so list_drives can sort it
+    assert payload["stats"]["started_at"]  # stamped, so list_work_items can sort it
     assert path.name == "crashed.refactor-the-parser.json"  # slugged like any drive
 
 

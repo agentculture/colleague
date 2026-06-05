@@ -1,12 +1,12 @@
 """Conversation widget — renders the conversation panel from ``CockpitState``.
 
 Shows the panel title and ``content_summary`` (one box row per logical line, so a
-live drive's per-step lines stack). Returns an empty string when no conversation
+live work item's per-step lines stack). Returns an empty string when no conversation
 panel is present or it is not visible.
 
 The reducer writes the conversation under id ``"panel.conversation"``; older
 states and direct callers use the bare ``"conversation"``. Both are accepted so a
-real drive (reducer-produced) renders identically to a hand-built state.
+real work item (reducer-produced) renders identically to a hand-built state.
 """
 
 from __future__ import annotations

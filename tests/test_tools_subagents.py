@@ -29,8 +29,8 @@ _SUBAGENT_SCHEMA_SNAPSHOT = {
     "function": {
         "name": "subagent",
         "description": (
-            "Delegate a scoped sub-task to a nested in-process child drive, "
-            "optionally on a different engine or model. The child drive runs "
+            "Delegate a scoped sub-task to a nested in-process child work item, "
+            "optionally on a different engine or model. The child work item runs "
             "the full bounded tool-loop (no git handoff) and returns a result "
             "summary; any files the child writes are merged into the parent's "
             "changed-file set so they reach the single top-level handoff. "
@@ -42,7 +42,7 @@ _SUBAGENT_SCHEMA_SNAPSHOT = {
             "properties": {
                 "instruction": {
                     "type": "string",
-                    "description": "A scoped sub-task for a nested child drive.",
+                    "description": "A scoped sub-task for a nested child work item.",
                 },
                 "engine": {
                     "type": "string",

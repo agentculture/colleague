@@ -3,8 +3,8 @@
 Folds a timed event stream through the *real* pure reducer
 (:func:`colleague.tui.reducer.reduce`) and renders each resulting state with the
 *real* ANSI renderer (:func:`colleague.tui.render.ansi.render`). ``Tick`` events
-animate the prompt spinner between tool steps; ``DriveStep`` events grow the
-conversation tool-by-tool; a failing ``DriveStep`` and a ``SkillSuggested`` event
+animate the prompt spinner between tool steps; ``WorkStep`` events grow the
+conversation tool-by-tool; a failing ``WorkStep`` and a ``SkillSuggested`` event
 open the error / boost popups — exactly as a live drive or ``tui replay`` would.
 
 A scenario here yields both a :class:`~tools.tui_sim.filmstrip.Filmstrip` *and*
@@ -21,7 +21,7 @@ from typing import List, Tuple
 from colleague.tui.events import Event, Tick
 from colleague.tui.reducer import reduce
 from colleague.tui.render.ansi import render
-from colleague.tui.state import CockpitState, Drive
+from colleague.tui.state import CockpitState, WorkItem
 
 from .filmstrip import DEFAULT_WIDTH, FrameT
 
@@ -34,12 +34,12 @@ def drive_state(
 ) -> CockpitState:
     """Return a copy of *base* turned into a live-drive cockpit.
 
-    Starts a running :class:`Drive` (so ``DriveStep`` events bump ``step_count``)
+    Starts a running :class:`WorkItem` (so ``WorkStep`` events bump ``step_count``)
     and switches the background animation on (so the prompt spinner spins as
     ``Tick`` events advance the frame counter).
     """
     state = copy.deepcopy(base)
-    state.drive = Drive(task_id=task_id, engine=engine, step_count=0, running=True)
+    state.work_item = WorkItem(task_id=task_id, engine=engine, step_count=0, running=True)
     state.background = replace(state.background, animation="spin", semantic="busy")
     return state
 

@@ -3,7 +3,7 @@
 > A model-specific system prompt composed from AGENTS instructions and skills,
 > with strict per-model isolation.
 
-Colleague composes a model-specific **system prompt** for every drive from two
+Colleague composes a model-specific **system prompt** for every work item from two
 layered families, resolved *relative to the model currently driving*
 (`colleague/layers.py`). It is injected once on the `Engine` base class
 (`system_prompt()`), so every backend inherits it — the all-engines rule, exactly

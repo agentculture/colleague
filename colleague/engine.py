@@ -28,7 +28,7 @@ class Engine(abc.ABC):
     name: str = "engine"
 
     @abc.abstractmethod
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         """Execute ``task`` and return a uniform :class:`TaskResult`.
 
         Implementations build a tool executor for ``task.repo_path``, run the

@@ -1,4 +1,4 @@
-"""Colleague ASCII banner shown at drive/session start (decorative chrome).
+"""Colleague ASCII banner shown at work/session start (decorative chrome).
 
 The art lives in ``_banner.txt`` next to this module so the wide, trailing-
 whitespace-laden lines never have to satisfy ``black``/``flake8``. It is loaded
@@ -42,10 +42,10 @@ def emit_banner(emit: Callable[[str], None], *, json_mode: bool) -> None:
     The banner is decorative, so two robustness rules apply:
 
     * A missing/unreadable resource is swallowed — a packaging glitch must never
-      break a real drive (only the art is lost, the task still runs).
+      break a real work item (only the art is lost, the task still runs).
     * Trailing newlines are stripped and each sink adds its own, so rendering is
       identical whether ``emit`` always appends a newline (``print`` in
-      ``session``) or only when absent (``emit_diagnostic`` in ``drive``).
+      ``session``) or only when absent (``emit_diagnostic`` in ``work``).
     """
     if json_mode or not _isatty():
         return

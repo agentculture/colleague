@@ -24,7 +24,7 @@ from typing import Callable, Optional
 _DEFAULT_API_KEY = "EMPTY"
 _DEFAULT_BASE_URL = "http://localhost:8001/v1"
 # Built-in fallback model id. Points at the model the reference rig actually
-# serves at _DEFAULT_BASE_URL so a bare drive (no COLLEAGUE_MODEL / --model)
+# serves at _DEFAULT_BASE_URL so a bare work item (no COLLEAGUE_MODEL / --model)
 # reaches a live model instead of a 404 "model does not exist". Override per
 # environment with COLLEAGUE_MODEL or --model.
 _DEFAULT_MODEL = "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
@@ -112,20 +112,20 @@ class EngineConfig:
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
-    # the loop fires per tool call (#38). Set by the CLI drive path, not by
+    # the loop fires per tool call (#38). Set by the CLI work path, not by
     # ``resolve()``; excluded from eq/repr and from ``to_dict`` (it is behavior,
     # not serializable config).
     progress: Optional[Callable[[int, str, str, bool], None]] = field(
         default=None, compare=False, repr=False
     )
 
-    # Runtime-only spawn callback for subagent delegation; set by the drive
+    # Runtime-only spawn callback for subagent delegation; set by the work item
     # path, not by ``resolve()``; excluded from eq/repr/to_dict (it is behavior,
     # not serializable config).
     subagent_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
 
     # Runtime-only batch-spawn callback for parallel subagent delegation; set by
-    # the drive path, not by ``resolve()``; excluded from eq/repr/to_dict (it is
+    # the work path, not by ``resolve()``; excluded from eq/repr/to_dict (it is
     # behavior, not serializable config).
     subagent_batch_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
 

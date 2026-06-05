@@ -13,7 +13,7 @@ wiring) code against:
 3. Recursion past ``MAX_SUBAGENT_DEPTH`` is refused BEFORE any child starts
    (proves termination).
 4. The launcher performs NO git handoff (it calls ``engine.drive``, not the CLI
-   ``execute_drive``): no ``.git`` is created, no branch/pr_url leaks.
+   ``execute_work``): no ``.git`` is created, no branch/pr_url leaks.
 5. ``make_spawn`` returns a callable whose result matches the equivalent
    ``run_subagent`` call.
 """
@@ -174,9 +174,9 @@ def test_child_config_forbids_nested_batches(tmp_path, monkeypatch) -> None:
     captured: dict = {}
 
     class _CapturingEngine:
-        def drive(self, task, config):
+        def work(self, task, config):
             captured["config"] = config
-            return real_mock.drive(task, config)
+            return real_mock.work(task, config)
 
     monkeypatch.setattr("colleague.subagents.registry.load", lambda name: _CapturingEngine())
 

@@ -1,14 +1,14 @@
-"""``colleague feedback`` — grade a drive after the fact (the ROI loop).
+"""``colleague feedback`` — grade a work item after the fact (the ROI loop).
 
-Drive statistics (in the artifact) say what a drive *cost*; feedback says how
-*good* it was. ``feedback record`` writes a single 1–5 rating + notes for a drive
-(by task-id, or the literal ``last`` for the most recent drive in the repo);
-``feedback show`` reads it back; ``feedback overview`` describes the noun
+Work statistics (in the artifact) say what a work item *cost*; feedback says how
+*good* it was. ``feedback record`` writes a single 1–5 rating + notes for a work
+item (by task-id, or the literal ``last`` for the most recent work item in the
+repo); ``feedback show`` reads it back; ``feedback overview`` describes the noun
 (agent-first rubric: any noun with action-verbs also exposes ``overview``).
 
 Results go to stdout, diagnostics to stderr; every verb supports ``--json``.
-Storage is a stdlib JSON file beside the drive artifact — see
-:mod:`colleague.feedback`. An ungraded drive is reported as a clean
+Storage is a stdlib JSON file beside the work-item artifact — see
+:mod:`colleague.feedback`. An ungraded work item is reported as a clean
 "no feedback yet" state, never an error.
 """
 
@@ -31,18 +31,18 @@ def _feedback_sections() -> list[dict[str, object]]:
         {
             "title": "What it does",
             "items": [
-                "Grade a drive after the fact: a 1-5 quality rating + free-text notes",
-                "Stats say what a drive cost; feedback says how good it was (ROI)",
-                "One record per drive (re-grading overwrites); stored beside the artifact",
-                "Reference a drive by its task-id, or 'last' for the most recent drive",
+                "Grade a work item after the fact: a 1-5 quality rating + free-text notes",
+                "Stats say what a work item cost; feedback says how good it was (ROI)",
+                "One record per work item (re-grading overwrites); stored beside the artifact",
+                "Reference a work item by its task-id, or 'last' for the most recent work item",
             ],
         },
         {
             "title": "Verbs",
             "items": [
                 "feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]",
-                "feedback show <id|last> [--repo P] [--json] — read a drive's feedback",
-                "feedback list [--repo P] [--json] — every drive by request + grade",
+                "feedback show <id|last> [--repo P] [--json] — read a work item's feedback",
+                "feedback list [--repo P] [--json] — every work item by request + grade",
                 "feedback overview — describe the feedback surface (this command)",
             ],
         },
@@ -50,8 +50,8 @@ def _feedback_sections() -> list[dict[str, object]]:
             "title": "Storage",
             "items": [
                 "<repo>/.colleague/<task_id>.feedback.json — the single record",
-                "<repo>/.colleague/last_drive — pointer resolving 'last'",
-                "An ungraded drive reads back as 'no feedback yet' (not an error)",
+                "<repo>/.colleague/last_work — pointer resolving 'last'",
+                "An ungraded work item reads back as 'no feedback yet' (not an error)",
             ],
         },
     ]
@@ -74,7 +74,7 @@ def _resolve(repo: Path, ref: str) -> str:
         task_id = fb.resolve_task_id(repo, ref)
     except FeedbackError as exc:
         raise CliError(
-            EXIT_USER_ERROR, str(exc), "run a drive first, or pass an explicit task-id"
+            EXIT_USER_ERROR, str(exc), "run a work item first, or pass an explicit task-id"
         ) from exc
     # Transparency: when the caller asked for the ambiguous `last`, surface which
     # drive it landed on (id + request) on stderr — so a mis-resolve (e.g. a
@@ -153,9 +153,9 @@ def _truncate(text: str, width: int) -> str:
     return text if len(text) <= width else text[: max(0, width - 1)] + "…"
 
 
-def _render_listing(rows: list[fb.DriveSummary]) -> str:
+def _render_listing(rows: list[fb.WorkSummary]) -> str:
     if not rows:
-        return "no drives recorded yet"
+        return "no work items recorded yet"
     header = f"{'ID':<14}{'WHEN':<18}{'STATUS':<8}{'GRADE':<7}REQUEST"
     lines = [header]
     for row in rows:
@@ -171,7 +171,7 @@ def _render_listing(rows: list[fb.DriveSummary]) -> str:
 def cmd_feedback_list(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
     repo = Path(args.repo).expanduser()
-    rows = fb.list_drives(repo)
+    rows = fb.list_work_items(repo)
     if json_mode:
         emit_result([r.to_dict() for r in rows], json_mode=True)
     else:
@@ -190,14 +190,14 @@ def _add_repo(p: argparse.ArgumentParser) -> None:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "feedback",
-        help="Grade a drive after the fact (see 'colleague feedback overview').",
+        help="Grade a work item after the fact (see 'colleague feedback overview').",
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="feedback_command", parser_class=type(p))
 
-    rec = noun_sub.add_parser("record", help="Record a 1-5 rating + notes for a drive.")
-    rec.add_argument("ref", help="Drive task-id, or 'last' for the most recent drive.")
+    rec = noun_sub.add_parser("record", help="Record a 1-5 rating + notes for a work item.")
+    rec.add_argument("ref", help="Work-item task-id, or 'last' for the most recent work item.")
     rec.add_argument(
         "--rating",
         type=int,
@@ -210,13 +210,13 @@ def register(sub: argparse._SubParsersAction) -> None:
     rec.add_argument("--json", action="store_true", help=JSON_HELP)
     rec.set_defaults(func=cmd_feedback_record)
 
-    sh = noun_sub.add_parser("show", help="Show a drive's feedback record.")
-    sh.add_argument("ref", help="Drive task-id, or 'last' for the most recent drive.")
+    sh = noun_sub.add_parser("show", help="Show a work item's feedback record.")
+    sh.add_argument("ref", help="Work-item task-id, or 'last' for the most recent work item.")
     _add_repo(sh)
     sh.add_argument("--json", action="store_true", help=JSON_HELP)
     sh.set_defaults(func=cmd_feedback_show)
 
-    ls = noun_sub.add_parser("list", help="List recorded drives by request + grade.")
+    ls = noun_sub.add_parser("list", help="List recorded work items by request + grade.")
     _add_repo(ls)
     ls.add_argument("--json", action="store_true", help=JSON_HELP)
     ls.set_defaults(func=cmd_feedback_list)

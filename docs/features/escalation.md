@@ -1,13 +1,13 @@
 # Escalation — agtag continuation issues
 
-> When a drive hits a wall, colleague files one tracked agtag issue carrying
+> When a work item hits a wall, colleague files one tracked agtag issue carrying
 > what it finished, what is still outstanding, and a concrete suggested split —
 > so the work is continuable, not silently dropped.
 
-Escalation turns a partial drive result into an **actionable, continuable
+Escalation turns a partial work item result into an **actionable, continuable
 artifact** that a human or agent can pick up. It is the outward signal of the
 graceful-degradation layer: the loop already preserves a partial `TaskResult`
-and `DriveStats` when it aborts; escalation converts those into a tracked issue
+and `WorkStats` when it aborts; escalation converts those into a tracked issue
 in the AgentCulture mesh via `agtag`.
 
 This feature serves **whoever outsourced the task**: the operator or agent that
@@ -17,8 +17,8 @@ delegated work to colleague and needs to know it hit a limit and how to restart.
 
 Escalation fires on exactly two branches of `colleague/loop.py`:
 
-1. **`DriveAborted` branch** — a timeout, context-overflow, or engine error
-   caused the loop to abort mid-drive. The exception is caught, the partial
+1. **`WorkAborted` branch** — a timeout, context-overflow, or engine error
+   caused the loop to abort mid-work. The exception is caught, the partial
    result is finalized, and escalation is attempted before re-raising the abort.
 
 2. **`not_finished` branch** — the step budget was exhausted without the model
@@ -27,7 +27,7 @@ Escalation fires on exactly two branches of `colleague/loop.py`:
 
 On both branches, the call is wrapped in `contextlib.suppress(Exception)` — a
 failure to escalate (network down, `agtag` absent, gate denied) **never masks
-the drive result**. The drive artifact is always written first; escalation is
+the work item result**. The work item artifact is always written first; escalation is
 best-effort and observe-only.
 
 ## The opt-in / gating model
@@ -50,8 +50,8 @@ by construction.
 ### Enabling escalation
 
 ```bash
-# Enable for one drive:
-COLLEAGUE_ESCALATE=1 uv run colleague drive "<task>" --repo . --engine vllm-openai
+# Enable for one work item:
+COLLEAGUE_ESCALATE=1 uv run colleague work "<task>" --repo . --engine vllm-openai
 
 # Also approve agtag in the repo policy first (escalation requires it):
 uv run colleague hooks approve .colleague/approvals.json --algo sha256 --repo .
@@ -74,22 +74,22 @@ issue_url)` writes `.colleague/<task_id>.escalation.json`:
 }
 ```
 
-The marker lives beside the drive artifact and feedback record. A second drive
+The marker lives beside the work item artifact and feedback record. A second work item
 of the same task (retrying after a failure) finds the marker and skips posting
 — one issue per task, never duplicates. If the agtag post fails, the marker is
-NOT written, so a future drive may retry.
+NOT written, so a future work item may retry.
 
 ## The continuation issue body
 
-The issue title is: `colleague: continuation needed for drive <task_id>`
+The issue title is: `colleague: continuation needed for work item <task_id>`
 
 The body is produced by `build_continuation(result, stats)` in
 `colleague/escalation.py` — a pure function with no I/O. It renders five
-`##`-headed sections from the live `TaskResult` and `DriveStats`:
+`##`-headed sections from the live `TaskResult` and `WorkStats`:
 
 ### Section 1 — Continuation State
 
-What the drive actually completed. Includes:
+What the work item actually completed. Includes:
 
 - **Task ID**, **start time** (ISO-8601 UTC), and **wall-clock duration**.
 - **Model turns** and **steps completed** (tool-call count).
@@ -98,41 +98,41 @@ What the drive actually completed. Includes:
 - **Bytes written** — exact UTF-8 bytes written to files via `write_file`.
 - **Tool breakdown** — per-tool call counts, sorted by tool name (e.g.
   `finish: 0, read_file: 4, write_file: 2`).
-- **What the drive finished** — the model's `summary` field, or
-  `_No summary produced._` when the drive produced none.
+- **What the work item finished** — the model's `summary` field, or
+  `_No summary produced._` when the work item produced none.
 
 ### Section 2 — Remaining Work
 
-How far the drive got versus the original request. Built from `stats.request`
+How far the work item got versus the original request. Built from `stats.request`
 (the originating instruction) and `result.summary`. If both are identical the
 section says to retry the full task; otherwise it shows the original request and
-the point reached, and prompts a follow-up drive.
+the point reached, and prompts a follow-up work item.
 
 ### Section 3 — What's Needed
 
-A resource or configuration suggestion for unblocking the next drive. The
+A resource or configuration suggestion for unblocking the next work item. The
 section inspects `result.error` for known keywords and generates targeted
 advice:
 
 | Error pattern | Advice |
 |---------------|--------|
 | `"context"` / `"window"` | Reduce `COLLEAGUE_CONTEXT_BUDGET`, split the task, or use a larger-context model. |
-| `"timeout"` or `duration_seconds >= 600` | Increase the per-drive timeout or break into shorter sub-tasks. |
+| `"timeout"` or `duration_seconds >= 600` | Increase the per-work-item timeout or break into shorter sub-tasks. |
 | `"step"` / `"budget"` | Increase `COLLEAGUE_MAX_STEPS` or split the task. |
 | _(none of the above)_ | Generic fallback: review the raw error, consider more steps, larger budget, longer timeout, or a task split. |
 
 ### Section 4 — Suggested Split
 
-A concrete decomposition strategy built from step and turn counts. If the drive
+A concrete decomposition strategy built from step and turn counts. If the work item
 was large (≥ 20 steps or ≥ 10 model turns) the split is labelled by feature
-area or file group; smaller drives are split by scope. The section names files
-already changed in the drive as "Part A (done)" and frames the continuation as
+area or file group; smaller work items are split by scope. The section names files
+already changed in the work item as "Part A (done)" and frames the continuation as
 "Part B", finishing with an integration step.
 
 ### Section 5 — Why It Hit the Wall
 
 A prose explanation of the exact stopping reason, drawn from
-`result.error` keyword matching and the drive stats. Covers context-window
+`result.error` keyword matching and the work stats. Covers context-window
 exhaustion (with turn/step and char counts), timeout (elapsed time and steps),
 step-budget exhaustion, and a generic fallback for other errors. Appended with
 the bytes-written total when non-zero.
@@ -147,7 +147,7 @@ call degrades. A runtime-auto hook is deterministic: it fires on the two
 well-defined terminal branches regardless of what the model managed to produce.
 
 The output is an **actionable, continuable artifact** — not a mere failure
-notification. The five sections give the next driver (human or agent) exactly
+notification. The five sections give the next work itemr (human or agent) exactly
 what it needs to continue: the state checkpoint, the remaining scope, the
 resource prescription, a concrete split plan, and the root-cause explanation.
 
@@ -156,7 +156,7 @@ resource prescription, a concrete split plan, and the root-cause explanation.
 - **Best-effort, observe-only.** Both call sites are wrapped in
   `contextlib.suppress(Exception)`. Any failure in the escalation path
   (network error, `agtag` not found, policy denial, filesystem error) is
-  silently swallowed and **never surfaces to the caller**. The drive result is
+  silently swallowed and **never surfaces to the caller**. the work item result is
   always written before escalation is attempted.
 - **Not the prompt-level INCOMPLETE seed.** The `doc-review` command template
   ships a prompt-level `INCOMPLETE:` section format (`#104`) for partial
@@ -176,7 +176,7 @@ resource prescription, a concrete split plan, and the root-cause explanation.
 |--------|------|
 | `colleague/escalation.py` | `build_continuation` (pure renderer), `should_escalate` (5-gate predicate), `mark_escalated` (idempotency marker), `escalate` (orchestrator) |
 | `colleague/loop.py` | Two finalize call sites (aborted branch + not-finished branch), each wrapped in `suppress` |
-| `colleague/contract.py` | `TaskResult.not_finished` flag, `DriveStats` fields consumed by `build_continuation` |
+| `colleague/contract.py` | `TaskResult.not_finished` flag, `WorkStats` fields consumed by `build_continuation` |
 | `.colleague/<task_id>.escalation.json` | Idempotency marker (beside the artifact and feedback record) |
 
 Spec: `docs/specs/2026-06-03-colleague-escalates-via-agtag-when-it-can-t-withst.md`  
@@ -186,10 +186,10 @@ Plan: `docs/plans/2026-06-03-colleague-escalates-via-agtag-when-it-can-t-withst.
 
 - [graceful-degradation.md](graceful-degradation.md) — the context-budget
   and overflow-retry layer that produces the partial result escalation reads.
-- [stats-and-feedback.md](stats-and-feedback.md) — the `DriveStats` fields
+- [stats-and-feedback.md](stats-and-feedback.md) — the `WorkStats` fields
   (`duration_seconds`, `step_count`, `bytes_written`, etc.) consumed by
   `build_continuation`.
 - [mesh-member.md](mesh-member.md) — the `culture` tool and `run_culture`
   subprocess launch path that `escalate` uses to shell out to `agtag`.
 - [audit-fanout.md](audit-fanout.md) — the operator-driven fan-out pattern for
-  tasks that are too large for a single drive.
+  tasks that are too large for a single work item.

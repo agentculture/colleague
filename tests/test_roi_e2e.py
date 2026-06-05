@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from colleague.cli import main
-from colleague.contract import DriveStats
+from colleague.contract import WorkStats
 from colleague.feedback import read_feedback
 
 
@@ -58,8 +58,8 @@ def test_roi_inputs_readable_from_one_artifact_plus_feedback(
 
 def test_stats_block_carries_the_previously_missing_fields() -> None:
     """h12: the pre-feature artifact demonstrably lacked these; they are exactly
-    the fields DriveStats now adds (pin the schema so a drop is caught)."""
-    assert set(DriveStats().to_dict().keys()) == {
+    the fields WorkStats now adds (pin the schema so a drop is caught)."""
+    assert set(WorkStats().to_dict().keys()) == {
         "request",
         "started_at",
         "duration_seconds",

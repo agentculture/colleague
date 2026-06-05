@@ -23,7 +23,7 @@ def _repo_path() -> Path:
 
     The environment group is invoked by ``colleague doctor`` from whatever
     directory the user is in — that directory is the implicit repo root,
-    exactly as it is for ``colleague drive --repo .``.
+    exactly as it is for ``colleague work --repo .``.
     """
     return Path.cwd()
 

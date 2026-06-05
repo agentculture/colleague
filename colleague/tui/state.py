@@ -291,19 +291,19 @@ class Status:
 
 
 @dataclass
-class Drive:
-    """Snapshot of the currently-running (or last-run) colleague drive.
+class WorkItem:
+    """Snapshot of the currently-running (or last-run) colleague work item.
 
     Fields
     ------
     task_id:
         The task identifier from :class:`colleague.contract.Task`.
     engine:
-        The engine name used for this drive (e.g. ``"mock"``, ``"vllm-openai"``).
+        The engine name used for this work item (e.g. ``"mock"``, ``"vllm-openai"``).
     step_count:
         Number of tool-call steps completed so far.
     running:
-        ``True`` while the drive loop is active; ``False`` once it finishes.
+        ``True`` while the work loop is active; ``False`` once it finishes.
     """
 
     task_id: str = ""
@@ -320,7 +320,7 @@ class Drive:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Drive":
+    def from_dict(cls, d: dict[str, Any]) -> "WorkItem":
         return cls(
             task_id=str(d.get("task_id", "")),
             engine=str(d.get("engine", "")),
@@ -398,7 +398,7 @@ class CockpitState:
     popups: list[Popup] = field(default_factory=list)
     background: Background = field(default_factory=Background)
     status: Status = field(default_factory=Status)
-    drive: Optional[Drive] = None
+    work_item: Optional[WorkItem] = None
     problems: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -411,14 +411,15 @@ class CockpitState:
             "popups": [p.to_dict() for p in self.popups],
             "background": self.background.to_dict(),
             "status": self.status.to_dict(),
-            "drive": self.drive.to_dict() if self.drive is not None else None,
+            "work": self.work_item.to_dict() if self.work_item is not None else None,
             "problems": list(self.problems),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "CockpitState":
         raw_zones = d.get("zones") or {}
-        raw_drive = d.get("drive")
+        # Back-compat: pre-rename snapshots carried the work item under "drive".
+        raw_work = d.get("work", d.get("drive"))
         return cls(
             screen=str(d.get("screen", "main")),
             mode=str(d.get("mode", "planning")),
@@ -428,6 +429,6 @@ class CockpitState:
             popups=[Popup.from_dict(p) for p in d.get("popups", [])],
             background=Background.from_dict(d.get("background") or {}),
             status=Status.from_dict(d.get("status") or {}),
-            drive=Drive.from_dict(raw_drive) if raw_drive is not None else None,
+            work_item=WorkItem.from_dict(raw_work) if raw_work is not None else None,
             problems=list(d.get("problems", [])),
         )

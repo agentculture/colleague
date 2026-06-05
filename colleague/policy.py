@@ -33,7 +33,7 @@ This is the key semantic:
 
 Resilience mirrors :mod:`colleague.hooks`: an absent or malformed config file
 is treated as empty and **never** raises — a bad policy file degrades to a no-op
-rather than aborting a drive.
+rather than aborting a work item.
 
 Only the standard library is used (``json``, ``shlex``, ``hashlib``,
 ``hmac`` for constant-time compare, ``pathlib``, ``dataclasses``), consistent

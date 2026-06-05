@@ -195,7 +195,7 @@ def test_tui_core_no_third_party_imports():
         import colleague.tui.colors  # noqa: F401
         import colleague.tui.diagnose  # noqa: F401
         import colleague.tui.events  # noqa: F401
-        import colleague.tui.from_drive  # noqa: F401
+        import colleague.tui.from_work  # noqa: F401
         import colleague.tui.reducer  # noqa: F401
         import colleague.tui.render.ansi  # noqa: F401
         import colleague.tui.replay  # noqa: F401
