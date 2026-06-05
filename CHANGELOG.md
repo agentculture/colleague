@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-06-05
+
+### Added
+
+- `--allow-dirty` flag on `colleague work`/`drive` and `colleague session` to opt into running against a dirty working tree.
+
+### Fixed
+
+- Dirty-tree guard (#149): a bare `colleague work`/`drive`/`session` against a repo with uncommitted *tracked* changes now refuses up front instead of silently sweeping those edits onto the work branch. The check is tracked-changes-only (pre-existing untracked WIP is already protected by the handoff baseline); pass `--allow-dirty` to opt in. The `ask-colleague` skill propagates `--allow-dirty` through to the runtime.
+
 ## [0.37.0] - 2026-06-05
 
 ### Changed

@@ -35,7 +35,7 @@ from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, resolve_engine
 from colleague.contract import OK, Task, TaskResult
 from colleague.feedback import set_last_work
-from colleague.handoff import HandoffError, handoff, untracked_snapshot
+from colleague.handoff import HandoffError, handoff, untracked_snapshot, working_tree_dirty
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.telemetry import Telemetry, load_telemetry
 
@@ -141,6 +141,7 @@ def execute_work(
     open_pr: bool,
     base: str,
     config: EngineConfig,
+    allow_dirty: bool = False,
     command_name: str | None = None,
     tui: bool | None = None,
     tui_events: str | None = None,
@@ -166,6 +167,10 @@ def execute_work(
         Base branch for the PR (passed to :func:`~colleague.handoff.handoff`).
     config:
         Resolved :class:`~colleague.config.EngineConfig`.
+    allow_dirty:
+        When ``False`` (the default) the work path refuses to run against a
+        repo with uncommitted tracked changes — the handoff would otherwise
+        sweep them onto the work branch (#149). ``True`` opts in to that.
     command_name:
         Originating command-template name (``None`` for a plain instruction).
         Recorded on the result before *every* artifact write — including the
@@ -200,6 +205,22 @@ def execute_work(
         raise CliError(
             EXIT_USER_ERROR, str(exc), "list engines with: colleague backends list"
         ) from exc
+
+    # Dirty-tree guard (#149): a work item ends in the handoff's `git add -u`,
+    # which would sweep the operator's uncommitted *tracked* edits onto the work
+    # branch and then restore HEAD over them — silently swallowing in-progress
+    # work. Refuse up front unless the operator opts in. Checked here in the
+    # shared path so `work`, `drive`, and `session` are all protected (and every
+    # backend, since this is upstream of the loop). Untracked WIP is already
+    # protected by `baseline_untracked` below, so this checks tracked changes
+    # only (see `working_tree_dirty`).
+    if not allow_dirty and working_tree_dirty(repo):
+        raise CliError(
+            EXIT_USER_ERROR,
+            "working tree has uncommitted changes — refusing to run against a dirty repo",
+            "commit or stash your changes first, or pass --allow-dirty to "
+            "commit them onto the work branch",
+        )
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
@@ -404,6 +425,7 @@ def cmd_work(args: argparse.Namespace) -> int:
             engine_name=engine,
             task=task,
             open_pr=not args.no_pr,
+            allow_dirty=getattr(args, "allow_dirty", False),
             base=args.base,
             config=config,
             command_name=command_name or None,
@@ -453,6 +475,15 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
         help="Backend plugin to use (default: COLLEAGUE_ENGINE or vllm-openai).",
     )
     p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")
+    p.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help=(
+            "Run even when the working tree has uncommitted tracked changes "
+            "(they get committed onto the work branch). Default: refuse, to "
+            "protect in-progress work (#149)."
+        ),
+    )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
     p.add_argument("--model", default=None, help="Override the engine model name.")

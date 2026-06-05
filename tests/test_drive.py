@@ -390,6 +390,86 @@ def test_drive_does_not_commit_preexisting_untracked(
     assert (tmp_path / "operator_wip.txt").exists()
 
 
+def _init_git_repo(repo: Path) -> None:
+    """Init a git repo with one committed tracked file — a clean tree."""
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@e.com")
+    _git(repo, "config", "user.name", "T")
+    (repo / "tracked.txt").write_text("committed\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+
+
+@pytest.mark.parametrize("verb", ["work", "drive"])
+def test_work_refuses_dirty_tracked_tree(
+    verb: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dirty *tracked* tree is refused without --allow-dirty (#149) — both verbs.
+
+    The guard protects the operator's in-progress edits, which the handoff would
+    otherwise sweep onto the work branch and reset out of the working tree.
+    """
+    _init_git_repo(tmp_path)
+    (tmp_path / "tracked.txt").write_text("uncommitted in-progress edit\n")  # dirty TRACKED
+
+    rc = main([verb, "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr"])
+    assert rc == 1  # EXIT_USER_ERROR
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "uncommitted changes" in err
+    assert "--allow-dirty" in err
+    # No work branch was created ...
+    branches = subprocess.run(
+        ["git", "branch", "--list", "colleague/*"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert branches.strip() == ""
+    # ... the operator's edit survives untouched in the tree ...
+    assert (tmp_path / "tracked.txt").read_text() == "uncommitted in-progress edit\n"
+    # ... and nothing ran: no artifact, no engine output file.
+    assert list((tmp_path / ".colleague").glob("*.json")) == []
+    assert not (tmp_path / OUTPUT_FILE).exists()
+
+
+def test_work_allow_dirty_runs_against_dirty_tree(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--allow-dirty opts back into running on a dirty tracked tree (#149)."""
+    _init_git_repo(tmp_path)
+    (tmp_path / "tracked.txt").write_text("uncommitted in-progress edit\n")
+
+    rc = main(
+        [
+            "work",
+            "do work",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--allow-dirty",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["branch"].startswith("colleague/")
+
+
+def test_work_runs_on_clean_tree_without_allow_dirty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A clean git tree runs normally — the guard is a no-op when nothing is dirty (#149)."""
+    _init_git_repo(tmp_path)  # committed, clean
+
+    rc = main(["work", "do work", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["branch"].startswith("colleague/")
+
+
 def test_drive_unknown_engine_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["drive", "x", "--repo", str(tmp_path), "--engine", "nope"])
     assert rc == 1

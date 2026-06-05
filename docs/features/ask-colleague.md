@@ -169,9 +169,12 @@ now covers exactly that path. A different mind earned its keep.
   model not to modify anything.
 - **`write` previews by default** (isolated worktree, safe even on a dirty tree).
   **Applying** (`--apply` / `--pr`) **refuses a dirty tree** unless `--allow-dirty`
-  — this guards the dirty-tree hazard (`colleague work --no-pr` commits
-  *uncommitted* edits onto the work branch and leaves you there). Commit or stash
-  first before applying.
+  — this guards the dirty-tree hazard (committing *uncommitted* edits onto the
+  work branch and leaving you there). Commit or stash first before applying.
+  The skill propagates `--allow-dirty` through to the runtime, which since #149
+  enforces the **same guard** directly: a bare `colleague work`/`drive`/`session`
+  also refuses a tree with uncommitted *tracked* changes unless `--allow-dirty`.
+  So both `write --apply` and a direct `colleague work` are protected.
 
 ## Honest limits
 

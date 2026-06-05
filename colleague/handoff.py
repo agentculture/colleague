@@ -261,6 +261,33 @@ def untracked_snapshot(repo_path: str | Path) -> list[str]:
         return []
 
 
+def working_tree_dirty(repo_path: str | Path) -> bool:
+    """True when the work tree has uncommitted changes to *tracked* files.
+
+    Targets exactly the handoff hazard (#149): the handoff's ``git add -u``
+    would sweep tracked modifications/deletions onto the work branch (and
+    restore HEAD over them), silently swallowing the operator's in-progress
+    work. Untracked files are deliberately excluded — they are already protected
+    by the handoff's ``baseline_untracked`` snapshot (#39), so flagging them
+    would over-refuse. This is intentionally narrower than the ask-colleague
+    skill's coarser full-porcelain bash guard; keep it that way.
+
+    Returns ``False`` outside a git repo (or on any git error) so the caller can
+    consult it unconditionally — a non-git target has no handoff hazard to guard.
+    """
+    try:
+        proc = _git(
+            Path(repo_path).resolve(),
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            check=False,
+        )
+    except (HandoffError, OSError):
+        return False
+    return proc.returncode == 0 and bool(proc.stdout.strip())
+
+
 def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
     """Subset of ``paths`` that git ignores (so they cannot land in a commit).
 
