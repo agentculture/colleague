@@ -59,7 +59,7 @@ treat ❌-by-staleness the same as never-validated.
 | — | `feedback` record/show | `colleague/feedback.py` | ✅ | `83fe6aa` · 2026-06-04 (graded drives present) | — |
 | — | `doctor` / `doctor --probe` | `colleague/cli/_commands/doctor.py` | ✅ | `83fe6aa` · 2026-06-04 | — |
 | — | Command templates | `colleague/commands.py` | ✅ | `83fe6aa` · 2026-06-04 (`doc-review`) | — |
-| — | Drive stats | `colleague/loop.py`, `colleague/contract.py` | ⚠️ | present in artifacts; not field-audited live | — |
+| — | Drive stats | `colleague/loop.py`, `colleague/contract.py` | ✅ | `d1b4d54` · 2026-06-05 (drive `a6c5f0c1fd13`, `bytes_written` exact); see §0 result | — |
 | — | Step-budget termination | `colleague/loop.py` | ✅ | `83fe6aa` · 2026-06-04 (drive `99d1a4ee9572`, `901e9d61bf31`) | — |
 | 1 | `outsource write` reliability | `.claude/skills/outsource/`, `colleague/handoff.py` | ✅ | `6eb843d` · 2026-06-04 (apply `b885fbb`,`5bc48e7`,`f51427e` + PR `221b4ce`/#130); see §1 caveats | [#121](https://github.com/agentculture/colleague/issues/121) |
 | 2 | Subagents (`subagent`/`subagents`) | `colleague/subagents.py`, `colleague/worktrees.py` | ✅ | `61d15cc` · 2026-06-04 (drive `6c27147eb917`); see §2 caveat | [#122](https://github.com/agentculture/colleague/issues/122) |
@@ -75,6 +75,59 @@ Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
 Every procedure ends by updating this file's matrix row (status + `Last
 validated` SHA/date + evidence drive id) and closing the linked issue.
+
+### 0. Drive stats field audit
+
+**Why it matters.** `DriveStats` (`colleague/contract.py`) is always-on and
+populated runtime-side in `colleague/loop.py` (the all-engines rule), so the unit
+suite proves it *exists* in every artifact. What unit tests cannot prove is that
+its numbers are *faithful to a real drive*: that `bytes_written` equals the bytes
+actually written, that `tool_counts`/`step_count` mirror the live step trace, and
+that the token `usage` is the verbatim server count. This audits the block
+against ground truth from one live drive.
+
+**Procedure.**
+
+1. Run a live drive that exercises several stat fields (a write + a command over
+   several turns) in a throwaway git repo so this repo stays clean:
+
+   ```bash
+   WORK=$(mktemp -d); git -C "$WORK" init -q
+   git -C "$WORK" config user.email a@b.c; git -C "$WORK" config user.name audit
+   git -C "$WORK" commit -q --allow-empty -m init
+   uv run colleague drive "Create greet.py with a greet(name) function and a \
+     __main__ block that prints greet('world'), then run it with python3." \
+     --repo "$WORK" --engine vllm-openai --no-pr
+   ```
+
+2. Open the artifact (path is echoed as `artifact:`) and read its `stats` +
+   `usage` + `steps` + `changed_files`.
+3. **Verify each field against ground truth, not the summary:**
+   - `bytes_written` == exact UTF-8 byte size of the written file(s) (read the
+     file from the drive branch: `git -C "$WORK" show <branch>:<file> | wc -c`).
+   - `tool_counts` / `step_count` == the live `steps` trace; `files_changed` ==
+     `len(changed_files)`.
+   - `usage` tokens are present (verbatim from the response, never estimated);
+     `started_at` is valid ISO-8601 and `duration_seconds` > 0.
+   - `reasoning_*` / `answer_*` are char/byte lengths (no tokenizer) — a
+     tool-calling model legitimately yields `answer_*` == 0 when it emits only
+     reasoning + tool calls.
+
+**Acceptance.** Every `stats` field matches ground truth from the live drive,
+with `bytes_written` exact.
+
+**Result — 2026-06-05 (validated).** Live drive `a6c5f0c1fd13` against the
+reference rig (a write + a `python3 greet.py` run + finish, 3 turns) produced a
+faithful block: `bytes_written` **101 — exact** match to the committed
+`greet.py`; `tool_counts` `{write_file:1, run_command:1, finish:1}` mirrored the
+`steps` trace; `step_count` 3 == `len(steps)`; `files_changed` 1 ==
+`len(changed_files)`; `usage` `{prompt 7105, completion 309, total 7414}`
+verbatim; `started_at` valid ISO-8601, `duration_seconds` 18.35. `reasoning`
+487 chars/bytes (pure-ASCII CoT) with `answer` 0/0 — the honest tool-calling
+shape (all output via `tool_calls`, `message.content` empty), not a bug. Row →
+✅. Stats are engine-agnostic (`mock` and `vllm-openai` fill them identically,
+pinned by `tests/test_e2e_mock.py`), so this audit confirms the contract the unit
+suite already guards, now against a real model.
 
 ### 1. `outsource write` reliability
 
