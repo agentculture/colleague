@@ -254,6 +254,43 @@ class DriveSummary:
         }
 
 
+def _load_drive_artifact(path: Path) -> Optional[dict[str, Any]]:
+    """Parse a result-artifact JSON file, or ``None`` to skip it.
+
+    Skips feedback records (``*.feedback.json``) and any unreadable/corrupt file —
+    :func:`list_drives` is best-effort and must never raise on a stray file.
+    """
+    if path.name.endswith(".feedback.json"):
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _drive_rating(repo_path: str | Path, task_id: str) -> Optional[int]:
+    """The recorded rating for ``task_id``, or ``None`` (corrupt feedback ignored)."""
+    try:
+        record = read_feedback(repo_path, task_id)
+    except FeedbackError:
+        return None
+    return record.rating if record is not None else None
+
+
+def _drive_summary(repo_path: str | Path, data: dict[str, Any]) -> DriveSummary:
+    """Build a :class:`DriveSummary` from a parsed artifact + its feedback grade."""
+    stats = data.get("stats") or {}
+    task_id = str(data.get("task_id") or "")
+    return DriveSummary(
+        task_id=task_id,
+        started_at=str(stats.get("started_at") or ""),
+        status=str(data.get("status") or ""),
+        request=str(stats.get("request") or ""),
+        summary=str(data.get("summary") or ""),
+        rating=_drive_rating(repo_path, task_id),
+    )
+
+
 def list_drives(repo_path: str | Path) -> list[DriveSummary]:
     """Every recorded drive in the repo, newest-first, with its grade folded in.
 
@@ -271,33 +308,12 @@ def list_drives(repo_path: str | Path) -> list[DriveSummary]:
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.json")):
-            if path.name.endswith(".feedback.json"):
-                continue
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            data = _load_drive_artifact(path)
+            if data is None:
                 continue
             task_id = str(data.get("task_id") or "")
-            if not task_id or task_id in seen:
-                continue
-            seen.add(task_id)
-            stats = data.get("stats") or {}
-            rating: Optional[int] = None
-            try:
-                record = read_feedback(repo_path, task_id)
-            except FeedbackError:
-                record = None
-            if record is not None:
-                rating = record.rating
-            rows.append(
-                DriveSummary(
-                    task_id=task_id,
-                    started_at=str(stats.get("started_at") or ""),
-                    status=str(data.get("status") or ""),
-                    request=str(stats.get("request") or ""),
-                    summary=str(data.get("summary") or ""),
-                    rating=rating,
-                )
-            )
+            if task_id and task_id not in seen:
+                seen.add(task_id)
+                rows.append(_drive_summary(repo_path, data))
     rows.sort(key=lambda r: r.started_at, reverse=True)
     return rows

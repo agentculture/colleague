@@ -450,6 +450,46 @@ def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
     assert "grade: outsource feedback tid123 --rating" in r.stdout
 
 
+def test_grade_hint_shown_on_failed_but_gradable_drive(tmp_path) -> None:
+    """#139 (qodo): a FAILED drive still writes an artifact (h5) and is gradable —
+    a failure rated 1/5 is the ROI signal — so the `grade:` hint must print even
+    when status != ok. The failure digest (and the hint) go to stderr."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "colleague"
+    # A stub that fails (status=error, exit 1) but still writes its artifact.
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -eu\n"
+        'repo=""\n'
+        'while [ "$#" -gt 0 ]; do case "$1" in --repo) repo="$2"; shift 2;; *) shift;; esac; done\n'
+        'mkdir -p "$repo/.colleague"\n'
+        'art="$repo/.colleague/failtid.json"\n'
+        "printf "
+        '\'{"status":"error","summary":"FAILED","task_id":"failtid",'
+        '"changed_files":[],"artifacts_path":"%s","error":"boom"}\' '
+        '"$art" > "$art"\n'
+        'cat "$art"\n'
+        "exit 1\n"
+    )
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "investigate", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode != 0  # the drive failed, so the verb fails
+    # The artifact was preserved (gradable), and the grade hint is emitted to the
+    # failure digest on stderr — not suppressed because status != ok.
+    assert (repo / ".colleague" / "failtid.json").exists()
+    assert "grade: outsource feedback failtid --rating" in r.stderr
+
+
 def test_readonly_rejects_unsafe_artifact_path(tmp_path) -> None:
     """C4 hardening (qodo #1) + #132: a malicious/buggy TaskResult whose
     artifacts_path is a traversal attempt must not let _preserve_artifact write

@@ -198,6 +198,13 @@ def test_command_persisted_on_failure(tmp_path: Path, monkeypatch: pytest.Monkey
             command_name="greet",
         )
 
-    artifact = json.loads((tmp_path / ".colleague" / f"{task.id}.json").read_text())
+    # The failed-drive artifact carries the request now (#132/#139), so its name is
+    # slugged — resolve it via find_artifact rather than reconstructing the name.
+    from colleague.artifact import find_artifact
+
+    artifact_path = find_artifact(tmp_path, task.id)
+    assert artifact_path is not None
+    artifact = json.loads(artifact_path.read_text())
     assert artifact["status"] == "error"
     assert artifact["command"] == "greet"
+    assert artifact["stats"]["request"] == "do it"  # request preserved on failure

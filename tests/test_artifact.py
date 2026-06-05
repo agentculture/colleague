@@ -98,6 +98,21 @@ def test_failed_run_still_writes_error_artifact(tmp_path: Path) -> None:
     payload = json.loads(path.read_text())
     assert payload["status"] == ERROR
     assert "boom" in payload["error"]
+    # No request → empty stats, bare filename (prior behavior, byte-identical).
+    assert path.name == "crashed.json"
+    assert payload["stats"]["request"] == ""
+
+
+def test_failed_result_with_request_is_discoverable(tmp_path: Path) -> None:
+    """An early-failure result given the request records it in stats → slugged name,
+    non-empty request + a start timestamp for `feedback list` (#132 / #139 qodo)."""
+    result = failed_result("crashed", "boom", request="refactor the parser")
+    path = write(result, tmp_path / ".colleague")
+    payload = json.loads(path.read_text())
+    assert payload["status"] == ERROR
+    assert payload["stats"]["request"] == "refactor the parser"
+    assert payload["stats"]["started_at"]  # stamped, so list_drives can sort it
+    assert path.name == "crashed.refactor-the-parser.json"  # slugged like any drive
 
 
 def test_trace_jsonl_has_one_line_per_step(tmp_path: Path) -> None:

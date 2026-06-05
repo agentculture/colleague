@@ -16,6 +16,7 @@ error result.
 
 from __future__ import annotations
 
+import datetime
 import glob
 import json
 from pathlib import Path
@@ -47,9 +48,21 @@ def artifact_read_dirs(repo_path: str | Path) -> list[Path]:
     return [repo_path / DEFAULT_ARTIFACT_DIRNAME, repo_path / LEGACY_ARTIFACT_DIRNAME]
 
 
-def failed_result(task_id: str, error: str) -> TaskResult:
-    """Build an error-status result for a drive that raised before completing."""
-    return TaskResult(task_id=task_id, status=ERROR, summary="drive failed", error=error)
+def failed_result(task_id: str, error: str, *, request: str = "") -> TaskResult:
+    """Build an error-status result for a drive that raised before completing.
+
+    When ``request`` (the task instruction) is given, it is recorded on the
+    result's ``stats`` along with a start timestamp — so even an early-failure
+    artifact (one written before the loop could populate stats) stays
+    discoverable by request and sortable by time in ``feedback list``, and its
+    filename is slugged like any other (#132). Omitting it preserves the prior
+    empty-stats behavior byte-for-byte.
+    """
+    result = TaskResult(task_id=task_id, status=ERROR, summary="drive failed", error=error)
+    if request:
+        result.stats.request = request
+        result.stats.started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return result
 
 
 def artifact_stem(task_id: str, request: str) -> str:

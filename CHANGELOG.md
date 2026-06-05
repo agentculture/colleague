@@ -16,6 +16,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - `last` is now writes-only across the outsource flow (#132): `outsource explore`/`review` preserve their artifact but no longer move the `last_drive` pointer (the skill's `_preserve_artifact` stopped writing it), so a read-only probe can never steal a grade meant for a consequential write. A probe is graded by its printed task_id or via `feedback list`. The skill now preserves the artifact by the basename the drive reports (robust to bare or slugged names).
+- Refactored `feedback.list_drives` — extracted `_load_drive_artifact` / `_drive_rating` / `_drive_summary` helpers to cut its cognitive complexity from 27 to ~12 (SonarCloud ≤15), with no behavior change (PR #139 review).
+
+### Fixed
+
+- Early-failure drives keep their request (PR #139 qodo): `failed_result` now records `stats.request` + `started_at` when given the instruction, and `execute_drive` passes `task.instruction` on the no-partial path — so an artifact written before the loop runs is still slugged, discoverable-by-request, and sortable in `feedback list` instead of a blank row.
+- `outsource`'s `print_result` grade hint no longer requires `status == ok` (PR #139 qodo): a failed-but-gradable drive (colleague writes an artifact on failure, and a failure rated 1/5 is the ROI signal) now emits the copy-paste `grade:` command on the failure digest (stderr).
 
 ## [0.33.9] - 2026-06-05
 

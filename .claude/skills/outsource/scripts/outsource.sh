@@ -260,7 +260,11 @@ if ap and real_dir:
     ap = os.path.join(real_dir, os.path.basename(ap))
 if ap:
     print("artifact:", ap, file=out)
-if tid and ok and os.environ.get("OUTSOURCE_GRADABLE") == "1":
+# A drive is gradable whenever its artifact survives — including a FAILED drive
+# (colleague writes an artifact on failure too, h5): a failure rated 1/5 is exactly
+# the ROI signal, so the hint must not be gated on `ok` (#139 qodo). It prints to
+# `out` (stderr on failure), matching the rest of the failure digest.
+if tid and os.environ.get("OUTSOURCE_GRADABLE") == "1":
     print("grade:", "outsource feedback", tid, "--rating <1-5>", file=out)
 sys.exit(0 if ok else 1)
 '

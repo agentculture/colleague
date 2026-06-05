@@ -194,7 +194,9 @@ def test_drive_no_partial_hint_omits_partial_trace(
     """A failure with no partial result must not claim a partial trace was written (Qodo)."""
     monkeypatch.setattr(registry, "load", lambda name: _BrokenEngine())
 
-    rc = main(["drive", "x", "--repo", str(tmp_path), "--engine", "broken", "--no-pr"])
+    rc = main(
+        ["drive", "refactor the parser", "--repo", str(tmp_path), "--engine", "broken", "--no-pr"]
+    )
     assert rc == 2
     err = capsys.readouterr().err
     assert "a result artifact was still written" in err
@@ -204,6 +206,15 @@ def test_drive_no_partial_hint_omits_partial_trace(
     payload = json.loads(artifacts[0].read_text())
     assert payload["status"] == "error"
     assert payload["steps"] == []  # fresh failed_result, no accumulated steps
+    # #139 (qodo): the early-failure artifact still carries the request, so it is
+    # discoverable-by-request and sortable in `feedback list` (not a blank row).
+    assert payload["stats"]["request"] == "refactor the parser"
+    assert payload["stats"]["started_at"]
+    assert artifacts[0].name == f"{payload['task_id']}.refactor-the-parser.json"  # slugged
+    from colleague.feedback import list_drives
+
+    rows = list_drives(tmp_path)
+    assert len(rows) == 1 and rows[0].request == "refactor the parser" and rows[0].status == "error"
 
 
 def test_drive_emits_step_progress_to_stderr(
