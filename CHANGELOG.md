@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.2] - 2026-06-05
+
+### Added
+
+- `colleague/context.py` `is_request_timeout` + `classify_degradable` — sibling detectors that drive the loops degradation and auto-split gates for both overflow and request-timeout signals (all-engines rule).
+
+### Changed
+
+- The `doc-review` command template is now self-scoping: it audits a few surfaces per pass and recommends a per-surface split early, so a large doc set no longer blows the request timeout. CLAUDE.md and `docs/features/graceful-degradation.md` document the timeout-degradation path and its honest limit (a dead/stuck server still wastes the bounded timeout retries).
+
+### Fixed
+
+- A request timeout mid-completion now degrades gracefully like a context-overflow instead of hard-failing with no deliverable (#154): the loop trims history and retries (capped lower, `_MAX_TIMEOUT_RETRIES=1`, since each timeout costs a full `COLLEAGUE_TIMEOUT` window), and on an exhausted give-up injects the auto-split/INCOMPLETE recommendation against a carried-forward floored window so the model can still produce an INCOMPLETE report. The vLLM `_post_json` now wraps a read-phase `TimeoutError` legibly (keeps "timed out" for the detector, surfaces the `COLLEAGUE_TIMEOUT` knob).
+
 ## [0.39.1] - 2026-06-05
 
 ### Changed
