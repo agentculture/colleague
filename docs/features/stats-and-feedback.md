@@ -74,18 +74,37 @@ A per-repo `last_drive` pointer (written by `execute_drive` after each drive)
 lets you grade the most recent drive without quoting its id. An ungraded drive
 reads back as a clean "no feedback yet" state — never an error.
 
+**`last` resolves to the most recent *consequential* drive (#132).** `outsource
+explore` / `review` run read-only in a throwaway worktree and **preserve** their
+artifact but **do not move** `last` — so a later read-only probe can never steal
+a grade meant for a write. Grade a probe by its printed `task_id` (every drive
+echoes `task:` + a `grade:` hint). Whenever you ask for `last`, the resolved
+drive's id + request is echoed to stderr, so a mis-resolve is never silent.
+
+Forgotten the id? **`feedback list`** shows every recorded drive — newest-first,
+by request, status, and grade — the durable way to find the right one. It reads
+the authoritative `task_id` from each artifact's contents, so the filename
+scheme doesn't matter.
+
+> Artifacts and the drive branch carry a **request slug** for legibility —
+> `.colleague/<task_id>.<slug>.json` and `colleague/<task_id>-<slug>` — so a
+> drive is recognisable in an `ls` / `git branch` listing. `task_id` stays the
+> key; reads resolve both bare and slugged names (back-compat).
+
 ### CLI
 
 ```bash
 colleague feedback record last --rating 4 --notes "correct but verbose"
 colleague feedback record 9f2c1ab0 --rating 5 --repo . --json
 colleague feedback show last --repo .
+colleague feedback list --repo .          # every drive by request + grade
 colleague feedback overview
 ```
 
-`record`/`show` take a drive id or the literal `last`. `--rating` must be an
-integer 1–5. `--by` defaults to colleague's resolved identity. Results go to
-stdout, diagnostics to stderr; every verb supports `--json`.
+`record`/`show` take a drive id or the literal `last`. `list` takes neither —
+it lists every drive. `--rating` must be an integer 1–5. `--by` defaults to
+colleague's resolved identity. Results go to stdout, diagnostics to stderr;
+every verb supports `--json`.
 
 ### From the `outsource` skill
 
@@ -95,7 +114,12 @@ after an outsourced drive:
 ```bash
 outsource feedback last --rating 4 --notes "good, but missed an edge case"
 outsource feedback <task_id>          # no --rating → show existing feedback
+outsource feedback list               # find a past drive by its request
 ```
+
+Because read-only probes don't move `last`, prefer grading a probe by the
+`task_id` it printed (or `outsource feedback list`); `outsource feedback last`
+grades the most recent **write**.
 
 ## Reading ROI off one drive
 

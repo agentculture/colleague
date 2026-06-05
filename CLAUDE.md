@@ -41,7 +41,23 @@ The architecture, part by part:
   `last_drive` pointer (written by `execute_drive`) lets `feedback ... last`
   resolve the most recent drive. Stdlib JSON only; an ungraded drive reads back as
   a clean "no feedback yet" state, never an error. Surfaced as `colleague
-  feedback record|show|overview` and as the `outsource feedback` skill verb.
+  feedback record|show|list|overview` and as the `outsource feedback` skill verb.
+  **`last` is writes-only across the outsource flow (#132):** `outsource explore`
+  / `review` run read-only in a throwaway worktree and **preserve** their artifact
+  but **do not move** `last_drive` (the skill's `_preserve_artifact` no longer
+  writes the pointer) — so a read-only probe can never steal a grade meant for a
+  consequential write. A probe is graded by its printed `task_id`; every drive
+  echoes `task:` + a `grade:` hint, and resolving `last` echoes the resolved
+  `task_id` + request to stderr so a mis-resolve is never silent. `feedback list`
+  (`colleague/feedback.py` `list_drives`) lists every recorded drive newest-first
+  by request + status + grade — the durable way to find a drive when the order is
+  forgotten; it reads the authoritative `task_id` from each artifact's contents,
+  so the filename scheme doesn't matter. Artifacts and the drive branch carry a
+  **request slug** (`<task_id>.<slug>.json` via `colleague/artifact.py`
+  `artifact_stem` + `colleague/slug.py`; `colleague/<task_id>-<slug>` via
+  `handoff._branch_name`) so a drive is recognisable in an `ls` / `git branch`
+  listing; `task_id` stays the key and `find_artifact`/`read_request` resolve both
+  bare and slugged names (back-compat).
 - **Telemetry** — opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`).
   Instrumented in the loop + the shared drive path so every backend emits it
   (all-engines rule), exactly like hooks. Off by default; the OpenTelemetry SDK

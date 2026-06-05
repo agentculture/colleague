@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from colleague.artifact import failed_result, write
-from colleague.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage
+from colleague.artifact import failed_result, find_artifact, read_request, write
+from colleague.contract import ERROR, OK, DriveStats, HookFiring, Step, Task, TaskResult, Usage
 from colleague.loop import ModelResponse, ToolCall, run
 
 
@@ -34,6 +34,62 @@ def test_write_sets_artifacts_path(tmp_path: Path) -> None:
     result = TaskResult(task_id="t2", status=OK)
     path = write(result, tmp_path / "conv-test-artifact")
     assert result.artifacts_path == str(path)
+
+
+# ---------------------------------------------------------------------------
+# #132: request-slugged artifact filenames + back-compat readers
+# ---------------------------------------------------------------------------
+
+
+def test_write_slugs_filename_from_request(tmp_path: Path) -> None:
+    """A drive with a request is named <task_id>.<slug>.json (+ .trace.jsonl)."""
+    out = tmp_path / ".colleague"
+    result = TaskResult(
+        task_id="abc123",
+        status=OK,
+        summary="x",
+        steps=[Step(0, "finish", {}, "done")],
+        stats=DriveStats(request="Add a Hello Function!"),
+    )
+    path = write(result, out)
+    assert path.name == "abc123.add-a-hello-function.json"
+    assert result.artifacts_path == str(path)  # the slugged path is authoritative
+    assert (out / "abc123.add-a-hello-function.trace.jsonl").is_file()
+
+
+def test_write_falls_back_to_bare_name_when_no_request(tmp_path: Path) -> None:
+    """No request (or all-punctuation) → bare <task_id>.json (always a valid name)."""
+    out = tmp_path / ".colleague"
+    path = write(TaskResult(task_id="bare1", status=OK, stats=DriveStats(request="")), out)
+    assert path.name == "bare1.json"
+
+
+def test_find_artifact_resolves_bare_and_slugged(tmp_path: Path) -> None:
+    out = tmp_path / ".colleague"
+    write(TaskResult(task_id="slug1", status=OK, stats=DriveStats(request="refactor parser")), out)
+    write(TaskResult(task_id="bare2", status=OK, stats=DriveStats(request="")), out)
+    assert find_artifact(tmp_path, "slug1").name == "slug1.refactor-parser.json"
+    assert find_artifact(tmp_path, "bare2").name == "bare2.json"
+    assert find_artifact(tmp_path, "missing") is None
+
+
+def test_find_artifact_ignores_feedback_file_and_unsafe_id(tmp_path: Path) -> None:
+    out = tmp_path / ".colleague"
+    out.mkdir()
+    # A lone feedback record must never be mistaken for the drive's artifact.
+    (out / "ghost.feedback.json").write_text("{}\n", encoding="utf-8")
+    assert find_artifact(tmp_path, "ghost") is None
+    # A traversal id is refused outright.
+    assert find_artifact(tmp_path, "../escape") is None
+
+
+def test_read_request_returns_recorded_request(tmp_path: Path) -> None:
+    write(
+        TaskResult(task_id="r1", status=OK, stats=DriveStats(request="do the thing")),
+        tmp_path / ".colleague",
+    )
+    assert read_request(tmp_path, "r1") == "do the thing"
+    assert read_request(tmp_path, "nope") is None
 
 
 def test_failed_run_still_writes_error_artifact(tmp_path: Path) -> None:

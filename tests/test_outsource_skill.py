@@ -289,6 +289,31 @@ def test_feedback_verb_without_rating_shows(tmp_path) -> None:
     assert argv[:3] == ["feedback", "show", "abc123"]
 
 
+def test_feedback_verb_list_shells_to_colleague_feedback_list(tmp_path) -> None:
+    """`outsource feedback list` → `colleague feedback list --repo <repo>` (#132)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "feedback", "list", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert argv[:2] == ["feedback", "list"]
+    assert "--repo" in argv
+    assert "show" not in argv and "record" not in argv  # list is its own verb
+
+
 def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
     """explore/review (run_readonly) must run in a throwaway worktree and remove
     it afterwards. Stub `colleague`, run `outsource explore`, and assert the
@@ -348,10 +373,12 @@ def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
 
 
 def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
-    """C4: explore/review drive in a throwaway worktree, but the artifact + a
-    last_drive pointer are copied back to the REAL repo before the worktree is
-    removed — so `colleague feedback record last` / `outsource feedback last`
-    can grade the drive (it otherwise vanished with the worktree)."""
+    """C4 + #132: explore/review drive in a throwaway worktree, but the artifact is
+    copied back to the REAL repo before the worktree is removed — so the drive can
+    still be graded afterwards by its task-id (it otherwise vanished with the
+    worktree). A read-only probe must NOT move the `last` pointer (#132): no
+    `last_drive` is written, and the digest names the task-id + a `grade:` hint so
+    the caller grades the explicit drive, never a fragile `last`."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     fake = bindir / "colleague"
@@ -409,28 +436,37 @@ def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
         check=False,
     )
     assert r.returncode == 0, r.stderr
-    # Artifact + last_drive preserved in the REAL repo (not lost with the worktree).
+    # Artifact preserved in the REAL repo (not lost with the worktree), copied by
+    # the basename the drive reported in artifacts_path — robust to bare or slugged
+    # names.
     art = repo / ".colleague" / "tid123.json"
     assert art.exists(), f"artifact not preserved\nstdout={r.stdout}\nstderr={r.stderr}"
-    assert (repo / ".colleague" / "last_drive").read_text().strip() == "tid123"
+    # #132: a read-only probe must NOT move `last` — no pointer is written.
+    assert not (repo / ".colleague" / "last_drive").exists()
     # The reported artifact path points at the real repo, not the temp worktree.
     assert str(art) in r.stdout
+    # The digest echoes the task-id and a copy-paste grade hint (graded by id).
+    assert "task: tid123" in r.stdout
+    assert "grade: outsource feedback tid123 --rating" in r.stdout
 
 
-def test_readonly_rejects_unsafe_task_id(tmp_path) -> None:
-    """C4 hardening (qodo #1): a malicious/buggy TaskResult task_id containing
-    path separators must not let _preserve_artifact escape $REPO/.colleague/.
-    The drive still succeeds (preservation is advisory); the copy is refused and
-    no last_drive is written."""
-    # Echoes a TaskResult whose task_id is a traversal attempt. (No artifact is
-    # written: validation rejects the id before the file is ever consulted.)
+def test_readonly_rejects_unsafe_artifact_path(tmp_path) -> None:
+    """C4 hardening (qodo #1) + #132: a malicious/buggy TaskResult whose
+    artifacts_path is a traversal attempt must not let _preserve_artifact write
+    outside $REPO/.colleague/. The copy keys off os.path.basename(artifacts_path),
+    so any directory component (``../..``) is stripped before the join — the write
+    can only ever land inside .colleague/. The drive still succeeds (preservation
+    is best-effort) and no last_drive is written (read-only probe)."""
+    # Echoes a TaskResult whose artifacts_path tries to escape via ``../``. (No
+    # artifact file is written, so preservation finds nothing to copy and is a
+    # no-op — the point is that the traversal never reaches outside .colleague/.)
     env = _fake_colleague(
         tmp_path / "bin",
         "#!/usr/bin/env bash\n"
         "set -eu\n"
         "printf "
-        '\'{"status":"ok","summary":"OK","task_id":"../pwned",'
-        '"changed_files":[],"artifacts_path":"/tmp/x.json"}\'\n',
+        '\'{"status":"ok","summary":"OK","task_id":"tid123",'
+        '"changed_files":[],"artifacts_path":"../../pwned.json"}\'\n',
     )
     repo = _init_repo(tmp_path / "repo")
 
@@ -443,10 +479,10 @@ def test_readonly_rejects_unsafe_task_id(tmp_path) -> None:
     )
     # The drive itself succeeded; preservation is best-effort, so the verb is ok.
     assert r.returncode == 0, r.stderr
-    # Nothing escaped .colleague/, and no pointer was left behind.
+    # Nothing escaped above .colleague/, and no pointer was left behind.
     assert not (repo / "pwned.json").exists()
+    assert not (repo.parent / "pwned.json").exists()
     assert not (repo / ".colleague" / "last_drive").exists()
-    assert "unsafe drive id" in r.stderr
 
 
 def test_readonly_does_not_claim_path_when_preservation_fails(tmp_path) -> None:

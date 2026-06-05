@@ -125,6 +125,12 @@ diff-verified.
   (`8b8d43bd26cf` et al.); there is **no silent mock fallback** (`resolve_engine`,
   pinned by `tests/test_config.py`). The render-order bug (#63 #3) is **already
   fixed** here (single-pass `re.sub` in `outsource.sh`).
+  **Fixed (#132):** read-only probes (`explore`/`review`) no longer move `last`
+  (the skill's `_preserve_artifact` stopped writing the pointer), so `last`
+  tracks the most recent **write**; resolving `last` echoes the id + request to
+  stderr, and `colleague feedback list` / `outsource feedback list` surfaces
+  every drive by request + grade so a drive is recoverable without trusting
+  order. Locked by `tests/test_feedback*.py` + `tests/test_outsource_skill.py`.
 
 ### 2. Subagents end-to-end live
 

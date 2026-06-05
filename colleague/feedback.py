@@ -224,3 +224,80 @@ def read_feedback(repo_path: str | Path, task_id: str) -> Optional[Feedback]:
     except (OSError, json.JSONDecodeError) as exc:
         raise FeedbackError(f"cannot read feedback for {task_id}: {exc}") from exc
     return Feedback.from_dict(data)
+
+
+@dataclass
+class DriveSummary:
+    """One row of :func:`list_drives`: a drive identified by its request + grade.
+
+    The durable answer to "which drive was that?" when the order is forgotten and
+    ``last`` can't be trusted — every recorded drive, recognisable by its request
+    and result, gradable by its ``task_id``. ``rating`` is ``None`` for an
+    ungraded drive (a clean state, not an error).
+    """
+
+    task_id: str
+    started_at: str = ""
+    status: str = ""
+    request: str = ""
+    summary: str = ""
+    rating: Optional[int] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "started_at": self.started_at,
+            "status": self.status,
+            "request": self.request,
+            "summary": self.summary,
+            "rating": self.rating,
+        }
+
+
+def list_drives(repo_path: str | Path) -> list[DriveSummary]:
+    """Every recorded drive in the repo, newest-first, with its grade folded in.
+
+    Scans the artifact dirs (new then legacy) for result-JSON files — excluding
+    each drive's ``<task_id>.feedback.json`` — reads the authoritative ``task_id``
+    from the JSON *contents* (so the filename scheme, bare or slugged, doesn't
+    matter), and pairs it with its feedback rating (``None`` when ungraded).
+    Tolerant: an unreadable or corrupt file is skipped, never raised. Deduped by
+    ``task_id`` (the new dir shadows the legacy one); sorted by ``stats.started_at``
+    descending (drives without a timestamp sort last).
+    """
+    seen: set[str] = set()
+    rows: list[DriveSummary] = []
+    for directory in artifact_read_dirs(repo_path):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.json")):
+            if path.name.endswith(".feedback.json"):
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            task_id = str(data.get("task_id") or "")
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+            stats = data.get("stats") or {}
+            rating: Optional[int] = None
+            try:
+                record = read_feedback(repo_path, task_id)
+            except FeedbackError:
+                record = None
+            if record is not None:
+                rating = record.rating
+            rows.append(
+                DriveSummary(
+                    task_id=task_id,
+                    started_at=str(stats.get("started_at") or ""),
+                    status=str(data.get("status") or ""),
+                    request=str(stats.get("request") or ""),
+                    summary=str(data.get("summary") or ""),
+                    rating=rating,
+                )
+            )
+    rows.sort(key=lambda r: r.started_at, reverse=True)
+    return rows

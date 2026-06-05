@@ -94,3 +94,97 @@ def test_drive_then_feedback_last(tmp_path: Path, capsys: pytest.CaptureFixture[
     rc = main(["feedback", "show", task_id, "--repo", str(tmp_path), "--json"])
     assert rc == 0
     assert json.loads(capsys.readouterr().out)["rating"] == 5
+
+
+# ---------------------------------------------------------------------------
+# #132: transparency on `last` + the `feedback list` discovery surface
+# ---------------------------------------------------------------------------
+
+
+def test_record_last_echoes_resolved_drive_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Grading `last` surfaces which drive (id + request) it landed on, on stderr,
+    so a mis-resolve is never silent — while stdout/--json stays the clean record."""
+    rc = main(
+        [
+            "drive",
+            "fix the parser",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    task_id = json.loads(capsys.readouterr().out)["task_id"]
+
+    rc = main(["feedback", "record", "last", "--rating", "4", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # The resolution note is a stderr diagnostic — stdout is the clean JSON record.
+    assert json.loads(captured.out)["task_id"] == task_id
+    assert "'last' resolved to" in captured.err
+    assert task_id in captured.err
+    assert "fix the parser" in captured.err
+
+
+def test_show_explicit_id_does_not_emit_resolution_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The note fires only for the ambiguous `last`, not for an explicit task-id."""
+    rc = main(
+        ["drive", "do a thing", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"]
+    )
+    assert rc == 0
+    task_id = json.loads(capsys.readouterr().out)["task_id"]
+
+    rc = main(["feedback", "show", task_id, "--repo", str(tmp_path)])
+    assert rc == 0
+    assert "'last' resolved to" not in capsys.readouterr().err
+
+
+def test_feedback_list_empty_is_clean(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    rc = main(["feedback", "list", "--repo", str(tmp_path)])
+    assert rc == 0
+    assert "no drives recorded yet" in capsys.readouterr().out
+
+    rc = main(["feedback", "list", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_feedback_list_shows_drives_with_grade(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = main(
+        [
+            "drive",
+            "build the thing",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    task_id = json.loads(capsys.readouterr().out)["task_id"]
+    main(["feedback", "record", task_id, "--rating", "3", "--repo", str(tmp_path)])
+    capsys.readouterr()
+
+    # Text table: the drive shows up by its request, with its grade.
+    rc = main(["feedback", "list", "--repo", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "REQUEST" in out and "build the thing" in out and "3/5" in out
+
+    # JSON: full request + rating for an agent.
+    rc = main(["feedback", "list", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 1
+    assert rows[0]["request"] == "build the thing" and rows[0]["rating"] == 3

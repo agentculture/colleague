@@ -299,14 +299,13 @@ def test_drive_tui_events_inside_repo_survives_handoff(
         ]
     )
     assert rc == 0
-    tid = json.loads(capsys.readouterr().out)["task_id"]
+    payload = json.loads(capsys.readouterr().out)
     assert ev.exists(), "in-repo --tui-events stream was swept away by the handoff"
     live = [e.to_dict() for e in loads_events(ev.read_text())]
-    trace_lines = [
-        json.loads(line)
-        for line in (tmp_path / ".colleague" / f"{tid}.trace.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    # The artifact is named <task_id>.<slug>.json (#132); the trace shares the
+    # stem (.json -> .trace.jsonl). Derive it from artifacts_path, never rebuild it.
+    trace_path = Path(payload["artifacts_path"][: -len(".json")] + ".trace.jsonl")
+    trace_lines = [json.loads(line) for line in trace_path.read_text().splitlines() if line.strip()]
     assert live == [e.to_dict() for e in trace_to_drive_steps(trace_lines)]
 
 

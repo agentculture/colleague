@@ -10,11 +10,17 @@
 #   outsource review  "<what to focus on>"   diverse second-opinion on the diff
 #   outsource write   "<task>" [--apply]     implement a change (preview by default)
 #   outsource feedback <id|last> --rating N  grade a past drive (ROI loop); no rating -> show
+#   outsource feedback list                  list every recorded drive by request + grade
 #
 # explore/review run in a throwaway `git worktree` at HEAD, so they can never
 # touch your working tree or branch (any stray write is discarded). write also
 # previews in a throwaway worktree by default (reporting what it WOULD change);
 # pass --apply to land a drive branch in place, or --pr to push + open a PR.
+#
+# explore/review are read-only probes: they preserve their artifact but do NOT
+# move the `last` pointer (issue #132), so `feedback last` stays aimed at the
+# most recent consequential write. Grade a probe by its printed task-id (every
+# drive prints `task:` and a `grade:` hint), or find it with `feedback list`.
 #
 set -euo pipefail
 
@@ -59,6 +65,7 @@ Usage:
   outsource review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
   outsource write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
   outsource feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
+  outsource feedback list                    List every recorded drive by request + grade (find one by its request)
 
 Options:
   --repo PATH        Target repo (default: .)
@@ -79,7 +86,9 @@ explore/review run in a throwaway git worktree at HEAD — they cannot touch you
 working tree or branch. review compares <base>...HEAD (committed changes only).
 write previews in a throwaway worktree too unless --apply (or --pr) is given.
 feedback grades a finished drive: stats (in the artifact) say what it cost,
-feedback says how good it was — together, the ROI of outsourcing.
+feedback says how good it was — together, the ROI of outsourcing. explore/review
+do not move `last` (they are read-only) — grade them by their printed task-id, or
+run `outsource feedback list` to find a drive by its request.
 EOF
 }
 
@@ -216,7 +225,11 @@ print_result() {
     # throwaway worktree (read-only verbs), the JSON's artifacts_path points into
     # that soon-deleted worktree; pass the real repo's .colleague/ so the
     # printed path names the preserved copy instead. Empty -> print as-is.
-    OUTSOURCE_REAL_ARTIFACT_DIR="${1:-}" python3 -c '
+    # $2 (optional): "1" when the drive is gradable (its artifact survives in the
+    # real repo) -> print a copy-paste `grade:` hint with the explicit task-id, so
+    # the caller never has to rely on `last` (issue #132). A preview leaves it
+    # empty (its artifact was discarded with the worktree, so it is not gradable).
+    OUTSOURCE_REAL_ARTIFACT_DIR="${1:-}" OUTSOURCE_GRADABLE="${2:-}" python3 -c '
 import sys, json, os
 raw = sys.stdin.read().strip()
 if not raw:
@@ -230,7 +243,10 @@ except Exception:
     sys.exit(2)
 ok = d.get("status") == "ok"
 out = sys.stdout if ok else sys.stderr
+tid = d.get("task_id") or ""
 print("status:", d.get("status"), file=out)
+if tid:
+    print("task:", tid, file=out)
 print(file=out)
 print((d.get("summary") or "").rstrip(), file=out)
 cf = d.get("changed_files") or []
@@ -244,6 +260,8 @@ if ap and real_dir:
     ap = os.path.join(real_dir, os.path.basename(ap))
 if ap:
     print("artifact:", ap, file=out)
+if tid and ok and os.environ.get("OUTSOURCE_GRADABLE") == "1":
+    print("grade:", "outsource feedback", tid, "--rating <1-5>", file=out)
 sys.exit(0 if ok else 1)
 '
 }
@@ -289,46 +307,65 @@ except Exception:
     print("")' 2>/dev/null || true
 }
 
-# A task id must be a single safe path segment before it is joined into a copy
-# destination (mirrors colleague/feedback.py's _validate_task_id: allow
-# [A-Za-z0-9][A-Za-z0-9._-]*, reject "."/".." and any path separator). The id
-# comes from colleague's own TaskResult, but validating it keeps the write
-# strictly inside $REPO/.colleague/ even for a malformed/hostile result.
-_valid_task_id() {
+# Extract the artifact filename (basename of artifacts_path) from a TaskResult
+# JSON on stdin. The runtime names artifacts <task_id>.<slug>.json (slugged) or
+# <task_id>.json (bare), so the skill must copy the file the drive actually
+# reported rather than reconstruct a name. os.path.basename strips any directory
+# component, so a hostile artifacts_path can never point the copy outside .colleague/.
+_extract_artifact_name() {
+    python3 -c 'import sys, json, os
+try:
+    print(os.path.basename(json.load(sys.stdin).get("artifacts_path") or ""))
+except Exception:
+    print("")' 2>/dev/null || true
+}
+
+# A copied filename must be a single safe path segment before it is joined into a
+# copy destination (mirrors colleague/feedback.py's _validate_task_id: allow
+# [A-Za-z0-9][A-Za-z0-9._-]*, reject "."/".." and any path separator). The name
+# comes from colleague's own TaskResult basename, but validating it keeps the
+# write strictly inside $REPO/.colleague/ even for a malformed/hostile result.
+_valid_segment() {
     [[ "$1" != "." && "$1" != ".." && "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
 }
 
 # Read-only verbs drive in a throwaway worktree that _cleanup_worktree deletes, so
 # the artifact written under <worktree>/.colleague/ would vanish with it. Copy it
-# back to the real repo's .colleague/ (plus a last_drive pointer) so `colleague
-# feedback record last` / `outsource feedback last` can grade the drive afterwards.
+# back to the real repo's .colleague/ so the drive can still be graded afterwards
+# by its task-id (`outsource feedback <id>` / `outsource feedback list`).
+#
+# Deliberately does NOT write a last_drive pointer (issue #132): explore/review
+# are read-only probes and must not move `last`, or a later probe would steal a
+# grade meant for a consequential write. `last` stays aimed at the most recent
+# write; a probe is graded by its printed task-id.
+#
 # Writes only the gitignored .colleague/ bookkeeping dir — never the tracked tree.
-# Returns non-zero (and writes no last_drive) when the id is unsafe or the copy
-# fails, so run_readonly never reports a preserved path that isn't actually there.
+# $1 is the artifact basename (<task_id>.<slug>.json or <task_id>.json) from the
+# drive's reported artifacts_path. Returns non-zero when the name is unsafe or the
+# copy fails, so run_readonly never reports a preserved path that isn't there.
 _preserve_artifact() {
-    local task_id="$1"
-    [[ -n "$task_id" && -n "$_WT" ]] || return 1
-    if ! _valid_task_id "$task_id"; then
-        printf 'outsource: refusing to preserve artifact for unsafe drive id %q\n' "$task_id" >&2
+    local art_name="$1"
+    [[ -n "$art_name" && -n "$_WT" ]] || return 1
+    if ! _valid_segment "$art_name"; then
+        printf 'outsource: refusing to preserve unsafe artifact name %q\n' "$art_name" >&2
         return 1
     fi
     local src="$_WT/.colleague"
     local dst="$REPO/.colleague"
-    [[ -f "$src/$task_id.json" ]] || return 1
+    [[ -f "$src/$art_name" ]] || return 1
     mkdir -p "$dst" || return 1
     # The JSON artifact is the record of the drive — surface a copy failure rather
     # than swallow it, so the caller can fall back to honest path reporting.
-    if ! cp -f "$src/$task_id.json" "$dst/$task_id.json"; then
-        printf 'outsource: could not preserve artifact %s.json\n' "$task_id" >&2
+    if ! cp -f "$src/$art_name" "$dst/$art_name"; then
+        printf 'outsource: could not preserve artifact %s\n' "$art_name" >&2
         return 1
     fi
-    # The trace is optional context; a best-effort copy is fine.
-    if [[ -f "$src/$task_id.trace.jsonl" ]]; then
-        cp -f "$src/$task_id.trace.jsonl" "$dst/$task_id.trace.jsonl" 2>/dev/null || true
+    # The trace shares the artifact stem (.json -> .trace.jsonl); a best-effort
+    # copy is fine — it is optional context, not the record of the drive.
+    local trace_name="${art_name%.json}.trace.jsonl"
+    if [[ -f "$src/$trace_name" ]]; then
+        cp -f "$src/$trace_name" "$dst/$trace_name" 2>/dev/null || true
     fi
-    # Write last_drive only after the artifact actually landed — never leave the
-    # pointer aimed at a missing file.
-    printf '%s' "$task_id" > "$dst/last_drive" || return 1
 }
 
 # Spin up a throwaway detached worktree at HEAD (the isolation both read-only
@@ -347,15 +384,18 @@ run_readonly() {
     out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || true
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
     # Preserve the artifact to the real repo BEFORE the EXIT trap removes the
-    # worktree, so the drive can be graded (`outsource feedback last`). Only point
-    # print_result at the real repo when the copy actually landed — otherwise the
-    # printed `artifact:` would name a file that preservation never wrote.
-    local task_id real_dir=""
-    task_id="$(printf '%s' "$out" | _extract_task_id)"
-    if _preserve_artifact "$task_id"; then
+    # worktree, so the drive can be graded by its task-id (`outsource feedback
+    # <id>`). Only point print_result at the real repo — and mark the drive
+    # gradable — when the copy actually landed; otherwise the printed `artifact:`
+    # would name a file preservation never wrote, and the grade hint would point
+    # at an artifact that isn't there.
+    local art_name real_dir="" gradable=""
+    art_name="$(printf '%s' "$out" | _extract_artifact_name)"
+    if _preserve_artifact "$art_name"; then
         real_dir="$REPO/.colleague"
+        gradable="1"
     fi
-    printf '%s' "$out" | print_result "$real_dir"
+    printf '%s' "$out" | print_result "$real_dir" "$gradable"
 }
 
 # ── write preview (default): drive in a throwaway worktree, show the would-be ──
@@ -413,20 +453,25 @@ run_write() {
     else
         out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || true
     fi
-    printf '%s' "$out" | print_result
+    # A landed write persists its artifact in the real repo and moves `last`, so it
+    # is gradable — print the `grade:` hint (with the explicit task-id).
+    printf '%s' "$out" | print_result "" "1"
 }
 
 # ── feedback verb: grade a finished drive (the ROI loop) ────────────────────
-# A thin pass-through to `colleague feedback`: with --rating it records a 1-5
-# grade + notes; without, it shows the drive's existing feedback. The ref is the
-# drive's task-id, or `last` for the most recent drive in --repo. No worktree,
-# no engine — colleague owns the store and its own stdout/stderr/exit code.
+# A thin pass-through to `colleague feedback`: `list` lists every recorded drive
+# by request + grade; with --rating it records a 1-5 grade + notes; without, it
+# shows the drive's existing feedback. The ref is the drive's task-id, `last` for
+# the most recent consequential drive in --repo, or the literal `list`. No
+# worktree, no engine — colleague owns the store and its own stdout/stderr/exit.
 run_feedback() {
     local ref="$1"
     # Build one command array (never empty) so we don't expand an empty array
     # under `set -u` — the optional --by is appended only when set.
     local cmd=("${COLLEAGUE[@]}" feedback)
-    if [[ -n "$RATING" ]]; then
+    if [[ "$ref" == "list" ]]; then
+        cmd+=(list)
+    elif [[ -n "$RATING" ]]; then
         cmd+=(record "$ref" --rating "$RATING" --notes "$NOTES")
         [[ -n "$BY" ]] && cmd+=(--by "$BY")
     else

@@ -476,12 +476,22 @@ A drive is named by its `task_id`, or the literal `last` for the most recent
 drive in the repo. Feedback is a **single record per drive** (re-grading
 overwrites), stored as `.colleague/<task_id>.feedback.json` beside the artifact.
 
+`last` resolves to the most recent **consequential** drive: `outsource explore`
+/ `review` run read-only in a throwaway worktree and **do not move** `last` (they
+preserve their artifact and are graded by their printed `task_id`). When you ask
+for `last`, the resolved drive's id + request is echoed to stderr, so a
+mis-resolve is never silent. Forgotten the id? `feedback list` shows every drive
+by request.
+
 ## Verbs
 
 - `feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]` —
   write a 1-5 quality rating + notes. `--by` defaults to the resolved identity.
 - `feedback show <id|last> [--repo P] [--json]` — read a drive's feedback. An
   ungraded drive reads back as `no feedback yet` (a clean state, exit 0 — not an error).
+- `feedback list [--repo P] [--json]` — list every recorded drive in the repo,
+  newest-first, with its request, status, and grade (`--` when ungraded). The
+  durable way to find the right drive when the order is forgotten.
 - `feedback overview` — describe this surface.
 
 ## Usage
@@ -489,6 +499,7 @@ overwrites), stored as `.colleague/<task_id>.feedback.json` beside the artifact.
     colleague feedback record last --rating 4 --notes "correct but verbose"
     colleague feedback record 9f2c1ab0 --rating 5 --repo . --json
     colleague feedback show last --repo .
+    colleague feedback list --repo .
 
 ## Record shape
 
@@ -780,6 +791,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("feedback",): _FEEDBACK,
     ("feedback", "record"): _FEEDBACK,
     ("feedback", "show"): _FEEDBACK,
+    ("feedback", "list"): _FEEDBACK,
     ("feedback", "overview"): _FEEDBACK,
     ("telemetry",): _TELEMETRY,
     ("telemetry", "status"): _TELEMETRY,

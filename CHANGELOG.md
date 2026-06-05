@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-06-05
+
+### Added
+
+- `colleague feedback list` (and `outsource feedback list`) — list every recorded drive newest-first by request, status, and grade; the durable way to find a drive when the order is forgotten. Reads the authoritative task_id from each artifact's contents, so the filename scheme does not matter (#132).
+- `feedback record last` / `feedback show last` now echo the resolved drive's id + request to stderr, so a `last` mis-resolve is never silent; every `outsource` drive digest prints `task:` and a copy-paste `grade:` hint (#132).
+- Request-slugged artifact filenames (`<task_id>.<slug>.json`) and drive branches (`colleague/<task_id>-<slug>`) so a drive is recognisable in an `ls` / `git branch` listing; `colleague/slug.py` + `artifact.find_artifact`/`read_request` resolve both bare and slugged names (back-compat) (#132).
+
+### Changed
+
+- `last` is now writes-only across the outsource flow (#132): `outsource explore`/`review` preserve their artifact but no longer move the `last_drive` pointer (the skill's `_preserve_artifact` stopped writing it), so a read-only probe can never steal a grade meant for a consequential write. A probe is graded by its printed task_id or via `feedback list`. The skill now preserves the artifact by the basename the drive reports (robust to bare or slugged names).
+
 ## [0.33.9] - 2026-06-05
 
 ### Added
