@@ -1,0 +1,281 @@
+{
+  "slug": "colleague-auto-splits-a-too-large-assignment-into",
+  "title": "Colleague auto-splits a too-large assignment into up to ~4 hand-over child assignments before it degrades lossily or fails \u2014 reaching ~1M-token effective capacity by reusing the subagent fan-out machinery, advisory and backend-judged, never a forced gate.",
+  "frame_slug": "colleague-auto-splits-a-too-large-assignment-into",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-05T14:23:32Z",
+  "updated": "2026-06-05T14:29:01Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague auto-splits a too-large assignment into up to ~4 hand-over child assignments before it degrades lossily or fails \u2014 reaching ~1M-token effective capacity by reusing the subagent fan-out machinery, advisory and backend-judged, never a forced gate."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A triggered oversize assignment demonstrably yields a split recommendation and, when the model acts, \u2264 MAX_SUBAGENT_FANOUT child hand-over assignments end-to-end in a test."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Colleague operators who hand it assignments larger than one context window, and the working backend/model that must carry them out \u2014 plus callers that delegate big tasks via 'colleague work' or the ask-colleague skill."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The feature is reachable via the documented entry points ('colleague work' / ask-colleague) with NO new operator flag required to arm it \u2014 detection is automatic and the response is advisory."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "When colleague detects an assignment is too large for one context window, it recommends splitting it into up to ~4 coherent child assignments (hand-over assignments) that each fit one window, handed over through the existing subagent fan-out + merge machinery \u2014 so effective capacity reaches ~1M tokens (\u22484\u00d7250k) without lossy windowing."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "An assignment exceeding the per-child budget triggers the recommendation; when the model acts, up to ~4 children each fit one window and are merged via the existing merge child \u2014 measured against the configured target."
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today a job bigger than one window either (a) silently loses context to lossy windowing (graceful degradation drops oldest history with a placeholder), or (b) hits a limit and escalates AFTER the fact via an agtag continuation issue. No path splits the WORK before degrading or failing \u2014 escalation's '## Suggested Split' is advisory prose filed post-failure, not an actual hand-over."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The contrast is real and toggleable: with the trigger disabled, the same oversize assignment degrades lossily or escalates with NO split offered \u2014 provable by toggling detection off in a test."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Splitting the work BEFORE degrading turns a hard ceiling (one window, lossy) into ~4\u00d7 effective capacity with no context loss; escalation becomes the final fallback only when even a split can't fit, instead of the first response to overflow."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Effective capacity on a successful split is ~children \u00d7 per-child budget, strictly greater than one window, and no oldest history is dropped within a child solely because the PARENT assignment was oversize."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "This is a split/hand-over POLICY over the existing subagent runtime \u2014 NOT a multi-backend router/routing policy, NOT an execution sandbox, NOT a daemon, and it adds no runtime dependency, socket, or live MCP client. It does not raise MAX_SUBAGENT_FANOUT (4) or MAX_SUBAGENT_DEPTH (2); it does not replace graceful degradation or escalation, it sequences in front of them."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "No runtime dependency is added (dependencies=[] holds), no socket/daemon opens, and MAX_SUBAGENT_FANOUT/DEPTH are unchanged \u2014 guarded by tests/test_zero_deps.py and tests/test_boundary.py."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "An assignment that previously degraded lossily or hit a limit + escalated now instead surfaces a structured split recommendation that the model acts on via the 'subagents' tool, producing up to ~4 child hand-over assignments that are fanned out + merged \u2014 verified by a runtime-owned test that fires identically on mock and vllm-openai (all-engines rule)."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "A runtime-owned test exercises trigger\u2192recommendation\u2192subagents\u2192merge and asserts it is offered identically for mock and vllm-openai (all-engines rule)."
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "When neither the reactive trigger nor the up-front hint fires, behavior is byte-identical to today (a strict no-op): no extra model turn, no recommendation injected, TaskResult shape unchanged \u2014 guarded by the e2e shape test."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "With no trigger, an e2e mock run yields a byte-identical TaskResult shape and zero extra model turns (tests/test_e2e_mock.py)."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The reactive split trigger is evaluated at the degradation-exhaustion point (when _MAX_OVERFLOW_RETRIES is reached in the loop) and is sequenced BEFORE the escalation seam, so a split recommendation is offered before any continuation issue is filed."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A test proves that, when degradation's overflow retries are exhausted, the split recommendation is offered STRICTLY BEFORE _escalation.escalate() runs on the aborted/not-finished path \u2014 escalation only fires if the split is declined or still can't fit."
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "On trigger, the runtime injects exactly one structured recommendation message into the loop history that states the per-child token budget and the max child count (\u2264 MAX_SUBAGENT_FANOUT-1, reserving the merge slot), and points the model at the existing 'subagents' tool. The model is then given bounded additional turns to act."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The injected recommendation message names a concrete per-child token budget and a child cap \u2264 MAX_SUBAGENT_FANOUT-1, and the model is granted \u22651 bounded additional turn to call 'subagents'; verifiable by inspecting the injected message text + turn accounting in a test."
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The actual fan-out + integration reuses colleague.subagents.make_batch_spawn / batch_spawn unchanged (isolated per-child worktrees on sub/<id> branches + the sequential merge child surfacing conflicts). No new worktree, merge, or concurrency code is added."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "No new function is added to subagents.py or worktrees.py; the feature calls existing make_batch_spawn/batch_spawn, and tests/test_boundary.py still passes (threads/subprocess stay confined to the two sanctioned modules)."
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Capacity is governed by a tunable EngineConfig knob (with a COLLEAGUE_* env, resolved via EngineConfig.resolve precedence and a CONVERTIBLE_* fallback) defaulting to ~4 children \u00d7 the per-child context budget \u2248 1M tokens, structurally clamped so children never exceed MAX_SUBAGENT_FANOUT-1."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The knob resolves through EngineConfig.resolve with COLLEAGUE_* preferred over CONVERTIBLE_*; a configured value implying more than MAX_SUBAGENT_FANOUT-1 children is clamped down, proven by a config unit test."
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "The feature is runtime-owned (lives in colleague/loop.py, all-engines rule): it fires identically for mock and vllm-openai, and when no trigger fires it is a strict no-op with TaskResult shape unchanged (guarded by tests/test_e2e_mock.py and the zero-deps guard)."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "With no trigger fired, the loop makes ZERO extra model turns and TaskResult is byte-identical to today; tests/test_e2e_mock.py and tests/test_zero_deps.py both pass, and the identical code path serves mock and vllm-openai."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add a tunable split-capacity knob to EngineConfig",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig exposes a split-capacity field resolved via EngineConfig.resolve, preferring COLLEAGUE_AUTOSPLIT_* over CONVERTIBLE_AUTOSPLIT_*, defaulting to ~4 children x the per-child context budget (~1M).",
+        "A configured child count exceeding MAX_SUBAGENT_FANOUT-1 is clamped down to MAX_SUBAGENT_FANOUT-1, proven by a config unit test.",
+        "Default-config behavior (knob unset) is unchanged; the field has a sane default and no env required."
+      ],
+      "deps": [],
+      "covers": [
+        "c19",
+        "h4"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Build a pure colleague/autosplit.py: up-front estimator + recommendation builder",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A pure builder renders exactly ONE recommendation message naming the concrete per-child token budget and the child cap (<= MAX_SUBAGENT_FANOUT-1) and pointing the model at the existing 'subagents' tool; asserted by a unit test on the message text.",
+        "A coarse up-front estimator returns a token estimate of the task instruction text using the existing count_tokens seam / char heuristic (stdlib only, no new dependency).",
+        "All helpers are pure (no subprocess/threading/network import); tests/test_boundary.py stays green."
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c17",
+        "h2"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Wire the reactive split trigger into loop.py, sequenced before escalation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "When degradation's overflow retries (_MAX_OVERFLOW_RETRIES) are exhausted, the loop injects the recommendation and grants >=1 bounded extra turn STRICTLY BEFORE _escalation.escalate() runs on the aborted/not-finished path \u2014 asserted by a test that orders the two calls.",
+        "The model's resulting 'subagents' call is served by the EXISTING make_batch_spawn/batch_spawn with NO new function added to subagents.py or worktrees.py (boundary test green).",
+        "An end-to-end mock test drives trigger -> recommendation -> subagents -> merge producing <= MAX_SUBAGENT_FANOUT child hand-over assignments that are fanned out and merged.",
+        "A test shows an assignment exceeding the per-child budget triggers the recommendation while a within-budget one does not."
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c16",
+        "h1",
+        "c18",
+        "h3",
+        "c3",
+        "c5",
+        "c7",
+        "h6",
+        "h8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Add cross-cutting guard tests: no-op, all-engines parity, caps, windowing invariant",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "With NO trigger fired, tests/test_e2e_mock.py shows a byte-identical TaskResult shape and ZERO extra model turns; tests/test_zero_deps.py passes (dependencies=[] holds, no socket/daemon).",
+        "A runtime-owned test asserts the trigger -> recommendation path is offered IDENTICALLY for mock and vllm-openai (all-engines rule).",
+        "A toggleable-contrast test: with detection disabled, the same oversize assignment degrades lossily or escalates with NO split offered.",
+        "A test asserts window_messages never drops messages[0]/messages[1] under the most aggressive windowing, so the split-authoring turn always sees the original assignment; and asserts effective capacity ~= children x per-child budget > one window.",
+        "MAX_SUBAGENT_FANOUT (4) and MAX_SUBAGENT_DEPTH (2) are unchanged (boundary/constant test)."
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c8",
+        "h13",
+        "c20",
+        "h5",
+        "h12",
+        "c6",
+        "h11",
+        "h9",
+        "h10"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Document the feature: docs/features/auto-split.md + CLAUDE.md runtime bullet",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/auto-split.md documents the advisory reactive split: the degradation-exhaustion trigger point, the recommendation, reuse of the subagents fan-out/merge machinery, the tunable FANOUT-clamped capacity knob, and the honest limits (advisory-may-be-ignored, concurrency-bound speedup, up-front-estimate blindness).",
+        "CLAUDE.md gains an auto-split runtime-component bullet consistent with the existing component list (audience: operators + the working model; before/after contrast captured).",
+        "The feature arms with NO new operator flag (detection is automatic, response advisory) \u2014 stated in the docs and confirmed by doc-test-alignment.",
+        "doc-test-alignment passes: the committed docs match the built behavior."
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c1",
+        "c2",
+        "c4",
+        "h7"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Bump version (minor) + CHANGELOG entry",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Version bumped (minor) in pyproject.toml and colleague/__init__.py; CHANGELOG.md gets a Keep-a-Changelog entry referencing issue #151; the version-check CI job passes.",
+        "Lint + gates green: black --check, isort --check-only, flake8, bandit, and teken cli doctor . --strict."
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": []
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Advisory means the model MAY ignore the recommendation and keep drowning \u2014 efficacy of the nudge is not guaranteed by the build; measuring it (and a possible escalate-after-decline) is a follow-up.",
+      "kind": "follow_up",
+      "task_id": "t3"
+    },
+    {
+      "id": "r2",
+      "text": "The coarse up-front estimate sees only the instruction text, not the repo surface the work will touch, so it can over/under-trigger; the reactive trigger is the reliable path.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    }
+  ]
+}
