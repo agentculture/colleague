@@ -100,3 +100,22 @@ def test_clean_finish_sets_neither_flag(tmp_path: Path) -> None:
 
     assert result.not_finished is False
     assert result.stopped_without_finish is False
+
+
+def test_max_steps_one_trail_off_is_budget_not_stopped(tmp_path: Path) -> None:
+    """With a single step, the nudge consumes the only turn → budget, not a stop.
+
+    Documents the nudge↔budget interaction: ``_MAX_FINISH_NUDGES`` is bounded *and*
+    each nudge costs a loop iteration, so a 1-step budget that trails off exhausts
+    on the nudge — reported as ``not_finished`` (budget), not ``stopped_without_finish``.
+    The trailing content is still preserved as the partial summary.
+    """
+
+    def always_trails(_messages: list[dict]) -> ModelResponse:
+        return ModelResponse(content="thinking...")
+
+    result = run(always_trails, Task.new(str(tmp_path), "tight budget"), max_steps=1)
+
+    assert result.not_finished is True
+    assert result.stopped_without_finish is False
+    assert result.summary == "thinking..."
