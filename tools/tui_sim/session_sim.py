@@ -31,8 +31,8 @@ from .filmstrip import DEFAULT_WIDTH, FrameT
 DEMO_MODEL = "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
 
 
-def _noop_drive(**_kwargs):  # pragma: no cover - never invoked in a sim
-    raise RuntimeError("tui_sim never runs a real drive")
+def _noop_work(**_kwargs):  # pragma: no cover - never invoked in a sim
+    raise RuntimeError("tui_sim never runs a real work item")
 
 
 def build_session(repo: Path, *, engine: str = "mock", model: str = DEMO_MODEL) -> _Session:
@@ -56,7 +56,7 @@ def build_session(repo: Path, *, engine: str = "mock", model: str = DEMO_MODEL) 
         view="ansi",
         out=lambda *a, **k: None,
         err=lambda *a, **k: None,
-        drive_fn=_noop_drive,
+        work_fn=_noop_work,
         user_home=repo,
     )
 
@@ -70,7 +70,7 @@ def compose_session_frame(
     and still matches at least one command) the autocomplete popup, then the
     prompt line with the typed buffer. The leading clear-home is added by the cast
     writer, so this returns the body only. Takes a bare ``CockpitState`` so any
-    state (a palette *or* a post-drive cockpit) can render a typed buffer.
+    state (a palette *or* a post-work cockpit) can render a typed buffer.
     """
     parts: List[str] = [render_ansi(state, width=width, include_prompt=False)]
     matches = filter_slash(buffer[1:]) if buffer.startswith("/") else []

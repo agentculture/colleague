@@ -57,7 +57,7 @@ from colleague.neighbours import NeighbourManager
 from colleague.policy import Policy, load_policy
 from colleague.telemetry import Telemetry, load_telemetry
 from colleague.tools import ToolError, ToolExecutor, ToolOutcome
-from colleague.tui.from_drive import progress_target as _progress_target
+from colleague.tui.from_work import progress_target as _progress_target
 
 _DEFAULT_SYSTEM = (
     "You are a coding agent working inside a repository. Use the provided tools "
@@ -75,7 +75,7 @@ _DEFAULT_SYSTEM = (
     "(the goal-frame's arrival announcement) to the finish tool."
     "\n\n"
     "Subagents (optional). When a task naturally splits into independent, well-scoped "
-    "pieces, you MAY delegate them to nested child drives. Use the subagent tool to hand "
+    "pieces, you MAY delegate them to nested child work items. Use the subagent tool to hand "
     "ONE scoped piece to a child (optionally on a different engine/model — for example a "
     "mechanical chunk a cheaper model can do). Use the subagents tool to fan out a BATCH "
     "of independent pieces that run in PARALLEL, each isolated in its own git worktree, "
@@ -85,7 +85,7 @@ _DEFAULT_SYSTEM = (
     "child runs the same bounded tool-loop (no git handoff); its result summary returns "
     "to you and any files it writes are merged into your changed set. This is advisory and "
     "entirely your own judgement: a simple, single-file task needs none, so never delegate "
-    "just to delegate. Delegation is bounded (a capped depth and per-drive fan-out), so it "
+    "just to delegate. Delegation is bounded (a capped depth and per-work-item fan-out), so it "
     "always terminates."
     "\n\n"
     "Culture tools (optional). Two operator-installed AgentCulture CLIs are reachable "
@@ -109,7 +109,7 @@ _DEFAULT_SYSTEM = (
 _MAX_OVERFLOW_RETRIES = 3
 _OVERFLOW_SHRINK_FACTOR = 0.6
 
-# How a drive's turn loop ended (return values of ``_drive_loop``). The model may
+# How a work item's turn loop ended (return values of ``_work_loop``). The model may
 # end a turn with no tool call instead of calling ``finish`` — usually trailing off
 # mid-task — so the loop distinguishes a clean finish from that stop, and from a
 # step-budget exhaustion, and ``run`` maps each to the right TaskResult flag.
@@ -145,8 +145,8 @@ class ModelResponse:
     ``reasoning`` is the model's chain-of-thought when the server returns it as a
     separate field (OpenAI-compatible ``message.reasoning`` / ``reasoning_content``),
     distinct from ``content`` (the final answer). It is generated but never saved
-    to a file, so the loop measures it as the "thought" portion of a drive
-    (char/byte lengths in :class:`~colleague.contract.DriveStats`). Empty for
+    to a file, so the loop measures it as the "thought" portion of a work item
+    (char/byte lengths in :class:`~colleague.contract.WorkStats`). Empty for
     servers/models that do not emit a reasoning field.
     """
 
@@ -167,13 +167,13 @@ CompleteFn = Callable[[list[dict[str, Any]]], ModelResponse]
 ProgressFn = Callable[[int, str, str, bool], None]
 
 
-class DriveAborted(Exception):
+class WorkAborted(Exception):
     """An engine raised mid-loop; carries the partial result (#37).
 
     The bounded loop catches the engine's exception, finalizes the partial
     :class:`~colleague.contract.TaskResult` (``status=error`` plus the
     ``steps`` / ``usage`` / ``changed_files`` accumulated so far) and raises this
-    so the shared drive path can persist that partial artifact + non-empty trace
+    so the shared work path can persist that partial artifact + non-empty trace
     before surfacing the error to the operator. The original exception is the
     ``__cause__``.
     """
@@ -275,13 +275,13 @@ def _fire_hooks(
                 )
                 continue
 
-        # A hook must never abort the drive. run_hook already maps timeouts /
+        # A hook must never abort the work item. run_hook already maps timeouts /
         # launch failures to a deny; this net catches any other unexpected error
         # and records it as a fail-closed deny firing rather than propagating.
         try:
             decision = run_hook(entry, payload, cwd=task.repo_path)
         # BLE001 justified: fail-closed — any hook error becomes a deny (see the
-        # note above), never propagated, so a crashing hook cannot abort the drive.
+        # note above), never propagated, so a crashing hook cannot abort the work item.
         except Exception as exc:  # noqa: BLE001
             decision = HookDecision(
                 decision=DECISION_DENY, reason=f"hook error: {exc}", exit_code=None
@@ -306,8 +306,8 @@ def _fire_hooks(
 
 
 @dataclass(frozen=True)
-class _Drive:
-    """The fixed collaborators threaded through one drive's tool-loop helpers.
+class _Work:
+    """The fixed collaborators threaded through one work item's tool-loop helpers.
 
     Grouped so the per-call helpers take one ``ctx`` instead of a long parameter
     list. ``result`` and ``messages`` are mutated *through* these references
@@ -330,10 +330,10 @@ class _Drive:
     context_budget: int | None = None
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
     # Last non-empty ``resp.content`` seen across ALL turns (including turns that
-    # also made tool calls).  Updated in ``_drive_loop`` unconditionally whenever
+    # also made tool calls).  Updated in ``_work_loop`` unconditionally whenever
     # ``resp.content`` is non-empty — this is the t2 "last-substantive-content"
     # candidate used as the no-finish summary fallback in ``run``.  Stored as a
-    # mutable list[str] (single element) so the frozen ``_Drive`` dataclass can
+    # mutable list[str] (single element) so the frozen ``_Work`` dataclass can
     # still update it through the binding.
     _last_substantive: list[str] = field(default_factory=list)
 
@@ -361,10 +361,10 @@ def _finalize_stats(
     started_at: str,
     duration_seconds: float,
 ) -> None:
-    """Fill the drive-level :class:`DriveStats` fields known only at loop exit.
+    """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
 
     The per-turn fields (``model_turns`` and the generated reasoning/answer sizes)
-    are accumulated in :func:`_drive_loop`; this fills the rest from the finished
+    are accumulated in :func:`_work_loop`; this fills the rest from the finished
     result + executor. Called on EVERY exit path (model finish / empty turn /
     budget / mid-loop abort) so a partial drive still gets populated stats.
     """
@@ -378,11 +378,11 @@ def _finalize_stats(
     stats.bytes_written = executor.bytes_written
 
 
-def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: bool) -> None:
+def _emit_progress(ctx: _Work, step_index: int, tool: str, arguments: Any, ok: bool) -> None:
     """Fire the per-step progress sink, if one is wired (#38). No-op otherwise.
 
     A progress sink is observability, never control: a raising sink must never
-    abort the drive, so its failure is suppressed (the same fail-safe as hooks
+    abort the work item, so its failure is suppressed (the same fail-safe as hooks
     and neighbour clones).
     """
     if ctx.progress is None:
@@ -391,7 +391,7 @@ def _emit_progress(ctx: _Drive, step_index: int, tool: str, arguments: Any, ok: 
         ctx.progress(step_index, tool, _progress_target(arguments), ok)
 
 
-def _deny_by_policy(ctx: _Drive, call: ToolCall, span: Any, step_index: int) -> bool:
+def _deny_by_policy(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
     """Check the approval policy for ``run_command``; record and return True on deny.
 
     Returns ``True`` when the call is denied (the caller must return False from
@@ -411,7 +411,7 @@ def _deny_by_policy(ctx: _Drive, call: ToolCall, span: Any, step_index: int) -> 
     return True
 
 
-def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
+def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
     """Run one tool call inside its own telemetry span; return whether it finished.
 
     Owns the per-call lifecycle: the ``pre_tool`` hook (first deny/rewrite wins),
@@ -422,7 +422,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
     """
     step_index = len(ctx.result.steps)
 
-    # One span per tool-call iteration, auto-nesting under the drive span. A
+    # One span per tool-call iteration, auto-nesting under the work item span. A
     # ``return False`` still runs the span's exit (so its metrics — one step +
     # one tool call — are recorded for deny/error paths too).
     with ctx.telemetry.tool_span(tool=call.name, step_index=step_index) as span:
@@ -507,7 +507,7 @@ def _run_tool_call(ctx: _Drive, call: ToolCall) -> bool:
         return True
 
 
-def _run_tool_calls(ctx: _Drive, calls: list[ToolCall]) -> bool:
+def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
     """Run every tool call in one model turn; return whether any finished.
 
     A finish does *not* stop the turn — the remaining calls in the same response
@@ -521,7 +521,7 @@ def _run_tool_calls(ctx: _Drive, calls: list[ToolCall]) -> bool:
     return finished
 
 
-def _window_in_place(ctx: _Drive, budget: int) -> None:
+def _window_in_place(ctx: _Work, budget: int) -> None:
     """Trim ``ctx.messages`` in place to *budget* tokens (preserves head + tail).
 
     Mutating in place (``[:]``) keeps the trimmed history across turns — dropping
@@ -532,11 +532,11 @@ def _window_in_place(ctx: _Drive, budget: int) -> None:
     ctx.messages[:] = window_messages(ctx.messages, budget, ctx.count_tokens)
 
 
-def _complete_with_degradation(ctx: _Drive, complete: CompleteFn) -> ModelResponse:
+def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     """Window the history, call ``complete``, and degrade-on-overflow if budgeted.
 
     Owns the proactive window + the bounded reactive shrink-and-retry so
-    :func:`_drive_loop` stays shallow (SonarCloud S3776). With no positive
+    :func:`_work_loop` stays shallow (SonarCloud S3776). With no positive
     ``context_budget`` this is a thin pass-through: no windowing, ``complete`` is
     called once and whatever it raises propagates unchanged.
 
@@ -581,14 +581,14 @@ def _complete_with_degradation(ctx: _Drive, complete: CompleteFn) -> ModelRespon
     return complete(ctx.messages)
 
 
-def _account_turn(ctx: _Drive, resp: ModelResponse) -> None:
+def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     """Per-turn bookkeeping (always-on): usage, telemetry, stats, last-substantive.
 
     Counts the turn and accumulates the generated reasoning/answer sizes (chars +
     bytes), mirrored into the optional telemetry as a strict no-op when off. Also
     tracks the last non-empty ``resp.content`` across ALL turns (including
     tool-call turns) — the t2 candidate ``run`` falls back to for the summary —
-    via the mutable proxy so the frozen ``_Drive`` binding stays intact.
+    via the mutable proxy so the frozen ``_Work`` binding stays intact.
     """
     ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
     ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
@@ -599,7 +599,7 @@ def _account_turn(ctx: _Drive, resp: ModelResponse) -> None:
         ctx._last_substantive[:] = [resp.content]
 
 
-def _handle_no_tool_turn(ctx: _Drive, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
+def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
     """Handle a turn that requested no tool — nudge once, else stop (colleague#142).
 
     The contract is to call ``finish``; a bare prose turn is usually the model
@@ -619,7 +619,7 @@ def _handle_no_tool_turn(ctx: _Drive, resp: ModelResponse, nudges: int) -> tuple
     return nudges, _EXIT_STOPPED
 
 
-def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> str:
+def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
     Each turn: window the history to the context budget (if set), call
@@ -646,7 +646,7 @@ def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> str:
             continue  # nudged — give the model one more turn to call finish
 
         ctx.messages.append(_assistant_message(resp))
-        # Run the turn's tool calls; a finish on any of them ends the drive once
+        # Run the turn's tool calls; a finish on any of them ends the work item once
         # the turn completes (the remaining calls in the turn still run).
         if _run_tool_calls(ctx, resp.tool_calls):
             return _EXIT_FINISHED
@@ -721,7 +721,7 @@ def run(
     :func:`colleague.subagents.make_batch_spawn`) backs the ``subagents`` (plural)
     parallel-batch tool. When given they are injected into the
     :class:`~colleague.tools.ToolExecutor` so the corresponding tool can delegate
-    to nested child drives; ``None`` (the default), or a field left ``None``,
+    to nested child work items; ``None`` (the default), or a field left ``None``,
     leaves that tool unavailable (it reports so to the model). This is runtime-owned
     — backends build their own executor from ``config.subagent_spawn`` /
     ``config.subagent_batch_spawn`` (the ``executor`` seam), so the ``spawns``
@@ -745,7 +745,7 @@ def run(
     context-overflow the bounded retry could not recover), the partial work is
     *preserved*: the accumulated ``steps`` / ``usage`` / ``changed_files`` are
     finalized onto the result with ``status=error`` and re-raised as
-    :class:`DriveAborted` carrying that result, so the drive path can write a
+    :class:`WorkAborted` carrying that result, so the work path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
     _spawns = spawns or Spawns()
@@ -754,8 +754,8 @@ def run(
     )
     hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
     # Telemetry defaults like hooks do: resolved from the environment, a no-op
-    # unless explicitly enabled. Tool spans auto-nest under the drive span the
-    # shared drive path opens (via the SDK's context propagation).
+    # unless explicitly enabled. Tool spans auto-nest under the work item span the
+    # shared work path opens (via the SDK's context propagation).
     telemetry = telemetry if telemetry is not None else load_telemetry()
     # Policy defaults like hooks: loaded from task.repo_path when not injected.
     # An absent or malformed approvals.json returns an empty Policy (no-op), so
@@ -777,14 +777,14 @@ def run(
 
     # Neighbour clone lifecycle — runtime-owned (all-engines rule).
     # clone_all() runs before the loop so allow-listed neighbours are available
-    # to read during the drive. With no allow-list this is a safe no-op (verified
+    # to read during the work item. With no allow-list this is a safe no-op (verified
     # by NeighbourManager itself). cleanup() runs unconditionally after the loop
     # on EVERY exit path (model finish, empty turn, step-budget) to leave no
     # residue between drives.
     neighbours = NeighbourManager(task.repo_path)
     # A neighbour clone failure (unreachable remote, bad URL, timeout, bad name)
-    # must never abort the drive — the loop proceeds without that neighbour. This
-    # mirrors the "a hook must never abort the drive" fail-safe: neighbour clones
+    # must never abort the work item — the loop proceeds without that neighbour. This
+    # mirrors the "a hook must never abort the work item" fail-safe: neighbour clones
     # are best-effort context, not a precondition for the task.
     with suppress(Exception):
         neighbours.clone_all()
@@ -794,7 +794,7 @@ def run(
 
     # The fixed collaborators for this drive — passed as one ``ctx`` to the
     # per-turn / per-call helpers so the loop body stays shallow.
-    ctx = _Drive(
+    ctx = _Work(
         executor=executor,
         hooks=hooks,
         telemetry=telemetry,
@@ -809,7 +809,7 @@ def run(
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto
-    # DriveStats on every exit path below.
+    # WorkStats on every exit path below.
     started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     start_monotonic = time.monotonic()
 
@@ -820,7 +820,7 @@ def run(
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
     try:
-        outcome = _drive_loop(ctx, complete, max_steps)
+        outcome = _work_loop(ctx, complete, max_steps)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
         aborted = exc
         result.status = ERROR
@@ -838,7 +838,7 @@ def run(
         neighbours.cleanup()
 
     result.changed_files = sorted(executor.changed)
-    # Snapshot any nested child drives the executor accumulated — captured here,
+    # Snapshot any nested child work items the executor accumulated — captured here,
     # the single place that runs on EVERY exit path (model finish / empty turn /
     # budget / the aborted path below), so a delegation survives even a mid-loop
     # engine raise. Empty when nothing was delegated → omitted from the artifact.
@@ -855,13 +855,13 @@ def run(
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 
-    # Resolve the last-substantive-content candidate from the drive loop.
+    # Resolve the last-substantive-content candidate from the work item loop.
     # ``ctx._last_substantive`` is a single-element list (or empty) updated
     # unconditionally on every turn — including turns that made tool calls.
     _last_sub = ctx._last_substantive[0] if ctx._last_substantive else ""
 
     if aborted is not None:
-        # Carry the populated partial result out via DriveAborted; the drive path
+        # Carry the populated partial result out via WorkAborted; the work path
         # writes it (non-empty steps/usage/changed_files + trace) then re-surfaces
         # the failure to the operator (#37).
         # Prefer the model's last substantive content over the generic aborted
@@ -874,13 +874,13 @@ def run(
         )
         # Escalation seam — aborted path (#106 t3): best-effort, observe-only.
         # A timeout / context-overflow / engine error is a limit worth escalating.
-        # Wrapped in suppress so any escalation failure never masks the drive result.
+        # Wrapped in suppress so any escalation failure never masks the work item result.
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
-        raise DriveAborted(result) from aborted
+        raise WorkAborted(result) from aborted
 
-    # Outcome flags (#106 t5 + colleague#142): derived from the _drive_loop return.
-    # We are in the non-aborted path here, so DriveAborted is not raised — that is a
+    # Outcome flags (#106 t5 + colleague#142): derived from the _work_loop return.
+    # We are in the non-aborted path here, so WorkAborted is not raised — that is a
     # different signal and BOTH flags are deliberately left False for it (the default
     # covers it above). Two orthogonal, mutually exclusive non-clean exits:
     #   * not_finished           — step budget exhausted without finishing (#106 t5).
@@ -898,9 +898,9 @@ def run(
     #   1. finish_summary set by the finish tool (already on result.summary via
     #      _apply_finish at line ~305 — highest priority, untouched here).
     #   2. A no-tool-call terminating turn's content (already set at the
-    #      resp.content path in _drive_loop above — second priority, also already
+    #      resp.content path in _work_loop above — second priority, also already
     #      on result.summary before we reach here).
-    #   3. Last substantive assistant content seen across the drive (the t2 gap:
+    #   3. Last substantive assistant content seen across the work item (the t2 gap:
     #      narration emitted on a tool-call turn is now recoverable).
     #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
     if not result.summary:
@@ -909,7 +909,7 @@ def run(
     # Escalation seam — not-finished path (#106 t3): step budget exhausted without
     # calling finish.  Runs AFTER summary resolution (above) so the continuation
     # record carries the real output.  Best-effort and observe-only; suppress so
-    # it cannot mask the drive result.
+    # it cannot mask the work item result.
     if result.not_finished:
         with suppress(Exception):
             _escalation.escalate(result, result.stats, task.repo_path, model=model)

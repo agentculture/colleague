@@ -21,7 +21,7 @@ help") but must be explicit, hence the flag.
     this check compares the *configured* model id against the served ids. A match
     is ``info``/passed; a miss is a ``warning`` naming both the configured model
     and what the server actually serves — the legible form of the otherwise
-    cryptic ``404 model does not exist`` a drive would hit. When the list cannot
+    cryptic ``404 model does not exist`` a work item would hit. When the list cannot
     be enumerated (HTTP error, connection refused, timeout, malformed body) the
     check is omitted entirely: we cannot tell, so we say nothing.
 

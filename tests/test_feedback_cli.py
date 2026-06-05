@@ -211,7 +211,7 @@ def test_show_explicit_id_does_not_emit_resolution_note(
 def test_feedback_list_empty_is_clean(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["feedback", "list", "--repo", str(tmp_path)])
     assert rc == 0
-    assert "no drives recorded yet" in capsys.readouterr().out
+    assert "no work items recorded yet" in capsys.readouterr().out
 
     rc = main(["feedback", "list", "--repo", str(tmp_path), "--json"])
     assert rc == 0

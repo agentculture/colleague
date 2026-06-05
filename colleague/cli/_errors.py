@@ -32,7 +32,7 @@ class CliError(Exception):
     """Structured error raised within the CLI; carries a remediation hint for agents.
 
     The optional *result* field carries a partial :class:`~colleague.contract.TaskResult`
-    on the drive-failure path so that ``cmd_drive --json`` can surface it to stdout while
+    on the work item-failure path so that ``cmd_work --json`` can surface it to stdout while
     still exiting non-zero (honesty condition h5 — the partial trace is never silently
     swallowed by a ``--json`` caller).  All existing call-sites that omit *result* are
     unaffected — it defaults to ``None``.

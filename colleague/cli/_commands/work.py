@@ -1,11 +1,11 @@
-"""``colleague drive`` — assign a repo task to a coder backend.
+"""``colleague work`` — assign a repo task to a coder backend.
 
 The headline verb: select an engine (a discovered wheel), run the bounded
 agentic loop against a repo, write the result artifact, and hand the change off
 as a branch + PR. The *same* invocation works for every backend — only
 ``--engine`` changes (honesty conditions h11/h12).
 
-A failed drive still writes a result artifact (``status=error``) before exiting
+A failed work item still writes a result artifact (``status=error``) before exiting
 non-zero, so a crash never leaves an empty run report (h5).
 
 ``--command NAME`` (and optional positional args) expands a saved command
@@ -13,10 +13,10 @@ template into the Task via :func:`colleague.commands.expand_command` and
 records the originating command name on the result (``TaskResult.command``).
 Exactly one of a positional instruction or ``--command`` must be supplied.
 
-:func:`execute_drive` is the shared helper that performs the drive orchestration
+:func:`execute_work` is the shared helper that performs the work item orchestration
 (load engine → run loop → handoff → write artifact) and returns the
-``(TaskResult, artifact_path)`` pair.  Both ``cmd_drive`` and the ``session``
-palette delegate to it so the drive path is never duplicated (honesty h11).
+``(TaskResult, artifact_path)`` pair.  Both ``cmd_work`` and the ``session``
+palette delegate to it so the work path is never duplicated (honesty h11).
 """
 
 from __future__ import annotations
@@ -34,19 +34,19 @@ from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, resolve_engine
 from colleague.contract import OK, Task, TaskResult
-from colleague.feedback import set_last_drive
+from colleague.feedback import set_last_work
 from colleague.handoff import HandoffError, handoff, untracked_snapshot
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.telemetry import Telemetry, load_telemetry
 
 
 def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
-    """Per-step progress line to stderr during a drive (#38).
+    """Per-step progress line to stderr during a work item (#38).
 
     stdout carries only the result stream (the ``--json`` ``TaskResult``), so a
     progress line here never pollutes the parseable output — it is emitted in all
     modes. Wired onto :class:`~colleague.config.EngineConfig` by
-    :func:`execute_drive`, so both ``drive`` and ``session`` (and every backend)
+    :func:`execute_work`, so both ``work`` and ``session`` (and every backend)
     report progress identically.
     """
     detail = f" {target}" if target else ""
@@ -57,7 +57,7 @@ def _repo_relative(repo: Path, path_str: str) -> str | None:
     """Repo-relative POSIX path for *path_str* if it lives inside *repo*, else None.
 
     Used to recognise a `--tui-events` stream written into the repo so the handoff
-    can treat it as baseline (telemetry) rather than drive-produced output.
+    can treat it as baseline (telemetry) rather than work-produced output.
     """
     try:
         rel = Path(path_str).expanduser().resolve().relative_to(repo.resolve())
@@ -78,8 +78,8 @@ def _render(result: TaskResult, engine: str, artifact_path: Path) -> str:
         lines.append(f"branch: {result.branch}")
     lines.append(f"PR: {result.pr_url or '(none)'}")
     lines.append(f"artifact: {artifact_path}")
-    # The ROI-loop nudge: every completed drive is gradable (the artifact survives
-    # even on a failed drive — a 1/5 is exactly the ROI signal), so mirror the
+    # The ROI-loop nudge: every completed work item is gradable (the artifact survives
+    # even on a failed work item — a 1/5 is exactly the ROI signal), so mirror the
     # ask-colleague wrapper's `grade:` hint here pointing at the native feedback verb.
     # `_render` is the text path only; the `--json` branch bypasses it, so the
     # hint never pollutes machine output.
@@ -98,11 +98,11 @@ def _handoff_result(
     base: str,
     telemetry: Telemetry,
 ) -> None:
-    """Branch/commit (+push/PR) a successful drive; fold the outcome onto *result*.
+    """Branch/commit (+push/PR) a successful work item; fold the outcome onto *result*.
 
-    A :class:`~colleague.handoff.HandoffError` is non-fatal — the drive still
+    A :class:`~colleague.handoff.HandoffError` is non-fatal — the work item still
     succeeded, so it is surfaced as a diagnostic and the result keeps its local
-    state. Extracted from :func:`execute_drive` to keep that function's control
+    state. Extracted from :func:`execute_work` to keep that function's control
     flow flat.
     """
     with telemetry.handoff_span() as handoff_span:
@@ -133,7 +133,7 @@ def _handoff_result(
             emit_diagnostic(f"handoff: {outcome.note}")
 
 
-def execute_drive(
+def execute_work(
     *,
     repo: Path,
     engine_name: str,
@@ -146,10 +146,10 @@ def execute_drive(
     tui_events: str | None = None,
     progress_sink: "CockpitProgressSink | None" = None,
 ) -> tuple[TaskResult, Path]:
-    """Shared drive orchestration: load engine → loop → handoff → write artifact.
+    """Shared work orchestration: load engine → loop → handoff → write artifact.
 
-    This helper is the single implementation of the drive path.  Both
-    :func:`cmd_drive` and the ``session`` palette call it so the loop, hooks,
+    This helper is the single implementation of the work path.  Both
+    :func:`cmd_work` and the ``session`` palette call it so the loop, hooks,
     and artifact logic are never duplicated (honesty condition h11).
 
     Parameters
@@ -175,13 +175,13 @@ def execute_drive(
         ``None`` (default) is auto — on when stderr is an interactive TTY. When
         off, the plain ``step N:`` stderr sink is used unchanged.
     tui_events:
-        Optional path (#74 A3): when set, one `DriveStep` JSONL line is appended
-        per step as the drive runs, so an agent can follow / `tui replay` it.
+        Optional path (#74 A3): when set, one `WorkStep` JSONL line is appended
+        per step as the work item runs, so an agent can follow / `tui replay` it.
     progress_sink:
         Optional caller-supplied cockpit sink (#74 A2): the interactive ``session``
-        passes a sink bound to its own `CockpitState` + frame-writer so a drive
+        passes a sink bound to its own `CockpitState` + frame-writer so a work item
         renders into the session's one shared screen. Replaces the auto-constructed
-        cockpit; ``None`` (the default) preserves the byte-identical `drive` path.
+        cockpit; ``None`` (the default) preserves the byte-identical `work` path.
 
     Returns
     -------
@@ -201,28 +201,28 @@ def execute_drive(
             EXIT_USER_ERROR, str(exc), "list engines with: colleague backends list"
         ) from exc
 
-    # Telemetry: the root span wraps engine.drive() + handoff() + the artifact write, so
+    # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
-    # The same shared path serves `drive` and `session`, so both are instrumented.
+    # The same shared path serves `work` and `session`, so both are instrumented.
     telemetry = load_telemetry()
     try:
-        with telemetry.drive_span(
+        with telemetry.work_span(
             task_id=task.id,
             engine=engine_name,
             model=config.model,
             max_steps=config.max_steps,
-        ) as drive_span:
+        ) as work_span:
             trace_id = telemetry.trace_id_hex()
             if trace_id:
                 emit_diagnostic(f"trace: {trace_id}")
 
-            # Snapshot untracked files BEFORE the drive so the handoff stages only
-            # the files the drive itself produces — never pre-existing operator
+            # Snapshot untracked files BEFORE the work item so the handoff stages only
+            # the files the work item itself produces — never pre-existing operator
             # work-in-progress (#39).
             baseline_untracked = untracked_snapshot(repo)
             # A live `--tui-events` stream written into the repo is harness
             # telemetry, not drive output: register it as baseline so the handoff
-            # never sweeps it into the drive branch (after which the branch-restore
+            # never sweeps it into the work branch (after which the branch-restore
             # would delete it). Paths outside the repo / under .colleague/ are
             # already excluded by the handoff (#74 A3).
             if tui_events:
@@ -230,7 +230,7 @@ def execute_drive(
                 if ev_rel is not None:
                     baseline_untracked.append(ev_rel)
 
-            # Per-step progress (#38) — wired here so both `drive` and `session`,
+            # Per-step progress (#38) — wired here so both `work` and `session`,
             # and every backend (which forwards `config.progress`), report
             # identically. By default the plain `step N:` stderr sink; with the
             # cockpit active (#74 A1, auto-on a TTY) and/or `--tui-events` (A3) the
@@ -247,14 +247,14 @@ def execute_drive(
                 external_sink=progress_sink,
             )
             # Subagent delegation (t6) — the top-level spawn callback is built here
-            # so both `drive` and `session`, and every backend (which forwards
+            # so both `work` and `session`, and every backend (which forwards
             # `config.subagent_spawn`), can delegate identically. depth defaults to
             # 1; the launcher binds each child to depth+1, so recursion is bounded
             # by MAX_SUBAGENT_DEPTH.
             config.subagent_spawn = make_spawn(task.repo_path, config, task.engine)
             config.subagent_batch_spawn = make_batch_spawn(task.repo_path, config, task.engine)
             try:
-                result = engine.drive(task, config)
+                result = engine.work(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
                 # Prefer the partial result the loop preserved on an engine raise
                 # (#37): its steps / usage / changed_files + trace reflect the work
@@ -277,12 +277,12 @@ def execute_drive(
                     # No partial result -> the trace is empty; don't claim otherwise.
                     artifact_note = "a result artifact was still written"
                 result.command = command_name
-                drive_span.set(status=result.status)
+                work_span.set(status=result.status)
                 write(result, artifact_dir(repo))
-                # The drive happened (even if it failed) — record it as 'last' so
+                # The work item happened (even if it failed) — record it as 'last' so
                 # `feedback last` can still grade it. Best-effort: never mask the error.
                 with suppress(Exception):
-                    set_last_drive(repo, result.task_id)
+                    set_last_work(repo, result.task_id)
                 raise CliError(
                     EXIT_ENV_ERROR,
                     f"engine '{engine_name}' failed: {original}",
@@ -291,7 +291,7 @@ def execute_drive(
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine
-                # failure) so the final frame shows the drive as finished. Best-
+                # failure) so the final frame shows the work item as finished. Best-
                 # effort: a render glitch must never mask the real outcome.
                 if cockpit_sink is not None:
                     with suppress(Exception):
@@ -308,18 +308,18 @@ def execute_drive(
                     telemetry=telemetry,
                 )
 
-            drive_span.set(
+            work_span.set(
                 status=result.status,
                 step_count=len(result.steps),
                 pr_url=result.pr_url,
             )
             result.command = command_name
             artifact_path = write(result, artifact_dir(repo))
-            # Record this as the repo's most recent drive so `colleague feedback
+            # Record this as the repo's most recent work item so `colleague feedback
             # last` resolves to it. Best-effort: a pointer write must never break
-            # a successful drive.
+            # a successful work item.
             with suppress(Exception):
-                set_last_drive(repo, result.task_id)
+                set_last_work(repo, result.task_id)
             return result, artifact_path
     finally:
         telemetry.flush()
@@ -331,7 +331,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
     ``args.instruction`` is a list (nargs="*"). With ``--command`` set the tokens
     are template arguments (expanded via :func:`expand_command`); without it they
     are a plain instruction. Raises :class:`CliError` when neither is supplied or
-    a template fails to expand. Extracted from :func:`cmd_drive` to keep that
+    a template fails to expand. Extracted from :func:`cmd_work` to keep that
     function's cognitive complexity under the threshold (SonarCloud S3776).
     """
     positional_tokens: list[str] = getattr(args, "instruction", None) or []
@@ -343,7 +343,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
         raise CliError(
             EXIT_USER_ERROR,
             "missing required argument: provide an instruction or --command <name>",
-            "run 'colleague drive --help' to see usage",
+            "run 'colleague work --help' to see usage",
         )
 
     if has_command:
@@ -367,7 +367,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
     return Task.new(str(repo), " ".join(positional_tokens), engine=engine)
 
 
-def cmd_drive(args: argparse.Namespace) -> int:
+def cmd_work(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
 
     # Decorative startup banner — interactive TTY only, suppressed in --json so
@@ -383,7 +383,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
         )
 
     # Resolve the engine: explicit --engine > COLLEAGUE_ENGINE > vllm-openai.
-    # A bare drive never silently falls through to the no-op mock (#53).
+    # A bare work item never silently falls through to the no-op mock (#53).
     engine = resolve_engine(args.engine)
 
     config = EngineConfig.resolve(
@@ -396,10 +396,10 @@ def cmd_drive(args: argparse.Namespace) -> int:
     command_name: str | None = getattr(args, "command_name", None)
     task = _build_task(args, repo, engine, config)
 
-    # Delegate the full drive orchestration to the shared helper, which records
+    # Delegate the full work orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
     try:
-        result, artifact_path = execute_drive(
+        result, artifact_path = execute_work(
             repo=repo,
             engine_name=engine,
             task=task,
@@ -426,14 +426,8 @@ def cmd_drive(args: argparse.Namespace) -> int:
     return 0 if result.status == OK else 1
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "drive",
-        help=(
-            "Drive toward a goal: work autonomously on a request or instruction "
-            "through a coder backend, then hand off the result."
-        ),
-    )
+def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: str) -> None:
+    p = sub.add_parser(name, help=help_text)
     # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
     # ``--command`` can be the sole input without argparse raising an error.
     p.add_argument(
@@ -450,13 +444,13 @@ def register(sub: argparse._SubParsersAction) -> None:
         dest="command_name",
         metavar="NAME",
         default=None,
-        help="Expand a saved command template and drive it (mutually exclusive with instruction).",
+        help="Expand a saved command template and run it (mutually exclusive with instruction).",
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--engine",
         default=None,
-        help="Backend plugin to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help="Backend plugin to use (default: COLLEAGUE_ENGINE or vllm-openai).",
     )
     p.add_argument("--no-pr", action="store_true", help="Commit locally; do not push or open a PR.")
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
@@ -469,7 +463,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help=(
-            "Render a live cockpit (with popups) on stderr during the drive. "
+            "Render a live cockpit (with popups) on stderr during the work item. "
             "Default: auto — on when stderr is an interactive TTY. "
             "Use --no-tui to force the plain 'step N:' lines."
         ),
@@ -478,7 +472,21 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--tui-events",
         metavar="PATH",
         default=None,
-        help="Append a live DriveStep JSONL stream to PATH (replay with 'tui replay').",
+        help="Append a live WorkStep JSONL stream to PATH (replay with 'tui replay').",
     )
     p.add_argument("--json", action="store_true", help="Emit the result as structured JSON.")
-    p.set_defaults(func=cmd_drive)
+    p.set_defaults(func=cmd_work)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    _add_work_parser(
+        sub,
+        "work",
+        help_text=(
+            "Work toward a goal: act autonomously on a request or instruction "
+            "through a coder backend, then hand off the result."
+        ),
+    )
+    # Deprecated alias of `work` (the old car-themed verb), kept for
+    # back-compatibility. Labelled in --help so the surface nudges toward `work`.
+    _add_work_parser(sub, "drive", help_text="Deprecated alias of 'colleague work'.")

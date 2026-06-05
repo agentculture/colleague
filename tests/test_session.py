@@ -12,8 +12,8 @@ from typing import Iterator
 import pytest
 
 from colleague.cli import main
-from colleague.cli._commands.drive import execute_drive
 from colleague.cli._commands.session import run_session
+from colleague.cli._commands.work import execute_work
 from colleague.contract import OK, Task, TaskResult
 
 # ---------------------------------------------------------------------------
@@ -170,14 +170,14 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
     """
     _make_command_template(tmp_path, "setup", "Set up the project.\n")
 
-    # --- Drive path via execute_drive (the shared helper used by both) ---
+    # --- Drive path via execute_work (the shared helper used by both) ---
     from colleague.commands import expand_command
     from colleague.config import EngineConfig
 
     task_via_drive = expand_command(tmp_path, "setup", [], engine_default="mock")
     config = EngineConfig.resolve()
 
-    result_drive, _ = execute_drive(
+    result_drive, _ = execute_work(
         repo=tmp_path,
         engine_name="mock",
         task=task_via_drive,
@@ -203,7 +203,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         tui_events: str | None = None,
         progress_sink: object = None,
     ) -> tuple[TaskResult, Path]:
-        result, art_path = execute_drive(
+        result, art_path = execute_work(
             repo=repo,
             engine_name=engine_name,
             task=task,
@@ -219,7 +219,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         return result, art_path
 
     out = _CollectingOut()
-    rc = run_session(args, input_fn=iter(["setup", "q"]), out=out, _drive_fn=_capturing_drive)
+    rc = run_session(args, input_fn=iter(["setup", "q"]), out=out, _work_fn=_capturing_drive)
     assert rc == 0
     assert len(captured_results) == 1
     result_session = captured_results[0]
@@ -256,17 +256,17 @@ def test_session_loops_multiple_iterations(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 6: execute_drive is importable and returns the right types
+# Test 6: execute_work is importable and returns the right types
 # ---------------------------------------------------------------------------
 
 
-def test_execute_drive_returns_taskresult_and_path(tmp_path: Path) -> None:
-    """execute_drive returns (TaskResult, Path) with the expected types."""
+def test_execute_work_returns_taskresult_and_path(tmp_path: Path) -> None:
+    """execute_work returns (TaskResult, Path) with the expected types."""
     from colleague.config import EngineConfig
 
     task = Task.new(str(tmp_path), "set up the repo", engine="mock")
     config = EngineConfig.resolve()
-    result, art_path = execute_drive(
+    result, art_path = execute_work(
         repo=tmp_path,
         engine_name="mock",
         task=task,
@@ -396,7 +396,7 @@ def test_session_slash_engine_switches_for_next_drive(tmp_path: Path) -> None:
         args,
         input_fn=iter(["/engine mock", "do a thing", "q"]),
         out=out,
-        _drive_fn=_ok_drive(tmp_path, calls),
+        _work_fn=_ok_drive(tmp_path, calls),
         _color=False,
     )
     assert rc == 0
@@ -413,7 +413,7 @@ def test_session_slash_engine_rejects_unknown(tmp_path: Path) -> None:
         input_fn=iter(["/engine nope", "do a thing", "q"]),
         out=_CollectingOut(),
         err=err,
-        _drive_fn=_ok_drive(tmp_path, calls),
+        _work_fn=_ok_drive(tmp_path, calls),
         _color=False,
     )
     assert rc == 0
@@ -429,7 +429,7 @@ def test_session_slash_pr_toggles_handoff(tmp_path: Path) -> None:
         _make_args(tmp_path),
         input_fn=iter(["do one", "/pr", "do two", "q"]),
         out=out,
-        _drive_fn=_ok_drive(tmp_path, calls),
+        _work_fn=_ok_drive(tmp_path, calls),
         _color=False,
     )
     assert rc == 0
@@ -451,7 +451,7 @@ def test_session_failed_step_surfaces_error_popup(tmp_path: Path) -> None:
         _make_args(tmp_path),
         input_fn=iter(["run the tests", "q"]),
         out=out,
-        _drive_fn=_failing,
+        _work_fn=_failing,
         _color=True,
     )
     assert rc == 0

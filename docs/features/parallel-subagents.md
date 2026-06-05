@@ -1,4 +1,4 @@
-# Parallel subagents — run a batch of child drives concurrently
+# Parallel subagents — run a batch of child work items concurrently
 
 > A backend fans out a batch of scoped child instructions that run concurrently,
 > each isolated in its own throwaway git worktree/branch, and a sequential
@@ -48,7 +48,7 @@ engine resolves it via the existing config precedence.
 ### Concurrent isolation
 
 Colleague creates a **separate git worktree** for each child, checked out on its
-own branch (`sub/<child-id>`). The child drives entirely within that worktree —
+own branch (`sub/<child-id>`). The child work items entirely within that worktree —
 writes, reads, commits — never touching the main working tree. This means:
 
 - Two children writing the same file don't corrupt each other; they commit to
@@ -84,7 +84,7 @@ Parallelism is **opt-in**. Set the environment variable or pass it via
 `EngineConfig`:
 
 ```bash
-COLLEAGUE_SUBAGENT_CONCURRENCY=3 colleague drive "<task>" --repo . --engine vllm-openai
+COLLEAGUE_SUBAGENT_CONCURRENCY=3 colleague work "<task>" --repo . --engine vllm-openai
 ```
 
 **Default:** 1 (sequential, byte-identical to the old behavior — no threads are
@@ -128,8 +128,8 @@ means:
   be handled manually (the engine doesn't silently drop or overwrite a child's
   work).
 
-- **Per-subagent git handoff is not supported.** Only the top-level drive hands
-  off to a branch/PR. Child drives run in worktrees and merge back; they don't
+- **Per-subagent git handoff is not supported.** Only the top-level work item hands
+  off to a branch/PR. Child work items run in worktrees and merge back; they don't
   open their own PRs.
 
 ## Boundary

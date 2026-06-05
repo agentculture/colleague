@@ -1,12 +1,12 @@
-"""Live cockpit + event-stream progress sinks for a drive (#74 A1/A3).
+"""Live cockpit + event-stream progress sinks for a work item (#74 A1/A3).
 
-`execute_drive` wires exactly one progress callback onto `EngineConfig.progress`.
+`execute_work` wires exactly one progress callback onto `EngineConfig.progress`.
 This module builds the richer callbacks that one can be:
 
-* :class:`CockpitProgressSink` — folds each drive step into a live `CockpitState`
+* :class:`CockpitProgressSink` — folds each work item step into a live `CockpitState`
   and redraws the ANSI cockpit frame on stderr (A1); and
-* :func:`make_events_sink` — appends one `DriveStep` JSONL line per step so an
-  agent can follow the drive turn-by-turn and `tui replay` it (A3).
+* :func:`make_events_sink` — appends one `WorkStep` JSONL line per step so an
+  agent can follow the work item turn-by-turn and `tui replay` it (A3).
 
 :func:`build_progress` chooses between these and the plain stderr sink based on
 the `--tui`/`--no-tui` flag (or, by default, whether stderr is a TTY) plus an
@@ -27,10 +27,10 @@ from typing import Callable, Optional, TextIO
 
 from colleague.tui.colors import should_color, strip_ansi
 from colleague.tui.events import dumps_events
-from colleague.tui.from_drive import drive_step
+from colleague.tui.from_work import work_step
 from colleague.tui.reducer import reduce
 from colleague.tui.render.ansi import render
-from colleague.tui.state import CockpitState, Drive
+from colleague.tui.state import CockpitState, WorkItem
 
 #: A progress callback: ``(step_index, tool, target, ok) -> None``.
 ProgressSink = Callable[[int, str, str, bool], None]
@@ -60,9 +60,9 @@ def cockpit_active(tui: Optional[bool], *, stream: Optional[TextIO] = None) -> b
 class FrameWriter:
     """Render a :class:`CockpitState` to a stream with one clear-home regime.
 
-    Holds the resolved ``(stream, tty, color)`` so the live drive sink **and** the
+    Holds the resolved ``(stream, tty, color)`` so the live work sink **and** the
     interactive session can share a single writer — the palette frame and the
-    in-drive frames then never fight over the screen (one owner, one clear).
+    in-work frames then never fight over the screen (one owner, one clear).
 
     Two output modes:
 
@@ -96,31 +96,31 @@ class FrameWriter:
 
 
 class CockpitProgressSink:
-    """A progress sink that renders a live ANSI cockpit frame per drive step.
+    """A progress sink that renders a live ANSI cockpit frame per work step.
 
-    Holds a :class:`CockpitState` (seeded with a running :class:`Drive`); each call
-    folds a `DriveStep` through the pure reducer (so a failed step opens the same
+    Holds a :class:`CockpitState` (seeded with a running :class:`WorkItem`); each call
+    folds a `WorkStep` through the pure reducer (so a failed step opens the same
     error popup as `tui replay`) and redraws via a :class:`FrameWriter`.
     """
 
     def __init__(self, task_id: str, engine: str, *, stream: Optional[TextIO] = None) -> None:
         self._state = CockpitState()
-        self._state.drive = Drive(task_id=task_id, engine=engine, step_count=0, running=True)
+        self._state.work_item = WorkItem(task_id=task_id, engine=engine, step_count=0, running=True)
         self._writer = FrameWriter(stream)
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
-        self._state = reduce(self._state, drive_step(tool, target, ok))
+        self._state = reduce(self._state, work_step(tool, target, ok))
         self._writer.write(self._state)
 
     def close(self) -> None:
-        """Mark the drive finished and render a final frame (with a trailing newline)."""
-        if self._state.drive is not None:
-            self._state.drive = replace(self._state.drive, running=False)
+        """Mark the work item finished and render a final frame (with a trailing newline)."""
+        if self._state.work_item is not None:
+            self._state.work_item = replace(self._state.work_item, running=False)
         self._writer.write(self._state, final=True)
 
 
 def make_events_sink(path: str, *, diag: Optional[Callable[[str], None]] = None) -> ProgressSink:
-    """Return a sink that appends one `DriveStep` JSONL line per step to *path* (A3).
+    """Return a sink that appends one `WorkStep` JSONL line per step to *path* (A3).
 
     The line format is exactly what `tui replay` / `tui snapshot` consume, so a
     live stream and a post-hoc `tui replay --trace` agree.  Write failures are
@@ -130,7 +130,7 @@ def make_events_sink(path: str, *, diag: Optional[Callable[[str], None]] = None)
     state = {"warned": False}
 
     def _sink(step_index: int, tool: str, target: str, ok: bool) -> None:
-        line = dumps_events([drive_step(tool, target, ok)])
+        line = dumps_events([work_step(tool, target, ok)])
         try:
             with open(path, "a", encoding="utf-8") as handle:
                 handle.write(line)
@@ -166,18 +166,18 @@ def build_progress(
     diag: Optional[Callable[[str], None]] = None,
     external_sink: Optional["CockpitProgressSink"] = None,
 ) -> tuple[ProgressSink, Optional[CockpitProgressSink]]:
-    """Resolve the drive's progress callback and (if any) the live cockpit sink.
+    """Resolve the work item's progress callback and (if any) the live cockpit sink.
 
     Returns ``(progress, cockpit)``.  When neither TUI surface is requested the
     *default_sink* is returned **verbatim** (so the plain `step N:` path stays
     byte-identical); otherwise the active sinks are composed with per-sink failure
     isolation.  *cockpit* is non-None only when a live cockpit is active, so the
-    caller can `close()` it (and read back its accumulated ``state``) after the drive.
+    caller can `close()` it (and read back its accumulated ``state``) after the work item.
 
     *external_sink* lets a caller supply its **own** cockpit sink (e.g. the
     interactive session, bound to the session's `CockpitState` + frame-writer). When
     given it replaces the auto-constructed cockpit and bypasses ``tui``
-    auto-activation — so a drive launched from the session renders into the session's
+    auto-activation — so a work item launched from the session renders into the session's
     one shared screen.
     """
     cockpit: Optional[CockpitProgressSink] = None

@@ -20,7 +20,7 @@ import pytest
 from colleague.artifact import artifact_read_dirs
 from colleague.config import EngineConfig, resolve_engine
 from colleague.configdir import collect_files, config_roots
-from colleague.feedback import get_last_drive, read_feedback, set_last_drive, write_feedback
+from colleague.feedback import get_last_work, read_feedback, set_last_work, write_feedback
 from colleague.identity import identity_env, resolve_identity
 from colleague.neighbours import NeighbourManager
 from colleague.telemetry import TelemetryConfig
@@ -180,16 +180,16 @@ def test_last_drive_reads_legacy_pointer(tmp_path: Path) -> None:
     legacy = tmp_path / ".convertible"
     legacy.mkdir()
     (legacy / "last_drive").write_text("legacy-id\n", encoding="utf-8")
-    assert get_last_drive(tmp_path) == "legacy-id"
+    assert get_last_work(tmp_path) == "legacy-id"
 
 
 def test_last_drive_new_pointer_shadows_legacy(tmp_path: Path) -> None:
     legacy = tmp_path / ".convertible"
     legacy.mkdir()
     (legacy / "last_drive").write_text("legacy-id\n", encoding="utf-8")
-    set_last_drive(tmp_path, "new-id")
-    assert (tmp_path / ".colleague" / "last_drive").is_file()
-    assert get_last_drive(tmp_path) == "new-id"
+    set_last_work(tmp_path, "new-id")
+    assert (tmp_path / ".colleague" / "last_work").is_file()
+    assert get_last_work(tmp_path) == "new-id"
 
 
 # --- identity.json + neighbours.json honor the same fallback ----------------

@@ -1,7 +1,7 @@
-# Drive statistics & feedback — the ROI loop
+# Work statistics & feedback — the ROI loop
 
 **The headline:** you can calculate the *ROI of outsourcing* to colleague.
-Every drive's artifact records, always-on, what the drive **cost**; a feedback
+Every work item's artifact records, always-on, what the work item **cost**; a feedback
 record says how **good** it was. Together — time + tokens + bytes written + a
 quality grade — they let a caller (human or agent) retro a delegated task and
 decide whether to outsource again, and to which backend.
@@ -10,10 +10,10 @@ This is the **Run report** (stats) and a new sibling, **Feedback**, working
 together. Both are runtime-owned (the all-engines rule): identical for `mock`
 and `vllm-openai`.
 
-## Part A — always-on drive statistics
+## Part A — always-on work statistics
 
 Every `TaskResult` carries a `stats` block (`colleague/contract.py`
-`DriveStats`), serialized into the artifact JSON on **every** drive (no flag, no
+`WorkStats`), serialized into the artifact JSON on **every** work item (no flag, no
 opt-in). It sits beside `usage`, which holds the exact token counts.
 
 | Field | Meaning |
@@ -51,9 +51,9 @@ that needs a tokenizer dependency — a deliberate non-goal in v0.
 ### Where it's populated
 
 Runtime-side, in `colleague/loop.py`: per-turn fields accumulate in
-`_drive_loop`; the rest are filled by `_finalize_stats` on every exit path
+`_work_loop`; the rest are filled by `_finalize_stats` on every exit path
 (model finish / empty turn / step budget / mid-loop abort), so even a partial
-drive carries populated stats. `ToolExecutor` (`colleague/tools.py`)
+work item carries populated stats. `ToolExecutor` (`colleague/tools.py`)
 accumulates `bytes_written`. The vLLM engine (`colleague/engines/vllm_openai.py`)
 captures `message.reasoning` (and `reasoning_content` as an alias) into
 `ModelResponse`. The optional OTel path mirrors two new metrics —
@@ -62,7 +62,7 @@ captures `message.reasoning` (and `reasoning_content` as an alias) into
 
 ## Part B — the feedback loop
 
-`colleague/feedback.py` is a stdlib JSON store. A **single record per drive**
+`colleague/feedback.py` is a stdlib JSON store. A **single record per work item**
 (re-grading overwrites) lives at `.colleague/<task_id>.feedback.json` beside
 the artifact:
 
@@ -70,25 +70,25 @@ the artifact:
 {"task_id": "9f2c1ab0", "rating": 4, "notes": "correct but verbose", "by": "ori", "at": "2026-05-31T..."}
 ```
 
-A per-repo `last_drive` pointer (written by `execute_drive` after each drive)
-lets you grade the most recent drive without quoting its id. An ungraded drive
+A per-repo `last_work` pointer (written by `execute_work` after each work item)
+lets you grade the most recent work item without quoting its id. An ungraded work item
 reads back as a clean "no feedback yet" state — never an error.
 
-**`last` resolves to the most recent *consequential* drive (#132).** `ask-colleague
+**`last` resolves to the most recent *consequential* work item (#132).** `ask-colleague
 explore` / `review` run read-only in a throwaway worktree and **preserve** their
 artifact but **do not move** `last` — so a later read-only probe can never steal
-a grade meant for a write. Grade a probe by its printed `task_id` (every drive
+a grade meant for a write. Grade a probe by its printed `task_id` (every work item
 echoes `task:` + a `grade:` hint). Whenever you ask for `last`, the resolved
-drive's id + request is echoed to stderr, so a mis-resolve is never silent.
+work item's id + request is echoed to stderr, so a mis-resolve is never silent.
 
-Forgotten the id? **`feedback list`** shows every recorded drive — newest-first,
+Forgotten the id? **`feedback list`** shows every recorded work item — newest-first,
 by request, status, and grade — the durable way to find the right one. It reads
 the authoritative `task_id` from each artifact's contents, so the filename
 scheme doesn't matter.
 
-> Artifacts and the drive branch carry a **request slug** for legibility —
+> Artifacts and the work branch carry a **request slug** for legibility —
 > `.colleague/<task_id>.<slug>.json` and `colleague/<task_id>-<slug>` — so a
-> drive is recognisable in an `ls` / `git branch` listing. `task_id` stays the
+> work item is recognisable in an `ls` / `git branch` listing. `task_id` stays the
 > key; reads resolve both bare and slugged names (back-compat).
 
 ### CLI
@@ -97,12 +97,12 @@ scheme doesn't matter.
 colleague feedback record last --rating 4 --notes "correct but verbose"
 colleague feedback record 9f2c1ab0 --rating 5 --repo . --json
 colleague feedback show last --repo .
-colleague feedback list --repo .          # every drive by request + grade
+colleague feedback list --repo .          # every work item by request + grade
 colleague feedback overview
 ```
 
-`record`/`show` take a drive id or the literal `last`. `list` takes neither —
-it lists every drive. `--rating` must be an integer 1–5. `--by` defaults to
+`record`/`show` take a work item id or the literal `last`. `list` takes neither —
+it lists every work item. `--rating` must be an integer 1–5. `--by` defaults to
 colleague's resolved identity. Results go to stdout, diagnostics to stderr;
 every verb supports `--json`.
 
@@ -114,17 +114,17 @@ after an outsourced drive:
 ```bash
 ask-colleague feedback last --rating 4 --notes "good, but missed an edge case"
 ask-colleague feedback <task_id>          # no --rating → show existing feedback
-ask-colleague feedback list               # find a past drive by its request
+ask-colleague feedback list               # find a past work item by its request
 ```
 
 Because read-only probes don't move `last`, prefer grading a probe by the
 `task_id` it printed (or `ask-colleague feedback list`); `ask-colleague feedback last`
 grades the most recent **write**.
 
-## Reading ROI off one drive
+## Reading ROI off one work item
 
 ```bash
-colleague drive "refactor the parser" --engine vllm-openai --no-pr --json > result.json
+colleague work "refactor the parser" --engine vllm-openai --no-pr --json > result.json
 # cost: result.json → .stats.duration_seconds, .usage.{prompt,completion}_tokens, .stats.bytes_written
 colleague feedback record last --rating 4 --notes "clean, a bit slow"
 # quality: .colleague/<task_id>.feedback.json → .rating
@@ -138,9 +138,9 @@ artifact plus its feedback record, with no external data.
 - **No tokenizer** → no reasoning/written *token* counts; chars/bytes only.
 - **Tokens are verbatim** from the model's `usage`; a server that reports nothing
   yields zeros (colleague does not fabricate them).
-- Feedback is a **single record** per drive (re-grade overwrites). A multi-grader
+- Feedback is a **single record** per work item (re-grade overwrites). A multi-grader
   append-log is a possible follow-up, not built.
-- Stats are **per top-level drive**; a subagent's cost stays in its own
+- Stats are **per top-level work item**; a subagent's cost stays in its own
   `SubResult.usage` (nested-only, matching the existing usage rule). Rolling
   sub-results into a parent total is a parked follow-up.
 - Reasoning **text** is not persisted in v0 — only its char/byte length (size +

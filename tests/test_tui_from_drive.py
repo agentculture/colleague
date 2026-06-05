@@ -1,4 +1,4 @@
-"""The drive→DriveStep bridge: live and post-hoc summaries must agree.
+"""The drive→WorkStep bridge: live and post-hoc summaries must agree.
 
 `colleague/tui/from_drive.py` is the single source of the step→summary mapping,
 so a step reads identically whether it came from the live progress callback or
@@ -8,8 +8,8 @@ the trace-conversion edge cases.
 
 from __future__ import annotations
 
-from colleague.tui.events import DriveStep
-from colleague.tui.from_drive import drive_step, progress_target, trace_to_drive_steps
+from colleague.tui.events import WorkStep
+from colleague.tui.from_work import progress_target, trace_to_work_steps, work_step
 
 
 def test_progress_target_prefers_path_then_command_then_name() -> None:
@@ -34,8 +34,8 @@ def test_progress_target_empty_for_non_dict_or_unknown_keys() -> None:
 
 
 def test_drive_step_constructs_event() -> None:
-    evt = drive_step("write_file", "x.py", ok=False)
-    assert evt == DriveStep(tool="write_file", summary="x.py", ok=False)
+    evt = work_step("write_file", "x.py", ok=False)
+    assert evt == WorkStep(tool="write_file", summary="x.py", ok=False)
 
 
 def test_trace_summary_matches_live_target_for_same_step() -> None:
@@ -43,14 +43,14 @@ def test_trace_summary_matches_live_target_for_same_step() -> None:
     `target` the live callback would have shown for the same arguments."""
     arguments = {"path": "main.py", "content": "..."}
     live_target = progress_target(arguments)  # what the loop passes live
-    (post_hoc,) = trace_to_drive_steps(
+    (post_hoc,) = trace_to_work_steps(
         [{"index": 0, "tool": "write_file", "arguments": arguments, "result": "wrote", "ok": True}]
     )
-    assert post_hoc == DriveStep(tool="write_file", summary=live_target, ok=True)
+    assert post_hoc == WorkStep(tool="write_file", summary=live_target, ok=True)
 
 
 def test_trace_falls_back_to_result_when_no_subject_key() -> None:
-    (step,) = trace_to_drive_steps(
+    (step,) = trace_to_work_steps(
         [{"index": 0, "tool": "finish", "arguments": {}, "result": "all done\nextra", "ok": True}]
     )
     assert step.tool == "finish"
@@ -58,7 +58,7 @@ def test_trace_falls_back_to_result_when_no_subject_key() -> None:
 
 
 def test_trace_preserves_ok_and_skips_malformed_lines() -> None:
-    steps = trace_to_drive_steps(
+    steps = trace_to_work_steps(
         [
             {
                 "tool": "run_command",

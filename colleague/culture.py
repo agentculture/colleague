@@ -19,7 +19,7 @@ as a subprocess*, never imported as Python — no socket, no daemon. An absent C
 (``FileNotFoundError``), a timeout (``subprocess.TimeoutExpired``), or any other
 launch failure (``OSError``) is mapped to a clean
 :class:`~colleague.tools.ToolError` string fed back to the model, never a
-traceback — so a hung or broken CLI cannot crash the drive.
+traceback — so a hung or broken CLI cannot crash the work item.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def run_culture(
         ) from exc
     except subprocess.TimeoutExpired as exc:
         # A hung CLI must surface as a clean tool error, not an uncaught
-        # exception that escapes ToolExecutor and crashes the drive (the loop
+        # exception that escapes ToolExecutor and crashes the work item (the loop
         # only catches ToolError around tool execution).
         raise CultureToolError(f"culture CLI '{cli}' timed out after {_TIMEOUT_SECONDS}s") from exc
     except OSError as exc:

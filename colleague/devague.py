@@ -23,7 +23,7 @@ root so devague that auto-signs from ``culture.yaml`` sees it.  The CLI is
 A missing CLI (``FileNotFoundError``), a timeout (``subprocess.TimeoutExpired``),
 or any other launch failure (``OSError``) is mapped to a clean
 :class:`DevagueToolError`, never a traceback — so a hung or broken CLI returns a
-tool-error string to the model instead of crashing the drive.
+tool-error string to the model instead of crashing the work item.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def run_devague(
         raise DevagueToolError("devague CLI not found — is it installed and on PATH?") from exc
     except subprocess.TimeoutExpired as exc:
         # A hung CLI must surface as a clean tool error, not an uncaught
-        # exception that escapes ToolExecutor and crashes the drive (the loop
+        # exception that escapes ToolExecutor and crashes the work item (the loop
         # only catches ToolError around tool execution).
         raise DevagueToolError(
             f"devague move '{move}' timed out after {_TIMEOUT_SECONDS}s"

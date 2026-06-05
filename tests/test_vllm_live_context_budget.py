@@ -49,7 +49,7 @@ from pathlib import Path
 import pytest
 
 import colleague.engines.vllm_openai as vllm_openai
-from colleague.cli._commands.drive import execute_drive
+from colleague.cli._commands.work import execute_work
 from colleague.config import EngineConfig
 from colleague.context import _PLACEHOLDER_TEXT
 from colleague.contract import OK, Task
@@ -129,7 +129,7 @@ def test_live_small_budget_windows_history_with_placeholder(
         "turn, until a file says STOP. Then call finish.",
         engine="vllm-openai",
     )
-    result, artifact_path = execute_drive(
+    result, artifact_path = execute_work(
         repo=repo,
         engine_name="vllm-openai",
         task=task,
@@ -192,7 +192,7 @@ def test_live_induced_overflow_retries_and_recovers(
     # of the environment — a COLLEAGUE_CONTEXT_BUDGET of 0/negative would disable it.
     config = EngineConfig.resolve(context_budget_tokens=192000, max_steps=8)
     task = Task.new(str(repo), _RECOVER_TASK, engine="vllm-openai")
-    result, artifact_path = execute_drive(
+    result, artifact_path = execute_work(
         repo=repo,
         engine_name="vllm-openai",
         task=task,

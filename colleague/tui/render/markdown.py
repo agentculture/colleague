@@ -23,7 +23,7 @@ the JSON would have told it:
 - Visible popups: ``"<Kind Label> [<id>]"`` title (verbatim, for the
   ``diagnose._detect_render`` checker) **and** the ``message`` field verbatim
 - Status: severity + message
-- Drive info (when present): task_id, engine, step_count, running
+- Work info (when present): task_id, engine, step_count, running
 - All ``available_actions``: selector + description
 
 Hidden zones, panels, and popups are omitted entirely — their ``visible=False``
@@ -184,17 +184,18 @@ def _section_status(taui: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _section_drive(taui: dict[str, Any]) -> str:
-    """Drive section: task_id, engine, step_count, running (omitted when None)."""
-    drive: dict[str, Any] | None = taui.get("drive")
-    if drive is None:
+def _section_work(taui: dict[str, Any]) -> str:
+    """Work section: task_id, engine, step_count, running (omitted when None)."""
+    # Back-compat: pre-rename TAUI snapshots carried the work item under "drive".
+    work: dict[str, Any] | None = taui.get("work", taui.get("drive"))
+    if work is None:
         return ""
-    task_id = str(drive.get("task_id", ""))
-    engine = str(drive.get("engine", ""))
-    step_count = drive.get("step_count", 0)
-    running = bool(drive.get("running", False))
+    task_id = str(work.get("task_id", ""))
+    engine = str(work.get("engine", ""))
+    step_count = work.get("step_count", 0)
+    running = bool(work.get("running", False))
     lines = [
-        "## Drive",
+        "## Work",
         "",
         f"- **task_id**: {task_id}",
         f"- **engine**: {engine}",
@@ -266,9 +267,9 @@ def render_markdown(state: "CockpitState") -> str:
     if status:
         sections.append(status)
 
-    drive = _section_drive(taui)
-    if drive:
-        sections.append(drive)
+    work = _section_work(taui)
+    if work:
+        sections.append(work)
 
     actions = _section_available_actions(taui)
     if actions:

@@ -9,7 +9,7 @@ that gate color on the *output* side:
 * :func:`strip_ansi` — remove escape sequences from already-colored text, so a
   rendered cockpit frame can be written cleanly to a non-TTY stream.
 
-Used by the live drive cockpit (it strips escapes when ``not should_color``) and
+Used by the live work cockpit (it strips escapes when ``not should_color``) and
 available to any plain status-line emitter that wants to colorize only when a
 human is watching.  No network, no third-party deps.
 """

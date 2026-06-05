@@ -236,7 +236,7 @@ class EngineA(Engine):
 
     name = "engine-a"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         return run(_engine_a_complete(Path(task.repo_path)), task, max_steps=config.max_steps)
 
 
@@ -245,7 +245,7 @@ class EngineB(Engine):
 
     name = "engine-b"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         return run(_engine_b_complete(Path(task.repo_path)), task, max_steps=config.max_steps)
 
 
@@ -296,11 +296,11 @@ def test_capstone_cross_engine_e2e(tmp_path: Path) -> None:  # noqa: PLR0914
     engine_a = EngineA()
     engine_b = EngineB()
 
-    result_a = engine_a.drive(task_a, cfg)
+    result_a = engine_a.work(task_a, cfg)
     # Attach the command name (mimics what the CLI does after drive).
     result_a.command = "do-work"
 
-    result_b = engine_b.drive(task_b, cfg)
+    result_b = engine_b.work(task_b, cfg)
     result_b.command = "do-work"
 
     # -----------------------------------------------------------------------

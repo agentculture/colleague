@@ -22,7 +22,7 @@ OUTPUT_FILE = "colleague-mock.md"
 def _script(task: Task) -> CompleteFn:
     """A deterministic two-turn script: write a marker file, then finish."""
     content = f"# Colleague mock engine\n\nHandled instruction:\n\n{task.instruction}\n"
-    # Deterministic reasoning/answer text so DriveStats' generated-size fields are
+    # Deterministic reasoning/answer text so WorkStats' generated-size fields are
     # non-zero and engine-agnostic (the mock is the contract reference, h5): the
     # e2e shape test compares key shape, and these give the mock the same
     # reasoning_*/answer_* fields a real reasoning model produces.
@@ -59,7 +59,7 @@ class MockEngine(Engine):
 
     name = "mock"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         return run(
             _script(task),
             task,

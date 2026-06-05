@@ -11,11 +11,11 @@ The architecture, part by part:
 
 - **Mind / backend** — the model/coder backend.
 - **Adapter** — the code that invokes one backend, in `colleague/engines/` (an
-  `Engine` subclass implementing `drive(task, config) -> TaskResult`).
+  `Engine` subclass implementing `work(task, config) -> TaskResult`).
 - **Task runtime** — the shared task contract (`colleague/contract.py`: `Task`,
   `TaskResult`) and lifecycle.
 - **Tool loop** — the bounded agentic loop (`colleague/loop.py`) the backend
-  drives the repo through (`read_file`/`write_file`/`list_dir`/`run_command`/
+  works the repo through (`read_file`/`write_file`/`list_dir`/`run_command`/
   `culture`/`finish`, confined to the repo by `colleague/tools.py`). The base
   five tools plus one curated `culture` tool (allow-list: `agtag`, `devex`) —
   added via the mesh-member re-spec (spec/plan committed on this branch). Hook
@@ -23,43 +23,43 @@ The architecture, part by part:
 - **Plugins** — backends are plugins discovered via the `colleague.engines`
   Python entry-point group (`colleague/registry.py`).
 - **Run report** — the JSON result artifact + step trace (`colleague/artifact.py`).
-  Includes an **always-on per-drive statistics block** (`TaskResult.stats`,
-  `colleague/contract.py` `DriveStats`): request, ISO start + wall-clock
+  Includes an **always-on per-work-item statistics block** (`TaskResult.stats`,
+  `colleague/contract.py` `WorkStats`): request, ISO start + wall-clock
   duration, model turns, step count, per-tool counts, files changed, exact UTF-8
   `bytes_written`, and reasoning-vs-answer char/byte sizes. Tokens stay on
   `usage` (exact, verbatim from the model response — never estimated); since the
   served model reports no reasoning-token breakdown, "thought vs written" is
   measured as chars/bytes, not tokens (no tokenizer, zero deps). Populated
-  runtime-side in `colleague/loop.py` (`run`/`_drive_loop` + `_finalize_stats`)
+  runtime-side in `colleague/loop.py` (`run`/`_work_loop` + `_finalize_stats`)
   so every backend fills it identically; the vLLM backend captures
   `message.reasoning` (previously discarded).
 - **Feedback** — the ROI loop (`colleague/feedback.py` + `colleague/cli/_commands/
-  feedback.py`). Drive stats say what a drive *cost*; a feedback record says how
+  feedback.py`). Work stats say what a work item *cost*; a feedback record says how
   *good* it was — together they let a caller compute the ROI of outsourcing a task
-  to colleague. A single record per drive (`<task_id>.feedback.json` beside the
+  to colleague. A single record per work item (`<task_id>.feedback.json` beside the
   artifact, re-grade overwrites): `{task_id, rating 1-5, notes, by, at}`; a per-repo
-  `last_drive` pointer (written by `execute_drive`) lets `feedback ... last`
-  resolve the most recent drive. Stdlib JSON only; an ungraded drive reads back as
+  `last_work` pointer (written by `execute_work`) lets `feedback ... last`
+  resolve the most recent work item. Stdlib JSON only; an ungraded work item reads back as
   a clean "no feedback yet" state, never an error. Surfaced as `colleague
   feedback record|show|list|overview` and as the `ask-colleague feedback` skill verb.
   **`last` is writes-only across the ask-colleague flow (#132):** `ask-colleague explore`
   / `review` run read-only in a throwaway worktree and **preserve** their artifact
-  but **do not move** `last_drive` (the skill's `_preserve_artifact` no longer
+  but **do not move** `last_work` (the skill's `_preserve_artifact` no longer
   writes the pointer) — so a read-only probe can never steal a grade meant for a
-  consequential write. A probe is graded by its printed `task_id`; every drive
+  consequential write. A probe is graded by its printed `task_id`; every work item
   echoes `task:` + a `grade:` hint, and resolving `last` echoes the resolved
   `task_id` + request to stderr so a mis-resolve is never silent. `feedback list`
-  (`colleague/feedback.py` `list_drives`) lists every recorded drive newest-first
-  by request + status + grade — the durable way to find a drive when the order is
+  (`colleague/feedback.py` `list_work_items`) lists every recorded work item newest-first
+  by request + status + grade — the durable way to find a work item when the order is
   forgotten; it reads the authoritative `task_id` from each artifact's contents,
-  so the filename scheme doesn't matter. Artifacts and the drive branch carry a
+  so the filename scheme doesn't matter. Artifacts and the work branch carry a
   **request slug** (`<task_id>.<slug>.json` via `colleague/artifact.py`
   `artifact_stem` + `colleague/slug.py`; `colleague/<task_id>-<slug>` via
-  `handoff._branch_name`) so a drive is recognisable in an `ls` / `git branch`
+  `handoff._branch_name`) so a work item is recognisable in an `ls` / `git branch`
   listing; `task_id` stays the key and `find_artifact`/`read_request` resolve both
   bare and slugged names (back-compat).
 - **Telemetry** — opt-in OpenTelemetry traces + metrics (`colleague/telemetry/`).
-  Instrumented in the loop + the shared drive path so every backend emits it
+  Instrumented in the loop + the shared work path so every backend emits it
   (all-engines rule), exactly like hooks. Off by default; the OpenTelemetry SDK
   is an optional `[otel]` extra, imported lazily, so the base install stays
   dep-free. Surfaced via the `telemetry` introspection noun.
@@ -73,7 +73,7 @@ The architecture, part by part:
   (`colleague/neighbours.py`): a `.colleague/neighbours.json` allow-list of
   `{name, url}` entries; shallow-cloned on demand into
   `.colleague/neighbours/<name>/` (gitignored); refresh-on-demand, ephemeral
-  (cleaned up on drive finish). Defaults to empty when no config is present.
+  (cleaned up on work finish). Defaults to empty when no config is present.
 - **Culture tool** — one curated loop tool (`colleague/culture.py` +
   `colleague/tools.py`) that shells out to the allow-listed AgentCulture CLIs
   (`agtag`, `devex`) with the resolved identity injected; no socket, no daemon,
@@ -82,9 +82,9 @@ The architecture, part by part:
 - **Destination** — the sibling to telemetry. Telemetry tells colleague where
   it *is*; the destination is where it's *going*. A backend MAY,
   when a task is vague/new enough to warrant a clear goal, use a curated
-  **`devague` loop tool** to open/converge a devague goal-frame, drive toward it,
+  **`devague` loop tool** to open/converge a devague goal-frame, work toward it,
   and declare the announcement on arrival. The destination is recorded lightweight
-  in the JSON artifact (`TaskResult.destination` + `announcement`), not a per-drive
+  in the JSON artifact (`TaskResult.destination` + `announcement`), not a per-work-item
   spec file. The `devague` tool shells out to the operator-installed `devague` CLI
   with cwd + resolved identity injected (like the culture tool); the curated
   allow-list excludes `confirm`/`reject` (user-only moves) and `export`
@@ -118,7 +118,7 @@ The architecture, part by part:
   v0 is checksum-only (`version` pinning is a documented follow-up, not
   built). This is the tracked "per-repo hook trust gate" from the conventions
   section, now partially landed; there is still no `--no-hooks` flag.
-- **Subagents** — mid-drive, a backend MAY delegate scoped sub-tasks
+- **Subagents** — mid-work, a backend MAY delegate scoped sub-tasks
   via two loop tools: (1) `subagent` for a single child, or (2) `subagents`
   (plural) for a batch that runs concurrently (`colleague/subagents.py` +
   `colleague/tools.py`). Each child runs the SAME bounded tool-loop as a nested
@@ -136,8 +136,8 @@ The architecture, part by part:
   existing `registry.load` + `EngineConfig` inheritance — a config-level switch,
   no backend code change. Termination is structural: `MAX_SUBAGENT_DEPTH=2`
   (recursion cap, checked *before* any child work) and `MAX_SUBAGENT_FANOUT=4`
-  (per-drive fan-out cap, including the merge child). No per-subagent git
-  handoff — only the top-level drive hands off. **Honest limit:** real wall-clock
+  (per-work-item fan-out cap, including the merge child). No per-subagent git
+  handoff — only the top-level work item hands off. **Honest limit:** real wall-clock
   speedup requires the served model to handle concurrent requests; on a
   serializing server, gain is bounded by overlapped I/O wait, not model compute.
   Specification + plan: `docs/specs/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md`
@@ -149,7 +149,7 @@ The architecture, part by part:
   (`colleague/handoff.py`).
 - **Command templates** — named, parameterized task recipes in
   `.colleague/commands/*.md` (`colleague/commands.py`); expanded into a
-  `Task` via `drive --command <name> [args…]`.
+  `Task` via `work --command <name> [args…]`.
 - **Hooks** — operator-authored shell commands in `.colleague/hooks.json`
   (`colleague/hooks.py`) that fire at `task_start`/`pre_tool`/`post_tool`/
   `finish`; a `pre_tool` hook can allow, deny, or rewrite a tool call.
@@ -163,7 +163,7 @@ The architecture, part by part:
   No new runtime dep, socket, or daemon. Inspect via
   `colleague hooks list --model <m>` (per-model entries tagged `per-model`).
 - **Interactive palette** — `colleague session` (`colleague/cli/_commands/
-  session.py`): a foreground TTY loop over the same drive path; no parallel
+  session.py`): a foreground TTY loop over the same work path; no parallel
   code path, no daemon. Slash commands come from one `SlashSpec` catalog that
   also derives the `/help` text (single source, drift-tested). On a colour TTY,
   typing `/` opens a **live autocomplete popup** that autofilters slash commands
@@ -190,7 +190,7 @@ The architecture, part by part:
   (`colleague/context.py` + `colleague/loop.py` `_complete_with_degradation`)
   and, on a detected context-overflow error, trims history harder and retries a
   bounded number of times before preserving a readable partial result — so a
-  multi-file drive on a small-context model degrades instead of hard-failing. The
+  multi-file work item on a small-context model degrades instead of hard-failing. The
   knob is `COLLEAGUE_CONTEXT_BUDGET` (tokens, on `EngineConfig.context_budget_tokens`,
   default 192000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 256k (262144-token)
   reference rig, leaving headroom for the completion; lower it for a small-context
@@ -199,7 +199,7 @@ The architecture, part by part:
   100000, raised from the old hardcoded 20000 so a large `read_file`/`run_command`
   result isn't truncated inside the bigger window); both resolve via the same
   `EngineConfig.resolve` precedence and the backends forward them to the loop
-  identically (all-engines rule). The drive step budget default is
+  identically (all-engines rule). The work step budget default is
   `COLLEAGUE_MAX_STEPS` (`EngineConfig.max_steps`, default 40). Token counting goes
   through a pluggable `count_tokens` seam — the vLLM backend counts exactly via the
   server's `/tokenize` endpoint, falling back to a zero-dep char heuristic
@@ -259,18 +259,18 @@ read-only neighbour clones (`colleague/neighbours.py`), and the curated
 `culture` loop tool (`colleague/culture.py`; allow-list: `agtag`, `devex`) —
 and the **destination/`devague` tool** (`colleague/devague.py`; curated allow-list
 excluding `confirm`/`reject`/`export`), which lets a backend set and converge a
-goal-frame when a task warrants one, drive toward it, and declare the announcement
+goal-frame when a task warrants one, work toward it, and declare the announcement
 on arrival — and the **approval gate** (`colleague/policy.py`):
 `.colleague/approvals.json` gating `run_command` CLIs by program token and
 hook/command files by checksum — and the **subagent tools** (`subagent` + `subagents`)
 (`colleague/subagents.py` + `colleague/worktrees.py` + `colleague/tools.py`):
-backend-judged, optional in-process child drives with backend/model switch, depth
+backend-judged, optional in-process child work items with backend/model switch, depth
 cap (2), fan-out cap (4), no per-subagent handoff, isolated per-child git
 worktrees, opt-in concurrency via `COLLEAGUE_SUBAGENT_CONCURRENCY` (default 1 =
-byte-identical sequential) — and the **drive statistics + feedback loop** (the
+byte-identical sequential) — and the **work statistics + feedback loop** (the
 ROI loop):
-always-on per-drive `DriveStats` in the artifact (`colleague/contract.py` +
-`colleague/loop.py`) and a single-record-per-drive feedback store
+always-on per-work-item `WorkStats` in the artifact (`colleague/contract.py` +
+`colleague/loop.py`) and a single-record-per-work-item feedback store
 (`colleague/feedback.py`) surfaced as `colleague feedback` and the
 `ask-colleague feedback` skill verb. All integrated features (mesh-member, culture
 tool, destination, approval gate, subagents, and stats+feedback) were added via
@@ -344,7 +344,7 @@ test (`tests/test_e2e_mock.py`) is the guard.
   and must not duplicate it. The all-engines rule applies: a hook config that
   fires on `mock` must fire identically on `vllm-openai`.
 - **Telemetry belongs to the runtime too.** `colleague/loop.py` (per tool
-  call) and the shared `execute_drive` path (root + handoff spans) own all
+  call) and the shared `execute_work` path (root + handoff spans) own all
   telemetry; no backend module touches the `telemetry` package. Off by default it
   is a strict no-op (no spans, no SDK import, `TaskResult` unchanged) — protect
   that so the e2e shape test and zero-deps guard keep passing.
@@ -392,13 +392,13 @@ test (`tests/test_e2e_mock.py`) is the guard.
 - **The `doctor` verb is colleague's health check.** It emits a configuration-readiness
   health check across identity, provider, usage, engines, otel-readiness, and
   environment check-groups, in a rubric shape with exit-1-on-unhealthy semantics. The
-  **usage** group warns (advisory — stays healthy) when a bare drive would pick the
+  **usage** group warns (advisory — stays healthy) when a bare work item would pick the
   no-op `mock` backend. `doctor --probe` adds an opt-in `provider_reachable` ping —
   the one check that opens a network connection, so it is gated behind the flag and
   invoked outside the (no-network) registered check-groups. See `colleague explain
   doctor` for details.
-- **Drive statistics belong to the runtime, not to backends.** `colleague/loop.py`
-  owns `DriveStats` population (`_drive_loop` per-turn + `_finalize_stats` on every
+- **Work statistics belong to the runtime, not to backends.** `colleague/loop.py`
+  owns `WorkStats` population (`_work_loop` per-turn + `_finalize_stats` on every
   exit path); `colleague/tools.py` accumulates `bytes_written`; the vLLM backend
   only *captures* `message.reasoning` into `ModelResponse`. The all-engines rule
   applies: stats are always-on and identical for `mock` and `vllm-openai`
@@ -409,10 +409,10 @@ test (`tests/test_e2e_mock.py`) is the guard.
   path mirrors the new metrics (`colleague.generated.chars`,
   `colleague.bytes_written`) as a strict no-op when off.
 - **The feedback store belongs to the runtime, not to backends.**
-  `colleague/feedback.py` is a stdlib JSON store (one record per drive,
-  re-grade overwrites) + a per-repo `last_drive` pointer written by
-  `execute_drive`. No backend touches it. Absent file/pointer is a clean no-op
-  (`read_feedback` / `get_last_drive` return `None`, never raise). It is **not**
+  `colleague/feedback.py` is a stdlib JSON store (one record per work item,
+  re-grade overwrites) + a per-repo `last_work` pointer written by
+  `execute_work`. No backend touches it. Absent file/pointer is a clean no-op
+  (`read_feedback` / `get_last_work` return `None`, never raise). It is **not**
   gated by the approval gate and opens no socket/daemon — zero new runtime deps.
 
 ## Commands
@@ -421,11 +421,11 @@ test (`tests/test_e2e_mock.py`) is the guard.
 uv sync                                   # install (incl. dev group)
 uv run pytest -n auto                     # tests (parallel)
 uv run colleague backends list          # discovered backends (wheels = deprecated alias)
-uv run colleague drive "<task>" --repo . --engine mock --no-pr
+uv run colleague work "<task>" --repo . --engine mock --no-pr
 # Backend resolution: --engine > COLLEAGUE_ENGINE > vllm-openai (never silent mock, #53).
 
 # Extensibility layer:
-uv run colleague drive --command <name> [args…] --repo . --engine mock --no-pr
+uv run colleague work --command <name> [args…] --repo . --engine mock --no-pr
 uv run colleague commands list --repo .          # list discovered templates
 uv run colleague commands overview               # surface description
 uv run colleague hooks list --repo .             # list configured hooks (shows run_command policy + approval status)
@@ -435,9 +435,9 @@ uv run colleague commands approve <name> --repo . # record checksum approval for
 # Both approve commands accept --algo sha256|md5 (default: sha256) and --json.
 uv run colleague session --repo . --engine mock  # interactive palette (commits locally, no PR; --pr to push+PR)
 
-# ROI loop: drive stats (always-on in the artifact) + feedback (grade a drive):
-uv run colleague feedback record last --rating 4 --notes "…" --repo .  # grade the most recent drive (or <task_id>)
-uv run colleague feedback show last --repo .                           # read a drive's feedback (clean no-op if ungraded)
+# ROI loop: work stats (always-on in the artifact) + feedback (grade a work item):
+uv run colleague feedback record last --rating 4 --notes "…" --repo .  # grade the most recent work item (or <task_id>)
+uv run colleague feedback show last --repo .                           # read a work item's feedback (clean no-op if ungraded)
 uv run colleague feedback overview                                     # surface description
 
 # Telemetry (opt-in; needs the [otel] extra):
@@ -445,7 +445,7 @@ uv run colleague telemetry status                # resolved telemetry config
 uv run colleague telemetry overview              # surface description
 uv sync --extra otel                               # install the OpenTelemetry SDK
 COLLEAGUE_OTEL_ENABLED=1 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
-  uv run colleague drive "<task>" --repo . --engine mock --no-pr  # emits a trace
+  uv run colleague work "<task>" --repo . --engine mock --no-pr  # emits a trace
 
 # Lint + gates CI enforces:
 uv run black --check colleague tests
@@ -469,15 +469,31 @@ colleague ships one **first-party** Claude Code skill,
 [`ask-colleague`](.claude/skills/ask-colleague/) — the *inverse* of the vendored
 skills (origin = colleague; see [`docs/skill-sources.md`](docs/skill-sources.md)).
 It lets another agent hand a scoped task to colleague — a *different* backend/mind,
-not a stronger one; diversity is the point. Three verbs over `colleague drive`:
+not a stronger one; diversity is the point. Three verbs over `colleague work`:
 `ask-colleague explore` (read-only investigation), `ask-colleague review` (a
 diverse second opinion on the committed `<base>...HEAD` diff — the headline verb),
 and `ask-colleague write` (delegate a small change — previews by default;
-`--apply` lands a drive branch, `--pr` opens a PR). explore/review run in a
+`--apply` lands a work item branch, `--pr` opens a PR). explore/review run in a
 throwaway `git worktree` (no side effects); `write` previews in one too unless
 `--apply`/`--pr`, and guards against a dirty tree when applying. (Renamed from
 `outsource`; "outsource this" still triggers it.) Details + worked examples:
 [`docs/features/ask-colleague.md`](docs/features/ask-colleague.md).
+
+### Division of labor — Claude thinks, Colleague does the field-work
+
+Prefer delegating mechanical **field-work** (work items — sweeps, scoped edits,
+residual-reference checks, a diverse second opinion on a diff) to Colleague,
+via the `ask-colleague` skill (`explore` / `review` / `write`) or `colleague work`
+directly. **Claude thinks and designs; Colleague does the field-work.** Reach for
+it reflexively, not only when asked.
+
+Colleague's output is a **second opinion to verify and own**, never authority:
+before trusting a landed change, `git diff main` and re-run the tests (a local
+model can drop or misreport edits). Keep design judgment, the risky core, and
+anything needing accumulated context with Claude; hand the legwork to Colleague.
+**Never run a bare `colleague work`/`drive --repo .` against a dirty tree** — it
+commits your uncommitted edits onto the work branch (see issue #149); the
+`ask-colleague` verbs are safe (worktree-isolated).
 
 ## Git workflow
 

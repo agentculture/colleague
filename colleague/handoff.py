@@ -1,6 +1,6 @@
 """Git/PR handoff (R7): branch -> commit -> push -> ``gh pr create``, gated.
 
-After a drive edits the working tree, the handoff captures the change as a
+After a work item edits the working tree, the handoff captures the change as a
 branch and commit, and — when a remote and the ``gh`` CLI are available and PR
 creation is requested — pushes and opens a pull request.
 
@@ -65,7 +65,7 @@ def should_open_pr(repo: Path, open_pr: bool) -> bool:
 
 
 def _branch_name(task_id: str, instruction: str = "") -> str:
-    """The drive branch: ``colleague/<task_id>-<slug>`` (bare id when no slug).
+    """The work branch: ``colleague/<task_id>-<slug>`` (bare id when no slug).
 
     The ``task_id`` keeps the branch unique; the request *slug* (same helper the
     artifact filename uses, so the two agree) makes it recognisable in a ``git
@@ -96,7 +96,7 @@ def _current_ref(repo: Path) -> str | None:
 def _restore_ref(repo: Path, ref: str | None) -> None:
     """Return the operator to their pre-handoff branch/commit (best-effort).
 
-    The ``colleague/<id>`` branch keeps its commit; this only stops the drive
+    The ``colleague/<id>`` branch keeps its commit; this only stops the work item
     from stranding the operator on it. The worktree is clean immediately after
     the commit, so the checkout is safe — and a failure is swallowed (the commit
     already succeeded, so restoration must never raise).
@@ -121,14 +121,14 @@ def handoff(
     stays local (gating off, no remote, no gh, or a push/PR failure).
 
     After committing, the operator is returned to the branch (or detached commit)
-    they were on before the drive — the ``colleague/<id>`` branch keeps the
-    commit, but a drive never strands the operator on a freshly-made task branch
+    they were on before the work item — the ``colleague/<id>`` branch keeps the
+    commit, but a work item never strands the operator on a freshly-made task branch
     (the no-op paths below never switch branches at all).
 
     Staging commits **only the task's own work** (#39): all tracked
     modifications (so ``run_command`` edits to tracked files are captured) plus
     the new untracked files the *drive itself* produced — i.e. untracked files
-    that were **not** present before the drive (``baseline_untracked``) and are
+    that were **not** present before the work item (``baseline_untracked``) and are
     not under colleague's own ``.colleague/`` bookkeeping dir. Pre-existing
     untracked files (operator work-in-progress) and prior runs' artifacts are
     never swept in. ``changed_files`` is the loop-tracked set; any of those paths
@@ -137,7 +137,7 @@ def handoff(
 
     ``baseline_untracked`` is the set of untracked paths captured *before* the
     drive (see :func:`untracked_snapshot`); when ``None`` no baseline filtering
-    is applied (every drive-produced untracked file is a candidate).
+    is applied (every work item-produced untracked file is a candidate).
     """
     repo = Path(repo_path).resolve()
     branch = _branch_name(task_id, instruction)
@@ -158,7 +158,7 @@ def handoff(
     # carried into the `checkout -B` below when we do commit).
     #   1. tracked modifications/deletions (run_command + write_file edits to
     #      already-tracked files), never sweeping untracked files;
-    #   2. the new untracked files the drive produced — excluding pre-existing
+    #   2. the new untracked files the work item produced — excluding pre-existing
     #      operator work-in-progress and `.colleague/` bookkeeping (#39).
     _git(repo, "add", "-u", "--", ".", ":(exclude).colleague")
     baseline = set(baseline_untracked or [])
@@ -182,7 +182,7 @@ def handoff(
     result.changed_files = staged
 
     # Capture where the operator was so we can return them there after committing
-    # — the drive branch keeps the commit, but a drive must not strand the
+    # — the work branch keeps the commit, but a work item must not strand the
     # operator on a freshly-made task branch.
     original_ref = _current_ref(repo)
     _git(repo, "checkout", "-B", branch)
@@ -216,7 +216,7 @@ def handoff(
         else:
             result.note = _with_ignored(f"local commit only (push failed: {exc})", ignored)
     # Restore only after push + `gh pr create` (which infer the head from the
-    # checked-out branch) have run on the drive branch.
+    # checked-out branch) have run on the work branch.
     _restore_ref(repo, original_ref)
     return result
 
@@ -250,7 +250,7 @@ def _untracked_paths(repo: Path) -> list[str]:
 
 
 def untracked_snapshot(repo_path: str | Path) -> list[str]:
-    """Untracked paths *now* — captured before a drive as the handoff baseline.
+    """Untracked paths *now* — captured before a work item as the handoff baseline.
 
     Returns ``[]`` outside a git repo (or on any git error) so the caller can
     pass it through unconditionally; a missing baseline just means no filtering.

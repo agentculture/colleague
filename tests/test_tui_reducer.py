@@ -5,13 +5,13 @@ import inspect
 
 from colleague.tui.events import (
     Dismiss,
-    DriveStep,
     KeyPress,
     SkillSuggested,
     Tick,
     UserInput,
+    WorkStep,
 )
-from colleague.tui.state import CockpitState, Drive
+from colleague.tui.state import CockpitState, WorkItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -25,7 +25,7 @@ def _fresh() -> CockpitState:
 
 def _fresh_with_drive() -> CockpitState:
     state = CockpitState()
-    state.drive = Drive(task_id="t1", engine="mock", step_count=0, running=True)
+    state.work_item = WorkItem(task_id="t1", engine="mock", step_count=0, running=True)
     return state
 
 
@@ -353,7 +353,7 @@ def test_key_returns_new_object():
 
 
 # ---------------------------------------------------------------------------
-# DriveStep
+# WorkStep
 # ---------------------------------------------------------------------------
 
 
@@ -361,15 +361,15 @@ def test_drive_step_increments_step_count_when_drive_active():
     from colleague.tui.reducer import reduce
 
     s0 = _fresh_with_drive()
-    s1 = reduce(s0, DriveStep(tool="read_file", summary="read main.py"))
-    assert s1.drive is not None
-    assert s1.drive.step_count == 1
+    s1 = reduce(s0, WorkStep(tool="read_file", summary="read main.py"))
+    assert s1.work_item is not None
+    assert s1.work_item.step_count == 1
 
 
 def test_drive_step_appends_conversation_line():
     from colleague.tui.reducer import reduce
 
-    s1 = reduce(_fresh_with_drive(), DriveStep(tool="write_file", summary="wrote x.py"))
+    s1 = reduce(_fresh_with_drive(), WorkStep(tool="write_file", summary="wrote x.py"))
     panel = next((p for p in s1.panels if p.id == "panel.conversation"), None)
     assert panel is not None
     assert "write_file" in panel.content_summary
@@ -380,7 +380,7 @@ def test_drive_step_no_drive_still_appends_conversation():
     from colleague.tui.reducer import reduce
 
     s0 = _fresh()  # drive is None
-    s1 = reduce(s0, DriveStep(tool="run_command", summary="ran tests"))
+    s1 = reduce(s0, WorkStep(tool="run_command", summary="ran tests"))
     panel = next((p for p in s1.panels if p.id == "panel.conversation"), None)
     assert panel is not None
     assert "run_command" in panel.content_summary
@@ -390,30 +390,30 @@ def test_drive_step_no_drive_does_not_create_drive():
     from colleague.tui.reducer import reduce
 
     s0 = _fresh()
-    s1 = reduce(s0, DriveStep(tool="finish", summary="done"))
-    assert s1.drive is None
+    s1 = reduce(s0, WorkStep(tool="finish", summary="done"))
+    assert s1.work_item is None
 
 
 def test_drive_step_does_not_mutate_input_drive():
     from colleague.tui.reducer import reduce
 
     s0 = _fresh_with_drive()
-    original_count = s0.drive.step_count  # type: ignore[union-attr]
-    reduce(s0, DriveStep(tool="read_file", summary="x"))
-    assert s0.drive.step_count == original_count  # type: ignore[union-attr]
+    original_count = s0.work_item.step_count  # type: ignore[union-attr]
+    reduce(s0, WorkStep(tool="read_file", summary="x"))
+    assert s0.work_item.step_count == original_count  # type: ignore[union-attr]
 
 
 def test_drive_step_ok_opens_no_popup():
     from colleague.tui.reducer import reduce
 
-    s1 = reduce(_fresh_with_drive(), DriveStep(tool="read_file", summary="x", ok=True))
+    s1 = reduce(_fresh_with_drive(), WorkStep(tool="read_file", summary="x", ok=True))
     assert s1.popups == []
 
 
 def test_drive_step_failed_opens_error_popup():
     from colleague.tui.reducer import reduce
 
-    s1 = reduce(_fresh_with_drive(), DriveStep(tool="run_command", summary="pytest -q", ok=False))
+    s1 = reduce(_fresh_with_drive(), WorkStep(tool="run_command", summary="pytest -q", ok=False))
     errs = [p for p in s1.popups if p.kind == "error"]
     assert len(errs) == 1
     p = errs[0]
@@ -428,8 +428,8 @@ def test_drive_step_failed_opens_error_popup():
 def test_drive_step_failed_popup_deduped_by_tool():
     from colleague.tui.reducer import reduce
 
-    s1 = reduce(_fresh_with_drive(), DriveStep(tool="run_command", summary="first", ok=False))
-    s2 = reduce(s1, DriveStep(tool="run_command", summary="second", ok=False))
+    s1 = reduce(_fresh_with_drive(), WorkStep(tool="run_command", summary="first", ok=False))
+    s2 = reduce(s1, WorkStep(tool="run_command", summary="second", ok=False))
     errs = [p for p in s2.popups if p.id == "popup.error.run_command"]
     assert len(errs) == 1  # same tool refreshes one popup, never stacks
     assert "second" in errs[0].message
@@ -439,7 +439,7 @@ def test_drive_step_failed_does_not_mutate_input():
     from colleague.tui.reducer import reduce
 
     s0 = _fresh_with_drive()
-    reduce(s0, DriveStep(tool="run_command", summary="x", ok=False))
+    reduce(s0, WorkStep(tool="run_command", summary="x", ok=False))
     assert s0.popups == []
 
 

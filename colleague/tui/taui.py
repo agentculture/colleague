@@ -73,8 +73,8 @@ def serialize(state: "CockpitState") -> dict[str, Any]:
             ``{theme, animation, frame, semantic}``.
         ``status``
             ``{severity, message}``.
-        ``drive``
-            Drive dict or ``None``.
+        ``work``
+            Work-item dict or ``None``.
         ``problems``
             Forwarded verbatim from *state*.
         ``available_actions``
@@ -104,7 +104,8 @@ def serialize(state: "CockpitState") -> dict[str, Any]:
                 )
     available_actions.append(dict(_STANDING_ACTION))
 
-    drive: Optional[dict[str, Any]] = raw.get("drive")
+    # Back-compat: a pre-rename serialized state carried the work item under "drive".
+    work: Optional[dict[str, Any]] = raw.get("work", raw.get("drive"))
 
     return {
         "taui_version": SCHEMA_VERSION,
@@ -116,7 +117,7 @@ def serialize(state: "CockpitState") -> dict[str, Any]:
         "popups": popups,
         "background": raw.get("background", {}),
         "status": raw.get("status", {}),
-        "drive": drive,
+        "work": work,
         "problems": list(raw.get("problems", [])),
         "available_actions": available_actions,
     }

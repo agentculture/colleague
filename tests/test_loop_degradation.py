@@ -12,7 +12,7 @@ The feature has three moving parts, exercised here:
 2. Reactive degradation — if ``complete`` raises a *context-overflow* error and a
    budget is set, the budget is shrunk and the history re-windowed, then the call
    retried, up to a small fixed cap (then the original error is re-raised so the
-   partial result is preserved via :class:`DriveAborted`).
+   partial result is preserved via :class:`WorkAborted`).
 3. The vLLM ``/tokenize`` exact counter, with its char-estimate fallback.
 """
 
@@ -28,7 +28,7 @@ from colleague.context import count_tokens_chars
 from colleague.contract import ERROR, OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine
-from colleague.loop import DriveAborted, ModelResponse, ToolCall, run
+from colleague.loop import ModelResponse, ToolCall, WorkAborted, run
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -166,7 +166,7 @@ def test_non_recoverable_overflow_preserves_partial(tmp_path: Path) -> None:
     """An always-overflowing ``complete`` is bounded and yields a preserved partial.
 
     When every retry still overflows, the loop stops after the bounded cap and
-    re-raises — surfaced as :class:`DriveAborted` carrying the partial
+    re-raises — surfaced as :class:`WorkAborted` carrying the partial
     (``status == error``) result. The number of ``complete`` calls is bounded
     (it does NOT loop forever).
     """
@@ -178,7 +178,7 @@ def test_non_recoverable_overflow_preserves_partial(tmp_path: Path) -> None:
         raise RuntimeError("maximum context length exceeded: reduce the length")
 
     task = Task.new(str(tmp_path), f"impossible {long_filler}")
-    with pytest.raises(DriveAborted) as excinfo:
+    with pytest.raises(WorkAborted) as excinfo:
         run(
             always_overflow,
             task,
@@ -197,10 +197,10 @@ def test_non_recoverable_overflow_preserves_partial(tmp_path: Path) -> None:
 
 
 def test_non_overflow_error_propagates_immediately(tmp_path: Path) -> None:
-    """A generic (non-overflow) error is NOT retried — one call, then DriveAborted.
+    """A generic (non-overflow) error is NOT retried — one call, then WorkAborted.
 
     Only context-overflow errors trigger the reactive retry. Any other exception
-    propagates immediately (preserved as a partial via DriveAborted) exactly as in
+    propagates immediately (preserved as a partial via WorkAborted) exactly as in
     the pre-feature loop — no extra ``complete`` calls.
     """
     calls = {"n": 0}
@@ -210,7 +210,7 @@ def test_non_overflow_error_propagates_immediately(tmp_path: Path) -> None:
         raise ValueError("something unrelated broke")
 
     task = Task.new(str(tmp_path), "generic failure")
-    with pytest.raises(DriveAborted) as excinfo:
+    with pytest.raises(WorkAborted) as excinfo:
         run(boom, task, max_steps=10, context_budget=10, count_tokens=_word_count_tokens)
 
     assert calls["n"] == 1  # not retried
@@ -227,7 +227,7 @@ def test_overflow_without_budget_is_not_retried(tmp_path: Path) -> None:
         raise RuntimeError("maximum context length exceeded")
 
     task = Task.new(str(tmp_path), "overflow no budget")
-    with pytest.raises(DriveAborted):
+    with pytest.raises(WorkAborted):
         run(overflow, task, max_steps=10)  # no context_budget
 
     assert calls["n"] == 1  # no retry without a budget
@@ -378,6 +378,6 @@ def test_mock_engine_drives_with_windowing(tmp_path: Path) -> None:
     repo.mkdir()
     cfg = EngineConfig.resolve()
 
-    result = registry.load("mock").drive(Task.new(str(repo), "do work"), cfg)
+    result = registry.load("mock").work(Task.new(str(repo), "do work"), cfg)
     assert result.status == OK
     assert result.changed_files

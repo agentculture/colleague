@@ -78,7 +78,6 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import cli as _cli_group
     from colleague.cli._commands import commands as _commands_group
     from colleague.cli._commands import doctor as _doctor_cmd
-    from colleague.cli._commands import drive as _drive_cmd
     from colleague.cli._commands import explain as _explain_cmd
     from colleague.cli._commands import feedback as _feedback_group
     from colleague.cli._commands import hooks as _hooks_group
@@ -89,6 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import telemetry as _telemetry_group
     from colleague.cli._commands import tui as _tui_cmd
     from colleague.cli._commands import whoami as _whoami_cmd
+    from colleague.cli._commands import work as _work_cmd
 
     parser = _CliArgumentParser(
         prog="colleague",
@@ -110,9 +110,9 @@ def _build_parser() -> argparse.ArgumentParser:
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
     # Colleague's working surface: assign repo work + inspect backend plugins.
-    _drive_cmd.register(sub)
+    _work_cmd.register(sub)
     _backends_group.register(sub)  # registers `backends` (+ the deprecated `wheels` alias)
-    # ROI loop: grade a drive after the fact (stats say cost; feedback says quality).
+    # ROI loop: grade a work item after the fact (stats say cost; feedback says quality).
     _feedback_group.register(sub)
     # Extensibility layer: command templates + lifecycle hooks.
     _commands_group.register(sub)

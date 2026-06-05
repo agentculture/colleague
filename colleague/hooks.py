@@ -160,7 +160,7 @@ class HookConfig:
 
         # Tool events — filter by matcher. An invalid matcher regex is an
         # operator-config error, not a crash: treat it as non-matching (skip the
-        # entry) so a bad pattern can never abort the drive (reliability).
+        # entry) so a bad pattern can never abort the work item (reliability).
         result = []
         for entry in entries:
             if not entry.matcher:
@@ -400,7 +400,7 @@ def run_hook(
 
     # A hook that times out or cannot be launched is an expected operational
     # failure, not a crash: map it to a fail-closed ``deny`` with the cause as
-    # the reason so the drive continues (the model receives the reason).
+    # the reason so the work item continues (the model receives the reason).
     try:
         proc = subprocess.run(  # nosec B602 - hook commands run in a trusted operator env (D2)
             entry.command,

@@ -3,7 +3,7 @@
 Tests confirm:
   1. A not-finished drive (step budget exhausted) escalates exactly once.
   2. Flag unset (default-off) → fake run NOT called; result is byte-identical.
-  3. The aborted branch escalates before DriveAborted is re-raised.
+  3. The aborted branch escalates before WorkAborted is re-raised.
   4. Idempotency: two runs with the same task_id → run called once total.
   5. Escalation failure (run returns exit=1 or raises) does not break the drive.
 """
@@ -17,7 +17,7 @@ import pytest
 
 import colleague.escalation as escalation_mod
 from colleague.contract import Task
-from colleague.loop import DriveAborted, ModelResponse, ToolCall, run
+from colleague.loop import ModelResponse, ToolCall, WorkAborted, run
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -256,14 +256,14 @@ def test_default_off_result_unchanged_on_finish(tmp_path: Path, monkeypatch) -> 
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — aborted branch escalates before DriveAborted is re-raised
+# Test 3 — aborted branch escalates before WorkAborted is re-raised
 # ---------------------------------------------------------------------------
 
 
 def test_aborted_branch_escalates_before_reraise(tmp_path: Path, monkeypatch) -> None:
-    """When the engine raises (DriveAborted path), escalation fires before re-raise.
+    """When the engine raises (WorkAborted path), escalation fires before re-raise.
 
-    The test catches DriveAborted and verifies run_culture was called once.
+    The test catches WorkAborted and verifies run_culture was called once.
     """
     repo = _make_main_repo(tmp_path)
     _arm_escalation(monkeypatch, repo)
@@ -282,7 +282,7 @@ def test_aborted_branch_escalates_before_reraise(tmp_path: Path, monkeypatch) ->
         return ModelResponse(tool_calls=[ToolCall("1", "list_dir", {"path": "."})])
 
     with patch.object(escalation_mod, "run_culture", fake_run):
-        with pytest.raises(DriveAborted):
+        with pytest.raises(WorkAborted):
             run(exploding_complete, task, max_steps=10)
 
     # Escalation must have fired exactly once (before the re-raise).
@@ -402,7 +402,7 @@ def test_escalation_exception_does_not_mask_result(tmp_path: Path, monkeypatch) 
 def test_escalation_exception_on_aborted_path_does_not_mask_driveaborted(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """If escalation raises on the aborted path, DriveAborted is still re-raised normally."""
+    """If escalation raises on the aborted path, WorkAborted is still re-raised normally."""
     repo = _make_main_repo(tmp_path)
     _arm_escalation(monkeypatch, repo)
 
@@ -420,10 +420,10 @@ def test_escalation_exception_on_aborted_path_does_not_mask_driveaborted(
         return ModelResponse(tool_calls=[ToolCall("1", "list_dir", {"path": "."})])
 
     with patch.object(escalation_mod, "run_culture", fake_run):
-        with pytest.raises(DriveAborted) as exc_info:
+        with pytest.raises(WorkAborted) as exc_info:
             run(exploding_complete, task, max_steps=10)
 
-    # DriveAborted must carry the partial result.
+    # WorkAborted must carry the partial result.
     assert exc_info.value.result is not None
     # The escalation was attempted.
     assert len(calls) == 1

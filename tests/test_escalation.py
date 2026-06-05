@@ -5,7 +5,7 @@ Written test-first: these tests define the contract BEFORE the implementation.
 
 from __future__ import annotations
 
-from colleague.contract import DriveStats, TaskResult
+from colleague.contract import TaskResult, WorkStats
 from colleague.escalation import build_continuation
 
 # ---------------------------------------------------------------------------
@@ -13,7 +13,7 @@ from colleague.escalation import build_continuation
 # ---------------------------------------------------------------------------
 
 
-def _make_stats(**kwargs) -> DriveStats:
+def _make_stats(**kwargs) -> WorkStats:
     defaults = dict(
         request="refactor the auth module",
         started_at="2026-06-03T10:00:00Z",
@@ -29,11 +29,11 @@ def _make_stats(**kwargs) -> DriveStats:
         answer_bytes=2500,
     )
     defaults.update(kwargs)
-    return DriveStats(**defaults)
+    return WorkStats(**defaults)
 
 
 def _make_result(
-    *, task_id: str = "abc123def456", stats: DriveStats | None = None, **kwargs
+    *, task_id: str = "abc123def456", stats: WorkStats | None = None, **kwargs
 ) -> TaskResult:
     if stats is None:
         stats = _make_stats()

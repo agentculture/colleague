@@ -1,6 +1,6 @@
 """Drive --json failure path: partial TaskResult goes to stdout (t3 / #XX).
 
-On a failure that carries a partial TaskResult (a DriveAborted-style engine
+On a failure that carries a partial TaskResult (a WorkAborted-style engine
 exception whose .result attribute is a populated TaskResult), ``colleague drive
 --json`` must:
 
@@ -36,7 +36,7 @@ class _FlakyPartialEngine(Engine):
 
     name = "flaky_partial"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         first = ModelResponse(
             tool_calls=[ToolCall("1", "write_file", {"path": "wip.txt", "content": "work"})]
         )

@@ -28,7 +28,7 @@ def _commands_sections() -> list[dict[str, object]]:
             "items": [
                 "Discovers named command templates under .colleague/commands/*.md",
                 "Templates support $1/$2/$ARGUMENTS substitution and optional metadata",
-                "Use 'colleague drive --command <name>' to expand and run a template",
+                "Use 'colleague work --command <name>' to expand and run a template",
                 "Approval gate: operator can approve templates by checksum (approvals.json)",
             ],
         },

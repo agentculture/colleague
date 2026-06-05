@@ -27,7 +27,7 @@ DECISION_DENY = "deny"
 DECISION_REWRITE = "rewrite"
 DECISION_OBSERVE = "observe"
 
-# Sentinel assigned to TaskResult.summary when a drive ended without calling
+# Sentinel assigned to TaskResult.summary when a work item ended without calling
 # ``finish`` and produced no substantive model content.  Callers compare
 # ``result.summary == NO_RESULT_PRODUCED`` to detect the empty case without
 # string-matching a step-count fallback such as "completed in N step(s)".
@@ -45,7 +45,7 @@ NO_RESULT_PRODUCED = "__COLLEAGUE_NO_RESULT_PRODUCED__"
 
 @dataclass
 class HookFiring:
-    """A record of one hook invocation during a drive.
+    """A record of one hook invocation during a work item.
 
     Hooks fire at lifecycle events (e.g. "pre_tool", "post_tool",
     "task_start", "finish").  The loop populates these; the contract
@@ -105,7 +105,7 @@ class HookFiring:
 
 @dataclass
 class Usage:
-    """Token accounting for a drive, summed across the loop's model calls."""
+    """Token accounting for a work item, summed across the loop's model calls."""
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -133,11 +133,11 @@ class Usage:
 
 
 @dataclass
-class DriveStats:
-    """Always-on per-drive statistics — the cost+shape record of one drive.
+class WorkStats:
+    """Always-on per-work-item statistics — the cost+shape record of one work item.
 
     Sits alongside :class:`Usage` (which holds the exact API-reported token
-    counts) and captures everything else worth knowing about a drive so a caller
+    counts) and captures everything else worth knowing about a work item so a caller
     can compute the **ROI of outsourcing**: how long it took, what it did, and
     how much it produced. Populated runtime-side by :func:`colleague.loop.run`
     (the all-engines rule), so every backend fills it identically.
@@ -155,7 +155,7 @@ class DriveStats:
     Fields
     ------
     request:
-        The originating task instruction (the request the drive answered).
+        The originating task instruction (the request the work item answered).
     started_at:
         ISO-8601 UTC timestamp of when the loop began.
     duration_seconds:
@@ -167,9 +167,9 @@ class DriveStats:
     tool_counts:
         Per-tool call counts aggregated from ``steps`` (tool name → count).
     files_changed:
-        Number of distinct files the drive wrote (mirrors ``len(changed_files)``).
+        Number of distinct files the work item wrote (mirrors ``len(changed_files)``).
     bytes_written:
-        Total UTF-8 bytes written to files via ``write_file``, summed over the drive.
+        Total UTF-8 bytes written to files via ``write_file``, summed over the work item.
     reasoning_chars / reasoning_bytes:
         Length of all ``message.reasoning`` text generated (chain-of-thought
         "thought" not saved to a file), in Unicode chars and UTF-8 bytes.
@@ -220,7 +220,7 @@ class DriveStats:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DriveStats":
+    def from_dict(cls, data: dict[str, Any]) -> "WorkStats":
         return cls(
             request=str(data.get("request", "")),
             started_at=str(data.get("started_at", "")),
@@ -239,9 +239,9 @@ class DriveStats:
 
 @dataclass
 class SubResult:
-    """The result of one delegated sub-task driven by a nested child drive.
+    """The result of one delegated sub-task driven by a nested child work item.
 
-    A drive may delegate a scoped sub-task to a nested child drive; each child
+    A work item may delegate a scoped sub-task to a nested child work item; each child
     produces a ``SubResult`` recorded on the parent ``TaskResult.sub_results``.
 
     Cost attribution is **nested-only**: the child carries its OWN ``usage`` and
@@ -384,9 +384,9 @@ class TaskResult:
     changed_files: list[str] = field(default_factory=list)
     steps: list[Step] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
-    stats: DriveStats = field(default_factory=DriveStats)
-    """Always-on per-drive statistics (timing, tools used, bytes/chars produced).
-    Sits beside ``usage`` (exact API token counts); together they make a drive's
+    stats: WorkStats = field(default_factory=WorkStats)
+    """Always-on per-work-item statistics (timing, tools used, bytes/chars produced).
+    Sits beside ``usage`` (exact API token counts); together they make a work item's
     cost — and, with a feedback record, its ROI — readable from the artifact.
     Unlike destination/sub_results this key is ALWAYS serialized (it is never
     empty for a real drive); the e2e shape test pins it on every backend."""
@@ -397,36 +397,36 @@ class TaskResult:
     hook_firings: list[HookFiring] = field(default_factory=list)
     """Every hook invocation that fired during this drive (populated by the loop)."""
     sub_results: list[SubResult] = field(default_factory=list)
-    """Results of any sub-tasks delegated to nested child drives, in order; empty
+    """Results of any sub-tasks delegated to nested child work items, in order; empty
     when this drive delegated nothing. Like destination/announcement, the
     serialized key is OMITTED (not null) when the list is empty, so a
     no-subagent result is byte-identical to today. Cost is nested-only — the
     parent ``usage`` is NOT summed with these children's."""
     command: Optional[str] = None
     """The command-template name that originated this task, or ``None`` for
-    an ad-hoc instruction (e.g. plain ``colleague drive "<text>"``).
+    an ad-hoc instruction (e.g. plain ``colleague work "<text>"``).
     Populated by the CLI driver; ``None`` when the task was constructed
     programmatically without a named command."""
     destination: Optional[str] = None
-    """The devague goal-frame slug the drive aimed at, or ``None`` when no
-    destination was set (plain ``colleague drive`` without ``--destination``)."""
+    """The devague goal-frame slug the work item aimed at, or ``None`` when no
+    destination was set (plain ``colleague work`` without ``--destination``)."""
     announcement: Optional[str] = None
     """The announcement text declared on arrival at the destination, or ``None``
     when no destination was set or no announcement was produced."""
     not_finished: bool = False
-    """True iff the drive exhausted the step budget without calling ``finish`` AND
-    without raising :class:`DriveAborted` (i.e. the model ran out of turns but the
+    """True iff the work item exhausted the step budget without calling ``finish`` AND
+    without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
     engine itself did not error).  False on a clean finish (finish tool called), a
     no-tool-call terminating answer, or the aborted path.  Set by :func:`loop.run`
-    from the return value of ``_drive_loop``; never inferred from
+    from the return value of ``_work_loop``; never inferred from
     ``stats.step_count`` (which counts tool calls, not model turns)."""
     stopped_without_finish: bool = False
-    """True iff the drive ended on a **no-tool-call turn** and — even after the
+    """True iff the work item ended on a **no-tool-call turn** and — even after the
     loop's one-shot finish nudge — never called ``finish`` (colleague#142). The
     ``summary`` then holds the model's trailing prose, so a caller must treat it as
     a *partial*, not an authoritative result. Orthogonal to ``not_finished`` (the
     step-budget case) and to the aborted path; a clean finish leaves both False.
-    Set by :func:`loop.run` from the ``_drive_loop`` return value."""
+    Set by :func:`loop.run` from the ``_work_loop`` return value."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -448,7 +448,7 @@ class TaskResult:
         }
         # destination and announcement are OMITTED (not emitted as null) when
         # None.  This preserves byte-identical output for the no-destination
-        # path — a drive without a destination must serialize identically to
+        # path — a work item without a destination must serialize identically to
         # today (honesty conditions c8/h8).  This intentionally deviates from
         # the convention used by command/pr_url/etc. which always emit their
         # key even as null; only these two new keys get omit-when-None treatment.
@@ -473,7 +473,7 @@ class TaskResult:
             changed_files=list(data.get("changed_files", [])),
             steps=[Step.from_dict(s) for s in data.get("steps", [])],
             usage=Usage.from_dict(data.get("usage", {})),
-            stats=DriveStats.from_dict(data.get("stats", {})),
+            stats=WorkStats.from_dict(data.get("stats", {})),
             artifacts_path=data.get("artifacts_path"),
             error=data.get("error"),
             branch=data.get("branch"),

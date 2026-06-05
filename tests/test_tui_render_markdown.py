@@ -21,11 +21,11 @@ from colleague.tui.render.markdown import render_markdown
 from colleague.tui.state import (
     Action,
     CockpitState,
-    Drive,
     Panel,
     PanelItem,
     Popup,
     Status,
+    WorkItem,
     Zone,
 )
 from colleague.tui.taui import serialize
@@ -102,7 +102,7 @@ def _make_full_state() -> CockpitState:
         popups=[popup],
         panels=[panel],
         status=Status(severity="error", message="Something went wrong"),
-        drive=Drive(task_id="t-123", engine="mock", step_count=3, running=True),
+        work_item=WorkItem(task_id="t-123", engine="mock", step_count=3, running=True),
     )
 
 
@@ -338,7 +338,7 @@ def test_status_message_in_output() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Drive info
+# WorkItem info
 # ---------------------------------------------------------------------------
 
 
@@ -430,9 +430,9 @@ def test_reading_complete_vs_taui() -> None:
     assert taui["status"]["message"] in result
 
     # drive
-    if taui["drive"]:
-        assert taui["drive"]["task_id"] in result
-        assert taui["drive"]["engine"] in result
+    if taui["work"]:
+        assert taui["work"]["task_id"] in result
+        assert taui["work"]["engine"] in result
 
     # available_actions
     for action in taui["available_actions"]:

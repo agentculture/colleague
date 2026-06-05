@@ -22,7 +22,7 @@ class _CommandEngine(Engine):
 
     name = "cmd"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         turns = [
             ModelResponse(
                 tool_calls=[ToolCall("1", "run_command", {"command": "echo hi > made_by_cmd.txt"})]
@@ -159,7 +159,7 @@ class _FlakyEngine(Engine):
 
     name = "flaky"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         first = ModelResponse(
             tool_calls=[ToolCall("1", "write_file", {"path": "partial.txt", "content": "wip"})]
         )
@@ -212,7 +212,7 @@ class _BrokenEngine(Engine):
 
     name = "broken"
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         raise RuntimeError("kaboom before the loop")
 
 
@@ -239,9 +239,9 @@ def test_drive_no_partial_hint_omits_partial_trace(
     assert payload["stats"]["request"] == "refactor the parser"
     assert payload["stats"]["started_at"]
     assert artifacts[0].name == f"{payload['task_id']}.refactor-the-parser.json"  # slugged
-    from colleague.feedback import list_drives
+    from colleague.feedback import list_work_items
 
-    rows = list_drives(tmp_path)
+    rows = list_work_items(tmp_path)
     assert len(rows) == 1 and rows[0].request == "refactor the parser" and rows[0].status == "error"
 
 
@@ -319,7 +319,7 @@ def test_drive_tui_events_inside_repo_survives_handoff(
     handoff must not sweep it into the drive branch (after which branch-restore
     would delete it). It survives and round-trips to the same steps (#74 A3)."""
     from colleague.tui.events import loads_events
-    from colleague.tui.from_drive import trace_to_drive_steps
+    from colleague.tui.from_work import trace_to_work_steps
 
     ev = tmp_path / "run.jsonl"
     rc = main(
@@ -345,7 +345,7 @@ def test_drive_tui_events_inside_repo_survives_handoff(
     # stem (.json -> .trace.jsonl). Derive it from artifacts_path, never rebuild it.
     trace_path = Path(payload["artifacts_path"][: -len(".json")] + ".trace.jsonl")
     trace_lines = [json.loads(line) for line in trace_path.read_text().splitlines() if line.strip()]
-    assert live == [e.to_dict() for e in trace_to_drive_steps(trace_lines)]
+    assert live == [e.to_dict() for e in trace_to_work_steps(trace_lines)]
 
 
 def test_drive_does_not_commit_preexisting_untracked(

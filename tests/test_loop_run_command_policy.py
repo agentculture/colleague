@@ -337,7 +337,7 @@ def test_empty_policy_result_shape_is_byte_identical(tmp_path: Path) -> None:
 def test_policy_loaded_from_disk_gates_run_command(tmp_path: Path) -> None:
     """The default load path (no policy= kwarg) reads approvals.json and gates
     run_command.  This verifies the full wiring: disk config → load_policy →
-    _Drive.policy → check_run_command → deny."""
+    _Work.policy → check_run_command → deny."""
     _write_approvals(
         tmp_path,
         {"run_command": {"allow": ["echo"], "deny": []}},

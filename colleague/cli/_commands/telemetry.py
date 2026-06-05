@@ -25,19 +25,19 @@ def _telemetry_sections() -> list[dict[str, object]]:
         {
             "title": "What it does",
             "items": [
-                "Telemetry for a drive: OpenTelemetry traces + metrics over OTLP",
+                "Telemetry for a work item: OpenTelemetry traces + metrics over OTLP",
                 "Off by default; opt in with COLLEAGUE_OTEL_ENABLED=1",
                 "Needs the optional extra: pip install 'colleague[otel]'",
-                "Instrumented in the loop + shared drive path, so every backend emits it",
+                "Instrumented in the loop + shared work path, so every backend emits it",
             ],
         },
         {
             "title": "Signals",
             "items": [
-                "spans: colleague.drive -> colleague.tool.* (+ colleague.handoff)",
+                "spans: colleague.work -> colleague.tool.* (+ colleague.handoff)",
                 "metrics: colleague.steps, colleague.tokens, colleague.generated.chars,"
                 " colleague.bytes_written, colleague.tool.latency, colleague.tool.calls,"
-                " colleague.hook.denials, colleague.drive.duration",
+                " colleague.hook.denials, colleague.work.duration",
             ],
         },
         {

@@ -5,7 +5,7 @@
 > diversity helps.
 
 `ask-colleague` is a **first-party Claude Code skill** (`.claude/skills/ask-colleague/`)
-that drives the `colleague` CLI so another agent can delegate a scoped task to
+that wraps the `colleague` CLI so another agent can delegate a scoped task to
 a different engine (default: a local vLLM `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` on
 `:8001`). Colleague's model is **not assumed to be stronger** than the caller —
 a second, independent perspective catches what the author's mind glides past,
@@ -21,11 +21,11 @@ this one is **authored here** — colleague is its origin (see
 |------|--------------|--------------|
 | `explore "<question or area>"` | Read-only investigation; the model reads and reports findings. | **None** — runs in a throwaway `git worktree` at HEAD. |
 | `review "<focus>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; committed changes only. |
-| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default**; `--apply` lands it, `--pr` opens a PR. | **None** by default (preview in a throwaway worktree); a `colleague/<id>` drive branch with `--apply` (or a PR with `--pr`). |
+| `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default**; `--apply` lands it, `--pr` opens a PR. | **None** by default (preview in a throwaway worktree); a `colleague/<id>` work branch with `--apply` (or a PR with `--pr`). |
 
 Each verb builds an instruction from a prompt template
-(`prompts/{explore,review,write}.md`), runs `colleague drive --json`, and
-prints the drive's `TaskResult.summary` to stdout. Per-step progress streams to
+(`prompts/{explore,review,write}.md`), runs `colleague work --json`, and
+prints the work item's `TaskResult.summary` to stdout. Per-step progress streams to
 stderr while it runs.
 
 ## The reflex — reach for it *unprompted*
@@ -43,7 +43,7 @@ the reflex is always safe:
   intent, anything outward-facing/destructive without a nod (`write --apply` /
   `--pr`), trivial edits, or output you can't verify cheaply.
 - **Guardrails:** check readiness in one glance (`colleague whoami` names the live
-  drive engine + model; `doctor --probe` if unsure); treat output as a second
+  work engine + model; `doctor --probe` if unsure); treat output as a second
   opinion to verify and own, never authority; close the loop with `feedback` so
   the ROI is measurable.
 
@@ -76,7 +76,7 @@ artifact: /repo/.colleague/7f3a91c0b2e4.report-the-top-level-markdown-title.json
 grade: ask-colleague feedback 7f3a91c0b2e4 --rating N
 ```
 
-The drive ran entirely in a throwaway worktree — `git status`, the current
+The work item ran entirely in a throwaway worktree — `git status`, the current
 branch, and the worktree list are byte-for-byte identical before and after. A
 read-only probe **preserves** its artifact (so you can grade it by the printed
 `task_id`) but does **not** move the `last` pointer (#132), so a probe can never
@@ -104,7 +104,7 @@ new file mode 100644
 +    return "hi, " + name
 ```
 
-Pass `--apply` to land it on a `colleague/<id>` drive branch you can inspect,
+Pass `--apply` to land it on a `colleague/<id>` work branch you can inspect,
 merge, or discard (or `--pr` to push + open a PR):
 
 ```text
@@ -114,17 +114,17 @@ status: ok
 Created greet.py with a single function greet(name) that returns 'hi, ' + name.
 
 changed files: greet.py
-drive branch: colleague/3acc192d27e1-create-greet-py-with-greet-name
+work branch: colleague/3acc192d27e1-create-greet-py-with-greet-name
 grade: ask-colleague feedback 3acc192d27e1 --rating N
 ```
 
-The drive branch and artifact carry a slug of the request, so the drive is
+The work branch and artifact carry a slug of the request, so the work item is
 recognisable in a `git branch` / `ls .colleague/` listing.
 
 ### feedback — close the ROI loop
 
 ```text
-$ ask-colleague feedback list                          # find a drive by its request
+$ ask-colleague feedback list                          # find a work item by its request
 ID            WHEN              STATUS  GRADE  REQUEST
 3acc192d27e1  2026-06-05 14:02  ok      --     create greet.py with greet(name) …
 7f3a91c0b2e4  2026-06-05 13:55  ok      --     report the top-level markdown title …
@@ -165,12 +165,12 @@ now covers exactly that path. A different mind earned its keep.
 
 - **explore and review are read-only.** They run in a throwaway `git worktree` at
   HEAD, so a stray write can't reach your working tree or branch, and the worktree
-  (plus any drive branch) is removed afterwards. The prompts also instruct the
+  (plus any work branch) is removed afterwards. The prompts also instruct the
   model not to modify anything.
 - **`write` previews by default** (isolated worktree, safe even on a dirty tree).
   **Applying** (`--apply` / `--pr`) **refuses a dirty tree** unless `--allow-dirty`
-  — this guards the dirty-tree hazard (`colleague drive --no-pr` commits
-  *uncommitted* edits onto the drive branch and leaves you there). Commit or stash
+  — this guards the dirty-tree hazard (`colleague work --no-pr` commits
+  *uncommitted* edits onto the work branch and leaves you there). Commit or stash
   first before applying.
 
 ## Honest limits

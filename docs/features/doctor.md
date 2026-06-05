@@ -4,7 +4,7 @@
 > engines, otel-readiness, and environment. Exits 1 when unhealthy.
 
 `colleague doctor` is colleague's **health check** — a configuration-readiness
-diagnostic that answers "is this install actually ready to drive?" before you
+diagnostic that answers "is this install actually ready to work?" before you
 hand it work. It is **read-only** and **diagnose-only** (no `--fix`), with **zero
 new runtime dependencies**.
 

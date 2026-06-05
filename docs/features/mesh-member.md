@@ -1,28 +1,28 @@
 # Mesh-member integration
 
-> A colleague drive runs as a named AgentCulture mesh member: it acts under a
+> A colleague work runs as a named AgentCulture mesh member: it acts under a
 > specific mesh identity, natively reaches the curated AgentCulture CLIs, and
 > can read sibling repos via operator-configured ephemeral neighbour clones.
 
 ## Before → after
 
-**Before** this feature, a `colleague drive` was a **sealed single-repo box**:
+**Before** this feature, a `colleague work` was a **sealed single-repo box**:
 
-- No first-class identity concept — the drive had no nick and produced no
+- No first-class identity concept — the work item had no nick and produced no
   attributed mesh artifacts.
 - No native culture surface — reaching `agtag` (mesh issues) or `devex` (inspect
   a repo's agent-first surface) meant crafting an ad-hoc `run_command` string;
   nothing was declared, nothing was structural.
-- No neighbour awareness — a drive could only read files in the target repo; it
+- No neighbour awareness — a work item could only read files in the target repo; it
   had no mechanism to consult a sibling repo's source.
 
 The communicate and cicd skills could bridge some of these gaps for a human
-operator, but they were external to the drive contract — the model inside the
+operator, but they were external to the work item contract — the model inside the
 loop had no declared tool for them and no injected identity.
 
 **After** this feature:
 
-- A drive resolves a **process-level identity** (the repo's `culture.yaml` nick,
+- A work item resolves a **process-level identity** (the repo's `culture.yaml` nick,
   or a `.colleague/identity.json` `as` field) and propagates it to every
   culture-CLI subprocess via `COLLEAGUE_IDENTITY` — no per-call flag.
 - The model is offered a single curated **`culture` loop tool** that shells out
@@ -99,7 +99,7 @@ The manager shallow-clones each entry into `.colleague/neighbours/<name>/`
 inside the repo root (gitignored). That path falls inside the existing
 `read_file` confinement zone, so the model can read neighbour files naturally.
 Clones are refresh-on-demand (no background daemon) and ephemeral — they are
-removed when the drive ends.
+removed when the work item ends.
 
 ## How it works
 
@@ -168,9 +168,9 @@ repo-confined read zone.
   is a best-effort substring check on the command string, not an airtight sandbox;
   an execution sandbox remains out of v0 scope.)
 - **Clone lifecycle is wired into the loop.** The loop clones the allow-listed
-  neighbours at drive start and removes the whole tree on the `finish` lifecycle
+  neighbours at work start and removes the whole tree on the `finish` lifecycle
   event — which fires on every loop exit (model finish, empty turn, or step-budget
-  exhaustion) — so clones are ephemeral and leave no residue between drives.
+  exhaustion) — so clones are ephemeral and leave no residue between work items.
 - **The allow-list is fixed by the builder.** The curated set (`agtag`, `devex`)
   is hardcoded in `ALLOWED_CLIS`. Adding further culture tools is a builder
   decision, not an operator config option.
@@ -185,7 +185,7 @@ repo-confined read zone.
 
 ## See also
 
-- [drive-and-loop.md](drive-and-loop.md) — the bounded tool-loop and the full
+- [work-and-loop.md](work-and-loop.md) — the bounded tool-loop and the full
   tool surface.
 - [hooks.md](hooks.md) — the lifecycle (hooks own the `finish` event that
   triggers neighbour cleanup).

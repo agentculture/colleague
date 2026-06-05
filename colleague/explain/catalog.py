@@ -15,7 +15,7 @@ _ROOT = """\
 A swappable coder-agent harness: hand it a scoped repo task and it drives a model
 backend through a bounded tool-loop, then returns a JSON run report. One runtime,
 many minds. Another agent works *with* it through the first-party `ask-colleague`
-skill (`ask-colleague explore | review | write | feedback`) or `colleague drive`
+skill (`ask-colleague explore | review | write | feedback`) or `colleague work`
 directly — `colleague learn` is the self-teaching entry point for collaborators.
 
 Run `colleague` with no verb at a terminal to open the interactive harness (the
@@ -23,11 +23,11 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 
 ## Verbs
 
-- `colleague drive <goal>` — drive toward a goal/instruction; work autonomously
+- `colleague work <goal>` — work toward a goal/instruction; work autonomously
   through a coder backend and hand off the result.
-- `colleague session` — foreground interactive palette over the drive path.
+- `colleague session` — foreground interactive palette over the work path.
 - `colleague backends list` — list discovered backend plugins.
-- `colleague whoami` — mesh identity (`culture.yaml`) + the live drive engine/model.
+- `colleague whoami` — mesh identity (`culture.yaml`) + the live work engine/model.
 - `colleague learn` — structured self-teaching prompt.
 - `colleague explain <path>` — markdown docs for any noun/verb.
 - `colleague overview` — descriptive snapshot of the agent.
@@ -43,7 +43,7 @@ Run `colleague` with no verb at a terminal to open the interactive harness (the
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain backends`
 - `colleague explain whoami`
 """
@@ -55,9 +55,9 @@ Reports two identities in one glance, plus the package version. Read-only.
 
 - **Mesh identity** (from `culture.yaml`): `nick` (`suffix`) and `backend` — the
   persona this agent runs as in the Culture mesh.
-- **Drive identity** (resolved live, the same way a real drive resolves it):
-  `drive_engine` — the engine a bare `colleague drive` would pick
-  (`--engine` > `COLLEAGUE_ENGINE` > default `vllm-openai`) — and `drive_model`,
+- **Work identity** (resolved live, the same way a real work item resolves it):
+  `work_engine` — the engine a bare `colleague work` would pick
+  (`--engine` > `COLLEAGUE_ENGINE` > default `vllm-openai`) — and `work_model`,
   the model it would call (`null` for the no-op `mock` engine). This is the
   trust signal an agent checks before delegating: it names the *delegate*, not
   an unrelated persona backend.
@@ -74,8 +74,8 @@ _LEARN = """\
 Prints a structured self-teaching prompt aimed at *another agent that wants to
 work with colleague* — delegate a scoped task to it and fold the answer back. It
 foregrounds the `ask-colleague` verbs (explore / review / write / feedback), the
-`drive` contract, the ROI loop, and **what skills to author** so colleague
-drives your repo well (`.colleague/skills/*.md` + the `AGENTS` cascade). It also
+`work` contract, the ROI loop, and **what skills to author** so colleague
+works your repo well (`.colleague/skills/*.md` + the `AGENTS` cascade). It also
 covers the command map, exit-code policy, `--json` support, and the `explain`
 pointer.
 
@@ -88,7 +88,7 @@ pointer.
 
 - `colleague explain ask-colleague`
 - `colleague explain skills`
-- `colleague explain drive`
+- `colleague explain work`
 """
 
 _EXPLAIN = """\
@@ -122,14 +122,14 @@ _DOCTOR = """\
 
 Colleague's health check: a configuration-readiness diagnostic emitting a
 rubric-shaped report across ordered check-groups: **identity**, **provider**
-(config + budget), **usage** (which backend a bare drive actually picks),
+(config + budget), **usage** (which backend a bare work item actually picks),
 **engines** (all installed plugins), **otel-readiness**, and **environment**
 (repo config / layering / handoff prereqs / CLI integrity).
 
 Exits 1 when unhealthy (when any error-severity check fails). Only
 error-severity failures make the report unhealthy; warnings and info are
 advisory — e.g. `usage_effective_engine` warns (but stays healthy) when a bare
-run would drive the no-op `mock` backend.
+run would pick the no-op `mock` backend.
 
 `--probe` adds an opt-in `provider_reachable` check that pings the provider
 server (`{base_url}/models`). It is the one check that opens a network
@@ -155,26 +155,29 @@ itself (distinct from the global `overview`, which describes the agent).
     colleague cli overview --json
 """
 
-_DRIVE = """\
-# colleague drive
+_WORK = """\
+# colleague work
 
-Drive toward a goal: hand colleague a request or instruction and it works
+Work toward a goal: hand colleague a request or instruction and it works
 autonomously — selecting a backend plugin, running the bounded agentic tool-loop,
 writing a result artifact, and handing off the change as a branch + PR. The repo
 is the target (`--repo`, default cwd); the same invocation works for every
 engine — only `--engine` changes.
 
+`drive` is a **deprecated alias** of `work` (the old car-themed verb) — it still
+resolves and its `--help` row is labelled deprecated, but prefer `work`.
+
 ## Usage
 
-    colleague drive "add a CONTRIBUTING.md" --repo . --engine mock --no-pr
-    colleague drive "fix the typo in README" --engine vllm-openai --no-pr
-    colleague drive "..." --engine vllm-openai --base-url http://localhost:8001/v1 --json
+    colleague work "add a CONTRIBUTING.md" --repo . --engine mock --no-pr
+    colleague work "fix the typo in README" --engine vllm-openai --no-pr
+    colleague work "..." --engine vllm-openai --base-url http://localhost:8001/v1 --json
 
 ## Backend selection
 
 Resolved highest-first: the `--engine` flag, then the `COLLEAGUE_ENGINE` env
 var, then the built-in default `vllm-openai` (the real bundled backend). A bare
-`drive` never silently falls back to the no-op `mock` reference — use
+`work` never silently falls back to the no-op `mock` reference — use
 `--engine mock` (or `COLLEAGUE_ENGINE=mock`) when you explicitly want it.
 
 ## Key flags
@@ -184,7 +187,7 @@ var, then the built-in default `vllm-openai` (the real bundled backend). A bare
 - `--no-pr` — commit locally; do not push or open a PR.
 - `--base-url / --model / --api-key / --max-steps` — backend overrides.
 
-A failed drive still writes a `status=error` artifact before exiting non-zero.
+A failed work item still writes a `status=error` artifact before exiting non-zero.
 """
 
 _BACKENDS = """\
@@ -231,11 +234,11 @@ substitution.
 
 ## Running a template
 
-    colleague drive --command <name> [args...]
+    colleague work --command <name> [args...]
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain hooks`
 """
 
@@ -244,14 +247,14 @@ _SESSION = """\
 
 Open a foreground interactive palette that lists discovered command templates,
 accepts free-text ad-hoc instructions, and runs every selection through the
-**same drive path** as `colleague drive` (identical Task/loop/hooks/artifact).
+**same work path** as `colleague work` (identical Task/loop/hooks/artifact).
 The loop continues until you enter `q`, an empty line, or EOF.
 
 ## Usage
 
     colleague session
     colleague session --repo PATH --engine mock
-    colleague session --pr            # opt back into push + PR per drive
+    colleague session --pr            # opt back into push + PR per work item
 
 ## Interaction
 
@@ -259,7 +262,7 @@ At the `colleague ❯` prompt you can enter:
 
 - A **number** (e.g. `1`) — selects that template from the numbered palette.
 - A **template name** (e.g. `lint`) — runs that template directly.
-- A **free-text instruction** — treated as an ad-hoc task (like `drive "<text>"`).
+- A **free-text instruction** — treated as an ad-hoc task (like `work "<text>"`).
 - A **slash command** (e.g. `/help`, `/engine mock`) — the meta namespace:
   introspection of existing nouns plus live config actions. `/help` lists them all.
 - `q`, `quit`, `exit`, or an **empty line** — ends the session.
@@ -277,23 +280,23 @@ unaffected.
 
 ## Handoff
 
-By default a session is a "talk + iterate" loop: each drive commits locally on a
+By default a session is a "talk + iterate" loop: each work item commits locally on a
 `colleague/<task_id>` branch but does **not** push or open a PR. Pass `--pr` to
-push and open a PR after every drive. (This differs from `drive`, which opens a
-PR by default.) Engine selection matches `drive`: `--engine` > `COLLEAGUE_ENGINE`
+push and open a PR after every work item. (This differs from `work`, which opens a
+PR by default.) Engine selection matches `work`: `--engine` > `COLLEAGUE_ENGINE`
 > `vllm-openai`.
 
 ## Key flags
 
 - `--repo PATH` — target repository (default: cwd).
 - `--engine NAME` — backend plugin (default: `COLLEAGUE_ENGINE` env, else `vllm-openai`).
-- `--pr` — push and open a PR after each drive (default: commit locally only, no PR).
+- `--pr` — push and open a PR after each work item (default: commit locally only, no PR).
 - `--base BRANCH` — base branch for the PR (default: `main`).
 - `--base-url / --model / --api-key / --max-steps` — backend overrides.
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain commands`
 """
 
@@ -345,7 +348,7 @@ constructed exactly, never globbed, so model X can never load model Y's overlay.
 ## See also
 
 - `colleague explain commands`
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain agents`
 - `colleague explain skills`
 """
@@ -356,7 +359,7 @@ _AGENTS = """\
 
 Inspect the layered AGENTS instruction files resolved for a model. The cascade,
 read from the **repo root** with a `~/.colleague/` user-level fallback, is
-composed general → specific into the system prompt every drive sends:
+composed general → specific into the system prompt every work item sends:
 
     AGENTS.md                       (shared base — sibling tools read this too)
     AGENTS.colleague.md           (colleague overlay)
@@ -379,7 +382,7 @@ repo root, but the user-level fallback lives under `~/.colleague/`.
 ## See also
 
 - `colleague explain skills`
-- `colleague explain drive`
+- `colleague explain work`
 """
 
 _SKILLS = """\
@@ -407,7 +410,7 @@ scope); invokable skills are a tracked follow-up.
 ## See also
 
 - `colleague explain agents`
-- `colleague explain drive`
+- `colleague explain work`
 """
 
 
@@ -462,39 +465,39 @@ Skills are never approval-gated (they are always ``accessible``).
 
 - ``colleague explain commands``
 - ``colleague explain hooks``
-- ``colleague explain drive``
+- ``colleague explain work``
 """
 
 _FEEDBACK = """\
 # colleague feedback
 
-Grade a drive **after the fact** — the second half of the outsourcing-ROI loop.
-A drive's artifact already records what it *cost* (the always-on `stats` block:
+Grade a work item **after the fact** — the second half of the outsourcing-ROI loop.
+A work item's artifact already records what it *cost* (the always-on `stats` block:
 elapsed time, tokens read/generated, tools used, bytes written, reasoning-vs-answer
 sizes); `feedback` records how *good* it was. Together they let a caller — human
 or agent — decide whether outsourcing that task to colleague (and to which
 backend) paid off.
 
-A drive is named by its `task_id`, or the literal `last` for the most recent
-drive in the repo. Feedback is a **single record per drive** (re-grading
+A work item is named by its `task_id`, or the literal `last` for the most recent
+work item in the repo. Feedback is a **single record per work item** (re-grading
 overwrites), stored as `.colleague/<task_id>.feedback.json` beside the artifact.
 
-`last` resolves to the most recent **consequential** drive: `ask-colleague explore`
+`last` resolves to the most recent **consequential** work item: `ask-colleague explore`
 / `review` run read-only in a throwaway worktree and **do not move** `last` (they
 preserve their artifact and are graded by their printed `task_id`). When you ask
-for `last`, the resolved drive's id + request is echoed to stderr, so a
-mis-resolve is never silent. Forgotten the id? `feedback list` shows every drive
+for `last`, the resolved work item's id + request is echoed to stderr, so a
+mis-resolve is never silent. Forgotten the id? `feedback list` shows every work item
 by request.
 
 ## Verbs
 
 - `feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]` —
   write a 1-5 quality rating + notes. `--by` defaults to the resolved identity.
-- `feedback show <id|last> [--repo P] [--json]` — read a drive's feedback. An
-  ungraded drive reads back as `no feedback yet` (a clean state, exit 0 — not an error).
-- `feedback list [--repo P] [--json]` — list every recorded drive in the repo,
+- `feedback show <id|last> [--repo P] [--json]` — read a work item's feedback. An
+  ungraded work item reads back as `no feedback yet` (a clean state, exit 0 — not an error).
+- `feedback list [--repo P] [--json]` — list every recorded work item in the repo,
   newest-first, with its request, status, and grade (`--` when ungraded). The
-  durable way to find the right drive when the order is forgotten.
+  durable way to find the right work item when the order is forgotten.
 - `feedback overview` — describe this surface.
 
 ## Usage
@@ -510,19 +513,19 @@ by request.
 
 `rating` must be an integer 1-5. There is no tokenizer, so the artifact's
 reasoning/written sizes are exact chars/bytes, never estimated tokens — see
-`colleague explain drive` for the stats block.
+`colleague explain work` for the stats block.
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain ask-colleague`
 """
 
 _TELEMETRY = """\
 # colleague telemetry
 
-Telemetry for a drive: opt-in OpenTelemetry **traces + metrics** over OTLP. Telemetry
-belongs to the runtime — it is instrumented once in the loop and the shared drive
+Telemetry for a work item: opt-in OpenTelemetry **traces + metrics** over OTLP. Telemetry
+belongs to the runtime — it is instrumented once in the loop and the shared work
 path, so *every* backend emits identical signals (the all-engines rule), exactly
 like lifecycle hooks.
 
@@ -535,16 +538,16 @@ extra:
     export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # OTLP/HTTP collector
 
 When requested without the extra installed, colleague degrades to a no-op with
-a one-line stderr notice — it never fails the drive.
+a one-line stderr notice — it never fails the work item.
 
 ## Signals
 
-- spans: `colleague.drive` (root) -> `colleague.tool.*` (per tool call) plus
+- spans: `colleague.work` (root) -> `colleague.tool.*` (per tool call) plus
   `colleague.handoff`.
 - metrics: `colleague.steps`, `colleague.tokens` (attr `kind`),
   `colleague.generated.chars` (attr `kind`=reasoning|answer), `colleague.bytes_written`,
   `colleague.tool.latency`, `colleague.tool.calls`, `colleague.hook.denials`,
-  `colleague.drive.duration` (attr `status`).
+  `colleague.work.duration` (attr `status`).
 
 ## Configuration
 
@@ -564,7 +567,7 @@ default. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain hooks`
 """
 
@@ -572,8 +575,8 @@ default. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
 _SUBAGENT = """\
 # colleague subagent
 
-Mid-drive, a backend can delegate a scoped sub-task to a nested in-process child
-drive via the `subagent` loop tool. The child runs the same bounded tool-loop
+Mid-work, a backend can delegate a scoped sub-task to a nested in-process child
+work item via the `subagent` loop tool. The child runs the same bounded tool-loop
 with **no** git handoff; its result is returned to the parent as the tool result
 and appended to `TaskResult.sub_results` (omitted when empty).
 
@@ -588,7 +591,7 @@ and appended to `TaskResult.sub_results` (omitted when empty).
   `registry.load` + `EngineConfig` inheritance (config-level switch only, no
   backend code change).
 - **Bounded** — `MAX_SUBAGENT_DEPTH=2` (recursion cap, checked before any child
-  work starts) and `MAX_SUBAGENT_FANOUT=4` (per-drive fan-out cap). A child
+  work starts) and `MAX_SUBAGENT_FANOUT=4` (per-work-item fan-out cap). A child
   refused at the depth cap does zero work and returns an error immediately.
 - **Backend-judged, optional** — the model decides whether to delegate per call,
   like the `devague` destination tool. There is no operator-configured automatic
@@ -601,7 +604,7 @@ and appended to `TaskResult.sub_results` (omitted when empty).
   in its own throwaway git worktree on a `sub/<id>` branch
   (`colleague/worktrees.py`); the merge child integrates them, surfacing (never
   force-merging) conflicts. (The single `subagent` tool creates no worktree.)
-- **No per-subagent handoff** — only the top-level drive branches, commits, and
+- **No per-subagent handoff** — only the top-level work branches, commits, and
   opens a PR.
 - **Runtime-owned (all-engines rule)** — the tool schema lives in
   `colleague/tools.py`; the launcher lives in `colleague/subagents.py`. No
@@ -615,7 +618,7 @@ backend. Delegation is always the model's choice at call time.
 
 ## Tool parameters
 
-- `instruction` (required) — the sub-task to hand to the child drive.
+- `instruction` (required) — the sub-task to hand to the child work item.
 - `engine` (optional) — backend plugin name; defaults to the parent's backend.
 - `model` (optional) — model override; defaults to the parent's model.
 
@@ -628,7 +631,7 @@ backend. Delegation is always the model's choice at call time.
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 - `colleague explain backends`
 """
 
@@ -652,7 +655,7 @@ here.)
   committed diff (`<base>...HEAD`).
 - `ask-colleague write "<task>" [--apply|--pr]` — delegate a small implementation.
   Previews by default (throwaway worktree + would-be diff, no side effects);
-  `--apply` lands a `colleague/<id>` drive branch, `--pr` opens a PR.
+  `--apply` lands a `colleague/<id>` work branch, `--pr` opens a PR.
 
 ## Safety
 
@@ -672,7 +675,7 @@ Defaults to a local vLLM model; override with `--engine` / `--model` /
 
 ## See also
 
-- `colleague explain drive`
+- `colleague explain work`
 """
 
 _TUI = """\
@@ -760,13 +763,14 @@ The runner builds `CockpitState.from_dict(initial)`, folds each event via
 ## See also
 
 - `colleague explain session`
-- `colleague explain drive`
+- `colleague explain work`
 """
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("colleague",): _ROOT,
-    ("drive",): _DRIVE,
+    ("work",): _WORK,
+    ("drive",): _WORK,  # deprecated alias — explain still resolves the old name
     ("session",): _SESSION,
     ("backends",): _BACKENDS,
     ("backends", "list"): _BACKENDS,

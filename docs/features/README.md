@@ -19,12 +19,12 @@ boundary — what is deliberately *not* built — is restated under
 
 | Feature | Doc | Role | CLI surface |
 |---------|-----|------|-------------|
-| Drive & the tool-loop | [drive-and-loop.md](drive-and-loop.md) | Task runtime + tool loop | `drive` |
+| Work & the tool-loop | [work-and-loop.md](work-and-loop.md) | Task runtime + tool loop | `work` |
 | Backends & plugins | [engines.md](engines.md) | Backend + adapter + plugins | `backends list`, `--engine` |
 | Model & endpoint selection | [model-selection.md](model-selection.md) | Backend config (model + endpoint) | `--model`, `--base-url`, env |
-| Git/PR handoff | [handoff.md](handoff.md) | Handoff | `drive` (`--no-pr`, `--base`) |
-| Result artifact | [artifact.md](artifact.md) | Run report | written by `drive` |
-| Command templates | [command-templates.md](command-templates.md) | Command templates | `commands`, `drive --command` |
+| Git/PR handoff | [handoff.md](handoff.md) | Handoff | `work` (`--no-pr`, `--base`) |
+| Result artifact | [artifact.md](artifact.md) | Run report | written by `work` |
+| Command templates | [command-templates.md](command-templates.md) | Command templates | `commands`, `work --command` |
 | Lifecycle hooks | [hooks.md](hooks.md) | Hooks | `hooks` |
 | Interactive palette | [session.md](session.md) | Interactive palette | `session`, bare `colleague` |
 | Layered per-model config | [layered-config.md](layered-config.md) | Config resolution | `agents`, `skills` |
@@ -33,30 +33,30 @@ boundary — what is deliberately *not* built — is restated under
 | Agent-first CLI | [agent-cli.md](agent-cli.md) | Controls / run report | `whoami`, `learn`, `explain`, `overview`, `cli` |
 | Mesh-member integration | [mesh-member.md](mesh-member.md) | Runtime (identity + culture tool + neighbours) | `culture` loop tool |
 | Destination | [destination.md](destination.md) | Destination (goal-frame + arrival) | `devague` loop tool |
-| Subagents | [subagents.md](subagents.md) | Subagents (nested in-process child drives) | `subagent` loop tool (mid-drive) |
-| Audit fan-out | [audit-fanout.md](audit-fanout.md) | Operator-driven audit fan-out (assign-to-workforce) | `drive --command` (per-surface) |
+| Subagents | [subagents.md](subagents.md) | Subagents (nested in-process child work items) | `subagent` loop tool (mid-work) |
+| Audit fan-out | [audit-fanout.md](audit-fanout.md) | Operator-driven audit fan-out (assign-to-workforce) | `work --command` (per-surface) |
 | Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Runtime (per-model hooks overlay) | `hooks list --model` |
-| Ask colleague (a different mind) | [ask-colleague.md](ask-colleague.md) | A first-party skill that hands a task to a different mind | `ask-colleague` skill (drives `drive`) |
-| Drive stats & feedback (ROI) | [stats-and-feedback.md](stats-and-feedback.md) | Run report (stats) + Feedback (the ROI loop) | always-on in the artifact; `feedback`, `ask-colleague feedback` |
+| Ask colleague (a different mind) | [ask-colleague.md](ask-colleague.md) | A first-party skill that hands a task to a different mind | `ask-colleague` skill (runs `work`) |
+| Work stats & feedback (ROI) | [stats-and-feedback.md](stats-and-feedback.md) | Run report (stats) + Feedback (the ROI loop) | always-on in the artifact; `feedback`, `ask-colleague feedback` |
 | Escalation (agtag continuation) | [escalation.md](escalation.md) | Runtime finalize hook — files one tracked agtag continuation issue on abort or step-budget exhaustion | opt-in via `COLLEAGUE_ESCALATE`; no CLI verb |
 
 ## How the features fit together
 
-A single `drive` call exercises most of the runtime at once:
+A single `work` call exercises most of the runtime at once:
 
 1. **Backends & plugins** resolve `--engine <name>` to an adapter via the
    `colleague.engines` entry-point group.
 2. **Layered per-model config** composes a model-specific system prompt
    (AGENTS + skills) on the `Engine` base class; **per-model configuration**
    additionally layers a per-model hooks overlay ahead of the base hooks.
-3. **Drive & the tool-loop** runs the bounded agentic loop, where every tool
+3. **Work & the tool-loop** runs the bounded agentic loop, where every tool
    call fires **lifecycle hooks** and emits **telemetry**.
 4. **Command templates** (and the **interactive palette**) are alternative
    front-ends that build the same `Task` and run the same loop.
 5. **Git/PR handoff** captures the working-tree changes as a branch/commit/PR.
 6. The **result artifact** records the whole run as JSON + a step trace.
 7. **`doctor`** and the **agent-first CLI** are read-only introspection over all
-   of the above — they never drive a task.
+   of the above — they never run a task.
 
 The unifying invariant is the **all-engines rule**: any behavior that belongs to
 the contract (the loop, hooks, telemetry, the artifact, layered config) lives in

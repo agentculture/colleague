@@ -225,8 +225,8 @@ class VllmOpenAIEngine(Engine):
 
         return complete
 
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
-        """Drive the task through the shared bounded tool-loop.
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
+        """Work the task through the shared bounded tool-loop.
 
         Each model turn is completed via the server's OpenAI-compatible
         ``/v1/chat/completions`` endpoint. Returns a :class:`TaskResult`.

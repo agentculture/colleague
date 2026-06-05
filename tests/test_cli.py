@@ -67,8 +67,8 @@ def test_whoami_text(capsys: pytest.CaptureFixture[str]) -> None:
     assert "mesh backend: claude" in out
     # The drive identity — the delegate a bare drive would actually run — is the
     # trust signal an agent checks before outsourcing.
-    assert "drive engine:" in out
-    assert "drive model:" in out
+    assert "work engine:" in out
+    assert "work model:" in out
 
 
 def test_whoami_json(capsys: pytest.CaptureFixture[str]) -> None:
@@ -79,22 +79,22 @@ def test_whoami_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["version"] == __version__
     assert payload["backend"] == "claude"
     # Drive identity is resolved live, never the unrelated persona backend.
-    assert payload["drive_engine"]  # non-empty: a real engine name
-    assert "drive_model" in payload
+    assert payload["work_engine"]  # non-empty: a real engine name
+    assert "work_model" in payload
 
 
 def test_whoami_json_drive_identity_matches_engine_resolution(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The probe must agree with the actual drive resolution: with the mock
-    # engine selected, drive_engine is 'mock' and drive_model is null (mock
+    # engine selected, work_engine is 'mock' and work_model is null (mock
     # calls no model — reporting a model id would be a lie).
     monkeypatch.setenv("COLLEAGUE_ENGINE", "mock")
     rc = main(["whoami", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["drive_engine"] == "mock"
-    assert payload["drive_model"] is None
+    assert payload["work_engine"] == "mock"
+    assert payload["work_model"] is None
 
 
 # --- learn ----------------------------------------------------------------
@@ -109,9 +109,9 @@ def test_learn_text(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Exit-code policy" in out
     assert "--json" in out
     assert "explain" in out
-    # reoriented for collaborating agents: foreground ask-colleague + drive + skills.
+    # reoriented for collaborating agents: foreground ask-colleague + work + skills.
     assert "ask-colleague" in out
-    assert "drive" in out
+    assert "work" in out
     assert ".colleague/skills/" in out
     # positively pin the new harness identity (not just the removal below).
     assert "swappable" in out

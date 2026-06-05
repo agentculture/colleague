@@ -432,7 +432,7 @@ class TestRunCommandSubprocessErrors:
         """A timed-out command yields a non-ok Step; the drive CONTINUES.
 
         Regression lock: before the fix, subprocess.TimeoutExpired escaped the
-        executor and aborted the whole drive via DriveAborted.
+        executor and aborted the whole drive via WorkAborted.
         """
 
         def boom(*_args: object, **_kwargs: object) -> object:

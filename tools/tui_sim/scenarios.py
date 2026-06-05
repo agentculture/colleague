@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from colleague.tui.events import Dismiss, Event, SkillSuggested, UserInput
-from colleague.tui.from_drive import drive_step
+from colleague.tui.from_work import work_step
 from colleague.tui.state import CockpitState
 
 from . import session_sim as ss
@@ -69,15 +69,15 @@ def _drive_cockpit(repo: Path) -> Scenario:
     timed = [
         (UserInput("Add a retry-on-overflow guard to the drive loop"), 1000),
         *ticks(2, 140),
-        (drive_step("read_file", "colleague/loop.py"), 650),
+        (work_step("read_file", "colleague/loop.py"), 650),
         *ticks(1, 150),
-        (drive_step("read_file", "colleague/context.py"), 650),
+        (work_step("read_file", "colleague/context.py"), 650),
         *ticks(2, 140),
-        (drive_step("write_file", "colleague/loop.py"), 750),
+        (work_step("write_file", "colleague/loop.py"), 750),
         *ticks(2, 140),
-        (drive_step("run_command", "pytest -q tests/test_loop.py"), 850),
+        (work_step("run_command", "pytest -q tests/test_loop.py"), 850),
         *ticks(1, 150),
-        (drive_step("finish", "retry-on-overflow guard added"), 700),
+        (work_step("finish", "retry-on-overflow guard added"), 700),
         (
             UserInput(
                 "done: retry-on-overflow guard added "
@@ -102,12 +102,12 @@ def _skill_suggested(repo: Path) -> Scenario:
     start = drive_state(session.state, engine="mock")
     timed = [
         *ticks(2, 150),
-        (drive_step("read_file", "colleague/engines/vllm_openai.py"), 650),
+        (work_step("read_file", "colleague/engines/vllm_openai.py"), 650),
         *ticks(2, 160),
         (SkillSuggested("boost", reason="task_complexity_high", confidence=0.9), 2800),
         (Dismiss("popup.skill.boost"), 800),
         *ticks(2, 150),
-        (drive_step("write_file", "colleague/engines/vllm_openai.py"), 700),
+        (work_step("write_file", "colleague/engines/vllm_openai.py"), 700),
     ]
     frames, states, events = fold(start, timed)
     k = first_state_with_visible_popup(states)
@@ -122,9 +122,9 @@ def _failed_step(repo: Path) -> Scenario:
     start = drive_state(session.state, engine="mock")
     timed = [
         *ticks(2, 150),
-        (drive_step("read_file", "colleague/policy.py"), 650),
+        (work_step("read_file", "colleague/policy.py"), 650),
         *ticks(1, 150),
-        (drive_step("run_command", "pytest -q tests/test_policy.py", ok=False), 2800),
+        (work_step("run_command", "pytest -q tests/test_policy.py", ok=False), 2800),
         (Dismiss("popup.error.run_command"), 900),
     ]
     frames, states, events = fold(start, timed)
@@ -157,16 +157,16 @@ def _full_ride(repo: Path) -> Scenario:
     timed = [
         (UserInput("Wire the cockpit status bar severity to drive failures"), 1000),
         *ticks(2, 140),
-        (drive_step("read_file", "colleague/tui/widgets/status_bar.py"), 650),
+        (work_step("read_file", "colleague/tui/widgets/status_bar.py"), 650),
         *ticks(2, 150),
         (SkillSuggested("boost", reason="task_complexity_high", confidence=0.92), 2600),
         (Dismiss("popup.skill.boost"), 800),
         *ticks(1, 150),
-        (drive_step("write_file", "colleague/tui/widgets/status_bar.py"), 750),
+        (work_step("write_file", "colleague/tui/widgets/status_bar.py"), 750),
         *ticks(2, 140),
-        (drive_step("run_command", "pytest -q tests/test_tui_render.py"), 850),
+        (work_step("run_command", "pytest -q tests/test_tui_render.py"), 850),
         *ticks(1, 150),
-        (drive_step("finish", "status bar severity wired to drive failures"), 700),
+        (work_step("finish", "status bar severity wired to drive failures"), 700),
         (
             UserInput(
                 "done: status bar severity wired to drive failures "

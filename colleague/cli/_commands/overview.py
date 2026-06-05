@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._commands.whoami import format_drive_model, report
+from colleague.cli._commands.whoami import format_work_model, report
 from colleague.cli._output import emit_result
 
 _ARTIFACTS = [
@@ -25,11 +25,11 @@ _ARTIFACTS = [
 ]
 
 _VERBS = [
-    "drive <instruction> — run a repo task through a coder backend",
+    "work <instruction> — run a repo task through a coder backend",
     "backends list — list discovered backend plugins",
     "agents list — inspect layered AGENTS instruction files for a model",
     "skills list — inspect layered skill docs for a model",
-    "whoami — mesh identity (nick, version, backend) + live drive engine/model",
+    "whoami — mesh identity (nick, version, backend) + live work engine/model",
     "learn — structured self-teaching prompt",
     "explain <path> — markdown docs for a topic",
     "overview — this descriptive snapshot",
@@ -40,13 +40,13 @@ _VERBS = [
 def agent_sections() -> list[dict[str, object]]:
     """Sections describing the agent (used by the global verb)."""
     ident = report()
-    # Mirror ``whoami``'s two-identity split (mesh vs drive) instead of showing a
+    # Mirror ``whoami``'s two-identity split (mesh vs work) instead of showing a
     # bare ``model`` — which is the *mesh* model (often ``unknown`` when
     # culture.yaml declares none) and silently disagrees with ``whoami``'s live
-    # drive model. ``report()`` already resolves the drive engine/model the same
-    # way a real drive does; ``format_drive_model`` is the one shared renderer so
+    # work model. ``report()`` already resolves the work engine/model the same
+    # way a real work item does; ``format_work_model`` is the one shared renderer so
     # the two commands can never desync (incl. the mock ``None`` case).
-    drive_model = format_drive_model(ident["drive_model"])
+    work_model = format_work_model(ident["work_model"])
     return [
         {
             "title": "Identity",
@@ -54,8 +54,8 @@ def agent_sections() -> list[dict[str, object]]:
                 f"nick: {ident['nick']}",
                 f"version: {ident['version']}",
                 f"mesh backend: {ident['backend']}",
-                f"drive engine: {ident['drive_engine']}",
-                f"drive model: {drive_model}",
+                f"work engine: {ident['work_engine']}",
+                f"work model: {work_model}",
             ],
         },
         {"title": "Verbs", "items": list(_VERBS)},

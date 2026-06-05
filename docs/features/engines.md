@@ -6,7 +6,7 @@
 The **backend** is the model/coder backend and the **adapter** is the code that
 invokes and controls one backend. An adapter is a class implementing the
 `Engine` protocol (`colleague/engine.py`) — one abstract method,
-`drive(task, config) -> TaskResult`. Adapters don't re-implement the loop; they
+`work(task, config) -> TaskResult`. Adapters don't re-implement the loop; they
 delegate to `colleague.loop.run` and only supply *how the model is called* (a
 `complete` function).
 
@@ -26,7 +26,7 @@ my-engine = "my_package.engine:MyEngine"
 ```bash
 colleague backends list          # the registry: backends installed in this env
 colleague backends list --json
-colleague drive "..." --engine my-engine
+colleague work "..." --engine my-engine
 ```
 
 Requesting an unknown backend name raises `UnknownEngine`, listing the available
@@ -80,7 +80,7 @@ from colleague.loop import run
 class MyEngine(Engine):
     name = "my-engine"
 
-    def drive(self, task, config):
+    def work(self, task, config):
         return run(
             self._make_complete(config),
             task,
@@ -106,7 +106,7 @@ to colleague core.
 
 - [model-selection.md](model-selection.md) — how colleague resolves the model
   and endpoint (flags → env → defaults), and keeping it synced to a local server.
-- [drive-and-loop.md](drive-and-loop.md) — the contract + loop adapters delegate to.
+- [work-and-loop.md](work-and-loop.md) — the contract + loop adapters delegate to.
 - [layered-config.md](layered-config.md) — the per-model system prompt every
   backend inherits.
 - [doctor.md](doctor.md) — the `engines` check-group probes all plugins uniformly.

@@ -1,12 +1,12 @@
 # Telemetry: OpenTelemetry observability
 
-> Opt-in OpenTelemetry traces + metrics for a drive — observable against an OTLP
+> Opt-in OpenTelemetry traces + metrics for a work item — observable against an OTLP
 > collector, not just the per-run artifact.
 
-Telemetry makes a drive observable: it emits **OpenTelemetry traces + metrics** over
+Telemetry makes a work item observable: it emits **OpenTelemetry traces + metrics** over
 OTLP so a run shows up in a collector, complementing the per-run JSON
 [artifact](artifact.md). Telemetry lives in the **runtime** — instrumented once
-in the loop (`colleague/loop.py`, per tool call) and the shared drive path
+in the loop (`colleague/loop.py`, per tool call) and the shared work path
 (root + handoff spans) — so *every* backend emits identical signals (the
 all-engines rule), exactly like lifecycle hooks. No backend module touches the
 `telemetry` package.
@@ -21,24 +21,24 @@ The OpenTelemetry SDK is an **optional `[otel]` extra**, never a base
 dependency — the base install keeps zero runtime dependencies. It is imported
 **lazily** inside `colleague/telemetry/_otel.py`, only when telemetry is
 enabled. Requested *without* the extra installed, colleague degrades to a no-op
-with a one-line stderr notice — it never fails the drive.
+with a one-line stderr notice — it never fails the work item.
 
 ```bash
 pip install 'colleague[otel]'                        # or: uv sync --extra otel
 export COLLEAGUE_OTEL_ENABLED=1
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # OTLP/HTTP collector
-colleague drive "<task>" --repo . --engine mock --no-pr
+colleague work "<task>" --repo . --engine mock --no-pr
 #   -> stderr prints "trace: <id>"; the collector receives the spans + metrics
 ```
 
 ## Signals
 
-**Spans:** `colleague.drive` (root) → `colleague.tool.*` (one per tool call)
+**Spans:** `colleague.work` (root) → `colleague.tool.*` (one per tool call)
 → `colleague.handoff`.
 
 **Metrics:** `colleague.steps`, `colleague.tokens` (attr `kind`),
 `colleague.tool.latency`, `colleague.tool.calls`, `colleague.hook.denials`,
-`colleague.drive.duration` (attr `status`).
+`colleague.work.duration` (attr `status`).
 
 ## Configuration
 

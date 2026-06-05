@@ -1,14 +1,14 @@
 # Per-model configuration
 
 > Per-model configuration tunes the shared runtime to the specific model
-> running — leaving every other drive untouched.
+> running — leaving every other work item untouched.
 
 Per-model configuration governs how operator-declared fixes apply to specific
 models. The **runtime** (loop, hooks, config resolution) is shared
 across every backend. But different models have different biases — quirks in how
 they write files, what they assume about paths, or how they structure output.
 Per-model configuration lets operators declare those fixes precisely, applying
-them only to the targeted model and leaving all other drives untouched.
+them only to the targeted model and leaving all other work items untouched.
 
 Two per-model configuration surfaces ship in v0:
 
@@ -43,7 +43,7 @@ The file format is identical to the base `.colleague/hooks.json` — same
 
 ### Per-model-first precedence
 
-When the loop loads hooks for a drive, per-model entries are **prepended ahead
+When the loop loads hooks for a work item, per-model entries are **prepended ahead
 of** the base entries for each lifecycle event. The loop's existing
 **first-deny/rewrite-wins** rule then gives the per-model fix priority: if a
 per-model `pre_tool` entry denies or rewrites a tool call, the base entries for
@@ -67,7 +67,7 @@ can never load model Y's overlay: isolation is structural, not filtered.
 ### Strict no-op
 
 With no `--model` passed (or for a model whose overlay file is absent), the
-returned hook config is **byte-identical** to a base-only load. Existing drives
+returned hook config is **byte-identical** to a base-only load. Existing work items
 against models with no overlay see no behavior change.
 
 ### No new dependency, socket, or daemon
@@ -120,7 +120,7 @@ reference rather than a docroot-relative path. The fix is docroot-relative:
 The base hooks do not block this pattern — it is not a universal policy, and
 other models do not exhibit it. A per-model `pre_tool` hook on `write_file`
 applies the fix **only** for the targeted model, leaving the base config
-untouched for every other drive.
+untouched for every other work item.
 
 ### Hook config
 
@@ -197,7 +197,7 @@ the `content` argument in place, and the file is written as:
 <footer><a href="/README.md">Back to README</a></footer>
 ```
 
-The drive completes normally. The rewrite is recorded in `TaskResult.hook_firings`
+the work item completes normally. The rewrite is recorded in `TaskResult.hook_firings`
 and appears in the result artifact. The model receives the `additionalContext`
 string as context, so it can incorporate the correction on subsequent writes
 without re-triggering the hook.

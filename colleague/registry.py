@@ -7,7 +7,7 @@ in its own metadata, and :func:`catalog` discovers it with no change to
 Colleague core (honesty condition h4).
 
 This is the registry: ``colleague backends list`` reads :func:`catalog`, and
-``colleague drive --engine <name>`` resolves the choice through :func:`load`.
+``colleague work --engine <name>`` resolves the choice through :func:`load`.
 """
 
 from __future__ import annotations

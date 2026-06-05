@@ -12,7 +12,7 @@ module state (idempotent init, like ``culture/telemetry/tracing.py``); we keep
 them local rather than registering globals, since
 ``start_as_current_span`` propagates parentage through the global *context*
 (contextvars) regardless of which provider created the tracer — so the loop's
-tool spans still nest under the drive span without any global registration.
+tool spans still nest under the work span without any global registration.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _default_metric_reader(cfg: TelemetryConfig) -> MetricReader:
 
 @dataclass
 class _State:
-    """Cached providers + meter instruments shared across a process's drives.
+    """Cached providers + meter instruments shared across a process's work items.
 
     When ``metrics_enabled`` is false the meter provider and instruments are
     ``None`` — metric recording is then skipped, so ``COLLEAGUE_OTEL_METRICS_ENABLED=false``
@@ -141,7 +141,7 @@ class _State:
     tool_calls: Any
     tool_latency: Any
     hook_denials: Any
-    drive_duration: Any
+    work_duration: Any
 
 
 _state: Optional[_State] = None
@@ -177,7 +177,7 @@ def _build_state(
     tracer = tracer_provider.get_tracer(_TRACER_NAME)
 
     meter_provider: Optional[MeterProvider] = None
-    steps = tokens = tool_calls = tool_latency = hook_denials = drive_duration = None
+    steps = tokens = tool_calls = tool_latency = hook_denials = work_duration = None
     generated = bytes_written = None
     if cfg.metrics_enabled:
         reader = metric_reader if metric_reader is not None else _default_metric_reader(cfg)
@@ -193,7 +193,7 @@ def _build_state(
         tool_calls = meter.create_counter("colleague.tool.calls")
         tool_latency = meter.create_histogram("colleague.tool.latency", unit="s")
         hook_denials = meter.create_counter("colleague.hook.denials")
-        drive_duration = meter.create_histogram("colleague.drive.duration", unit="s")
+        work_duration = meter.create_histogram("colleague.work.duration", unit="s")
 
     return _State(
         tracer_provider=tracer_provider,
@@ -206,7 +206,7 @@ def _build_state(
         tool_calls=tool_calls,
         tool_latency=tool_latency,
         hook_denials=hook_denials,
-        drive_duration=drive_duration,
+        work_duration=work_duration,
     )
 
 
@@ -254,7 +254,7 @@ class _Span:
 
 
 class _OtelTelemetry(Telemetry):
-    """Emits real spans and records metrics. One drive == one ``colleague.drive``
+    """Emits real spans and records metrics. One work item == one ``colleague.work``
     root span with ``colleague.tool.*`` children (and ``colleague.handoff``)."""
 
     enabled = True
@@ -263,11 +263,11 @@ class _OtelTelemetry(Telemetry):
         self._s = state
 
     @contextlib.contextmanager
-    def drive_span(
+    def work_span(
         self, *, task_id: str, engine: str, model: str, max_steps: int
     ) -> Iterator[_Span]:
         start = time.monotonic()
-        with self._s.tracer.start_as_current_span("colleague.drive") as span:
+        with self._s.tracer.start_as_current_span("colleague.work") as span:
             span.set_attribute("task_id", task_id)
             span.set_attribute("engine", engine)
             span.set_attribute("model", model)
@@ -276,9 +276,9 @@ class _OtelTelemetry(Telemetry):
             try:
                 yield handle
             finally:
-                if self._s.drive_duration is not None:
+                if self._s.work_duration is not None:
                     status = getattr(handle, "_status", "unknown")
-                    self._s.drive_duration.record(time.monotonic() - start, {"status": status})
+                    self._s.work_duration.record(time.monotonic() - start, {"status": status})
 
     @contextlib.contextmanager
     def tool_span(self, *, tool: str, step_index: int) -> Iterator[_Span]:
@@ -333,8 +333,8 @@ class _OtelTelemetry(Telemetry):
         return format_trace_id(ctx.trace_id)
 
     def flush(self) -> None:
-        # Force-flush (not shutdown) so a one-shot `drive` ships its spans while
-        # a `session` running many drives can keep reusing the providers; the
+        # Force-flush (not shutdown) so a one-shot work item ships its spans while
+        # a `session` running many work items can keep reusing the providers; the
         # atexit hook performs the real shutdown at process exit.
         with contextlib.suppress(Exception):
             self._s.tracer_provider.force_flush()

@@ -2,14 +2,14 @@
 
 > Colleague's destination tells the backend where it's going, not just where it
 > is. An engine MAY set a curated `devague` loop tool to open and converge a
-> goal-frame when a task warrants one, drive toward it, and declare the
-> announcement on arrival — so colleague knows its destination before it drives.
+> goal-frame when a task warrants one, work toward it, and declare the
+> announcement on arrival — so colleague knows its destination before it works.
 
 ## Before → after
 
-**Before** this feature, a `colleague drive` had only one compass:
+**Before** this feature, a `colleague work` had only one compass:
 
-- Telemetry reported *where the drive was* (execution trace, step count,
+- Telemetry reported *where the work item was* (execution trace, step count,
   time elapsed).
 - But there was no shared notion of *where it was going* — a vague task was
   driven straight on vibes; 'done' just meant the loop finished or hit its step
@@ -25,7 +25,7 @@ before driving**.
 - When a task warrants it, the engine can set a destination — capture and
   converge a devague goal-frame via a curated `devague` loop tool — before
   changing the repo.
-- The engine drives toward that goal, and when it arrives, declares the framed
+- The engine works toward that goal, and when it arrives, declares the framed
   announcement.
 - The destination (frame slug + declared announcement) is recorded in the JSON
   artifact as lightweight metadata — so colleague knows where it's going, and
@@ -33,7 +33,7 @@ before driving**.
 - Convergence is *advisory* — the engine can inspect gaps via `status`, but only
   operator-confirmed claims are authoritative.
 - Setting a destination is *optional and engine-judged* — a clear task just
-  drives; only vague/new tasks that benefit from goal-setting open a frame.
+  work items; only vague/new tasks that benefit from goal-setting open a frame.
 
 ## Telemetry and Destination: two compasses
 
@@ -45,7 +45,7 @@ Colleague has two compasses:
   and the announced arrival. Off by default (only set when the backend judges it
   necessary).
 
-Together they bound the drive: destination = the goal, telemetry = the journey.
+Together they bound the work item: destination = the goal, telemetry = the journey.
 
 ## How it works
 
@@ -81,7 +81,7 @@ Each devague call:
 - Runs with `cwd` pinned at the repo root so the CLI sees `culture.yaml` (for
   auto-signing).
 - Injects the resolved process identity via `COLLEAGUE_IDENTITY` (exactly as
-  the `culture` tool does) so the CLI inherits the drive's nick.
+  the `culture` tool does) so the CLI inherits the work item's nick.
 - Launches as a subprocess — no socket, no daemon, no Python import of devague.
 - Maps a missing CLI (`FileNotFoundError`) to a clean `ToolError` fed back to
   the model — never a traceback.
@@ -97,7 +97,7 @@ The engine can call `converge` to signal the frame is ready and inspect gaps
 - Only operator-confirmed claims (set up front by the user) carry authoritative
   convergence weight.
 - The destination is recorded in the artifact; the user can inspect it and
-  decide to confirm/reject it outside the drive loop.
+  decide to confirm/reject it outside the work loop.
 
 ### Lightweight arrival and the artifact
 
@@ -121,7 +121,7 @@ The JSON artifact then records:
 
 Without a destination, both keys are **omitted entirely** (not `null`) —
 `TaskResult.to_dict()` drops them when unset, so the artifact is byte-identical
-to drives without the feature.
+to work items without the feature.
 
 ## Enabling it
 
@@ -142,7 +142,7 @@ tool available to use when a task warrants it.
 
 Without a destination, the engine:
 
-1. Drives straight into the repo, adds a few tests, maybe refactors a test helper.
+1. Works straight into the repo, adds a few tests, maybe refactors a test helper.
 2. Runs out of steps. Finishes with a summary: "Added 5 tests to test_foo.py."
 3. No one (human or AI) knows what "improve" means — the work was ad-hoc.
 
@@ -159,7 +159,7 @@ Without a destination, the engine:
    we measure 85%?"` The CLI feeds back a clarification.
 5. When ready, calls `devague converge` to signal "the goal is clear." The frame
    records a convergence signal (advisory, from the engine's perspective).
-6. Drives: writes tests, refactors helpers, hits each claim, reaches the goal.
+6. Works: writes tests, refactors helpers, hits each claim, reaches the goal.
 7. On finish: declares the announcement: `destination: "improve-test-suite"`,
    `announcement: "Auth module coverage: 87% (was 62%). Refactored test_helpers.py
    (3→1 base). Added login integration suite."`
@@ -180,7 +180,7 @@ destination, everyone agrees on what "better" means before the work starts.
   CLI — no socket, no daemon, no library import. Colleague reads no devague
   Python API.
 - **Setting a destination is optional and engine-judged.** A clear task just
-  drives; only vague/new tasks benefit from goal-setting. The engine (via
+  work items; only vague/new tasks benefit from goal-setting. The engine (via
   system-prompt guidance) decides when a destination is warranted — colleague
   never forces convergence.
 - **Convergence remains user-authoritative.** The engine's own convergence signal
@@ -205,7 +205,7 @@ destination, everyone agrees on what "better" means before the work starts.
 
 ## See also
 
-- [drive-and-loop.md](drive-and-loop.md) — the bounded tool-loop and the full
+- [work-and-loop.md](work-and-loop.md) — the bounded tool-loop and the full
   tool surface.
 - [layered-config.md](layered-config.md) — how the engine's system prompt
   (AGENTS instructions) provides guidance on destination-setting.

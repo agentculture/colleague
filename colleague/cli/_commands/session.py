@@ -1,24 +1,24 @@
-"""``colleague session`` — the interactive cockpit over the drive path.
+"""``colleague session`` — the interactive cockpit over the work path.
 
 Opens a foreground interactive **cockpit**: it renders one
 :class:`~colleague.tui.state.CockpitState` (a command palette + a running
 conversation + popups), reads a line of input, and dispatches it through the
-**same** drive path used by ``colleague drive``
-(:func:`~colleague.cli._commands.drive.execute_drive`). The loop runs until a
+**same** work path used by ``colleague work``
+(:func:`~colleague.cli._commands.work.execute_work`). The loop runs until a
 quit token (``q`` / ``/quit`` / empty line / EOF).
 
 Three render tiers of the one state (#74 A2), chosen automatically:
 
 * **interactive (a colour TTY, not ``--json``)** — the dynamic ANSI cockpit
-  (popups, redraw-in-place during a drive);
+  (popups, redraw-in-place during a work item);
 * **non-interactive (piped / captured)** — **Markdown** menus (the static but
   *full* agent-readable view), the default off a TTY;
-* **``--json``** — stdout carries only the drive ``TaskResult`` (one JSON object
+* **``--json``** — stdout carries only the work ``TaskResult`` (one JSON object
   each, preserving the machine contract); the Markdown cockpit renders to stderr
   as chrome. (The TAUI JSON mirror lives under ``colleague tui state``.)
 
 Input is **line-based**. Plain text (a number / template name / free-text task)
-runs a drive; a line starting with ``/`` is a **slash command** — the meta/system
+runs a work item; a line starting with ``/`` is a **slash command** — the meta/system
 namespace (introspection of existing nouns + live config actions).
 
 The session is entirely foreground (no sockets, no daemons) and stdlib-only.
@@ -26,7 +26,7 @@ The session is entirely foreground (no sockets, no daemons) and stdlib-only.
 Testability
 -----------
 :func:`run_session` keeps the injectable ``input_fn`` / ``out`` / ``err`` /
-``_drive_fn`` seams. ``_color`` forces the interactive-vs-static tier without a
+``_work_fn`` seams. ``_color`` forces the interactive-vs-static tier without a
 real TTY.
 """
 
@@ -43,14 +43,14 @@ from typing import Callable, Iterator, Optional, Sequence
 
 from colleague import registry
 from colleague.cli._banner import emit_banner
-from colleague.cli._commands.drive import execute_drive as _default_drive
+from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_engine
 from colleague.contract import Task, TaskResult
 from colleague.tui.colors import should_color
 from colleague.tui.events import UserInput
-from colleague.tui.from_drive import drive_step
+from colleague.tui.from_work import work_step
 from colleague.tui.reducer import reduce
 from colleague.tui.render.ansi import render as _render_ansi
 from colleague.tui.render.layout import detect_width
@@ -62,7 +62,7 @@ from colleague.tui.widgets.prompt_input import plain_prompt
 # Types for the injectable seams
 # ---------------------------------------------------------------------------
 
-_DriveFn = Callable[..., tuple[TaskResult, Path]]
+_WorkFn = Callable[..., tuple[TaskResult, Path]]
 
 _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
 _CONVERSATION_PANEL_ID = "panel.conversation"
@@ -132,8 +132,8 @@ def _resolve_selection(
     return task, command_name
 
 
-class _DriveSink:
-    """Progress sink for an in-session drive: fold each step into the session's
+class _WorkSink:
+    """Progress sink for an in-session work item: fold each step into the session's
     one shared :class:`CockpitState` and (on the dynamic ANSI tier) redraw live."""
 
     def __init__(self, session: "_Session") -> None:
@@ -141,11 +141,11 @@ class _DriveSink:
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
-        sess.state = reduce(sess.state, drive_step(tool, target, ok))
+        sess.state = reduce(sess.state, work_step(tool, target, ok))
         if sess.view == "ansi":
             sess.emit()  # live redraw per step
 
-    def close(self) -> None:  # called by execute_drive on every exit path
+    def close(self) -> None:  # called by execute_work on every exit path
         return None
 
 
@@ -164,7 +164,7 @@ class _Session:
         view: str,
         out: Callable[..., None],
         err: Callable[..., None],
-        drive_fn: _DriveFn,
+        work_fn: _WorkFn,
         user_home: Optional[Path] = None,
     ) -> None:
         self.repo = repo
@@ -177,9 +177,9 @@ class _Session:
         self.out = out
         self.err = err
         # The rendered cockpit is interactive chrome: stdout normally, but stderr
-        # in --json mode so stdout carries only the drive TaskResult(s).
+        # in --json mode so stdout carries only the work TaskResult(s).
         self.chrome = err if json_mode else out
-        self.drive_fn = drive_fn
+        self.work_fn = work_fn
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -305,7 +305,7 @@ class _Session:
         self._log(line)  # echo the input into the conversation
         if line.startswith("/"):
             return self._slash(line)
-        self._drive_line(line)
+        self._work_line(line)
         return True
 
     # ── slash commands ───────────────────────────────────────────────────────
@@ -364,9 +364,9 @@ class _Session:
             return f"error: {type(exc).__name__}: {exc}"
         return sink.getvalue().rstrip() or "(no output)"
 
-    # ── drive ────────────────────────────────────────────────────────────────
+    # ── work ────────────────────────────────────────────────────────────────
 
-    def _drive_line(self, line: str) -> None:
+    def _work_line(self, line: str) -> None:
         resolved = _resolve_selection(
             line,
             self.palette,
@@ -379,11 +379,11 @@ class _Session:
         if resolved is None:
             return
         task, command_name = resolved
-        self._run_drive(task, command_name)
+        self._run_work(task, command_name)
 
-    def _run_drive(self, task: Task, command_name: Optional[str]) -> None:
+    def _run_work(self, task: Task, command_name: Optional[str]) -> None:
         try:
-            result, _artifact = self.drive_fn(
+            result, _artifact = self.work_fn(
                 repo=self.repo,
                 engine_name=self.engine_name,
                 task=task,
@@ -391,7 +391,7 @@ class _Session:
                 base=self.base,
                 config=self.config,
                 command_name=command_name,
-                progress_sink=_DriveSink(self),
+                progress_sink=_WorkSink(self),
             )
         except CliError as exc:
             hint = f" (hint: {exc.remediation})" if exc.remediation else ""
@@ -433,11 +433,11 @@ _SLASH_COMMANDS: list[SlashSpec] = [
     SlashSpec("config", "", "configuration readiness (doctor)"),
     SlashSpec("engines", "", "discovered backend plugins"),
     SlashSpec("telemetry", "", "telemetry configuration"),
-    SlashSpec("feedback", "", "feedback for the last drive"),
-    SlashSpec("engine", "<name>", "switch the engine for the next drive"),
+    SlashSpec("feedback", "", "feedback for the last work item"),
+    SlashSpec("engine", "<name>", "switch the engine for the next work item"),
     SlashSpec("model", "<name>", "switch the model"),
     SlashSpec("base", "<branch>", "set the PR base branch"),
-    SlashSpec("pr", "", "toggle push + open PR on each drive"),
+    SlashSpec("pr", "", "toggle push + open PR on each work item"),
     SlashSpec("quit", "", "end the session"),
 ]
 
@@ -459,7 +459,7 @@ def _format_help(specs: Sequence[SlashSpec]) -> str:
     for s in specs:
         left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
         rows.append(f"  {left:<21} {s.description}")
-    rows.append("plain text (a number / template name / free-text task) runs a drive.")
+    rows.append("plain text (a number / template name / free-text task) runs a work item.")
     return "\n".join(rows)
 
 
@@ -505,7 +505,7 @@ def _act_base(s: "_Session", rest: list[str]) -> str:
 
 def _act_pr(s: "_Session", rest: list[str]) -> str:
     s.open_pr = not s.open_pr
-    return f"push + PR on each drive → {'on' if s.open_pr else 'off'}"
+    return f"push + PR on each work item → {'on' if s.open_pr else 'off'}"
 
 
 # Live config actions: map a verb to a mutating handler returning a confirmation.
@@ -540,7 +540,7 @@ def run_session(
     input_fn: Optional[Iterator[str]] = None,
     out: Callable[..., None] = print,
     err: Optional[Callable[..., None]] = None,
-    _drive_fn: _DriveFn = _default_drive,
+    _work_fn: _WorkFn = _default_work,
     _color: Optional[bool] = None,
 ) -> int:
     """Run the interactive cockpit session loop.
@@ -548,16 +548,16 @@ def run_session(
     Output contract: outside ``--json`` the rendered cockpit goes to ``out``
     (stdout) — an ANSI frame or Markdown menus per the resolved tier. In
     ``--json`` mode the cockpit renders as chrome to ``err`` (stderr) and ``out``
-    (stdout) carries only each completed drive's ``TaskResult`` as JSON (one
-    object per drive, preserving the machine contract). The banner, diagnostics,
+    (stdout) carries only each completed work item's ``TaskResult`` as JSON (one
+    object per work item, preserving the machine contract). The banner, diagnostics,
     and the closing notice always go to ``err`` (stderr). Always returns ``0``
     (clean exit on quit/EOF).
 
-    The ``input_fn`` / ``out`` / ``err`` / ``_drive_fn`` seams are for tests;
+    The ``input_fn`` / ``out`` / ``err`` / ``_work_fn`` seams are for tests;
     ``_color`` overrides the colour-TTY detection that picks ANSI vs. Markdown.
     """
     repo = Path(args.repo).expanduser()
-    # Resolve the engine like ``drive`` (explicit > COLLEAGUE_ENGINE > vllm-openai).
+    # Resolve the engine like ``work`` (explicit > COLLEAGUE_ENGINE > vllm-openai).
     engine_name = resolve_engine(args.engine)
     open_pr = bool(getattr(args, "pr", False))
     base = args.base
@@ -585,7 +585,7 @@ def run_session(
         view=view,
         out=out,
         err=err,
-        drive_fn=_drive_fn,
+        work_fn=_work_fn,
     )
     return session.run(input_fn)
 
@@ -600,19 +600,19 @@ def register(sub: argparse._SubParsersAction) -> None:
         "session",
         help=(
             "Open the interactive cockpit: a command palette + slash commands over "
-            "the drive path; run templates or ad-hoc tasks, loop until quit."
+            "the work path; run templates or ad-hoc tasks, loop until quit."
         ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--engine",
         default=None,
-        help="Backend plugin to drive (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help="Backend plugin to use (default: COLLEAGUE_ENGINE or vllm-openai).",
     )
     p.add_argument(
         "--pr",
         action="store_true",
-        help="Push and open a PR after each drive (default: commit locally only, no PR).",
+        help="Push and open a PR after each work item (default: commit locally only, no PR).",
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
@@ -632,7 +632,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--json",
         action="store_true",
         help=(
-            "Emit one JSON TaskResult per drive to stdout; render the cockpit as "
+            "Emit one JSON TaskResult per work item to stdout; render the cockpit as "
             "chrome to stderr. (The TAUI JSON mirror lives under 'tui state'.)"
         ),
     )

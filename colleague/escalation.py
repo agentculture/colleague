@@ -3,7 +3,7 @@
 Two public surfaces live here:
 
 **build_continuation** (t1) — a **pure** function that renders a structured
-five-section markdown body describing where a partial drive got to and how to
+five-section markdown body describing where a partial work item got to and how to
 continue it.  The output is intended to be filed as the body of an agtag issue
 by the escalation path (t3); this module owns only the rendering.
 
@@ -27,7 +27,7 @@ idempotency marker for the agtag escalation outward side-effect.
    exists), return False.
 
 ``mark_escalated(repo, task_id, issue_url)`` writes the idempotency marker
-``<task_id>.escalation.json`` beside the drive artifact (same directory as the
+``<task_id>.escalation.json`` beside the work-item artifact (same directory as the
 feedback record — resolved via :func:`colleague.artifact.artifact_dir`).
 
 No I/O, no subprocess, no network — stdlib only (``json``, ``os``, ``pathlib``).
@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from colleague.artifact import artifact_dir
-from colleague.contract import DriveStats, TaskResult
+from colleague.contract import TaskResult, WorkStats
 from colleague.culture import run_culture
 from colleague.handoff import gh_available, has_remote
 from colleague.policy import load_policy
@@ -78,7 +78,7 @@ def _marker_path(repo: Path, task_id: str) -> Path:
 
 
 def mark_escalated(repo: str | Path, task_id: str, issue_url: str) -> None:
-    """Write the idempotency marker for *task_id* beside the drive artifact.
+    """Write the idempotency marker for *task_id* beside the work-item artifact.
 
     The marker is a small JSON file ``<task_id>.escalation.json`` in
     ``<repo>/.colleague/`` (the same directory the feedback store uses).  A
@@ -90,10 +90,10 @@ def mark_escalated(repo: str | Path, task_id: str, issue_url: str) -> None:
     repo:
         The repo root (used to resolve the artifact directory).
     task_id:
-        The drive's task identifier — used as the filename stem.
+        The work item's task identifier — used as the filename stem.
     issue_url:
         The URL of the agtag issue that was opened.  Stored in the marker so
-        the operator can inspect which issue was filed for a given drive.
+        the operator can inspect which issue was filed for a given work item.
     """
     path = _marker_path(Path(repo).resolve(), task_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +145,7 @@ def should_escalate(
     repo:
         The repository root path.
     task_id:
-        The drive's task identifier.
+        The work item's task identifier.
     model:
         Optional model name; forwarded to ``load_policy`` so per-model overlays
         are respected.
@@ -184,17 +184,17 @@ def should_escalate(
     return True
 
 
-def build_continuation(result: TaskResult, stats: DriveStats) -> str:  # noqa: WPS231
-    """Render a five-section continuation record from a partial drive result.
+def build_continuation(result: TaskResult, stats: WorkStats) -> str:  # noqa: WPS231
+    """Render a five-section continuation record from a partial work item result.
 
     Parameters
     ----------
     result:
         The :class:`~colleague.contract.TaskResult` produced by the interrupted
-        drive.  Key fields consumed: ``task_id``, ``status``, ``summary``,
+        work item.  Key fields consumed: ``task_id``, ``status``, ``summary``,
         ``changed_files``, ``error``.
     stats:
-        The :class:`~colleague.contract.DriveStats` attached to the same drive
+        The :class:`~colleague.contract.WorkStats` attached to the same work item
         (typically ``result.stats``).  Key fields consumed: ``started_at``,
         ``duration_seconds``, ``model_turns``, ``step_count``, ``tool_counts``,
         ``files_changed``, ``bytes_written``, ``request``.
@@ -203,7 +203,7 @@ def build_continuation(result: TaskResult, stats: DriveStats) -> str:  # noqa: W
     -------
     str
         A markdown string with five ``##``-headed sections.  The body is
-        self-contained — a reader can understand the drive state without
+        self-contained — a reader can understand the work item state without
         consulting the artifact directly.
 
     Notes
@@ -238,7 +238,7 @@ def build_continuation(result: TaskResult, stats: DriveStats) -> str:  # noqa: W
         f"**Files changed ({stats.files_changed}):** {files_summary}  \n"
         f"**Bytes written:** {stats.bytes_written}  \n"
         f"**Tool breakdown:** {tool_detail}  \n\n"
-        f"**What the drive finished:**\n\n"
+        f"**What the work item finished:**\n\n"
         f"{result.summary or '_No summary produced._'}\n"
     )
 
@@ -291,25 +291,25 @@ _RunFn = Callable[[str, Sequence[str]], str]
 
 def escalate(
     result: TaskResult,
-    stats: DriveStats,
+    stats: WorkStats,
     repo: str | Path,
     *,
     model: str | None = None,
     run: Callable | None = None,
 ) -> str | None:
-    """Orchestrate one escalation attempt for a partial drive result.
+    """Orchestrate one escalation attempt for a partial work item result.
 
     Returns the issue URL string (or the raw output if no URL is parseable) on
     success, or ``None`` when the gate is closed, the post fails, or posting
     raises.  On a non-zero exit or any exception the idempotency marker is NOT
-    written so a future drive may retry.
+    written so a future work item may retry.
 
     Parameters
     ----------
     result:
-        The :class:`~colleague.contract.TaskResult` from the interrupted drive.
+        The :class:`~colleague.contract.TaskResult` from the interrupted work item.
     stats:
-        The :class:`~colleague.contract.DriveStats` attached to the same drive.
+        The :class:`~colleague.contract.WorkStats` attached to the same work item.
     repo:
         The repo root path.
     model:
@@ -348,7 +348,7 @@ def escalate(
         tmp_path = tmp.name
 
     try:
-        title = f"colleague: continuation needed for drive {result.task_id}"
+        title = f"colleague: continuation needed for work item {result.task_id}"
         raw = _run(
             "agtag",
             ["issue", "post", "--title", title, "--body-file", tmp_path],
@@ -382,24 +382,24 @@ def escalate(
 # ---------------------------------------------------------------------------
 
 
-def _remaining_hint(result: TaskResult, stats: DriveStats) -> str:
+def _remaining_hint(result: TaskResult, stats: WorkStats) -> str:
     """Describe what work is likely still outstanding."""
     original = stats.request or result.summary or "_original task unknown_"
     summary = result.summary or "_no progress recorded_"
     if original == summary:
         return (
-            "The drive did not produce a summary distinct from the original request. "
+            "The work item did not produce a summary distinct from the original request. "
             "The full task should be retried."
         )
     return (
         f"The original request was:\n\n> {original}\n\n"
-        f"The drive reached:\n\n> {summary}\n\n"
-        "Work that was not reached in this drive should be continued in a follow-up."
+        f"The work item reached:\n\n> {summary}\n\n"
+        "Work that was not reached in this work item should be continued in a follow-up."
     )
 
 
-def _whats_needed(result: TaskResult, stats: DriveStats) -> str:
-    """Suggest the resource or configuration change that would unblock the drive."""
+def _whats_needed(result: TaskResult, stats: WorkStats) -> str:
+    """Suggest the resource or configuration change that would unblock the work item."""
     error = (result.error or "").lower()
     lines: list[str] = []
 
@@ -412,13 +412,13 @@ def _whats_needed(result: TaskResult, stats: DriveStats) -> str:
         )
     if "timeout" in error or stats.duration_seconds >= 600.0:
         lines.append(
-            f"- **Longer timeout:** the drive ran for {stats.duration_seconds:.1f}s "
-            "before being interrupted.  Increase the per-drive timeout or break the "
+            f"- **Longer timeout:** the work item ran for {stats.duration_seconds:.1f}s "
+            "before being interrupted.  Increase the per-work-item timeout or break the "
             "task into shorter sub-tasks."
         )
     if "step" in error or "budget" in error:
         lines.append(
-            f"- **Larger step budget:** the drive consumed all {stats.step_count} "
+            f"- **Larger step budget:** the work item consumed all {stats.step_count} "
             "permitted steps.  Increase `COLLEAGUE_MAX_STEPS` or split the task so "
             "each part fits within the current budget."
         )
@@ -433,7 +433,7 @@ def _whats_needed(result: TaskResult, stats: DriveStats) -> str:
     return "\n".join(lines)
 
 
-def _suggested_split(result: TaskResult, stats: DriveStats) -> str:
+def _suggested_split(result: TaskResult, stats: WorkStats) -> str:
     """Suggest a concrete decomposition strategy."""
     changed = result.changed_files or []
     step_count = stats.step_count
@@ -441,12 +441,12 @@ def _suggested_split(result: TaskResult, stats: DriveStats) -> str:
 
     if step_count >= 20 or model_turns >= 10:
         strategy = (
-            "The drive was large ({step_count} steps, {model_turns} model turns).  "
+            "The work item was large ({step_count} steps, {model_turns} model turns).  "
             "Consider splitting by **feature area** or **file group**:"
         ).format(step_count=step_count, model_turns=model_turns)
     else:
         strategy = (
-            "The drive was small ({step_count} steps) but still hit a limit.  "
+            "The work item was small ({step_count} steps) but still hit a limit.  "
             "Consider splitting by **scope**:"
         ).format(step_count=step_count)
 
@@ -454,26 +454,26 @@ def _suggested_split(result: TaskResult, stats: DriveStats) -> str:
 
     if changed:
         bullets.append(
-            f"- **Part A (done):** Files already changed in this drive — "
+            f"- **Part A (done):** Files already changed in this work item — "
             f"{', '.join(f'`{f}`' for f in changed[:3])}"
             + (" …" if len(changed) > 3 else "")
             + " — can be committed as-is."
         )
         bullets.append(
-            "- **Part B (remaining):** Continue from where the drive stopped, "
-            "starting a new drive with the continuation context."
+            "- **Part B (remaining):** Continue from where the work item stopped, "
+            "starting a new work item with the continuation context."
         )
     else:
         bullets.append("- **Part A:** First batch of changes (break by file/module).")
         bullets.append("- **Part B:** Second batch continuing from Part A's result.")
 
-    bullets.append("- **Integration:** A final short drive to wire together and run tests.")
+    bullets.append("- **Integration:** A final short work item to wire together and run tests.")
 
     return "\n".join(bullets)
 
 
-def _why_it_stopped(result: TaskResult, stats: DriveStats) -> str:
-    """Explain the concrete reason the drive was interrupted."""
+def _why_it_stopped(result: TaskResult, stats: WorkStats) -> str:
+    """Explain the concrete reason the work item was interrupted."""
     error = result.error or ""
     error_lower = error.lower()
     lines: list[str] = []
@@ -491,7 +491,7 @@ def _why_it_stopped(result: TaskResult, stats: DriveStats) -> str:
         )
     elif "timeout" in error_lower:
         lines.append(
-            f"The drive exceeded the allowed wall-clock time "
+            f"The work item exceeded the allowed wall-clock time "
             f"({stats.duration_seconds:.1f}s elapsed).  "
             f"It completed {stats.step_count} steps across {stats.model_turns} model turns "
             "before being cut short."
@@ -500,11 +500,11 @@ def _why_it_stopped(result: TaskResult, stats: DriveStats) -> str:
         lines.append(
             f"The step budget was exhausted: {stats.step_count} steps were taken across "
             f"{stats.model_turns} model turns in {stats.duration_seconds:.1f}s.  "
-            "The drive ran out of permitted iterations before the task was complete."
+            "The work item ran out of permitted iterations before the task was complete."
         )
     else:
         lines.append(
-            f"The drive ran for {stats.duration_seconds:.1f}s, completing "
+            f"The work item ran for {stats.duration_seconds:.1f}s, completing "
             f"{stats.step_count} steps across {stats.model_turns} model turns, then "
             "stopped"
             + (f" with error: `{error}`" if error else " without producing a finish call")

@@ -26,10 +26,10 @@ def test_concrete_subclass_drives() -> None:
     class Tiny(Engine):
         name = "tiny"
 
-        def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+        def work(self, task: Task, config: EngineConfig) -> TaskResult:
             return TaskResult(task_id=task.id, status=OK, summary="ok")
 
     engine = Tiny()
-    result = engine.drive(Task.new("/repo", "do it"), EngineConfig.resolve())
+    result = engine.work(Task.new("/repo", "do it"), EngineConfig.resolve())
     assert isinstance(result, TaskResult)
     assert result.status == OK

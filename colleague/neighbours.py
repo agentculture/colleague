@@ -52,7 +52,7 @@ class NeighbourManager:
     # write under the new ``.colleague/`` dir). Back-compat for convertible→colleague.
     _LEGACY_CONFIG_RELPATH = ".convertible/neighbours.json"
     _CLONE_SUBDIR = ".colleague/neighbours"
-    # Cap each git operation so a slow/unreachable remote cannot hang the drive
+    # Cap each git operation so a slow/unreachable remote cannot hang the work item
     # indefinitely (mirrors the run_command timeout in tools.py).
     _GIT_TIMEOUT_SECONDS = 300
 

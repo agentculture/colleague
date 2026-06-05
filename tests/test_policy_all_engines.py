@@ -156,7 +156,7 @@ class TestRunCommandDenyParity:
 
         task = Task.new(str(repo), "fetch something", engine="vllm-openai")
         cfg = EngineConfig.resolve()
-        return registry.load("vllm-openai").drive(task, cfg)
+        return registry.load("vllm-openai").work(task, cfg)
 
     def test_same_deny_policy_same_step_shape(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -249,7 +249,7 @@ class TestHookSkipParity:
 
         task = Task.new(str(repo), "test hook skip", engine="vllm-openai")
         cfg = EngineConfig.resolve()
-        return registry.load("vllm-openai").drive(task, cfg)
+        return registry.load("vllm-openai").work(task, cfg)
 
     def test_unapproved_hook_skipped_identically_both_engines(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -292,7 +292,7 @@ class TestHookSkipParity:
         vllm_turns = [_openai_tool_call("v1", "finish", {"summary": "done"})]
         monkeypatch.setattr(vllm_openai, "_post_json", _mock_vllm_turns(vllm_turns))
         task_v = Task.new(str(vllm_repo), "check", engine="vllm-openai")
-        registry.load("vllm-openai").drive(task_v, EngineConfig.resolve())
+        registry.load("vllm-openai").work(task_v, EngineConfig.resolve())
 
         assert not mock_marker.exists(), "mock: unapproved hook must not have run"
         assert not vllm_marker.exists(), "vllm: unapproved hook must not have run"

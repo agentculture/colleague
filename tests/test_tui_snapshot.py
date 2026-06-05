@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from colleague.tui.events import DriveStep, UserInput
+from colleague.tui.events import UserInput, WorkStep
 from colleague.tui.render.ansi import render
 from colleague.tui.render.markdown import render_markdown
 from colleague.tui.snapshot import Snapshot, read_snapshot, write_snapshot
-from colleague.tui.state import Action, CockpitState, Drive, Popup, Status
+from colleague.tui.state import Action, CockpitState, Popup, Status, WorkItem
 from colleague.tui.taui import serialize
 
 
@@ -18,7 +18,7 @@ def _make_state() -> CockpitState:
         screen="main",
         mode="driving",
         status=Status(severity="info", message="Running drive"),
-        drive=Drive(task_id="abc-123", engine="mock", step_count=3, running=True),
+        work_item=WorkItem(task_id="abc-123", engine="mock", step_count=3, running=True),
         popups=[
             Popup(
                 id="confirm-popup",
@@ -39,8 +39,8 @@ def _make_state() -> CockpitState:
 def _make_events() -> list:
     return [
         UserInput(text="run tests"),
-        DriveStep(tool="read_file", summary="read loop.py", ok=True),
-        DriveStep(tool="finish", summary="done", ok=True),
+        WorkStep(tool="read_file", summary="read loop.py", ok=True),
+        WorkStep(tool="finish", summary="done", ok=True),
     ]
 
 

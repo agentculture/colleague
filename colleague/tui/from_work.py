@@ -1,6 +1,6 @@
-"""Bridge a drive's per-step output into TAUI :class:`DriveStep` events.
+"""Bridge a work item's per-step output into TAUI :class:`WorkStep` events.
 
-A drive reports progress two ways that must agree:
+A work item reports progress two ways that must agree:
 
 * **live** — the loop's progress callback ``(step_index, tool, target, ok)``,
   where ``target`` is the short hint computed by :func:`progress_target`; and
@@ -8,7 +8,7 @@ A drive reports progress two ways that must agree:
   full ``arguments`` dict.
 
 Both are folded into the same cockpit by mapping each step to a
-:class:`~colleague.tui.events.DriveStep`.  This module is the single source of
+:class:`~colleague.tui.events.WorkStep`.  This module is the single source of
 that mapping, so a step's ``summary`` is identical whether it was produced live
 or reconstructed from a trace — which is what lets ``tui replay`` and
 ``tui replay --trace`` reproduce the live cockpit exactly.
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from colleague.tui.events import DriveStep
+from colleague.tui.events import WorkStep
 
 #: Argument keys, in priority order, that name a tool call's subject.
 _TARGET_KEYS = ("path", "command", "name", "summary", "subcommand")
@@ -37,7 +37,7 @@ def progress_target(arguments: Any) -> str:
     those keys.
 
     This is the value the loop passes as the ``target`` of its progress callback;
-    :func:`trace_to_drive_steps` reuses it so a replayed step reads identically.
+    :func:`trace_to_work_steps` reuses it so a replayed step reads identically.
     """
     if not isinstance(arguments, dict):
         return ""
@@ -48,13 +48,13 @@ def progress_target(arguments: Any) -> str:
     return ""
 
 
-def drive_step(tool: str, summary: str, ok: bool = True) -> DriveStep:
-    """Construct a :class:`DriveStep` from a live progress tuple's fields."""
-    return DriveStep(tool=str(tool), summary=str(summary), ok=bool(ok))
+def work_step(tool: str, summary: str, ok: bool = True) -> WorkStep:
+    """Construct a :class:`WorkStep` from a live progress tuple's fields."""
+    return WorkStep(tool=str(tool), summary=str(summary), ok=bool(ok))
 
 
-def trace_to_drive_steps(trace_lines: list[dict[str, Any]]) -> list[DriveStep]:
-    """Map loop-trace lines (``<id>.trace.jsonl``) to :class:`DriveStep` events.
+def trace_to_work_steps(trace_lines: list[dict[str, Any]]) -> list[WorkStep]:
+    """Map loop-trace lines (``<id>.trace.jsonl``) to :class:`WorkStep` events.
 
     Each line is ``{index, tool, arguments, result, ok}``.  The ``summary`` is the
     same hint the live callback would show (:func:`progress_target` of the
@@ -62,7 +62,7 @@ def trace_to_drive_steps(trace_lines: list[dict[str, Any]]) -> list[DriveStep]:
     arguments carry no recognised subject key — so a replayed step matches the
     live cockpit.  Lines that are not dicts, or lack a ``tool``, are skipped.
     """
-    steps: list[DriveStep] = []
+    steps: list[WorkStep] = []
     for line in trace_lines:
         if not isinstance(line, dict):
             continue
@@ -72,7 +72,7 @@ def trace_to_drive_steps(trace_lines: list[dict[str, Any]]) -> list[DriveStep]:
         summary = progress_target(line.get("arguments"))
         if not summary and line.get("result"):
             summary = _clip(str(line["result"]).splitlines()[0].strip())
-        steps.append(drive_step(str(tool), summary, bool(line.get("ok", True))))
+        steps.append(work_step(str(tool), summary, bool(line.get("ok", True))))
     return steps
 
 

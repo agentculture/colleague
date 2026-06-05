@@ -16,19 +16,28 @@ loop needs are derived from the task (``repo_path``) and the config
 from __future__ import annotations
 
 import abc
+import warnings
 
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 
 
 class Engine(abc.ABC):
-    """Abstract coder-engine driver. Subclasses implement :meth:`drive`."""
+    """Abstract coder-engine driver. Subclasses implement :meth:`work`.
+
+    Back-compat (drive→work, v0.37.0): the method was renamed from ``drive`` to
+    ``work``. An out-of-tree backend that still implements the legacy ``drive``
+    keeps working — :meth:`__init_subclass__` bridges a ``drive``-only subclass's
+    ``work`` to its ``drive`` (with a ``DeprecationWarning`` at call time), and the
+    base :meth:`drive` delegates to :meth:`work` so callers using the old method
+    name still work. Plugin authors should rename their method to ``work``.
+    """
 
     #: Stable engine name; matches the entry-point name it registers under.
     name: str = "engine"
 
     @abc.abstractmethod
-    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
         """Execute ``task`` and return a uniform :class:`TaskResult`.
 
         Implementations build a tool executor for ``task.repo_path``, run the
@@ -36,6 +45,35 @@ class Engine(abc.ABC):
         same result shape regardless of the model underneath.
         """
         raise NotImplementedError
+
+    def drive(self, task: Task, config: EngineConfig) -> TaskResult:
+        """Deprecated alias of :meth:`work` (renamed in v0.37.0).
+
+        Kept so callers using the old method name still work; subclasses should
+        override :meth:`work`. A legacy subclass that overrides ``drive`` instead
+        is bridged by :meth:`__init_subclass__`.
+        """
+        return self.work(task, config)
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        # A pre-rename plugin that implements legacy ``drive`` but not ``work``:
+        # alias ``work`` to its ``drive`` so it still satisfies the ABC and runs.
+        if "work" not in cls.__dict__ and "drive" in cls.__dict__:
+            legacy_drive = cls.__dict__["drive"]
+
+            def _work_via_legacy_drive(
+                self: "Engine", task: Task, config: EngineConfig, *, _legacy=legacy_drive
+            ) -> TaskResult:
+                warnings.warn(
+                    f"{cls.__name__} implements Engine.drive(), which was renamed to "
+                    "Engine.work() in v0.37.0; rename the method to work().",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                return _legacy(self, task, config)
+
+            cls.work = _work_via_legacy_drive  # type: ignore[method-assign]
 
     def system_prompt(self, task: Task, config: EngineConfig) -> str | None:
         """Compose the model-specific system prompt (AGENTS + skills layers).

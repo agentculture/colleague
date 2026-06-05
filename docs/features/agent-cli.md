@@ -4,7 +4,7 @@
 > separation, and read-only introspection verbs an agent can consume.
 
 Colleague is built as an **agent-first CLI** (cited from the teken `python-cli`
-reference). Beyond the working verbs ([`drive`](drive-and-loop.md),
+reference). Beyond the working verbs ([`work`](work-and-loop.md),
 [`session`](session.md), [`backends`](engines.md), [`commands`](command-templates.md),
 [`hooks`](hooks.md), [`agents`/`skills`](layered-config.md),
 [`telemetry`](telemetry.md), [`doctor`](doctor.md)), it carries a set of
@@ -32,7 +32,7 @@ in `colleague/cli/__init__.py`, and each gets an `explain` catalog entry.
 
 | Verb | What it reports |
 |------|-----------------|
-| `whoami` | The agent's nick + version + mesh backend (read from `culture.yaml`), plus the live `drive_engine`/`drive_model` a bare drive would actually run (resolved like a real drive; `drive_model` is `null` for the `mock` engine). |
+| `whoami` | The agent's nick + version + mesh backend (read from `culture.yaml`), plus the live `work_engine`/`work_model` a bare work item would actually run (resolved like a real work item; `work_model` is `null` for the `mock` engine). |
 | `learn` | A structured self-teaching prompt: purpose, command map, exit codes, `--json`, and the `explain` pointer. |
 | `explain <path>` | Markdown docs for any noun/verb path — global and addressable, unlike terse `--help`. |
 | `overview` | A read-only descriptive snapshot of the agent (identity + verb surface). |

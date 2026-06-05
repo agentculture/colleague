@@ -11,9 +11,9 @@ import pytest
 from colleague.contract import ERROR, NO_RESULT_PRODUCED, OK, Task
 from colleague.loop import (
     CompleteFn,
-    DriveAborted,
     ModelResponse,
     ToolCall,
+    WorkAborted,
     _assistant_message,
     run,
 )
@@ -108,7 +108,7 @@ def test_loop_records_tool_error_and_continues(tmp_path: Path) -> None:
 
 
 def test_loop_preserves_partial_result_when_complete_raises(tmp_path: Path) -> None:
-    """An engine that raises mid-loop -> DriveAborted carrying the partial result (#37)."""
+    """An engine that raises mid-loop -> WorkAborted carrying the partial result (#37)."""
     calls = {"n": 0}
 
     def flaky(_messages: list[dict]) -> ModelResponse:
@@ -122,7 +122,7 @@ def test_loop_preserves_partial_result_when_complete_raises(tmp_path: Path) -> N
         raise TimeoutError("timed out")
 
     task = Task.new(str(tmp_path), "write then time out")
-    with pytest.raises(DriveAborted) as excinfo:
+    with pytest.raises(WorkAborted) as excinfo:
         run(flaky, task, max_steps=10)
 
     result = excinfo.value.result

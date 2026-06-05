@@ -120,7 +120,7 @@ def test_drive_runs_full_loop_over_mocked_http(
 
     task = Task.new(str(tmp_path), "write made.txt", engine="vllm-openai")
     cfg = EngineConfig.resolve(base_url="http://other-host:9999/v1", model="my-model")
-    result = VllmOpenAIEngine().drive(task, cfg)
+    result = VllmOpenAIEngine().work(task, cfg)
 
     assert result.status == OK
     assert (tmp_path / "made.txt").read_text() == "by qwen"

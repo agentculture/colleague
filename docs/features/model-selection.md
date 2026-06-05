@@ -7,7 +7,7 @@
 
 This page is the operator's companion to [engines.md](engines.md): that doc
 covers *what* an engine is; this one covers *how colleague picks the model and
-endpoint a `vllm-openai` drive talks to*.
+endpoint a `vllm-openai` work item talks to*.
 
 ## Resolution precedence
 
@@ -48,7 +48,7 @@ colleague doctor --probe    # adds a live provider_reachable ping to the endpoin
 
 ## Pointing at an OpenAI-compatible server
 
-The `vllm-openai` engine drives **any** OpenAI-compatible
+The `vllm-openai` engine works with **any** OpenAI-compatible
 `/v1/chat/completions` endpoint with tool calling (vLLM, llama.cpp, a proxy) —
 retargeting it is a config change, never a code change. The model string
 colleague sends **must exactly equal the name the server serves**, or the
@@ -57,13 +57,13 @@ server answers with a model-not-found error.
 ```bash
 export COLLEAGUE_BASE_URL=http://localhost:8001/v1
 export COLLEAGUE_MODEL='<the exact served model id>'
-colleague drive "..." --engine vllm-openai --no-pr
+colleague work "..." --engine vllm-openai --no-pr
 ```
 
 ## Keeping the model in sync with a locally-served model
 
 When you swap the served checkpoint, a hardcoded `COLLEAGUE_MODEL` goes stale
-and the next drive is rejected. Derive the model from the server instead, so
+and the next work item is rejected. Derive the model from the server instead, so
 colleague always targets whatever is live. Read the served id straight from the
 server's `/v1/models` (a wrapper function in your shell rc — for a **single-model**
 server `data[0]` is unambiguous):
@@ -116,10 +116,10 @@ Notes:
 
 ## Subagents inherit the model
 
-A [subagent](drive-and-loop.md) delegated mid-drive inherits the parent's model
+A [subagent](work-and-loop.md) delegated mid-work inherits the parent's model
 by default (`colleague/subagents.py` — the child config is the parent config
 with `model=(override or parent.model)`). So a single `COLLEAGUE_MODEL` covers
-every nested drive — useful when only one model fits in memory. An explicit
+every nested work item — useful when only one model fits in memory. An explicit
 per-subagent `model` is engine-judged and optional; against a single-model
 server a stray override simply errors (no second model can load), so the
 single-model invariant is fail-closed.

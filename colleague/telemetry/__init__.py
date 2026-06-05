@@ -1,8 +1,8 @@
-"""Telemetry — OpenTelemetry observability for a drive (issue #22).
+"""Telemetry — OpenTelemetry observability for a work item (issue #22).
 
 Colleague's run report (the JSON result artifact + step trace) is per-run and
 blind across runs. This package adds **telemetry**: live OTel traces + metrics so a
-drive can be observed against the same collector the sibling repos already feed
+work items can be observed against the same collector the sibling repos already feed
 (``../culture`` runs a full ``culture/telemetry/`` package).
 
 Two hard invariants shape the design:
@@ -19,7 +19,7 @@ Two hard invariants shape the design:
    unchanged. The artifact-shape and zero-deps guards pass untouched.
 
 The facade mirrors the lifecycle the loop already exposes for hooks, so
-telemetry belongs to the **runtime** (the loop + the shared drive path), not to
+telemetry belongs to the **runtime** (the loop + the shared work path), not to
 any backend — every backend inherits it (the all-engines rule).
 """
 
@@ -55,7 +55,7 @@ def _as_bool(value: object | None, default: bool) -> bool:
 
 @dataclass
 class TelemetryConfig:
-    """OTel settings for a drive. Mirrors ``agentirc.config.TelemetryConfig``.
+    """OTel settings for a work item. Mirrors ``agentirc.config.TelemetryConfig``.
 
     Resolution precedence matches :class:`~colleague.config.EngineConfig`:
     explicit value > ``COLLEAGUE_OTEL_*`` env (legacy ``CONVERTIBLE_OTEL_*`` is
@@ -157,13 +157,13 @@ class Telemetry:
 
     The SDK-backed :class:`colleague.telemetry._otel._OtelTelemetry` overrides
     these to emit real spans and metrics. Keeping the no-op as the base means a
-    disabled drive pays nothing and imports no third-party module.
+    disabled work item pays nothing and imports no third-party module.
     """
 
     enabled = False
 
     @contextlib.contextmanager
-    def drive_span(
+    def work_span(
         self, *, task_id: str, engine: str, model: str, max_steps: int
     ) -> Iterator[_NoopSpan]:
         yield _NoopSpan()
