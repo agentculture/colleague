@@ -204,9 +204,20 @@ The architecture, part by part:
 - **Context budget / graceful degradation** — the bounded tool-loop windows its
   running message history to a configurable token budget before each model turn
   (`colleague/context.py` + `colleague/loop.py` `_complete_with_degradation`)
-  and, on a detected context-overflow error, trims history harder and retries a
-  bounded number of times before preserving a readable partial result — so a
-  multi-file work item on a small-context model degrades instead of hard-failing. The
+  and, on a detected context-overflow **or request-timeout** error
+  (classified by `colleague/context.py` `classify_degradable`), trims history
+  harder and retries a bounded number of times before preserving a readable
+  partial result — so a multi-file work item on a small-context model degrades
+  instead of hard-failing. A **request timeout** (#154) is degraded too — a
+  bloated context makes each completion slow, so trimming can let the next one
+  beat the timeout — but it is capped lower than an overflow
+  (`_MAX_TIMEOUT_RETRIES` = 1 vs `_MAX_OVERFLOW_RETRIES` = 3) because each timeout
+  attempt costs a full `COLLEAGUE_TIMEOUT` window (default 120s, env
+  `COLLEAGUE_TIMEOUT`; surfaced in the vLLM `_post_json` legible-timeout message)
+  whereas an overflow 400 is instant. On an exhausted give-up the floored budget
+  is carried into the next turn so the auto-split/**INCOMPLETE** recommendation
+  the loop injects runs against the small window (not the full one that just
+  failed) and can actually complete. The
   knob is `COLLEAGUE_CONTEXT_BUDGET` (tokens, on `EngineConfig.context_budget_tokens`,
   default 192000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 256k (262144-token)
   reference rig, leaving headroom for the completion; lower it for a small-context
@@ -224,8 +235,13 @@ The architecture, part by part:
   library is bundled (`dependencies = []` holds); windowing DROPS oldest history
   with a placeholder note (there is **no LLM-generated summary** in v0); there is
   **no multi-model router / routing policy** (an overflow never switches models); retries
-  are bounded (termination preserved). Runtime-owned (all-engines rule): the feature
-  fires identically for every backend. Specification + plan:
+  are bounded (termination preserved). A **request timeout against a genuinely
+  unreachable/stuck server still wastes up to `_MAX_TIMEOUT_RETRIES` bounded
+  retries** (each a full `COLLEAGUE_TIMEOUT` window) before the partial is
+  preserved — shrinking only helps a context-bloat timeout, not a dead server,
+  which is why the timeout cap is deliberately low (#154). Runtime-owned
+  (all-engines rule): the feature fires identically for every backend.
+  Specification + plan:
   `docs/specs/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`
   and `docs/plans/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`.
 - **Config resolution** — `colleague/configdir.py`: repo-level
