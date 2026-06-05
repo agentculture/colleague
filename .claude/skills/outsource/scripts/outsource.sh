@@ -247,6 +247,14 @@ tid = d.get("task_id") or ""
 print("status:", d.get("status"), file=out)
 if tid:
     print("task:", tid, file=out)
+# A drive that stopped without calling finish (colleague#142) or exhausted its
+# step budget did NOT deliver an authoritative result — its summary is the model
+# trailing off mid-task. Warn so the caller treats it as a partial, not a verdict.
+if d.get("stopped_without_finish"):
+    print("warning: drive ended without calling finish — treat the summary as a", file=out)
+    print("         partial (the model stopped mid-task), not an authoritative result.", file=out)
+elif d.get("not_finished"):
+    print("warning: drive ran out of steps without finishing — summary is partial.", file=out)
 print(file=out)
 print((d.get("summary") or "").rstrip(), file=out)
 cf = d.get("changed_files") or []
