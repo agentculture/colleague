@@ -139,6 +139,9 @@ def main(argv: List[str] | None = None) -> int:
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
 
+    # Progress is diagnostics, not a result — keep it on stderr so stdout stays
+    # clean (agent-first convention: results to stdout, diagnostics to stderr).
+    # The "results" here are the written files, not anything printed.
     summaries: List[dict] = []
     for scenario in build_all(args.repo):
         summary = _write_scenario(scenario, out)
@@ -149,12 +152,13 @@ def main(argv: List[str] | None = None) -> int:
             )
             print(
                 f"  {scenario.name:<16} {summary['frames']:>3} frames "
-                f"{summary['duration_ms'] / 1000:>5.1f}s  diagnose: {verdict}"
+                f"{summary['duration_ms'] / 1000:>5.1f}s  diagnose: {verdict}",
+                file=sys.stderr,
             )
 
     (out / "index.md").write_text(_render_index(summaries), encoding="utf-8")
     if not args.quiet:
-        print(f"wrote {len(summaries)} scenarios + index.md to {out}")
+        print(f"wrote {len(summaries)} scenarios + index.md to {out}", file=sys.stderr)
     return 0
 
 

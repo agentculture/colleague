@@ -165,6 +165,7 @@ class _Session:
         out: Callable[..., None],
         err: Callable[..., None],
         drive_fn: _DriveFn,
+        user_home: Optional[Path] = None,
     ) -> None:
         self.repo = repo
         self.engine_name = engine_name  # mutable via /engine
@@ -180,7 +181,11 @@ class _Session:
         self.chrome = err if json_mode else out
         self.drive_fn = drive_fn
 
-        self.discovered = discover_commands(repo)
+        # ``user_home`` overrides the home dir command discovery scans (default
+        # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
+        # hermetic callers (e.g. tools.tui_sim) pin it so personal
+        # ``~/.colleague/commands`` can't leak into a reproducible run.
+        self.discovered = discover_commands(repo, user_home=user_home)
         self.palette: list[tuple[str, str]] = [
             (name, load_command(self.discovered[name]).description)
             for name in sorted(self.discovered)

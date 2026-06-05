@@ -36,7 +36,15 @@ def _noop_drive(**_kwargs):  # pragma: no cover - never invoked in a sim
 
 
 def build_session(repo: Path, *, engine: str = "mock", model: str = DEMO_MODEL) -> _Session:
-    """Construct a real (non-driving) :class:`_Session` for its authoritative state."""
+    """Construct a real (non-driving) :class:`_Session` for its authoritative state.
+
+    Hermetic by construction: ``user_home`` is pinned to *repo* so command
+    discovery never reads the real ``~/.colleague/commands`` — otherwise a
+    contributor's personal templates would leak into the recordings and break
+    byte-identical regeneration. Pointing the user-home at the repo is idempotent
+    (``discover_commands`` dedupes by stem with repo precedence), so the palette is
+    exactly the repo's templates on every machine.
+    """
     config = EngineConfig.resolve(model=model)
     return _Session(
         repo=repo,
@@ -49,6 +57,7 @@ def build_session(repo: Path, *, engine: str = "mock", model: str = DEMO_MODEL) 
         out=lambda *a, **k: None,
         err=lambda *a, **k: None,
         drive_fn=_noop_drive,
+        user_home=repo,
     )
 
 

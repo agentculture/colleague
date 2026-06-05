@@ -72,3 +72,22 @@ def test_storyboard_is_plain_text():
     txt = _by_name()["full-ride"].filmstrip.storyboard_txt()
     assert "\x1b" not in txt
     assert strip_sgr(txt) == txt
+
+
+def test_build_session_ignores_user_home_commands(tmp_path, monkeypatch):
+    """Regression: a personal ``~/.colleague/commands`` template must NOT leak into
+    the sim palette — otherwise recordings vary per machine (see PR #141 review)."""
+    from tools.tui_sim.session_sim import build_session
+
+    fake_home = tmp_path / "home"
+    (fake_home / ".colleague" / "commands").mkdir(parents=True)
+    (fake_home / ".colleague" / "commands" / "secret-personal.md").write_text(
+        "do something private\n", encoding="utf-8"
+    )
+    # Even if discovery were to consult the real home, it now points elsewhere.
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    session = build_session(_REPO)
+    cmd_panel = next(p for p in session.state.panels if p.id == "commands")
+    labels = [item.label for item in cmd_panel.items]
+    assert not any("secret-personal" in label for label in labels), labels
