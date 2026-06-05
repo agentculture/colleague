@@ -109,6 +109,25 @@ _DEFAULT_SYSTEM = (
 _MAX_OVERFLOW_RETRIES = 3
 _OVERFLOW_SHRINK_FACTOR = 0.6
 
+# How a drive's turn loop ended (return values of ``_drive_loop``). The model may
+# end a turn with no tool call instead of calling ``finish`` — usually trailing off
+# mid-task — so the loop distinguishes a clean finish from that stop, and from a
+# step-budget exhaustion, and ``run`` maps each to the right TaskResult flag.
+_EXIT_FINISHED = "finished"  # the finish tool was called -> authoritative result
+_EXIT_STOPPED = "stopped"  # ended on a no-tool-call turn without ever finishing
+_EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
+
+# Recovery for the trail-off (colleague#142): when the model ends a turn with no
+# tool call and has not called ``finish``, nudge it ONCE to finish before giving up.
+# Bounded so the loop still terminates; one reminder is enough for a capable model
+# that merely forgot the closing ``finish`` call.
+_MAX_FINISH_NUDGES = 1
+_FINISH_NUDGE = (
+    "You ended your turn without calling the `finish` tool and without requesting "
+    "another tool. If your work is complete, call `finish` now with your result as "
+    "the summary. Otherwise, continue by calling a tool — do not reply with prose alone."
+)
+
 
 @dataclass
 class ToolCall:
@@ -562,51 +581,76 @@ def _complete_with_degradation(ctx: _Drive, complete: CompleteFn) -> ModelRespon
     return complete(ctx.messages)
 
 
-def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> bool:
-    """Run the bounded turn loop; return whether the model finished.
+def _account_turn(ctx: _Drive, resp: ModelResponse) -> None:
+    """Per-turn bookkeeping (always-on): usage, telemetry, stats, last-substantive.
+
+    Counts the turn and accumulates the generated reasoning/answer sizes (chars +
+    bytes), mirrored into the optional telemetry as a strict no-op when off. Also
+    tracks the last non-empty ``resp.content`` across ALL turns (including
+    tool-call turns) — the t2 candidate ``run`` falls back to for the summary —
+    via the mutable proxy so the frozen ``_Drive`` binding stays intact.
+    """
+    ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
+    ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
+    ctx.result.stats.model_turns += 1
+    ctx.result.stats.add_generated(reasoning=resp.reasoning, answer=resp.content)
+    ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
+    if resp.content:
+        ctx._last_substantive[:] = [resp.content]
+
+
+def _handle_no_tool_turn(ctx: _Drive, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
+    """Handle a turn that requested no tool — nudge once, else stop (colleague#142).
+
+    The contract is to call ``finish``; a bare prose turn is usually the model
+    trailing off mid-task. Returns ``(nudges, exit)``: with budget remaining it
+    appends the model's prose + a one-line finish reminder and returns
+    ``(nudges + 1, None)`` (caller continues the loop); once the nudge is spent it
+    records the trailing content as the summary (so a partial answer is not lost)
+    and returns ``(nudges, _EXIT_STOPPED)``.
+    """
+    if nudges < _MAX_FINISH_NUDGES:
+        if resp.content:
+            ctx.messages.append({"role": "assistant", "content": resp.content})
+        ctx.messages.append({"role": "user", "content": _FINISH_NUDGE})
+        return nudges + 1, None
+    if resp.content:
+        ctx.result.summary = resp.content
+    return nudges, _EXIT_STOPPED
+
+
+def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> str:
+    """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
     Each turn: window the history to the context budget (if set), call
     ``complete`` (with a bounded overflow shrink-and-retry), account usage, then
-    either finish (no tool calls) or run the turn's tool calls. Whatever
+    either run the turn's tool calls or handle a no-tool-call turn. Whatever
     ``complete`` raises (after the bounded retry) propagates to :func:`run`, which
     turns it into a preserved partial result (#37). Pulled out of :func:`run` so
     the loop body lives in one focused function and ``run`` keeps its cognitive
     complexity under the threshold (SonarCloud S3776).
+
+    Returns ``_EXIT_FINISHED`` (the finish tool was called), ``_EXIT_STOPPED`` (the
+    model ended a turn with no tool call and — even after one nudge — never called
+    finish; colleague#142), or ``_EXIT_BUDGET`` (``max_steps`` exhausted).
     """
+    nudges = 0
     for _ in range(max(1, max_steps)):
         resp = _complete_with_degradation(ctx, complete)
-        ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
-        ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
-        # Per-turn statistics (always-on): count the turn and accumulate the
-        # generated reasoning/answer sizes (chars + bytes). Mirrored into the
-        # optional telemetry as a strict no-op when off.
-        ctx.result.stats.model_turns += 1
-        ctx.result.stats.add_generated(reasoning=resp.reasoning, answer=resp.content)
-        ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
-
-        # Track the last substantive assistant content (t2): update on EVERY turn
-        # that has non-empty ``resp.content``, including turns that also make tool
-        # calls (the gap at the original line ~568).  Stored via the mutable proxy
-        # so the frozen ``_Drive`` binding stays intact.
-        if resp.content:
-            ctx._last_substantive[:] = [resp.content]
+        _account_turn(ctx, resp)
 
         if not resp.tool_calls:
-            # Model answered without requesting a tool — treat as done.
-            # Already recorded as last_substantive above; set it directly so the
-            # no-finish-tool path (line 565 in the original numbering) keeps its
-            # semantics: a no-tool-call terminating turn with content becomes the
-            # summary immediately, before the finalize fallback in run().
-            if resp.content:
-                ctx.result.summary = resp.content
-            return True
+            nudges, exit_reason = _handle_no_tool_turn(ctx, resp, nudges)
+            if exit_reason is not None:
+                return exit_reason
+            continue  # nudged — give the model one more turn to call finish
 
         ctx.messages.append(_assistant_message(resp))
         # Run the turn's tool calls; a finish on any of them ends the drive once
         # the turn completes (the remaining calls in the turn still run).
         if _run_tool_calls(ctx, resp.tool_calls):
-            return True
-    return False
+            return _EXIT_FINISHED
+    return _EXIT_BUDGET
 
 
 @dataclass(frozen=True)
@@ -774,9 +818,9 @@ def run(
     # (#37); the finish hook + neighbour cleanup + changed_files snapshot below
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
-    finished = False
+    outcome = _EXIT_BUDGET
     try:
-        finished = _drive_loop(ctx, complete, max_steps)
+        outcome = _drive_loop(ctx, complete, max_steps)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
         aborted = exc
         result.status = ERROR
@@ -835,14 +879,18 @@ def run(
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
         raise DriveAborted(result) from aborted
 
-    # Explicit not-finished flag (#106 t5): set from the _drive_loop return value,
-    # which is True when the model finished (finish tool or no-tool-call answer) and
-    # False when the step budget was exhausted.  We are in the non-aborted path here,
-    # so DriveAborted is not raised; that is a different signal and not_finished is
-    # deliberately left False for it (the default covers it above).  Do NOT derive
-    # this from stats.step_count: max_steps bounds model *turns* while step_count
-    # counts *tool calls* (a turn may issue several), so they are not comparable.
-    result.not_finished = not finished
+    # Outcome flags (#106 t5 + colleague#142): derived from the _drive_loop return.
+    # We are in the non-aborted path here, so DriveAborted is not raised — that is a
+    # different signal and BOTH flags are deliberately left False for it (the default
+    # covers it above). Two orthogonal, mutually exclusive non-clean exits:
+    #   * not_finished           — step budget exhausted without finishing (#106 t5).
+    #   * stopped_without_finish — the model ended on a no-tool-call turn and, even
+    #     after a nudge, never called finish (colleague#142); the summary holds its
+    #     trailing prose, so a caller must treat it as a partial, not authoritative.
+    # A clean finish leaves both False. Do NOT derive either from stats.step_count:
+    # max_steps bounds model *turns* while step_count counts *tool calls*.
+    result.not_finished = outcome == _EXIT_BUDGET
+    result.stopped_without_finish = outcome == _EXIT_STOPPED
 
     # Summary precedence (t2, #109) — RESOLVED BEFORE the not-finished escalation
     # below, so build_continuation() sees the finalized summary (the last

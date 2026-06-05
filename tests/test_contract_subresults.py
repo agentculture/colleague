@@ -119,6 +119,7 @@ def test_sub_results_omitted_when_empty() -> None:
         "hook_firings",
         "command",
         "not_finished",
+        "stopped_without_finish",
     }
     assert set(serialized.keys()) == expected_keys
 

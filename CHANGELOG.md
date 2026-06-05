@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-06-05
+
+### Added
+
+- TaskResult.stopped_without_finish — flags a drive that ended on a no-tool-call turn without ever calling finish (colleague#142); serialized in the artifact and surfaced by the outsource wrapper
+
+### Fixed
+
+- Loop no longer treats a no-tool-call turn as a clean finish: it nudges the model once to call finish (recovering the common mid-task trail-off), and a stubborn stop is flagged via stopped_without_finish instead of silently returning trailing narration as an authoritative result (colleague#142)
+
 ## [0.34.2] - 2026-06-05
 
 ### Added

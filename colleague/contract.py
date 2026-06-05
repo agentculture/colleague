@@ -420,6 +420,13 @@ class TaskResult:
     no-tool-call terminating answer, or the aborted path.  Set by :func:`loop.run`
     from the return value of ``_drive_loop``; never inferred from
     ``stats.step_count`` (which counts tool calls, not model turns)."""
+    stopped_without_finish: bool = False
+    """True iff the drive ended on a **no-tool-call turn** and — even after the
+    loop's one-shot finish nudge — never called ``finish`` (colleague#142). The
+    ``summary`` then holds the model's trailing prose, so a caller must treat it as
+    a *partial*, not an authoritative result. Orthogonal to ``not_finished`` (the
+    step-budget case) and to the aborted path; a clean finish leaves both False.
+    Set by :func:`loop.run` from the ``_drive_loop`` return value."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -437,6 +444,7 @@ class TaskResult:
             "hook_firings": [h.to_dict() for h in self.hook_firings],
             "command": self.command,
             "not_finished": self.not_finished,
+            "stopped_without_finish": self.stopped_without_finish,
         }
         # destination and announcement are OMITTED (not emitted as null) when
         # None.  This preserves byte-identical output for the no-destination
@@ -476,4 +484,5 @@ class TaskResult:
             destination=data.get("destination"),
             announcement=data.get("announcement"),
             not_finished=bool(data.get("not_finished", False)),
+            stopped_without_finish=bool(data.get("stopped_without_finish", False)),
         )
