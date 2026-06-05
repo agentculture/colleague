@@ -113,7 +113,7 @@ and escalation still work.
 The feature lives in `colleague/loop.py` and `colleague/autosplit.py`:
 
 - `_autosplit_armed` — checks if split detection is enabled.
-- `_append_split_recommendation` — injects the structured message.
+- `_inject_split_recommendation` — injects the structured message.
 - `estimate_instruction_tokens` — coarse up-front estimate.
 - `build_split_recommendation` / `build_upfront_hint` — message templates.
 - `child_count` — calculates split child count (thin wrapper to
