@@ -133,6 +133,27 @@ def _handoff_result(
             emit_diagnostic(f"handoff: {outcome.note}")
 
 
+def _guard_clean_tree(repo: Path, *, allow_dirty: bool) -> None:
+    """Refuse to run a work item against a dirty tree unless opted in (#149).
+
+    A work item ends in the handoff's ``git add -u``, which would sweep the
+    operator's uncommitted *tracked* edits onto the work branch and then restore
+    HEAD over them — silently swallowing in-progress work. Called from the shared
+    path so ``work``, ``drive``, and ``session`` are all protected (and every
+    backend, since this is upstream of the loop). Untracked WIP is already
+    protected by the handoff's baseline snapshot, so this checks tracked changes
+    only (see :func:`~colleague.handoff.working_tree_dirty`).
+    """
+    if allow_dirty or not working_tree_dirty(repo):
+        return
+    raise CliError(
+        EXIT_USER_ERROR,
+        "working tree has uncommitted changes — refusing to run against a dirty repo",
+        "commit or stash your changes first, or pass --allow-dirty to "
+        "commit them onto the work branch",
+    )
+
+
 def execute_work(
     *,
     repo: Path,
@@ -206,21 +227,7 @@ def execute_work(
             EXIT_USER_ERROR, str(exc), "list engines with: colleague backends list"
         ) from exc
 
-    # Dirty-tree guard (#149): a work item ends in the handoff's `git add -u`,
-    # which would sweep the operator's uncommitted *tracked* edits onto the work
-    # branch and then restore HEAD over them — silently swallowing in-progress
-    # work. Refuse up front unless the operator opts in. Checked here in the
-    # shared path so `work`, `drive`, and `session` are all protected (and every
-    # backend, since this is upstream of the loop). Untracked WIP is already
-    # protected by `baseline_untracked` below, so this checks tracked changes
-    # only (see `working_tree_dirty`).
-    if not allow_dirty and working_tree_dirty(repo):
-        raise CliError(
-            EXIT_USER_ERROR,
-            "working tree has uncommitted changes — refusing to run against a dirty repo",
-            "commit or stash your changes first, or pass --allow-dirty to "
-            "commit them onto the work branch",
-        )
+    _guard_clean_tree(repo, allow_dirty=allow_dirty)
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
