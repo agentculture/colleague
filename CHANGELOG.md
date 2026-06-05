@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.2] - 2026-06-05
+
+### Added
+
+- tools/tui_sim: deterministic asciinema .cast simulations of the TUI (palette + slash autocomplete, drive cockpit, skill/error popups, full end-to-end ride) built from the real pure render seams — dev-only, zero new runtime deps
+- docs/tui-experience-evaluation.md: a frame-by-frame human-experience evaluation of the TUI drawn from the recordings
+
 ## [0.34.1] - 2026-06-05
 
 ### Changed

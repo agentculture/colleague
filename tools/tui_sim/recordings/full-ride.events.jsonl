@@ -1,0 +1,16 @@
+{"type": "user_input", "text": "Wire the cockpit status bar severity to drive failures"}
+{"type": "tick", "delta": 1}
+{"type": "tick", "delta": 1}
+{"type": "drive_step", "tool": "read_file", "summary": "colleague/tui/widgets/status_bar.py", "ok": true}
+{"type": "tick", "delta": 1}
+{"type": "tick", "delta": 1}
+{"type": "skill_suggested", "skill": "boost", "reason": "task_complexity_high", "confidence": 0.92}
+{"type": "dismiss", "target": "popup.skill.boost"}
+{"type": "tick", "delta": 1}
+{"type": "drive_step", "tool": "write_file", "summary": "colleague/tui/widgets/status_bar.py", "ok": true}
+{"type": "tick", "delta": 1}
+{"type": "tick", "delta": 1}
+{"type": "drive_step", "tool": "run_command", "summary": "pytest -q tests/test_tui_render.py", "ok": true}
+{"type": "tick", "delta": 1}
+{"type": "drive_step", "tool": "finish", "summary": "status bar severity wired to drive failures", "ok": true}
+{"type": "user_input", "text": "done: status bar severity wired to drive failures [colleague/tui/widgets/status_bar.py] -> colleague/7f3a2c-status-severity"}

@@ -1,0 +1,62 @@
+{
+  "taui_version": "0.1",
+  "screen": "main",
+  "mode": "planning",
+  "focused": "input.prompt",
+  "zones": {
+    "top.status": {
+      "visible": true
+    },
+    "left.skills": {
+      "visible": true
+    },
+    "main.conversation": {
+      "visible": true
+    },
+    "bottom.input": {
+      "visible": true
+    }
+  },
+  "panels": [
+    {
+      "id": "commands",
+      "title": "Commands",
+      "visible": true,
+      "content_summary": "",
+      "items": [
+        {
+          "id": "command.doc-review",
+          "label": "doc-review — Audit colleague's docs for accuracy vs the actual code/CLI; flag staleness, missing pages, and undocumented operability gaps",
+          "status": "available"
+        }
+      ]
+    },
+    {
+      "id": "panel.conversation",
+      "title": "Session",
+      "visible": true,
+      "content_summary": "Type a number / template name / free-text task, or /help for commands.\n/help\nslash commands:\n  /help                 this list\n  /commands             list command templates\n  /skills               resolved skill docs\n  /agents               resolved AGENTS layers\n  /config               configuration readiness (doctor)\n  /engines              discovered backend plugins\n  /telemetry            telemetry configuration\n  /feedback             feedback for the last drive\n  /engine <name>        switch the engine for the next drive\n  /model <name>         switch the model\n  /base <branch>        set the PR base branch\n  /pr                   toggle push + open PR on each drive\n  /quit                 end the session\nplain text (a number / template name / free-text task) runs a drive.",
+      "items": []
+    }
+  ],
+  "popups": [],
+  "background": {
+    "theme": "default",
+    "animation": "none",
+    "frame": 0,
+    "semantic": ""
+  },
+  "status": {
+    "severity": "info",
+    "message": "colleague session · engine mock · model sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP · local"
+  },
+  "drive": null,
+  "problems": [],
+  "available_actions": [
+    {
+      "selector": "input.prompt",
+      "input": "type",
+      "description": "Send instruction to current agent"
+    }
+  ]
+}

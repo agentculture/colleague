@@ -1,0 +1,19 @@
+[36m[1m[INF][0m [36mcolleague session · engine mock · model sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP · local[0m
+────────────────────────────────────────────────────────────────────────────────
+┌ Commands ────────────────────────────────────────────────────────────────────┐
+│  1. doc-review — Audit colleague's docs for accuracy vs the actual code/CLI… │
+└──────────────────────────────────────────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────
+╔ Session ─────────────────────────────────────────────────────────────────────╗
+║ Type a number / template name / free-text task, or /help for commands.       ║
+║ Add a retry-on-overflow guard to the drive loop                              ║
+║ [read_file] colleague/loop.py                                                ║
+║ [read_file] colleague/context.py                                             ║
+║ [write_file] colleague/loop.py                                               ║
+║ [run_command] pytest -q tests/test_loop.py                                   ║
+║ [finish] retry-on-overflow guard added                                       ║
+║ done: retry-on-overflow guard added [colleague/loop.py] -> colleague/7f3a2c- ║
+║ add-retry-guard                                                              ║
+╚──────────────────────────────────────────────────────────────────────────────╝
+────────────────────────────────────────────────────────────────────────────────
+[1mcolleague ❯[0m |
