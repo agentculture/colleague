@@ -178,3 +178,15 @@ def test_autosplit_children_non_positive_budget_guard() -> None:
     from colleague.config import MAX_SUBAGENT_FANOUT, autosplit_children
 
     assert autosplit_children(10, 0) == MAX_SUBAGENT_FANOUT - 1
+
+
+def test_autosplit_children_huge_target_no_overflow() -> None:
+    """Regression (#151 Qodo): an absurd target uses integer ceiling math, never a float.
+
+    ``math.ceil(target / budget)`` would raise OverflowError once ``target`` exceeds
+    float range; integer ceiling division stays exact and clamps cleanly.
+    """
+    from colleague.config import MAX_SUBAGENT_FANOUT, autosplit_children
+
+    huge = 10**400  # well beyond float range — float division would OverflowError
+    assert autosplit_children(huge, 192_000) == MAX_SUBAGENT_FANOUT - 1

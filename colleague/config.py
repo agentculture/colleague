@@ -16,7 +16,6 @@ pointing ``base_url`` elsewhere is a config change, never a code change (h2).
 
 from __future__ import annotations
 
-import math
 import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -277,8 +276,13 @@ def autosplit_children(target_tokens: int, per_child_budget_tokens: int) -> int:
     clamped to [1, MAX_SUBAGENT_FANOUT - 1] (the batch reserves one fan-out slot
     for the sequential merge child). Guards a non-positive per-child budget by
     returning the max usable children.
+
+    The ceiling uses INTEGER arithmetic (``-(-a // b)``), not ``math.ceil(a / b)``:
+    true division forces a float, and an absurd operator-provided ``target_tokens``
+    (beyond float range) would raise ``OverflowError`` before the clamp — integer
+    division stays exact for arbitrarily large ints (#151 review).
     """
     if per_child_budget_tokens <= 0:
         return MAX_SUBAGENT_FANOUT - 1
-    raw = math.ceil(target_tokens / per_child_budget_tokens)
+    raw = -(-target_tokens // per_child_budget_tokens)  # integer ceiling division
     return min(max(1, raw), MAX_SUBAGENT_FANOUT - 1)

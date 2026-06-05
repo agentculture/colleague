@@ -681,10 +681,21 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
 
     Returns ``_EXIT_FINISHED`` (the finish tool was called), ``_EXIT_STOPPED`` (the
     model ended a turn with no tool call and — even after one nudge — never called
-    finish; colleague#142), or ``_EXIT_BUDGET`` (``max_steps`` exhausted).
+    finish; colleague#142), or ``_EXIT_BUDGET`` (``max_steps`` *model turns* taken
+    without finishing).
+
+    The budget counts *successful model turns* (``stats.model_turns``), not raw
+    loop iterations: an exhausted-overflow iteration that only injects the
+    auto-split recommendation (no ``complete`` returned, so no turn accounted) must
+    NOT consume the budget — otherwise an overflow on the final iteration would
+    leave the model zero turns to act on the recommendation (#151 review). Still
+    bounded: the one-time injection aside, every iteration either accounts a turn
+    (advancing toward the cap) or re-raises (exiting the loop), so it runs at most
+    ``max_steps + 1`` iterations.
     """
     nudges = 0
-    for _ in range(max(1, max_steps)):
+    budget = max(1, max_steps)
+    while ctx.result.stats.model_turns < budget:
         try:
             resp = _complete_with_degradation(ctx, complete)
         except Exception as exc:  # noqa: BLE001 - overflow may trigger auto-split; else re-raise
@@ -692,8 +703,9 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
             # shrink-and-retry in _complete_with_degradation gave up) is the
             # well-defined "too large for one window" signal. When armed and not yet
             # offered, inject ONE split recommendation and continue — giving the model
-            # bounded extra turns (still under max_steps) to call `subagents`, BEFORE
-            # this error would propagate to run()'s abort+escalate path. Otherwise
+            # a bounded extra turn to call `subagents`, BEFORE this error would
+            # propagate to run()'s abort+escalate path. The injection does not account
+            # a model turn, so it never consumes the final budget slot. Otherwise
             # (feature dormant, already offered, the split was declined, or a
             # non-overflow error) re-raise unchanged — byte-identical to the
             # pre-feature loop, so escalation remains the fallback.

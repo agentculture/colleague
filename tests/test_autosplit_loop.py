@@ -240,6 +240,39 @@ def test_model_acts_on_split_via_subagents_batch(tmp_path, _no_real_escalation):
     assert _no_real_escalation == []
 
 
+def test_recommendation_on_last_budget_slot_still_gives_model_a_turn(tmp_path, _no_real_escalation):
+    """Regression (#151 Qodo): an overflow on the FINAL budget slot still lets the model act.
+
+    With ``max_steps=1``, the exhausted overflow injects the recommendation; because
+    the loop budgets *successful model turns* (not raw iterations), the injection
+    does not consume the only slot — the model gets a turn afterwards and finishes.
+    Under the old iteration-counted loop this exited _EXIT_BUDGET with zero turns to
+    act, escalating instead.
+    """
+
+    def complete(messages):
+        if any("subagents" in (m.get("content") or "") for m in messages):
+            return ModelResponse(
+                content="acted",
+                tool_calls=[ToolCall("f", "finish", {"summary": "split on last slot"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            )
+        raise RuntimeError(_OVERFLOW)
+
+    result = _run(
+        complete,
+        _task(tmp_path),
+        max_steps=1,  # the recommendation lands on the only budget slot
+        context_budget=1000,
+        autosplit_target=1_000_000,
+    )
+
+    assert result.status == OK
+    assert result.summary == "split on last slot"
+    assert _no_real_escalation == [], "escalated despite the model acting on the recommendation"
+
+
 def test_dormant_when_no_target(tmp_path, _no_real_escalation):
     """With autosplit_target unset, an overflow propagates with no recommendation (dormant)."""
     calls = {"n": 0}
