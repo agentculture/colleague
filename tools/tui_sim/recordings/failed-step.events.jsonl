@@ -1,0 +1,5 @@
+{"type": "tick", "delta": 1}
+{"type": "tick", "delta": 1}
+{"type": "drive_step", "tool": "read_file", "summary": "colleague/policy.py", "ok": true}
+{"type": "tick", "delta": 1}
+{"type": "drive_step", "tool": "run_command", "summary": "pytest -q tests/test_policy.py", "ok": false}

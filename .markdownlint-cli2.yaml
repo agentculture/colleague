@@ -37,3 +37,10 @@ ignores:
   # .convertible/ path is kept for the back-compat window.
   - ".colleague/**"
   - ".convertible/**"
+  # tools/tui_sim recordings are generated verbatim by `python -m tools.tui_sim`
+  # (asciinema casts + storyboards + snapshot-quad Markdown). The snapshot `.md`
+  # is render_markdown() output carrying the live slash-help (`/engine <name>` →
+  # MD033 inline-HTML) and the index is a generated manifest; like the .devague/
+  # frames above, these are generated artifacts, not prose. The harness sources
+  # and the hand-authored README under tools/tui_sim/ are still linted.
+  - "tools/tui_sim/recordings/**"

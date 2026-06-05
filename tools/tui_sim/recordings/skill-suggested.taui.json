@@ -1,0 +1,110 @@
+{
+  "taui_version": "0.1",
+  "screen": "main",
+  "mode": "planning",
+  "focused": "input.prompt",
+  "zones": {
+    "top.status": {
+      "visible": true
+    },
+    "left.skills": {
+      "visible": true
+    },
+    "main.conversation": {
+      "visible": true
+    },
+    "bottom.input": {
+      "visible": true
+    }
+  },
+  "panels": [
+    {
+      "id": "commands",
+      "title": "Commands",
+      "visible": true,
+      "content_summary": "",
+      "items": [
+        {
+          "id": "command.doc-review",
+          "label": "doc-review — Audit colleague's docs for accuracy vs the actual code/CLI; flag staleness, missing pages, and undocumented operability gaps",
+          "status": "available"
+        }
+      ]
+    },
+    {
+      "id": "panel.conversation",
+      "title": "Session",
+      "visible": true,
+      "content_summary": "Type a number / template name / free-text task, or /help for commands.\n[read_file] colleague/engines/vllm_openai.py",
+      "items": []
+    }
+  ],
+  "popups": [
+    {
+      "id": "popup.skill.boost",
+      "kind": "skill_suggestion",
+      "visible": true,
+      "blocking": false,
+      "opened_by": "skill",
+      "reason": "task_complexity_high",
+      "message": "Stronger agent recommended (boost)",
+      "actions": [
+        {
+          "selector": "popup.skill.boost.accept",
+          "input": "enter",
+          "description": "Activate boost"
+        },
+        {
+          "selector": "popup.skill.boost.dismiss",
+          "input": "esc",
+          "description": "Dismiss"
+        },
+        {
+          "selector": "popup.skill.boost.details",
+          "input": "d",
+          "description": "Details"
+        }
+      ],
+      "timeout_ms": null
+    }
+  ],
+  "background": {
+    "theme": "boost-suggested",
+    "animation": "spin",
+    "frame": 4,
+    "semantic": "stronger_agent_recommended"
+  },
+  "status": {
+    "severity": "info",
+    "message": "colleague session · engine mock · model sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP · local"
+  },
+  "drive": {
+    "task_id": "t-7f3a2c",
+    "engine": "mock",
+    "step_count": 1,
+    "running": true
+  },
+  "problems": [],
+  "available_actions": [
+    {
+      "selector": "popup.skill.boost.accept",
+      "input": "enter",
+      "description": "Activate boost"
+    },
+    {
+      "selector": "popup.skill.boost.dismiss",
+      "input": "esc",
+      "description": "Dismiss"
+    },
+    {
+      "selector": "popup.skill.boost.details",
+      "input": "d",
+      "description": "Details"
+    },
+    {
+      "selector": "input.prompt",
+      "input": "type",
+      "description": "Send instruction to current agent"
+    }
+  ]
+}

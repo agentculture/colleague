@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.2] - 2026-06-05
+
+### Added
+
+- tools/tui_sim: deterministic asciinema .cast simulations of the TUI (palette + slash autocomplete, drive cockpit, skill/error popups, full end-to-end ride) built from the real pure render seams — dev-only, zero new runtime deps
+- docs/tui-experience-evaluation.md: a frame-by-frame human-experience evaluation of the TUI drawn from the recordings
+- `_Session.__init__` gains an optional `user_home` (default `None` = current behavior) plumbed to `discover_commands`, so a caller can scope palette command discovery hermetically
+
+### Fixed
+
+- tools/tui_sim recordings are now hermetic: `build_session` pins `user_home` to the repo so a contributor's personal `~/.colleague/commands` can't leak into the palette and break byte-identical regeneration (PR #141 review)
+- tools.tui_sim progress log moved to stderr, keeping stdout clean (agent-first results/diagnostics separation)
+
 ## [0.34.1] - 2026-06-05
 
 ### Changed

@@ -1,0 +1,90 @@
+{
+  "taui_version": "0.1",
+  "screen": "main",
+  "mode": "planning",
+  "focused": "input.prompt",
+  "zones": {
+    "top.status": {
+      "visible": true
+    },
+    "left.skills": {
+      "visible": true
+    },
+    "main.conversation": {
+      "visible": true
+    },
+    "bottom.input": {
+      "visible": true
+    }
+  },
+  "panels": [
+    {
+      "id": "commands",
+      "title": "Commands",
+      "visible": true,
+      "content_summary": "",
+      "items": [
+        {
+          "id": "command.doc-review",
+          "label": "doc-review — Audit colleague's docs for accuracy vs the actual code/CLI; flag staleness, missing pages, and undocumented operability gaps",
+          "status": "available"
+        }
+      ]
+    },
+    {
+      "id": "panel.conversation",
+      "title": "Session",
+      "visible": true,
+      "content_summary": "Type a number / template name / free-text task, or /help for commands.\n[read_file] colleague/policy.py\n[run_command] pytest -q tests/test_policy.py",
+      "items": []
+    }
+  ],
+  "popups": [
+    {
+      "id": "popup.error.run_command",
+      "kind": "error",
+      "visible": true,
+      "blocking": false,
+      "opened_by": "agent",
+      "reason": "tool_failed",
+      "message": "run_command failed: pytest -q tests/test_policy.py",
+      "actions": [
+        {
+          "selector": "popup.error.run_command.dismiss",
+          "input": "esc",
+          "description": "Dismiss"
+        }
+      ],
+      "timeout_ms": null
+    }
+  ],
+  "background": {
+    "theme": "default",
+    "animation": "spin",
+    "frame": 3,
+    "semantic": "busy"
+  },
+  "status": {
+    "severity": "info",
+    "message": "colleague session · engine mock · model sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP · local"
+  },
+  "drive": {
+    "task_id": "t-7f3a2c",
+    "engine": "mock",
+    "step_count": 2,
+    "running": true
+  },
+  "problems": [],
+  "available_actions": [
+    {
+      "selector": "popup.error.run_command.dismiss",
+      "input": "esc",
+      "description": "Dismiss"
+    },
+    {
+      "selector": "input.prompt",
+      "input": "type",
+      "description": "Send instruction to current agent"
+    }
+  ]
+}
