@@ -249,4 +249,8 @@ class VllmOpenAIEngine(Engine):
             ),
             context_budget=config.context_budget_tokens,
             count_tokens=self._make_count_tokens(config),
+            # Arm reactive auto-split (#151): an exhausted overflow offers a split
+            # via `subagents` before escalating. Forwarded identically by every
+            # backend (all-engines rule); dormant unless a trigger fires.
+            autosplit_target=config.autosplit_target_tokens,
         )

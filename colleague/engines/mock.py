@@ -79,4 +79,7 @@ class MockEngine(Engine):
             # All-engines rule: the mock exercises the SAME loop windowing path.
             # No count_tokens → the loop uses the char estimate via window_messages.
             context_budget=config.context_budget_tokens,
+            # All-engines rule: the mock arms reactive auto-split (#151) identically;
+            # dormant unless an exhausted overflow fires it.
+            autosplit_target=config.autosplit_target_tokens,
         )

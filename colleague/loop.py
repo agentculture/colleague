@@ -39,6 +39,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from colleague import autosplit as _autosplit
 from colleague import escalation as _escalation
 from colleague.context import is_context_overflow, window_messages
 from colleague.contract import (
@@ -329,6 +330,18 @@ class _Work:
     # ``None`` (the default) is a strict no-op — no windowing, no reactive retry.
     context_budget: int | None = None
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
+    # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a
+    # positive ``autosplit_target``), an EXHAUSTED context-overflow injects ONE
+    # split recommendation — pointing the model at the existing ``subagents`` tool
+    # — *before* the error would propagate to run()'s abort+escalate path.
+    # ``None``/0 leaves the feature dormant (a strict no-op). Backend-judged: the
+    # loop only recommends; the model decides whether to split.
+    autosplit_target: int | None = None
+    # Single-element mutable cell: holds ``True`` once the reactive recommendation
+    # has been injected, so it is offered at most ONCE per work item (the model then
+    # gets bounded extra turns under ``max_steps``). Mutable so the frozen ``_Work``
+    # can flip it through the binding (same pattern as ``_last_substantive``).
+    _split_recommended: list[bool] = field(default_factory=list)
     # Last non-empty ``resp.content`` seen across ALL turns (including turns that
     # also made tool calls).  Updated in ``_work_loop`` unconditionally whenever
     # ``resp.content`` is non-empty — this is the t2 "last-substantive-content"
@@ -532,6 +545,42 @@ def _window_in_place(ctx: _Work, budget: int) -> None:
     ctx.messages[:] = window_messages(ctx.messages, budget, ctx.count_tokens)
 
 
+def _autosplit_armed(ctx: _Work) -> bool:
+    """True when reactive auto-split (#151) is armed for this work item.
+
+    Armed iff degradation is active (a positive ``context_budget``) AND a positive
+    ``autosplit_target`` is configured. Dormant (``False``) otherwise — a strict
+    no-op identical to the pre-feature loop, so a caller that never sets the target
+    (or sets it to 0) sees byte-identical behavior.
+    """
+    return (
+        isinstance(ctx.context_budget, int)
+        and ctx.context_budget > 0
+        and isinstance(ctx.autosplit_target, int)
+        and ctx.autosplit_target > 0
+    )
+
+
+def _inject_split_recommendation(ctx: _Work) -> None:
+    """Append ONE structured split recommendation to the (windowed) history (#151).
+
+    Names the per-child token budget (the ``context_budget`` — each child runs the
+    same bounded loop under the same budget) and the child cap (derived + clamped to
+    ``MAX_SUBAGENT_FANOUT - 1`` by :func:`colleague.autosplit.child_count`) and
+    points the model at the existing ``subagents`` tool. Records the firing on
+    ``_split_recommended`` so it is offered at most once per work item. The original
+    assignment survives in ``messages[:2]`` (windowing never drops the head), so the
+    model authoring the children always sees the full task.
+    """
+    per_child = int(ctx.context_budget)
+    max_children = _autosplit.child_count(int(ctx.autosplit_target), per_child)
+    body = _autosplit.build_split_recommendation(
+        per_child_budget_tokens=per_child, max_children=max_children
+    )
+    ctx.messages.append({"role": "user", "content": body})
+    ctx._split_recommended.append(True)
+
+
 def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     """Window the history, call ``complete``, and degrade-on-overflow if budgeted.
 
@@ -636,7 +685,26 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """
     nudges = 0
     for _ in range(max(1, max_steps)):
-        resp = _complete_with_degradation(ctx, complete)
+        try:
+            resp = _complete_with_degradation(ctx, complete)
+        except Exception as exc:  # noqa: BLE001 - overflow may trigger auto-split; else re-raise
+            # Reactive auto-split (#151): an EXHAUSTED context overflow (the bounded
+            # shrink-and-retry in _complete_with_degradation gave up) is the
+            # well-defined "too large for one window" signal. When armed and not yet
+            # offered, inject ONE split recommendation and continue — giving the model
+            # bounded extra turns (still under max_steps) to call `subagents`, BEFORE
+            # this error would propagate to run()'s abort+escalate path. Otherwise
+            # (feature dormant, already offered, the split was declined, or a
+            # non-overflow error) re-raise unchanged — byte-identical to the
+            # pre-feature loop, so escalation remains the fallback.
+            if (
+                _autosplit_armed(ctx)
+                and not ctx._split_recommended
+                and is_context_overflow(str(exc))
+            ):
+                _inject_split_recommendation(ctx)
+                continue
+            raise
         _account_turn(ctx, resp)
 
         if not resp.tool_calls:
@@ -684,6 +752,7 @@ def run(
     spawns: Spawns | None = None,
     context_budget: int | None = None,
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None,
+    autosplit_target: int | None = None,
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -740,6 +809,18 @@ def run(
     (a strict no-op, byte-identical to the pre-feature loop). Like hooks/progress
     this is runtime-owned, so every backend that forwards ``config.context_budget_tokens``
     inherits it identically (the all-engines rule).
+
+    ``autosplit_target`` arms the reactive auto-split (#151). When it AND
+    ``context_budget`` are positive ints, an exhausted context-overflow (the
+    degradation shrink-and-retry gave up) injects ONE advisory recommendation to
+    split the work into up to ``MAX_SUBAGENT_FANOUT - 1`` child hand-over
+    assignments via the existing ``subagents`` tool, *before* the error propagates
+    to the abort+escalate path. A coarse up-front instruction estimate exceeding one
+    window adds a softer early hint. Backend-judged (the model decides) and bounded
+    (offered at most once; the children reuse the capped subagent fan-out). ``None``
+    (the default) leaves it dormant — a strict no-op, byte-identical to the
+    pre-feature loop. Runtime-owned: every backend that forwards
+    ``config.autosplit_target_tokens`` inherits it (the all-engines rule).
 
     If ``complete`` raises mid-loop (e.g. a per-request timeout, or a
     context-overflow the bounded retry could not recover), the partial work is
@@ -805,7 +886,29 @@ def run(
         progress=progress,
         context_budget=context_budget,
         count_tokens=count_tokens,
+        autosplit_target=autosplit_target,
     )
+
+    # Up-front advisory hint (#151): a COARSE estimate of the instruction alone (it
+    # cannot see the repo surface the work will touch — the parked limit r2). When
+    # armed and the estimate already exceeds one context window, append ONE optional
+    # early suggestion to split via `subagents`. Advisory only: it never blocks and
+    # adds NO model turn (just context the first turn sees). It almost never fires
+    # for a normal-sized task, so the default path stays byte-identical.
+    if _autosplit_armed(ctx):
+        _estimate = _autosplit.estimate_instruction_tokens(task.instruction, count_tokens)
+        if _estimate > int(context_budget):
+            _per_child = int(context_budget)
+            ctx.messages.append(
+                {
+                    "role": "user",
+                    "content": _autosplit.build_upfront_hint(
+                        estimate_tokens=_estimate,
+                        per_child_budget_tokens=_per_child,
+                        max_children=_autosplit.child_count(int(autosplit_target), _per_child),
+                    ),
+                }
+            )
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto
