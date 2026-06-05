@@ -17,6 +17,8 @@ import subprocess  # nosec B404 - driving git/gh is the handoff's job
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from colleague.slug import slugify
+
 
 class HandoffError(Exception):
     """A git operation that must succeed (e.g. commit) failed."""
@@ -62,8 +64,16 @@ def should_open_pr(repo: Path, open_pr: bool) -> bool:
     return open_pr and has_remote(repo) and gh_available()
 
 
-def _branch_name(task_id: str) -> str:
-    return f"colleague/{task_id}"
+def _branch_name(task_id: str, instruction: str = "") -> str:
+    """The drive branch: ``colleague/<task_id>-<slug>`` (bare id when no slug).
+
+    The ``task_id`` keeps the branch unique; the request *slug* (same helper the
+    artifact filename uses, so the two agree) makes it recognisable in a ``git
+    branch`` listing. The ``colleague/`` prefix is preserved so the ``outsource``
+    skill's ``colleague/*`` cleanup match and the PR flow are unaffected.
+    """
+    slug = slugify(instruction)
+    return f"colleague/{task_id}-{slug}" if slug else f"colleague/{task_id}"
 
 
 def _current_ref(repo: Path) -> str | None:
@@ -130,7 +140,7 @@ def handoff(
     is applied (every drive-produced untracked file is a candidate).
     """
     repo = Path(repo_path).resolve()
-    branch = _branch_name(task_id)
+    branch = _branch_name(task_id, instruction)
     result = HandoffResult(branch=branch)
     ignored = _ignored_paths(repo, changed_files or [])
 

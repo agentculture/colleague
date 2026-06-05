@@ -224,3 +224,96 @@ def read_feedback(repo_path: str | Path, task_id: str) -> Optional[Feedback]:
     except (OSError, json.JSONDecodeError) as exc:
         raise FeedbackError(f"cannot read feedback for {task_id}: {exc}") from exc
     return Feedback.from_dict(data)
+
+
+@dataclass
+class DriveSummary:
+    """One row of :func:`list_drives`: a drive identified by its request + grade.
+
+    The durable answer to "which drive was that?" when the order is forgotten and
+    ``last`` can't be trusted — every recorded drive, recognisable by its request
+    and result, gradable by its ``task_id``. ``rating`` is ``None`` for an
+    ungraded drive (a clean state, not an error).
+    """
+
+    task_id: str
+    started_at: str = ""
+    status: str = ""
+    request: str = ""
+    summary: str = ""
+    rating: Optional[int] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "started_at": self.started_at,
+            "status": self.status,
+            "request": self.request,
+            "summary": self.summary,
+            "rating": self.rating,
+        }
+
+
+def _load_drive_artifact(path: Path) -> Optional[dict[str, Any]]:
+    """Parse a result-artifact JSON file, or ``None`` to skip it.
+
+    Skips feedback records (``*.feedback.json``) and any unreadable/corrupt file —
+    :func:`list_drives` is best-effort and must never raise on a stray file.
+    """
+    if path.name.endswith(".feedback.json"):
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _drive_rating(repo_path: str | Path, task_id: str) -> Optional[int]:
+    """The recorded rating for ``task_id``, or ``None`` (corrupt feedback ignored)."""
+    try:
+        record = read_feedback(repo_path, task_id)
+    except FeedbackError:
+        return None
+    return record.rating if record is not None else None
+
+
+def _drive_summary(repo_path: str | Path, data: dict[str, Any]) -> DriveSummary:
+    """Build a :class:`DriveSummary` from a parsed artifact + its feedback grade."""
+    stats = data.get("stats") or {}
+    task_id = str(data.get("task_id") or "")
+    return DriveSummary(
+        task_id=task_id,
+        started_at=str(stats.get("started_at") or ""),
+        status=str(data.get("status") or ""),
+        request=str(stats.get("request") or ""),
+        summary=str(data.get("summary") or ""),
+        rating=_drive_rating(repo_path, task_id),
+    )
+
+
+def list_drives(repo_path: str | Path) -> list[DriveSummary]:
+    """Every recorded drive in the repo, newest-first, with its grade folded in.
+
+    Scans the artifact dirs (new then legacy) for result-JSON files — excluding
+    each drive's ``<task_id>.feedback.json`` — reads the authoritative ``task_id``
+    from the JSON *contents* (so the filename scheme, bare or slugged, doesn't
+    matter), and pairs it with its feedback rating (``None`` when ungraded).
+    Tolerant: an unreadable or corrupt file is skipped, never raised. Deduped by
+    ``task_id`` (the new dir shadows the legacy one); sorted by ``stats.started_at``
+    descending (drives without a timestamp sort last).
+    """
+    seen: set[str] = set()
+    rows: list[DriveSummary] = []
+    for directory in artifact_read_dirs(repo_path):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.json")):
+            data = _load_drive_artifact(path)
+            if data is None:
+                continue
+            task_id = str(data.get("task_id") or "")
+            if task_id and task_id not in seen:
+                seen.add(task_id)
+                rows.append(_drive_summary(repo_path, data))
+    rows.sort(key=lambda r: r.started_at, reverse=True)
+    return rows

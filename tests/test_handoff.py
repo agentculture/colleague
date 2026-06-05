@@ -72,7 +72,9 @@ def test_handoff_commits_locally_without_pushing(tmp_path: Path) -> None:
 
     result = handoff(repo, "abc123", instruction="add feature", open_pr=True)
 
-    assert result.branch == "colleague/abc123"
+    # The branch carries the task-id AND a slug of the request (#132), so it is
+    # recognisable in a `git branch` listing — the `colleague/` prefix is kept.
+    assert result.branch == "colleague/abc123-add-feature"
     assert result.committed is True
     assert result.pushed is False
     assert result.pr_url is None
@@ -80,7 +82,7 @@ def test_handoff_commits_locally_without_pushing(tmp_path: Path) -> None:
     # the branch they started on — a drive must not strand them on colleague/<id>.
     assert _current_branch(repo) == before
     # …and the drive branch still exists carrying the commit (not lost on restore).
-    assert _branch_exists(repo, "colleague/abc123")
+    assert _branch_exists(repo, result.branch)
     # Restored to `before`, whose tree never had feature.txt (it lives only on the
     # drive branch) — proves the checkout actually moved off the drive branch.
     assert not (repo / "feature.txt").exists()
@@ -183,7 +185,7 @@ def test_handoff_excludes_colleague_bookkeeping_dir(tmp_path: Path) -> None:
 
     result = handoff(repo, "abc123", instruction="add feature", open_pr=False)
 
-    committed = _committed_files(repo, "colleague/abc123")
+    committed = _committed_files(repo, result.branch)
     assert "feature.txt" in committed
     assert not any(p.startswith(".colleague/") for p in committed)
     # changed_files reflects the committed set, not the swept tree.
@@ -262,15 +264,15 @@ def test_handoff_commit_subject_is_short_with_full_body(tmp_path: Path) -> None:
         "and a strict length cap so the page never grows unbounded across runs"
     )
 
-    handoff(repo, "deadbeef", instruction=instruction, open_pr=False)
+    result = handoff(repo, "deadbeef", instruction=instruction, open_pr=False)
 
-    subject = _commit_subject(repo, "colleague/deadbeef")
+    subject = _commit_subject(repo, result.branch)
     assert "\n" not in subject
     assert len(subject) <= len("colleague: ") + 64
     assert subject.startswith("colleague: Build a static site")
     assert subject.endswith("...")
     # Full instruction preserved in the body.
-    assert instruction in _commit_body(repo, "colleague/deadbeef")
+    assert instruction in _commit_body(repo, result.branch)
 
 
 def test_handoff_short_instruction_needs_no_body(tmp_path: Path) -> None:
@@ -279,9 +281,10 @@ def test_handoff_short_instruction_needs_no_body(tmp_path: Path) -> None:
     _init_repo(repo)
     (repo / "feature.txt").write_text("work\n")
 
-    handoff(repo, "t1", instruction="tidy up", open_pr=False)
-    assert _commit_subject(repo, "colleague/t1") == "colleague: tidy up"
-    assert _commit_body(repo, "colleague/t1") == ""
+    result = handoff(repo, "t1", instruction="tidy up", open_pr=False)
+    assert result.branch == "colleague/t1-tidy-up"
+    assert _commit_subject(repo, result.branch) == "colleague: tidy up"
+    assert _commit_body(repo, result.branch) == ""
 
 
 def test_handoff_empty_instruction_falls_back_to_task_id(tmp_path: Path) -> None:

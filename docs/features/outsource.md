@@ -67,13 +67,21 @@ previews unless `--apply` or `--pr` is given).
 ```text
 $ outsource explore "report the top-level markdown title of README.md"
 status: ok
+task: 7f3a91c0b2e4
 
 **Top-level markdown title of `README.md` (line 1):**
 # colleague
+
+artifact: /repo/.colleague/7f3a91c0b2e4.report-the-top-level-markdown-title.json
+grade: outsource feedback 7f3a91c0b2e4 --rating <1-5>
 ```
 
 The drive ran entirely in a throwaway worktree — `git status`, the current
-branch, and the worktree list are byte-for-byte identical before and after.
+branch, and the worktree list are byte-for-byte identical before and after. A
+read-only probe **preserves** its artifact (so you can grade it by the printed
+`task_id`) but does **not** move the `last` pointer (#132), so a probe can never
+steal a grade meant for a write. Grade it by its id, or find it later with
+`outsource feedback list`.
 
 ### write (previews by default)
 
@@ -106,8 +114,27 @@ status: ok
 Created greet.py with a single function greet(name) that returns 'hi, ' + name.
 
 changed files: greet.py
-drive branch: colleague/3acc192d27e1
+drive branch: colleague/3acc192d27e1-create-greet-py-with-greet-name
+grade: outsource feedback 3acc192d27e1 --rating <1-5>
 ```
+
+The drive branch and artifact carry a slug of the request, so the drive is
+recognisable in a `git branch` / `ls .colleague/` listing.
+
+### feedback — close the ROI loop
+
+```text
+$ outsource feedback list                          # find a drive by its request
+ID            WHEN              STATUS  GRADE  REQUEST
+3acc192d27e1  2026-06-05 14:02  ok      --     create greet.py with greet(name) …
+7f3a91c0b2e4  2026-06-05 13:55  ok      --     report the top-level markdown title …
+
+$ outsource feedback 3acc192d27e1 --rating 4 --notes "clean"   # grade by id
+```
+
+`outsource feedback last` grades the most recent **write** (read-only probes
+don't move `last`). Grade a probe by the `task_id` it printed, or use
+`outsource feedback list`.
 
 ### review — the headline verb
 

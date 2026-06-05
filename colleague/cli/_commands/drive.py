@@ -260,7 +260,12 @@ def execute_drive(
                     # A partial run has accumulated steps -> the trace is non-empty.
                     artifact_note = "a result artifact (with the partial trace) was still written"
                 else:
-                    result = failed_result(task.id, f"{type(exc).__name__}: {exc}")
+                    # Carry the request into stats so even an early-failure
+                    # artifact stays discoverable-by-request / sortable in
+                    # `feedback list` and is named with a slug (#132).
+                    result = failed_result(
+                        task.id, f"{type(exc).__name__}: {exc}", request=task.instruction
+                    )
                     original = exc
                     # No partial result -> the trace is empty; don't claim otherwise.
                     artifact_note = "a result artifact was still written"

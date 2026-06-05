@@ -18,9 +18,10 @@ import argparse
 from pathlib import Path
 
 from colleague import feedback as fb
+from colleague.artifact import read_request
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._output import JSON_HELP, emit_diagnostic, emit_result
 from colleague.feedback import Feedback, FeedbackError
 from colleague.identity import resolve_identity
 
@@ -41,6 +42,7 @@ def _feedback_sections() -> list[dict[str, object]]:
             "items": [
                 "feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]",
                 "feedback show <id|last> [--repo P] [--json] — read a drive's feedback",
+                "feedback list [--repo P] [--json] — every drive by request + grade",
                 "feedback overview — describe the feedback surface (this command)",
             ],
         },
@@ -69,11 +71,19 @@ def _render(record: Feedback) -> str:
 
 def _resolve(repo: Path, ref: str) -> str:
     try:
-        return fb.resolve_task_id(repo, ref)
+        task_id = fb.resolve_task_id(repo, ref)
     except FeedbackError as exc:
         raise CliError(
             EXIT_USER_ERROR, str(exc), "run a drive first, or pass an explicit task-id"
         ) from exc
+    # Transparency: when the caller asked for the ambiguous `last`, surface which
+    # drive it landed on (id + request) on stderr — so a mis-resolve (e.g. a
+    # later read-only probe) is never silent. Results stay clean on stdout/--json.
+    if ref == "last":
+        request = read_request(repo, task_id)
+        detail = f' — "{request}"' if request else ""
+        emit_diagnostic(f"feedback: 'last' resolved to {task_id}{detail}")
+    return task_id
 
 
 def cmd_feedback_overview(args: argparse.Namespace) -> int:
@@ -125,6 +135,37 @@ def cmd_feedback_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _truncate(text: str, width: int) -> str:
+    text = (text or "").replace("\n", " ").strip()
+    return text if len(text) <= width else text[: max(0, width - 1)] + "…"
+
+
+def _render_listing(rows: list[fb.DriveSummary]) -> str:
+    if not rows:
+        return "no drives recorded yet"
+    header = f"{'ID':<14}{'WHEN':<18}{'STATUS':<8}{'GRADE':<7}REQUEST"
+    lines = [header]
+    for row in rows:
+        when = row.started_at[:16].replace("T", " ") if row.started_at else ""
+        grade = f"{row.rating}/{fb.MAX_RATING}" if row.rating is not None else "--"
+        lines.append(
+            f"{_truncate(row.task_id, 13):<14}{when:<18}{_truncate(row.status, 7):<8}"
+            f"{grade:<7}{_truncate(row.request, 48)}"
+        )
+    return "\n".join(lines)
+
+
+def cmd_feedback_list(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    repo = Path(args.repo).expanduser()
+    rows = fb.list_drives(repo)
+    if json_mode:
+        emit_result([r.to_dict() for r in rows], json_mode=True)
+    else:
+        emit_result(_render_listing(rows), json_mode=False)
+    return 0
+
+
 def _no_verb(args: argparse.Namespace) -> int:
     return cmd_feedback_overview(args)
 
@@ -161,6 +202,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     _add_repo(sh)
     sh.add_argument("--json", action="store_true", help=JSON_HELP)
     sh.set_defaults(func=cmd_feedback_show)
+
+    ls = noun_sub.add_parser("list", help="List recorded drives by request + grade.")
+    _add_repo(ls)
+    ls.add_argument("--json", action="store_true", help=JSON_HELP)
+    ls.set_defaults(func=cmd_feedback_list)
 
     ov = noun_sub.add_parser("overview", help="Describe the feedback surface.")
     ov.add_argument("--json", action="store_true", help=JSON_HELP)
