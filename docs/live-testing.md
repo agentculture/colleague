@@ -67,7 +67,7 @@ treat ❌-by-staleness the same as never-validated.
 | 4 | Loop tools: `culture` + `devague` | `colleague/culture.py`, `colleague/devague.py` | ✅ | `7a12d1e` · 2026-06-05 (4a `2395f7d5d9b9`, 4b `80cb15c5f9cd`); see §4 result | [#124](https://github.com/agentculture/colleague/issues/124) |
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ✅ | `64361da` · 2026-06-05 (drive `711505cb4c3f`); see §5 result | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ✅ | `d5c9312` · 2026-06-05 (e2e in CI + live drive `eff14af763d4`); see §6 result | [#126](https://github.com/agentculture/colleague/issues/126) |
-| 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ❌ | — (only step-budget seen live) | [#127](https://github.com/agentculture/colleague/issues/127) |
+| 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ✅ | `fcbf4ec` · 2026-06-05 (proactive `36b022abc7f0`, reactive `0323db53b1dd`); see §7 result | [#127](https://github.com/agentculture/colleague/issues/127) |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -393,3 +393,40 @@ retry, preserving a readable partial result instead of hard-failing.
 
 **Acceptance.** The trim+retry path is exercised live and a partial result is
 preserved; bound on retries holds (termination).
+
+**Result — 2026-06-05 (validated).** Two gated live drives
+(`tests/test_vllm_live_context_budget.py`, `COLLEAGUE_VLLM_E2E=1`) exercise both
+degradation paths against the reference rig by spying on the engine's HTTP seam
+(`vllm_openai._post_json`) — observe for the proactive path, inject for the
+reactive one — without leaving the production `execute_drive` path.
+
+- **Proactive windowing — ✅ LIVE.** Drives `36b022abc7f0` / `1e530fa42dd7`: a
+  small `context_budget=1000` + a 4-file *chain* task (each file names the next, so
+  the model must take sequential, content-pulling turns — `run_command` can't
+  shortcut it and the reads can't be batched). After two chained reads the history
+  blew past the budget, so every later real chat request was windowed to
+  `[system, user, <placeholder>, assistant, tool]` — the placeholder
+  (`context._PLACEHOLDER_TEXT`) landed in actual model requests and the message
+  count stayed pinned at 5 across four reads (`[2, 5, 5, 5, 5]`) instead of growing.
+  The drive finished OK — graceful degradation, no crash.
+- **Reactive trim+retry → real recovery — ✅ LIVE (induced).** Drives
+  `0323db53b1dd` / `242ee473debd`: the procedure's "induced overflow" — the first
+  chat call raises a real-shaped overflow (matches `is_context_overflow`), the loop
+  shrinks the budget and retries, and the retry **recovers against the real model**
+  (3 chat calls: 1 raised + 2 served; `write_file` then `finish`, status OK).
+- **Bounded termination + non-recoverable partial — ✅ DETERMINISTIC (cited).** The
+  retry cap (`_MAX_OVERFLOW_RETRIES`) and the preserved partial on a never-recovering
+  overflow are engine-agnostic loop mechanics, proven by
+  `tests/test_loop_degradation.py` (`test_non_recoverable_overflow_preserves_partial`,
+  retry-bound) and `tests/test_e2e_degradation.py` (full vLLM-engine path, partial
+  JSON to stdout). Windowing primitives + overflow-phrase detection:
+  `tests/test_context_window.py`.
+- **Honest limit.** A real server-side 262k overflow is not deliberately induced
+  (proactive windowing trims below the budget first, so it would be unreliable and
+  costly to force); the overflow is injected at the HTTP seam — exactly the
+  procedure's "induced overflow" — with the *recovery* served by the real model.
+  No `COLLEAGUE_CONTEXT_BUDGET` ships in the repo; the budget is set per-test.
+
+With this row validated, every feature in the [matrix](#validation-matrix) — and
+the tracking epic [#128](https://github.com/agentculture/colleague/issues/128) — is
+now validated live (or live + cited-deterministic where the model adds no signal).
