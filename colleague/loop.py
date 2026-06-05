@@ -612,6 +612,80 @@ def _remember_degraded_floor(ctx: _Work, budget: int) -> None:
     ctx._degraded_budget[:] = [max(1, budget)]
 
 
+def _open_degradation_window(ctx: _Work, budget: int) -> int:
+    """Window the history to the starting budget, honouring a carried-forward floor (#154).
+
+    A prior exhausted give-up may have carried a floored budget forward so this turn —
+    the auto-split / INCOMPLETE recommendation turn — stays small; honour it once, then
+    clear it so later turns return to the full budget. Returns the effective starting
+    budget the first ``complete`` attempt runs against.
+    """
+    start = budget
+    if ctx._degraded_budget:
+        start = min(budget, ctx._degraded_budget[0])
+        ctx._degraded_budget.clear()
+    _window_in_place(ctx, start)
+    return start
+
+
+def _shrink_for_retry(ctx: _Work, effective: int) -> int | None:
+    """Shrink the budget one step and re-window; return the new budget, or ``None`` at the floor.
+
+    Each retry strictly shrinks the budget (``* _OVERFLOW_SHRINK_FACTOR``, floored to
+    ≥ 1) AND must reduce the message count. ``None`` means the floor was hit — neither
+    the budget nor the message list (only system + first user + last turn remain) can
+    shrink further — so retrying cannot help and the caller must give up. This pairing
+    is what guarantees the reactive loop always terminates.
+    """
+    shrunk = max(1, int(effective * _OVERFLOW_SHRINK_FACTOR))
+    before = len(ctx.messages)
+    _window_in_place(ctx, shrunk)
+    if shrunk >= effective and len(ctx.messages) >= before:
+        return None
+    return shrunk
+
+
+def _plan_degraded_retry(
+    ctx: _Work, exc: Exception, effective: int, saw_overflow: bool
+) -> tuple[int, int, bool] | None:
+    """Classify a caught error and prepare the next degraded retry.
+
+    Returns ``(new_effective, new_cap, saw_overflow)`` to retry, or ``None`` to stop
+    (the caller re-raises). Two stop cases collapse to ``None`` because both end the
+    same way — the caller re-raises the in-flight exception: a *non-degradable* error
+    (nothing to carry) and a degradable *floor* give-up (the floored budget is carried
+    forward here via :func:`_remember_degraded_floor` before returning). The cap honours
+    overflow precedence: once ANY overflow is seen it is the higher ``_MAX_OVERFLOW_RETRIES``,
+    else the lower ``_MAX_TIMEOUT_RETRIES`` (#157).
+    """
+    signal = classify_degradable(str(exc))
+    if signal is None:
+        return None  # non-degradable: propagate immediately (unchanged)
+    saw_overflow = saw_overflow or signal == "overflow"
+    cap = _MAX_OVERFLOW_RETRIES if saw_overflow else _MAX_TIMEOUT_RETRIES
+    shrunk = _shrink_for_retry(ctx, effective)
+    if shrunk is None:
+        _remember_degraded_floor(ctx, effective)  # at the floor: carry it, then give up
+        return None
+    return shrunk, cap, saw_overflow
+
+
+def _final_degraded_attempt(ctx: _Work, complete: CompleteFn, effective: int) -> ModelResponse:
+    """One last ``complete`` after the retry cap was exhausted while still making progress.
+
+    A success returns normally and must NOT throttle the next (normal) turn; a
+    degradable give-up carries the floored budget forward (#154) before re-raising so
+    :func:`run` preserves the partial. A non-degradable error just re-raises.
+    """
+    try:
+        return complete(ctx.messages)
+    except Exception as exc:  # noqa: BLE001
+        # Carry the floor only on a degradable give-up, then re-raise either way.
+        if classify_degradable(str(exc)) is not None:
+            _remember_degraded_floor(ctx, effective)
+        raise
+
+
 def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelResponse:
     """Window the history, call ``complete``, and degrade-on-overflow-or-timeout if budgeted.
 
@@ -622,15 +696,17 @@ def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelRespons
 
     With a budget set: the history is windowed before the call. If ``complete``
     raises a *degradable* error — a context-overflow OR a request timeout
-    (:func:`colleague.context.classify_degradable`) — the effective budget is shrunk
-    (``* _OVERFLOW_SHRINK_FACTOR``, floored to ≥ 1), the history is re-windowed, and
-    the call retried. The retry cap is per-signal: ``_MAX_OVERFLOW_RETRIES`` for an
-    overflow (an instant 400, ~free to retry), the lower ``_MAX_TIMEOUT_RETRIES`` for
-    a timeout (each attempt costs a full request-timeout window, #154). Retrying stops
-    (and the original error re-raises, so :func:`run` preserves the partial) when the
-    cap is reached OR a re-window can no longer reduce the message count (the floor:
-    only system + first user + last turn remain). On give-up the floored budget is
-    carried to the next turn — the recommendation turn — via
+    (:func:`colleague.context.classify_degradable`) — the budget is shrunk and the
+    call retried (see :func:`_shrink_for_retry`). The retry cap is per-signal and
+    honours overflow precedence: a timeout alone is bounded by the lower
+    ``_MAX_TIMEOUT_RETRIES`` (each attempt costs a full request-timeout window, #154),
+    but ANY overflow seen in the sequence restores the higher ``_MAX_OVERFLOW_RETRIES``
+    (an instant 400 is ~free to retry) — so a timeout earlier in a mixed
+    timeout→overflow run never starves the later cheap overflow retries (#157, matching
+    :func:`classify_degradable`'s overflow-takes-precedence rule). Retrying stops (and
+    the original error re-raises, so :func:`run` preserves the partial) when the cap is
+    reached OR :func:`_shrink_for_retry` reports the floor. On give-up the floored
+    budget is carried to the next turn — the recommendation turn — via
     :func:`_remember_degraded_floor`. Non-degradable errors are never retried — they
     propagate immediately.
     """
@@ -639,53 +715,25 @@ def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelRespons
         # Feature off: strict pass-through, byte-identical to the pre-feature loop.
         return complete(ctx.messages)
 
-    # Window before the first attempt. A prior exhausted give-up may have carried a
-    # floored budget forward (#154) so this turn — the recommendation turn — stays
-    # small; honour it once, then clear it so later turns return to the full budget.
-    start = budget
-    if ctx._degraded_budget:
-        start = min(budget, ctx._degraded_budget[0])
-        ctx._degraded_budget.clear()
-    _window_in_place(ctx, start)
-    effective = start
-    # The first attempt plus up to ``cap`` reactive retries — ``cap`` is narrowed to
-    # the lower timeout cap the first time a timeout (not an overflow) is seen. Each
-    # retry strictly shrinks the budget AND must reduce the message count, so the loop
-    # always terminates (the floor — system + first user + last turn — and the cap
-    # both stop it). A non-degradable error, or a give-up once neither the budget nor
-    # the message list can shrink further, propagates to run()'s preserved-partial path.
+    effective = _open_degradation_window(ctx, budget)
+    # The first attempt plus up to ``cap`` reactive retries. ``cap`` tracks the
+    # highest-precedence signal seen so far (see :func:`_plan_degraded_retry`): it stays
+    # at the overflow cap unless ONLY timeouts have been seen, and an overflow at any
+    # point restores it (#157). The loop always terminates: each retry strictly shrinks
+    # the budget and the message count (the floor), and the cap bounds the attempts.
+    saw_overflow = False
     cap = _MAX_OVERFLOW_RETRIES
     attempt = 0
     while attempt <= cap:
         try:
             return complete(ctx.messages)
-        except Exception as exc:  # noqa: BLE001 - re-raised below unless it is degradable
-            signal = classify_degradable(str(exc))
-            if signal is None:
-                raise  # non-degradable errors propagate immediately (unchanged)
-            if signal == "timeout":
-                cap = _MAX_TIMEOUT_RETRIES
-            shrunk = max(1, int(effective * _OVERFLOW_SHRINK_FACTOR))
-            before = len(ctx.messages)
-            _window_in_place(ctx, shrunk)
-            # At the floor (re-window changed nothing) AND the budget can't shrink
-            # further → retrying cannot help; carry the floor and let it propagate.
-            if shrunk >= effective and len(ctx.messages) >= before:
-                _remember_degraded_floor(ctx, effective)
+        except Exception as exc:  # noqa: BLE001
+            plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
+            if plan is None:
                 raise
-            effective = shrunk
+            effective, cap, saw_overflow = plan
             attempt += 1
-    # Cap exhausted while still making progress: one final attempt. Remember the floor
-    # only if it ALSO fails degradably — a success returns normally and must not
-    # throttle the next (normal) turn.
-    try:
-        return complete(ctx.messages)
-    except (
-        Exception
-    ) as exc:  # noqa: BLE001 - carry the floor on a degradable give-up, then re-raise
-        if classify_degradable(str(exc)) is not None:
-            _remember_degraded_floor(ctx, effective)
-        raise
+    return _final_degraded_attempt(ctx, complete, effective)
 
 
 def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
@@ -756,9 +804,8 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     while ctx.result.stats.model_turns < budget:
         try:
             resp = _complete_with_degradation(ctx, complete)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 - a degradable give-up may trigger auto-split; else re-raise
+        except Exception as exc:  # noqa: BLE001
+            # A degradable give-up may trigger auto-split; otherwise it re-raises.
             # Reactive auto-split (#151, #154): an EXHAUSTED degradable error (the
             # bounded shrink-and-retry in _complete_with_degradation gave up) — a
             # context overflow OR a request timeout — is the well-defined "too large

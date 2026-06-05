@@ -308,6 +308,40 @@ def test_non_recoverable_timeout_capped_lower_than_overflow(tmp_path: Path) -> N
     assert _MAX_TIMEOUT_RETRIES + 2 < _MAX_OVERFLOW_RETRIES + 2
 
 
+def test_overflow_after_timeout_restores_overflow_cap(tmp_path: Path) -> None:
+    """An overflow after an earlier timeout still gets the FULL overflow cap (#157).
+
+    ``classify_degradable`` says overflow takes precedence over timeout. The reactive
+    loop must honour that: seeing a timeout first must not permanently narrow the cap
+    to the (lower) timeout cap and starve the cheaper overflow retries that follow. A
+    run that times out once, then overflows forever, must make ``_MAX_OVERFLOW_RETRIES
+    + 2`` ``complete`` calls — the overflow floor — not the timeout-capped
+    ``_MAX_TIMEOUT_RETRIES + 2``. (The budget starts large so the per-signal cap, not
+    the message floor, is the binding constraint.)
+    """
+    calls = {"n": 0}
+
+    def timeout_then_overflow(messages: list[dict]) -> ModelResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("request to http://x/v1/chat/completions timed out after 120s")
+        raise RuntimeError("maximum context length exceeded: reduce the length")
+
+    task = Task.new(str(tmp_path), f"mixed {'word ' * 50}")
+    with pytest.raises(WorkAborted) as excinfo:
+        run(
+            timeout_then_overflow,
+            task,
+            max_steps=10,
+            context=ContextControls(budget=1000, count_tokens=_word_count_tokens),
+        )
+
+    assert excinfo.value.result.status == ERROR
+    # Overflow precedence restored the higher cap — strictly more than the timeout cap.
+    assert calls["n"] == _MAX_OVERFLOW_RETRIES + 2
+    assert calls["n"] > _MAX_TIMEOUT_RETRIES + 2
+
+
 def test_timeout_without_budget_is_not_retried(tmp_path: Path) -> None:
     """With no budget set, a request timeout is also not retried (gate requires budget)."""
     calls = {"n": 0}

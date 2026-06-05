@@ -18,6 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - A request timeout mid-completion now degrades gracefully like a context-overflow instead of hard-failing with no deliverable (#154): the loop trims history and retries (capped lower, `_MAX_TIMEOUT_RETRIES=1`, since each timeout costs a full `COLLEAGUE_TIMEOUT` window), and on an exhausted give-up injects the auto-split/INCOMPLETE recommendation against a carried-forward floored window so the model can still produce an INCOMPLETE report. The vLLM `_post_json` now wraps a read-phase `TimeoutError` legibly (keeps "timed out" for the detector, surfaces the `COLLEAGUE_TIMEOUT` knob).
+- `_complete_with_degradation` now honours `classify_degradable`'s overflow-takes-precedence rule across a mixed sequence (#157 review): an overflow seen *after* an earlier timeout restores the higher `_MAX_OVERFLOW_RETRIES` cap instead of staying pinned to the lower timeout cap, so the cheap overflow retries are no longer starved by the earlier timeout. The reactive shrink-and-retry was refactored into focused helpers (`_open_degradation_window`, `_shrink_for_retry`, `_plan_degraded_retry`, `_final_degraded_attempt`) to drop its cognitive complexity below the SonarCloud threshold, and the new `# noqa` suppression comments were normalised to a parsable form.
 
 ## [0.39.1] - 2026-06-05
 
