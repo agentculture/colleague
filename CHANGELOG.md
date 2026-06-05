@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Docs terminology cleanup to match the recent renames (drive->work, outsource->ask-colleague): drive (noun)->work item, drive branch->work branch, `colleague drive`->`colleague work`, outsource->delegate across the ask-colleague SKILL.md, stats-and-feedback, and escalation docs; back-compat/rename-history lines intentionally preserved.
+- Docs terminology cleanup to match the `drive`->`work` rename and align "outsource" wording to "delegate": `drive` (noun)->`work item`, `drive branch`->`work branch`, `colleague drive`->`colleague work`, and outsource(d)->delegate(d) across the ask-colleague SKILL.md, stats-and-feedback, and escalation docs; back-compat/rename-history lines intentionally preserved.
 - CLAUDE.md: added a Prefer Colleague over spawning a sub-agent guidance paragraph to the division-of-labor section.
 
 ## [0.39.0] - 2026-06-05
