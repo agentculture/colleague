@@ -235,6 +235,8 @@ _OVERFLOW_PHRASES = (
     "longer than the maximum",
 )
 
+_TIMEOUT_PHRASES = ("timed out",)
+
 
 def is_context_overflow(text: str) -> bool:
     """Return True if *text* contains a known context-overflow error phrase.
@@ -247,3 +249,28 @@ def is_context_overflow(text: str) -> bool:
         return False
     lower = text.lower()
     return any(phrase in lower for phrase in _OVERFLOW_PHRASES)
+
+
+def is_request_timeout(text: str) -> bool:
+    """Return True if *text* contains a known request-timeout error phrase.
+
+    Case-insensitive substring match against a fixed set of phrases emitted by
+    servers when a request times out (e.g. a server that "timed out").
+    Returns False for empty / ``None``-like input and for unrelated error text.
+    """
+    if not text:
+        return False
+    lower = text.lower()
+    return any(phrase in lower for phrase in _TIMEOUT_PHRASES)
+
+
+def classify_degradable(text: str) -> str | None:
+    """Classify a degradable engine error: 'overflow', 'timeout', or None for neither.
+
+    Overflow takes precedence over timeout.
+    """
+    if is_context_overflow(text):
+        return "overflow"
+    if is_request_timeout(text):
+        return "timeout"
+    return None
