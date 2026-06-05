@@ -581,6 +581,44 @@ def _complete_with_degradation(ctx: _Drive, complete: CompleteFn) -> ModelRespon
     return complete(ctx.messages)
 
 
+def _account_turn(ctx: _Drive, resp: ModelResponse) -> None:
+    """Per-turn bookkeeping (always-on): usage, telemetry, stats, last-substantive.
+
+    Counts the turn and accumulates the generated reasoning/answer sizes (chars +
+    bytes), mirrored into the optional telemetry as a strict no-op when off. Also
+    tracks the last non-empty ``resp.content`` across ALL turns (including
+    tool-call turns) — the t2 candidate ``run`` falls back to for the summary —
+    via the mutable proxy so the frozen ``_Drive`` binding stays intact.
+    """
+    ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
+    ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
+    ctx.result.stats.model_turns += 1
+    ctx.result.stats.add_generated(reasoning=resp.reasoning, answer=resp.content)
+    ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
+    if resp.content:
+        ctx._last_substantive[:] = [resp.content]
+
+
+def _handle_no_tool_turn(ctx: _Drive, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
+    """Handle a turn that requested no tool — nudge once, else stop (colleague#142).
+
+    The contract is to call ``finish``; a bare prose turn is usually the model
+    trailing off mid-task. Returns ``(nudges, exit)``: with budget remaining it
+    appends the model's prose + a one-line finish reminder and returns
+    ``(nudges + 1, None)`` (caller continues the loop); once the nudge is spent it
+    records the trailing content as the summary (so a partial answer is not lost)
+    and returns ``(nudges, _EXIT_STOPPED)``.
+    """
+    if nudges < _MAX_FINISH_NUDGES:
+        if resp.content:
+            ctx.messages.append({"role": "assistant", "content": resp.content})
+        ctx.messages.append({"role": "user", "content": _FINISH_NUDGE})
+        return nudges + 1, None
+    if resp.content:
+        ctx.result.summary = resp.content
+    return nudges, _EXIT_STOPPED
+
+
 def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -599,38 +637,13 @@ def _drive_loop(ctx: _Drive, complete: CompleteFn, max_steps: int) -> str:
     nudges = 0
     for _ in range(max(1, max_steps)):
         resp = _complete_with_degradation(ctx, complete)
-        ctx.result.usage.add(resp.prompt_tokens, resp.completion_tokens)
-        ctx.telemetry.on_completion(resp.prompt_tokens, resp.completion_tokens)
-        # Per-turn statistics (always-on): count the turn and accumulate the
-        # generated reasoning/answer sizes (chars + bytes). Mirrored into the
-        # optional telemetry as a strict no-op when off.
-        ctx.result.stats.model_turns += 1
-        ctx.result.stats.add_generated(reasoning=resp.reasoning, answer=resp.content)
-        ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
-
-        # Track the last substantive assistant content (t2): update on EVERY turn
-        # that has non-empty ``resp.content``, including turns that also make tool
-        # calls (the gap at the original line ~568).  Stored via the mutable proxy
-        # so the frozen ``_Drive`` binding stays intact.
-        if resp.content:
-            ctx._last_substantive[:] = [resp.content]
+        _account_turn(ctx, resp)
 
         if not resp.tool_calls:
-            # The model ended a turn without requesting any tool. The contract is to
-            # call ``finish``; a bare prose turn is usually the model trailing off
-            # mid-task (colleague#142). Nudge it once to recover a real finish.
-            if nudges < _MAX_FINISH_NUDGES:
-                nudges += 1
-                if resp.content:
-                    ctx.messages.append({"role": "assistant", "content": resp.content})
-                ctx.messages.append({"role": "user", "content": _FINISH_NUDGE})
-                continue
-            # Already nudged and still no tool call — accept the stop. Set the summary
-            # directly (preserving the old no-tool-call behavior) so a partial answer
-            # is not lost; ``run`` flags this via ``stopped_without_finish``.
-            if resp.content:
-                ctx.result.summary = resp.content
-            return _EXIT_STOPPED
+            nudges, exit_reason = _handle_no_tool_turn(ctx, resp, nudges)
+            if exit_reason is not None:
+                return exit_reason
+            continue  # nudged — give the model one more turn to call finish
 
         ctx.messages.append(_assistant_message(resp))
         # Run the turn's tool calls; a finish on any of them ends the drive once

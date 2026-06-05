@@ -28,11 +28,11 @@ def test_field_defaults_false() -> None:
     assert TaskResult(task_id="x", status="ok").stopped_without_finish is False
 
 
-def test_field_round_trips() -> None:
+def test_field_serializes_and_round_trips() -> None:
     original = TaskResult(task_id="abc", status="ok", stopped_without_finish=True)
-    restored = TaskResult.from_dict(original.to_dict())
+    assert "stopped_without_finish" in original.to_dict()  # serialized into the artifact
+    restored = TaskResult.from_dict(original.to_dict())  # and restored faithfully
     assert restored.stopped_without_finish is True
-    assert "stopped_without_finish" in original.to_dict()
 
 
 # ---------------------------------------------------------------------------
