@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2026-06-05
+
+### Changed
+
+- Live-testing ledger: field-audited the always-on DriveStats block against a real drive (drive a6c5f0c1fd13) — flipped the Drive stats row from partial to validated and added a re-checkable §0 procedure. bytes_written verified exact (101) against the committed file; tool_counts/step_count/files_changed mirror the live step trace; usage tokens verbatim. No code change; closes out epic #128.
+
 ## [0.34.0] - 2026-06-05
 
 ### Added
