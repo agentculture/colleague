@@ -96,6 +96,34 @@ def test_post_json_raises_legible_error_when_server_unreachable(
     msg = str(exc.value)
     assert "http://localhost:8001/v1/chat/completions" in msg
     assert "unreachable" in msg
+    # A refused connection is NOT a timeout — it must stay on the fast-fail path.
+    from colleague.context import classify_degradable
+
+    assert classify_degradable(msg) is None
+
+
+def test_post_json_wraps_read_timeout_legibly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A read-phase timeout (a bare ``TimeoutError``, not a ``URLError``) is re-raised
+    legibly: it keeps the phrase "timed out" so the loop's request-timeout detector
+    matches and the degradation / auto-split path fires, names the endpoint, and
+    surfaces the ``COLLEAGUE_TIMEOUT`` knob (#154)."""
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> object:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(TimeoutError) as exc:
+        _post_json("http://localhost:8001/v1/chat/completions", {}, api_key="EMPTY", timeout=120)
+
+    msg = str(exc.value)
+    assert "timed out" in msg  # the loop's is_request_timeout detector matches this
+    assert "http://localhost:8001/v1/chat/completions" in msg
+    assert "COLLEAGUE_TIMEOUT" in msg
+    # The loop classifier treats the wrapped message as a degradable timeout.
+    from colleague.context import classify_degradable
+
+    assert classify_degradable(msg) == "timeout"
 
 
 def test_drive_runs_full_loop_over_mocked_http(

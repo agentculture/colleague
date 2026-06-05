@@ -28,7 +28,15 @@ from colleague.context import count_tokens_chars
 from colleague.contract import ERROR, OK, Task
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine
-from colleague.loop import ContextControls, ModelResponse, ToolCall, WorkAborted, run
+from colleague.loop import (
+    _MAX_OVERFLOW_RETRIES,
+    _MAX_TIMEOUT_RETRIES,
+    ContextControls,
+    ModelResponse,
+    ToolCall,
+    WorkAborted,
+    run,
+)
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -231,6 +239,120 @@ def test_overflow_without_budget_is_not_retried(tmp_path: Path) -> None:
     task = Task.new(str(tmp_path), "overflow no budget")
     with pytest.raises(WorkAborted):
         run(overflow, task, max_steps=10)  # no context_budget
+
+    assert calls["n"] == 1  # no retry without a budget
+
+
+# ---------------------------------------------------------------------------
+# 2b. reactive degradation on a *request timeout* (#154) — mirrors overflow,
+#     but capped lower because each timeout costs a full request-timeout window.
+# ---------------------------------------------------------------------------
+
+
+def test_timeout_reactive_retry_then_recover(tmp_path: Path) -> None:
+    """A request timeout on the first call is retried (smaller window) and recovers.
+
+    Mirrors the overflow degradation path (#154): the first ``complete`` raises a
+    request-timeout error, the loop shrinks the budget, re-windows, and retries; the
+    retry finishes, so the drive completes ``ok`` instead of hard-failing.
+    """
+    state = {"n": 0}
+
+    def flaky(messages: list[dict]) -> ModelResponse:
+        state["n"] += 1
+        if state["n"] == 1:
+            raise TimeoutError("request to http://x/v1/chat/completions timed out after 120s")
+        return ModelResponse(tool_calls=[ToolCall("done", "finish", {"summary": "recovered"})])
+
+    task = Task.new(str(tmp_path), f"do the thing {'word ' * 50}")
+    result = run(
+        flaky,
+        task,
+        max_steps=10,
+        context=ContextControls(budget=10, count_tokens=_word_count_tokens),
+    )
+
+    assert result.status == OK
+    assert result.summary == "recovered"
+    assert state["n"] >= 2  # a retry happened
+
+
+def test_non_recoverable_timeout_capped_lower_than_overflow(tmp_path: Path) -> None:
+    """A never-recovering request timeout is bounded by the LOWER timeout cap (#154).
+
+    Each timeout attempt costs a full request-timeout window, so the loop retries a
+    timeout fewer times than an overflow. The total ``complete`` calls on a persistent
+    timeout is exactly ``_MAX_TIMEOUT_RETRIES + 2`` (first attempt + the retries + the
+    final re-attempt) — strictly fewer than the overflow floor — and the partial is
+    preserved via :class:`WorkAborted`.
+    """
+    calls = {"n": 0}
+
+    def always_timeout(messages: list[dict]) -> ModelResponse:
+        calls["n"] += 1
+        raise TimeoutError("request to http://x/v1/chat/completions timed out after 120s")
+
+    task = Task.new(str(tmp_path), f"slow {'word ' * 200}")
+    with pytest.raises(WorkAborted) as excinfo:
+        run(
+            always_timeout,
+            task,
+            max_steps=10,
+            context=ContextControls(budget=10, count_tokens=_word_count_tokens),
+        )
+
+    assert excinfo.value.result.status == ERROR
+    assert "timed out" in (excinfo.value.result.error or "").lower()
+    assert calls["n"] == _MAX_TIMEOUT_RETRIES + 2
+    # The whole point of the separate cap: a timeout is retried less than an overflow.
+    assert _MAX_TIMEOUT_RETRIES + 2 < _MAX_OVERFLOW_RETRIES + 2
+
+
+def test_overflow_after_timeout_restores_overflow_cap(tmp_path: Path) -> None:
+    """An overflow after an earlier timeout still gets the FULL overflow cap (#157).
+
+    ``classify_degradable`` says overflow takes precedence over timeout. The reactive
+    loop must honour that: seeing a timeout first must not permanently narrow the cap
+    to the (lower) timeout cap and starve the cheaper overflow retries that follow. A
+    run that times out once, then overflows forever, must make ``_MAX_OVERFLOW_RETRIES
+    + 2`` ``complete`` calls — the overflow floor — not the timeout-capped
+    ``_MAX_TIMEOUT_RETRIES + 2``. (The budget starts large so the per-signal cap, not
+    the message floor, is the binding constraint.)
+    """
+    calls = {"n": 0}
+
+    def timeout_then_overflow(messages: list[dict]) -> ModelResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("request to http://x/v1/chat/completions timed out after 120s")
+        raise RuntimeError("maximum context length exceeded: reduce the length")
+
+    task = Task.new(str(tmp_path), f"mixed {'word ' * 50}")
+    with pytest.raises(WorkAborted) as excinfo:
+        run(
+            timeout_then_overflow,
+            task,
+            max_steps=10,
+            context=ContextControls(budget=1000, count_tokens=_word_count_tokens),
+        )
+
+    assert excinfo.value.result.status == ERROR
+    # Overflow precedence restored the higher cap — strictly more than the timeout cap.
+    assert calls["n"] == _MAX_OVERFLOW_RETRIES + 2
+    assert calls["n"] > _MAX_TIMEOUT_RETRIES + 2
+
+
+def test_timeout_without_budget_is_not_retried(tmp_path: Path) -> None:
+    """With no budget set, a request timeout is also not retried (gate requires budget)."""
+    calls = {"n": 0}
+
+    def timeout(messages: list[dict]) -> ModelResponse:
+        calls["n"] += 1
+        raise TimeoutError("timed out")
+
+    task = Task.new(str(tmp_path), "timeout no budget")
+    with pytest.raises(WorkAborted):
+        run(timeout, task, max_steps=10)  # no context_budget → pass-through
 
     assert calls["n"] == 1  # no retry without a budget
 

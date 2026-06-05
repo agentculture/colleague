@@ -2,10 +2,10 @@
 
 > Colleague work items degrade instead of hard-failing when a task exceeds a
 > model's context window. The loop proactively windows its message history to
-> a configurable token budget and, if an overflow error is detected,
-> reactively trims and retries a bounded number of times. If the work item still
-> cannot finish, the caller gets a readable partial result instead of empty
-> stdout.
+> a configurable token budget and, if an overflow OR a request-timeout error is
+> detected, reactively trims and retries a bounded number of times. If the work
+> item still cannot finish, the caller gets a readable partial result instead of
+> empty stdout.
 
 ## The problem (issue #76)
 
@@ -33,6 +33,16 @@ tokens", etc.), the effective budget shrinks by 40% (`_OVERFLOW_SHRINK_FACTOR =
 0.6`) and the history is re-windowed and retried — up to a small fixed cap
 (`_MAX_OVERFLOW_RETRIES = 3`) per turn. Once the floor (system + task + most
 recent turn) still overflows, the loop stops.
+
+A REQUEST TIMEOUT (the server accepted the request but did not answer within
+`COLLEAGUE_TIMEOUT`, default 120s) is now degraded the same way — a bloated
+context makes each completion slow, so trimming can let the next one beat the
+timeout — but capped LOWER at `_MAX_TIMEOUT_RETRIES = 1`, because each timeout
+attempt costs a full timeout window whereas an overflow 400 is instant. The loop
+classifies which signal fired via `classify_degradable` (overflow vs timeout)
+and, on an exhausted give-up, the floored budget is carried into the next turn
+so the injected auto-split / INCOMPLETE recommendation runs against the small
+window.
 
 **Preserved partial result:** If the loop cannot finish, it returns the partial
 `TaskResult` (status=error, non-empty steps, usage, changed files) to stdout via
@@ -113,6 +123,11 @@ The trade-off is acceptable:
   3`) so the loop's termination guarantee still holds. No new exit path, no
   daemon, no new runtime dependency. Once retries exhaust or the floor is
   reached, the loop stops and preserves the partial result.
+- **Request timeout against a dead server:** A request timeout against a
+  genuinely unreachable or stuck server still wastes up to `_MAX_TIMEOUT_RETRIES`
+  bounded retries (each a full `COLLEAGUE_TIMEOUT` window) before the partial is
+  preserved — shrinking the context only helps a context-bloat timeout, not a
+  dead server, which is why the timeout cap is deliberately low.
 
 ## Runtime-owned (all-engines rule)
 
@@ -122,7 +137,8 @@ The feature lives in `colleague/loop.py` and `colleague/context.py`:
   logic.
 - `window_messages` — trim a message list to a budget, preserving system +
   first-user + recent turns as matched OpenAI-valid units.
-- `is_context_overflow` — detect overflow error phrases.
+- `is_context_overflow` / `is_request_timeout` / `classify_degradable` — detect
+  overflow vs request-timeout error phrases.
 - `count_tokens_chars` — zero-dep char estimator.
 
 Both backends (`mock` and `vllm-openai`) inherit the feature identically via
@@ -158,11 +174,12 @@ final give-up, the partial result is returned.
 - `colleague/context.py` — windowing primitives, overflow detection, char
   counter.
 - `colleague/loop.py` — `_complete_with_degradation`, `_MAX_OVERFLOW_RETRIES`,
-  `_OVERFLOW_SHRINK_FACTOR`.
+  `_MAX_TIMEOUT_RETRIES`, `_OVERFLOW_SHRINK_FACTOR`.
 - `colleague/config.py` — `context_budget_tokens`, `_DEFAULT_CONTEXT_BUDGET`,
   `COLLEAGUE_CONTEXT_BUDGET` env resolution.
 - `colleague/engines/vllm_openai.py` — `_make_count_tokens`, `_tokenize_count`,
-  `_tokenize_url`.
+  `_tokenize_url`; `_post_json` wraps a read-phase timeout legibly (keeping
+  "timed out", surfacing `COLLEAGUE_TIMEOUT`).
 - `tests/test_e2e_degradation.py` — end-to-end tests (overflow recovery, partial
   result on stdout).
 - `tests/test_zero_deps.py` — guards `dependencies = []` (context module has no

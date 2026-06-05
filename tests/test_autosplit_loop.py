@@ -104,6 +104,47 @@ def test_exhausted_overflow_injects_recommendation_then_model_finishes(
     assert _no_real_escalation == [], "escalation fired even though the split resolved the work"
 
 
+def test_exhausted_timeout_injects_recommendation_then_model_finishes(
+    tmp_path, _no_real_escalation
+):
+    """An exhausted *request timeout* (not just an overflow) offers a split; once the
+    model sees it, it writes an INCOMPLETE finish — escalation never fires (#154).
+
+    This is the gap issue #154 was about: a too-large audit that blows the request
+    timeout now reaches the same auto-split / INCOMPLETE recommendation the overflow
+    path does, so it self-suggests a per-surface split instead of hard-failing with no
+    deliverable. The give-up carried its floored budget forward, so the recommendation
+    turn runs against the small window rather than the full one that just timed out.
+    """
+    seen_recommendation: list[bool] = []
+
+    def complete(messages):
+        recommended = any("subagents" in (m.get("content") or "") for m in messages)
+        if recommended:
+            seen_recommendation.append(True)
+            return ModelResponse(
+                content="INCOMPLETE: covered README; remaining surfaces need a split",
+                tool_calls=[ToolCall("f", "finish", {"summary": "INCOMPLETE — split suggested"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            )
+        # No recommendation yet → keep timing out so degradation exhausts.
+        raise TimeoutError("request to http://x/v1/chat/completions timed out after 120s")
+
+    result = _run(
+        complete,
+        _task(tmp_path),
+        max_steps=8,
+        context_budget=1000,
+        autosplit_target=1_000_000,
+    )
+
+    assert seen_recommendation, "model never saw the split recommendation after a timeout"
+    assert result.status == OK
+    assert result.summary == "INCOMPLETE — split suggested"
+    assert _no_real_escalation == [], "escalation fired even though the split resolved the timeout"
+
+
 def test_recommendation_names_budget_cap_and_tool(tmp_path, _no_real_escalation):
     """Injected message names the per-child budget, the child cap, and `subagents` (h2)."""
     captured: list[list[dict]] = []

@@ -408,3 +408,69 @@ class TestIsContextOverflow:
         bad = third_party & loaded
         # Allow any that were already loaded before this test
         assert not bad, f"Third-party modules loaded: {bad}"
+
+
+# ===========================================================================
+# Tests for is_request_timeout
+# ===========================================================================
+
+
+class TestIsRequestTimeout:
+    def test_timed_out(self):
+        from colleague.context import is_request_timeout
+
+        assert is_request_timeout("timed out")
+
+    def test_full_timeout_message(self):
+        from colleague.context import is_request_timeout
+
+        assert is_request_timeout(
+            "request to http://localhost:8001/v1/chat/completions timed out after 120s"
+        )
+
+    def test_case_insensitive(self):
+        from colleague.context import is_request_timeout
+
+        assert is_request_timeout("Read Timed Out")
+
+    def test_unrelated_text_returns_false(self):
+        from colleague.context import is_request_timeout
+
+        assert not is_request_timeout("vLLM endpoint unreachable: Connection refused")
+
+    def test_empty_returns_false(self):
+        from colleague.context import is_request_timeout
+
+        assert not is_request_timeout("")
+
+    def test_disjoint_from_overflow(self):
+        from colleague.context import is_request_timeout
+
+        assert not is_request_timeout("maximum context length exceeded")
+
+
+# ===========================================================================
+# Tests for classify_degradable
+# ===========================================================================
+
+
+class TestClassifyDegradable:
+    def test_overflow(self):
+        from colleague.context import classify_degradable
+
+        assert classify_degradable("maximum context length exceeded") == "overflow"
+
+    def test_timeout(self):
+        from colleague.context import classify_degradable
+
+        assert classify_degradable("timed out") == "timeout"
+
+    def test_neither(self):
+        from colleague.context import classify_degradable
+
+        assert classify_degradable("Connection refused") is None
+
+    def test_empty(self):
+        from colleague.context import classify_degradable
+
+        assert classify_degradable("") is None
