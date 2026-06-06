@@ -37,7 +37,7 @@ import contextlib
 import io
 import json
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
@@ -431,8 +431,15 @@ class _Session:
             lines[0] = suggested
         else:
             lines.insert(0, suggested)
-        refreshed: Panel = replace(panel, content_summary="\n".join(lines))
-        return refreshed
+        # Rebuild the Panel directly (not dataclasses.replace, whose inferred
+        # return type defeats static type checks); copy every field, swap summary.
+        return Panel(
+            id=panel.id,
+            title=panel.title,
+            visible=panel.visible,
+            content_summary="\n".join(lines),
+            items=list(panel.items),
+        )
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
