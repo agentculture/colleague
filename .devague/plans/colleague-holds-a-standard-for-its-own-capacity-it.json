@@ -1,0 +1,352 @@
+{
+  "slug": "colleague-holds-a-standard-for-its-own-capacity-it",
+  "title": "Colleague holds a standard for its own capacity: it sizes each job against its context budget and, at the fill line, makes one declared, opinionated move \u2014 compact (summarize its own working history to itself), split (fan the work out to child instances), or stop-with-a-handoff (finish with a continuation summary) \u2014 and warns the caller when a job is too big for one repo to hold, so a long job makes continuous, durable progress instead of silently degrading into lossy windowing or dying at the limit.",
+  "frame_slug": "colleague-holds-a-standard-for-its-own-capacity-it",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-06T14:05:13Z",
+  "updated": "2026-06-06T14:09:04Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague holds a standard for its own capacity: it sizes each job against its context budget and, at the fill line, makes one declared, opinionated move \u2014 compact (summarize its own working history to itself), split (fan the work out to child instances), or stop-with-a-handoff (finish with a continuation summary) \u2014 and warns the caller when a job is too big for one repo to hold, so a long job makes continuous, durable progress instead of silently degrading into lossy windowing or dying at the limit."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "An end-to-end test on a long work item shows colleague making exactly one DECLARED fill-line move (compact | split | finish-with-handoff) recorded in TaskResult and surfaced to the caller; on the compact branch a model-authored summary replaces the elided turns (not the lossy placeholder); and the whole feature is a strict no-op (byte-identical TaskResult, zero extra turns) when no fill-line trigger fires \u2014 identical on mock and vllm-openai."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Colleague operators and the working backend/model carrying out a long or large job, plus callers that delegate via 'colleague work' / the ask-colleague skill and want the job to make durable progress instead of silently degrading \u2014 and to be told plainly when a job is too big for one context window, one worktree, or one repo to hold."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The cross-repo 'too big to hold' warning and the declared fill-line move are both reachable by a CALLER through the documented entry points (colleague work / ask-colleague) with no new operator flag \u2014 proven by a test that a delegated long job surfaces the decision + warning to the caller's result."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today, on a filling context the loop only WINDOWS history: it drops the oldest turns behind a '[earlier steps elided]' placeholder and explicitly does NOT summarize (context.py: 'there is no summarization'). Auto-split (#151) is REACTIVE \u2014 it fires only after the bounded overflow-retries are exhausted \u2014 and the context budget is a flat env knob, not sized to the project. There is no declared choice at the fill line and no 'too big for one repo' warning; a long job either degrades lossily or dies at the limit."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The before-state is verifiable in the current tree: context.py states 'there is no summarization', the loop only windows (drops oldest behind a placeholder), auto-split fires only at overflow-retry exhaustion, and the budget is a flat COLLEAGUE_CONTEXT_BUDGET env knob \u2014 a reviewer can confirm each against HEAD."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "When context fills mid-work, colleague makes ONE declared, opinionated move \u2014 compact (summarize its own working history to itself), split (fan out to child instances), or finish-with-handoff (stop with a continuation summary) \u2014 recorded in the run artifact and surfaced to the caller. Capacity is sized up-front against the job (token/char budget plus a coarse project-complexity signal: deps, folders, files), and when even a split can't hold the job, colleague WARNS the caller that the work must be split across repos/instances rather than dying or degrading lossily."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A test shows the after-state holds end-to-end: a filling context yields exactly one recorded move + (when over split capacity) a caller warning, with capacity sized from repo structure + instruction size \u2014 and none of it blocks a job that fits."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "A summary-to-self preserves meaning where lossy windowing destroys it, and a declared opinionated move (instead of silent degradation) lets a long job make continuous, durable progress while telling the caller exactly what colleague decided and why \u2014 turning a hard context ceiling into a continuable boundary."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The contrast is demonstrable: a long job that today drops oldest turns lossily instead retains meaning via a model-authored summary OR splits OR hands off with a continuation summary \u2014 and the caller can read which move was taken and why."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "A capacity-DECISION policy layered on the existing degradation + auto-split + handoff machinery \u2014 NOT a multi-backend router, NOT an execution sandbox, NOT a daemon, NOT a cross-repo write orchestrator (it WARNS about cross-repo splits; the operator performs them), and it does NOT remove the structural caps (MAX_STEPS, retry caps, MAX_SUBAGENT_FANOUT=4 / DEPTH=2). 'Work indefinitely' means bounded-degradation-plus-continuity, not a literal infinite loop."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A boundary test proves the structural caps are unchanged (MAX_STEPS, overflow/timeout retry caps, MAX_SUBAGENT_FANOUT=4, MAX_SUBAGENT_DEPTH=2) and that no daemon/socket/cross-repo-write path is opened \u2014 only a warning is emitted for cross-repo splits."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A long work item that today degrades lossily or dies at the limit instead: (a) sizes itself up-front, (b) at the fill line emits exactly ONE declared move recorded in TaskResult and surfaced to the caller, (c) on the compact branch summarizes its own working history to itself instead of dropping it, and (d) when it can't fit even a split, warns the caller it must split across repos \u2014 verified by a runtime-owned test firing identically on mock and vllm-openai, and a strict no-op (byte-identical TaskResult) when no fill-line trigger fires."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "A runtime-owned test fires the full path (size -> declared move -> record -> optional warning) identically on mock and vllm-openai, and a no-trigger e2e mock run yields a byte-identical TaskResult with zero extra model turns."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Capacity sizing: an up-front assessment sizes the job against the context budget using a COARSE project-complexity signal (dependency count, folder/file counts, plus a token/char estimate of the instruction via the existing count_tokens seam). It is recorded as an advisory capacity estimate and NEVER blocks work \u2014 it only informs the fill-line decision and the caller warning."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A test shows the capacity assessment is computed from repo structure (deps/folders/files) plus instruction size and is ADVISORY \u2014 a job still runs to completion when the estimate says 'large'; the estimate is coarse/heuristic (not a precise tokenizer) and degrades to the char heuristic when /tokenize is absent."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The fill-line decision is a single DECLARED move chosen from {compact, split, finish-with-handoff}, recorded in the run artifact as a lightweight capacity-decision record (kind + reason, like destination/announcement) and surfaced to the caller. It is advisory / backend-judged \u2014 the runtime injects a structured decision prompt naming the three options and the capacity numbers; the model picks. Never a forced runtime gate."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A test shows TaskResult carries exactly one recorded capacity decision per fill-line event, each with its kind {compact,split,finish-with-handoff} and a reason; with NO fill-line event the field is absent/empty and the TaskResult shape is byte-identical to today (e2e mock guard)."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Self-compaction (the NEW capability): on the compact branch, the model summarizes its own working history into a compact note that REPLACES the elided turns \u2014 a model-authored summary, not the lossy '[earlier steps elided]' placeholder drop \u2014 preserving meaning. It is bounded (one summarization turn per compaction, a capped number of compactions) and counts against the step budget; messages[:2] (system + original instruction) stay verbatim. If the summarization turn itself overflows, the loop falls back to today's lossy windowing as the floor."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A test proves the compacted history contains a MODEL-AUTHORED summary (distinct from the '[earlier steps elided]' placeholder) AND that messages[:2] (system + original instruction) survive verbatim; the summary turn is bounded, counts against the step budget, and on its own overflow the loop falls back to lossy windowing."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The split branch REUSES the existing subagents / auto-split machinery unchanged (colleague.subagents.make_batch_spawn / batch_spawn, <= MAX_SUBAGENT_FANOUT-1 children, isolated per-child worktrees, sequential merge child). No new fan-out, worktree, or merge code is added; threads/subprocess stay confined to the two sanctioned modules."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "tests/test_boundary.py still passes (threads/subprocess confined to subagents.py/worktrees.py); no new function is added to subagents.py or worktrees.py; the split branch calls the existing make_batch_spawn/batch_spawn."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The finish-with-handoff branch preserves a readable partial result plus a continuation summary (what is done / what remains), reusing the existing preserve-partial + escalation/INCOMPLETE seam \u2014 so a stopped job hands the caller enough to resume and is never surfaced as a bare exception."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A test shows that on the finish-with-handoff branch TaskResult.summary carries a continuation handoff (done / remaining) and the result is PRESERVED (not raised as an exception), reusing the existing preserve-partial path."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The 'too big for one repo' caller warning: when the capacity assessment says the job exceeds even the split capacity (children x per-child budget), colleague emits an explicit, caller-visible warning (to agent or human) that the workspace must be split across repos/instances, recorded in the artifact. Colleague does NOT itself perform a cross-repo write \u2014 warn-only."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A test shows an over-the-split-capacity assessment yields a caller-visible warning that names the cross-repo/instance split, recorded in the artifact; colleague performs NO cross-repo write (warn-only)."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Runtime-owned (all-engines rule): the whole feature lives in the loop/runtime, fires identically for mock and vllm-openai, adds no runtime dependency, opens no socket/daemon, and is a strict no-op when no fill-line trigger fires \u2014 zero extra model turns and byte-identical TaskResult shape."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "tests/test_zero_deps.py and tests/test_e2e_mock.py both pass; the identical code path serves mock and vllm-openai; with no trigger there are zero extra model turns and a byte-identical TaskResult."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add colleague/capacity.py \u2014 a coarse, advisory capacity assessment sizing a job against the context budget",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "assess_capacity(repo_path, instruction, budget) returns an advisory verdict from dependency count + folder count + file count + an instruction token estimate via the existing count_tokens seam (char-heuristic fallback when /tokenize is absent)",
+        "The verdict is ADVISORY and NEVER blocks: a unit test shows a job whose estimate says large still runs to completion",
+        "Pure stdlib, zero new dependency; tests/test_zero_deps.py still passes"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h1"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Add lightweight TaskResult.capacity_decision + capacity_warning fields to colleague/contract.py (modelled on destination/announcement)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult gains a capacity_decision record {kind in compact|split|finish-with-handoff, reason} and a capacity_warning field; both default to empty/None and are omitted from the artifact when unset (lightweight, no separate spec file)",
+        "tests/test_e2e_mock.py asserts the default (no-fill-line) TaskResult shape is byte-identical to today"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "c13"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Add the proactive fill-line trigger + structured decision prompt to colleague/loop.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Each turn, when used/budget >= a tunable threshold knob (COLLEAGUE_* env, resolved via EngineConfig precedence), the runtime injects EXACTLY ONE structured decision prompt naming the three moves {compact,split,finish-with-handoff} plus the capacity numbers; advisory, never a forced gate",
+        "The model's declared move is recorded exactly once per fill-line event in TaskResult.capacity_decision with kind + reason",
+        "With no fill-line event nothing is injected, zero extra model turns occur, and TaskResult is byte-identical (e2e mock guard)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c4",
+        "h2",
+        "h11"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Implement self-compaction (compact branch): a bounded model-authored summary that replaces elided turns, with lossy windowing as the fallback floor",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "On a declared compact move, a bounded summarization turn produces a MODEL-AUTHORED summary that replaces the elided turns (distinct from the [earlier steps elided] placeholder); messages[:2] (system + original instruction) survive verbatim",
+        "Compaction is bounded: one summary turn per compaction, a capped number of compactions, counted against the step budget",
+        "If the summarization turn itself overflows, the loop falls back to window_messages (lossy windowing retained as the documented floor) \u2014 degradation is extended, not replaced"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c10",
+        "h3"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Route a declared split move to the existing subagents/auto-split machinery (no new fan-out/worktree/merge code)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A declared split move calls existing colleague.subagents.make_batch_spawn/batch_spawn (<= MAX_SUBAGENT_FANOUT-1 children, isolated per-child worktrees, sequential merge child)",
+        "No new function is added to subagents.py or worktrees.py; tests/test_boundary.py still passes (threads/subprocess confined to the two sanctioned modules)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c11",
+        "h4"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Implement the finish-with-handoff branch reusing the existing preserve-partial / INCOMPLETE seam",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A declared finish-with-handoff move writes a continuation handoff (what is done / what remains) into TaskResult.summary, reusing the existing preserve-partial path",
+        "The result is PRESERVED (returned, never raised as a bare exception); a test asserts the handoff content + preservation"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c12",
+        "h5"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Surface the warn-only 'too big for one repo' caller warning (TaskResult field + stderr + artifact), reachable via colleague work / ask-colleague",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "When the capacity assessment exceeds the split capacity (children x per-child budget), a caller-visible warning naming the cross-repo/instance split is set on TaskResult.capacity_warning, recorded in the artifact, AND emitted to stderr \u2014 not swallowed on the happy path",
+        "The warning + the declared move are reachable through the documented entry points (colleague work / ask-colleague) with NO new operator flag; a test delegates a long job and asserts the caller's result carries them",
+        "Colleague performs NO cross-repo write (warn-only); neighbours stay read-only and no daemon/socket is opened"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c13",
+        "h6",
+        "h9",
+        "c2"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Add runtime-owned guard tests: full path identical on mock + vllm-openai, strict no-op when no trigger, structural caps unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A runtime-owned test fires the full path (size -> declared move -> record -> optional warning) and asserts it is identical for mock and vllm-openai (all-engines rule)",
+        "A no-trigger e2e mock run yields a byte-identical TaskResult shape with zero extra model turns (strict no-op)",
+        "A boundary test asserts the structural caps are unchanged (MAX_STEPS, overflow/timeout retry caps, MAX_SUBAGENT_FANOUT=4, MAX_SUBAGENT_DEPTH=2) and no daemon/socket/cross-repo-write path is opened",
+        "The contrast is demonstrated: a long job that today drops oldest turns lossily instead retains meaning via compact OR splits OR hands off, and the caller can read which move + why"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "c7",
+        "h8",
+        "h14",
+        "h13",
+        "h12",
+        "c14",
+        "h7"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Document the v0->v1 graduation: update CLAUDE.md (v0-scope + context-budget sections), context.py docstring, README, and bump to v1.x",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md v0-scope + context-budget sections and context.py's 'there is no summarization' note are updated to state the v1 self-compaction behaviour, with lossy windowing retained as the documented fallback floor (additive, declared change)",
+        "The before-state claims remain verifiable: the docs/commit reference the pre-change tree state (windowing-only, reactive auto-split, flat budget knob) so a reviewer can confirm the contrast against history",
+        "The version is bumped to v1.x (version-bump skill) and CHANGELOG records the capacity standard; the doc-test-alignment check passes"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c3",
+        "h10",
+        "c5",
+        "c6"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Exact project-complexity formula \u2014 which signals (deps vs folders vs files vs instruction tokens) and what weights map to a capacity verdict. Start coarse and tune; the verdict is advisory either way.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r2",
+      "text": "How to MEASURE that the model reliably picks the RIGHT fill-line move (compact vs split vs finish-with-handoff) rather than always compacting and continuing to drown \u2014 an efficacy follow-up (mirrors the open auto-split recommendation-efficacy question).",
+      "kind": "follow_up",
+      "task_id": "t3"
+    },
+    {
+      "id": "r3",
+      "text": "Cross-repo split EXECUTION (colleague cloning + writing across repos / coordinating instances) is out of scope here \u2014 warn-only. A real cross-repo orchestrator needs its own spec (would breach the no-daemon / read-only-neighbours conventions).",
+      "kind": "out_of_scope",
+      "task_id": "t7"
+    },
+    {
+      "id": "r4",
+      "text": "OPERATIONAL: t3-t7 all touch colleague/loop.py, so although the dependency graph permits parallel waves, same-wave loop.py tasks merge-serialize. The operator should build the loop.py branch tasks sequentially (or behind explicit deps) to avoid merge collisions; capacity.py/contract.py/compaction.py/tests are the file-disjoint pieces.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    }
+  ]
+}
