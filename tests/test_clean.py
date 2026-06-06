@@ -282,6 +282,105 @@ def test_clean_cli_non_git_repo_is_user_error(tmp_path: Path) -> None:
     assert rc == 1  # EXIT_USER_ERROR
 
 
+def test_clean_cli_negative_older_than_rejected(tmp_path: Path) -> None:
+    # Qodo bug: a negative --older-than would make every branch "older", silently
+    # reaping all of them — reject it as a user-input error instead.
+    repo = tmp_path / "r"
+    _init_repo(repo)
+    _git(repo, "branch", "colleague/live")
+    rc = main(["clean", "--repo", str(repo), "--older-than", "-5"])
+    assert rc == 1
+    assert "colleague/live" in _refs(repo)  # nothing reaped
+
+
+def test_clean_cli_text_render_reaps(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # The human-readable (_render) path, not --json: reaped branches + artifacts
+    # + the conservative git-prune note for the leftover 0-byte object.
+    repo = tmp_path / "r"
+    _init_repo(repo)
+    _wedge(repo)
+    (repo / ".colleague").mkdir()
+    (repo / ".colleague" / "d8ca.x.json").write_bytes(b"")
+
+    rc = main(["clean", "--repo", str(repo)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "branches (reaped):" in out and "colleague/d8ca-corrupt [corrupt]" in out
+    assert "artifacts (reaped):" in out and "d8ca.x.json" in out
+    assert "git prune" in out  # 0-byte loose object reported, not deleted
+
+
+def test_clean_cli_text_render_nothing_and_kept(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A healthy repo with one live colleague/* branch: nothing reaped, one kept.
+    repo = tmp_path / "r"
+    _init_repo(repo)
+    _git(repo, "checkout", "-q", "-b", "colleague/live")
+    (repo / "b.txt").write_text("y\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "ahead")  # ahead of main -> live, not merged
+    _git(repo, "checkout", "-q", "main")
+
+    rc = main(["clean", "--repo", str(repo)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "nothing to reap" in out
+    assert "kept 1 healthy colleague/* branch" in out
+
+
+def test_empty_loose_objects_survives_scan_error(tmp_path: Path, monkeypatch) -> None:
+    # Qodo bug: a concurrent gc/prune can break the .git/objects scan mid-iteration;
+    # a recovery tool must return what it found, never crash.
+    class _Boom:
+        def is_dir(self):
+            return True
+
+        def iterdir(self):
+            raise OSError("races with gc")
+
+    monkeypatch.setattr(handoff, "_git_objects_dir", lambda repo: _Boom())
+    assert handoff.empty_loose_objects(tmp_path) == []
+
+
+def test_empty_loose_objects_non_git_repo(tmp_path: Path) -> None:
+    # Not a git repo -> _git_objects_dir returns None -> [] (no crash).
+    assert handoff.empty_loose_objects(tmp_path) == []
+
+
+def test_reap_artifacts_reports_failed_on_unlink_error(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "r"
+    cdir = repo / ".colleague"
+    cdir.mkdir(parents=True)
+    (cdir / "d8ca.x.json").write_bytes(b"")
+    (cdir / "last_work").write_text("d8ca\n")  # resolves to nothing -> would clear
+
+    def boom(self, *a, **k):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(Path, "unlink", boom)
+    actions = {r["artifact"]: r["action"] for r in artifact.reap_artifacts(repo)}
+    assert actions["d8ca.x.json"] == "failed"
+    assert actions["last_work"] == "failed"
+
+
+def test_doctor_stale_refs_never_raises(tmp_path: Path, monkeypatch) -> None:
+    from colleague.oilcheck import stale_refs
+
+    repo = tmp_path / "r"
+    _init_repo(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(handoff, "is_git_repo", lambda p: True)
+
+    def boom(*a, **k):
+        raise RuntimeError("git exploded")
+
+    monkeypatch.setattr(handoff, "list_colleague_branches", boom)
+    [check] = stale_refs.checks()
+    assert check["passed"] is False and check["severity"] == "warning"
+    assert "probe failed" in check["message"]
+
+
 def test_explain_clean_resolves(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["explain", "clean"])
     assert rc == 0

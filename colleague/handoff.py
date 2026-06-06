@@ -483,15 +483,17 @@ def empty_loose_objects(repo_path: str | Path) -> list[str]:
         return []
     empties: list[str] = []
     # Loose objects live under two-hex-char shards: .git/objects/ab/cdef...
-    for shard in objects.iterdir():
-        if not (shard.is_dir() and len(shard.name) == 2):
-            continue
-        for obj in shard.iterdir():
-            try:
-                if obj.is_file() and obj.stat().st_size == 0:
-                    empties.append(_relpath(obj, repo))
-            except OSError:
-                continue
+    # The whole scan is wrapped: a concurrent `git gc`/prune can remove a shard
+    # mid-iteration (so `iterdir()`/`stat()` raises), and a recovery tool must
+    # never crash on a repo that is already in a bad state — return what we found.
+    try:
+        for shard in objects.iterdir():
+            if shard.is_dir() and len(shard.name) == 2:
+                for obj in shard.iterdir():
+                    if obj.is_file() and obj.stat().st_size == 0:
+                        empties.append(_relpath(obj, repo))
+    except OSError:
+        pass
     return sorted(empties)
 
 

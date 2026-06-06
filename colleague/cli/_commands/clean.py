@@ -41,11 +41,22 @@ def cmd_clean(args: argparse.Namespace) -> int:
     dry_run = bool(getattr(args, "dry_run", False))
     json_mode = bool(getattr(args, "json", False))
 
+    older_than = getattr(args, "older_than", None)
+    # A negative threshold would make `age_days >= older_than` true for every
+    # branch — silently reaping all live colleague/* branches. Reject it as a
+    # user-input error rather than honor a nonsensical "older than -5 days".
+    if older_than is not None and older_than < 0:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"--older-than must be a non-negative number of days, got {older_than}",
+            "pass a positive DAYS value (e.g. --older-than 14)",
+        )
+
     branches = handoff.reap_colleague_branches(
         repo,
         dry_run=dry_run,
         include_merged=bool(getattr(args, "merged", False)),
-        older_than_days=getattr(args, "older_than", None),
+        older_than_days=older_than,
         base_branch=args.base,
     )
     artifacts = artifact.reap_artifacts(repo, dry_run=dry_run)
