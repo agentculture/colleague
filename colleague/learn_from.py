@@ -381,6 +381,11 @@ _SOURCES: dict[str, Callable[[Path, bool], dict[str, Path]]] = {
 }
 
 
+def available_sources() -> list[str]:
+    """Sorted list of known learn-from source names (currently just ``claude``)."""
+    return sorted(_SOURCES)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------

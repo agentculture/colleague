@@ -708,6 +708,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "controls",
         ("git", "pr", "writes", "human-loop"),
     ),
+    SlashSpec(
+        "learn-from",
+        "<source> [name…]",
+        "learn skills from a peer (e.g. claude) into .colleague/skills/",
+        "controls",
+        ("writes", "config"),
+    ),
     SlashSpec("quit", "", "end the session", "session", ("safe",)),
 ]
 
@@ -852,12 +859,27 @@ def _act_pr(s: "_Session", rest: list[str]) -> str:
     return f"push + PR on each work item → {'on' if s.open_pr else 'off'}"
 
 
+def _act_learn_from(s: "_Session", rest: list[str]) -> str:
+    """Learn skills from a peer in-session via the real ``learn-from`` verb.
+
+    Always runs the deterministic stage-1 copy (``--copy-only``) so an
+    interactive invocation never blocks on a model call; the full LLM adapt pass
+    is left to ``colleague learn-from`` / a work item. Source defaults to
+    ``claude``; extra tokens (skill names, ``--dry-run``) pass straight through.
+    """
+    rest = list(rest)
+    if not rest or rest[0].startswith("-"):
+        rest = ["claude", *rest]
+    return s._run_cli("learn-from", *rest, "--repo", str(s.repo), "--copy-only")
+
+
 # Live config actions: map a verb to a mutating handler returning a confirmation.
 _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "engine": _act_engine,
     "model": _act_model,
     "base": _act_base,
     "pr": _act_pr,
+    "learn-from": _act_learn_from,
 }
 
 
