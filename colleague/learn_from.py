@@ -411,6 +411,44 @@ def _select_skills(
     return selected, set(names) - set(skills_map)
 
 
+#: (would-form, done-form) for each write action — dry run picks the would-form.
+_ACTIONS = {
+    "create": ("would-create", "created"),
+    "skip": ("would-skip", "skipped"),
+    "update": ("would-update", "updated"),
+}
+
+
+def _verb(kind: str, dry_run: bool) -> str:
+    """The action label for *kind* — the ``would-`` form on a dry run, else done."""
+    would, done = _ACTIONS[kind]
+    return would if dry_run else done
+
+
+def _plan_new(dest: Path, rendered: str, dry_run: bool) -> tuple[str, str]:
+    """Plan for a dest that does not yet exist (create unless dry run)."""
+    if not dry_run:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(rendered, encoding="utf-8")
+    return (_verb("create", dry_run), "")
+
+
+def _plan_existing(
+    dest: Path, rendered: str, existing: str, *, dry_run: bool, force: bool
+) -> tuple[str, str]:
+    """Plan for a dest that already exists (skip / update / protect)."""
+    if existing == rendered:
+        return (_verb("skip", dry_run), "")
+    if force:
+        if not dry_run:
+            dest.write_text(rendered, encoding="utf-8")
+        return (_verb("update", dry_run), "")
+    owned = any(ln.startswith(PROVENANCE_PREFIX) for ln in existing.split("\n"))
+    if owned:
+        return (_verb("skip", dry_run), "differs; pass --force")
+    return ("protected", "hand-authored; pass --force to overwrite")
+
+
 def _plan_write(dest: Path, rendered: str, *, dry_run: bool, force: bool) -> tuple[str, str]:
     """Decide the action for one rendered skill, performing the write when due.
 
@@ -418,23 +456,10 @@ def _plan_write(dest: Path, rendered: str, *, dry_run: bool, force: bool) -> tup
     create or update. Mirrors the documented create/skip/update/protect rules.
     """
     if not dest.exists():
-        if not dry_run:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(rendered, encoding="utf-8")
-        return ("would-create" if dry_run else "created", "")
-
-    existing = dest.read_text(encoding="utf-8")
-    if existing == rendered:
-        return ("would-skip" if dry_run else "skipped", "")
-
-    owned = any(ln.startswith(PROVENANCE_PREFIX) for ln in existing.split("\n"))
-    if not force:
-        if owned:
-            return ("would-skip" if dry_run else "skipped", "differs; pass --force")
-        return ("protected", "hand-authored; pass --force to overwrite")
-    if not dry_run:
-        dest.write_text(rendered, encoding="utf-8")
-    return ("would-update" if dry_run else "updated", "")
+        return _plan_new(dest, rendered, dry_run)
+    return _plan_existing(
+        dest, rendered, dest.read_text(encoding="utf-8"), dry_run=dry_run, force=force
+    )
 
 
 def _adapt_one(
