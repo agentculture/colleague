@@ -83,6 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import feedback as _feedback_group
     from colleague.cli._commands import hooks as _hooks_group
     from colleague.cli._commands import learn as _learn_cmd
+    from colleague.cli._commands import learn_from as _learn_from_cmd
     from colleague.cli._commands import overview as _overview_cmd
     from colleague.cli._commands import session as _session_cmd
     from colleague.cli._commands import skills as _skills_group
@@ -106,6 +107,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     _whoami_cmd.register(sub)
     _learn_cmd.register(sub)
+    # Learn skills from a peer agent (e.g. claude) into .colleague/skills/.
+    _learn_from_cmd.register(sub)
     _explain_cmd.register(sub)
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)

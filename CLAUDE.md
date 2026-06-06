@@ -357,6 +357,33 @@ The architecture, part by part:
   extends this isolation to the hooks layer — see the Hooks bullet above.
   **MCP layering is not built** — colleague reads no `mcp.json` and has
   no `mcp` verb; a live MCP client is a re-spec (see scope below).
+- **Learn-from** — colleague grows its skill set by **learning from a peer
+  agent** (`colleague/learn_from.py` + `colleague/cli/_commands/learn_from.py`).
+  `colleague learn-from <source>` reads an external agent's skills and adapts
+  them into colleague's own `.colleague/skills/*.md` (the write side of the
+  read-only `skills` noun). The first/only source is `claude` — Claude Code's
+  `.claude/skills/<name>/SKILL.md` — behind a `_SOURCES` registry so future minds
+  slot in without a CLI change. **Two stages:** (1) a deterministic, stdlib-only
+  **copy** (strip the SKILL.md YAML frontmatter incl. `description: >` block
+  scalars, fold the description into a leading summary line so
+  `compose_skills`/`_first_summary_line` shows it, stamp a `<!-- learned-from:
+  …; adapt: pending -->` provenance marker, keep the body; idempotent; a skill's
+  `scripts/` are left in place, never copied); then (2) an optional, **backend-
+  driven LLM review-and-adapt** pass (skip with `--copy-only`) that drives the
+  configured engine over each written skill **in the working tree with no git
+  handoff/branch** (reusing `engine.work`) to fix paths/locations and Claude-isms
+  for colleague's tool surface, flipping the marker to `adapt: claude->colleague`,
+  and **degrades to copy-only** when no backend is reachable. Safety: a
+  colleague-owned skill that differs updates only with `--force`; a hand-authored
+  doc (no marker) is `protected` unless `--force`; `--dry-run` previews and writes
+  nothing. **Honest limit:** colleague *loads* skills as instructional text, it
+  does **not execute** them — a script/Skill-tool/slash-command-dependent skill
+  maps only partially (surfaced per skill as `runnable_estimate`). Invokable in
+  both modes: the `learn-from` CLI verb (agent/markdown) and the `/learn-from`
+  session slash (interactive, `--copy-only`). Zero new runtime deps. Spec + plan:
+  `docs/specs/2026-06-06-colleague-learns-from-others-starting-with-claude.md`
+  and `docs/plans/2026-06-06-colleague-learns-from-others-starting-with-claude.md`;
+  feature doc: `docs/features/learn-from.md`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the

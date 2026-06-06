@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-06
+
+### Added
+
+- colleague `learn-from <source>`: learn skills from a peer agent (first source: claude) — read `.claude/skills/<name>/SKILL.md` and adapt each into colleague's own `.colleague/skills/<name>.md` (deterministic, stdlib-only copy: frontmatter strip incl. block scalars, description-first summary line, learned-from provenance marker; idempotent create/skip/update/protect).
+- Optional stage-2 LLM review-and-adapt pass driven by the configured backend over each written skill in the working tree (no git handoff); --copy-only skips it and it degrades to copy-only when no backend is reachable.
+- /learn-from session slash command (deterministic copy, --copy-only).
+- colleague explain learn-from + docs/features/learn-from.md.
+
 ## [1.0.0] - 2026-06-06
 
 ### Added

@@ -181,6 +181,58 @@ points here.
     colleague clean --json
 """
 
+_LEARN_FROM = """\
+# colleague learn-from
+
+Learn skills from a peer agent — colleague grows its skill set by absorbing
+another mind's. The first (and currently only) source is `claude`: it reads
+Claude Code's `.claude/skills/<name>/SKILL.md` and adapts each into colleague's
+own flat `.colleague/skills/<name>.md`, which colleague folds into every
+backend's system prompt on the same repo/root. The source is a registry, so
+future minds (e.g. a codex / mesh peer) slot in without a CLI change.
+
+Two stages:
+
+1. **Deterministic copy** (always) — strip the SKILL.md YAML frontmatter (incl.
+   `description: >` block scalars), fold the description into a leading summary
+   line so `colleague skills list` shows it, stamp a `<!-- learned-from: ... -->`
+   provenance marker, and keep the body verbatim. Idempotent: an unchanged skill
+   reads back `skipped`. A skill's `scripts/` are left in place under
+   `.claude/skills/<name>/scripts/` (same repo/root) — the marker records where;
+   no binaries are copied.
+2. **LLM review-and-adapt** (default; skip with `--copy-only`) — colleague itself
+   drives the configured backend over each freshly written skill **in the working
+   tree, with no git handoff/branch**, to fix paths/locations and replace
+   Claude-isms (the Skill tool, slash commands) with colleague's tool surface,
+   then flips the marker to `adapt: claude->colleague`. It **degrades to
+   copy-only** with a clear notice when no backend is reachable.
+
+Safety: an existing colleague-owned skill that differs is updated only with
+`--force`; a hand-authored skill doc (no provenance marker) is `protected` unless
+`--force` — colleague never silently clobbers your edits. `--dry-run` previews
+every action and writes nothing.
+
+Honest limit: colleague **loads** skills as instructional text — it does NOT
+execute them. "Run them on the same repo/root" means the backend model reads the
+adapted doc and acts via its own tools. A skill leaning on scripts / the Skill
+tool / slash commands maps only partially — surfaced per skill as
+`runnable_estimate` (full | partial | instructional-only).
+
+## Usage
+
+    colleague learn-from claude --repo .
+    colleague learn-from claude --copy-only          # deterministic copy only
+    colleague learn-from claude run-tests think      # only these skills
+    colleague learn-from claude --dry-run --json     # preview, machine-readable
+    colleague learn-from claude --user               # read ~/.claude/skills/
+    colleague learn-from claude --force              # re-learn / overwrite
+
+## See also
+
+- `colleague explain skills` — inspect the resolved skill catalog
+- `colleague explain learn` — the agent self-teaching prompt
+"""
+
 _CLI = """\
 # colleague cli
 
@@ -827,6 +879,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("overview",): _OVERVIEW,
     ("doctor",): _DOCTOR,
     ("clean",): _CLEAN,
+    ("learn-from",): _LEARN_FROM,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
     ("commands",): _COMMANDS,

@@ -61,6 +61,19 @@ If a re-sync would lose a colleague adaptation, lift the change
 upstream into guildmaster first (per guildmaster's `docs/skill-sources.md`) and
 re-vendor.
 
+## learn-from-generated skills (the inverse direction)
+
+The table above tracks `.claude/skills/` — the skills colleague *vendors in* for
+its own Claude Code harness. `colleague learn-from claude` runs the **opposite
+direction**: it reads those `.claude/skills/` and writes **derived** colleague
+skills into `.colleague/skills/*.md` (which the runtime folds into every
+backend's system prompt). These are NOT hand-vendored: each carries a
+`<!-- learned-from: claude; source: …; adapt: … -->` provenance marker, so a
+generated skill is always distinguishable from a hand-authored one (and
+`learn-from` will not clobber a marker-less hand-authored doc without `--force`).
+See [`docs/features/learn-from.md`](features/learn-from.md). The source is a
+registry (currently just `claude`); future minds extend it without a re-vendor.
+
 ## Tooling prerequisites
 
 - **`agex`** (>=0.21) on PATH — `cicd` delegates the PR lifecycle to `agex pr`.
