@@ -18,6 +18,14 @@ from typing import Callable, Optional, Sequence
 
 _SKIP_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", ".colleague", ".devague"})
 
+# Coarse per-signal token weights folded into the effective size estimate, so the
+# verdict RELIES on the project complexity (deps/folders/files) the way #156 asks —
+# not on the instruction text alone. Deliberately rough proxies for "context this
+# structure may pull in", never a precise measure; the whole module is advisory.
+_TOKENS_PER_FILE = 200
+_TOKENS_PER_DEP = 100
+_TOKENS_PER_FOLDER = 50
+
 
 @dataclass
 class CapacityVerdict:
@@ -29,6 +37,10 @@ class CapacityVerdict:
     instruction_tokens: int
     verdict: str
     detail: str
+    # The instruction estimate PLUS the coarse complexity contribution
+    # (deps/folders/files). This — not ``instruction_tokens`` alone — drives the
+    # verdict, so a structurally bigger repo reads as a bigger job (#156).
+    effective_tokens: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +152,17 @@ def assess_capacity(
     instruction: str,
     budget_tokens: int,
     count_tokens: Optional[Callable[[Sequence[dict]], int]] = None,
+    split_capacity_tokens: Optional[int] = None,
 ) -> CapacityVerdict:
     """Return an advisory :class:`CapacityVerdict` for *instruction* on *repo_path*.
 
-    Never raises, never blocks.  All IO is wrapped in try/except with safe
-    defaults.
+    The verdict keys off an *effective* size = the instruction token estimate PLUS a
+    coarse complexity contribution from the repo structure (deps/folders/files), so a
+    structurally larger repo reads as a larger job (#156) — not the instruction text
+    alone. ``split_capacity_tokens`` is the real "even a split can't hold it" ceiling
+    (the caller passes the autosplit target = max children × per-child budget); when
+    ``None`` it defaults to a coarse ``budget_tokens * 4`` proxy. Never raises, never
+    blocks — all IO is wrapped with safe defaults.
     """
     # --- dependency count ---
     try:
@@ -159,20 +177,31 @@ def assess_capacity(
         folder_count = 0
         file_count = 0
 
-    # --- instruction tokens ---
+    # --- instruction tokens + coarse complexity contribution ---
     instruction_tokens = _count_instruction_tokens(instruction, count_tokens)
+    complexity_tokens = (
+        file_count * _TOKENS_PER_FILE
+        + dep_count * _TOKENS_PER_DEP
+        + folder_count * _TOKENS_PER_FOLDER
+    )
+    effective_tokens = instruction_tokens + complexity_tokens
 
-    # --- verdict ---
-    if instruction_tokens < budget_tokens * 0.5:
+    # --- verdict (on the effective size, so the complexity signal counts) ---
+    split_cap = (
+        split_capacity_tokens
+        if isinstance(split_capacity_tokens, int) and split_capacity_tokens > 0
+        else int(budget_tokens * 4)
+    )
+    if effective_tokens < budget_tokens * 0.5:
         verdict = "fits"
-    elif instruction_tokens > budget_tokens * 4:
+    elif effective_tokens > split_cap:
         verdict = "over_split_capacity"
     else:
         verdict = "large"
 
     detail = (
         f"{dep_count} deps, {folder_count} folders, {file_count} files, "
-        f"{instruction_tokens} instruction tokens → {verdict}"
+        f"{instruction_tokens} instruction tokens (~{effective_tokens} effective) → {verdict}"
     )
 
     return CapacityVerdict(
@@ -182,4 +211,5 @@ def assess_capacity(
         instruction_tokens=instruction_tokens,
         verdict=verdict,
         detail=detail,
+        effective_tokens=effective_tokens,
     )

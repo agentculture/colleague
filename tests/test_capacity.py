@@ -40,7 +40,11 @@ class TestAssessCapacity:
         assert verdict.file_count == 3
         # Char heuristic: max(1, len("Add a new endpoint") // 4) = max(1, 18//4) = 4
         assert verdict.instruction_tokens == 4
-        assert verdict.verdict == "fits"  # 4 < 1000 * 0.5
+        # Effective size folds in the complexity signal (#156): 4 instruction
+        # + 3*200 files + 2*100 deps + 1*50 folder = 854.
+        assert verdict.effective_tokens == 854
+        # 854 >= 0.5*1000 → the structural complexity tips a tiny instruction to "large".
+        assert verdict.verdict == "large"
 
     def test_large_instruction_verdict(self, tmp_path: Path):
         """(2) A large instruction yields verdict in {"large","over_split_capacity"}
@@ -148,3 +152,40 @@ class TestAssessCapacity:
         assert "folders" in verdict.detail
         assert "files" in verdict.detail
         assert "tokens" in verdict.detail
+
+    def test_complexity_signal_affects_the_verdict(self, tmp_path: Path):
+        """The repo complexity (files/deps/folders) — not the instruction alone —
+        drives the verdict (#156): the same instruction reads larger in a structurally
+        bigger repo (Qodo bug 4)."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        big = tmp_path / "big"
+        big.mkdir()
+        for i in range(30):
+            (big / f"mod_{i}.py").write_text("x = 1\n")
+
+        instr = "do the thing"
+        budget = 1000
+        v_empty = assess_capacity(str(empty), instr, budget)
+        v_big = assess_capacity(str(big), instr, budget)
+
+        # Same instruction tokens, but the big repo's effective size is larger and its
+        # verdict is at least as large — the complexity signal is not ignored.
+        assert v_big.instruction_tokens == v_empty.instruction_tokens
+        assert v_big.effective_tokens > v_empty.effective_tokens
+        assert v_empty.verdict == "fits"
+        assert v_big.verdict in {"large", "over_split_capacity"}
+
+    def test_explicit_split_capacity_drives_over_verdict(self, tmp_path: Path):
+        """``split_capacity_tokens`` (the real autosplit ceiling) governs the
+        over_split_capacity verdict, not a magic 4× (#156, Qodo bug 3)."""
+        repo = str(tmp_path)
+        (tmp_path / "README.md").write_text("hello\n")
+        instr = "x" * 4000  # ~1000 instruction tokens
+
+        # A low explicit split capacity makes the same job exceed it...
+        over = assess_capacity(repo, instr, 1000, split_capacity_tokens=900)
+        assert over.verdict == "over_split_capacity"
+        # ...while a generous capacity keeps it merely "large".
+        large = assess_capacity(repo, instr, 1000, split_capacity_tokens=100000)
+        assert large.verdict == "large"

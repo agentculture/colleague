@@ -199,6 +199,46 @@ def test_compact_overflow_falls_back_to_windowing(tmp_path) -> None:
     assert result.capacity_decision.kind == "compact"
 
 
+def test_compact_with_tool_calls_does_not_discard_them(tmp_path) -> None:
+    """A compact declaration that ALSO makes a working tool call still runs it —
+    the tool call is not silently discarded (Qodo bug 1)."""
+    calls: list[int] = []
+
+    def complete(messages):
+        calls.append(1)
+        if _has(messages, "Summarize everything done"):
+            return ModelResponse(content="SUMMARY of work", prompt_tokens=5, completion_tokens=5)
+        if _has(messages, "declare ONE move"):
+            # Declare compact, but the same turn also writes a file (keeps working).
+            return ModelResponse(
+                content="compacting and writing",
+                tool_calls=[ToolCall("w", "write_file", {"path": "marker.txt", "content": "hi"})],
+                prompt_tokens=85,
+                completion_tokens=1,
+            )
+        if len(calls) == 1:
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        return ModelResponse(
+            content="done",
+            tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+            prompt_tokens=5,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path))
+    assert result.status == OK
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
+    # The declaring turn's write_file actually ran — the file exists and is tracked.
+    assert (tmp_path / "marker.txt").exists()
+    assert "marker.txt" in result.changed_files
+
+
 def test_split_declaration_records_split(tmp_path) -> None:
     """A SPLIT declaration (subagents call) is recorded as kind 'split' (#156, c11)."""
 
