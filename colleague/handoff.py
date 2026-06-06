@@ -113,6 +113,28 @@ def _restore_ref(repo: Path, ref: str | None) -> None:
         _git(repo, "checkout", ref, check=False)
 
 
+def _commit_on_branch(
+    repo: Path, branch: str, commit_args: list[str], original_ref: str | None
+) -> None:
+    """Create the work branch and commit on it; self-clean on a catchable crash (#162).
+
+    A catchable interruption between creating the branch and landing the commit (a
+    ``HandoffError`` from git, or a Ctrl-C / ``KeyboardInterrupt``) must not strand
+    the operator on — or leave behind — a half-made ``colleague/<id>`` branch.
+    Restore the operator's ref, then reap the orphan branch (it points at the old
+    HEAD; no commit landed), then re-raise. A SIGKILL/OOM *inside* the commit is
+    uncatchable here — ``colleague clean`` recovers that.
+    """
+    try:
+        _git(repo, "checkout", "-B", branch)
+        _git(repo, *commit_args)
+    except (HandoffError, KeyboardInterrupt):
+        _restore_ref(repo, original_ref)
+        if _current_ref(repo) != branch:
+            _delete_colleague_ref(repo, branch, dry_run=False)
+        raise
+
+
 def handoff(
     repo_path: str | Path,
     task_id: str,
@@ -200,20 +222,7 @@ def handoff(
     # the (possibly truncated, single-line) subject already shows (#40).
     if body and f"colleague: {body}" != subject:
         commit_args += ["-m", body]
-    # Crash-resilience (#162): a catchable interruption between creating the
-    # branch and landing the commit (a HandoffError from git, or a Ctrl-C /
-    # KeyboardInterrupt) must not strand the operator on — or leave behind — a
-    # half-made colleague/<id> branch. Restore the operator's ref, then reap the
-    # orphan branch (it points at the old HEAD; no commit landed). A SIGKILL/OOM
-    # *inside* the commit is uncatchable here — `colleague clean` recovers that.
-    try:
-        _git(repo, "checkout", "-B", branch)
-        _git(repo, *commit_args)
-    except (HandoffError, KeyboardInterrupt):
-        _restore_ref(repo, original_ref)
-        if _current_ref(repo) != branch:
-            _delete_colleague_ref(repo, branch, dry_run=False)
-        raise
+    _commit_on_branch(repo, branch, commit_args, original_ref)
     result.committed = True
 
     if not should_open_pr(repo, open_pr):
@@ -397,6 +406,40 @@ def _git_objects_dir(repo: Path) -> Path | None:
     return Path(git_dir) / "objects"
 
 
+def _classify_branch(repo: Path, ref: str, obj: str, *, now: float, base_branch: str) -> dict:
+    """Classify one ``colleague/*`` tip: corrupt / merged / live (+ age in days).
+
+    ``cat-file -t`` *inflates* the object (``cat-file -e`` only stats the file, so
+    a 0-byte loose object slips past it as "exists"); a non-zero exit means the
+    tip is missing/unreadable — the ``git fetch`` breaker. Merge/age checks need a
+    readable tip, so they are skipped for a corrupt one.
+    """
+    corrupt = (not obj) or _git(repo, "cat-file", "-t", obj, check=False).returncode != 0
+    merged = False
+    age_days: int | None = None
+    if not corrupt:
+        anc = _git(repo, "merge-base", "--is-ancestor", obj, base_branch, check=False)
+        merged = anc.returncode == 0
+        age = _git(repo, "log", "-1", "--format=%ct", obj, check=False)
+        date_raw = age.stdout.strip()
+        if age.returncode == 0 and date_raw.isdigit():
+            age_days = max(0, int((now - int(date_raw)) // 86400))
+    if corrupt:
+        classification = "corrupt"
+    elif merged:
+        classification = "merged"
+    else:
+        classification = "live"
+    return {
+        "ref": ref,
+        "object": obj,
+        "corrupt": corrupt,
+        "merged": merged,
+        "age_days": age_days,
+        "classification": classification,
+    }
+
+
 def list_colleague_branches(repo_path: str | Path, *, base_branch: str = "main") -> list[dict]:
     """Classify every ``colleague/*`` local branch — read-only.
 
@@ -406,7 +449,7 @@ def list_colleague_branches(repo_path: str | Path, *, base_branch: str = "main")
     * ``ref`` — short ref name (``colleague/<id>-<slug>``);
     * ``object`` — the tip object name recorded in the ref;
     * ``corrupt`` — ``True`` when the tip object is missing/unreadable (the
-      ``git fetch`` breaker), detected with ``git cat-file -e``;
+      ``git fetch`` breaker), detected with ``git cat-file -t``;
     * ``merged`` — ``True`` when the (non-corrupt) tip is an ancestor of
       ``base_branch`` (already integrated, safe to drop);
     * ``age_days`` — whole days since the tip's committer date, or ``None`` when
@@ -434,37 +477,12 @@ def list_colleague_branches(repo_path: str | Path, *, base_branch: str = "main")
     now = time.time()
     branches: list[dict] = []
     for line in proc.stdout.splitlines():
-        if not line.strip():
-            continue
         parts = line.split("\t")
-        ref = parts[0].strip()
-        obj = parts[1].strip() if len(parts) > 1 else ""
+        ref = parts[0].strip() if parts else ""
         if not ref:
             continue
-        # ``cat-file -t`` *inflates* the object (``cat-file -e`` only stats the
-        # file, so a 0-byte loose object slips past it as "exists"). A non-zero
-        # exit means the tip is missing/unreadable — the ``git fetch`` breaker.
-        corrupt = (not obj) or _git(repo, "cat-file", "-t", obj, check=False).returncode != 0
-        merged = False
-        age_days: int | None = None
-        if not corrupt:
-            anc = _git(repo, "merge-base", "--is-ancestor", obj, base_branch, check=False)
-            merged = anc.returncode == 0
-            age = _git(repo, "log", "-1", "--format=%ct", obj, check=False)
-            date_raw = age.stdout.strip()
-            if age.returncode == 0 and date_raw.isdigit():
-                age_days = max(0, int((now - int(date_raw)) // 86400))
-        classification = "corrupt" if corrupt else "merged" if merged else "live"
-        branches.append(
-            {
-                "ref": ref,
-                "object": obj,
-                "corrupt": corrupt,
-                "merged": merged,
-                "age_days": age_days,
-                "classification": classification,
-            }
-        )
+        obj = parts[1].strip() if len(parts) > 1 else ""
+        branches.append(_classify_branch(repo, ref, obj, now=now, base_branch=base_branch))
     return branches
 
 
