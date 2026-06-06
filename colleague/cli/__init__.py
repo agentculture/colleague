@@ -75,6 +75,7 @@ def _stdio_is_interactive() -> bool:
 def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import agents as _agents_group
     from colleague.cli._commands import backends as _backends_group
+    from colleague.cli._commands import clean as _clean_cmd
     from colleague.cli._commands import cli as _cli_group
     from colleague.cli._commands import commands as _commands_group
     from colleague.cli._commands import doctor as _doctor_cmd
@@ -108,6 +109,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _explain_cmd.register(sub)
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
+    # Self-heal: reap stale/corrupt colleague/* branches + orphaned artifacts (#162).
+    _clean_cmd.register(sub)
     _cli_group.register(sub)
     # Colleague's working surface: assign repo work + inspect backend plugins.
     _work_cmd.register(sub)

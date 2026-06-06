@@ -149,27 +149,29 @@ def test_help_documents_preview_by_default_and_apply() -> None:
 
 
 def test_unknown_verb_errors_with_hint() -> None:
+    # #161: a bad verb is a user-input error -> exit 1 (not 2, which is reserved
+    # for environment/setup failures).
     r = _run("frobnicate", "x")
-    assert r.returncode == 2
+    assert r.returncode == 1
     assert "unknown verb" in r.stderr
 
 
 def test_no_args_errors() -> None:
     r = _run()
-    assert r.returncode == 2
+    assert r.returncode == 1  # #161: missing verb is a user-input error
 
 
 def test_missing_description_errors() -> None:
     r = _run("explore")
-    assert r.returncode == 2
+    assert r.returncode == 1  # #161: missing arg is a user-input error
     assert "needs a description" in r.stderr
 
 
 def test_trailing_value_flag_errors_cleanly() -> None:
-    """A value-flag with no following value must exit 2 with a clear message,
-    not crash on an unbound $2 under `set -u` (qodo finding)."""
+    """A value-flag with no following value must exit 1 (user-input error, #161)
+    with a clear message, not crash on an unbound $2 under `set -u` (qodo finding)."""
     r = _run("explore", "investigate x", "--repo")
-    assert r.returncode == 2
+    assert r.returncode == 1
     assert "requires a value" in r.stderr
     assert "unbound variable" not in r.stderr
 
@@ -635,7 +637,7 @@ def test_review_rejects_bogus_base(tmp_path) -> None:
         text=True,
         check=False,
     )
-    assert r.returncode == 2
+    assert r.returncode == 1  # #161: a bad --base value is a user-input error
     assert "not a valid commit/ref" in r.stderr
 
 
@@ -650,8 +652,78 @@ def test_non_git_repo_is_rejected_for_every_verb(tmp_path) -> None:
         text=True,
         check=False,
     )
-    assert r.returncode == 2
+    assert r.returncode == 1  # #161: a bad --repo path is a user-input error
     assert "not a git repository" in r.stderr
+
+
+def test_help_lists_the_clean_verb() -> None:
+    """#162: `clean` (crashed-run recovery) must be discoverable in --help."""
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "clean" in r.stdout
+    assert "--dry-run" in r.stdout
+
+
+def test_clean_verb_shells_to_colleague_clean(tmp_path) -> None:
+    """#162: `ask-colleague clean` → `colleague clean --repo <repo>` (pass-through).
+    A stub colleague records its argv so we assert the mapping without a model."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert argv[0] == "clean"
+    assert "--repo" in argv
+    assert "--dry-run" not in argv  # not requested
+
+
+def test_clean_verb_passes_dry_run(tmp_path) -> None:
+    """#162: `ask-colleague clean --dry-run` forwards --dry-run to colleague clean."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "--repo", str(repo), "--dry-run"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "--dry-run" in argv_log.read_text().splitlines()
+
+
+def test_clean_rejects_positional_arg(tmp_path) -> None:
+    """#162: clean takes no description argument — a stray positional is a
+    user-input error (#161 exit 1), caught before the CLI is invoked."""
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "stray-arg", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert r.returncode == 1
+    assert "takes no description argument" in r.stderr
 
 
 def test_write_previews_by_default(tmp_path) -> None:

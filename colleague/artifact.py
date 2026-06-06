@@ -152,3 +152,68 @@ def read_request(repo_path: str | Path, task_id: str) -> Optional[str]:
         return None
     request = (data.get("stats") or {}).get("request")
     return request if isinstance(request, str) and request else None
+
+
+def _is_empty_file(path: Path) -> bool:
+    """True when ``path`` is a 0-byte regular file (a definitively broken write)."""
+    try:
+        return path.is_file() and path.stat().st_size == 0
+    except OSError:
+        return False
+
+
+def reap_artifacts(repo_path: str | Path, *, dry_run: bool = False) -> list[dict]:
+    """Remove orphaned 0-byte ``.colleague/`` artifacts; return per-file actions (#162).
+
+    A crashed work item can leave **0-byte** run artifacts (``<id>.<slug>.json`` /
+    ``.trace.jsonl``) and a ``last_work`` pointer aimed at a now-missing/empty
+    artifact. This reaps exactly those: a 0-byte ``*.json`` / ``*.trace.jsonl``
+    under ``.colleague/`` is unambiguously a truncated write, and a ``last_work``
+    that resolves to nothing is dead bookkeeping. A **non-empty** artifact is a
+    gradable record the feedback loop depends on and is **never** touched.
+
+    Returns one dict per affected file: ``{artifact, action}`` where ``action`` is
+    ``reaped`` / ``would-reap`` (dry-run) / ``failed`` for a file, or
+    ``cleared`` / ``would-clear`` / ``failed`` for the ``last_work`` pointer.
+    Scoped strictly to the ``.colleague/`` write dir; a missing dir is a no-op.
+    """
+    # Local import avoids a module-level cycle (feedback imports artifact).
+    from colleague.feedback import get_last_work, last_work_path
+
+    repo = Path(repo_path)
+    adir = artifact_dir(repo)
+    results: list[dict] = []
+
+    if adir.is_dir():
+        seen: set[Path] = set()
+        for pattern in ("*.json", "*.trace.jsonl"):
+            for path in sorted(adir.glob(pattern)):
+                if path in seen or not _is_empty_file(path):
+                    continue
+                seen.add(path)
+                if dry_run:
+                    results.append({"artifact": path.name, "action": "would-reap"})
+                    continue
+                try:
+                    path.unlink()
+                    results.append({"artifact": path.name, "action": "reaped"})
+                except OSError:
+                    results.append({"artifact": path.name, "action": "failed"})
+
+    # A last_work pointer that now resolves to nothing (its artifact was reaped
+    # above, or never landed) is dead bookkeeping — clear it.
+    lw = last_work_path(repo)
+    if lw.is_file():
+        task_id = get_last_work(repo)
+        artifact = find_artifact(repo, task_id) if task_id else None
+        if artifact is None or _is_empty_file(artifact):
+            if dry_run:
+                results.append({"artifact": lw.name, "action": "would-clear"})
+            else:
+                try:
+                    lw.unlink()
+                    results.append({"artifact": lw.name, "action": "cleared"})
+                except OSError:
+                    results.append({"artifact": lw.name, "action": "failed"})
+
+    return results
