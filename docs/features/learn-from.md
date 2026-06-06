@@ -7,8 +7,8 @@ colleague folds into every backend's system prompt (`colleague/layers.py`) on th
 **same repo/root**.
 
 > Why it exists: colleague already *reads* `.colleague/skills/*.md`, but a fresh
-> repo's only skills live in `.claude/skills/` in Claude Code's directory-per-skill
-> + YAML-frontmatter form. `learn-from` is the bridge that populates colleague's
+> repo's only skills live in `.claude/skills/` in Claude Code's directory-per-skill,
+> YAML-frontmatter form. `learn-from` is the bridge that populates colleague's
 > skill layer from a peer — the *write* side of the read-only `skills list`/`overview`.
 
 ## The two stages
