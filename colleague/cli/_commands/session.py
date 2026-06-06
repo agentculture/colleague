@@ -37,7 +37,7 @@ import contextlib
 import io
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
@@ -70,6 +70,22 @@ _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
 _CONVERSATION_PANEL_ID = "panel.conversation"
 #: CSI clear-screen + cursor-home, so the dynamic ANSI view redraws in place.
 _CLEAR_HOME = "\x1b[H\x1b[2J"
+#: Leading-line markers identifying a previously-rendered suggested action, so a
+#: refresh replaces it in place rather than stacking duplicates in the Session panel.
+_SUGGESTION_PREFIXES = ("Safest next:", "⚠ Safest next:")
+
+
+def _coerce_strs(value: object) -> list[str]:
+    """Coerce a policy config value to a list of strings, tolerating bad shapes.
+
+    Mirrors :func:`colleague.policy._str_list` so the cockpit presents exactly
+    what the gate enforces: a non-list (or a list with non-string members)
+    degrades to the surviving string members, never raising on a malformed
+    ``approvals.json``.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _eprint(*args: object, **kwargs: object) -> None:
@@ -278,15 +294,30 @@ class _Session:
         gated; the only real outward gate is push/PR. No sandbox is claimed."""
         runcfg = facts["runcfg"]
         if runcfg is None:
-            run_status, run_emoji = "ungated (any command)", "⚠️"
+            run_status, run_emoji, gated = "ungated (any command)", "⚠️", False
         else:
-            allow = runcfg.get("allow") or []
+            # Honest labels mirror Policy.check_run_command: an allow-list only
+            # gates when non-empty; an empty allow-list with a deny-list is
+            # deny-only (all others allowed); both empty is effectively ungated.
+            # Coerce both lists so a malformed approvals.json can't crash render.
+            allow = _coerce_strs(runcfg.get("allow"))
+            deny = _coerce_strs(runcfg.get("deny"))
             if allow:
                 shown = ", ".join(allow[:3]) + ("…" if len(allow) > 3 else "")
-                run_status = f"allow-list: {shown}"
+                run_status, run_emoji, gated = f"allow-list: {shown}", "🛡️", True
+            elif deny:
+                shown = ", ".join(deny[:3]) + ("…" if len(deny) > 3 else "")
+                run_status, run_emoji, gated = (
+                    f"deny-list: {shown} (all others allowed)",
+                    "🛡️",
+                    True,
+                )
             else:
-                run_status = "gated (deny unlisted)"
-            run_emoji = "🛡️"
+                run_status, run_emoji, gated = (
+                    "present, no rules (effectively ungated)",
+                    "⚠️",
+                    False,
+                )
         edits = "read + write within repo"
         if facts["hooks_gated"]:
             edits += " · hooks/commands checksum-gated"
@@ -295,7 +326,7 @@ class _Session:
         else:
             handoff_status, handoff_emoji = "off (local commit only)", "🔒"
         summary = (
-            f"run_command: {'ungated' if runcfg is None else 'gated'} · "
+            f"run_command: {'gated' if gated else 'ungated'} · "
             f"edits: repo-local · push/PR: {'on' if self.open_pr else 'off'}"
         )
         return Panel(
@@ -376,11 +407,35 @@ class _Session:
 
     def _refresh_context(self) -> None:
         """Rebuild the policy + context panels in place (preserving the running
-        conversation + work-templates panels). Called after a config change or a
-        completed work item — both can shift branch / dirty / policy / feedback."""
+        conversation + work-templates panels) and refresh the Session panel's
+        suggested-action line. Called after a config change or a completed work
+        item — both can shift branch / dirty / policy / feedback, and the
+        suggested action depends on dirty-state + push/PR, so it must not go
+        stale (the cockpit promises to always answer 'what now?')."""
         facts = self._facts()
+        suggested = self._suggested_action(facts)
         rebuilt = {"policy": self._policy_panel(facts), "context": self._context_panel(facts)}
-        self.state.panels = [rebuilt.get(p.id, p) for p in self.state.panels]
+        self.state.panels = [
+            (
+                self._with_suggestion(p, suggested)
+                if p.id == _CONVERSATION_PANEL_ID
+                else rebuilt.get(p.id, p)
+            )
+            for p in self.state.panels
+        ]
+
+    @staticmethod
+    def _with_suggestion(panel: Panel, suggested: str) -> Panel:
+        """Return the Session panel with its leading suggested-action line refreshed,
+        preserving the running conversation that follows it. The suggestion is the
+        first line of ``content_summary`` (set in :meth:`_initial_state`); replace it
+        when it still looks like a suggestion, otherwise prepend the fresh one."""
+        lines = panel.content_summary.split("\n") if panel.content_summary else []
+        if lines and lines[0].startswith(_SUGGESTION_PREFIXES):
+            lines[0] = suggested
+        else:
+            lines.insert(0, suggested)
+        return replace(panel, content_summary="\n".join(lines))
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""

@@ -201,6 +201,79 @@ def test_suggested_action_dirty_tree_says_commit_first(tmp_path: Path) -> None:
     assert "commit or stash first" in out.text()  # AC #1 — safest next action
 
 
+def _conversation_panel(session: _Session) -> Panel:
+    return next(p for p in session.state.panels if p.id == "panel.conversation")
+
+
+def test_suggested_action_refreshes_after_pr_toggle(tmp_path: Path) -> None:
+    """PR #159 finding 2: the Session panel's suggested action must not go stale
+    after a config change. Toggling /pr changes the effect text in place."""
+    _git_repo(tmp_path)
+    (tmp_path / ".colleague" / "commands").mkdir(parents=True)
+    (tmp_path / ".colleague" / "commands" / "setup.md").write_text("Set up.\n")
+    s = _make_session(tmp_path)
+    assert "commits locally, no PR" in _conversation_panel(s).content_summary
+    s.open_pr = True
+    s._refresh_context()
+    summary = _conversation_panel(s).content_summary
+    assert "pushes a PR" in summary  # refreshed
+    assert "commits locally, no PR" not in summary  # old suggestion replaced, not stacked
+    assert summary.count("Safest next:") == 1  # exactly one suggestion line
+
+
+def test_suggested_action_refresh_preserves_conversation(tmp_path: Path) -> None:
+    """The leading suggestion is replaced in place; appended conversation lines survive."""
+    _git_repo(tmp_path)
+    s = _make_session(tmp_path)
+    s._log("a user line")
+    s._refresh_context()
+    summary = _conversation_panel(s).content_summary
+    assert "a user line" in summary
+    assert summary.count("Safest next:") == 1
+
+
+def test_policy_panel_deny_only_is_not_labelled_deny_unlisted(tmp_path: Path) -> None:
+    """PR #159 finding 3: an empty allow-list with a deny-list is deny-only, not
+    'deny unlisted' (which would imply allow-list semantics that aren't active)."""
+    cfgdir = tmp_path / ".colleague"
+    cfgdir.mkdir()
+    (cfgdir / "approvals.json").write_text('{"run_command": {"allow": [], "deny": ["rm", "curl"]}}')
+    s = _make_session(tmp_path)
+    panel = s._policy_panel(s._facts())
+    run = next(i for i in panel.items if i.id == "pol.run_command")
+    assert "deny unlisted" not in run.status
+    assert run.status.startswith("deny-list:")
+    assert "rm" in run.status
+    assert "gated" in panel.content_summary  # a deny-list IS a gate
+
+
+def test_policy_panel_empty_section_is_effectively_ungated(tmp_path: Path) -> None:
+    """A present run_command section with no allow/deny rules gates nothing."""
+    cfgdir = tmp_path / ".colleague"
+    cfgdir.mkdir()
+    (cfgdir / "approvals.json").write_text('{"run_command": {"allow": [], "deny": []}}')
+    s = _make_session(tmp_path)
+    panel = s._policy_panel(s._facts())
+    run = next(i for i in panel.items if i.id == "pol.run_command")
+    assert "deny unlisted" not in run.status
+    assert "ungated" in panel.content_summary
+
+
+def test_policy_panel_survives_malformed_allow_list(tmp_path: Path) -> None:
+    """PR #159 finding 4: a malformed approvals.json (allow as a dict, or a list
+    of non-strings) must not crash the cockpit's policy panel."""
+    cfgdir = tmp_path / ".colleague"
+    cfgdir.mkdir()
+    (cfgdir / "approvals.json").write_text(
+        '{"run_command": {"allow": {"oops": 1}, "deny": [1, 2, "rm"]}}'
+    )
+    s = _make_session(tmp_path)
+    panel = s._policy_panel(s._facts())  # must not raise
+    run = next(i for i in panel.items if i.id == "pol.run_command")
+    # allow coerces to empty (a dict isn't a list); deny keeps only the string "rm".
+    assert run.status.startswith("deny-list:") and "rm" in run.status
+
+
 # ── grouped compact vs verbose help (AC #6) ─────────────────────────────────
 
 
