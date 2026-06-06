@@ -386,6 +386,28 @@ def available_sources() -> list[str]:
     return sorted(_SOURCES)
 
 
+def _safe_stem(name: str) -> str:
+    """A filesystem-safe, single-component stem for a skill *name*.
+
+    A SKILL.md ``name`` (or a CLI-supplied name) is untrusted input. Strip any
+    path separators / parent refs and unsafe characters so it can never address a
+    file outside ``.colleague/skills/`` (path-injection defense, S2083). Falls
+    back to ``"skill"`` for a degenerate name.
+    """
+    base = re.split(r"[\\/]", name.strip())[-1]  # keep only the last path component
+    base = re.sub(r"[^A-Za-z0-9._-]", "-", base).strip(".-")
+    return base or "skill"
+
+
+def _skill_dest(repo: Path, name: str) -> Path:
+    """Confined output path for a learned skill — always inside ``.colleague/skills/``.
+
+    The stem is sanitized via :func:`_safe_stem`, so the result is structurally a
+    direct child of the skills dir; a crafted *name* can never traverse out.
+    """
+    return repo / ".colleague" / "skills" / f"{_safe_stem(name)}.md"
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -443,7 +465,7 @@ def adapt_skills(
 
     # Handle not-found names
     for n in sorted(not_found_names):
-        dest = repo / ".colleague" / "skills" / f"{n}.md"
+        dest = _skill_dest(repo, n)
         results.append(
             AdaptResult(
                 name=n,
@@ -460,7 +482,7 @@ def adapt_skills(
         skill_path = filtered[name]
         skill = load_claude_skill(skill_path.parent)
         if skill is None:
-            dest = repo / ".colleague" / "skills" / f"{name}.md"
+            dest = _skill_dest(repo, name)
             results.append(
                 AdaptResult(
                     name=name,
@@ -474,7 +496,7 @@ def adapt_skills(
             continue
 
         rendered = render_colleague_skill(skill)
-        dest = repo / ".colleague" / "skills" / f"{skill.name}.md"
+        dest = _skill_dest(repo, skill.name)
         runnable = estimate_runnable(skill)
 
         if not dest.exists():

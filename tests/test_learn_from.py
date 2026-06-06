@@ -504,3 +504,19 @@ class TestAdaptSkills:
         results = adapt_skills(tmp_path, source="claude")
         names = [r.name for r in results]
         assert names == sorted(names)
+
+    def test_malicious_name_cannot_escape_skills_dir(self, tmp_path: Path) -> None:
+        """A crafted frontmatter name with path traversal stays inside .colleague/skills/.
+
+        Guards against path injection (S2083): the untrusted SKILL.md ``name`` is
+        sanitized to a single safe stem before building the output path.
+        """
+        _make_skill_file(tmp_path, "evil", "---\nname: ../../pwned\n---\nBody\n")
+        results = adapt_skills(tmp_path, source="claude")
+        skills_dir = (tmp_path / ".colleague" / "skills").resolve()
+        for r in results:
+            written = Path(r.dest).resolve()
+            assert written.parent == skills_dir, f"escaped: {written}"
+        # Nothing was written outside the skills dir.
+        assert not (tmp_path / "pwned.md").exists()
+        assert not (tmp_path.parent / "pwned.md").exists()

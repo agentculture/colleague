@@ -62,14 +62,27 @@ def _adapt_instruction(rel_dest: str) -> str:
     )
 
 
-def _mark_adapted(path: Path) -> None:
-    """Deterministically stamp that stage 2 ran for *path* (pending -> done)."""
+def _mark_adapted(path: Path, skills_dir: Path) -> None:
+    """Deterministically stamp that stage 2 ran for *path* (pending -> done).
+
+    *path* derives from a skill name (untrusted input), so confine the read/write
+    to *skills_dir*: a path resolving outside it is refused. This guards against
+    path traversal (S2083) at the write sink — defense in depth alongside the
+    sanitized stem from :func:`colleague.learn_from._skill_dest`.
+    """
     try:
-        text = path.read_text(encoding="utf-8")
+        resolved = path.resolve()
+        base = skills_dir.resolve()
+    except OSError:
+        return
+    if resolved != base and base not in resolved.parents:
+        return
+    try:
+        text = resolved.read_text(encoding="utf-8")
     except OSError:
         return
     if _PENDING_MARK in text:
-        path.write_text(text.replace(_PENDING_MARK, _DONE_MARK, 1), encoding="utf-8")
+        resolved.write_text(text.replace(_PENDING_MARK, _DONE_MARK, 1), encoding="utf-8")
 
 
 def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
@@ -96,6 +109,7 @@ def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
             "degraded": f"{type(exc).__name__}: {exc}",
         }
 
+    skills_dir = repo / ".colleague" / "skills"
     adapted: list[str] = []
     degraded: str | None = None
     for r in targets:
@@ -114,7 +128,7 @@ def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
                 "remaining skills kept copy-only"
             )
             break
-        _mark_adapted(dest)
+        _mark_adapted(dest, skills_dir)
         adapted.append(r.name)
     return {"ran": True, "engine": engine_name, "adapted": adapted, "degraded": degraded}
 
