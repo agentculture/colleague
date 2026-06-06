@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-06-06
+
+### Added
+
+- Slash dropdown grouped tree with tag badges (#160): the colleague session / autocomplete popup now groups commands under one icon per intent group (📁 Controls / Inspect / Session) and shows compact capability/risk tag badges ([read-only], [git], [pr], [writes], …) next to each command; filtering preserves group context and the selected command shows its summary.
+- New SlashSpec.tags metadata feeds the popup, /help, and the cockpit tiers from one source; a shared tag/group formatter (colleague/tui/widgets/slash_autocomplete.py) keeps them from drifting.
+- /help compact renders the emoji tag form; COLLEAGUE_SLASH_TAG_STYLE=icons switches the live popup to icon badges.
+- PanelItem.tags so the slash-command tree (slash.* panels, one per group) reaches the agent-facing Markdown and TAUI/JSON cockpit tiers; the borderless live session view skips them (the / popup covers that).
+
+### Changed
+
+- /help and /help verbose now render group icons and tag badges; the compact help lists each command on its own line under its group instead of a dense name row.
+
 ## [0.40.0] - 2026-06-06
 
 ### Added

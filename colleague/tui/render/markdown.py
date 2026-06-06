@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from colleague.tui.state import CockpitState
 
 from colleague.tui.taui import serialize
+from colleague.tui.widgets.slash_autocomplete import format_tags
 
 # ---------------------------------------------------------------------------
 # Kind → human-readable label (kept in sync with popup_layer widget and
@@ -130,8 +131,10 @@ def _section_panels(taui: dict[str, Any]) -> str:
             for item in items:
                 label = str(item.get("label", item.get("id", "")))
                 status = str(item.get("status", ""))
+                tags = format_tags(item.get("tags", []))
+                tag_part = f" {tags}" if tags else ""
                 status_part = f" ({status})" if status else ""
-                lines.append(f"- {label}{status_part}")
+                lines.append(f"- {label}{tag_part}{status_part}")
         lines.append("")
     return "\n".join(lines).rstrip()
 

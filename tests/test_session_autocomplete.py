@@ -98,6 +98,40 @@ def test_widget_has_no_termios_import() -> None:
 
 
 # ---------------------------------------------------------------------------
+# grouped tree + tag badges (issue #160)
+# ---------------------------------------------------------------------------
+
+
+def test_widget_renders_group_headers_as_a_tree() -> None:
+    out = render_slash_autocomplete(filter_slash(""), 0)
+    assert "📁 Controls" in out and "📁 Inspect" in out and "📁 Session" in out
+
+
+def test_widget_renders_text_tag_badges() -> None:
+    out = render_slash_autocomplete(filter_slash(""), 0)
+    assert "[read-only]" in out and "[pr]" in out and "[writes]" in out
+
+
+def test_widget_compact_mode_uses_icon_badges() -> None:
+    out = render_slash_autocomplete(filter_slash(""), 0, style="icons")
+    assert "🚀" in out and "[pr]" not in out  # the pr command's icon, not its text badge
+
+
+def test_widget_filter_preserves_group_context() -> None:
+    """Narrowing to one command keeps it under its group header (not flattened)."""
+    out = render_slash_autocomplete(filter_slash("pr"), 0)
+    assert "📁 Controls" in out and "/pr" in out
+    assert "📁 Inspect" not in out  # only the surviving group's header shows
+
+
+def test_widget_selected_shows_its_summary_subline() -> None:
+    matches = filter_slash("config")  # → just /config, selected
+    out = render_slash_autocomplete(matches, 0)
+    assert "configuration readiness (doctor)" in out
+    assert out.count("\x1b[7m") == 1  # still exactly one reverse-video selection
+
+
+# ---------------------------------------------------------------------------
 # catalog / help drift — single source of truth
 # ---------------------------------------------------------------------------
 
