@@ -102,7 +102,8 @@ def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
             max_steps=getattr(args, "max_steps", None),
         )
         engine = registry.load(engine_name)
-    except Exception as exc:  # noqa: BLE001 - resolution failure degrades, never crashes
+    # Any resolution failure degrades to copy-only; it never crashes the verb.
+    except Exception as exc:  # noqa: BLE001
         return {
             "ran": False,
             "engine": None,
@@ -122,7 +123,8 @@ def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
         task = Task.new(str(repo), _adapt_instruction(rel), engine=engine_name)
         try:
             engine.work(task, config)
-        except Exception as exc:  # noqa: BLE001 - degrade to copy-only, keep going? no: stop early
+        # Per-skill failure degrades to copy-only; stop early, keep what landed.
+        except Exception as exc:  # noqa: BLE001
             degraded = f"{type(exc).__name__}: {exc}"
             emit_diagnostic(
                 f"learn-from: stage-2 adapt degraded at {r.name} ({degraded}); "

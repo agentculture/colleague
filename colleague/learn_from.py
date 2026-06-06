@@ -55,6 +55,70 @@ class AdaptResult:
 # ---------------------------------------------------------------------------
 
 
+def _frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
+    """``(open_idx, close_idx)`` of the ``---`` fences, or None if absent.
+
+    Leading blank lines before the opening fence are skipped; None means there is
+    no opening fence, or it is never closed (an unterminated frontmatter).
+    """
+    idx = 0
+    while idx < len(lines) and lines[idx].strip() == "":
+        idx += 1
+    if idx >= len(lines) or lines[idx].strip() != "---":
+        return None
+    for i in range(idx + 1, len(lines)):
+        if lines[i].strip() == "---":
+            return (idx, i)
+    return None
+
+
+def _collect_block(lines: list[str], start: int, close_idx: int) -> tuple[list[str], int]:
+    """Collect a block scalar's lines (blank or indented) from *start*.
+
+    Returns the raw collected lines and the index of the first unconsumed line.
+    """
+    block: list[str] = []
+    j = start
+    while j < close_idx and (lines[j] == "" or lines[j][:1] in (" ", "\t")):
+        block.append(lines[j])
+        j += 1
+    return block, j
+
+
+def _fold_block(block: list[str]) -> str:
+    """YAML folded scalar (``>``): join non-blank lines, collapse whitespace."""
+    folded = " ".join(ln.strip() for ln in block if ln.strip())
+    return re.sub(r"\s+", " ", folded).strip()
+
+
+def _literal_block(block: list[str]) -> str:
+    """YAML literal scalar (``|``): keep interior newlines, strip the common indent."""
+    indent = next((len(b) - len(b.lstrip()) for b in block if b.strip()), 0)
+    dedented = [b[indent:] if len(b) >= indent else b for b in block]
+    while dedented and not dedented[0].strip():
+        dedented.pop(0)
+    while dedented and not dedented[-1].strip():
+        dedented.pop()
+    return "\n".join(dedented)
+
+
+def _strip_quotes(value: str) -> str:
+    """Strip one layer of matching surrounding single/double quotes."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
+def _extract_body(lines: list[str], close_idx: int) -> str:
+    """Lines after the closing fence, with leading/trailing blank lines removed."""
+    body = lines[close_idx + 1 :]
+    while body and body[0].strip() == "":
+        body.pop(0)
+    while body and body[-1].strip() == "":
+        body.pop()
+    return "\n".join(body)
+
+
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     """Return ({key: value, ...}, body).
 
@@ -75,104 +139,28 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
         text = text[len("\ufeff") :]
 
     lines = text.split("\n")
-
-    # Find the opening --- (skip leading blank lines)
-    idx = 0
-    while idx < len(lines) and lines[idx].strip() == "":
-        idx += 1
-
-    if idx >= len(lines) or lines[idx].strip() != "---":
-        # No frontmatter
+    bounds = _frontmatter_bounds(lines)
+    if bounds is None:  # no opening fence, or unterminated -> whole text is body
         return ({}, text)
+    open_idx, close_idx = bounds
 
-    # We have an opening ---. Now look for the closing ---.
-    # If we never find it, treat the whole text as body.
-    close_idx = None
-    for i in range(idx + 1, len(lines)):
-        if lines[i].strip() == "---":
-            close_idx = i
-            break
-
-    if close_idx is None:
-        # Unterminated frontmatter — treat whole text as body
-        return ({}, text)
-
-    # Parse key: value lines between opening and closing ---
     meta: dict[str, str] = {}
-    i = idx + 1
+    i = open_idx + 1
     while i < close_idx:
         line = lines[i]
-        # Skip blank lines inside frontmatter
-        if line.strip() == "":
+        m = re.match(r"^(\w[\w\-]*):\s*(.*)", line) if line.strip() else None
+        if m is None:  # blank or non-key line
             i += 1
             continue
-        # Check for key: value
-        m = re.match(r"^(\w[\w\-]*):\s*(.*)", line)
-        if not m:
-            i += 1
-            continue
-        key = m.group(1)
-        raw_value = m.group(2).strip()
-
-        # Check for block scalar indicator
+        key, raw_value = m.group(1), m.group(2).strip()
         if raw_value in (">", ">-", "|", "|-"):
-            # Collect subsequent lines that are more indented or blank
-            block_lines: list[str] = []
-            j = i + 1
-            while j < close_idx:
-                next_line = lines[j]
-                # Block content: blank lines or lines that start with whitespace
-                # (more indented than the key: line, which has no leading space)
-                if next_line == "" or next_line[:1] in (" ", "\t"):
-                    block_lines.append(next_line)
-                    j += 1
-                else:
-                    break
-            i = j
-
-            if raw_value in (">", ">-"):
-                # Fold: join non-blank lines with single space, collapse whitespace
-                non_blank = [ln.strip() for ln in block_lines if ln.strip()]
-                value = " ".join(non_blank)
-                # Collapse internal whitespace runs to one space
-                value = re.sub(r"\s+", " ", value).strip()
-            else:
-                # Literal: keep newlines, but strip the block's common leading
-                # indent (YAML determines it from the first non-blank line).
-                indent = 0
-                for bl in block_lines:
-                    if bl.strip():
-                        indent = len(bl) - len(bl.lstrip())
-                        break
-                dedented = [bl[indent:] if len(bl) >= indent else bl for bl in block_lines]
-                # Drop leading/trailing blank lines, then keep interior newlines.
-                while dedented and not dedented[0].strip():
-                    dedented.pop(0)
-                while dedented and not dedented[-1].strip():
-                    dedented.pop()
-                value = "\n".join(dedented)
-            meta[key] = value
-            # block-scalar branch already advanced i to j (the next unconsumed line)
+            block, i = _collect_block(lines, i + 1, close_idx)
+            meta[key] = _fold_block(block) if raw_value[0] == ">" else _literal_block(block)
         else:
-            # Simple scalar — strip surrounding quotes
-            value = raw_value
-            if len(value) >= 2:
-                if (value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'"):
-                    value = value[1:-1]
-            meta[key] = value
+            meta[key] = _strip_quotes(raw_value)
             i += 1
 
-    # Body is everything after the closing ---, with surrounding blank lines removed
-    body_lines = lines[close_idx + 1 :]
-    # Strip leading blank lines
-    while body_lines and body_lines[0].strip() == "":
-        body_lines.pop(0)
-    # Strip trailing blank lines (e.g. the final newline's empty split element)
-    while body_lines and body_lines[-1].strip() == "":
-        body_lines.pop()
-    body = "\n".join(body_lines)
-
-    return (meta, body)
+    return (meta, _extract_body(lines, close_idx))
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +401,69 @@ def _skill_dest(repo: Path, name: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _select_skills(
+    skills_map: dict[str, Path], names: list[str] | None
+) -> tuple[dict[str, Path], set[str]]:
+    """Split discovered skills into (selected, requested-but-not-found)."""
+    if names is None:
+        return skills_map, set()
+    selected = {n: skills_map[n] for n in names if n in skills_map}
+    return selected, set(names) - set(skills_map)
+
+
+def _plan_write(dest: Path, rendered: str, *, dry_run: bool, force: bool) -> tuple[str, str]:
+    """Decide the action for one rendered skill, performing the write when due.
+
+    Returns ``(action, note)``. Writes to *dest* only on a real (non-dry-run)
+    create or update. Mirrors the documented create/skip/update/protect rules.
+    """
+    if not dest.exists():
+        if not dry_run:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(rendered, encoding="utf-8")
+        return ("would-create" if dry_run else "created", "")
+
+    existing = dest.read_text(encoding="utf-8")
+    if existing == rendered:
+        return ("would-skip" if dry_run else "skipped", "")
+
+    owned = any(ln.startswith(PROVENANCE_PREFIX) for ln in existing.split("\n"))
+    if not force:
+        if owned:
+            return ("would-skip" if dry_run else "skipped", "differs; pass --force")
+        return ("protected", "hand-authored; pass --force to overwrite")
+    if not dry_run:
+        dest.write_text(rendered, encoding="utf-8")
+    return ("would-update" if dry_run else "updated", "")
+
+
+def _adapt_one(
+    repo: Path, name: str, skill_path: Path, *, dry_run: bool, force: bool
+) -> AdaptResult:
+    """Adapt a single discovered skill into an :class:`AdaptResult`."""
+    skill = load_claude_skill(skill_path.parent)
+    if skill is None:
+        return AdaptResult(
+            name=name,
+            source=str(skill_path),
+            dest=str(_skill_dest(repo, name)),
+            action="not-found",
+            runnable_estimate="instructional-only",
+            note="SKILL.md unreadable",
+        )
+    rendered = render_colleague_skill(skill)
+    dest = _skill_dest(repo, skill.name)
+    action, note = _plan_write(dest, rendered, dry_run=dry_run, force=force)
+    return AdaptResult(
+        name=skill.name,
+        source=str(skill.source),
+        dest=str(dest),
+        action=action,
+        runnable_estimate=estimate_runnable(skill),
+        note=note,
+    )
+
+
 def adapt_skills(
     repo: Path,
     *,
@@ -446,132 +497,22 @@ def adapt_skills(
     if source not in _SOURCES:
         raise ValueError(f"unknown source: {source}")
 
-    discoverer = _SOURCES[source]
-    skills_map = discoverer(repo, user=user)
+    skills_map = _SOURCES[source](repo, user=user)
+    selected, not_found = _select_skills(skills_map, names)
 
-    # Filter by names if provided
-    if names is not None:
-        filtered: dict[str, Path] = {}
-        for n in names:
-            if n in skills_map:
-                filtered[n] = skills_map[n]
-        # Track requested names not found
-        not_found_names = set(names) - set(skills_map.keys())
-    else:
-        filtered = skills_map
-        not_found_names = set()
-
-    results: list[AdaptResult] = []
-
-    # Handle not-found names
-    for n in sorted(not_found_names):
-        dest = _skill_dest(repo, n)
-        results.append(
-            AdaptResult(
-                name=n,
-                source="",
-                dest=str(dest),
-                action="not-found",
-                runnable_estimate="instructional-only",
-                note="skill not found in source",
-            )
+    results: list[AdaptResult] = [
+        AdaptResult(
+            name=n,
+            source="",
+            dest=str(_skill_dest(repo, n)),
+            action="not-found",
+            runnable_estimate="instructional-only",
+            note="skill not found in source",
         )
+        for n in sorted(not_found)
+    ]
+    for name in sorted(selected):
+        results.append(_adapt_one(repo, name, selected[name], dry_run=dry_run, force=force))
 
-    # Process discovered skills
-    for name in sorted(filtered.keys()):
-        skill_path = filtered[name]
-        skill = load_claude_skill(skill_path.parent)
-        if skill is None:
-            dest = _skill_dest(repo, name)
-            results.append(
-                AdaptResult(
-                    name=name,
-                    source=str(skill_path),
-                    dest=str(dest),
-                    action="not-found",
-                    runnable_estimate="instructional-only",
-                    note="SKILL.md unreadable",
-                )
-            )
-            continue
-
-        rendered = render_colleague_skill(skill)
-        dest = _skill_dest(repo, skill.name)
-        runnable = estimate_runnable(skill)
-
-        if not dest.exists():
-            if dry_run:
-                action = "would-create"
-            else:
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_text(rendered, encoding="utf-8")
-                action = "created"
-            results.append(
-                AdaptResult(
-                    name=skill.name,
-                    source=str(skill.source),
-                    dest=str(dest),
-                    action=action,
-                    runnable_estimate=runnable,
-                )
-            )
-        else:
-            existing = dest.read_text(encoding="utf-8")
-            if existing == rendered:
-                action = "would-skip" if dry_run else "skipped"
-                results.append(
-                    AdaptResult(
-                        name=skill.name,
-                        source=str(skill.source),
-                        dest=str(dest),
-                        action=action,
-                        runnable_estimate=runnable,
-                    )
-                )
-            else:
-                # Differs — check for provenance marker
-                note = ""
-                has_marker = any(
-                    line.startswith(PROVENANCE_PREFIX) for line in existing.split("\n")
-                )
-
-                if has_marker:
-                    # Colleague-owned
-                    if force:
-                        if dry_run:
-                            action = "would-update"
-                        else:
-                            dest.write_text(rendered, encoding="utf-8")
-                            action = "updated"
-                    else:
-                        # No state change in either mode; mirror the dry-run
-                        # prefix of the identical-file branch for consistency.
-                        action = "would-skip" if dry_run else "skipped"
-                        note = "differs; pass --force"
-                else:
-                    # Hand-authored
-                    if force:
-                        if dry_run:
-                            action = "would-update"
-                        else:
-                            dest.write_text(rendered, encoding="utf-8")
-                            action = "updated"
-                        note = ""
-                    else:
-                        action = "protected"
-                        note = "hand-authored; pass --force to overwrite"
-
-                results.append(
-                    AdaptResult(
-                        name=skill.name,
-                        source=str(skill.source),
-                        dest=str(dest),
-                        action=action,
-                        runnable_estimate=runnable,
-                        note=note,
-                    )
-                )
-
-    # Sort by name
     results.sort(key=lambda r: r.name)
     return results
