@@ -76,7 +76,7 @@ def _branch_name(task_id: str, instruction: str = "") -> str:
     return f"colleague/{task_id}-{slug}" if slug else f"colleague/{task_id}"
 
 
-def _current_ref(repo: Path) -> str | None:
+def current_ref(repo: Path) -> str | None:
     """The operator's current branch name, or the commit SHA if detached.
 
     Captured before the handoff switches branches so we can return the operator
@@ -84,6 +84,9 @@ def _current_ref(repo: Path) -> str | None:
     ``outsource`` skill drives in) has no branch name, so we fall back to the
     commit SHA. Returns ``None`` when git can't answer (treated as "don't
     restore").
+
+    Public read-only accessor — also surfaced in the session cockpit's Context
+    panel so an operator can see which branch a work item would build from.
     """
     proc = _git(repo, "symbolic-ref", "--short", "-q", "HEAD", check=False)
     name = proc.stdout.strip()
@@ -91,6 +94,10 @@ def _current_ref(repo: Path) -> str | None:
         return name
     sha = _git(repo, "rev-parse", "-q", "HEAD", check=False)
     return sha.stdout.strip() or None
+
+
+#: Back-compat alias for the historical private name (internal callers).
+_current_ref = current_ref
 
 
 def _restore_ref(repo: Path, ref: str | None) -> None:
