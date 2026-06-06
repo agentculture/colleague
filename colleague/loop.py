@@ -42,6 +42,7 @@ from typing import Any, Callable
 from colleague import autosplit as _autosplit
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
+from colleague.capacity import assess_capacity
 from colleague.context import classify_degradable, window_messages
 from colleague.contract import (
     DECISION_DENY,
@@ -1057,6 +1058,33 @@ def _maybe_inject_upfront_hint(ctx: _Work) -> None:
     )
 
 
+def _maybe_warn_too_big(ctx: _Work) -> None:
+    """Set the warn-only "too big for one repo" caller warning (#156, t7).
+
+    A coarse up-front capacity assessment (deps/folders/files + an instruction token
+    estimate via :mod:`colleague.capacity`) that judges the assignment to exceed even
+    the in-repo split capacity records a caller-visible warning on
+    ``result.capacity_warning`` — surfaced (CLI prints it to stderr; it is recorded in
+    the artifact), never silent. Colleague performs NO cross-repo write: the operator
+    splits the work across repos/instances (neighbours stay read-only). A strict no-op
+    for a normal-sized job (verdict != over_split_capacity → warning stays ``None`` →
+    omitted from the artifact). Gated on a positive budget like the other context
+    features. The estimate is coarse (it cannot see the repo surface the work will
+    touch — the parked limit r2)."""
+    budget = ctx.context_budget
+    if not isinstance(budget, int) or budget <= 0:
+        return
+    verdict = assess_capacity(ctx.task.repo_path, ctx.task.instruction, budget, ctx.count_tokens)
+    if verdict.verdict == "over_split_capacity":
+        ctx.result.capacity_warning = (
+            f"This assignment looks too big to hold in one repo: an estimated "
+            f"{verdict.instruction_tokens} instruction tokens exceeds even the in-repo "
+            f"split capacity (~{budget * 4} tokens across child instances). Consider "
+            f"splitting it across multiple repositories or colleague instances — "
+            f"colleague will not write across repos (warn-only)."
+        )
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -1194,6 +1222,11 @@ def run(
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
     # complexity within budget; a strict no-op unless armed and the task looks big.
     _maybe_inject_upfront_hint(ctx)
+
+    # Up-front "too big for one repo" caller warning (#156) — sets
+    # result.capacity_warning when even a split can't hold the job; a strict no-op
+    # for a normal-sized assignment.
+    _maybe_warn_too_big(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto
