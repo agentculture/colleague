@@ -457,6 +457,16 @@ class TestAdaptSkills:
         assert results[0].action == "skipped"
         assert "differs; pass --force" in results[0].note
 
+    def test_dry_run_colleague_owned_differs_would_skip(self, tmp_path: Path) -> None:
+        """dry_run on a colleague-owned dest that differs (no force) => 'would-skip'."""
+        self._setup(tmp_path)
+        adapt_skills(tmp_path, source="claude")
+        dest = tmp_path / ".colleague" / "skills" / "foo.md"
+        dest.write_text(dest.read_text(encoding="utf-8") + "\n# modified\n", encoding="utf-8")
+        results = adapt_skills(tmp_path, source="claude", dry_run=True)
+        assert len(results) == 1
+        assert results[0].action == "would-skip"
+
     def test_colleague_owned_force_updates(self, tmp_path: Path) -> None:
         """force=True updates colleague-owned dest."""
         self._setup(tmp_path)

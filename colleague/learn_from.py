@@ -522,7 +522,9 @@ def adapt_skills(
                             dest.write_text(rendered, encoding="utf-8")
                             action = "updated"
                     else:
-                        action = "skipped"
+                        # No state change in either mode; mirror the dry-run
+                        # prefix of the identical-file branch for consistency.
+                        action = "would-skip" if dry_run else "skipped"
                         note = "differs; pass --force"
                 else:
                     # Hand-authored
