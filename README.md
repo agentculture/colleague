@@ -115,6 +115,7 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 |---------|-----|
 | Work & the tool-loop | [work-and-loop.md](docs/features/work-and-loop.md) |
 | Context budget / graceful degradation | [graceful-degradation.md](docs/features/graceful-degradation.md) |
+| Capacity standard / fill-line decision (v1) | [spec](docs/specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md) |
 | Backends & plugins | [engines.md](docs/features/engines.md) |
 | Model & endpoint selection | [model-selection.md](docs/features/model-selection.md) |
 | Git/PR handoff | [handoff.md](docs/features/handoff.md) |

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-06
+
+### Added
+
+- Capacity standard (#156): proactive fill-line decision (compact | split | finish-with-handoff) recorded on TaskResult.capacity_decision; self-compaction summarizes the working history to itself with lossy windowing as the fallback floor; coarse complexity assessment in colleague/capacity.py; warn-only "too big for one repo" caller warning (TaskResult.capacity_warning). Tunable via COLLEAGUE_FILLLINE_THRESHOLD (default 0.8).
+
+### Changed
+
+- v0 -> v1 graduation: the v0 "no LLM-generated summary" convention is intentionally superseded by self-compaction; lossy windowing remains the documented fallback floor.
+
 ## [0.42.0] - 2026-06-06
 
 ### Added

@@ -568,9 +568,11 @@ def _window_in_place(ctx: _Work, budget: int) -> None:
     """Trim ``ctx.messages`` in place to *budget* tokens (preserves head + tail).
 
     Mutating in place (``[:]``) keeps the trimmed history across turns — dropping
-    old context is intended; there is no summarization. ``window_messages``
-    defaults ``count_tokens`` to the char estimate when ``ctx.count_tokens`` is
-    ``None``.
+    old context is intended. This is the lossy-windowing FLOOR: as of v1 (#156) the
+    fill-line ``compact`` move replaces the elided turns with a model-authored
+    summary, and this drop-oldest windowing is the fallback when the summary turn
+    itself cannot fit. ``window_messages`` defaults ``count_tokens`` to the char
+    estimate when ``ctx.count_tokens`` is ``None``.
     """
     ctx.messages[:] = window_messages(ctx.messages, budget, ctx.count_tokens)
 

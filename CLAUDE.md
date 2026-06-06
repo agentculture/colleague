@@ -281,7 +281,10 @@ The architecture, part by part:
   (`count_tokens_chars`) when `/tokenize` is absent. **Honest limits:** the budget is best-effort exact
   (exact via `/tokenize`, char-approximate fallback) — NO third-party tokenizer
   library is bundled (`dependencies = []` holds); windowing DROPS oldest history
-  with a placeholder note (there is **no LLM-generated summary** in v0); there is
+  with a placeholder note — this lossy windowing is now the **fallback floor**
+  beneath the v1 fill-line `compact` move (the **Capacity standard** below, #156),
+  which replaces the elided turns with a model-authored summary, falling back to
+  this drop-oldest windowing only when the summary turn itself cannot fit; there is
   **no multi-model router / routing policy** (an overflow never switches models); retries
   are bounded (termination preserved). A **request timeout against a genuinely
   unreachable/stuck server still wastes up to `_MAX_TIMEOUT_RETRIES` bounded
@@ -292,6 +295,38 @@ The architecture, part by part:
   Specification + plan:
   `docs/specs/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`
   and `docs/plans/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`.
+- **Capacity standard / fill-line decision (v1, #156)** — colleague holds an
+  opinion about its own context capacity. When a turn's prompt tokens cross a
+  tunable fraction of the context budget (`COLLEAGUE_FILLLINE_THRESHOLD`, on
+  `EngineConfig.fillline_threshold`, default `0.8`), the loop
+  (`colleague/loop.py` + the pure helpers in `colleague/fillline.py`) injects ONE
+  structured decision prompt naming three moves + the capacity numbers; the model
+  **declares one by its next action** and the runtime records it on
+  `TaskResult.capacity_decision` (`{kind, reason}`, omit-when-None like
+  destination/announcement) and acts:
+  - **compact** — a bounded model-authored summary turn (`_compact_history` +
+    `fillline.apply_compaction`) replaces the working history, preserving the head
+    `messages[:2]`; on its own overflow it falls back to lossy windowing (the
+    documented floor — degradation extended, not replaced). This is the deliberate
+    **v0→v1 graduation**: it supersedes the old "no LLM-generated summary in v0"
+    line, recorded honestly, never a silent breach.
+  - **split** — a `subagents` call routes through the existing auto-split fan-out
+    machinery unchanged (no new worktree/merge code).
+  - **finish-with-handoff** — a `finish` call records the continuation summary via
+    the existing preserve-partial path.
+  A separate **warn-only "too big for one repo" caller warning**
+  (`TaskResult.capacity_warning`, set from the up-front coarse complexity assessment
+  in `colleague/capacity.py` — deps/folders/files + an instruction token estimate)
+  fires when an assignment exceeds even the in-repo split capacity; the work CLI
+  emits it to stderr and it is recorded in the artifact. Colleague performs **no
+  cross-repo write** (neighbours stay read-only; the operator splits across
+  repos/instances). Runtime-owned (all-engines rule): fires identically for `mock`
+  and `vllm-openai`, advisory/never-forced, zero-dep, and a strict no-op
+  (byte-identical `TaskResult`) when no fill-line event occurs. The fill-line fires
+  **at most once per work item** (the singular `capacity_decision`); repeated
+  compaction is a documented follow-up. Specification + plan:
+  `docs/specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md`
+  and `docs/plans/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md`.
 - **Config resolution** — `colleague/configdir.py`: repo-level
   `.colleague/` overrides user-level `~/.colleague/`.
 - **Rename back-compat (`convertible` → `colleague`)** — the project was renamed
@@ -327,7 +362,16 @@ The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
 `/think` → `/spec-to-plan` devague workflow).
 
-## v0 scope (hold this line)
+## v1 scope (hold this line)
+
+**v0 → v1 graduation (#156).** colleague has graduated from v0 to v1: it now holds
+an opinion about its own context capacity (the **Capacity standard** above). The one
+deliberate convention change is that the v0 rule *"no LLM-generated summary"* is
+**intentionally superseded** by the fill-line `compact` move (a model-authored
+self-summary), with lossy windowing retained as the documented fallback floor — an
+additive, recorded change, never a silent breach. Everything else below still holds:
+the zero-deps / no-socket / no-daemon conventions, the all-engines rule, and the
+out-of-scope list (a self-summary is NOT a multi-model router, sandbox, or daemon).
 
 In scope: the runtime, the entry-point plugin contract, exactly two backends
 (`mock`, `vllm-openai`), the git/PR handoff, command templates, lifecycle
@@ -352,10 +396,15 @@ ROI loop):
 always-on per-work-item `WorkStats` in the artifact (`colleague/contract.py` +
 `colleague/loop.py`) and a single-record-per-work-item feedback store
 (`colleague/feedback.py`) surfaced as `colleague feedback` and the
-`ask-colleague feedback` skill verb. All integrated features (mesh-member, culture
-tool, destination, approval gate, subagents, and stats+feedback) were added via
-explicit re-specs (spec + plan committed under `docs/specs/` / `docs/plans/`);
-they extend the runtime within the zero-deps / no-socket / no-daemon conventions.
+`ask-colleague feedback` skill verb — and the **capacity standard** (v1, #156):
+the proactive fill-line decision (compact | split | finish-with-handoff,
+`colleague/fillline.py`), self-compaction with lossy windowing as the fallback
+floor, the coarse complexity assessment (`colleague/capacity.py`), and the
+warn-only "too big for one repo" caller warning. All integrated features
+(mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
+and the capacity standard) were added via explicit re-specs (spec + plan committed
+under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
+no-socket / no-daemon conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
 router / routing policy, an execution sandbox, a daemon/server mode,
