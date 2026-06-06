@@ -448,6 +448,13 @@ def cmd_work(args: argparse.Namespace) -> int:
             emit_result(exc.result.to_dict(), json_mode=True)
         raise
 
+    # Surface the warn-only "too big for one repo" capacity warning (#156) on stderr
+    # — a diagnostic, so it never pollutes the stdout result stream and reaches the
+    # caller (agent or human) in both text and --json modes; it is also recorded in
+    # the artifact (result.to_dict()).
+    if result.capacity_warning:
+        emit_diagnostic(f"capacity warning: {result.capacity_warning}")
+
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)
     else:

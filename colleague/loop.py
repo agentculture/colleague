@@ -41,6 +41,8 @@ from typing import Any, Callable
 
 from colleague import autosplit as _autosplit
 from colleague import escalation as _escalation
+from colleague import fillline as _fillline
+from colleague.capacity import assess_capacity
 from colleague.context import classify_degradable, window_messages
 from colleague.contract import (
     DECISION_DENY,
@@ -48,6 +50,7 @@ from colleague.contract import (
     ERROR,
     NO_RESULT_PRODUCED,
     OK,
+    CapacityDecision,
     HookFiring,
     Step,
     Task,
@@ -367,6 +370,19 @@ class _Work:
     # mutable list[str] (single element) so the frozen ``_Work`` dataclass can
     # still update it through the binding.
     _last_substantive: list[str] = field(default_factory=list)
+    # Proactive fill-line decision (#156). ``capacity_threshold`` is the fraction of
+    # ``context_budget`` at which the runtime offers the one capacity decision; armed
+    # only when degradation is active and the threshold is in ``(0, 1]``.
+    # ``_fillline_offered`` / ``_fillline_resolved`` are single-element mutable cells
+    # (the ``_split_recommended`` pattern) so the decision is offered + recorded at
+    # most once per work item through the frozen binding.
+    capacity_threshold: float | None = None
+    _fillline_offered: list[bool] = field(default_factory=list)
+    _fillline_resolved: list[bool] = field(default_factory=list)
+    # The prompt-token count that tripped the fill line — captured when the decision
+    # is OFFERED so the recorded reason matches the number named in the prompt (not
+    # the slightly different count of the declaring turn).
+    _fillline_used: list[int] = field(default_factory=list)
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -556,9 +572,11 @@ def _window_in_place(ctx: _Work, budget: int) -> None:
     """Trim ``ctx.messages`` in place to *budget* tokens (preserves head + tail).
 
     Mutating in place (``[:]``) keeps the trimmed history across turns — dropping
-    old context is intended; there is no summarization. ``window_messages``
-    defaults ``count_tokens`` to the char estimate when ``ctx.count_tokens`` is
-    ``None``.
+    old context is intended. This is the lossy-windowing FLOOR: as of v1 (#156) the
+    fill-line ``compact`` move replaces the elided turns with a model-authored
+    summary, and this drop-oldest windowing is the fallback when the summary turn
+    itself cannot fit. ``window_messages`` defaults ``count_tokens`` to the char
+    estimate when ``ctx.count_tokens`` is ``None``.
     """
     ctx.messages[:] = window_messages(ctx.messages, budget, ctx.count_tokens)
 
@@ -597,6 +615,145 @@ def _inject_split_recommendation(ctx: _Work) -> None:
     )
     ctx.messages.append({"role": "user", "content": body})
     ctx._split_recommended.append(True)
+
+
+def _fillline_armed(ctx: _Work) -> bool:
+    """True when the proactive fill-line decision (#156) is armed for this work item.
+
+    Armed iff degradation is active (a positive ``context_budget``) AND a usable
+    ``capacity_threshold`` fraction is configured. Dormant otherwise — a strict no-op
+    byte-identical to the pre-feature loop.
+    """
+    return _fillline.armed(ctx.context_budget, ctx.capacity_threshold)
+
+
+def _offer_fillline(ctx: _Work, prompt_tokens: int) -> None:
+    """Inject the ONE structured fill-line decision prompt; mark it offered (#156).
+
+    Names the three moves + the capacity numbers (reusing the autosplit child-count
+    maths for the split option) and points the model at how to declare each by its
+    next action. Offered at most once per work item via ``_fillline_offered``.
+    """
+    budget = int(ctx.context_budget)
+    target = ctx.autosplit_target if isinstance(ctx.autosplit_target, int) else budget
+    max_children = _autosplit.child_count(max(target, budget), budget)
+    body = _fillline.build_decision_prompt(
+        used_tokens=prompt_tokens,
+        budget_tokens=budget,
+        per_child_budget_tokens=budget,
+        max_children=max_children,
+    )
+    ctx.messages.append({"role": "user", "content": body})
+    ctx._fillline_offered.append(True)
+    ctx._fillline_used.append(prompt_tokens)
+
+
+def _record_fillline_decision(ctx: _Work, kind: str) -> None:
+    """Record the declared fill-line move on the result (#156); mark it resolved.
+
+    The reason names the offer-time token count (``_fillline_used``) so it matches the
+    number stated in the decision prompt, not the declaring turn's slightly different
+    prompt size.
+    """
+    budget = int(ctx.context_budget)
+    used = ctx._fillline_used[0] if ctx._fillline_used else 0
+    reason = f"context at {used} of {budget} budgeted tokens (fill line)"
+    ctx.result.capacity_decision = CapacityDecision(kind=kind, reason=reason)
+    ctx._fillline_resolved.append(True)
+
+
+def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
+    """Compact the working history into a model-authored summary (compact branch, #156).
+
+    Runs ONE bounded summarization turn over the windowed history and replaces the
+    working history (after the preserved head ``messages[:2]``) with the summary, so
+    the model continues from a compact note instead of losing older context silently.
+    The summary turn is accounted like any other turn (counts against the step
+    budget). If it raises a *degradable* error (the summary itself cannot fit), the
+    loop falls back to today's lossy windowing — the documented floor.
+    """
+    budget = int(ctx.context_budget)
+    request = _fillline.build_compaction_request(ctx.messages, budget, ctx.count_tokens)
+    try:
+        resp = complete(request)
+    except Exception as exc:  # noqa: BLE001
+        # The summary turn itself could not fit / timed out → fall back to the
+        # lossy-windowing floor (degradation unchanged); never abort on a compaction.
+        if classify_degradable(str(exc)) is not None:
+            _window_in_place(ctx, budget)
+            return
+        raise
+    _account_turn(ctx, resp)
+    ctx.messages[:] = _fillline.apply_compaction(ctx.messages, resp.content)
+
+
+def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
+    """Offer the fill-line decision once, when the last turn's context crossed it (#156).
+
+    A strict no-op when dormant (not armed), already offered, or still under the
+    threshold — so a work item that never fills its context is byte-identical to today.
+    """
+    if (
+        _fillline_armed(ctx)
+        and not ctx._fillline_offered
+        and _fillline.crossed(
+            last_prompt_tokens, int(ctx.context_budget), float(ctx.capacity_threshold)
+        )
+    ):
+        _offer_fillline(ctx, last_prompt_tokens)
+
+
+def _resolve_fillline(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> str:
+    """Classify + record the model's declaring turn, acting on a compact move (#156).
+
+    Maps the declaring turn to one move: a ``subagents`` call → ``split`` (the
+    existing fan-out machinery then runs it), a ``finish`` call →
+    ``finish-with-handoff`` (the existing finish path records the continuation
+    summary), anything else → ``compact`` (this runs the self-summary now). Returns
+    the move kind so the caller knows whether the compact branch already consumed the
+    turn.
+    """
+    tool_names = [tc.name for tc in (resp.tool_calls or [])]
+    kind = _fillline.classify_declaration(tool_names)
+    _record_fillline_decision(ctx, kind)
+    if kind == _fillline.MOVE_COMPACT:
+        _compact_history(ctx, complete)
+    return kind
+
+
+def _consume_fillline_declaration(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> bool:
+    """Resolve a pending fill-line declaration; return whether the loop should ``continue``.
+
+    Returns ``True`` only for a *pure* compact declaration (no tool calls) — the
+    history was compacted and the model continues from the summary next turn. For a
+    compact-with-tool-calls turn (the model kept working) or a split/finish
+    declaration, returns ``False`` so the caller still runs the declaring turn's tool
+    calls (they are NOT discarded). A no-op (returns ``False``) when no declaration is
+    pending.
+    """
+    if not (ctx._fillline_offered and not ctx._fillline_resolved):
+        return False
+    kind = _resolve_fillline(ctx, resp, complete)
+    return kind == _fillline.MOVE_COMPACT and not resp.tool_calls
+
+
+def _handle_degradable_exhaustion(ctx: _Work, exc: Exception) -> bool:
+    """Reactive auto-split (#151) on an EXHAUSTED degradable error; return continue?.
+
+    Returns ``True`` (inject ONE split recommendation, caller continues) when armed,
+    not yet recommended, and the error is degradable — BEFORE it would propagate to
+    run()'s abort+escalate path. Returns ``False`` otherwise so the caller re-raises,
+    byte-identical to the pre-feature loop. Extracted from :func:`_work_loop` to keep
+    its cognitive complexity within budget (SonarCloud S3776).
+    """
+    if (
+        _autosplit_armed(ctx)
+        and not ctx._split_recommended
+        and classify_degradable(str(exc)) is not None
+    ):
+        _inject_split_recommendation(ctx)
+        return True
+    return False
 
 
 def _remember_degraded_floor(ctx: _Work, budget: int) -> None:
@@ -774,6 +931,23 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
     return nudges, _EXIT_STOPPED
 
 
+def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
+    """Process a normal (non-fill-line) turn; return ``(nudges, exit_reason_or_None)``.
+
+    Either handles a no-tool-call turn (nudge once, else stop) or runs the turn's tool
+    calls (a finish ends the work item). Extracted from :func:`_work_loop` so that
+    function's cognitive complexity stays within budget (SonarCloud S3776).
+    """
+    if not resp.tool_calls:
+        return _handle_no_tool_turn(ctx, resp, nudges)
+    ctx.messages.append(_assistant_message(resp))
+    # Run the turn's tool calls; a finish on any of them ends the work item once the
+    # turn completes (the remaining calls in the turn still run).
+    if _run_tool_calls(ctx, resp.tool_calls):
+        return nudges, _EXIT_FINISHED
+    return nudges, None
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -800,46 +974,38 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     ``max_steps + 1`` iterations.
     """
     nudges = 0
+    last_prompt_tokens = 0
     budget = max(1, max_steps)
     while ctx.result.stats.model_turns < budget:
+        # Proactive fill-line decision (#156): when the last turn's context crossed the
+        # threshold, offer the one capacity decision (compact | split | handoff) BEFORE
+        # this turn completes, so the model declares it by its next action. No-op when
+        # dormant / already offered / under the line.
+        _maybe_offer_fillline(ctx, last_prompt_tokens)
         try:
             resp = _complete_with_degradation(ctx, complete)
         except Exception as exc:  # noqa: BLE001
-            # A degradable give-up may trigger auto-split; otherwise it re-raises.
-            # Reactive auto-split (#151, #154): an EXHAUSTED degradable error (the
-            # bounded shrink-and-retry in _complete_with_degradation gave up) — a
-            # context overflow OR a request timeout — is the well-defined "too large
-            # for one window" signal. When armed and not yet offered, inject ONE split
-            # recommendation and continue — giving the model a bounded extra turn to
-            # call `subagents` (or write an INCOMPLETE finish), BEFORE this error would
-            # propagate to run()'s abort+escalate path. The give-up carried its floored
-            # budget forward so that extra turn runs against the small window, not the
-            # full one that just failed (#154). The injection does not account a model
-            # turn, so it never consumes the final budget slot. Otherwise (feature
-            # dormant, already offered, the split was declined, or a non-degradable
-            # error) re-raise unchanged — byte-identical to the pre-feature loop, so
-            # escalation remains the fallback.
-            if (
-                _autosplit_armed(ctx)
-                and not ctx._split_recommended
-                and classify_degradable(str(exc)) is not None
-            ):
-                _inject_split_recommendation(ctx)
+            # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
+            # #154) — inject ONE recommendation and continue BEFORE the error would
+            # reach run()'s abort+escalate path; otherwise re-raise unchanged so
+            # escalation remains the fallback (byte-identical to the pre-feature loop).
+            if _handle_degradable_exhaustion(ctx, exc):
                 continue
             raise
         _account_turn(ctx, resp)
+        last_prompt_tokens = resp.prompt_tokens
 
-        if not resp.tool_calls:
-            nudges, exit_reason = _handle_no_tool_turn(ctx, resp, nudges)
-            if exit_reason is not None:
-                return exit_reason
-            continue  # nudged — give the model one more turn to call finish
+        # If a fill-line decision is pending (#156), this turn is the model's
+        # declaration: record it and, on a pure compact declaration, summarize +
+        # continue from the compact note. A compact-with-tool-calls turn or a
+        # split/finish declaration falls through so the declaring turn's tool calls
+        # still run (never discarded).
+        if _consume_fillline_declaration(ctx, resp, complete):
+            continue
 
-        ctx.messages.append(_assistant_message(resp))
-        # Run the turn's tool calls; a finish on any of them ends the work item once
-        # the turn completes (the remaining calls in the turn still run).
-        if _run_tool_calls(ctx, resp.tool_calls):
-            return _EXIT_FINISHED
+        nudges, exit_reason = _advance_turn(ctx, resp, nudges)
+        if exit_reason is not None:
+            return exit_reason
     return _EXIT_BUDGET
 
 
@@ -885,6 +1051,11 @@ class ContextControls:
     budget: int | None = None
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
     autosplit_target: int | None = None
+    # Fill-line decision threshold (#156): the fraction of ``budget`` at which the
+    # proactive capacity decision (compact | split | finish-with-handoff) is offered.
+    # ``None`` or out of ``(0, 1]`` leaves the proactive decision dormant — a strict
+    # no-op (degradation + reactive auto-split still apply).
+    fillline_threshold: float | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -928,6 +1099,44 @@ def _maybe_inject_upfront_hint(ctx: _Work) -> None:
             ),
         }
     )
+
+
+def _maybe_warn_too_big(ctx: _Work) -> None:
+    """Set the warn-only "too big for one repo" caller warning (#156, t7).
+
+    A coarse up-front capacity assessment (deps/folders/files + an instruction token
+    estimate via :mod:`colleague.capacity`) that judges the assignment to exceed even
+    the in-repo split capacity records a caller-visible warning on
+    ``result.capacity_warning`` — surfaced (CLI prints it to stderr; it is recorded in
+    the artifact), never silent. Colleague performs NO cross-repo write: the operator
+    splits the work across repos/instances (neighbours stay read-only). A strict no-op
+    for a normal-sized job (verdict != over_split_capacity → warning stays ``None`` →
+    omitted from the artifact). Gated on a positive budget like the other context
+    features. The estimate is coarse (it cannot see the repo surface the work will
+    touch — the parked limit r2)."""
+    budget = ctx.context_budget
+    if not isinstance(budget, int) or budget <= 0:
+        return
+    # Pass the REAL split capacity (the autosplit target = max children × per-child
+    # budget) so the verdict isn't a magic 4× proxy; the assessment folds the repo's
+    # complexity (deps/folders/files) into the effective size it judges.
+    split_capacity = ctx.autosplit_target if isinstance(ctx.autosplit_target, int) else None
+    verdict = assess_capacity(
+        ctx.task.repo_path,
+        ctx.task.instruction,
+        budget,
+        ctx.count_tokens,
+        split_capacity_tokens=split_capacity,
+    )
+    if verdict.verdict == "over_split_capacity":
+        ceiling = split_capacity if split_capacity else budget * 4
+        ctx.result.capacity_warning = (
+            f"This assignment looks too big to hold in one repo: an estimated "
+            f"{verdict.effective_tokens} effective tokens (instruction + repo complexity) "
+            f"exceeds even the in-repo split capacity (~{ceiling} tokens across child "
+            f"instances). Consider splitting it across multiple repositories or colleague "
+            f"instances — colleague will not write across repos (warn-only)."
+        )
 
 
 def run(
@@ -1061,11 +1270,17 @@ def run(
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
         autosplit_target=_context.autosplit_target,
+        capacity_threshold=_context.fillline_threshold,
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
     # complexity within budget; a strict no-op unless armed and the task looks big.
     _maybe_inject_upfront_hint(ctx)
+
+    # Up-front "too big for one repo" caller warning (#156) — sets
+    # result.capacity_warning when even a split can't hold the job; a strict no-op
+    # for a normal-sized assignment.
+    _maybe_warn_too_big(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto

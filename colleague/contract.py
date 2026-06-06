@@ -282,6 +282,31 @@ class SubResult:
 
 
 @dataclass
+class CapacityDecision:
+    """The one declared fill-line move colleague made for a work item (#156).
+
+    When the running context crosses the fill-line threshold, the runtime asks the
+    backend to declare ONE opinionated move and records it here: ``kind`` is one of
+    ``"compact"`` (summarize its own working history to itself), ``"split"`` (fan
+    out to child instances), or ``"finish-with-handoff"`` (stop with a continuation
+    summary); ``reason`` is a short human note (e.g. the capacity numbers that
+    tripped the threshold). ``None`` on ``TaskResult.capacity_decision`` means no
+    fill-line event occurred — the key is then omitted from the artifact entirely,
+    so a work item that never filled its context serializes byte-identically to today.
+    """
+
+    kind: str
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "reason": self.reason}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CapacityDecision":
+        return cls(kind=str(data["kind"]), reason=str(data.get("reason", "")))
+
+
+@dataclass
 class Step:
     """One iteration of the agentic tool-loop: a tool call and its result."""
 
@@ -413,6 +438,17 @@ class TaskResult:
     announcement: Optional[str] = None
     """The announcement text declared on arrival at the destination, or ``None``
     when no destination was set or no announcement was produced."""
+    capacity_decision: Optional[CapacityDecision] = None
+    """The one declared fill-line move (compact | split | finish-with-handoff) the
+    runtime recorded when the running context crossed the fill-line threshold, or
+    ``None`` when no fill-line event occurred (#156). Like destination/announcement,
+    the serialized key is OMITTED (not null) when ``None`` so a work item that never
+    filled its context is byte-identical to today's artifact shape."""
+    capacity_warning: Optional[str] = None
+    """The warn-only "too big for one repo" caller warning, set when the capacity
+    assessment exceeds even the in-repo split capacity (#156), else ``None``. The
+    operator performs the cross-repo split; colleague only warns. Omitted from the
+    artifact (not null) when ``None``."""
     not_finished: bool = False
     """True iff the work item exhausted the step budget without calling ``finish`` AND
     without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
@@ -456,6 +492,13 @@ class TaskResult:
             d["destination"] = self.destination
         if self.announcement is not None:
             d["announcement"] = self.announcement
+        # capacity_decision / capacity_warning get the same omit-when-None
+        # treatment (#156): a work item that never crossed the fill-line threshold
+        # serializes byte-identically to today (no extra keys).
+        if self.capacity_decision is not None:
+            d["capacity_decision"] = self.capacity_decision.to_dict()
+        if self.capacity_warning is not None:
+            d["capacity_warning"] = self.capacity_warning
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -483,6 +526,12 @@ class TaskResult:
             command=data.get("command"),
             destination=data.get("destination"),
             announcement=data.get("announcement"),
+            capacity_decision=(
+                CapacityDecision.from_dict(data["capacity_decision"])
+                if data.get("capacity_decision")
+                else None
+            ),
+            capacity_warning=data.get("capacity_warning"),
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
         )

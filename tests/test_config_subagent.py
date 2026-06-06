@@ -58,6 +58,7 @@ def test_to_dict_has_expected_keys() -> None:
         "timeout",
         "context_budget_tokens",
         "autosplit_target_tokens",
+        "fillline_threshold",
         "max_output_chars",
     }
     assert set(snapshot.keys()) == expected_keys
