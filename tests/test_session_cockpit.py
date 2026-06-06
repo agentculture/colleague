@@ -13,10 +13,12 @@ import subprocess
 from pathlib import Path
 
 from colleague.cli._commands.session import (
+    _HELP_COMPACT,
     _HELP_TEXT,
     _HELP_VERBOSE,
     _SLASH_COMMANDS,
     _Session,
+    build_slash_panels,
     run_session,
 )
 from colleague.config import EngineConfig
@@ -297,3 +299,47 @@ def test_help_verbose_dispatch(tmp_path: Path) -> None:
     out = _CollectingOut()
     run_session(_make_args(tmp_path), input_fn=iter(["/help verbose", "q"]), out=out, _color=False)
     assert "slash commands (verbose)" in out.text()
+
+
+def test_compact_help_carries_tag_badges() -> None:
+    # Default compact help shows text tag badges next to commands (issue #160).
+    assert "[read-only]" in _HELP_TEXT and "[pr]" in _HELP_TEXT and "[writes]" in _HELP_TEXT
+
+
+def test_help_compact_is_icon_mode_and_dispatches(tmp_path: Path) -> None:
+    # /help compact renders the emoji badge form, distinct from the text help.
+    assert _HELP_COMPACT != _HELP_TEXT
+    assert "🚀" in _HELP_COMPACT and "[pr]" not in _HELP_COMPACT
+    for spec in _SLASH_COMMANDS:  # drift: every verb still appears
+        assert f"/{spec.name}" in _HELP_COMPACT
+    out = _CollectingOut()
+    run_session(_make_args(tmp_path), input_fn=iter(["/help compact", "q"]), out=out, _color=False)
+    assert "🚀" in out.text()
+
+
+# ── slash-command tree reaches the agent-facing cockpit tiers (issue #160) ──
+
+
+def test_slash_panels_present_in_session_state(tmp_path: Path) -> None:
+    ids = {p.id for p in _make_session(tmp_path).state.panels}
+    assert {"slash.controls", "slash.inspect", "slash.session"} <= ids
+    # The original cockpit panels are untouched.
+    assert {"policy", "context", "commands", "panel.conversation"} <= ids
+
+
+def test_slash_tree_with_tags_reaches_markdown_tier(tmp_path: Path) -> None:
+    md = render_markdown(_make_session(tmp_path).state)
+    assert "### 📁 Controls" in md and "### 📁 Inspect" in md
+    assert "/pr" in md and "[pr]" in md and "[writes]" in md  # tag badges rendered
+
+
+def test_slash_tree_tags_are_structured_in_taui(tmp_path: Path) -> None:
+    panels = {p["id"]: p for p in serialize(_make_session(tmp_path).state)["panels"]}
+    pr = next(i for i in panels["slash.controls"]["items"] if i["id"] == "slash.pr")
+    assert pr["tags"] == ["git", "pr", "writes", "human-loop"]  # per-item tag field
+
+
+def test_live_flat_view_skips_the_slash_panels() -> None:
+    # The borderless live session view leaves the slash tree to the `/` popup.
+    flat = render_flat(CockpitState(panels=build_slash_panels()), include_prompt=False)
+    assert "Controls" not in flat and "/pr" not in flat

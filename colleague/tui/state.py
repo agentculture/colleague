@@ -66,17 +66,24 @@ class PanelItem:
     status:
         Availability status; conventional values: ``"available"``, ``"active"``,
         ``"disabled"``.  Defaults to ``"available"``.
+    tags:
+        Optional capability/risk badges (e.g. ``["read-only", "config"]``,
+        issue #160) rendered next to the label by the Markdown + ANSI tiers.
+        Defaults to ``[]`` — absent for every pre-#160 item, so the field is
+        backward-compatible.
     """
 
     id: str
     label: str
     status: str = "available"
+    tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "label": self.label,
             "status": self.status,
+            "tags": list(self.tags),
         }
 
     @classmethod
@@ -85,6 +92,7 @@ class PanelItem:
             id=str(d["id"]),
             label=str(d["label"]),
             status=str(d.get("status", "available")),
+            tags=[str(t) for t in d.get("tags", [])],
         )
 
 

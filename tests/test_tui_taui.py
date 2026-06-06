@@ -80,7 +80,7 @@ def test_serialize_returns_dict():
 
 
 def test_taui_version_matches_schema_version():
-    assert SCHEMA_VERSION == "0.1"
+    assert SCHEMA_VERSION == "0.2"
     state = _make_state()
     result = serialize(state)
     assert result["taui_version"] == SCHEMA_VERSION
@@ -354,7 +354,7 @@ def test_empty_state_serializes_cleanly():
     state = CockpitState()
     result = serialize(state)
     _is_json_safe(result)
-    assert result["taui_version"] == "0.1"
+    assert result["taui_version"] == "0.2"
     assert result["panels"] == []
     assert result["popups"] == []
     assert result["work"] is None

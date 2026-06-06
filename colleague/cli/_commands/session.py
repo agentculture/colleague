@@ -36,6 +36,7 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,7 @@ from colleague.tui.render.layout import detect_width
 from colleague.tui.render.markdown import render_markdown as _render_markdown
 from colleague.tui.state import CockpitState, Panel, PanelItem, Status, WorkItem
 from colleague.tui.widgets.prompt_input import plain_prompt
+from colleague.tui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
 
 # ---------------------------------------------------------------------------
 # Types for the injectable seams
@@ -234,6 +236,7 @@ class _Session:
                     visible=True,
                     content_summary=self._suggested_action(facts),
                 ),
+                *build_slash_panels(),
             ],
             status=self._status(),
         )
@@ -492,7 +495,11 @@ class _Session:
         def _render(buffer: str, matches: list, selected: int) -> str:
             parts = [self._frame(include_prompt=False)]
             if matches:
-                parts.append(render_slash_autocomplete(matches, selected, width=detect_width()))
+                parts.append(
+                    render_slash_autocomplete(
+                        matches, selected, width=detect_width(), style=_slash_tag_style()
+                    )
+                )
             parts.append(plain_prompt() + buffer)
             return "\n".join(parts)
 
@@ -537,7 +544,8 @@ class _Session:
         if verb in ("quit", "exit", "q"):
             return False
         if verb in ("help", ""):
-            self._log(_HELP_VERBOSE if rest[:1] == ["verbose"] else _HELP_TEXT)
+            arg = rest[0].lower() if rest else ""
+            self._log({"verbose": _HELP_VERBOSE, "compact": _HELP_COMPACT}.get(arg, _HELP_TEXT))
             return True
 
         introspect = _INTROSPECT.get(verb)
@@ -644,40 +652,63 @@ class _Session:
 
 @dataclass(frozen=True)
 class SlashSpec:
-    """One slash command: its name, an optional arg hint, a one-line help, and the
+    """One slash command: its name, an optional arg hint, a one-line help, the
     intent ``group`` it belongs to (``controls`` / ``inspect`` / ``session``) so
-    ``/help`` can present them grouped rather than as one flat list."""
+    ``/help`` and the popup can present a grouped tree, and ``tags`` — small
+    capability/risk badges (``read-only`` / ``writes`` / ``git`` / ``pr`` …,
+    issue #160) shown next to the command."""
 
     name: str
     arg_hint: str
     description: str
     group: str = "session"
+    tags: tuple[str, ...] = ()
 
 
-#: The single source of truth for every slash command — the ``/help`` text AND
-#: the live autocomplete popup are both derived from this list, so they cannot
-#: drift (a drift test pins that every dispatch verb appears here).
+#: The single source of truth for every slash command — the ``/help`` text, the
+#: live autocomplete popup, AND the cockpit slash panels are all derived from
+#: this list, so they cannot drift (a drift test pins that every dispatch verb
+#: appears here).
 _SLASH_COMMANDS: list[SlashSpec] = [
-    SlashSpec("help", "", "this list (/help verbose for full details)", "session"),
-    SlashSpec("commands", "", "list command templates", "inspect"),
-    SlashSpec("skills", "", "resolved skill docs", "inspect"),
-    SlashSpec("agents", "", "resolved AGENTS layers", "inspect"),
-    SlashSpec("config", "", "configuration readiness (doctor)", "inspect"),
-    SlashSpec("engines", "", "discovered backend plugins", "inspect"),
-    SlashSpec("telemetry", "", "telemetry configuration", "inspect"),
-    SlashSpec("feedback", "", "feedback for the last work item", "inspect"),
-    SlashSpec("engine", "<name>", "switch the engine for the next work item", "controls"),
-    SlashSpec("model", "<name>", "switch the model", "controls"),
-    SlashSpec("base", "<branch>", "set the PR base branch", "controls"),
-    SlashSpec("pr", "", "toggle push + open PR on each work item", "controls"),
-    SlashSpec("quit", "", "end the session", "session"),
-]
-
-#: Display order + heading for each intent group in ``/help``.
-_GROUP_TITLES: list[tuple[str, str]] = [
-    ("controls", "Controls"),
-    ("inspect", "Inspect"),
-    ("session", "Session"),
+    SlashSpec("help", "", "this list (/help verbose|compact for more)", "session"),
+    SlashSpec("commands", "", "list command templates", "inspect", ("read-only", "config")),
+    SlashSpec("skills", "", "resolved skill docs", "inspect", ("read-only", "config")),
+    SlashSpec("agents", "", "resolved AGENTS layers", "inspect", ("read-only", "config")),
+    SlashSpec(
+        "config",
+        "",
+        "configuration readiness (doctor)",
+        "inspect",
+        ("read-only", "config", "audit"),
+    ),
+    SlashSpec("engines", "", "discovered backend plugins", "inspect", ("read-only", "model")),
+    SlashSpec(
+        "telemetry", "", "telemetry configuration", "inspect", ("read-only", "telemetry", "config")
+    ),
+    SlashSpec(
+        "feedback",
+        "",
+        "feedback for the last work item",
+        "inspect",
+        ("human-loop", "memory", "interactive"),
+    ),
+    SlashSpec(
+        "engine",
+        "<name>",
+        "switch the engine for the next work item",
+        "controls",
+        ("model", "config"),
+    ),
+    SlashSpec("model", "<name>", "switch the model", "controls", ("model", "config")),
+    SlashSpec("base", "<branch>", "set the PR base branch", "controls", ("git", "config")),
+    SlashSpec(
+        "pr",
+        "",
+        "toggle push + open PR on each work item",
+        "controls",
+        ("git", "pr", "writes", "human-loop"),
+    ),
+    SlashSpec("quit", "", "end the session", "session", ("safe",)),
 ]
 
 
@@ -701,50 +732,82 @@ def _grouped(specs: Sequence[SlashSpec]) -> dict[str, list[SlashSpec]]:
     return groups
 
 
-def _format_help(specs: Sequence[SlashSpec]) -> str:
-    """Compact, grouped ``/help``. Argument-taking *Controls* show their arg hint;
-    the rest are listed as a dense row of names. Every ``/<name>`` still appears
-    (the drift test pins that), and the literal token ``slash commands`` is kept."""
+def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
+    """Compact, grouped ``/help`` — one ``📁`` heading per intent group, each
+    command on its own line with its tag badges (issue #160). Every ``/<name>``
+    still appears (the drift test pins that), and the literal token ``slash
+    commands`` is kept. *style* selects the tag form (``text`` | ``icons``)."""
     groups = _grouped(specs)
-    rows = ["slash commands  (/help verbose for full details)"]
-    for key, title in _GROUP_TITLES:
+    rows = ["slash commands  (/help verbose for descriptions · /help compact for icons)"]
+    for key, title in SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue
         rows.append("")
-        rows.append(title)
-        if key == "controls":
-            for s in members:
-                left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
-                rows.append(f"  {left:<16} {s.description}")
-        else:
-            rows.append("  " + "  ".join(f"/{s.name}" for s in members))
+        rows.append(f"{GROUP_ICON} {title}")
+        for s in members:
+            left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
+            rows.append(f"  {left:<18} {format_tags(s.tags, style)}".rstrip())
     rows.append("")
     rows.append("plain text (a number / template name / free-text task) runs a work item.")
     return "\n".join(rows)
 
 
-def _format_help_verbose(specs: Sequence[SlashSpec]) -> str:
-    """Verbose ``/help`` — every command grouped, with arg hints + descriptions."""
+def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str:
+    """Verbose ``/help`` — every command grouped, with arg hints, descriptions,
+    and tag badges."""
     groups = _grouped(specs)
     rows = ["slash commands (verbose)"]
-    for key, title in _GROUP_TITLES:
+    for key, title in SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue
         rows.append("")
-        rows.append(title)
+        rows.append(f"{GROUP_ICON} {title}")
         for s in members:
             left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
-            rows.append(f"  {left:<18} {s.description}")
+            tags = format_tags(s.tags, style)
+            suffix = f"  {tags}" if tags else ""
+            rows.append(f"  {left:<18} {s.description}{suffix}")
     rows.append("")
     rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
     rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
     return "\n".join(rows)
 
 
+def build_slash_panels() -> list[Panel]:
+    """The slash catalog as cockpit panels — one ``Panel`` per intent group, each
+    item carrying the command's ``tags`` — so the grouped tree + tag badges reach
+    the agent-facing Markdown/TAUI tiers (issue #160). The live ANSI session
+    surfaces the same commands through the ``/`` popup, so ``render_flat`` skips
+    these ``slash.*`` panels."""
+    groups = _grouped(_SLASH_COMMANDS)
+    panels: list[Panel] = []
+    for key, title in SLASH_GROUPS:
+        members = groups.get(key, [])
+        if not members:
+            continue
+        items = [
+            PanelItem(
+                id=f"slash.{s.name}",
+                label=f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else ""),
+                tags=list(s.tags),
+            )
+            for s in members
+        ]
+        panels.append(Panel(id=f"slash.{key}", title=f"{GROUP_ICON} {title}", items=items))
+    return panels
+
+
+def _slash_tag_style() -> str:
+    """Tag badge style for the live ``/`` popup: ``icons`` when
+    ``COLLEAGUE_SLASH_TAG_STYLE=icons``, else the default ``text``."""
+    return "icons" if os.environ.get("COLLEAGUE_SLASH_TAG_STYLE", "").lower() == "icons" else "text"
+
+
 _HELP_TEXT = _format_help(_SLASH_COMMANDS)
 _HELP_VERBOSE = _format_help_verbose(_SLASH_COMMANDS)
+_HELP_COMPACT = _format_help(_SLASH_COMMANDS, style="icons")
 
 # Read-only introspection: map a verb to the argv passed to the real CLI parser.
 _INTROSPECT: dict[str, Callable[["_Session"], list[str]]] = {

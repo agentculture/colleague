@@ -31,6 +31,7 @@ from colleague.tui.render.layout import DEFAULT_WIDTH
 from colleague.tui.state import CockpitState
 from colleague.tui.taui import serialize
 from colleague.tui.widgets.prompt_input import render_prompt_input
+from colleague.tui.widgets.slash_autocomplete import format_tags
 
 # ── local SGR helpers (no third-party rendering lib) ────────────────────────
 _RESET = "\x1b[0m"
@@ -91,8 +92,11 @@ def _panel_block(panel: dict[str, Any], width: int) -> list[str]:
     for num, item in enumerate(items, start=1):
         label = str(item.get("label", item.get("id", "")))
         status = str(item.get("status", ""))
+        tags = format_tags(item.get("tags", []))
         bullet = f"{num}." if numbered else "•"
         text = f"{label} — {status}" if status and status != "available" else label
+        if tags:
+            text = f"{text}  {tags}"
         lines.append(f"  {_DIM}{bullet}{_RESET} {_clip(text, max(1, width - 4))}")
     return lines
 
@@ -123,7 +127,10 @@ def render_flat(
     blocks: list[list[str]] = [[_state_line(taui)]]
 
     for panel in taui.get("panels", []):
-        if panel.get("visible"):
+        # The ``slash.*`` panels carry the slash-command tree for the agent-facing
+        # Markdown/TAUI tiers; the live session surfaces those through the ``/``
+        # popup, so the static tree is redundant here and is skipped.
+        if panel.get("visible") and not str(panel.get("id", "")).startswith("slash."):
             blocks.append(_panel_block(panel, width))
 
     for popup in taui.get("popups", []):
