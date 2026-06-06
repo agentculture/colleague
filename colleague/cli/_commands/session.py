@@ -41,21 +41,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
-from colleague import registry
+from colleague import feedback, handoff, identity, layers, registry
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_engine
 from colleague.contract import Task, TaskResult
+from colleague.policy import load_policy
+from colleague.telemetry import TelemetryConfig
 from colleague.tui.colors import should_color
 from colleague.tui.events import UserInput
 from colleague.tui.from_work import work_step
 from colleague.tui.reducer import reduce
-from colleague.tui.render.ansi import render as _render_ansi
+from colleague.tui.render.ansi_flat import render_flat as _render_flat
 from colleague.tui.render.layout import detect_width
 from colleague.tui.render.markdown import render_markdown as _render_markdown
-from colleague.tui.state import CockpitState, Panel, PanelItem, Status
+from colleague.tui.state import CockpitState, Panel, PanelItem, Status, WorkItem
 from colleague.tui.widgets.prompt_input import plain_prompt
 
 # ---------------------------------------------------------------------------
@@ -68,7 +70,6 @@ _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
 _CONVERSATION_PANEL_ID = "panel.conversation"
 #: CSI clear-screen + cursor-home, so the dynamic ANSI view redraws in place.
 _CLEAR_HOME = "\x1b[H\x1b[2J"
-_PROMPT_HINT = "Type a number / template name / free-text task, or /help for commands."
 
 
 def _eprint(*args: object, **kwargs: object) -> None:
@@ -197,6 +198,7 @@ class _Session:
     # ── state construction / mutation ────────────────────────────────────────
 
     def _initial_state(self) -> CockpitState:
+        facts = self._facts()
         items = [
             PanelItem(
                 id=f"command.{name}",
@@ -207,22 +209,178 @@ class _Session:
         ]
         return CockpitState(
             panels=[
-                Panel(id="commands", title="Commands", visible=True, items=items),
+                self._policy_panel(facts),
+                self._context_panel(facts),
+                Panel(id="commands", title="Work templates", visible=True, items=items),
                 Panel(
                     id=_CONVERSATION_PANEL_ID,
                     title="Session",
                     visible=True,
-                    content_summary=_PROMPT_HINT,
+                    content_summary=self._suggested_action(facts),
                 ),
             ],
             status=self._status(),
         )
 
     def _status(self) -> Status:
-        pr = "PR" if self.open_pr else "local"
-        engine, model = self.engine_name, self.config.model
-        message = f"colleague session · engine {engine} · model {model} · {pr}"
+        pr = "push+PR" if self.open_pr else "local"
+        message = f"colleague session · {self.engine_name} · {pr}"
         return Status(severity="info", message=message)
+
+    # ── cockpit facts (resolved once at startup / on a config change) ────────
+
+    def _facts(self) -> dict:
+        """Resolve the cockpit's context + policy facts from existing read-only
+        helpers, in one guarded pass.
+
+        Every value degrades to a safe default (``"unknown"`` / ``"none"`` /
+        ``False``) rather than raising — a cockpit that can't resolve a fact must
+        still open. Called at construction and after each context-mutating slash
+        action / completed work item — **never** on the per-frame render path
+        (which runs per keystroke + per work step).
+        """
+        facts: dict = {
+            "branch": "unknown",
+            "dirty": False,
+            "agents": 0,
+            "skills": [],
+            "telemetry": False,
+            "runcfg": None,
+            "hooks_gated": False,
+            "ident": self.repo.name,
+            "last": None,
+            "feedback": None,
+        }
+        try:
+            facts["branch"] = handoff.current_ref(self.repo) or "unknown"
+            facts["dirty"] = handoff.working_tree_dirty(self.repo)
+            facts["agents"] = len(layers.resolve_agents(self.repo, self.config.model))
+            facts["skills"] = sorted(layers.resolve_skills(self.repo, self.config.model))
+            facts["telemetry"] = TelemetryConfig.resolve().enabled
+            pol = load_policy(self.repo, model=self.config.model)
+            facts["runcfg"] = pol.run_command_config()
+            facts["hooks_gated"] = pol.section_present("hooks") or pol.section_present("commands")
+            facts["ident"] = identity.resolve_identity(self.repo) or self.repo.name
+            last = feedback.get_last_work(self.repo)
+            facts["last"] = last
+            if last:
+                try:
+                    facts["feedback"] = feedback.read_feedback(self.repo, last)
+                except feedback.FeedbackError:
+                    facts["feedback"] = None
+        except Exception:  # nosec B110 - the cockpit must open even if a fact won't resolve
+            pass
+        return facts
+
+    def _policy_panel(self, facts: dict) -> Panel:
+        """The *Run policy* panel — the safety surface (AC #3). Honest labels: the
+        loop can write any repo file and run any command unless ``run_command`` is
+        gated; the only real outward gate is push/PR. No sandbox is claimed."""
+        runcfg = facts["runcfg"]
+        if runcfg is None:
+            run_status, run_emoji = "ungated (any command)", "⚠️"
+        else:
+            allow = runcfg.get("allow") or []
+            if allow:
+                shown = ", ".join(allow[:3]) + ("…" if len(allow) > 3 else "")
+                run_status = f"allow-list: {shown}"
+            else:
+                run_status = "gated (deny unlisted)"
+            run_emoji = "🛡️"
+        edits = "read + write within repo"
+        if facts["hooks_gated"]:
+            edits += " · hooks/commands checksum-gated"
+        if self.open_pr:
+            handoff_status, handoff_emoji = f"on — push + open PR onto '{self.base}'", "🚀"
+        else:
+            handoff_status, handoff_emoji = "off (local commit only)", "🔒"
+        summary = (
+            f"run_command: {'ungated' if runcfg is None else 'gated'} · "
+            f"edits: repo-local · push/PR: {'on' if self.open_pr else 'off'}"
+        )
+        return Panel(
+            id="policy",
+            title="Run policy",
+            visible=True,
+            content_summary=summary,
+            items=[
+                PanelItem(
+                    id="pol.run_command", label=f"{run_emoji} run_command", status=run_status
+                ),
+                PanelItem(id="pol.files", label="✏️ file edits", status=edits),
+                PanelItem(
+                    id="pol.handoff", label=f"{handoff_emoji} push + PR", status=handoff_status
+                ),
+            ],
+        )
+
+    def _context_panel(self, facts: dict) -> Panel:
+        """The *Context* panel — what world this colleague inhabits (AC #4/#5)."""
+        skills = facts["skills"]
+        if skills:
+            shown = ", ".join(skills[:3]) + ("…" if len(skills) > 3 else "")
+            skills_status = f"{shown} ({len(skills)})"
+        else:
+            skills_status = "none"
+        agents_status = f"{facts['agents']} resolved" if facts["agents"] else "none"
+        tree_status = "dirty (tracked changes)" if facts["dirty"] else "clean"
+        fb, last = facts["feedback"], facts["last"]
+        if last and fb is not None:
+            fb_status = f"last graded ★{fb.rating}" + (f" by {fb.by}" if fb.by else "")
+        elif last:
+            fb_status = "last work ungraded — /feedback to grade"
+        else:
+            fb_status = "no work recorded yet"
+        summary = (
+            f"engine {self.engine_name} · model {self.config.model} · "
+            f"{'PR' if self.open_pr else 'local'} · base {self.base}"
+        )
+        return Panel(
+            id="context",
+            title="Context",
+            visible=True,
+            content_summary=summary,
+            items=[
+                PanelItem(id="ctx.repo", label="📁 repo", status=facts["ident"]),
+                PanelItem(id="ctx.branch", label="🌿 branch", status=facts["branch"]),
+                PanelItem(id="ctx.tree", label="🧭 working tree", status=tree_status),
+                PanelItem(id="ctx.agents", label="📋 AGENTS layers", status=agents_status),
+                PanelItem(id="ctx.skills", label="🧩 skills", status=skills_status),
+                PanelItem(
+                    id="ctx.telemetry",
+                    label="📡 telemetry",
+                    status="on" if facts["telemetry"] else "off",
+                ),
+                PanelItem(id="ctx.feedback", label="⭐ /feedback", status=fb_status),
+            ],
+        )
+
+    def _suggested_action(self, facts: dict) -> str:
+        """The safest/most-useful next move (AC #1) — always answers 'what now?'."""
+        if facts["dirty"] and not self.allow_dirty:
+            return (
+                "⚠ Safest next: commit or stash first (working tree is dirty), then "
+                "type a number to run a template — or /help."
+            )
+        if self.palette:
+            first = self.palette[0][0]
+            effect = "pushes a PR" if self.open_pr else "commits locally, no PR"
+            return (
+                f"Safest next: type 1 to run '{first}' ({effect}). "
+                "/pr toggles push · /help for commands."
+            )
+        return (
+            "Safest next: type a free-text task (runs locally, no PR until /pr). "
+            "/help for commands."
+        )
+
+    def _refresh_context(self) -> None:
+        """Rebuild the policy + context panels in place (preserving the running
+        conversation + work-templates panels). Called after a config change or a
+        completed work item — both can shift branch / dirty / policy / feedback."""
+        facts = self._facts()
+        rebuilt = {"policy": self._policy_panel(facts), "context": self._context_panel(facts)}
+        self.state.panels = [rebuilt.get(p.id, p) for p in self.state.panels]
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
@@ -242,7 +400,7 @@ class _Session:
 
     def _frame(self, *, include_prompt: bool = True) -> str:
         if self.view == "ansi":
-            return _CLEAR_HOME + _render_ansi(
+            return _CLEAR_HOME + _render_flat(
                 self.state, width=detect_width(), include_prompt=include_prompt
             )
         return _render_markdown(self.state)
@@ -320,7 +478,7 @@ class _Session:
         if verb in ("quit", "exit", "q"):
             return False
         if verb in ("help", ""):
-            self._log(_HELP_TEXT)
+            self._log(_HELP_VERBOSE if rest[:1] == ["verbose"] else _HELP_TEXT)
             return True
 
         introspect = _INTROSPECT.get(verb)
@@ -337,6 +495,7 @@ class _Session:
                 return True
             self._log(confirmation)
             self._refresh_status()
+            self._refresh_context()
             return True
 
         self._error(f"unknown command: /{verb} — try /help")
@@ -384,6 +543,9 @@ class _Session:
         self._run_work(task, command_name)
 
     def _run_work(self, task: Task, command_name: Optional[str]) -> None:
+        # Mark a work item active so the cockpit's state glyph animates per step
+        # (the sink's WorkStep reductions advance ``work_item.step_count``).
+        self.state.work_item = WorkItem(task_id=task.id, engine=self.engine_name, running=True)
         try:
             result, _artifact = self.work_fn(
                 repo=self.repo,
@@ -403,12 +565,17 @@ class _Session:
         except Exception as exc:  # noqa: BLE001
             self._error(f"error: {type(exc).__name__}: {exc}")
             return
+        finally:
+            if self.state.work_item is not None:
+                self.state.work_item.running = False
 
         if self.json_mode:
             self.out(json.dumps(result.to_dict(), ensure_ascii=False))
         changed = ", ".join(result.changed_files) or "(none)"
         branch = f" → {result.branch}" if result.branch else ""
         self._log(f"{result.status}: {result.summary} [{changed}]{branch}")
+        # A completed work item can change branch / dirty / last-feedback state.
+        self._refresh_context()
 
 
 # ---------------------------------------------------------------------------
@@ -418,30 +585,40 @@ class _Session:
 
 @dataclass(frozen=True)
 class SlashSpec:
-    """One slash command: its name, an optional arg hint, and a one-line help."""
+    """One slash command: its name, an optional arg hint, a one-line help, and the
+    intent ``group`` it belongs to (``controls`` / ``inspect`` / ``session``) so
+    ``/help`` can present them grouped rather than as one flat list."""
 
     name: str
     arg_hint: str
     description: str
+    group: str = "session"
 
 
 #: The single source of truth for every slash command — the ``/help`` text AND
 #: the live autocomplete popup are both derived from this list, so they cannot
 #: drift (a drift test pins that every dispatch verb appears here).
 _SLASH_COMMANDS: list[SlashSpec] = [
-    SlashSpec("help", "", "this list"),
-    SlashSpec("commands", "", "list command templates"),
-    SlashSpec("skills", "", "resolved skill docs"),
-    SlashSpec("agents", "", "resolved AGENTS layers"),
-    SlashSpec("config", "", "configuration readiness (doctor)"),
-    SlashSpec("engines", "", "discovered backend plugins"),
-    SlashSpec("telemetry", "", "telemetry configuration"),
-    SlashSpec("feedback", "", "feedback for the last work item"),
-    SlashSpec("engine", "<name>", "switch the engine for the next work item"),
-    SlashSpec("model", "<name>", "switch the model"),
-    SlashSpec("base", "<branch>", "set the PR base branch"),
-    SlashSpec("pr", "", "toggle push + open PR on each work item"),
-    SlashSpec("quit", "", "end the session"),
+    SlashSpec("help", "", "this list (/help verbose for full details)", "session"),
+    SlashSpec("commands", "", "list command templates", "inspect"),
+    SlashSpec("skills", "", "resolved skill docs", "inspect"),
+    SlashSpec("agents", "", "resolved AGENTS layers", "inspect"),
+    SlashSpec("config", "", "configuration readiness (doctor)", "inspect"),
+    SlashSpec("engines", "", "discovered backend plugins", "inspect"),
+    SlashSpec("telemetry", "", "telemetry configuration", "inspect"),
+    SlashSpec("feedback", "", "feedback for the last work item", "inspect"),
+    SlashSpec("engine", "<name>", "switch the engine for the next work item", "controls"),
+    SlashSpec("model", "<name>", "switch the model", "controls"),
+    SlashSpec("base", "<branch>", "set the PR base branch", "controls"),
+    SlashSpec("pr", "", "toggle push + open PR on each work item", "controls"),
+    SlashSpec("quit", "", "end the session", "session"),
+]
+
+#: Display order + heading for each intent group in ``/help``.
+_GROUP_TITLES: list[tuple[str, str]] = [
+    ("controls", "Controls"),
+    ("inspect", "Inspect"),
+    ("session", "Session"),
 ]
 
 
@@ -457,16 +634,58 @@ def filter_slash(prefix: str, specs: Optional[Sequence[SlashSpec]] = None) -> li
     return [s for s in pool if s.name.lower().startswith(needle)]
 
 
-def _format_help(specs: Sequence[SlashSpec]) -> str:
-    rows = ["slash commands:"]
+def _grouped(specs: Sequence[SlashSpec]) -> dict[str, list[SlashSpec]]:
+    """Bucket *specs* by their ``group``, preserving catalog order within a group."""
+    groups: dict[str, list[SlashSpec]] = {}
     for s in specs:
-        left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
-        rows.append(f"  {left:<21} {s.description}")
+        groups.setdefault(s.group or "session", []).append(s)
+    return groups
+
+
+def _format_help(specs: Sequence[SlashSpec]) -> str:
+    """Compact, grouped ``/help``. Argument-taking *Controls* show their arg hint;
+    the rest are listed as a dense row of names. Every ``/<name>`` still appears
+    (the drift test pins that), and the literal token ``slash commands`` is kept."""
+    groups = _grouped(specs)
+    rows = ["slash commands  (/help verbose for full details)"]
+    for key, title in _GROUP_TITLES:
+        members = groups.get(key, [])
+        if not members:
+            continue
+        rows.append("")
+        rows.append(title)
+        if key == "controls":
+            for s in members:
+                left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
+                rows.append(f"  {left:<16} {s.description}")
+        else:
+            rows.append("  " + "  ".join(f"/{s.name}" for s in members))
+    rows.append("")
     rows.append("plain text (a number / template name / free-text task) runs a work item.")
     return "\n".join(rows)
 
 
+def _format_help_verbose(specs: Sequence[SlashSpec]) -> str:
+    """Verbose ``/help`` — every command grouped, with arg hints + descriptions."""
+    groups = _grouped(specs)
+    rows = ["slash commands (verbose)"]
+    for key, title in _GROUP_TITLES:
+        members = groups.get(key, [])
+        if not members:
+            continue
+        rows.append("")
+        rows.append(title)
+        for s in members:
+            left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
+            rows.append(f"  {left:<18} {s.description}")
+    rows.append("")
+    rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
+    rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
+    return "\n".join(rows)
+
+
 _HELP_TEXT = _format_help(_SLASH_COMMANDS)
+_HELP_VERBOSE = _format_help_verbose(_SLASH_COMMANDS)
 
 # Read-only introspection: map a verb to the argv passed to the real CLI parser.
 _INTROSPECT: dict[str, Callable[["_Session"], list[str]]] = {

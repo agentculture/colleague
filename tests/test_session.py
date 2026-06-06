@@ -348,14 +348,14 @@ def test_session_markdown_tier_is_the_non_tty_default(tmp_path: Path) -> None:
 
 def test_session_ansi_tier_redraws_in_place_on_a_colour_tty(tmp_path: Path) -> None:
     """With colour forced on, the cockpit is the dynamic ANSI frame: one
-    clear-home per render, the boxed Commands palette, and the identity."""
+    clear-home per render, the Work-templates section, and the identity."""
     _make_command_template(tmp_path, "setup", "Set up the project.\n")
     out = _CollectingOut()
     rc = run_session(_make_args(tmp_path), input_fn=iter(["q"]), out=out, _color=True)
     assert rc == 0
     text = out.text()
     assert "\x1b[H\x1b[2J" in text  # clear-home → redraw in place
-    assert "Commands" in text and "setup" in text
+    assert "Work templates" in text and "setup" in text
     # Each emitted frame carries exactly one clear-home — one render regime, no
     # double-clear/flicker from the palette and an in-drive sink fighting.
     for frame in out.lines:

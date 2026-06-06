@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-06-06
+
+### Added
+
+- Session delegation cockpit (#158): a Run policy panel (run_command gating, file edits, push/PR) and a Context panel (repo, branch, working-tree state, AGENTS-layer and skill counts, telemetry, /feedback availability) on the first session screen, plus a suggested next action that always answers "what now?".
+- Borderless, Markdown-feel interactive ANSI cockpit renderer (colleague/tui/render/ansi_flat.py) with an animated emoji state glyph (moon-phase while a work item runs, steady severity glyph at idle); derived from taui.serialize so it cannot drift from the Markdown view.
+- Grouped compact /help (Controls / Inspect / Session) plus a richer /help verbose.
+
+### Changed
+
+- The session work-templates palette is retitled "Work templates" (panel id unchanged); the policy + context panels flow into the Markdown and TAUI tiers for free.
+- Promoted handoff._current_ref to public handoff.current_ref (read-only branch accessor) so the cockpit can surface the current branch.
+
 ## [0.39.2] - 2026-06-05
 
 ### Added

@@ -34,7 +34,7 @@ def render_command_palette(state: CockpitState, *, width: int = DEFAULT_WIDTH) -
         return ""
 
     max_inner = max(1, width - 4)
-    lines: list[str] = [_hline(width, panel.title or "Commands")]
+    lines: list[str] = [_hline(width, panel.title or "Work templates")]
     if panel.content_summary:
         lines.append(f"│ {panel.content_summary[:max_inner]:<{max_inner}} │")
 

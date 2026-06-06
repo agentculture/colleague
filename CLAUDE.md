@@ -191,6 +191,26 @@ The architecture, part by part:
   byte-identical to before, so agents and pipelines are unaffected. Spec + plan:
   `docs/specs/2026-06-03-colleague-session-shows-a-live-autocomplete-popup.md`
   and `docs/plans/2026-06-03-colleague-session-shows-a-live-autocomplete-popup.md`.
+  The first screen is a **delegation cockpit** (#158): two extra `CockpitState`
+  panels built by the session optimise for *delegation confidence* — a **Run
+  policy** panel (the safety surface: `run_command` gating · file edits ·
+  push/PR — honest labels, never "sandboxed") and a **Context** panel (repo,
+  branch, working-tree clean/dirty, AGENTS-layer + skill counts, telemetry, and
+  `/feedback` availability), both resolved once from existing read-only helpers
+  (`policy`/`layers`/`feedback`/`handoff`/`identity`/`telemetry`) at startup +
+  after each context-mutating slash action / completed work item — **never on
+  the render path**. The work-templates palette is retitled `Work templates`
+  (id stays `commands`) and a `Session` panel always answers *what now?* with a
+  **suggested next action** (commit-first when dirty, else `type 1 to run
+  '<template>'`). Because the Markdown renderer and the TAUI mirror walk all
+  panels generically, the agent-facing tiers carry the new panels for free; the
+  interactive ANSI tier uses a **borderless, Markdown-feel** renderer
+  (`colleague/tui/render/ansi_flat.py`, derived from `taui.serialize` so it can't
+  drift from Markdown) with **animated emoji state** — a moon-phase glyph that
+  cycles by `work_item.step_count` while a work item runs (motion from real
+  steps, no clock/thread) and a steady severity glyph at idle. `/help` is grouped
+  by intent (Controls / Inspect / Session) and stays compact; `/help verbose`
+  expands every command. The boxed `tui render` ANSI view is unchanged.
 - **Cockpit views (tui)** — `colleague tui` provides three headless, pure-stdlib
   views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
   `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**
