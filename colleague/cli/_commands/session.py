@@ -288,36 +288,32 @@ class _Session:
             pass
         return facts
 
+    @staticmethod
+    def _run_command_status(runcfg: dict | None) -> tuple[str, str, bool]:
+        """``(status text, emoji, gated?)`` for the run_command line.
+
+        Honest labels mirror :meth:`~colleague.policy.Policy.check_run_command`:
+        an allow-list only gates when non-empty; an empty allow-list with a
+        deny-list is deny-only (all others allowed); both empty is effectively
+        ungated. Both lists are coerced so a malformed ``approvals.json`` can't
+        crash render."""
+        if runcfg is None:
+            return "ungated (any command)", "⚠️", False
+        allow = _coerce_strs(runcfg.get("allow"))
+        deny = _coerce_strs(runcfg.get("deny"))
+        if allow:
+            shown = ", ".join(allow[:3]) + ("…" if len(allow) > 3 else "")
+            return f"allow-list: {shown}", "🛡️", True
+        if deny:
+            shown = ", ".join(deny[:3]) + ("…" if len(deny) > 3 else "")
+            return f"deny-list: {shown} (all others allowed)", "🛡️", True
+        return "present, no rules (effectively ungated)", "⚠️", False
+
     def _policy_panel(self, facts: dict) -> Panel:
         """The *Run policy* panel — the safety surface (AC #3). Honest labels: the
         loop can write any repo file and run any command unless ``run_command`` is
         gated; the only real outward gate is push/PR. No sandbox is claimed."""
-        runcfg = facts["runcfg"]
-        if runcfg is None:
-            run_status, run_emoji, gated = "ungated (any command)", "⚠️", False
-        else:
-            # Honest labels mirror Policy.check_run_command: an allow-list only
-            # gates when non-empty; an empty allow-list with a deny-list is
-            # deny-only (all others allowed); both empty is effectively ungated.
-            # Coerce both lists so a malformed approvals.json can't crash render.
-            allow = _coerce_strs(runcfg.get("allow"))
-            deny = _coerce_strs(runcfg.get("deny"))
-            if allow:
-                shown = ", ".join(allow[:3]) + ("…" if len(allow) > 3 else "")
-                run_status, run_emoji, gated = f"allow-list: {shown}", "🛡️", True
-            elif deny:
-                shown = ", ".join(deny[:3]) + ("…" if len(deny) > 3 else "")
-                run_status, run_emoji, gated = (
-                    f"deny-list: {shown} (all others allowed)",
-                    "🛡️",
-                    True,
-                )
-            else:
-                run_status, run_emoji, gated = (
-                    "present, no rules (effectively ungated)",
-                    "⚠️",
-                    False,
-                )
+        run_status, run_emoji, gated = self._run_command_status(facts["runcfg"])
         edits = "read + write within repo"
         if facts["hooks_gated"]:
             edits += " · hooks/commands checksum-gated"
@@ -435,7 +431,8 @@ class _Session:
             lines[0] = suggested
         else:
             lines.insert(0, suggested)
-        return replace(panel, content_summary="\n".join(lines))
+        refreshed: Panel = replace(panel, content_summary="\n".join(lines))
+        return refreshed
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
