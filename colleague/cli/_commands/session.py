@@ -545,11 +545,7 @@ class _Session:
             return False
         if verb in ("help", ""):
             arg = rest[0].lower() if rest else ""
-            self._log(
-                _HELP_VERBOSE
-                if arg == "verbose"
-                else _HELP_COMPACT if arg == "compact" else _HELP_TEXT
-            )
+            self._log({"verbose": _HELP_VERBOSE, "compact": _HELP_COMPACT}.get(arg, _HELP_TEXT))
             return True
 
         introspect = _INTROSPECT.get(verb)

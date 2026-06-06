@@ -110,32 +110,39 @@ def _section_zones(taui: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _panel_item_line(item: dict[str, Any]) -> str:
+    """One Markdown bullet for a panel item: label, tag badges, then status."""
+    label = str(item.get("label", item.get("id", "")))
+    status = str(item.get("status", ""))
+    tags = format_tags(item.get("tags", []))
+    tag_part = f" {tags}" if tags else ""
+    status_part = f" ({status})" if status else ""
+    return f"- {label}{tag_part}{status_part}"
+
+
+def _panel_lines(panel: dict[str, Any]) -> list[str]:
+    """The Markdown lines for one visible panel: sub-heading, summary, items."""
+    title = str(panel.get("title", panel.get("id", "")))
+    summary = str(panel.get("content_summary", ""))
+    items: list[dict[str, Any]] = panel.get("items", [])
+    lines = [f"### {title}"]
+    if summary:
+        lines += ["", summary]
+    if items:
+        lines.append("")
+        lines += [_panel_item_line(item) for item in items]
+    lines.append("")
+    return lines
+
+
 def _section_panels(taui: dict[str, Any]) -> str:
     """Panels section: one sub-heading per visible panel."""
-    panels: list[dict[str, Any]] = taui.get("panels", [])
-    visible = [p for p in panels if p.get("visible")]
+    visible = [p for p in taui.get("panels", []) if p.get("visible")]
     if not visible:
         return ""
     lines = ["## Panels", ""]
     for panel in visible:
-        title = str(panel.get("title", panel.get("id", "")))
-        summary = str(panel.get("content_summary", ""))
-        items: list[dict[str, Any]] = panel.get("items", [])
-
-        lines.append(f"### {title}")
-        if summary:
-            lines.append("")
-            lines.append(summary)
-        if items:
-            lines.append("")
-            for item in items:
-                label = str(item.get("label", item.get("id", "")))
-                status = str(item.get("status", ""))
-                tags = format_tags(item.get("tags", []))
-                tag_part = f" {tags}" if tags else ""
-                status_part = f" ({status})" if status else ""
-                lines.append(f"- {label}{tag_part}{status_part}")
-        lines.append("")
+        lines.extend(_panel_lines(panel))
     return "\n".join(lines).rstrip()
 
 

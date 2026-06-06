@@ -24,7 +24,6 @@ from typing import Sequence
 
 from colleague.tui.render.layout import DEFAULT_WIDTH
 
-_BORDER = "─"
 _RESET = "\x1b[0m"
 _REVERSE = "\x1b[7m"
 _BOLD = "\x1b[1m"
@@ -94,23 +93,18 @@ def format_tags(tags: Sequence[str], style: str = "text") -> str:
     return " ".join(TAG_TEXT.get(t, f"[{t}]") for t in tags)
 
 
-def _hline(width: int, title: str = "") -> str:
-    if title:
-        inner = f" {title} "
-        pad = max(0, width - len(inner) - 2)
-        return "┌" + inner + _BORDER * pad + "┐"
-    return "└" + _BORDER * (width - 2) + "┘"
+def _clip(text: str, width: int) -> str:
+    """Truncate *text* to *width* display columns (approximate; borderless)."""
+    if width > 0 and len(text) > width:
+        return text[: max(1, width - 1)] + "…"
+    return text
 
 
-def _row(inner: str, max_inner: int, *, sgr: str = "") -> str:
-    """One bordered popup row: *inner* fitted to *max_inner*, optionally wrapped
-    in an SGR code (reverse for the selection, bold for a header, dim for a
-    summary). Truncation matches the legacy widget (``…`` suffix)."""
-    if len(inner) > max_inner:
-        inner = inner[: max_inner - 1] + "…"
-    if sgr:
-        return f"│ {sgr}{inner:<{max_inner}}{_RESET} │"
-    return f"│ {inner:<{max_inner}} │"
+def _line(text: str, width: int, *, sgr: str = "") -> str:
+    """One borderless popup line: *text* clipped to *width*, optionally wrapped in
+    an SGR code (reverse for the selection, bold for a header, dim for a summary)."""
+    clipped = _clip(text, width)
+    return f"{sgr}{clipped}{_RESET}" if sgr else clipped
 
 
 def _group_order(matches: Sequence[object]) -> list[str]:
@@ -124,6 +118,21 @@ def _group_order(matches: Sequence[object]) -> list[str]:
     return order
 
 
+def _command_lines(index: int, spec: object, *, selected: int, width: int, style: str) -> list[str]:
+    """The borderless line(s) for one command: an indented ``/name <arg>  <tags>``
+    row, reverse-highlighted with a ``›`` (plus a dim summary sub-line) when it is
+    the *selected* row."""
+    left = f"/{spec.name}" + (f" {spec.arg_hint}" if spec.arg_hint else "")  # type: ignore[attr-defined]  # noqa: E501
+    text = f"{left}  {format_tags(getattr(spec, 'tags', ()), style)}".rstrip()
+    if index != selected:
+        return [_line(f"  {text}", width)]
+    rows = [_line(f"› {text}", width, sgr=_REVERSE)]
+    summary = str(getattr(spec, "description", "") or "")
+    if summary:
+        rows.append(_line(f"    {summary}", width, sgr=_DIM))
+    return rows
+
+
 def render_slash_autocomplete(
     matches: Sequence[object],
     selected: int = 0,
@@ -131,21 +140,22 @@ def render_slash_autocomplete(
     width: int = DEFAULT_WIDTH,
     style: str = "text",
 ) -> str:
-    """Return a box-drawn **grouped** popup of *matches*, or ``""`` when empty.
+    """Return a **borderless, grouped** popup of *matches*, or ``""`` when empty.
 
-    *matches* is the flat, catalog-ordered filter result; it is bucketed by
-    ``spec.group`` into ``📁`` group sections (filtering preserves group
-    context). Each command renders as ``/<name> <arg_hint>  <tags>``; the row at
-    *selected* (a flat index into *matches*, clamped) is highlighted in reverse
-    video with a ``›`` and gains a dim summary sub-line. *style* selects the tag
-    badge form (``"text"`` default | ``"icons"``). *matches* items are
-    duck-typed ``SlashSpec`` (``.name`` / ``.arg_hint`` / ``.description`` /
-    ``.group`` / ``.tags``), so this widget never imports the session module.
+    No box frame — hierarchy comes from a ``📁`` heading per group and indented
+    command rows (the Markdown-feel of the session cockpit, #158). *matches* is
+    the flat, catalog-ordered filter result, bucketed by ``spec.group`` so
+    filtering preserves group context. Each command renders as
+    ``/<name> <arg_hint>  <tags>``; the row at *selected* (a flat index into
+    *matches*, clamped) is reverse-highlighted with a ``›`` and gains a dim
+    summary sub-line. *style* selects the tag badge form (``"text"`` default |
+    ``"icons"``). *matches* items are duck-typed ``SlashSpec`` (``.name`` /
+    ``.arg_hint`` / ``.description`` / ``.group`` / ``.tags``), so this widget
+    never imports the session module.
     """
     if not matches:
         return ""
     sel = max(0, min(selected, len(matches) - 1))
-    max_inner = max(1, width - 4)
 
     # Bucket the flat matches by group, remembering each match's flat index so
     # the selection highlight maps back to the (group-agnostic) navigation model.
@@ -155,22 +165,12 @@ def render_slash_autocomplete(
         buckets.setdefault(key, []).append((i, spec))
     titles = dict(SLASH_GROUPS)
 
-    lines: list[str] = [_hline(width, "Slash commands")]
+    lines: list[str] = []
     for key in _group_order(matches):
         members = buckets.get(key)
         if not members:
             continue
-        lines.append(_row(f"{GROUP_ICON} {titles.get(key, key.title())}", max_inner, sgr=_BOLD))
+        lines.append(_line(f"{GROUP_ICON} {titles.get(key, key.title())}", width, sgr=_BOLD))
         for i, spec in members:
-            left = f"/{spec.name}" + (f" {spec.arg_hint}" if spec.arg_hint else "")
-            tags = format_tags(getattr(spec, "tags", ()), style)
-            text = f"{left}  {tags}".rstrip()
-            if i == sel:
-                lines.append(_row(f"› {text}", max_inner, sgr=_REVERSE))
-                summary = str(getattr(spec, "description", "") or "")
-                if summary:
-                    lines.append(_row(f"    {summary}", max_inner, sgr=_DIM))
-            else:
-                lines.append(_row(f"  {text}", max_inner))
-    lines.append(_hline(width))
+            lines.extend(_command_lines(i, spec, selected=sel, width=width, style=style))
     return "\n".join(lines)
