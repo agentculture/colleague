@@ -56,6 +56,14 @@ _DEFAULT_SUBAGENT_CONCURRENCY = 1
 # fan-out cap. Override with COLLEAGUE_AUTOSPLIT_TARGET.
 _DEFAULT_AUTOSPLIT_TARGET_TOKENS = 1_000_000
 
+# Fill-line decision threshold (issue #156): the fraction of the context budget at
+# which the runtime offers the proactive capacity decision (compact | split |
+# finish-with-handoff). 0.8 leaves headroom for the decision prompt + the model's
+# declaring turn before a hard overflow. Override with COLLEAGUE_FILLLINE_THRESHOLD;
+# 0 (or out of (0, 1]) leaves the proactive decision dormant — degradation + the
+# reactive auto-split still apply.
+_DEFAULT_FILLLINE_THRESHOLD = 0.8
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -118,6 +126,7 @@ class EngineConfig:
     max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
+    fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -151,6 +160,7 @@ class EngineConfig:
         max_output_chars: int | None = None,
         subagent_concurrency: int | None = None,
         autosplit_target_tokens: int | None = None,
+        fillline_threshold: float | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, then defaults."""
         return cls(
@@ -226,6 +236,15 @@ class EngineConfig:
                     default=str(_DEFAULT_AUTOSPLIT_TARGET_TOKENS),
                 )
             ),
+            fillline_threshold=_try_float(
+                _pick(
+                    _str(fillline_threshold),
+                    "COLLEAGUE_FILLLINE_THRESHOLD",
+                    "CONVERTIBLE_FILLLINE_THRESHOLD",
+                    default=str(_DEFAULT_FILLLINE_THRESHOLD),
+                ),
+                default=_DEFAULT_FILLLINE_THRESHOLD,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -238,6 +257,7 @@ class EngineConfig:
             "timeout": self.timeout,
             "context_budget_tokens": self.context_budget_tokens,
             "autosplit_target_tokens": self.autosplit_target_tokens,
+            "fillline_threshold": self.fillline_threshold,
             "max_output_chars": self.max_output_chars,
         }
 
@@ -253,6 +273,16 @@ def _try_int(value: str | None, default: int) -> int:
         return default
     try:
         return int(value)
+    except ValueError:
+        return default
+
+
+def _try_float(value: str | None, default: float) -> float:
+    """Try to parse a float from a string; return default if None, empty, or non-numeric."""
+    if not value:
+        return default
+    try:
+        return float(value)
     except ValueError:
         return default
 

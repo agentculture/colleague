@@ -228,6 +228,8 @@ class TestNoFinishResultFidelity:
             "command",
             "destination",
             "announcement",
+            "capacity_decision",
+            "capacity_warning",
             "not_finished",
             "stopped_without_finish",
         }
