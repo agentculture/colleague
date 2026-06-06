@@ -162,7 +162,35 @@ The architecture, part by part:
   unchanged. Specification + plan: `docs/specs/2026-06-05-colleague-auto-splits-a-too-large-assignment-into.md`
   and `docs/plans/2026-06-05-colleague-auto-splits-a-too-large-assignment-into.md`.
 - **Handoff** — branch/commit/push + `gh pr create`, gated for offline/CI
-  (`colleague/handoff.py`).
+  (`colleague/handoff.py`). **Crash-resilient (#162):** the `checkout -B` →
+  commit is wrapped so a *catchable* interruption (a `HandoffError`, or a
+  Ctrl-C/`KeyboardInterrupt`) before the commit lands restores the operator's
+  ref and reaps the orphan `colleague/<id>` branch, then re-raises — the success
+  path stays byte-identical. A SIGKILL/OOM/power-loss *inside* the commit is
+  uncatchable (git/filesystem durability, not colleague's to guarantee); that
+  residual wedge is what the `clean` verb recovers.
+- **Cleanup / reap** — `colleague clean` (`colleague/cli/_commands/clean.py`)
+  self-heals a repo a crashed `work` left wedged (#162): a dangling
+  `colleague/<id>` ref pointing at a 0-byte loose object breaks `git fetch`.
+  The git-touching reap lives in `colleague/handoff.py`
+  (`list_colleague_branches` classifies tips corrupt/merged/old/live via
+  `for-each-ref` + `cat-file -t`; `reap_colleague_branches` deletes via
+  `git update-ref -d`, which works on a corrupt tip; `empty_loose_objects`
+  *reports* 0-byte `.git/objects` files) — kept there because `handoff.py` is the
+  sanctioned subprocess consumer (`tests/test_boundary.py`), so `clean.py` and the
+  doctor check import the helpers and never touch `subprocess` themselves. The
+  orphaned-artifact reap (`colleague/artifact.py` `reap_artifacts`) removes 0-byte
+  `.colleague/` artifacts + a dangling `last_work`, never a non-empty (gradable)
+  one. **Scoped strictly to `colleague/*` refs + `.colleague/` artifacts**
+  (never an unrelated branch) and **conservative with `.git/objects`** (reports
+  0-byte loose objects + suggests `git prune`, never deletes them). Corrupt is
+  always reaped; `--merged` / `--older-than DAYS` are opt-in; `--dry-run` reports
+  without changing anything. Surfaced as `colleague clean`, the `ask-colleague
+  clean` skill verb, and an **advisory** `doctor` stale-ref check
+  (`colleague/oilcheck/stale_refs.py`, `warning` severity — flags a wedged repo,
+  never flips report health). Spec + plan:
+  `docs/specs/2026-06-06-a-crashed-colleague-work-no-longer-wedges-your-rep.md`
+  and `docs/plans/2026-06-06-a-crashed-colleague-work-no-longer-wedges-your-rep.md`.
 - **Command templates** — named, parameterized task recipes in
   `.colleague/commands/*.md` (`colleague/commands.py`); expanded into a
   `Task` via `work --command <name> [args…]`.

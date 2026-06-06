@@ -11,6 +11,7 @@
 #   ask-colleague write   "<task>" [--apply]     implement a change (preview by default)
 #   ask-colleague feedback <id|last> --rating N  grade a past drive (ROI loop); no rating -> show
 #   ask-colleague feedback list                  list every recorded drive by request + grade
+#   ask-colleague clean                          reap stale colleague/* branches + artifacts (#162)
 #
 # explore/review run in a throwaway `git worktree` at HEAD, so they can never
 # touch your working tree or branch (any stray write is discarded). write also
@@ -21,6 +22,18 @@
 # move the `last` pointer (issue #132), so `feedback last` stays aimed at the
 # most recent consequential write. Grade a probe by its printed task-id (every
 # drive prints `task:` and a `grade:` hint), or find it with `feedback list`.
+#
+# A crashed/interrupted `write --apply` can leave a dangling colleague/<id>
+# branch (and 0-byte .colleague/ artifacts) that breaks `git fetch`. The
+# EXIT-trap cleanup below only reaps the *current* read-only run's worktree, not
+# a *prior* crashed run — `ask-colleague clean` (which shells out to `colleague
+# clean`) reaps those, scoped strictly to colleague/* so an unrelated branch is
+# never touched.
+#
+# Exit-code policy (matches colleague's CLI contract, #161): 0 success · 1
+# user-input error (bad/missing verb, flag, arg, or path; dirty-tree state guard
+# — same class as the runtime's EXIT_USER_ERROR guard) · 2 environment/setup
+# error (missing required tool, colleague CLI not found, missing prompt template).
 #
 set -euo pipefail
 
@@ -66,9 +79,11 @@ Usage:
   ask-colleague write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
   ask-colleague feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
   ask-colleague feedback list                    List every recorded drive by request + grade (find one by its request)
+  ask-colleague clean [--dry-run]                Reap stale/corrupt colleague/* branches + orphaned .colleague/ artifacts (#162)
 
 Options:
   --repo PATH        Target repo (default: .)
+  --dry-run          (clean) report what would be reaped without changing anything
   --base BRANCH      Base for `review` diff (default: main)
   --engine NAME      Backend plugin (default: $COLLEAGUE_ENGINE or vllm-openai)
   --model NAME       Model (default: $COLLEAGUE_MODEL or sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP)
@@ -89,19 +104,22 @@ feedback grades a finished drive: stats (in the artifact) say what it cost,
 feedback says how good it was — together, the ROI of outsourcing. explore/review
 do not move `last` (they are read-only) — grade them by their printed task-id, or
 run `ask-colleague feedback list` to find a drive by its request.
+clean recovers a repo a crashed run wedged: it reaps stale/corrupt colleague/*
+branches + orphaned .colleague/ artifacts (scoped to colleague/* only). For the
+full flag set (--merged / --older-than) call `colleague clean` directly.
 EOF
 }
 
 # ── parse the verb ──────────────────────────────────────────────────────────
 VERB="${1:-}"
 case "$VERB" in
-    explore | review | write | feedback) shift ;;
+    explore | review | write | feedback | clean) shift ;;
     -h | --help) usage; exit 0 ;;
-    "") usage >&2; exit 2 ;;
+    "") usage >&2; exit 1 ;;  # missing arg -> user-input error (#161)
     *)
-        echo "error: unknown verb '$VERB' (expected explore|review|write|feedback)" >&2
+        echo "error: unknown verb '$VERB' (expected explore|review|write|feedback|clean)" >&2
         echo "hint: run 'ask-colleague --help'" >&2
-        exit 2
+        exit 1  # bad verb -> user-input error (#161)
         ;;
 esac
 
@@ -125,7 +143,7 @@ need_value() {  # $1 = remaining arg count ($#), $2 = flag name
     [[ "$1" -ge 2 ]] || {
         echo "error: $2 requires a value" >&2
         echo "hint: run 'ask-colleague --help'" >&2
-        exit 2
+        exit 1  # missing flag value -> user-input error (#161)
     }
 }
 
@@ -143,6 +161,7 @@ TIMEOUT="${COLLEAGUE_TIMEOUT:-${CONVERTIBLE_TIMEOUT:-300}}"
 ALLOW_DIRTY=0
 APPLY=0
 OPEN_PR=0
+DRY_RUN=0
 RATING=""
 NOTES=""
 BY=""
@@ -160,33 +179,41 @@ while [[ $# -gt 0 ]]; do
         --apply) APPLY=1; shift ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
         --rating) need_value "$#" "$1"; RATING="$2"; shift 2 ;;
         --notes) need_value "$#" "$1"; NOTES="$2"; shift 2 ;;
         --by) need_value "$#" "$1"; BY="$2"; shift 2 ;;
         -h | --help) usage; exit 0 ;;
         --) shift; while [[ $# -gt 0 ]]; do ARG="${ARG:+$ARG }$1"; shift; done ;;
-        -*) echo "error: unknown option '$1'" >&2; echo "hint: run 'ask-colleague --help'" >&2; exit 2 ;;
+        # unknown option -> user-input error (#161)
+        -*) echo "error: unknown option '$1'" >&2; echo "hint: run 'ask-colleague --help'" >&2; exit 1 ;;
         *) ARG="${ARG:+$ARG }$1"; shift ;;
     esac
 done
 
-[[ -n "$ARG" ]] || { echo "error: $VERB needs a description argument" >&2; usage >&2; exit 2; }
-[[ -d "$REPO" ]] || { echo "error: --repo is not a directory: $REPO" >&2; exit 2; }
+# clean takes no description argument; every other verb requires one. (All of the
+# guards below are user-input errors -> exit 1, per the policy comment at the top.)
+if [[ "$VERB" == "clean" ]]; then
+    [[ -z "$ARG" ]] || { echo "error: clean takes no description argument" >&2; exit 1; }
+else
+    [[ -n "$ARG" ]] || { echo "error: $VERB needs a description argument" >&2; usage >&2; exit 1; }
+fi
+[[ -d "$REPO" ]] || { echo "error: --repo is not a directory: $REPO" >&2; exit 1; }
 REPO="$(cd "$REPO" && pwd)"
 
 # One git-repo guard for every verb: --repo is a runtime target like `git -C`, but
 # it must at least be a real git work tree. Fail fast with a clear message instead
-# of an opaque mid-drive error (and every verb here needs git: read-only verbs add
-# a worktree, write commits a drive branch).
+# of an opaque mid-drive error (read-only verbs add a worktree, write commits a
+# drive branch, clean reaps colleague/* refs).
 git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-    || { echo "error: --repo is not a git repository: $REPO" >&2; exit 2; }
+    || { echo "error: --repo is not a git repository: $REPO" >&2; exit 1; }
 
 # review interpolates --base into the LLM instruction ("git diff $BASE...HEAD"),
 # so reject a value that is not a real commit/ref before it is rendered into the
 # prompt — fail fast rather than hand the model a bogus (or injected) ref.
 if [[ "$VERB" == "review" ]]; then
     git -C "$REPO" rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null 2>&1 \
-        || { echo "error: --base is not a valid commit/ref in $REPO: $BASE" >&2; exit 2; }
+        || { echo "error: --base is not a valid commit/ref in $REPO: $BASE" >&2; exit 1; }
 fi
 
 resolve_colleague || exit 2
@@ -454,7 +481,10 @@ run_write() {
         && [[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]]; then
         echo "error: working tree is dirty — commit/stash first, or pass --allow-dirty" >&2
         echo "hint: 'colleague drive --no-pr' commits uncommitted edits onto the drive branch" >&2
-        exit 2
+        # User-fixable state guard -> exit 1, matching the runtime's own
+        # dirty-tree guard (colleague/handoff.py _guard_clean_tree =
+        # EXIT_USER_ERROR), not exit 2 (#161).
+        exit 1
     fi
     # The runtime now enforces its own dirty-tree guard (colleague#149); pass
     # --allow-dirty through so an operator opt-in here isn't re-refused by the
@@ -501,9 +531,23 @@ run_feedback() {
     "${cmd[@]}"
 }
 
+# ── clean verb: recover a repo a crashed run wedged (#162) ──────────────────
+# A thin pass-through to `colleague clean`: the runtime reaps stale/corrupt
+# colleague/* branches + orphaned .colleague/ artifacts, scoped strictly to
+# colleague/* (so an unrelated branch is never touched) and conservative with
+# .git/objects. No worktree, no engine — colleague owns the reap + its own
+# stdout/stderr/exit. The full flag set (--merged / --older-than) lives on
+# `colleague clean`; the skill forwards the common --dry-run.
+run_clean() {
+    local cmd=("${COLLEAGUE[@]}" clean --repo "$REPO")
+    [[ "$DRY_RUN" -eq 1 ]] && cmd+=(--dry-run)
+    "${cmd[@]}"
+}
+
 case "$VERB" in
     explore) run_readonly "$(render_prompt explore)" ;;
     review) run_readonly "$(render_prompt review)" ;;
     write) run_write "$(render_prompt write)" ;;
     feedback) run_feedback "$ARG" ;;
+    clean) run_clean ;;
 esac

@@ -118,6 +118,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
     identity,
     otel,
     provider,
+    stale_refs,
     usage,
 )
 
@@ -135,6 +136,7 @@ CHECK_GROUPS: List[CheckGroup] = [
     engines.checks,
     otel.checks,
     environment.checks,
+    stale_refs.checks,
 ]
 
 

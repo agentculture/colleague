@@ -1,0 +1,247 @@
+{
+  "slug": "a-crashed-colleague-work-no-longer-wedges-your-rep",
+  "title": "A crashed colleague work no longer wedges your repo: colleague clean reaps stale/corrupt colleague/* branches and orphaned .colleague/ artifacts, the handoff runtime self-cleans after a catchable interruption, and doctor flags a wedged repo and points at the recovery verb",
+  "frame_slug": "a-crashed-colleague-work-no-longer-wedges-your-rep",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-06T06:48:55Z",
+  "updated": "2026-06-06T06:50:50Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "A crashed colleague work no longer wedges your repo: colleague clean reaps stale/corrupt colleague/* branches and orphaned .colleague/ artifacts, the handoff runtime self-cleans after a catchable interruption, and doctor flags a wedged repo and points at the recovery verb"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the recovery is a single documented command: colleague clean (and ask-colleague clean) appears in the CLI help, the explain catalog, and SKILL.md, and reaps a wedged repo in one invocation"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "an operator (or an agent via the ask-colleague skill) whose repo was left unable to git fetch by a crashed colleague work run"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "both an operator (colleague clean --repo .) and an agent (ask-colleague clean) reach the same reap path; the skill verb shells out to colleague clean and inherits the colleague/* scoping guard"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "a single documented command \u2014 colleague clean (or ask-colleague clean) \u2014 reaps the corrupt colleague/<id> ref + orphaned .colleague/ artifacts and restores git fetch; the handoff also self-cleans after a catchable interruption"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "after clean, the corrupt colleague/<id> ref is gone, the 0-byte .colleague/ artifacts are removed, and git fetch succeeds; a git prune hint is printed for any leftover 0-byte loose objects"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "a crashed work --apply leaves a dangling colleague/<id> ref pointing at 0-byte loose objects and git fetch aborts; there is no cleanup verb and the skill's EXIT-trap only reaps the current read-only run, never a prior crashed one"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the failure mode is real and reproducible: a fabricated 0-byte loose object under a colleague/<id> ref makes git fetch abort with 'object file ... is empty', and today no colleague verb reaps it"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "colleague owns colleague/<id> branches and .colleague/ artifacts, so the lifecycle of what it writes into a user's repo \u2014 including recovery from a crash it triggered \u2014 is colleague's to self-heal"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "clean and the handoff self-clean are scoped strictly to colleague-owned artifacts (colleague/* refs, .colleague/ files) \u2014 they never modify or delete anything colleague did not create"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "conservative with .git/objects: clean deletes the corrupt colleague/* ref + 0-byte .colleague/ artifacts and reports leftover 0-byte loose objects (suggests git prune), but never reaches into .git/objects; never touches a non-colleague/* branch or a non-empty (gradable) artifact"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "clean never deletes a file under .git/objects and never deletes a non-empty .colleague/ artifact or a branch outside refs/heads/colleague/; a test asserts an unrelated branch and a valid artifact survive a clean run"
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "after a crash that wedges git fetch, one colleague clean run makes git fetch succeed again; --dry-run reports the same reaping while changing nothing; an unrelated branch and a valid artifact are left untouched"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "reap_artifacts removes a 0-byte .colleague/<id>.json and clears a last_work pointer that resolves to it, but leaves a non-empty .colleague/<id>.json (a gradable record the feedback loop depends on) in place"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "clean enumerates only refs/heads/colleague/ (git for-each-ref) and deletes via git update-ref -d (works on a corrupt tip), classifying tips as corrupt/merged/old/live; corrupt is always reaped, merged/older-than are opt-in flags"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a fabricated corrupt colleague/<id> ref (pointing at a 0-byte object) in a temp repo is classified 'corrupt' and reaped by git update-ref -d, after which git fetch succeeds; an unrelated feature/* branch is never enumerated or deleted"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "the git-touching reap logic lives in handoff.py (the sanctioned subprocess module reusing _git/_branch_name); the clean CLI verb and the doctor stale-ref check call into it and never import subprocess themselves, keeping tests/test_boundary.py green"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "tests/test_boundary.py still passes unchanged: no new module appears in _SUBPROCESS_ALLOWED, and clean.py + oilcheck/stale_refs.py import the reap helpers from handoff.py rather than importing subprocess"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "handoff() wraps checkout -B -> commit in try/except (HandoffError, KeyboardInterrupt) and, on a catchable failure before the commit lands, restores the operator ref and reaps the orphan colleague/<id> branch, then re-raises; the success path stays byte-identical"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a handoff() whose commit raises HandoffError leaves no colleague/<id> branch behind and returns the operator to their original ref; a successful handoff produces a byte-identical HandoffResult to before the change (e2e mock shape test green)"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add read-only + reaping git helpers to colleague/handoff.py: list_colleague_branches (for-each-ref refs/heads/colleague/ + classify corrupt/merged/old/live via cat-file -e / merge-base / committerdate), empty_loose_objects (pathlib scan of .git/objects/??/* for 0-byte files), reap_colleague_branches (delete via git update-ref -d, guarded to colleague/* only)",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "list_colleague_branches enumerates only refs/heads/colleague/ and classifies a fabricated 0-byte-tip ref as 'corrupt'; an unrelated feature/* branch is never returned",
+        "reap_colleague_branches deletes a corrupt colleague/<id> via git update-ref -d (succeeds on a tip whose object is missing) and refuses any ref not under refs/heads/colleague/",
+        "empty_loose_objects returns the 0-byte loose object paths under .git/objects and never deletes them",
+        "tests/test_boundary.py passes unchanged: handoff.py stays in _SUBPROCESS_ALLOWED and no new module imports subprocess"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "c10",
+        "h1",
+        "h2",
+        "h9"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Make colleague/handoff.py handoff() crash-resilient: wrap checkout -B -> commit in try/except (HandoffError, KeyboardInterrupt); on a catchable failure before result.committed, restore the operator ref and reap the orphan colleague/<id> branch, then re-raise; success path byte-identical",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a handoff() whose commit raises HandoffError leaves no colleague/<id> branch and returns the operator to original_ref",
+        "a successful handoff yields a byte-identical HandoffResult vs before the change; tests/test_e2e_mock.py stays green"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11",
+        "h3"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Add reap_artifacts(repo, *, dry_run) to colleague/artifact.py (pure stdlib): remove 0-byte .colleague/*.json and *.trace.jsonl, clear a last_work pointer that resolves to a missing/0-byte artifact, never delete a non-empty (gradable) artifact",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "reap_artifacts removes a 0-byte .colleague/<id>.json and clears a last_work that points at it, but leaves a non-empty .colleague/<id>.json untouched",
+        "dry_run reports the same actions while deleting nothing"
+      ],
+      "deps": [],
+      "covers": [
+        "h4"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Add the colleague clean CLI verb: NEW colleague/cli/_commands/clean.py (cmd_clean + register, modeled on doctor.py) calling handoff.reap_colleague_branches + artifact.reap_artifacts + handoff.empty_loose_objects; flags --repo/--dry-run/--merged/--older-than/--json; wire in cli/__init__.py; add _CLEAN entry to explain/catalog.py",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "one colleague clean --repo <tmp> run reaps the corrupt colleague/<id> ref + 0-byte .colleague/ artifacts and prints a git prune hint when 0-byte loose objects remain; git fetch then succeeds",
+        "--dry-run reports the same reaping while changing nothing; --json emits a structured report; a non-git --repo raises CliError(EXIT_USER_ERROR=1)",
+        "clean never deletes a file under .git/objects, never deletes a non-empty .colleague/ artifact, and never touches a branch outside refs/heads/colleague/",
+        "colleague explain clean resolves and clean.py imports the reap helpers from handoff.py (no subprocess import)"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c6",
+        "c8",
+        "h5",
+        "h7",
+        "h10"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Add an advisory doctor stale-ref check: NEW colleague/oilcheck/stale_refs.py checks() importing read-only list_colleague_branches from handoff.py, emitting a warning-severity make_check('colleague_stale_refs', ...) pointing at colleague clean; register in oilcheck/__init__.py CHECK_GROUPS",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "in a repo with a corrupt colleague/<id> ref, doctor shows colleague_stale_refs failing at warning severity and the report stays healthy",
+        "a non-git cwd (or a clean repo) is a passing no-op; the check never raises and oilcheck/stale_refs.py imports no subprocess"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Teach the ask-colleague skill the clean verb and fix the #161 nits: ask-colleague.sh adds a clean verb (run_clean -> colleague clean --repo, passing --dry-run, no description ARG), flips the 8 user-input exit 2->1 (+L457 to match the runtime's EXIT_USER_ERROR) keeping env exit 2, documents the 0/1/2 policy, updates usage; SKILL.md adds a clean row + crashed-run note + consumer gitignore note and softens the explore/review side-effect cells",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ask-colleague clean --repo <tmp> shells out to colleague clean and reaps the same corrupt ref, inheriting the colleague/* scoping guard (an unrelated branch survives)",
+        "ask-colleague with no verb / unknown verb / missing description / bad --repo all exit 1; missing git/CLI/template still exit 2",
+        "SKILL.md lists clean, notes a crashed run may leave a colleague/<id> branch reapable with ask-colleague clean + that consumers should gitignore .colleague/, and the explore/review side-effect cells no longer claim unqualified None"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "c5",
+        "h5",
+        "h6"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "End-to-end + release: NEW reproduce-and-recover test (fabricate a 0-byte loose object under a colleague/<id> ref, assert git fetch aborts, run colleague clean, assert git fetch succeeds); add the Cleanup/reap bullet to CLAUDE.md; /version-bump minor + CHANGELOG (#162 + #161); run pytest -n auto + black/isort/flake8/bandit/teken",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test fabricates a 0-byte loose object under a colleague/<id> ref, asserts git fetch aborts with the empty-object error, then asserts colleague clean makes git fetch succeed",
+        "CLAUDE.md documents the clean verb + handoff crash-resilience + doctor stale-ref check; version + CHANGELOG bumped; full pytest -n auto and all lint gates pass"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c4",
+        "c8",
+        "h8"
+      ]
+    }
+  ],
+  "risks": []
+}

@@ -143,6 +143,44 @@ warning, not an error.
     colleague doctor --probe
 """
 
+_CLEAN = """\
+# colleague clean
+
+Self-heal a repo a crashed `work` left wedged (#162). A crashed / interrupted
+`work --apply` can leave a dangling `colleague/<id>` branch ref pointing at
+half-written (0-byte) loose objects, which breaks `git fetch` / `git pull`, plus
+orphaned 0-byte `.colleague/` run artifacts. `clean` reaps both — scoped
+**strictly** to `colleague/*` refs and `.colleague/` artifacts — restoring the
+repo with a single documented command.
+
+What it reaps:
+
+- **Corrupt `colleague/*` branches** (always) — a tip whose object is
+  missing/unreadable is the `git fetch` breaker; deleted via `git update-ref -d`
+  (which works on a corrupt tip where `git branch -D` chokes).
+- **Merged `colleague/*` branches** — only with `--merged` (already an ancestor
+  of `--base`, default `main`).
+- **Old `colleague/*` branches** — only with `--older-than DAYS`.
+- **Orphaned 0-byte `.colleague/` artifacts** + a `last_work` pointer that
+  resolves to nothing. A **non-empty** (gradable) artifact is never touched.
+
+Conservative with git internals: it **reports** any leftover 0-byte loose
+objects under `.git/objects` and suggests `git prune`, but never deletes them
+itself. Scoped to `colleague/*` only — it never touches an unrelated branch.
+
+Honest limit: a SIGKILL/OOM/power-loss *during* the commit can still corrupt
+objects (git/filesystem durability, not colleague's to guarantee) — which is
+exactly why this recovery verb exists. `doctor` flags such a wedged repo and
+points here.
+
+## Usage
+
+    colleague clean --repo .
+    colleague clean --dry-run            # report what would be reaped; change nothing
+    colleague clean --merged --older-than 14
+    colleague clean --json
+"""
+
 _CLI = """\
 # colleague cli
 
@@ -788,6 +826,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("explain",): _EXPLAIN,
     ("overview",): _OVERVIEW,
     ("doctor",): _DOCTOR,
+    ("clean",): _CLEAN,
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
     ("commands",): _COMMANDS,

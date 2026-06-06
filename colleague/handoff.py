@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess  # nosec B404 - driving git/gh is the handoff's job
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -112,6 +113,28 @@ def _restore_ref(repo: Path, ref: str | None) -> None:
         _git(repo, "checkout", ref, check=False)
 
 
+def _commit_on_branch(
+    repo: Path, branch: str, commit_args: list[str], original_ref: str | None
+) -> None:
+    """Create the work branch and commit on it; self-clean on a catchable crash (#162).
+
+    A catchable interruption between creating the branch and landing the commit (a
+    ``HandoffError`` from git, or a Ctrl-C / ``KeyboardInterrupt``) must not strand
+    the operator on — or leave behind — a half-made ``colleague/<id>`` branch.
+    Restore the operator's ref, then reap the orphan branch (it points at the old
+    HEAD; no commit landed), then re-raise. A SIGKILL/OOM *inside* the commit is
+    uncatchable here — ``colleague clean`` recovers that.
+    """
+    try:
+        _git(repo, "checkout", "-B", branch)
+        _git(repo, *commit_args)
+    except (HandoffError, KeyboardInterrupt):
+        _restore_ref(repo, original_ref)
+        if _current_ref(repo) != branch:
+            _delete_colleague_ref(repo, branch, dry_run=False)
+        raise
+
+
 def handoff(
     repo_path: str | Path,
     task_id: str,
@@ -192,7 +215,6 @@ def handoff(
     # — the work branch keeps the commit, but a work item must not strand the
     # operator on a freshly-made task branch.
     original_ref = _current_ref(repo)
-    _git(repo, "checkout", "-B", branch)
     subject = _commit_subject(instruction, task_id)
     body = (instruction or "").strip()
     commit_args = ["commit", "-m", subject]
@@ -200,7 +222,7 @@ def handoff(
     # the (possibly truncated, single-line) subject already shows (#40).
     if body and f"colleague: {body}" != subject:
         commit_args += ["-m", body]
-    _git(repo, *commit_args)
+    _commit_on_branch(repo, branch, commit_args, original_ref)
     result.committed = True
 
     if not should_open_pr(repo, open_pr):
@@ -337,3 +359,219 @@ def _gh_pr_create(repo: Path, base_branch: str, title: str) -> str | None:
         raise HandoffError(f"gh pr create failed: {proc.stderr.strip()}")
     url = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
     return url or None
+
+
+# ---------------------------------------------------------------------------
+# Cleanup / reap (#162) — recover a repo a crashed work item left wedged.
+#
+# A crashed/SIGKILL'd ``work --apply`` can leave a dangling ``colleague/<id>``
+# ref pointing at half-written (0-byte) loose objects, which breaks ``git
+# fetch``. These helpers (and the ``colleague clean`` verb that drives them)
+# reap such refs + the orphaned ``.colleague/`` artifacts, scoped *strictly* to
+# ``colleague/*``. The git work lives here because ``handoff.py`` is the
+# sanctioned subprocess consumer (``tests/test_boundary.py``); the ``clean`` CLI
+# verb and the doctor stale-ref check call into these helpers and never import
+# subprocess themselves.
+#
+# Honest limit: a SIGKILL/OOM/power-loss *during* the commit can still corrupt
+# objects — git/filesystem durability is not colleague's to guarantee. That is
+# exactly why this recovery path exists rather than a promise it can't keep.
+# ---------------------------------------------------------------------------
+
+#: The ref namespace colleague owns — every reap is scoped to this and nothing
+#: else (mirrors ``worktrees.teardown_all`` and the ask-colleague skill guard).
+_COLLEAGUE_REF_PREFIX = "colleague/"
+
+
+def is_git_repo(repo_path: str | Path) -> bool:
+    """True when ``repo_path`` is inside a git work tree — read-only.
+
+    The ``colleague clean`` verb uses this to reject a non-git ``--repo`` as a
+    user-input error before attempting any reap.
+    """
+    proc = _git(Path(repo_path).resolve(), "rev-parse", "--is-inside-work-tree", check=False)
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
+def _git_objects_dir(repo: Path) -> Path | None:
+    """The repo's ``.git/objects`` directory (resolved; ``None`` outside a repo).
+
+    Resolved via ``git rev-parse`` rather than assuming ``repo/.git/objects`` so
+    a worktree (``.git`` is a file) or a custom ``GIT_DIR`` still works.
+    """
+    proc = _git(repo, "rev-parse", "--absolute-git-dir", check=False)
+    git_dir = proc.stdout.strip()
+    if proc.returncode != 0 or not git_dir:
+        return None
+    return Path(git_dir) / "objects"
+
+
+def _classify_branch(repo: Path, ref: str, obj: str, *, now: float, base_branch: str) -> dict:
+    """Classify one ``colleague/*`` tip: corrupt / merged / live (+ age in days).
+
+    ``cat-file -t`` *inflates* the object (``cat-file -e`` only stats the file, so
+    a 0-byte loose object slips past it as "exists"); a non-zero exit means the
+    tip is missing/unreadable — the ``git fetch`` breaker. Merge/age checks need a
+    readable tip, so they are skipped for a corrupt one.
+    """
+    corrupt = (not obj) or _git(repo, "cat-file", "-t", obj, check=False).returncode != 0
+    merged = False
+    age_days: int | None = None
+    if not corrupt:
+        anc = _git(repo, "merge-base", "--is-ancestor", obj, base_branch, check=False)
+        merged = anc.returncode == 0
+        age = _git(repo, "log", "-1", "--format=%ct", obj, check=False)
+        date_raw = age.stdout.strip()
+        if age.returncode == 0 and date_raw.isdigit():
+            age_days = max(0, int((now - int(date_raw)) // 86400))
+    if corrupt:
+        classification = "corrupt"
+    elif merged:
+        classification = "merged"
+    else:
+        classification = "live"
+    return {
+        "ref": ref,
+        "object": obj,
+        "corrupt": corrupt,
+        "merged": merged,
+        "age_days": age_days,
+        "classification": classification,
+    }
+
+
+def list_colleague_branches(repo_path: str | Path, *, base_branch: str = "main") -> list[dict]:
+    """Classify every ``colleague/*`` local branch — read-only.
+
+    Enumerates **only** ``refs/heads/colleague/`` (never a blanket sweep) and,
+    per branch, reports:
+
+    * ``ref`` — short ref name (``colleague/<id>-<slug>``);
+    * ``object`` — the tip object name recorded in the ref;
+    * ``corrupt`` — ``True`` when the tip object is missing/unreadable (the
+      ``git fetch`` breaker), detected with ``git cat-file -t``;
+    * ``merged`` — ``True`` when the (non-corrupt) tip is an ancestor of
+      ``base_branch`` (already integrated, safe to drop);
+    * ``age_days`` — whole days since the tip's committer date, or ``None`` when
+      the date can't be read (e.g. a corrupt tip);
+    * ``classification`` — the primary label for display: ``corrupt`` >
+      ``merged`` > ``live`` (``age_days`` is reported but is a reap *policy*
+      input, not a classification).
+
+    Returns ``[]`` outside a git repo or on any git error — a non-repo has no
+    colleague branches to reap.
+    """
+    repo = Path(repo_path).resolve()
+    # Deliberately NO ``committerdate`` in the format: that field forces
+    # for-each-ref to *read* the tip commit object, so a corrupt tip (the case
+    # we most need to surface) makes the whole command fail. ``objectname`` is
+    # read straight from the ref file — no object access — so corrupt refs still
+    # list. Age is looked up separately (and tolerates a corrupt tip).
+    proc = _git(
+        repo,
+        "for-each-ref",
+        "--format=%(refname:short)%09%(objectname)",
+        "refs/heads/colleague/",
+        check=False,
+    )
+    now = time.time()
+    branches: list[dict] = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        ref = parts[0].strip() if parts else ""
+        if not ref:
+            continue
+        obj = parts[1].strip() if len(parts) > 1 else ""
+        branches.append(_classify_branch(repo, ref, obj, now=now, base_branch=base_branch))
+    return branches
+
+
+def empty_loose_objects(repo_path: str | Path) -> list[str]:
+    """The 0-byte loose object files under ``.git/objects`` — read-only.
+
+    A valid loose object is never 0 bytes (it carries at least a zlib header),
+    so a 0-byte file is unambiguously a truncated/interrupted write. These are
+    only *reported* (and ``git prune`` suggested) — colleague never reaches into
+    ``.git/objects`` to delete them (conservative, #162). Returns paths relative
+    to the repo for legible reporting. ``[]`` outside a repo / on any error.
+    """
+    repo = Path(repo_path).resolve()
+    objects = _git_objects_dir(repo)
+    if objects is None or not objects.is_dir():
+        return []
+    empties: list[str] = []
+    # Loose objects live under two-hex-char shards: .git/objects/ab/cdef...
+    # The whole scan is wrapped: a concurrent `git gc`/prune can remove a shard
+    # mid-iteration (so `iterdir()`/`stat()` raises), and a recovery tool must
+    # never crash on a repo that is already in a bad state — return what we found.
+    try:
+        for shard in objects.iterdir():
+            if shard.is_dir() and len(shard.name) == 2:
+                for obj in shard.iterdir():
+                    if obj.is_file() and obj.stat().st_size == 0:
+                        empties.append(_relpath(obj, repo))
+    except OSError:
+        pass
+    return sorted(empties)
+
+
+def _relpath(path: Path, repo: Path) -> str:
+    """``path`` relative to ``repo`` when possible, else its absolute string."""
+    try:
+        return str(path.relative_to(repo))
+    except ValueError:
+        return str(path)
+
+
+def _delete_colleague_ref(repo: Path, ref: str, *, dry_run: bool) -> str:
+    """Delete one ``colleague/*`` ref via ``git update-ref -d`` — guarded.
+
+    ``git update-ref -d`` (plumbing) deletes the ref even when its tip object is
+    missing/corrupt, where ``git branch -D`` can choke. Refuses — never deletes
+    — any ref outside ``refs/heads/colleague/`` (defense in depth even though the
+    enumerator only yields colleague refs). Returns the action taken:
+    ``would-reap`` (dry-run), ``reaped``, ``failed``, or ``refused``.
+    """
+    if not ref.startswith(_COLLEAGUE_REF_PREFIX):
+        return "refused"
+    if dry_run:
+        return "would-reap"
+    proc = _git(repo, "update-ref", "-d", f"refs/heads/{ref}", check=False)
+    return "reaped" if proc.returncode == 0 else "failed"
+
+
+def reap_colleague_branches(
+    repo_path: str | Path,
+    *,
+    dry_run: bool = False,
+    include_merged: bool = False,
+    older_than_days: int | None = None,
+    base_branch: str = "main",
+) -> list[dict]:
+    """Reap stale/corrupt ``colleague/*`` branches; return per-branch actions.
+
+    The reap set is **always** ``corrupt`` (the ``git fetch`` breaker), plus —
+    only when opted in — ``merged`` (``include_merged``) and branches older than
+    ``older_than_days``. Everything else is ``kept``. Deletion goes through
+    :func:`_delete_colleague_ref` (``git update-ref -d``, ``colleague/*`` only).
+
+    Returns one dict per branch: ``{ref, classification, action}`` where
+    ``action`` is ``reaped`` / ``would-reap`` (dry-run) / ``kept`` / ``failed`` /
+    ``refused``. Read-only outside a git repo (returns ``[]``).
+    """
+    repo = Path(repo_path).resolve()
+    results: list[dict] = []
+    for branch in list_colleague_branches(repo, base_branch=base_branch):
+        age = branch["age_days"]
+        should_reap = (
+            branch["corrupt"]
+            or (include_merged and branch["merged"])
+            or (older_than_days is not None and age is not None and age >= older_than_days)
+        )
+        action = (
+            _delete_colleague_ref(repo, branch["ref"], dry_run=dry_run) if should_reap else "kept"
+        )
+        results.append(
+            {"ref": branch["ref"], "classification": branch["classification"], "action": action}
+        )
+    return results

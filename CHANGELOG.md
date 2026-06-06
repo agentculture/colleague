@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-06-06
+
+### Added
+
+- `colleague clean` verb + `ask-colleague clean`: reap stale/corrupt `colleague/*` branches and orphaned 0-byte `.colleague/` artifacts left by a crashed work item (which can wedge `git fetch`), scoped strictly to `colleague/*` and conservative with `.git/objects` (#162)
+- Advisory doctor stale-ref check (`colleague_stale_refs`, warning severity) that flags a wedged repo and points at `colleague clean` (#162)
+
+### Changed
+
+- Handoff is crash-resilient: a catchable interruption (`HandoffError` / `KeyboardInterrupt`) before the commit lands restores the operator ref and reaps the orphan `colleague/<id>` branch; the success path is byte-identical (#162)
+- `ask-colleague.sh`: user-input errors (bad/missing verb, flag, arg, path; dirty-tree guard) now exit 1 not 2, matching the CLI 0/1/2 contract; environment errors stay 2 (#161)
+- `ask-colleague` SKILL.md: explore/review side-effect cells no longer claim unqualified None (they write a gradable `.colleague/` artifact); added a consumer gitignore note for `.colleague/` (#161)
+
 ## [0.41.0] - 2026-06-06
 
 ### Added

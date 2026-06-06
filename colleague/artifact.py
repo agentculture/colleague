@@ -152,3 +152,78 @@ def read_request(repo_path: str | Path, task_id: str) -> Optional[str]:
         return None
     request = (data.get("stats") or {}).get("request")
     return request if isinstance(request, str) and request else None
+
+
+def _is_empty_file(path: Path) -> bool:
+    """True when ``path`` is a 0-byte regular file (a definitively broken write)."""
+    try:
+        return path.is_file() and path.stat().st_size == 0
+    except OSError:
+        return False
+
+
+def _unlink_action(path: Path, *, dry_run: bool, dry_label: str, ok_label: str) -> str:
+    """Delete ``path`` (or report a dry-run); return the action label or ``failed``."""
+    if dry_run:
+        return dry_label
+    try:
+        path.unlink()
+        return ok_label
+    except OSError:
+        return "failed"
+
+
+def _reap_empty_artifact_files(adir: Path, *, dry_run: bool) -> list[dict]:
+    """Reap 0-byte ``*.json`` / ``*.trace.jsonl`` under ``adir`` (truncated writes)."""
+    results: list[dict] = []
+    seen: set[Path] = set()
+    for pattern in ("*.json", "*.trace.jsonl"):
+        for path in sorted(adir.glob(pattern)):
+            if path in seen or not _is_empty_file(path):
+                continue
+            seen.add(path)
+            action = _unlink_action(
+                path, dry_run=dry_run, dry_label="would-reap", ok_label="reaped"
+            )
+            results.append({"artifact": path.name, "action": action})
+    return results
+
+
+def _reap_dangling_last_work(repo: Path, *, dry_run: bool) -> list[dict]:
+    """Clear a ``last_work`` pointer that no longer resolves to a real artifact."""
+    # Local import avoids a module-level cycle (feedback imports artifact).
+    from colleague.feedback import get_last_work, last_work_path
+
+    lw = last_work_path(repo)
+    if not lw.is_file():
+        return []
+    task_id = get_last_work(repo)
+    artifact = find_artifact(repo, task_id) if task_id else None
+    if artifact is not None and not _is_empty_file(artifact):
+        return []  # still resolves to a real (non-empty) artifact — keep it
+    action = _unlink_action(lw, dry_run=dry_run, dry_label="would-clear", ok_label="cleared")
+    return [{"artifact": lw.name, "action": action}]
+
+
+def reap_artifacts(repo_path: str | Path, *, dry_run: bool = False) -> list[dict]:
+    """Remove orphaned 0-byte ``.colleague/`` artifacts; return per-file actions (#162).
+
+    A crashed work item can leave **0-byte** run artifacts (``<id>.<slug>.json`` /
+    ``.trace.jsonl``) and a ``last_work`` pointer aimed at a now-missing/empty
+    artifact. This reaps exactly those: a 0-byte ``*.json`` / ``*.trace.jsonl``
+    under ``.colleague/`` is unambiguously a truncated write, and a ``last_work``
+    that resolves to nothing is dead bookkeeping. A **non-empty** artifact is a
+    gradable record the feedback loop depends on and is **never** touched.
+
+    Returns one dict per affected file: ``{artifact, action}`` where ``action`` is
+    ``reaped`` / ``would-reap`` (dry-run) / ``failed`` for a file, or
+    ``cleared`` / ``would-clear`` / ``failed`` for the ``last_work`` pointer.
+    Scoped strictly to the ``.colleague/`` write dir; a missing dir is a no-op.
+    """
+    repo = Path(repo_path)
+    adir = artifact_dir(repo)
+    results: list[dict] = []
+    if adir.is_dir():
+        results.extend(_reap_empty_artifact_files(adir, dry_run=dry_run))
+    results.extend(_reap_dangling_last_work(repo, dry_run=dry_run))
+    return results
