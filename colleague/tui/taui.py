@@ -33,7 +33,8 @@ if TYPE_CHECKING:
     from colleague.tui.state import CockpitState
 
 #: Semantic version of the TAUI mirror schema.  Bump when the shape changes.
-SCHEMA_VERSION = "0.1"
+#: 0.2 — panel items gained an optional ``tags`` list (issue #160).
+SCHEMA_VERSION = "0.2"
 
 #: The standing action always present in ``available_actions``.
 _STANDING_ACTION: dict[str, Any] = {

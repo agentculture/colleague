@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - /help and /help verbose now render group icons and tag badges; the compact help lists each command on its own line under its group instead of a dense name row.
+- TAUI mirror schema bumped to 0.2 (panel items gained an optional tags list).
 
 ## [0.40.0] - 2026-06-06
 
