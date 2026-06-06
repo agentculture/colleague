@@ -26,6 +26,7 @@ only partially (surfaced per skill as ``runnable_estimate``).
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from colleague import registry
@@ -66,23 +67,23 @@ def _mark_adapted(path: Path, skills_dir: Path) -> None:
     """Deterministically stamp that stage 2 ran for *path* (pending -> done).
 
     *path* derives from a skill name (untrusted input), so confine the read/write
-    to *skills_dir*: a path resolving outside it is refused. This guards against
-    path traversal (S2083) at the write sink — defense in depth alongside the
-    sanitized stem from :func:`colleague.learn_from._skill_dest`.
+    to *skills_dir*: the canonical (realpath) target must sit inside the canonical
+    skills dir, else the operation is refused. This is the recognized path-
+    traversal guard (S2083) at the read/write sink — defense in depth alongside
+    the sanitized stem from :func:`colleague.learn_from._skill_dest`.
     """
+    base = os.path.realpath(skills_dir)
+    target = os.path.realpath(path)
+    if target != base and not target.startswith(base + os.sep):
+        return  # outside the skills dir — refuse (path traversal guard)
     try:
-        resolved = path.resolve()
-        base = skills_dir.resolve()
-    except OSError:
-        return
-    if resolved != base and base not in resolved.parents:
-        return
-    try:
-        text = resolved.read_text(encoding="utf-8")
+        with open(target, "r", encoding="utf-8") as fh:
+            text = fh.read()
     except OSError:
         return
     if _PENDING_MARK in text:
-        resolved.write_text(text.replace(_PENDING_MARK, _DONE_MARK, 1), encoding="utf-8")
+        with open(target, "w", encoding="utf-8") as fh:
+            fh.write(text.replace(_PENDING_MARK, _DONE_MARK, 1))
 
 
 def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
