@@ -18,9 +18,13 @@ no network) and emits:
     Silent on the default localhost rig.
 
 All checks here are ``info`` or ``warning``; no ``error`` is ever emitted.
-Read-only: resolves config from env + defaults only; opens no connection.
-Catches any unexpected error and returns it as a single failed ``warning``
-check rather than raising.
+Read-only: resolves config from env vars, the repo's ``.colleague/config.json``
+(only when ``checks`` is given a ``repo_path`` — e.g. ``colleague doctor
+--repo <path>``), and built-in defaults; opens no connection. The same
+precedence ``EngineConfig.resolve`` uses everywhere applies (explicit > env >
+config file > default), so this reports exactly what a work item in that repo
+would resolve. Catches any unexpected error and returns it as a single failed
+``warning`` check rather than raising.
 """
 
 from __future__ import annotations
