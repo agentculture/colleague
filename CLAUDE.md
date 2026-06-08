@@ -337,9 +337,17 @@ The architecture, part by part:
   OpenAI-compatible provider (replace the local vLLM) without re-passing flags or
   env vars each run; stdlib `json` only, malformed/absent file is a strict no-op.
   Wired into the `work`/`session`/`learn-from` paths (each passes `repo_path`).
-  **Honest limit:** the `doctor` provider/reachability checks are contractually
-  repo-independent (env + defaults only), so `colleague doctor` does **not** yet
-  reflect `.colleague/config.json` — a documented follow-up, not built.
+  `colleague doctor --repo <path>` (and `--probe`) now **reflect**
+  `.colleague/config.json`: an optional `repo_path` is threaded through
+  `colleague/oilcheck/__init__.py` `diagnose` to the **provider** and
+  **reachability** check-groups (`EngineConfig.resolve(repo_path=…)`); all other
+  check-groups stay env/defaults only. The resolved config is also viewable via
+  the **`colleague config show`** verb (`colleague/cli/_commands/config.py`;
+  `config show [--repo PATH] [--json]` + `config overview`), which reuses
+  `EngineConfig.resolve(repo_path=…).to_dict()` so the `api_key` is redacted.
+  **Honest limit:** the `--repo` default is the cwd, so a bare `colleague doctor`
+  outside a repo (or in one without `.colleague/config.json`) is unchanged
+  (env + defaults only).
 - **Rename back-compat (`convertible` → `colleague`)** — the project was renamed
   from *convertible*. The import package, the `colleague`/`clg` commands, the
   `.colleague/` config dir, and the `COLLEAGUE_*` env vars are the canonical

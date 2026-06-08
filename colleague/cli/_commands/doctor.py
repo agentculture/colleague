@@ -61,6 +61,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument(
         "--repo",
         default=".",
-        help="Repository path to reflect .colleague/config.json for provider + reachability checks (default: cwd).",
+        help=(
+            "Repository path whose .colleague/config.json the provider + "
+            "reachability checks reflect (default: cwd)."
+        ),
     )
     p.set_defaults(func=cmd_doctor)

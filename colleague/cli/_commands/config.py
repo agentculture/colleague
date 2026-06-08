@@ -28,8 +28,9 @@ def _config_sections() -> list[dict[str, object]]:
             ],
         },
         {
-            "title": "Configuration (precedence: explicit flag > COLLEAGUE_*/OPENAI_* env > .colleague/config.json > default)",
+            "title": "Configuration",
             "items": [
+                "precedence: flag > COLLEAGUE_*/OPENAI_* env > .colleague/config.json > default",
                 "base_url — provider endpoint (default: http://localhost:8001/v1)",
                 "model — model id to call",
                 "api_key — redacted in all output",
@@ -88,7 +89,7 @@ def _no_verb(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "config",
-        help="Inspect the resolved engine/provider configuration (see 'colleague config overview').",
+        help="Inspect the resolved provider configuration (see 'colleague config overview').",
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
