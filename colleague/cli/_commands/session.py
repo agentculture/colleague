@@ -937,6 +937,7 @@ def run_session(
         model=getattr(args, "model", None),
         api_key=getattr(args, "api_key", None),
         max_steps=getattr(args, "max_steps", None),
+        repo_path=repo,
     )
 
     color = _color if _color is not None else should_color(sys.stdout)

@@ -100,6 +100,7 @@ def _run_stage2(args: argparse.Namespace, repo: Path, targets: list) -> dict:
             model=getattr(args, "model", None),
             api_key=getattr(args, "api_key", None),
             max_steps=getattr(args, "max_steps", None),
+            repo_path=repo,
         )
         engine = registry.load(engine_name)
     # Any resolution failure degrades to copy-only; it never crashes the verb.

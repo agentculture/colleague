@@ -419,6 +419,7 @@ def cmd_work(args: argparse.Namespace) -> int:
         model=args.model,
         api_key=args.api_key,
         max_steps=args.max_steps,
+        repo_path=repo,
     )
 
     command_name: str | None = getattr(args, "command_name", None)
