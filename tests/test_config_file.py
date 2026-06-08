@@ -16,6 +16,11 @@ import pytest
 from colleague.config import EngineConfig, load_config_file
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_home(tmp_path_factory, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path_factory.mktemp("home"))
+
+
 def _write_config(tmp_path: Path, payload: dict) -> None:
     """Write a .colleague/config.json inside *tmp_path*."""
     cfg_dir = tmp_path / ".colleague"

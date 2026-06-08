@@ -113,12 +113,8 @@ def load_config_file(repo_path: str | Path) -> dict[str, str]:
     if path is None:
         return {}
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return {}
-    try:
-        data = json.loads(text)
-    except (json.JSONDecodeError, ValueError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return {}
     if not isinstance(data, dict):
         return {}
@@ -229,20 +225,20 @@ class EngineConfig:
                 "COLLEAGUE_BASE_URL",
                 "CONVERTIBLE_BASE_URL",
                 "OPENAI_BASE_URL",
-                default=file_base_url or _DEFAULT_BASE_URL,
+                default=file_base_url if file_base_url is not None else _DEFAULT_BASE_URL,
             ),
             api_key=_pick(
                 api_key,
                 "COLLEAGUE_API_KEY",
                 "CONVERTIBLE_API_KEY",
                 "OPENAI_API_KEY",
-                default=file_api_key or _DEFAULT_API_KEY,
+                default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
             ),
             model=_pick(
                 model,
                 "COLLEAGUE_MODEL",
                 "CONVERTIBLE_MODEL",
-                default=file_model or _DEFAULT_MODEL,
+                default=file_model if file_model is not None else _DEFAULT_MODEL,
             ),
             max_steps=int(
                 _pick(
