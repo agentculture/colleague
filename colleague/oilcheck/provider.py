@@ -18,9 +18,13 @@ no network) and emits:
     Silent on the default localhost rig.
 
 All checks here are ``info`` or ``warning``; no ``error`` is ever emitted.
-Read-only: resolves config from env + defaults only; opens no connection.
-Catches any unexpected error and returns it as a single failed ``warning``
-check rather than raising.
+Read-only: resolves config from env vars, the repo's ``.colleague/config.json``
+(only when ``checks`` is given a ``repo_path`` — e.g. ``colleague doctor
+--repo <path>``), and built-in defaults; opens no connection. The same
+precedence ``EngineConfig.resolve`` uses everywhere applies (explicit > env >
+config file > default), so this reports exactly what a work item in that repo
+would resolve. Catches any unexpected error and returns it as a single failed
+``warning`` check rather than raising.
 """
 
 from __future__ import annotations
@@ -31,10 +35,15 @@ from colleague.config import _DEFAULT_API_KEY, _DEFAULT_BASE_URL, EngineConfig
 from colleague.oilcheck import make_check
 
 
-def checks() -> list[dict]:
-    """Return provider-config checks (see module docstring)."""
+def checks(repo_path=None) -> list[dict]:
+    """Return provider-config checks (see module docstring).
+
+    When *repo_path* is provided, ``EngineConfig.resolve`` will also read
+    ``.colleague/config.json`` from that repo, so the checks reflect the
+    persistent config-file override.
+    """
     try:
-        return _checks()
+        return _checks(repo_path)
     except Exception as exc:  # pragma: no cover — safety net; normal paths don't raise
         return [
             make_check(
@@ -47,8 +56,8 @@ def checks() -> list[dict]:
         ]
 
 
-def _checks() -> list[dict]:
-    cfg = EngineConfig.resolve()
+def _checks(repo_path) -> list[dict]:
+    cfg = EngineConfig.resolve(repo_path=repo_path)
     out: list[dict] = []
 
     # 1. provider_config — always emitted; api_key is redacted.

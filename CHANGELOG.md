@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-08
+
+### Added
+
+- ``colleague config show`` / ``config overview`` verb: prints the resolved provider
+  configuration (base_url, model, max_steps, temperature, timeout,
+  context_budget_tokens) with api_key redacted. Reflects .colleague/config.json
+  when --repo is given.
+- ``colleague doctor --repo`` now reflects .colleague/config.json: provider and
+  reachability groups accept an optional repo_path, so doctor diagnoses the
+  current repo's persistent config-file override.
+
+### Changed
+
+- Documented the .colleague/config.json provider override in
+  docs/features/model-selection.md (worked OpenAI/OpenRouter examples; corrected
+  default-model table).
+
 ## [1.2.0] - 2026-06-08
 
 ### Added

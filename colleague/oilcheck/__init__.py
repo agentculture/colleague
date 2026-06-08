@@ -140,7 +140,7 @@ CHECK_GROUPS: List[CheckGroup] = [
 ]
 
 
-def diagnose(probe: bool = False) -> dict:
+def diagnose(probe: bool = False, repo_path=None) -> dict:
     """Run every registered check-group and aggregate one health report.
 
     Runs the groups in :data:`CHECK_GROUPS` order, concatenates their checks
@@ -155,6 +155,11 @@ def diagnose(probe: bool = False) -> dict:
     so it is invoked here explicitly rather than being registered in
     :data:`CHECK_GROUPS`. Off by default the diagnosis stays fully no-network.
 
+    When *repo_path* is provided, the provider and reachability groups reflect
+    ``.colleague/config.json`` from that repo (``EngineConfig.resolve`` reads
+    the file for ``base_url``/``api_key``/``model``). All other groups remain
+    env/defaults only.
+
     Returns the rubric shape ``{"healthy": bool, "checks": list[dict]}``.
     Read-only by default: it neither writes files nor opens sockets (each
     registered group is contractually read-only, and the aggregator only
@@ -162,12 +167,15 @@ def diagnose(probe: bool = False) -> dict:
     """
     checks: List[dict] = []
     for group in CHECK_GROUPS:
-        checks.extend(group())
+        if group is provider.checks:
+            checks.extend(group(repo_path=repo_path))
+        else:
+            checks.extend(group())
     if probe:
         # Imported lazily so the no-network default path never even loads the
         # module that knows how to open a connection.
         from colleague.oilcheck import reachability
 
-        checks.extend(reachability.checks())
+        checks.extend(reachability.checks(repo_path=repo_path))
     healthy = not any(c["severity"] == "error" and not c["passed"] for c in checks)
     return {"healthy": healthy, "checks": checks}

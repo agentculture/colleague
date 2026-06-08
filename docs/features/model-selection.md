@@ -1,9 +1,8 @@
 # Selecting the model & endpoint
 
 > Colleague resolves the engine, model, and endpoint from **flags → env →
-> defaults**. There is no model config file — you point colleague with
-> `--model` / environment variables, and (optionally) keep it auto-synced to
-> whatever your local server is serving.
+> config file → defaults**. You can point colleague with `--model` / environment
+> variables, or persist the endpoint in `.colleague/config.json`.
 
 This page is the operator's companion to [engines.md](engines.md): that doc
 covers *what* an engine is; this one covers *how colleague picks the model and
@@ -19,11 +18,12 @@ The engine name resolves in `colleague/config.py` (`resolve_engine`):
 
 The provider config resolves in `EngineConfig.resolve` (`colleague/config.py`),
 each field independently: an explicit flag value wins if given, else the first
-**set, non-empty** environment variable, else the default.
+**set, non-empty** environment variable, else the value from
+`.colleague/config.json` (when `repo_path` is provided), else the default.
 
 | Field | Flag | Environment (checked in order) | Default |
 |-------|------|--------------------------------|---------|
-| model | `--model` | `COLLEAGUE_MODEL` | `Qwen/Qwen3-32B` |
+| model | `--model` | `COLLEAGUE_MODEL` | `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` |
 | base_url | `--base-url` | `COLLEAGUE_BASE_URL`, `OPENAI_BASE_URL` | `http://localhost:8001/v1` |
 | api_key | `--api-key` | `COLLEAGUE_API_KEY`, `OPENAI_API_KEY` | `EMPTY` |
 
@@ -34,16 +34,58 @@ stripped). Only the **engine name** (`resolve_engine`) treats a blank/whitespace
 candidate as absent and strips it. So set the model to a real served name; don't
 rely on a blank value falling back to the default.
 
-**There is no persistent model config file.** The repo-level `.colleague/`
-directory configures identity, hooks, neighbours, approvals, command templates,
-and per-model overlays — but *not* the engine model. Set the model with a flag
-or an environment variable.
+## Persistent config file (.colleague/config.json)
+
+The repo-level `.colleague/config.json` provides a durable way to point
+colleague at another OpenAI-compatible provider without re-passing flags or env
+vars each run. It supports three keys:
+
+- **`base_url`** — the OpenAI-compatible endpoint (e.g. `https://api.openai.com/v1`).
+- **`api_key`** — the provider's API key (never printed in any output; redacted
+  in `doctor` and `config show`).
+- **`model`** — the model id the server serves.
+
+**Precedence:** explicit flag > `COLLEAGUE_*`/`OPENAI_*` env > `.colleague/config.json` > built-in default.
+
+The file is resolved via `colleague/configdir.py` (repo-level `.colleague/`
+overrides user-level `~/.colleague/`). A missing or malformed file is a strict
+no-op — it never raises.
+
+### Worked examples
+
+**OpenAI:**
+
+```json
+{
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-4o"
+}
+```
+
+**OpenRouter:**
+
+```json
+{
+  "base_url": "https://openrouter.ai/api/v1",
+  "model": "openai/gpt-4o"
+}
+```
+
+**Generic OpenAI-compatible local server:**
+
+```json
+{
+  "base_url": "http://localhost:8001/v1",
+  "model": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+}
+```
 
 Confirm what colleague actually resolved (read-only, never drives a task):
 
 ```bash
-colleague doctor --json     # the provider_config check prints base_url + model
-colleague doctor --probe    # adds a live provider_reachable ping to the endpoint
+colleague doctor --repo .     # the provider_config check prints base_url + model
+colleague doctor --repo . --probe    # adds a live provider_reachable ping to the endpoint
+colleague config show --repo .       # resolved provider config (api_key redacted)
 ```
 
 ## Pointing at an OpenAI-compatible server

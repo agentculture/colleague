@@ -773,6 +773,34 @@ Defaults to a local vLLM model; override with `--engine` / `--model` /
 - `colleague explain work`
 """
 
+_CONFIG = """\
+# colleague config
+
+Inspect the resolved engine/provider configuration. ``config show`` prints the
+resolved :class:`~colleague.config.EngineConfig` (base_url, model, max_steps,
+temperature, timeout, context_budget_tokens) with the api_key redacted.
+``config overview`` describes the noun.
+
+Precedence (highest first): explicit flag > COLLEAGUE_*/OPENAI_* env >
+.colleague/config.json > built-in default.
+
+## Verbs
+
+- ``config show [--repo PATH] [--json]`` — show the resolved provider config
+- ``config overview`` — describe the config surface
+
+## Usage
+
+    colleague config show
+    colleague config show --repo . --json
+    colleague config overview
+
+## See also
+
+- ``colleague explain doctor``
+- ``colleague explain work``
+"""
+
 _TUI = """\
 # colleague tui
 
@@ -905,6 +933,9 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("telemetry",): _TELEMETRY,
     ("telemetry", "status"): _TELEMETRY,
     ("telemetry", "overview"): _TELEMETRY,
+    ("config",): _CONFIG,
+    ("config", "show"): _CONFIG,
+    ("config", "overview"): _CONFIG,
     ("subagent",): _SUBAGENT,
     ("subagents",): _SUBAGENT,
     ("ask-colleague",): _ASK_COLLEAGUE,

@@ -43,10 +43,15 @@ from colleague.oilcheck import make_check
 _PROBE_TIMEOUT = 3.0
 
 
-def checks() -> list[dict]:
-    """Return the provider-reachability check (see module docstring)."""
+def checks(repo_path=None) -> list[dict]:
+    """Return the provider-reachability check (see module docstring).
+
+    When *repo_path* is provided, ``EngineConfig.resolve`` will also read
+    ``.colleague/config.json`` from that repo, so the probe targets the
+    endpoint the persistent config points at.
+    """
     try:
-        return _checks()
+        return _checks(repo_path)
     except Exception as exc:  # pragma: no cover — safety net; normal paths don't raise
         return [
             make_check(
@@ -59,8 +64,8 @@ def checks() -> list[dict]:
         ]
 
 
-def _checks() -> list[dict]:
-    config = EngineConfig.resolve()
+def _checks(repo_path) -> list[dict]:
+    config = EngineConfig.resolve(repo_path=repo_path)
     base_url = config.base_url
     url = base_url.rstrip("/") + "/models"
 
