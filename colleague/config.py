@@ -7,18 +7,28 @@ Resolution precedence, highest first:
    still honored as a deprecated fallback during the rename),
 3. an OpenAI-style ``OPENAI_*`` environment variable (so an existing OpenAI
    client setup is reused),
-4. the built-in default.
+4. a persistent ``.colleague/config.json`` file (repo-level, falling back to
+   user-level ``~/.colleague/config.json``) — the ``base_url``/``api_key``/
+   ``model`` endpoint keys only, and only when ``resolve`` is given a
+   ``repo_path``. This is the durable way to point colleague at another
+   OpenAI-compatible provider without re-passing flags or env vars each run,
+5. the built-in default.
 
 Defaults point at the vLLM reference rig (decision D3): an OpenAI-compatible
 server on ``localhost:8001``. Because the driver only speaks the OpenAI surface,
-pointing ``base_url`` elsewhere is a config change, never a code change (h2).
+pointing ``base_url`` elsewhere is a config change, never a code change (h2) —
+whether via env var, CLI flag, or ``.colleague/config.json``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Optional
+
+from colleague import configdir
 
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
@@ -75,6 +85,9 @@ _DEFAULT_ENGINE = "vllm-openai"
 MAX_SUBAGENT_DEPTH = 2
 MAX_SUBAGENT_FANOUT = 4
 
+# Recognised keys in .colleague/config.json.
+_CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
+
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
     if explicit is not None:
@@ -84,6 +97,28 @@ def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
         if value:
             return value
     return default
+
+
+def load_config_file(repo_path: str | Path) -> dict[str, str]:
+    """Load a persistent config file from .colleague/config.json.
+
+    Uses :func:`colleague.configdir.resolve_file` to locate the file, honouring
+    the repo-over-user precedence and the legacy .convertible fallback.
+
+    Returns a dict containing only the recognised keys (``base_url``,
+    ``api_key``, ``model``). On a missing file, malformed JSON, or any read
+    error, returns an empty dict and never raises.
+    """
+    path = configdir.resolve_file(repo_path, "config.json")
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: str(v) for k, v in data.items() if k in _CONFIG_KEYS and v is not None}
 
 
 def resolve_engine(explicit: str | None) -> str:
@@ -161,24 +196,50 @@ class EngineConfig:
         subagent_concurrency: int | None = None,
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
+        repo_path: str | Path | None = None,
     ) -> "EngineConfig":
-        """Build a config from explicit args, env vars, then defaults."""
+        """Build a config from explicit args, env vars, config file, then defaults.
+
+        When *repo_path* is provided, values from ``.colleague/config.json``
+        are loaded and used as the ``default=`` for the ``base_url``, ``api_key``
+        and ``model`` fields. The resulting precedence is:
+
+        explicit argument > COLLEAGUE_/OPENAI_ env var > .colleague/config.json > built-in default.
+
+        When *repo_path* is ``None`` or no config file exists, behaviour is
+        byte-identical to the prior (no config-file) implementation.
+        """
+        # Load config-file values once (empty dict when repo_path is None or
+        # the file is absent/malformed).
+        file_cfg: dict[str, str] = {}
+        if repo_path is not None:
+            file_cfg = load_config_file(repo_path)
+
+        file_base_url: str | None = file_cfg.get("base_url")
+        file_api_key: str | None = file_cfg.get("api_key")
+        file_model: str | None = file_cfg.get("model")
+
         return cls(
             base_url=_pick(
                 base_url,
                 "COLLEAGUE_BASE_URL",
                 "CONVERTIBLE_BASE_URL",
                 "OPENAI_BASE_URL",
-                default=_DEFAULT_BASE_URL,
+                default=file_base_url if file_base_url is not None else _DEFAULT_BASE_URL,
             ),
             api_key=_pick(
                 api_key,
                 "COLLEAGUE_API_KEY",
                 "CONVERTIBLE_API_KEY",
                 "OPENAI_API_KEY",
-                default=_DEFAULT_API_KEY,
+                default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
             ),
-            model=_pick(model, "COLLEAGUE_MODEL", "CONVERTIBLE_MODEL", default=_DEFAULT_MODEL),
+            model=_pick(
+                model,
+                "COLLEAGUE_MODEL",
+                "CONVERTIBLE_MODEL",
+                default=file_model if file_model is not None else _DEFAULT_MODEL,
+            ),
             max_steps=int(
                 _pick(
                     _str(max_steps),

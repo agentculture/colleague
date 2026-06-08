@@ -328,7 +328,18 @@ The architecture, part by part:
   `docs/specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md`
   and `docs/plans/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md`.
 - **Config resolution** — `colleague/configdir.py`: repo-level
-  `.colleague/` overrides user-level `~/.colleague/`.
+  `.colleague/` overrides user-level `~/.colleague/`. The engine endpoint has a
+  **persistent config-file override** at `.colleague/config.json`
+  (`colleague/config.py` `load_config_file` → `EngineConfig.resolve(repo_path=…)`):
+  the `base_url`/`api_key`/`model` keys feed in as the resolution *default*, so
+  the precedence is explicit flag > `COLLEAGUE_*`/`OPENAI_*` env > `.colleague/config.json`
+  > built-in default. This is the durable way to point colleague at another
+  OpenAI-compatible provider (replace the local vLLM) without re-passing flags or
+  env vars each run; stdlib `json` only, malformed/absent file is a strict no-op.
+  Wired into the `work`/`session`/`learn-from` paths (each passes `repo_path`).
+  **Honest limit:** the `doctor` provider/reachability checks are contractually
+  repo-independent (env + defaults only), so `colleague doctor` does **not** yet
+  reflect `.colleague/config.json` — a documented follow-up, not built.
 - **Rename back-compat (`convertible` → `colleague`)** — the project was renamed
   from *convertible*. The import package, the `colleague`/`clg` commands, the
   `.colleague/` config dir, and the `COLLEAGUE_*` env vars are the canonical
