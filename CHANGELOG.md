@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-08
+
+### Added
+
+- Persistent config-file override for the engine endpoint: .colleague/config.json (repo-level, falling back to user-level ~/.colleague/config.json) feeds base_url/api_key/model into EngineConfig.resolve as the resolution default, so colleague can be pointed at any OpenAI-compatible provider (replacing the local vLLM) without re-passing CLI flags or env vars. Precedence: explicit flag > COLLEAGUE_*/OPENAI_* env > .colleague/config.json > built-in default. Wired into the work/session/learn-from paths; stdlib json only; absent/malformed file is a strict no-op (colleague/config.py load_config_file).
+
+### Changed
+
+- EngineConfig.resolve gains an optional repo_path keyword; when omitted, behavior is byte-identical to before.
+
 ## [1.1.0] - 2026-06-06
 
 ### Added

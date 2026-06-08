@@ -7,11 +7,17 @@ Resolution precedence, highest first:
    still honored as a deprecated fallback during the rename),
 3. an OpenAI-style ``OPENAI_*`` environment variable (so an existing OpenAI
    client setup is reused),
-4. the built-in default.
+4. a persistent ``.colleague/config.json`` file (repo-level, falling back to
+   user-level ``~/.colleague/config.json``) — the ``base_url``/``api_key``/
+   ``model`` endpoint keys only, and only when ``resolve`` is given a
+   ``repo_path``. This is the durable way to point colleague at another
+   OpenAI-compatible provider without re-passing flags or env vars each run,
+5. the built-in default.
 
 Defaults point at the vLLM reference rig (decision D3): an OpenAI-compatible
 server on ``localhost:8001``. Because the driver only speaks the OpenAI surface,
-pointing ``base_url`` elsewhere is a config change, never a code change (h2).
+pointing ``base_url`` elsewhere is a config change, never a code change (h2) —
+whether via env var, CLI flag, or ``.colleague/config.json``.
 """
 
 from __future__ import annotations

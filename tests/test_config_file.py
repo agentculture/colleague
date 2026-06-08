@@ -63,9 +63,7 @@ def test_load_config_file_unrecognised_keys(tmp_path: Path) -> None:
 # ── EngineConfig.resolve with repo_path ─────────────────────────────────────
 
 
-def test_config_file_base_url_picked_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_file_base_url_picked_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A .colleague/config.json base_url is picked up by resolve(repo_path=...)."""
     monkeypatch.delenv("COLLEAGUE_BASE_URL", raising=False)
     monkeypatch.delenv("CONVERTIBLE_BASE_URL", raising=False)
@@ -94,9 +92,7 @@ def test_explicit_overrides_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert cfg.base_url == "http://explicit/v1"
 
 
-def test_absent_config_file_uses_defaults(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_absent_config_file_uses_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When no config file exists, defaults are unchanged."""
     monkeypatch.delenv("COLLEAGUE_BASE_URL", raising=False)
     monkeypatch.delenv("CONVERTIBLE_BASE_URL", raising=False)
@@ -112,9 +108,7 @@ def test_absent_config_file_uses_defaults(
     assert cfg.api_key == "EMPTY"
 
 
-def test_malformed_json_ignored(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_malformed_json_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Malformed JSON is ignored without raising; defaults are used."""
     monkeypatch.delenv("COLLEAGUE_BASE_URL", raising=False)
     monkeypatch.delenv("CONVERTIBLE_BASE_URL", raising=False)
@@ -126,9 +120,7 @@ def test_malformed_json_ignored(
     assert cfg.base_url == "http://localhost:8001/v1"
 
 
-def test_config_file_model_picked_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_file_model_picked_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A .colleague/config.json model is picked up by resolve(repo_path=...)."""
     monkeypatch.delenv("COLLEAGUE_MODEL", raising=False)
     monkeypatch.delenv("CONVERTIBLE_MODEL", raising=False)
@@ -137,9 +129,7 @@ def test_config_file_model_picked_up(
     assert cfg.model == "custom-model"
 
 
-def test_config_file_api_key_picked_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_file_api_key_picked_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A .colleague/config.json api_key is picked up by resolve(repo_path=...)."""
     monkeypatch.delenv("COLLEAGUE_API_KEY", raising=False)
     monkeypatch.delenv("CONVERTIBLE_API_KEY", raising=False)
