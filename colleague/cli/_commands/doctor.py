@@ -10,6 +10,10 @@ The report is the rubric-shaped contract
 agent-first rubric's bundle 7 passes. ``doctor`` exits ``1`` when the report is
 unhealthy (a failed ``error`` check), else ``0``. Read-only — every check-group
 is contractually read-only, so a diagnosis never touches the repo.
+
+With ``--repo``, the provider and reachability groups reflect the repo's
+``.colleague/config.json`` (``base_url``, ``api_key``, ``model``); all other
+groups remain env/defaults only.
 """
 
 from __future__ import annotations
@@ -21,7 +25,10 @@ from colleague.oilcheck import diagnose
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    report = diagnose(probe=bool(getattr(args, "probe", False)))
+    report = diagnose(
+        probe=bool(getattr(args, "probe", False)),
+        repo_path=getattr(args, "repo", "."),
+    )
     json_mode = bool(getattr(args, "json", False))
     if json_mode:
         emit_result(report, json_mode=True)
@@ -50,5 +57,10 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--probe",
         action="store_true",
         help="Also ping the provider server for reachability (opens a network connection).",
+    )
+    p.add_argument(
+        "--repo",
+        default=".",
+        help="Repository path to reflect .colleague/config.json for provider + reachability checks (default: cwd).",
     )
     p.set_defaults(func=cmd_doctor)

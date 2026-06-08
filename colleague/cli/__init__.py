@@ -78,6 +78,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import clean as _clean_cmd
     from colleague.cli._commands import cli as _cli_group
     from colleague.cli._commands import commands as _commands_group
+    from colleague.cli._commands import config as _config_group
     from colleague.cli._commands import doctor as _doctor_cmd
     from colleague.cli._commands import explain as _explain_cmd
     from colleague.cli._commands import feedback as _feedback_group
@@ -128,6 +129,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _skills_group.register(sub)
     # Telemetry: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
     _telemetry_group.register(sub)
+    # Provider config: resolved engine/provider settings (api_key redacted).
+    _config_group.register(sub)
     # Interactive foreground palette (c28/R8).
     _session_cmd.register(sub)
     # Headless TUI inspection + JSON scenario runner (TAUI).
