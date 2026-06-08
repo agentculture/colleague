@@ -31,10 +31,15 @@ from colleague.config import _DEFAULT_API_KEY, _DEFAULT_BASE_URL, EngineConfig
 from colleague.oilcheck import make_check
 
 
-def checks() -> list[dict]:
-    """Return provider-config checks (see module docstring)."""
+def checks(repo_path=None) -> list[dict]:
+    """Return provider-config checks (see module docstring).
+
+    When *repo_path* is provided, ``EngineConfig.resolve`` will also read
+    ``.colleague/config.json`` from that repo, so the checks reflect the
+    persistent config-file override.
+    """
     try:
-        return _checks()
+        return _checks(repo_path)
     except Exception as exc:  # pragma: no cover — safety net; normal paths don't raise
         return [
             make_check(
@@ -47,8 +52,8 @@ def checks() -> list[dict]:
         ]
 
 
-def _checks() -> list[dict]:
-    cfg = EngineConfig.resolve()
+def _checks(repo_path) -> list[dict]:
+    cfg = EngineConfig.resolve(repo_path=repo_path)
     out: list[dict] = []
 
     # 1. provider_config — always emitted; api_key is redacted.
