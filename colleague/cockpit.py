@@ -7,6 +7,10 @@ Lives top-level (not under ``colleague/tui/``) so it may call ``handoff`` /
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # annotation-only; the runtime imports are lazy, inside the functions
+    from colleague.tui.state import CockpitState, Panel
 
 
 def resolve_repo_context(repo: Path) -> dict:
@@ -33,7 +37,7 @@ def resolve_repo_context(repo: Path) -> dict:
         }
 
 
-def build_repo_context_panel(repo: Path) -> "Panel":
+def build_repo_context_panel(repo: Path) -> Panel:
     """Build the Context panel for the cockpit.
 
     IDs, labels, and emoji match ``session.py`` ``_context_panel`` so TAUI
@@ -55,7 +59,7 @@ def build_repo_context_panel(repo: Path) -> "Panel":
     )
 
 
-def build_cockpit_state(repo: Path) -> "CockpitState":
+def build_cockpit_state(repo: Path) -> CockpitState:
     """Build a minimal ``CockpitState`` with the repo-context panel."""
     from colleague.tui.state import CockpitState
 

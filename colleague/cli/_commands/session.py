@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
-from colleague import feedback, handoff, identity, layers, registry
+from colleague import cockpit, feedback, layers, registry
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
@@ -271,15 +271,19 @@ class _Session:
             "feedback": None,
         }
         try:
-            facts["branch"] = handoff.current_ref(self.repo) or "unknown"
-            facts["dirty"] = handoff.working_tree_dirty(self.repo)
+            # repo/branch/tree/ident resolve through the shared cockpit builder so
+            # the interactive session and the headless `tui --repo` surfaces show
+            # identical values (single source of truth).
+            repo_ctx = cockpit.resolve_repo_context(self.repo)
+            facts["branch"] = repo_ctx["branch"]
+            facts["dirty"] = repo_ctx["dirty"]
+            facts["ident"] = repo_ctx["ident"]
             facts["agents"] = len(layers.resolve_agents(self.repo, self.config.model))
             facts["skills"] = sorted(layers.resolve_skills(self.repo, self.config.model))
             facts["telemetry"] = TelemetryConfig.resolve().enabled
             pol = load_policy(self.repo, model=self.config.model)
             facts["runcfg"] = pol.run_command_config()
             facts["hooks_gated"] = pol.section_present("hooks") or pol.section_present("commands")
-            facts["ident"] = identity.resolve_identity(self.repo) or self.repo.name
             last = feedback.get_last_work(self.repo)
             facts["last"] = last
             if last:
@@ -493,15 +497,20 @@ class _Session:
                 return None
 
         def _render(buffer: str, matches: list, selected: int) -> str:
-            parts = [self._frame(include_prompt=False)]
+            # The slash ("skills") popup renders BELOW the input line — the cockpit
+            # frame, then the prompt+buffer, then the popup — after which the cursor
+            # is restored onto the input line. The whole-screen clear in `_frame`
+            # (`_CLEAR_HOME` = ``\x1b[H\x1b[2J``) wipes any longer prior popup each
+            # keystroke, so no explicit clear-to-end is needed here.
+            prompt = plain_prompt()
+            parts = [self._frame(include_prompt=False), prompt + buffer]
+            popup = ""
             if matches:
-                parts.append(
-                    render_slash_autocomplete(
-                        matches, selected, width=detect_width(), style=_slash_tag_style()
-                    )
+                popup = render_slash_autocomplete(
+                    matches, selected, width=detect_width(), style=_slash_tag_style()
                 )
-            parts.append(plain_prompt() + buffer)
-            return "\n".join(parts)
+                parts.append(popup)
+            return "\n".join(parts) + _cursor_back_to_input(popup, prompt, buffer)
 
         return read_line_with_popup(_SLASH_COMMANDS, _render, filter_slash, fallback=_fallback)
 
@@ -810,6 +819,28 @@ def _slash_tag_style() -> str:
     """Tag badge style for the live ``/`` popup: ``icons`` when
     ``COLLEAGUE_SLASH_TAG_STYLE=icons``, else the default ``text``."""
     return "icons" if os.environ.get("COLLEAGUE_SLASH_TAG_STYLE", "").lower() == "icons" else "text"
+
+
+def _cursor_back_to_input(popup: str, prompt: str, buffer: str) -> str:
+    """ANSI to move the cursor from the end of a *below-input* popup back onto the
+    input line — so the slash popup can render under ``colleague ❯`` while the
+    cursor still sits where the user is typing.
+
+    Returns ``""`` when there is no popup (cursor is already at the input line).
+    The popup occupies ``popup.count("\\n") + 1`` rows below the input line, so we
+    move the cursor up that many rows and across to just after the typed buffer
+    (1-based column ``len(prompt) + len(buffer) + 1``). The sequence carries no
+    ``\\n``, so it survives ``_raw_loop``'s ``"\\n" -> "\\r\\n"`` rewrite unchanged.
+
+    Pure / TTY-free → unit-testable without a terminal. Column math assumes
+    single-width glyphs and no line-wrap (true for the prompt + a typed slash
+    command); a wrapped buffer would land the cursor approximately, never crash.
+    """
+    if not popup:
+        return ""
+    rows = popup.count("\n") + 1
+    col = len(prompt) + len(buffer) + 1  # 1-based column just past the buffer
+    return f"\x1b[{rows}A\x1b[{col}G"
 
 
 _HELP_TEXT = _format_help(_SLASH_COMMANDS)
