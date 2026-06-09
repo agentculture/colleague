@@ -559,7 +559,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     noun_sub = p.add_subparsers(dest="tui_command", parser_class=type(p))
 
     rnd = noun_sub.add_parser("render", help="Render the ANSI frame for a state.")
-    rnd.add_argument("--state", required=True, help="Path to a CockpitState/TAUI JSON file.")
+    # --state is optional (like the other verbs) so `tui render --repo .` renders
+    # the live repo cockpit standalone; with neither flag it renders an empty frame.
+    rnd.add_argument("--state", default=None, help="Path to a CockpitState/TAUI JSON file.")
     rnd.add_argument(
         "--format",
         choices=["ansi", "markdown"],

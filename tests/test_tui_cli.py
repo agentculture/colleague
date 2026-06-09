@@ -418,3 +418,68 @@ def test_render_invalid_format_errors(tmp_path: Path, capsys: pytest.CaptureFixt
     err = capsys.readouterr().err
     assert "error:" in err
     assert "Traceback" not in err
+
+
+# ---------------------------------------------------------------------------
+# tui --repo: surface the current repo + branch in TAUI / TUI (req 1)
+# ---------------------------------------------------------------------------
+
+
+def _git_repo(path: Path, *, branch: str = "wip-branch") -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    (path / "f.txt").write_text("hello\n")
+    subprocess.run(["git", "add", "."], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=path, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", branch], cwd=path, check=True)
+
+
+def test_state_repo_shows_branch(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """tui state --repo <git> prepends a Context panel carrying the live branch."""
+    _git_repo(tmp_path, branch="feature-z")
+    rc = main(["tui", "state", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    mirror = json.loads(capsys.readouterr().out)
+    ctx = next((p for p in mirror["panels"] if p["id"] == "context"), None)
+    assert ctx is not None, "context panel should be present with --repo"
+    by_id = {i["id"]: i for i in ctx["items"]}
+    assert by_id["ctx.branch"]["status"] == "feature-z"
+    assert by_id["ctx.repo"]["status"] == tmp_path.name
+
+
+def test_render_repo_shows_branch_in_ansi(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """tui render --repo <git> shows the branch in the ANSI frame."""
+    _git_repo(tmp_path, branch="topic-x")
+    rc = main(["tui", "render", "--repo", str(tmp_path)])
+    assert rc == 0
+    assert "topic-x" in capsys.readouterr().out
+
+
+def test_state_repo_composes_with_state(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """--state + --repo compose: the context panel is prepended, other panels kept."""
+    _git_repo(tmp_path, branch="compose-b")
+    from colleague.tui.state import Panel
+
+    sf = _write_state(
+        tmp_path / "s.json",
+        CockpitState(panels=[Panel(id="commands", title="Work templates")]),
+    )
+    rc = main(["tui", "state", "--state", str(sf), "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    mirror = json.loads(capsys.readouterr().out)
+    ids = [p["id"] for p in mirror["panels"]]
+    assert ids[0] == "context"  # prepended
+    assert "commands" in ids  # original panel kept
+
+
+def test_state_no_repo_unchanged(capsys: pytest.CaptureFixture[str]) -> None:
+    """Without --repo the default state stays empty (no context panel) — back-compat."""
+    rc = main(["tui", "state", "--json"])
+    assert rc == 0
+    mirror = json.loads(capsys.readouterr().out)
+    assert not any(p["id"] == "context" for p in mirror["panels"])
