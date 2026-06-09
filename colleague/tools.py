@@ -30,6 +30,10 @@ from colleague.contract import SubResult
 
 FINISH = "finish"
 
+#: Shared description for the repo-relative ``path`` parameter, reused across the
+#: file tool schemas (read_file / write_file / edit_file) so the literal lives once.
+_PATH_DESC = "Path relative to the repo root."
+
 #: Bound a runaway model-issued command so it cannot stall the loop indefinitely
 #: (mirrors culture/devague ``_TIMEOUT_SECONDS`` and neighbours ``_GIT_TIMEOUT_SECONDS``).
 _COMMAND_TIMEOUT_SECONDS = 300
@@ -64,9 +68,7 @@ SCHEMAS: list[dict[str, Any]] = [
             "description": "Read a UTF-8 text file, relative to the repo root.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Path relative to the repo root."}
-                },
+                "properties": {"path": {"type": "string", "description": _PATH_DESC}},
                 "required": ["path"],
             },
         },
@@ -79,7 +81,7 @@ SCHEMAS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Path relative to the repo root."},
+                    "path": {"type": "string", "description": _PATH_DESC},
                     "content": {"type": "string", "description": "Full file contents to write."},
                 },
                 "required": ["path", "content"],
@@ -101,7 +103,7 @@ SCHEMAS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Path relative to the repo root."},
+                    "path": {"type": "string", "description": _PATH_DESC},
                     "old_string": {
                         "type": "string",
                         "description": "Exact text to replace (must match the file verbatim).",
@@ -476,6 +478,10 @@ class ToolExecutor:
                 f"no such file: {rel} (edit_file only edits existing files; "
                 "use write_file to create)"
             ) from exc
+        except UnicodeDecodeError as exc:
+            raise ToolError(
+                f"cannot edit {rel}: not valid UTF-8 text (edit_file works on text files)"
+            ) from exc
         except OSError as exc:
             raise ToolError(f"cannot read {rel}: {exc}") from exc
 
@@ -506,8 +512,14 @@ class ToolExecutor:
         # contains old_string is NOT re-scanned (no runaway expansion).
         updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
         # newline="" keeps the on-disk bytes byte-deterministic cross-platform,
-        # exactly as _write_file does.
-        path.write_text(updated, encoding="utf-8", newline="")
+        # exactly as _write_file does. Translate a write failure (permissions,
+        # read-only, IO error) into a ToolError so the loop records a recoverable
+        # failed step instead of aborting the work item (the loop only catches
+        # ToolError around tool execution).
+        try:
+            path.write_text(updated, encoding="utf-8", newline="")
+        except OSError as exc:
+            raise ToolError(f"cannot write {rel}: {exc}") from exc
         self.changed.add(rel)
         # Account only the bytes this edit authored into the file (replacement text
         # times the occurrences replaced) — the honest cost-of-output signal that

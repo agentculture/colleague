@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -234,3 +235,28 @@ def test_edit_file_new_contains_old_replace_all(tmp_path: Path) -> None:
         {"path": "g.txt", "old_string": "a", "new_string": "a-x", "replace_all": True},
     )
     assert (tmp_path / "g.txt").read_text() == "a-x a-x"
+
+
+def test_edit_file_non_utf8_raises_toolerror(tmp_path: Path) -> None:
+    # A non-UTF8 file surfaces as a recoverable ToolError, not an uncaught
+    # UnicodeDecodeError that would abort the work item (the loop only catches
+    # ToolError around tool execution).
+    (tmp_path / "bin.dat").write_bytes(b"\xff\xfe\x00 raw bytes")
+    ex = ToolExecutor(tmp_path)
+    with pytest.raises(ToolError):
+        ex.execute("edit_file", {"path": "bin.dat", "old_string": "raw", "new_string": "x"})
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root bypasses file permission bits")
+def test_edit_file_write_failure_raises_toolerror(tmp_path: Path) -> None:
+    # A write failure (here: a read-only target) is translated to ToolError rather
+    # than escaping as a raw OSError.
+    target = tmp_path / "ro.txt"
+    target.write_text("keep this")
+    target.chmod(0o444)
+    try:
+        ex = ToolExecutor(tmp_path)
+        with pytest.raises(ToolError):
+            ex.execute("edit_file", {"path": "ro.txt", "old_string": "keep", "new_string": "drop"})
+    finally:
+        target.chmod(0o644)
