@@ -483,3 +483,23 @@ def test_state_no_repo_unchanged(capsys: pytest.CaptureFixture[str]) -> None:
     assert rc == 0
     mirror = json.loads(capsys.readouterr().out)
     assert not any(p["id"] == "context" for p in mirror["panels"])
+
+
+def test_state_repo_expands_tilde(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--repo ~/proj expands the tilde (HOME) and resolves the real git repo."""
+    home = tmp_path / "home"
+    repo = home / "proj"
+    repo.mkdir(parents=True)
+    _git_repo(repo, branch="tilde-branch")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Windows expanduser fallback
+
+    rc = main(["tui", "state", "--repo", "~/proj", "--json"])
+    assert rc == 0
+    mirror = json.loads(capsys.readouterr().out)
+    ctx = next((p for p in mirror["panels"] if p["id"] == "context"), None)
+    assert ctx is not None
+    by_id = {i["id"]: i for i in ctx["items"]}
+    assert by_id["ctx.branch"]["status"] == "tilde-branch"

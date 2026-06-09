@@ -94,7 +94,10 @@ def _load_state(path_str: Optional[str], repo_str: Optional[str] = None) -> Cock
         # the default (no ``--repo``) usage and the boundary-pure tui core.
         from colleague.cockpit import build_repo_context_panel
 
-        panel = build_repo_context_panel(Path(repo_str))
+        # expanduser so `--repo ~/proj` resolves like every other path the verb
+        # takes (e.g. `_read_text` on --state); a bare `~` would otherwise be a
+        # literal dir name and silently fall back to the non-git defaults.
+        panel = build_repo_context_panel(Path(repo_str).expanduser())
         state.panels = [panel] + [p for p in state.panels if p.id != "context"]
     return state
 
