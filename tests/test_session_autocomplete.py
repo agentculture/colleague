@@ -641,3 +641,62 @@ def test_raw_loop_ctrl_c_quits_with_none() -> None:
 @_needs_pty
 def test_raw_loop_ctrl_d_on_empty_line_quits_with_none() -> None:
     assert _drive_raw_loop(b"\x04") is None
+
+
+# ---------------------------------------------------------------------------
+# popup renders BELOW the input line + cursor restoration (req 2)
+# ---------------------------------------------------------------------------
+
+
+def test_cursor_back_to_input_pure() -> None:
+    """_cursor_back_to_input is a pure, TTY-free cursor-restore string."""
+    from colleague.cli._commands.session import _cursor_back_to_input
+
+    # No popup → nothing to restore.
+    assert _cursor_back_to_input("", "colleague ❯ ", "/sk") == ""
+    # A 3-row popup with a 12-char prompt + 3-char buffer: up 3 rows, to col 16.
+    seq = _cursor_back_to_input("a\nb\nc", "colleague ❯ ", "/sk")
+    assert seq == "\x1b[3A\x1b[16G"
+    # A single-row popup moves up exactly one row.
+    assert _cursor_back_to_input("just one row", "colleague ❯ ", "") == "\x1b[1A\x1b[13G"
+
+
+def test_render_places_popup_below_input(tmp_path, monkeypatch) -> None:
+    """The live _render draws the slash popup AFTER the input line and restores the cursor."""
+    import re
+
+    import colleague.cli._commands._session_input as si
+    from colleague.cli._commands.session import _Session
+    from colleague.config import EngineConfig
+    from colleague.tui.widgets.prompt_input import plain_prompt
+
+    sess = _Session(
+        repo=tmp_path,
+        engine_name="mock",
+        open_pr=False,
+        base="main",
+        config=EngineConfig.resolve(),
+        json_mode=False,
+        view="ansi",
+        out=lambda *a, **k: None,
+        err=lambda *a, **k: None,
+        work_fn=lambda **k: None,
+    )
+
+    captured: dict = {}
+
+    def _fake_reader(specs, render, filter_fn, *, stream=None, out=None, fallback=None):
+        captured["frame"] = render("/co", filter_fn("co", specs), 0)
+        return "/help"
+
+    monkeypatch.setattr(si, "read_line_with_popup", _fake_reader)
+    sess._read_live_ansi()
+
+    frame = captured["frame"]
+    input_line = plain_prompt() + "/co"
+    # The input line must appear BEFORE the highlighted popup row (popup is below).
+    assert input_line in frame
+    assert "\x1b[7m" in frame  # a highlighted popup row was drawn
+    assert frame.index(input_line) < frame.index("\x1b[7m"), "popup must render below input"
+    # The cursor-restore sequence (up N rows, to column M) ends the frame.
+    assert re.search(r"\x1b\[\d+A\x1b\[\d+G$", frame), "cursor must be restored to input line"

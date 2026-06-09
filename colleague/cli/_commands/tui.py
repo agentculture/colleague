@@ -56,30 +56,50 @@ def _read_text(path_str: str, *, kind: str) -> str:
         raise CliError(EXIT_USER_ERROR, f"cannot read {kind} file {path}: {exc}") from exc
 
 
-def _load_state(path_str: Optional[str]) -> CockpitState:
+def _load_state(path_str: Optional[str], repo_str: Optional[str] = None) -> CockpitState:
     """Build a :class:`CockpitState` from ``--state`` (or a fresh default).
 
     ``CockpitState.from_dict`` tolerates extra keys, so either a CockpitState
     dict or a TAUI mirror (which carries ``taui_version`` / ``available_actions``)
     loads cleanly.
+
+    When ``repo_str`` is given (the opt-in ``--repo`` flag), a live ``Context``
+    panel (repo + branch + working tree, resolved read-only via
+    :mod:`colleague.cockpit`) is prepended so the headless ``tui`` surfaces show
+    the same repo/branch the interactive session does — replacing any ``context``
+    panel already present so ``--state`` + ``--repo`` compose. With no
+    ``repo_str`` the state is byte-identical to before (the empty default, or the
+    ``--state`` file unchanged).
     """
     if not path_str:
-        return CockpitState()
-    raw = _read_text(path_str, kind="state")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise CliError(EXIT_USER_ERROR, f"--state is not valid JSON: {exc}") from exc
-    if not isinstance(data, dict):
-        raise CliError(EXIT_USER_ERROR, "--state must contain a JSON object")
-    try:
-        return CockpitState.from_dict(data)
-    except (KeyError, TypeError, AttributeError, ValueError) as exc:
-        raise CliError(
-            EXIT_USER_ERROR,
-            f"--state has an invalid shape: {exc}",
-            "see 'colleague tui state' for the expected structure",
-        ) from exc
+        state = CockpitState()
+    else:
+        raw = _read_text(path_str, kind="state")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise CliError(EXIT_USER_ERROR, f"--state is not valid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise CliError(EXIT_USER_ERROR, "--state must contain a JSON object")
+        try:
+            state = CockpitState.from_dict(data)
+        except (KeyError, TypeError, AttributeError, ValueError) as exc:
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"--state has an invalid shape: {exc}",
+                "see 'colleague tui state' for the expected structure",
+            ) from exc
+    if repo_str:
+        # Lazy import: keeps the cockpit/handoff resolution off the import path of
+        # the default (no ``--repo``) usage and the boundary-pure tui core.
+        from colleague.cockpit import build_repo_context_panel
+
+        # expanduser so `--repo ~/proj` resolves like every other path the verb
+        # takes (e.g. `_read_text` on --state); a bare `~` would otherwise be a
+        # literal dir name and silently fall back to the non-git defaults.
+        panel = build_repo_context_panel(Path(repo_str).expanduser())
+        state.panels = [panel] + [p for p in state.panels if p.id != "context"]
+    return state
 
 
 def _load_events(path_str: Optional[str], *, kind: str = "events") -> list:
@@ -174,7 +194,7 @@ def cmd_tui_overview(args: argparse.Namespace) -> int:
 
 def cmd_tui_render(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
-    state = _load_state(args.state)
+    state = _load_state(args.state, getattr(args, "repo", None))
     fmt = getattr(args, "format", "ansi")
 
     # Dispatch on format; invalid format raises CliError (EXIT_USER_ERROR).
@@ -196,7 +216,7 @@ def cmd_tui_render(args: argparse.Namespace) -> int:
 
 
 def cmd_tui_state(args: argparse.Namespace) -> int:
-    state = _load_state(args.state)
+    state = _load_state(args.state, getattr(args, "repo", None))
     emit_result(serialize(state), json_mode=True)
     return 0
 
@@ -207,7 +227,7 @@ def cmd_tui_state(args: argparse.Namespace) -> int:
 
 
 def cmd_tui_inspect(args: argparse.Namespace) -> int:
-    state = _load_state(args.state)
+    state = _load_state(args.state, getattr(args, "repo", None))
     taui = serialize(state)
     try:
         node = resolve(taui, args.select)
@@ -222,7 +242,7 @@ def cmd_tui_inspect(args: argparse.Namespace) -> int:
 
 
 def cmd_tui_action(args: argparse.Namespace) -> int:
-    state = _load_state(args.state)
+    state = _load_state(args.state, getattr(args, "repo", None))
     taui = serialize(state)
     try:
         event = selector_to_event(taui, args.select)
@@ -276,7 +296,7 @@ def _resolve_replay_events(args: argparse.Namespace) -> list:
 
 def cmd_tui_snapshot(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
-    state = _load_state(args.state)
+    state = _load_state(args.state, getattr(args, "repo", None))
     events = _load_events(args.events)
     try:
         paths = write_snapshot(args.dir or ".", args.name, state, events)
@@ -520,6 +540,18 @@ def _add_json(p: argparse.ArgumentParser) -> None:
     p.add_argument("--json", action="store_true", help=JSON_HELP)
 
 
+def _add_repo(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--repo",
+        default=None,
+        help=(
+            "Repo path; when set, prepend a live Context panel (repo + branch + "
+            "working tree) so the headless tui shows the same repo/branch as the "
+            "interactive session. Default (unset): the empty/--state state, unchanged."
+        ),
+    )
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "tui",
@@ -530,7 +562,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     noun_sub = p.add_subparsers(dest="tui_command", parser_class=type(p))
 
     rnd = noun_sub.add_parser("render", help="Render the ANSI frame for a state.")
-    rnd.add_argument("--state", required=True, help="Path to a CockpitState/TAUI JSON file.")
+    # --state is optional (like the other verbs) so `tui render --repo .` renders
+    # the live repo cockpit standalone; with neither flag it renders an empty frame.
+    rnd.add_argument("--state", default=None, help="Path to a CockpitState/TAUI JSON file.")
     rnd.add_argument(
         "--format",
         choices=["ansi", "markdown"],
@@ -538,23 +572,27 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="Output format: ansi (ANSI frame, default) or markdown (Markdown rendering).",
     )
     _add_json(rnd)
+    _add_repo(rnd)
     rnd.set_defaults(func=cmd_tui_render)
 
     st = noun_sub.add_parser("state", help="Print the TAUI mirror as JSON.")
     st.add_argument("--state", default=None, help=_STATE_FILE_HELP)
     _add_json(st)
+    _add_repo(st)
     st.set_defaults(func=cmd_tui_state)
 
     ins = noun_sub.add_parser("inspect", help="Resolve a selector to a node (JSON).")
     ins.add_argument("--select", required=True, help="Dotted selector into the TAUI tree.")
     ins.add_argument("--state", default=None, help=_STATE_FILE_HELP)
     _add_json(ins)
+    _add_repo(ins)
     ins.set_defaults(func=cmd_tui_inspect)
 
     act = noun_sub.add_parser("action", help="Operate the UI by selector; print the new mirror.")
     act.add_argument("--select", required=True, help="Actionable popup-action selector.")
     act.add_argument("--state", default=None, help=_STATE_FILE_HELP)
     _add_json(act)
+    _add_repo(act)
     act.set_defaults(func=cmd_tui_action)
 
     rep = noun_sub.add_parser(
@@ -581,6 +619,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     snap.add_argument("--events", default=None, help="Events JSONL file (default: empty).")
     snap.add_argument("--dir", default=None, help="Target directory (default: cwd).")
     _add_json(snap)
+    _add_repo(snap)
     snap.set_defaults(func=cmd_tui_snapshot)
 
     tst = noun_sub.add_parser("test", help="Run a JSON scenario (exit 1 on FAIL).")

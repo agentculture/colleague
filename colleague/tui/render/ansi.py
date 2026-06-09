@@ -45,6 +45,25 @@ def _section(label: str, body: str) -> str:
     return f"{_DIM}{label}{_RESET}\n{body}"
 
 
+def _render_context(state: CockpitState) -> str:
+    """Render the ``context`` panel (repo / branch / working tree) as a labelled
+    section — empty string when absent.
+
+    The boxed renderer is a fixed-widget layout (it does not walk panels
+    generically the way the Markdown / TAUI mirrors do), so the live ``Context``
+    panel that ``tui --repo`` prepends needs an explicit section to appear in the
+    ANSI frame. Absent panel → ``""`` → the frame is byte-identical to before.
+    """
+    panel = next((p for p in state.panels if p.id == "context" and p.visible), None)
+    if panel is None:
+        return ""
+    lines = []
+    for item in panel.items:
+        status = (item.status or "").strip()
+        lines.append(f"  {item.label} — {status}" if status else f"  {item.label}")
+    return _section(panel.title or "Context", "\n".join(lines))
+
+
 def render(
     state: CockpitState,
     *,
@@ -79,6 +98,12 @@ def render(
     # ── top: status bar ──────────────────────────────────────────────────────
     parts.append(render_status_bar(state))
     parts.append(frame_sep)
+
+    # ── context panel (repo / branch / working tree) when present (tui --repo) ─
+    context = _render_context(state)
+    if context:
+        parts.append(context)
+        parts.append(frame_sep)
 
     # ── command palette (interactive session menu; empty when no palette) ─────
     palette = render_command_palette(state, width=width)

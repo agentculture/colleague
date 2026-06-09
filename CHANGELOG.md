@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-10
+
+### Added
+
+- colleague tui --repo PATH: opt-in flag on tui state/render/inspect/action/snapshot that prepends a live Context panel (repo + branch + working tree) so the headless TAUI (tui state) and TUI (tui render, ANSI + Markdown) surfaces show the current repo and branch — not just the interactive session.
+- colleague/cockpit.py: shared, stdlib-only repo-context builder (resolve_repo_context / build_repo_context_panel / build_cockpit_state) reused by the session and the headless tui command so repo/branch resolve identically across surfaces.
+
+### Changed
+
+- The live colleague session / autocomplete popup now opens BELOW the colleague input line (modern completion UX) instead of above it, with the typing cursor restored to the input line.
+- colleague tui render --state is now optional (matching state/inspect/action/snapshot), so colleague tui render --repo . renders the live repo cockpit standalone.
+- session._facts() now resolves branch/dirty/repo-identity through colleague.cockpit (single source of truth).
+
 ## [1.3.0] - 2026-06-08
 
 ### Added
