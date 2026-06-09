@@ -202,3 +202,35 @@ def test_edit_file_bytes_written_replace_all(tmp_path: Path) -> None:
         {"path": "bw2.txt", "old_string": "x", "new_string": new_string, "replace_all": True},
     )
     assert ex.bytes_written - before == 3 * len(new_string.encode("utf-8"))
+
+
+def test_edit_file_single_match_without_replace_all(tmp_path: Path) -> None:
+    # A unique match needs no replace_all: count == 1 passes straight through.
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "u.txt", "content": "alpha beta gamma"})
+    out = ex.execute("edit_file", {"path": "u.txt", "old_string": "beta", "new_string": "BETA"})
+    assert (tmp_path / "u.txt").read_text() == "alpha BETA gamma"
+    assert "replaced 1 occurrence" in out.result
+
+
+def test_edit_file_multiline_old_string(tmp_path: Path) -> None:
+    # The common real-world case: old_string spans multiple lines.
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "m.txt", "content": "line1\nline2\nline3\n"})
+    ex.execute(
+        "edit_file",
+        {"path": "m.txt", "old_string": "line1\nline2", "new_string": "LINE1\nLINE2"},
+    )
+    assert (tmp_path / "m.txt").read_text() == "LINE1\nLINE2\nline3\n"
+
+
+def test_edit_file_new_contains_old_replace_all(tmp_path: Path) -> None:
+    # new_string containing old_string must NOT runaway-expand: str.replace does a
+    # single left-to-right pass and never re-scans replaced text.
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "g.txt", "content": "a a"})
+    ex.execute(
+        "edit_file",
+        {"path": "g.txt", "old_string": "a", "new_string": "a-x", "replace_all": True},
+    )
+    assert (tmp_path / "g.txt").read_text() == "a-x a-x"

@@ -499,6 +499,11 @@ class ToolExecutor:
             )
 
         replacements = count if replace_all else 1
+        # The guards above leave exactly two cases here: replace_all (any count) or a
+        # single unique match. The `1` cap is the explicit single-replace for the
+        # latter — not dead code, it documents that a non-replace_all edit touches one
+        # occurrence. str.replace is a single left-to-right pass, so a new_string that
+        # contains old_string is NOT re-scanned (no runaway expansion).
         updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
         # newline="" keeps the on-disk bytes byte-deterministic cross-platform,
         # exactly as _write_file does.
