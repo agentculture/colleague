@@ -15,11 +15,14 @@ The architecture, part by part:
 - **Task runtime** — the shared task contract (`colleague/contract.py`: `Task`,
   `TaskResult`) and lifecycle.
 - **Tool loop** — the bounded agentic loop (`colleague/loop.py`) the backend
-  works the repo through (`read_file`/`write_file`/`list_dir`/`run_command`/
-  `culture`/`finish`, confined to the repo by `colleague/tools.py`). The base
-  five tools plus one curated `culture` tool (allow-list: `agtag`, `devex`) —
-  added via the mesh-member re-spec (spec/plan committed on this branch). Hook
-  firing lives here — every backend inherits lifecycle behavior automatically.
+  works the repo through (`read_file`/`write_file`/`edit_file`/`list_dir`/
+  `run_command`/`culture`/`finish`, confined to the repo by `colleague/tools.py`).
+  The base six tools (`edit_file` is the partial-edit primitive added in #174 —
+  cost scales with the change, not the file size, so a scoped edit to a large
+  existing file no longer requires regenerating the whole file) plus one curated
+  `culture` tool (allow-list: `agtag`, `devex`) — added via the mesh-member
+  re-spec (spec/plan committed on this branch). Hook firing lives here — every
+  backend inherits lifecycle behavior automatically.
 - **Plugins** — backends are plugins discovered via the `colleague.engines`
   Python entry-point group (`colleague/registry.py`).
 - **Run report** — the JSON result artifact + step trace (`colleague/artifact.py`).

@@ -28,7 +28,7 @@ import pytest
 from colleague import culture
 from colleague.tools import SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
-_BASE_TOOLS = {"read_file", "write_file", "list_dir", "run_command", "finish"}
+_BASE_TOOLS = {"read_file", "write_file", "edit_file", "list_dir", "run_command", "finish"}
 
 
 # ---------------------------------------------------------------------------
@@ -61,11 +61,11 @@ def _make_fake_cli(directory: Path, name: str) -> Path:
 
 
 class TestCultureToolExposed:
-    def test_culture_tool_in_schemas_beyond_base_five(self) -> None:
+    def test_culture_tool_in_schemas_beyond_base_six(self) -> None:
         names = {s["function"]["name"] for s in SCHEMAS}
-        assert _BASE_TOOLS <= names, "the five base tools must remain"
+        assert _BASE_TOOLS <= names, "the six base tools must remain"
         assert "culture" in names, "the curated culture tool must be exposed"
-        # Curated tools beyond the base five (culture + devague + subagent + subagents, chassis).
+        # Curated tools beyond the base six (culture + devague + subagent + subagents, chassis).
         assert names == _BASE_TOOLS | {"culture", "devague", "subagent", "subagents"}
 
     def test_tool_names_includes_culture(self) -> None:

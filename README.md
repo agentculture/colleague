@@ -32,7 +32,8 @@ care which one ran.
 - A **shared task contract** — a typed `Task` and `TaskResult` that every backend
   consumes and produces identically.
 - A **bounded agentic tool-loop** — the backend calls `read_file`, `write_file`,
-  `list_dir`, `run_command`, `culture` (AgentCulture CLIs), and `finish`,
+  `edit_file` (partial-edit; cost scales with the change, not the file), `list_dir`,
+  `run_command`, `culture` (AgentCulture CLIs), and `finish`,
   confined to the target repo, until it finishes or hits the step budget.
 - **Two backends**, both registered through the same `colleague.engines`
   entry-point group an out-of-tree plugin would use:

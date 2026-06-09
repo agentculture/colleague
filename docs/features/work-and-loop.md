@@ -49,14 +49,15 @@ execute each requested tool against the repo, feed the result back, repeat. The
 mock engine supplies a scripted `complete`; the vLLM engine supplies one that
 POSTs to an OpenAI-compatible endpoint. The loop never knows the difference.
 
-The model is offered **six tools** (`colleague/tools.py`), handed to it as
-OpenAI function schemas — the original five base tools plus one curated
-`culture` tool added via the mesh-member re-spec:
+The model is offered **seven tools** (`colleague/tools.py`), handed to it as
+OpenAI function schemas — six base tools plus one curated `culture` tool added
+via the mesh-member re-spec:
 
 | Tool | What it does |
 |------|--------------|
 | `read_file` | Read a UTF-8 file, relative to the repo root. |
 | `write_file` | Create/overwrite a UTF-8 file, relative to the repo root. |
+| `edit_file` | Replace an exact string in an existing file (partial edit; cost scales with the change, not file size). Prefer over `write_file` for edits. |
 | `list_dir` | List a directory's entries, relative to the repo root. |
 | `run_command` | Run a shell command with `cwd` pinned to the repo root. |
 | `culture` | Run an allow-listed AgentCulture CLI (`agtag` / `devex`) with the agent's identity injected. See [mesh-member.md](mesh-member.md). |
@@ -64,9 +65,10 @@ OpenAI function schemas — the original five base tools plus one curated
 
 ### Confinement
 
-`read_file` / `write_file` / `list_dir` resolve their path against the repo root
-and refuse anything that escapes it (`..` traversal, absolute paths outside the
-tree). `run_command` runs with `cwd` pinned to the root. v0 **trusts the command
+`read_file` / `write_file` / `edit_file` / `list_dir` resolve their path against
+the repo root and refuse anything that escapes it (`..` traversal, absolute paths
+outside the tree); `edit_file` (like `write_file`) also refuses writes into the
+read-only neighbour clone tree. `run_command` runs with `cwd` pinned to the root. v0 **trusts the command
 itself** (decision D2) — there is no sandbox; that is a later increment. Tool output
 fed back to the model is truncated at 20,000 chars so a huge file or command
 can't blow the context window.
@@ -113,7 +115,7 @@ change.
 
 - `colleague/contract.py` — `Task`, `TaskResult`, `Step`, `Usage`, `HookFiring`.
 - `colleague/loop.py` — the bounded loop, hook firing, telemetry.
-- `colleague/tools.py` — the six tools (five base + `culture`) and the repo-confined `ToolExecutor`.
+- `colleague/tools.py` — the seven tools (six base + `culture`) and the repo-confined `ToolExecutor`.
 - `colleague/config.py` — `EngineConfig` resolution.
 
 ## See also

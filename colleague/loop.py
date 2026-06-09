@@ -66,7 +66,11 @@ from colleague.tui.from_work import progress_target as _progress_target
 _DEFAULT_SYSTEM = (
     "You are a coding agent working inside a repository. Use the provided tools "
     "to inspect and edit files, then call finish with a short summary. Make the "
-    "smallest change that satisfies the task."
+    "smallest change that satisfies the task. "
+    "To change part of an existing file, prefer the edit_file tool (an exact-string "
+    "replace that only needs the changed text) over write_file; reach for write_file "
+    "only to create a new file or do a wholesale rewrite. Rewriting a large file with "
+    "write_file is slow and may time out, so edit_file is the right tool for a scoped edit."
     "\n\n"
     "Destination (optional). When a task is vague or new enough to benefit from a "
     "clear goal-frame, you MAY use the devague tool to open or update one — this is "
