@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-06-10
+
+### Added
+
+- `edit_file` loop tool — an exact-string partial-edit primitive (a sixth base tool) whose cost scales with the change, not the file size, so a scoped edit to a large existing file no longer needs a whole-file `write_file` rewrite (#174).
+
+### Changed
+
+- The agent loop system prompt now nudges the model to prefer `edit_file` over `write_file` for edits to existing files; the `bytes_written` stat counts only the bytes an edit authors into a file.
+
 ## [1.4.0] - 2026-06-10
 
 ### Added

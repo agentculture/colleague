@@ -9,13 +9,15 @@ import pytest
 from colleague.tools import FINISH, SCHEMAS, TOOL_NAMES, ToolError, ToolExecutor
 
 
-def test_schemas_cover_base_five_plus_culture_and_devague() -> None:
-    # The five base tools, plus the curated shared culture tool (t3), the
+def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
+    # The six base tools (read_file, write_file, edit_file, list_dir,
+    # run_command, finish), plus the curated shared culture tool (t3), the
     # curated shared devague tool (t2), the subagent delegation tool (t4), and
     # the parallel batch subagents tool (t4).
     assert set(TOOL_NAMES) == {
         "read_file",
         "write_file",
+        "edit_file",
         "list_dir",
         "run_command",
         "finish",
@@ -87,3 +89,116 @@ def test_read_missing_file_raises(tmp_path: Path) -> None:
 def test_unknown_tool_raises(tmp_path: Path) -> None:
     with pytest.raises(ToolError):
         ToolExecutor(tmp_path).execute("teleport", {})
+
+
+# ---------------------------------------------------------------------------
+# edit_file tests
+# ---------------------------------------------------------------------------
+
+
+def test_edit_file_happy_path(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "greet.txt", "content": "hello world"})
+    out = ex.execute(
+        "edit_file", {"path": "greet.txt", "old_string": "world", "new_string": "colleague"}
+    )
+    assert (tmp_path / "greet.txt").read_text() == "hello colleague"
+    assert out.changed_file == "greet.txt"
+    assert "greet.txt" in ex.changed
+    assert "edited" in out.result
+
+
+def test_edit_file_old_string_not_found(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "a.txt", "content": "some content here"})
+    with pytest.raises(ToolError):
+        ex.execute("edit_file", {"path": "a.txt", "old_string": "missing text", "new_string": "x"})
+
+
+def test_edit_file_non_unique_without_replace_all(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "dup.txt", "content": "foo foo foo"})
+    with pytest.raises(ToolError):
+        ex.execute("edit_file", {"path": "dup.txt", "old_string": "foo", "new_string": "bar"})
+
+
+def test_edit_file_replace_all(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "dup.txt", "content": "foo foo foo"})
+    ex.execute(
+        "edit_file",
+        {"path": "dup.txt", "old_string": "foo", "new_string": "bar", "replace_all": True},
+    )
+    text = (tmp_path / "dup.txt").read_text()
+    assert "foo" not in text
+    assert text.count("bar") == 3
+
+
+def test_edit_file_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(ToolError):
+        ToolExecutor(tmp_path).execute(
+            "edit_file", {"path": "nonexistent.txt", "old_string": "x", "new_string": "y"}
+        )
+
+
+def test_edit_file_empty_old_string(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "b.txt", "content": "hello"})
+    with pytest.raises(ToolError):
+        ex.execute("edit_file", {"path": "b.txt", "old_string": "", "new_string": "something"})
+
+
+def test_edit_file_no_op_same_strings(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "c.txt", "content": "same"})
+    with pytest.raises(ToolError):
+        ex.execute("edit_file", {"path": "c.txt", "old_string": "same", "new_string": "same"})
+
+
+def test_edit_file_escape_root_refused(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (tmp_path / "outside.txt").write_text("secret")
+    ex = ToolExecutor(repo)
+    with pytest.raises(ToolError):
+        ex.execute(
+            "edit_file",
+            {"path": "../outside.txt", "old_string": "secret", "new_string": "pwned"},
+        )
+
+
+def test_edit_file_neighbour_clone_refused(tmp_path: Path) -> None:
+    neighbour_dir = tmp_path / ".colleague" / "neighbours" / "foo"
+    neighbour_dir.mkdir(parents=True)
+    (neighbour_dir / "x.txt").write_text("original content")
+    ex = ToolExecutor(tmp_path)
+    with pytest.raises(ToolError):
+        ex.execute(
+            "edit_file",
+            {
+                "path": ".colleague/neighbours/foo/x.txt",
+                "old_string": "original",
+                "new_string": "modified",
+            },
+        )
+
+
+def test_edit_file_bytes_written_single(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "bw.txt", "content": "alpha beta"})
+    before = ex.bytes_written
+    new_string = "REPLACED"
+    ex.execute("edit_file", {"path": "bw.txt", "old_string": "alpha", "new_string": new_string})
+    assert ex.bytes_written - before == len(new_string.encode("utf-8"))
+
+
+def test_edit_file_bytes_written_replace_all(tmp_path: Path) -> None:
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "bw2.txt", "content": "x x x"})
+    before = ex.bytes_written
+    new_string = "YY"
+    ex.execute(
+        "edit_file",
+        {"path": "bw2.txt", "old_string": "x", "new_string": new_string, "replace_all": True},
+    )
+    assert ex.bytes_written - before == 3 * len(new_string.encode("utf-8"))

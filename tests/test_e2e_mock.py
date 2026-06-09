@@ -36,8 +36,8 @@ from colleague.engines import vllm_openai
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.tools import SCHEMAS
 
-# The base tool surface every engine inherits, plus the curated culture tool (t3).
-_BASE_TOOLS = {"read_file", "write_file", "list_dir", "run_command", "finish"}
+# The base-six tool surface every engine inherits, plus the curated culture tool (t3).
+_BASE_TOOLS = {"read_file", "write_file", "edit_file", "list_dir", "run_command", "finish"}
 _CULTURE_TOOLS = {"culture"}
 
 
@@ -151,11 +151,11 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     """
     exposed = {s["function"]["name"] for s in SCHEMAS}
     _CHASSIS_TOOLS = {"culture", "devague", "subagent", "subagents"}
-    # Base five remain, the chassis tools are added, and nothing else creeps in.
-    assert _BASE_TOOLS <= exposed, "the five base tools must remain exposed"
+    # Base six remain, the chassis tools are added, and nothing else creeps in.
+    assert _BASE_TOOLS <= exposed, "the six base tools must remain exposed"
     assert _CULTURE_TOOLS <= exposed, "every engine must expose the culture tool"
     assert _CHASSIS_TOOLS <= exposed, "every engine must expose all chassis tools"
-    assert exposed == _BASE_TOOLS | _CHASSIS_TOOLS, "the tool surface is base-five + chassis"
+    assert exposed == _BASE_TOOLS | _CHASSIS_TOOLS, "the tool surface is base-six + chassis"
 
     # The vLLM engine literally hands this shared surface to the model.
     assert vllm_openai.SCHEMAS is SCHEMAS

@@ -8,7 +8,8 @@ real served model. Two layers stay invisible to unit tests:
    `culture`, `devague`. A drive only exercises them if the live model decides to
    call them. Across every real drive trace captured so far, the live model has
    invoked **only the base five** (`read_file`, `write_file`, `list_dir`,
-   `run_command`, `finish`).
+   `run_command`, `finish`). The newer `edit_file` (partial-edit, #174) has not
+   yet appeared in a captured live trace — see its own matrix row below.
 2. **Config surfaces that must be *present* to fire** — `approvals.json`,
    `hooks.json`, `neighbours.json`, per-model AGENTS/skills layers, the `[otel]`
    extra. None are present in this repo, so none have ever fired in a live drive.
@@ -68,6 +69,7 @@ treat ❌-by-staleness the same as never-validated.
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ✅ | `64361da` · 2026-06-05 (drive `711505cb4c3f`); see §5 result | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ✅ | `d5c9312` · 2026-06-05 (e2e in CI + live drive `eff14af763d4`); see §6 result | [#126](https://github.com/agentculture/colleague/issues/126) |
 | 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ✅ | `fcbf4ec` · 2026-06-05 (proactive `36b022abc7f0`, reactive `0323db53b1dd`); see §7 result | [#127](https://github.com/agentculture/colleague/issues/127) |
+| 8 | Partial-edit tool (`edit_file`) | `colleague/tools.py` | ❌ | — (added in #174; not yet exercised in a live drive) | [#174](https://github.com/agentculture/colleague/issues/174) |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 

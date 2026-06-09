@@ -1,15 +1,19 @@
 """The tool surface the agentic loop offers an engine, plus a repo-confined executor.
 
-Nine tools — ``read_file``, ``write_file``, ``list_dir``, ``run_command``,
-``culture``, ``devague``, ``subagent``, ``subagents``, and ``finish`` — are exposed
-to the model as OpenAI function/tool schemas (:data:`SCHEMAS`). :class:`ToolExecutor`
-runs a requested call against a fixed repo root.
+Ten tools — ``read_file``, ``write_file``, ``edit_file``, ``list_dir``,
+``run_command``, ``culture``, ``devague``, ``subagent``, ``subagents``, and
+``finish`` — are exposed to the model as OpenAI function/tool schemas
+(:data:`SCHEMAS`). :class:`ToolExecutor` runs a requested call against a fixed repo
+root. ``edit_file`` (#174) is the partial-edit primitive: an exact-string replace
+whose cost scales with the change, not the file size, so a scoped edit to a large
+existing file no longer needs a whole-file ``write_file`` rewrite.
 
-Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``list_dir``
-resolve their path against the root and refuse anything that escapes it (``..``
-traversal, absolute paths outside the tree). ``run_command`` runs with ``cwd``
-pinned to the root. v0 trusts the command itself (decision D2); sandboxing is a
-later wheel.
+Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``edit_file`` /
+``list_dir`` resolve their path against the root and refuse anything that escapes it
+(``..`` traversal, absolute paths outside the tree); ``write_file`` and ``edit_file``
+additionally refuse writes into the read-only neighbour clone tree. ``run_command``
+runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
+sandboxing is a later wheel.
 """
 
 from __future__ import annotations
@@ -79,6 +83,42 @@ SCHEMAS: list[dict[str, Any]] = [
                     "content": {"type": "string", "description": "Full file contents to write."},
                 },
                 "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": (
+                "Replace an exact string in an existing UTF-8 text file. Prefer this "
+                "over write_file for ANY change to an existing file: it only needs the "
+                "changed text, not the whole file, so it is far faster and cheaper on "
+                "large files. 'old_string' must match the file exactly, including "
+                "whitespace and indentation, and must be unique unless 'replace_all' is "
+                "true. Use write_file only to create a new file or do a wholesale rewrite."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path relative to the repo root."},
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact text to replace (must match the file verbatim).",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Text to replace it with.",
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": (
+                            "Replace every occurrence instead of requiring a unique "
+                            "match (default false)."
+                        ),
+                    },
+                },
+                "required": ["path", "old_string", "new_string"],
             },
         },
     },
@@ -313,9 +353,11 @@ class ToolExecutor:
     ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
-        # Total UTF-8 bytes written to files via write_file across the work item — the
-        # exact "tokens written" measure (no tokenizer, so bytes not tokens). The
-        # loop snapshots it onto WorkStats, mirroring the changed_files snapshot.
+        # Total UTF-8 bytes the model authored into files via write_file/edit_file
+        # across the work item — the exact "tokens written" measure (no tokenizer, so
+        # bytes not tokens). An edit_file contributes only its replacement bytes, not
+        # the whole file, so this stays the honest cost-of-output signal. The loop
+        # snapshots it onto WorkStats, mirroring the changed_files snapshot.
         self.bytes_written: int = 0
         self._spawn = spawn
         # Batch spawn callable: ``batch_spawn(items) -> list[SubResult]``.
@@ -340,6 +382,22 @@ class ToolExecutor:
             raise ToolError(f"path '{rel}' escapes the repo root")
         return candidate
 
+    def _refuse_clone_write(self, path: Path, rel: str) -> None:
+        """Refuse a write into the neighbour clone tree (honesty condition h12).
+
+        Neighbour clones are read-only source: the model may read them but never
+        write into them. ``_safe_path`` only confines to the repo root, which
+        includes the clone tree — so every write path (write_file, edit_file)
+        guards explicitly via this helper.
+        """
+        clone_root = (self.root / self._CLONE_SUBDIR).resolve()
+        if path == clone_root or clone_root in path.parents:
+            raise ToolError(
+                f"write refused: '{rel}' is inside the neighbour clone directory "
+                f"('{self._CLONE_SUBDIR}'), which is read-only source. "
+                "Clones are inert — they may be read, never written."
+            )
+
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch a single tool call by name to its handler.
 
@@ -349,6 +407,8 @@ class ToolExecutor:
             return self._read_file(arguments)
         if name == "write_file":
             return self._write_file(arguments)
+        if name == "edit_file":
+            return self._edit_file(arguments)
         if name == "list_dir":
             return self._list_dir(arguments)
         if name == "run_command":
@@ -384,16 +444,7 @@ class ToolExecutor:
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         rel = str(arguments["path"])
         path = self._safe_path(rel)
-        # Neighbour clones are read-only source (honesty condition h12): the model
-        # may read them but never write into them. _safe_path only confines to the
-        # repo root, which includes the clone tree — so guard writes explicitly.
-        clone_root = (self.root / self._CLONE_SUBDIR).resolve()
-        if path == clone_root or clone_root in path.parents:
-            raise ToolError(
-                f"write refused: '{rel}' is inside the neighbour clone directory "
-                f"('{self._CLONE_SUBDIR}'), which is read-only source. "
-                "Clones are inert — they may be read, never written."
-            )
+        self._refuse_clone_write(path, rel)
         content = str(arguments.get("content", ""))
         path.parent.mkdir(parents=True, exist_ok=True)
         # newline="" disables newline translation so the on-disk bytes equal
@@ -407,6 +458,60 @@ class ToolExecutor:
         n_bytes = len(content.encode("utf-8"))
         self.bytes_written += n_bytes
         return ToolOutcome(result=f"wrote {n_bytes} bytes to {rel}", changed_file=rel)
+
+    def _edit_file(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Replace an exact string in an existing file (partial edit, #174).
+
+        Edit cost scales with the change, not the file size — the structural fix
+        for full-file ``write_file`` timing out on large existing files. ``old_string``
+        must be unique unless ``replace_all`` is set.
+        """
+        rel = str(arguments["path"])
+        path = self._safe_path(rel)
+        self._refuse_clone_write(path, rel)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise ToolError(
+                f"no such file: {rel} (edit_file only edits existing files; "
+                "use write_file to create)"
+            ) from exc
+        except OSError as exc:
+            raise ToolError(f"cannot read {rel}: {exc}") from exc
+
+        old = str(arguments["old_string"])
+        new = str(arguments["new_string"])
+        replace_all = bool(arguments.get("replace_all", False))
+        if old == "":
+            raise ToolError("old_string must be non-empty; use write_file to create a file")
+        if old == new:
+            raise ToolError("old_string and new_string are identical (no-op edit)")
+        count = text.count(old)
+        if count == 0:
+            raise ToolError(
+                f"old_string not found in {rel} (it must match the file exactly, "
+                "including whitespace and indentation)"
+            )
+        if count > 1 and not replace_all:
+            raise ToolError(
+                f"old_string is not unique in {rel} ({count} matches); add surrounding "
+                "context to disambiguate, or set replace_all=true"
+            )
+
+        replacements = count if replace_all else 1
+        updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+        # newline="" keeps the on-disk bytes byte-deterministic cross-platform,
+        # exactly as _write_file does.
+        path.write_text(updated, encoding="utf-8", newline="")
+        self.changed.add(rel)
+        # Account only the bytes this edit authored into the file (replacement text
+        # times the occurrences replaced) — the honest cost-of-output signal that
+        # makes an edit's ROI visible against a full-file rewrite (#174).
+        self.bytes_written += replacements * len(new.encode("utf-8"))
+        plural = "occurrence" if replacements == 1 else "occurrences"
+        return ToolOutcome(
+            result=f"edited {rel}: replaced {replacements} {plural}", changed_file=rel
+        )
 
     def _list_dir(self, arguments: dict[str, Any]) -> ToolOutcome:
         path = self._safe_path(str(arguments.get("path", ".")))
