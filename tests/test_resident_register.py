@@ -36,6 +36,20 @@ def _make_run_steward_error(cli, args, *, root):
     raise StewardError(f"roster CLI '{cli}' not found — is it installed and on PATH?")
 
 
+def _fake_run_steward_nonzero(cli, args, *, root):
+    """Monkeypatch target: the CLI ran but reported a non-zero exit."""
+    return f"exit=3\nsteward {' '.join(args)}: not reachable"
+
+
+class TestNonZeroArrivalExit:
+    """A CLI that ran but exited non-zero is NOT a successful arrival (qodo flag)."""
+
+    def test_non_zero_exit_records_not_signalled(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("colleague.resident.register.run_steward", _fake_run_steward_nonzero)
+        result = register_resident(tmp_path, suffix="spark", model="qwen3-27b")
+        assert result.signalled is False
+
+
 # ---------------------------------------------------------------------------
 # AC1 — files written; resolve_identity round-trip
 # ---------------------------------------------------------------------------

@@ -100,3 +100,28 @@ def run_steward(
 
     body = (proc.stdout or "") + (proc.stderr or "")
     return _truncate(f"exit={proc.returncode}\n{body}")
+
+
+def parse_steward_output(output: str) -> tuple[int, str]:
+    """Split :func:`run_steward`'s ``"exit=<code>\\n<body>"`` into ``(exit_code, body)``.
+
+    :func:`run_steward` reports the CLI's exit code *in-band* — it raises only on an
+    absent/hung CLI, never on a non-zero exit (mirroring
+    :func:`colleague.culture.run_culture`). A colleague-side caller that must
+    distinguish a clean run from a CLI-reported failure uses this to read the code
+    rather than acting on error output. A missing/garbled header is treated as a
+    non-zero (unknown) failure, so a malformed result never reads as success.
+
+    Args:
+        output: The string returned by :func:`run_steward`.
+
+    Returns:
+        ``(exit_code, body)`` — the parsed exit code and the body after the header.
+    """
+    head, _, body = output.partition("\n")
+    if head.startswith("exit="):
+        try:
+            return int(head[len("exit=") :]), body
+        except ValueError:
+            pass
+    return 1, output

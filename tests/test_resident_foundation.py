@@ -14,7 +14,12 @@ import pytest
 
 from colleague.resident import CultureExtraMissing, require_culture_deps
 from colleague.resident import steward as steward_mod
-from colleague.resident.steward import ALLOWED_STEWARD_CLIS, StewardError, run_steward
+from colleague.resident.steward import (
+    ALLOWED_STEWARD_CLIS,
+    StewardError,
+    parse_steward_output,
+    run_steward,
+)
 
 #: Whether the opt-in [culture] extra is installed in this environment. The
 #: import-clean core (steward, require_culture_deps raising) is tested either way;
@@ -86,3 +91,18 @@ class TestRunSteward:
         out = run_steward("steward", ["roster"], root=tmp_path)
         assert out.startswith("exit=0\n")
         assert "#colleague" in out
+
+
+class TestParseStewardOutput:
+    def test_parses_exit_code_and_body(self) -> None:
+        assert parse_steward_output("exit=0\n#a\n#b\n") == (0, "#a\n#b\n")
+        assert parse_steward_output("exit=3\nerror: nope") == (3, "error: nope")
+
+    def test_missing_or_garbled_header_reads_as_failure(self) -> None:
+        # No recognizable 'exit=' header → treated as a non-zero (unknown) failure
+        # so a malformed result never reads as success.
+        code, body = parse_steward_output("no header here")
+        assert code != 0
+        assert body == "no header here"
+        code2, _ = parse_steward_output("exit=notanint\nbody")
+        assert code2 != 0

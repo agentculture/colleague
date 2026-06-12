@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Callable
 
 from colleague.identity import resolve_identity
-from colleague.resident.steward import StewardError, run_steward
+from colleague.resident.steward import StewardError, parse_steward_output, run_steward
 
 # ---------------------------------------------------------------------------
 # Public types
@@ -178,8 +178,18 @@ def select_channels(
         note = f"roster CLI unavailable — degraded to owned channel only ({exc})"
         return ChannelSelection(owned=owned, chosen=[owned], degraded=True, note=note)
 
+    # A non-zero exit means the roster CLI ran but failed — degrade rather than
+    # parse channels out of its error output (qodo correctness flag).
+    exit_code, roster_body = parse_steward_output(roster_output)
+    if exit_code != 0:
+        note = (
+            f"roster CLI exited {exit_code} — degraded to owned channel only "
+            "(refusing to parse channels from error output)"
+        )
+        return ChannelSelection(owned=owned, chosen=[owned], degraded=True, note=note)
+
     # --- Parse candidates -----------------------------------------------
-    raw_candidates = _parse_channels(roster_output)
+    raw_candidates = _parse_channels(roster_body)
 
     # --- Rank -----------------------------------------------------------
     if rank is not None:

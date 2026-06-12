@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from colleague.resident.identity_mint import mint_identity
-from colleague.resident.steward import StewardError, run_steward
+from colleague.resident.steward import StewardError, parse_steward_output, run_steward
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -147,7 +147,10 @@ def register_resident(
         args = arrival_args if arrival_args is not None else ARRIVAL_SUBCOMMAND
         try:
             signal_output = run_steward(steward_cli, args, root=root)
-            signalled = True
+            # The CLI ran; only a zero exit counts as a successful arrival signal —
+            # a non-zero exit is a CLI-reported failure, not a success (qodo flag).
+            exit_code, _ = parse_steward_output(signal_output)
+            signalled = exit_code == 0
         except StewardError as exc:
             signalled = False
             signal_output = (

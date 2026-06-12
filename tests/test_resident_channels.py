@@ -299,3 +299,19 @@ class TestIntegration:
         assert "#ops" not in sel.chosen
         assert "#general" in sel.chosen
         assert not sel.degraded
+
+
+class TestNonZeroRosterExit:
+    def test_non_zero_exit_degrades_instead_of_parsing_error_output(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A non-zero roster exit degrades to owned-only — error output is NOT parsed
+        for channels (qodo correctness flag)."""
+        monkeypatch.setattr(
+            "colleague.resident.channels.run_steward",
+            lambda cli, args, *, root: "exit=1\nerror: #should-not-be-joined unreachable\n",
+        )
+        sel = select_channels(tmp_path)
+        assert sel.degraded is True
+        assert sel.chosen == [sel.owned]
+        assert "#should-not-be-joined" not in sel.chosen
