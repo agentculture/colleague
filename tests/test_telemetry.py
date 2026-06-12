@@ -288,6 +288,21 @@ def test_otlp_protocol_grpc_falls_back_to_http(
     # The lean [otel] extra ships HTTP only; otlp_protocol=grpc without the grpc
     # exporter package falls back to HTTP with a one-time notice (never silently
     # ignored — the config field is honored).
+    #
+    # The grpc exporter may be transitively present in some environments (e.g.
+    # the [culture] extra pulls agentirc-cli, which depends on
+    # opentelemetry-exporter-otlp-proto-grpc). Simulate grpc-absent so this test
+    # verifies the fallback *logic*, not the ambient install state.
+    import importlib.util as _util
+
+    real_find_spec = _util.find_spec
+
+    def _grpc_absent(name: str, *a, **k):
+        if name == "opentelemetry.exporter.otlp.proto.grpc":
+            return None
+        return real_find_spec(name, *a, **k)
+
+    monkeypatch.setattr("importlib.util.find_spec", _grpc_absent)
     monkeypatch.setattr(_otel, "_warned_protocol", False)
     assert _otel._use_grpc(tel.TelemetryConfig(enabled=True, otlp_protocol="grpc")) is False
     assert "grpc" in capsys.readouterr().err

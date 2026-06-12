@@ -64,6 +64,49 @@ def test_pyproject_dependencies_empty():
     assert dependencies == [], f"Expected [project].dependencies == [], got {dependencies}"
 
 
+def test_culture_extra_declared():
+    """The [culture] extra declares the resident deps (agent-lifecycle + agentirc-cli).
+
+    The resident runtime needs the agent-lifecycle seam and the agentirc-cli wire,
+    but they must ship ONLY as the opt-in [culture] extra — never as base
+    dependencies (test_pyproject_dependencies_empty guards the base). This asserts
+    the extra exists and names both packages, so the install path
+    `pip install colleague[culture]` resolves them.
+    """
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    extras = data.get("project", {}).get("optional-dependencies", {})
+    culture = extras.get("culture")
+    assert culture is not None, "Expected a [project.optional-dependencies].culture extra"
+    joined = " ".join(culture)
+    assert "agent-lifecycle" in joined, f"[culture] must pin agent-lifecycle, got {culture}"
+    assert "agentirc-cli" in joined, f"[culture] must pin agentirc-cli, got {culture}"
+
+
+def test_resident_core_import_clean():
+    """The resident's import-clean core pulls no third-party, even with [culture] installed.
+
+    colleague.resident (the package boundary) and colleague.resident.steward (the
+    single subprocess consumer) hold no agent_lifecycle / agentirc import at module
+    load — those live only in the async seam adapters (harness/transport/supervisor)
+    and load lazily when the resident runs. This is the [culture] analogue of the
+    [otel] / [tui] deferral guards: it proves the boundary is real.
+    """
+
+    def _import_resident_core():
+        import colleague.resident  # noqa: F401
+        import colleague.resident.steward  # noqa: F401
+
+    third_party = _third_party_modules_introduced(_import_resident_core)
+    assert not third_party, (
+        f"Resident core introduced third-party imports: {sorted(third_party)}. "
+        "agent_lifecycle / agentirc must load lazily inside the seam adapters, "
+        "never at colleague.resident or colleague.resident.steward module load."
+    )
+
+
 def test_no_third_party_imports():
     """Importing colleague modules introduces no third-party top-level imports.
 
