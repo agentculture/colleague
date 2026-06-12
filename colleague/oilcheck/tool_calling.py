@@ -180,8 +180,10 @@ def _response_has_tool_call(data: object) -> bool:
     """True iff the chat-completion response's first choice carries a ``tool_calls``."""
     if not isinstance(data, dict):
         return False
+    # `choices` is always non-empty (the `or [{}]` guarantees it), so index [0] is
+    # safe and a guarding `if choices` would be dead code (Sonar S2583).
     choices = data.get("choices") or [{}]
-    message = choices[0].get("message", {}) if choices else {}
+    message = choices[0].get("message", {})
     return bool(isinstance(message, dict) and message.get("tool_calls"))
 
 
