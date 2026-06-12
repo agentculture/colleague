@@ -100,6 +100,8 @@ Options:
   --rating N         (feedback) record a 1-5 quality rating for the drive
   --notes "..."      (feedback) free-text notes to store with the rating
   --by NAME          (feedback) who is grading (default: colleague's resolved identity)
+  --json             Machine-readable output: stdout carries only the result JSON,
+                     every diagnostic/digest line goes to stderr (any verb)
 
 explore/review run in a throwaway git worktree at HEAD — they cannot touch your
 working tree or branch. review compares <base>...HEAD (committed changes only).
@@ -127,16 +129,23 @@ case "$VERB" in
         ;;
 esac
 
-# Required external tools — fail fast with a clear message, not an opaque
-# mid-run error, if the environment is missing one.
-require_tools() {
+# Verify the external tools a given verb path actually needs are on PATH — fail
+# fast with a clear message, not an opaque mid-run error. The required set is
+# verb-specific (the caller passes it once the verb + flags are known, below):
+# feedback/clean are thin pass-throughs to `colleague` plus the shared git
+# work-tree guard, so they need only git; the drive verbs (explore/review/write)
+# also render a prompt and parse colleague's --json result via python3, and the
+# worktree-isolated paths additionally need mktemp. grep is only used by the
+# uv-fallback resolver, which degrades to the clear "colleague not found" message
+# when absent, so it is not a hard requirement here.
+require_tools() {  # $@ = tool names this verb path needs
     local missing=() t
-    for t in python3 git grep mktemp; do
+    for t in "$@"; do
         command -v "$t" >/dev/null 2>&1 || missing+=("$t")
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo "error: missing required tool(s): ${missing[*]}" >&2
-        echo "hint: ask-colleague needs python3, git, grep, and mktemp on PATH." >&2
+        echo "hint: '$VERB' needs these on PATH: $*" >&2
         exit 2
     fi
 }
@@ -150,8 +159,6 @@ need_value() {  # $1 = remaining arg count ($#), $2 = flag name
         exit 1  # missing flag value -> user-input error (#161)
     }
 }
-
-require_tools
 
 # ── defaults + flag parsing ─────────────────────────────────────────────────
 REPO="."
@@ -170,6 +177,7 @@ RATING=""
 NOTES=""
 BY=""
 ARG=""
+JSON_OUT=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -187,6 +195,7 @@ while [[ $# -gt 0 ]]; do
         --rating) need_value "$#" "$1"; RATING="$2"; shift 2 ;;
         --notes) need_value "$#" "$1"; NOTES="$2"; shift 2 ;;
         --by) need_value "$#" "$1"; BY="$2"; shift 2 ;;
+        --json) JSON_OUT=1; shift ;;
         -h | --help) usage; exit 0 ;;
         --) shift; while [[ $# -gt 0 ]]; do ARG="${ARG:+$ARG }$1"; shift; done ;;
         # unknown option -> user-input error (#161)
@@ -194,6 +203,23 @@ while [[ $# -gt 0 ]]; do
         *) ARG="${ARG:+$ARG }$1"; shift ;;
     esac
 done
+
+# Now that the verb and its flags are known, require only the tools THIS path
+# uses. feedback/clean shell straight to `colleague` (+ the git work-tree guard
+# below), so they need only git — not python3/mktemp (qodo: the old blanket check
+# failed those verbs in minimal envs). write --apply/--pr lands in place with no
+# throwaway worktree, so it needs no mktemp either.
+case "$VERB" in
+    feedback | clean) require_tools git ;;
+    write)
+        if [[ "$APPLY" -eq 1 || "$OPEN_PR" -eq 1 ]]; then
+            require_tools git python3
+        else
+            require_tools git python3 mktemp  # preview runs in a throwaway worktree
+        fi
+        ;;
+    *) require_tools git python3 mktemp ;;  # explore / review
+esac
 
 # clean takes no description argument; every other verb requires one. (All of the
 # guards below are user-input errors -> exit 1, per the policy comment at the top.)
@@ -262,9 +288,10 @@ print_result() {
     # empty (its artifact was discarded with the worktree, so it is not gradable).
     # $3 (optional): exit code from the colleague drive command, propagated to
     # the caller when the drive itself failed.
-    ASK_COLLEAGUE_REAL_ARTIFACT_DIR="${1:-}" ASK_COLLEAGUE_GRADABLE="${2:-}" ASK_COLLEAGUE_DRIVE_RC="${3:-}" python3 -c '
+    ASK_COLLEAGUE_REAL_ARTIFACT_DIR="${1:-}" ASK_COLLEAGUE_GRADABLE="${2:-}" ASK_COLLEAGUE_DRIVE_RC="${3:-}" ASK_COLLEAGUE_JSON="${JSON_OUT:-0}" python3 -c '
 import sys, json, os
 raw = sys.stdin.read().strip()
+json_mode = os.environ.get("ASK_COLLEAGUE_JSON") == "1"
 if not raw:
     sys.stderr.write("error: colleague produced no result on stdout (see diagnostics above)\n")
     sys.exit(2)
@@ -275,40 +302,52 @@ except Exception:
     sys.stderr.write(raw[:2000] + "\n")
     sys.exit(2)
 ok = d.get("status") == "ok"
-out = sys.stdout if ok else sys.stderr
 tid = d.get("task_id") or ""
-print("status:", d.get("status"), file=out)
-if tid:
-    print("task:", tid, file=out)
+# Resolve the artifact path to the preserved copy when the drive ran in a
+# throwaway worktree (read-only verbs); the raw JSON points into the now-deleted
+# worktree, so both the digest and the --json output report the real location.
+ap = d.get("artifacts_path")
+real_dir = os.environ.get("ASK_COLLEAGUE_REAL_ARTIFACT_DIR") or ""
+if ap and real_dir:
+    ap = os.path.join(real_dir, os.path.basename(ap))
 # A drive that stopped without calling finish (colleague#142) or exhausted its
 # step budget did NOT deliver an authoritative result — its summary is the model
 # trailing off mid-task. Warn so the caller treats it as a partial, not a verdict.
-# The warning is a DIAGNOSTIC -> always stderr (never stdout), so a successful
-# drive keeps a clean, machine-readable stdout (no single quotes in this body).
+# The warning is a DIAGNOSTIC -> always stderr (never stdout), so both the digest
+# and --json keep a clean, machine-readable stdout (no single quotes in this body).
 if d.get("stopped_without_finish"):
     print("warning: drive ended without calling finish — treat the summary as a", file=sys.stderr)
     print("         partial (the model stopped mid-task), not an authoritative result.", file=sys.stderr)
 elif d.get("not_finished"):
     print("warning: drive ran out of steps without finishing — summary is partial.", file=sys.stderr)
-print(file=out)
-print((d.get("summary") or "").rstrip(), file=out)
-cf = d.get("changed_files") or []
-if cf:
-    print("\nchanged files:", ", ".join(cf), file=out)
-if d.get("branch"):
-    print("drive branch:", d["branch"], file=out)
-ap = d.get("artifacts_path")
-real_dir = os.environ.get("ASK_COLLEAGUE_REAL_ARTIFACT_DIR") or ""
-if ap and real_dir:
-    ap = os.path.join(real_dir, os.path.basename(ap))
-if ap and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1":
-    print("artifact:", ap, file=out)
-# A drive is gradable whenever its artifact survives — including a FAILED drive
-# (colleague writes an artifact on failure too, h5): a failure rated 1/5 is exactly
-# the ROI signal, so the hint must not be gated on `ok` (#139 qodo). It prints to
-# `out` (stderr on failure), matching the rest of the failure digest.
-if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1":
-    print("grade:", "ask-colleague feedback", tid, "--rating N", file=out)
+if json_mode:
+    # --json contract: stdout carries ONLY the TaskResult JSON (artifacts_path
+    # rewritten to the preserved copy); every human/diagnostic line already went
+    # to stderr above. The exit code still reflects drive success/failure.
+    if ap:
+        d["artifacts_path"] = ap
+    json.dump(d, sys.stdout)
+    sys.stdout.write("\n")
+else:
+    out = sys.stdout if ok else sys.stderr
+    print("status:", d.get("status"), file=out)
+    if tid:
+        print("task:", tid, file=out)
+    print(file=out)
+    print((d.get("summary") or "").rstrip(), file=out)
+    cf = d.get("changed_files") or []
+    if cf:
+        print("\nchanged files:", ", ".join(cf), file=out)
+    if d.get("branch"):
+        print("drive branch:", d["branch"], file=out)
+    if ap and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1":
+        print("artifact:", ap, file=out)
+    # A drive is gradable whenever its artifact survives — including a FAILED
+    # drive (colleague writes an artifact on failure too, h5): a failure rated
+    # 1/5 is exactly the ROI signal, so the hint must not be gated on `ok` (#139
+    # qodo). It prints to `out` (stderr on failure), matching the failure digest.
+    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1":
+        print("grade:", "ask-colleague feedback", tid, "--rating N", file=out)
 if ok:
     sys.exit(0)
 else:
@@ -471,11 +510,15 @@ run_preview() {
     local prc=0
     printf '%s' "$out" | print_result "" "" "$rc" || prc=$?
     if [[ "$prc" -eq 0 ]]; then
+        # In --json mode stdout is reserved for the result JSON print_result just
+        # emitted, so the would-be patch is a diagnostic -> stderr (fd 2).
+        local diff_fd=1
+        [[ "$JSON_OUT" -eq 1 ]] && diff_fd=2
         if [[ -n "$patch" ]]; then
-            printf '\n--- preview diff (NOT applied — pass --apply to land it) ---\n'
-            printf '%s\n' "$patch"
+            printf '\n--- preview diff (NOT applied — pass --apply to land it) ---\n' >&"$diff_fd"
+            printf '%s\n' "$patch" >&"$diff_fd"
         else
-            printf '\n(preview: no file changes reported; NOT applied)\n'
+            printf '\n(preview: no file changes reported; NOT applied)\n' >&"$diff_fd"
         fi
     fi
     return "$prc"
@@ -543,6 +586,9 @@ run_feedback() {
         cmd+=(show "$ref")
     fi
     cmd+=(--repo "$REPO")
+    # colleague feedback supports --json natively; forward the operator's request
+    # so stdout stays machine-readable end-to-end.
+    [[ "$JSON_OUT" -eq 1 ]] && cmd+=(--json)
     "${cmd[@]}"
 }
 
@@ -556,6 +602,8 @@ run_feedback() {
 run_clean() {
     local cmd=("${COLLEAGUE[@]}" clean --repo "$REPO")
     [[ "$DRY_RUN" -eq 1 ]] && cmd+=(--dry-run)
+    # colleague clean supports --json natively; forward it for machine-readable output.
+    [[ "$JSON_OUT" -eq 1 ]] && cmd+=(--json)
     "${cmd[@]}"
 }
 
