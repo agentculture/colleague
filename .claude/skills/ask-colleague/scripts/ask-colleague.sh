@@ -505,11 +505,13 @@ run_write() {
     # top — read-only/preview verbs run in a clean worktree and must not get it),
     # which sidesteps the `set -u` empty-array expansion hazard.
     [[ "$ALLOW_DIRTY" -eq 1 ]] && COMMON_FLAGS+=(--allow-dirty)
-    # `|| true`: a failed drive (`colleague drive` returns 1 when status != ok,
-    # printing the result JSON to stdout) must still flow into print_result so the
-    # digest is emitted (to stderr) and the wrapper exits non-zero — not aborted by
-    # `set -e` at the assignment, which would swallow the digest. Matches the
-    # read-only / preview paths, which already guard this way.
+    # `|| rc=$?`: a failed drive (`colleague drive` exits non-zero, printing the
+    # result JSON to stdout) must still flow into print_result so the digest is
+    # emitted (to stderr) and the wrapper propagates the drive's real exit code.
+    # The rc is captured (declaration split from the assignment so `local` doesn't
+    # mask it) rather than discarded with `|| true`, which would have collapsed the
+    # tri-state rc; `set -e` does not abort at the assignment. Matches the
+    # read-only / preview paths, which guard this way.
     local out rc=0
     if [[ "$OPEN_PR" -eq 1 ]]; then
         out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || rc=$?
