@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-06-12
+
+### Added
+
+- docs: a "Two senses of learn" section disambiguating colleague learn (read-only self-teaching prompt) from colleague learn-from (absorbs a peer agent skills, writes files); surface learn-from in the README CLI + feature tables and cross-reference learn <-> learn-from across agent-cli.md and learn-from.md.
+
+### Changed
+
+- docs: lead README with a plain-English problem statement; move Quickstart, a "When to reach for colleague" section, and a common-commands table to the top; promote the vLLM setup to its own section.
+- docs: regroup the docs/features index into 7 categories with a "start here" path, and add the 6 pages that were missing from it (learn-from, auto-split, graceful-degradation, parallel-subagents, tui, resident-promote).
+- docs: sweep stale "v0" labels now that the project is v1.
+
 ## [1.6.1] - 2026-06-12
 
 ### Changed

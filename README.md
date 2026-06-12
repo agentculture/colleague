@@ -5,11 +5,70 @@
 >
 > **One runtime, many minds.**
 
-Colleague is the harness around the model. The model is the backend; Colleague
-supplies the task runtime, controls, shared task contract, and handoff that turn
-that backend into a usable repo worker. Point it at a repo task and it runs the
-work through whichever coder backend you select — and the caller never has to
-care which one ran.
+**The problem it solves.** AI coder backends are not interchangeable — a local
+vLLM model, an OpenAI-compatible endpoint, and a hosted assistant each bring their
+own SDK, controls, and output shape. Colleague is the *harness around the model*:
+you point it at a repo task, pick a backend, and it runs the work through that
+backend's bounded tool-loop and hands back the **same typed result every time**.
+Swap the backend and nothing else about your workflow changes — the caller never
+has to care which mind ran the task.
+
+## Quickstart (30 seconds)
+
+No model and no network required — the `mock` backend runs the full loop
+deterministically, so you can see the shape of a task before wiring up a real
+model:
+
+```bash
+uv sync
+uv run pytest -n auto                            # full suite, offline
+
+# Run your first task through the deterministic mock backend:
+uv run colleague work "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
+
+# Open the interactive cockpit (the session palette) at a terminal:
+uv run colleague
+```
+
+To drive a **real** model (a local vLLM server, or any OpenAI-compatible
+endpoint), see [Running a real model (vLLM)](#running-a-real-model-vllm) below.
+
+## When to reach for colleague
+
+- **You want to swap coder backends without changing your workflow.** The same
+  `work` command and the same `TaskResult` come back whether a local 27B or a
+  cloud endpoint ran it.
+- **You want a different, independent mind on a task** — a second opinion on a
+  diff, a fresh read of an unfamiliar area, or a small change taken off your
+  plate. The first-party [`ask-colleague`](#ask-colleague-a-different-mind) skill
+  is built for exactly this: *diversity* (a second mind), not a stronger model,
+  is the point.
+- **You want reproducible, auditable AI coding tasks.** Every run writes a JSON
+  [result artifact](docs/features/artifact.md) with a full step trace, always-on
+  [stats](docs/features/stats-and-feedback.md), and opt-in
+  [OpenTelemetry traces](#telemetry-opentelemetry-observability) — so a task's
+  cost and behavior are inspectable after the fact.
+- **You want operator controls around an autonomous loop** — saved
+  [command templates](#command-templates), [lifecycle hooks](#lifecycle-hooks),
+  and an [approval gate](#approval-gate) that gates what the harness may execute.
+
+Colleague is **not** a chat assistant and **not** an IDE plugin — it is a
+headless task runtime. For an interactive pair-programmer, use Claude Code or
+Codex; reach for colleague when you want a *backend-agnostic worker* you can
+script, gate, and audit.
+
+### Common commands
+
+| Command | What it does |
+|---------|--------------|
+| `colleague work "<goal>" --repo .` | Run a task autonomously through a backend. |
+| `colleague` (no args, at a terminal) | Open the interactive cockpit / session palette. |
+| `colleague doctor --probe` | Check the install **and** ping the model endpoint. |
+| `colleague learn` | Print a prompt that teaches an **agent** how to drive colleague. |
+| `colleague learn-from claude` | **Absorb** another agent's skills into colleague's own (writes files; add `--dry-run` to preview). |
+
+> `learn` and `learn-from` are different commands — see
+> [Two senses of "learn"](#two-senses-of-learn-self-teaching-vs-learning-from-a-peer).
 
 ## Architecture
 
@@ -27,7 +86,11 @@ care which one ran.
 | **Registry** | `colleague backends list` — the backend plugins installed in this environment |
 | **Approval gate** | `colleague/policy.py` — operator-declared `.colleague/approvals.json` that controls what the harness executes |
 
-## What ships in v0
+## What ships
+
+Colleague has graduated from v0 to **v1** (see [`CHANGELOG.md`](CHANGELOG.md) for
+the per-version history and [`pyproject.toml`](pyproject.toml) for the current
+release). The runtime ships:
 
 - A **shared task contract** — a typed `Task` and `TaskResult` that every backend
   consumes and produces identically.
@@ -98,7 +161,8 @@ care which one ran.
   stderr, shown only on a TTY, and suppressed under `--json`, so it never
   pollutes the stdout result stream or agent-parsed output.
 
-**Not in v0** (by design): a multi-backend router / routing policy, an execution
+**Out of scope** (by design — each needs a re-spec before it lands): a
+multi-backend router / routing policy, an execution
 sandbox, a daemon mode, Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch
 (there is no such flag; the approval gate is the landed hook-trust increment —
 a policy gate, not a sandbox), and a live MCP runtime (no `mcp.json`, no `mcp`
@@ -126,14 +190,17 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Interactive palette | [session.md](docs/features/session.md) |
 | Cockpit views (tui / TAUI) | [tui.md](docs/features/tui.md) |
 | Layered per-model config | [layered-config.md](docs/features/layered-config.md) |
+| Learn skills from a peer | [learn-from.md](docs/features/learn-from.md) |
 | Telemetry: OpenTelemetry | [telemetry.md](docs/features/telemetry.md) |
 | Work stats & feedback (ROI) | [stats-and-feedback.md](docs/features/stats-and-feedback.md) |
 | `doctor` (health check) | [doctor.md](docs/features/doctor.md) |
 | Agent-first CLI | [agent-cli.md](docs/features/agent-cli.md) |
 | Mesh-member integration | [mesh-member.md](docs/features/mesh-member.md) |
+| Resident promote (Culture member) | [resident-promote.md](docs/features/resident-promote.md) |
 | Destination | [destination.md](docs/features/destination.md) |
 | Subagents | [subagents.md](docs/features/subagents.md) |
 | Parallel subagents | [parallel-subagents.md](docs/features/parallel-subagents.md) |
+| Auto-split (too-large assignment) | [auto-split.md](docs/features/auto-split.md) |
 | Audit fan-out | [audit-fanout.md](docs/features/audit-fanout.md) |
 | Per-model configuration | [per-model-configuration.md](docs/features/per-model-configuration.md) |
 | Approval gate | [See Approval gate section below](#approval-gate) |
@@ -168,23 +235,11 @@ work identically across every backend (the all-engines rule):
 This extensibility lives in the runtime (`colleague/loop.py`), not in any one
 backend, so it binds equally to `mock`, `vllm-openai`, and any future plugin.
 
-## Quickstart
+## Running a real model (vLLM)
 
-```bash
-uv sync
-uv run pytest -n auto                          # full suite, no network needed
-
-# Open the interactive harness (the session palette) at a terminal:
-uv run colleague
-
-# Discover the backends installed in this environment:
-uv run colleague backends list
-
-# Work toward a goal with the deterministic mock backend (no model, no network):
-uv run colleague work "add a CONTRIBUTING.md stub" --repo . --engine mock --no-pr
-```
-
-### Driving a real model (vLLM)
+To go beyond the deterministic `mock` backend, point colleague at a real
+OpenAI-compatible model server. (Discover what's installed first with
+`uv run colleague backends list`.)
 
 Start an OpenAI-compatible vLLM server with tool calling enabled:
 
@@ -553,6 +608,28 @@ uv run colleague doctor --probe  # + a live provider ping (the one networked che
 configured model actually served at that endpoint?) — gated behind the flag so the
 default `doctor` stays network-free.
 
+## Two senses of "learn": self-teaching vs. learning from a peer
+
+Colleague has **two** verbs with "learn" in the name. They do different things —
+this is the one place to keep them straight:
+
+| Command | Direction | What it does | Who it's for |
+|---------|-----------|--------------|--------------|
+| `colleague learn` | colleague → reader | Prints a **structured self-teaching prompt** (purpose, command map, exit codes, `--json`, the `explain` pointer). Read-only — nothing is written. | An **AI agent** onboarding into a repo that needs to drive colleague. (Humans usually want `colleague explain <path>` or `colleague overview` instead.) |
+| `colleague learn-from <source>` | peer → colleague | Colleague **absorbs another agent's skills**: it reads e.g. Claude Code's `.claude/skills/<name>/SKILL.md`, adapts each into colleague's own `.colleague/skills/<name>.md`, and (optionally) has the backend rewrite Claude-isms for colleague's tool surface. **Writes files.** | An **operator** growing colleague's skill set from a peer mind. |
+
+Mnemonic: `learn` teaches *someone else* how to use colleague; `learn-from`
+teaches *colleague* by absorbing a peer's skills. See
+[`docs/features/learn-from.md`](docs/features/learn-from.md) for the full
+two-stage flow (a deterministic copy, then an optional LLM review-and-adapt
+pass), the safety rules, and the honest "load, not execute" limit.
+
+```bash
+uv run colleague learn                       # self-teaching prompt (read-only)
+uv run colleague learn-from claude --repo .  # absorb Claude's skills (writes .colleague/skills/)
+uv run colleague learn-from claude --copy-only --dry-run   # preview the copy, write nothing
+```
+
 ## Per-model instructions & skills
 
 Colleague composes a model-specific **system prompt** for every work item from two
@@ -573,7 +650,7 @@ AGENTS.colleague.<model>.md   # model overlay
 
 **Skills** are markdown capability docs under `.colleague/`, folded into the
 prompt as a compact name + one-line-summary catalog (a skill is instructional
-text only — there is no skill *execution* in v0):
+text only — colleague *loads* skills as instructions, it does not *execute* them):
 
 ```text
 .colleague/skills/*.md            # base
@@ -727,10 +804,10 @@ Status values:
   bypassable by `sh -c '...'`, shell pipelines, command substitution, shell
   expansion, or an absolute path to a renamed binary. The gate encodes operator
   **intent**; it does not contain a hostile process. An airtight execution sandbox
-  is explicitly out of v0 scope.
+  is explicitly out of scope (it would need its own re-spec).
 - `md5` detects **accidental drift** (file edited by mistake), not a deliberate
   attacker who can recompute a hash. Use `sha256` when integrity matters.
-- **Checksum-only in v0.** There is no `version`-based pinning. Approvals are
+- **Checksum-only (current release).** There is no `version`-based pinning. Approvals are
   recorded and verified by content hash only. Version pinning is a documented
   follow-up that is **not yet built** — do not rely on it.
 - This is the landed increment of the tracked "per-repo hook trust gate" from
@@ -791,7 +868,8 @@ in the current version. Do not rely on a non-existent flag.
 | `session` | Open a foreground interactive palette. |
 | `backends list` | List discovered backend plugins (the registry; `wheels` is a deprecated alias). |
 | `whoami` | Report nick, version, mesh backend, and the live work engine + model (the delegate an `ask-colleague` would actually run). |
-| `learn` | Print a structured self-teaching prompt. |
+| `learn` | Print a structured self-teaching prompt — teaches an **agent** how to drive colleague (read-only; nothing is written). |
+| `learn-from <source>` | **Absorb** a peer agent's skills into colleague's own `.colleague/skills/` (e.g. `learn-from claude`); writes files. Not to be confused with `learn` — see [Two senses of "learn"](#two-senses-of-learn-self-teaching-vs-learning-from-a-peer). |
 | `explain <path>` | Markdown docs for any noun/verb path. |
 | `overview` | Read-only descriptive snapshot of the agent. |
 | `doctor` | Configuration-readiness health check: identity, provider, engines, otel, environment. |
