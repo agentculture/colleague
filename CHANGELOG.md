@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-06-12
+
+### Added
+
+- **Colleague owns the model-gear boundary (#182).** A model-server failure on a tool-calling request is now Colleague's to make legible + catchable, not the caller's to debug. Three changes: (1) `colleague doctor --probe` does a real tool-calling round-trip (`tool_calling` check) that **reads and verifies the response**: WORKS (the server emitted a `tool_call` for a tool-demanding prompt) / ACCEPTED-BUT-IGNORED (a 2xx with no `tool_call` — the false-green this catches) / TIMED-OUT (the tool path hung) / TOOL-CALLS-UNSUPPORTED (400 → enable `--enable-auto-tool-choice` + `--tool-call-parser`) / SERVER-CRASHED (a 500 whose body names `EngineCore` → the build can't serve tool calls) — catching a server that answers `GET /v1/models` but crashes on the tools requests Colleague actually sends; (2) the vLLM engine maps such a 500 to an actionable error (likely cause + a `doctor --probe` pointer), preserving the upstream body and degrading to a generic "server returned a 500" for any other 500; (3) `COLLEAGUE_DUMP_REQUEST=1` dumps the exact outgoing request payload to stderr (the api_key is a header, never in the dump).
+- **Audience:** the caller (an agent, via `ask-colleague`) gets a clean Colleague error; the operator (who runs the server) gets the actionable remediation. **Before:** `doctor --probe` went green on a server that then crashed mid-work, and the crash surfaced as a bare `HTTP 500 … EngineCore` after minutes. **Honest limit:** the probe sends a *minimal* request, so a size-dependent crash (the original #182 case crashed only on a large diff) can pass the probe and surface as the legible engine error instead. Zero new dependencies (stdlib `urllib`); spec + plan under `docs/specs/` / `docs/plans/`.
+
 ## [1.6.3] - 2026-06-12
 
 ### Fixed

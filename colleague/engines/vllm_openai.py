@@ -16,6 +16,8 @@ needs the server to emit OpenAI-format tool calls.
 from __future__ import annotations
 
 import json
+import os
+import sys
 import urllib.error
 import urllib.request
 from typing import Any, Callable
@@ -69,9 +71,22 @@ def _post_json(
         detail = _read_error_body(exc)
         if not detail:
             raise
-        raise urllib.error.HTTPError(
-            url, exc.code, f"{exc.msg}: {detail}", exc.headers, None
-        ) from exc
+        msg = f"{exc.msg}: {detail}"
+        if exc.code == 500:
+            msg = (
+                "the model server returned a 500 (server-side error, not a "
+                "Colleague bug) — " + msg
+            )
+            if "EngineCore" in detail or "InternalServerError" in detail:
+                msg += (
+                    " — the server likely crashed on a tool-calling request "
+                    "(a vLLM build that can't handle tools + "
+                    "speculative-decoding/FP4 at this size is the usual cause). "
+                    "Run 'colleague doctor --probe' to test tool calling, and "
+                    "check the server's --enable-auto-tool-choice / "
+                    "--tool-call-parser / speculative-decoding config."
+                )
+        raise urllib.error.HTTPError(url, exc.code, msg, exc.headers, None) from exc
     except urllib.error.URLError as exc:
         # A connection-level failure (server down/refused, DNS error, TLS) — NOT an
         # HTTP response. HTTPError is a URLError subclass, so this clause sits
@@ -233,6 +248,19 @@ class VllmOpenAIEngine(Engine):
                 "tool_choice": "auto",
                 "temperature": config.temperature,
             }
+            if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
+                # Best-effort: a diagnostic dump must NEVER break a work item — a
+                # closed/broken stderr (e.g. `2>/dev/null`, a dead pipe) raises
+                # BrokenPipeError/OSError, which would otherwise abort before the
+                # POST even runs (#184).
+                try:
+                    sys.stderr.write(
+                        "colleague: outgoing request payload:\n"
+                        + json.dumps(payload, indent=2)
+                        + "\n"
+                    )
+                except OSError:  # nosec B110 - diagnostic only; never mask the real work
+                    pass
             data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
             return _parse_response(data)
 

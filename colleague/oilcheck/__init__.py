@@ -177,5 +177,11 @@ def diagnose(probe: bool = False, repo_path=None) -> dict:
         from colleague.oilcheck import reachability
 
         checks.extend(reachability.checks(repo_path=repo_path))
+        # Tool-calling round-trip (#182): provider_reachable can be green while the
+        # server crashes on the tools requests Colleague actually sends. Lazy import
+        # so the no-network default path never loads a module that opens a connection.
+        from colleague.oilcheck import tool_calling
+
+        checks.extend(tool_calling.checks(repo_path=repo_path))
     healthy = not any(c["severity"] == "error" and not c["passed"] for c in checks)
     return {"healthy": healthy, "checks": checks}

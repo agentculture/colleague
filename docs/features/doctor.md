@@ -91,6 +91,37 @@ The broader operating environment (repo = cwd):
 - `cli_integrity` (**error**) — the package imports, `__version__` resolves, and
   the argument parser builds.
 
+## The opt-in `--probe` checks (network)
+
+`colleague doctor --probe` adds live checks that open a connection to the
+configured provider — the deliberate exception to the no-network contract, so
+they are gated behind the flag (off by default the diagnosis stays fully
+no-network):
+
+- `provider_reachable` (**info**/warning) — `GET {base_url}/models` responds (any
+  HTTP status means the server is up). `colleague/oilcheck/reachability.py`.
+- `provider_model_available` (**info**/warning) — the configured model is in the
+  server's served list (omitted when the list can't be parsed).
+- `tool_calling` (**info**/**error**) — a one-shot tool-calling round-trip (#182):
+  Colleague POSTs one minimal `tools` + `tool_choice` request and reports
+  **WORKS** / **TOOL-CALLS-UNSUPPORTED** (400 → start the server with
+  `--enable-auto-tool-choice` + a `--tool-call-parser`) / **SERVER-CRASHED** (a
+  500 whose body names `EngineCore` → the build can't serve tool calls). It exists
+  because `provider_reachable` can be green while the server *crashes* on the
+  tool-calling requests Colleague actually sends. `colleague/oilcheck/tool_calling.py`.
+
+**Colleague owns the model-gear boundary.** A caller of `ask-colleague` /
+`colleague work` should never have to debug the model server by hand: the
+`tool_calling` probe catches a tool-calling-incapable server up front, and a
+crash mid-work surfaces as an actionable Colleague error (the engine maps a
+500/`EngineCore` to a legible message that points back at `doctor --probe`), never
+a bare HTTP 500. Set `COLLEAGUE_DUMP_REQUEST=1` to dump the exact outgoing payload
+(the api_key is a header, never in the dump). **Honest limit:** the probe sends a
+*minimal* request to keep its blast radius small (it pokes the same path that can
+crash a fragile engine), so a *size-dependent* crash — the original #182 case
+crashed only on a large diff — can pass the probe and surface as the legible
+engine error instead.
+
 ## Usage
 
 ```bash
