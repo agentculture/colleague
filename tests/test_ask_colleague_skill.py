@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -556,6 +557,9 @@ def test_readonly_does_not_claim_path_when_preservation_fails(tmp_path) -> None:
     assert not (repo / ".colleague" / "last_drive").exists()
     # The printed path is NOT rewritten to the (non-existent) real-repo location.
     assert str(repo / ".colleague" / "tid404.json") not in r.stdout
+    # #180 finding-2: with preservation failed (not gradable) NO `artifact:` line is
+    # printed at all — the raw artifacts_path points into the soon-deleted worktree.
+    assert "artifact:" not in r.stdout
 
 
 # ── issue #61: downstream qodo findings ─────────────────────────────────────
@@ -768,3 +772,189 @@ def test_write_previews_by_default(tmp_path) -> None:
         check=True,
     ).stdout.strip()
     assert branches == "", "preview leaked the ephemeral drive branch"
+
+
+# ── issue #181: resolve_colleague() honors --repo for the uv local-dev fallback ──
+
+
+def _minimal_path_without_colleague(bindir: Path) -> str | None:
+    """A minimal PATH = bindir + the system tool dirs, but NO dir that resolves
+    `colleague` — so resolve_colleague falls through to the `uv run` helper. Returns
+    None (the caller skips) if a required tool isn't resolvable there, or a real
+    colleague leaked in (which would defeat the fallback test)."""
+    path = os.pathsep.join([str(bindir), "/usr/bin", "/bin"])
+    for tool in ("bash", "git", "python3", "grep", "mktemp", "dirname"):
+        if shutil.which(tool, path=path) is None:
+            return None
+    if shutil.which("colleague", path=path) is not None:
+        return None
+    return path
+
+
+def test_resolve_via_uv_against_repo_when_colleague_off_path(tmp_path) -> None:
+    """#181: with `colleague` NOT on PATH and $PWD outside any checkout, a colleague
+    checkout sitting at --repo must still resolve — via `uv run --project <repo>
+    colleague`. On the pre-fix wrapper (which walked only $PWD) this exited 2
+    ('colleague CLI not found'). A fake `uv` records its argv so we assert the
+    resolution without actually building an environment."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    uv_argv = tmp_path / "uv_argv.txt"
+    uv = bindir / "uv"
+    uv.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{uv_argv}"\nexit 0\n')
+    uv.chmod(0o755)
+
+    path = _minimal_path_without_colleague(bindir)
+    if path is None:
+        pytest.skip("core tools not resolvable on a colleague-free minimal PATH")
+
+    # A --repo that looks like a colleague checkout (git repo + naming pyproject).
+    checkout = _init_repo(tmp_path / "checkout")
+    (checkout / "pyproject.toml").write_text('name = "colleague"\n')
+    # $PWD is deliberately OUTSIDE any checkout, so only the --repo walk can resolve.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    env = {**os.environ, "PATH": path}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "--repo", str(checkout)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(elsewhere),
+        check=False,
+    )
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "colleague CLI not found" not in r.stderr
+    argv = uv_argv.read_text().splitlines()
+    # Resolved as `uv run --project <checkout> colleague clean --repo <checkout>`.
+    assert argv[:2] == ["run", "--project"]
+    assert argv[2] == str(checkout)
+    assert argv[3] == "colleague"
+    assert "clean" in argv
+
+
+def test_installed_colleague_on_path_never_reaches_uv(tmp_path) -> None:
+    """#181: the on-PATH branch is unchanged — when `colleague` is installed the uv
+    helper is never invoked (a fake `uv` sentinel stays unwritten)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    (bindir / "colleague").write_text(
+        "#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n'
+    )
+    (bindir / "colleague").chmod(0o755)
+    uv_sentinel = tmp_path / "uv_was_called.txt"
+    (bindir / "uv").write_text("#!/usr/bin/env bash\n" f'touch "{uv_sentinel}"\n')
+    (bindir / "uv").chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert argv_log.read_text().splitlines()[0] == "clean"  # the installed tool ran
+    assert not uv_sentinel.exists(), "uv fallback reached even though colleague is on PATH"
+
+
+# ── issue #180 finding-1: propagate colleague's tri-state drive exit code (0/1/2) ──
+
+
+def test_drive_env_failure_propagates_exit_2(tmp_path) -> None:
+    """#180 finding-1: a drive that exits 2 (environment/setup) while emitting a
+    partial TaskResult JSON on stdout must propagate as exit 2 — not collapse to 1.
+    Mirrors colleague's CliError(EXIT_ENV_ERROR, result=partial) path, which surfaces
+    the partial to stdout in --json mode while exiting 2."""
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n" 'echo \'{"status": "error", "summary": "ENV_BOOM"}\'\nexit 2\n',
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+    assert "ENV_BOOM" in r.stderr  # the failure digest still prints (to stderr)
+
+
+def test_drive_user_error_propagates_exit_1(tmp_path) -> None:
+    """#180 finding-1: a drive that exits 1 (user-input) propagates as 1 — the
+    tri-state's other arm. (Success → 0 is covered by the happy-path tests.)"""
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n" 'echo \'{"status": "error", "summary": "USER_BOOM"}\'\nexit 1\n',
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "USER_BOOM" in r.stderr
+
+
+def test_drive_empty_stdout_still_exits_2(tmp_path) -> None:
+    """#180 finding-1: a drive with NO stdout (an env failure before any result)
+    keeps print_result's parse-level exit 2 — the rc threading must not regress it."""
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n>&2 echo 'fatal: provider unreachable'\nexit 2\n",
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+
+
+# ── issue #180 finding-2: never print an `artifact:` path into a deleted worktree ──
+
+
+def test_preview_does_not_print_dead_artifact_path(tmp_path) -> None:
+    """#180 finding-2: a write PREVIEW drives in a throwaway worktree, so its
+    artifacts_path names a dir deleted on exit. The wrapper must print NO `artifact:`
+    line for a preview (nor a `grade:` hint — a preview is not gradable). The print
+    is gated on the survives-flag (ASK_COLLEAGUE_GRADABLE)."""
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        'repo=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "--repo" ] && repo="$a"; prev="$a"; done\n'
+        'git -C "$repo" checkout -q -b colleague/prevart\n'
+        "printf 'hi\\n' > \"$repo/added.txt\"\n"
+        'git -C "$repo" add -A\n'
+        'git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m "c"\n'
+        "python3 -c \"import json; print(json.dumps({'status':'ok',"
+        "'summary':'PREVIEW_ART','task_id':'previd','changed_files':['added.txt'],"
+        "'branch':'colleague/prevart',"
+        "'artifacts_path':'/throwaway/.colleague/previd.json'}))\"\n",
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "add a file", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "PREVIEW_ART" in r.stdout
+    assert "artifact:" not in (r.stdout + r.stderr)
+    assert "grade:" not in (r.stdout + r.stderr)

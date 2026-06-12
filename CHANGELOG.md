@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-06-12
+
+### Fixed
+
+- `ask-colleague.sh`: `resolve_colleague()` now honors `--repo` for the `uv` local-dev fallback — with `colleague` off `PATH` and `--repo` pointing at a colleague checkout it resolves via `uv run --project <checkout> colleague` instead of failing `colleague CLI not found`. The upward `pyproject` walk is factored into a `_colleague_via_uv` helper tried against `$PWD` then the resolved `$REPO` (#181, surfaced vendoring into culture).
+- `ask-colleague.sh`: a `colleague drive` failure now propagates colleague's documented tri-state exit code (0/1/2, #161) end-to-end instead of collapsing every non-`ok` drive to `1`. The real drive rc is captured (no more `|| true`) and threaded into `print_result`, which exits `0` on success, `2` on an environment/setup failure (and on its own parse-level failures), else `1` (#180 finding-1, surfaced vendoring into agentirc).
+- `ask-colleague.sh`: a `write` preview (and a read-only run whose artifact was not preserved) no longer prints an `artifact:` line pointing into the throwaway worktree that is deleted on exit. The print is gated on the existing `ASK_COLLEAGUE_GRADABLE` survives-flag, unified with the `grade:` hint (#180 finding-2).
+
+These are wrapper-only fixes — no change to colleague's Python CLI, the prompt templates, or `SKILL.md`. The downstreams that vendor `ask-colleague` verbatim (steward, agentirc, culture) re-vendor to pick them up (#179). New black-box regression tests in `tests/test_ask_colleague_skill.py` cover all three (fake `colleague` stub on `PATH`, no live model).
+
 ## [1.6.2] - 2026-06-12
 
 ### Added

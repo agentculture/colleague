@@ -1,0 +1,220 @@
+{
+  "slug": "ask-colleague-sh-is-correct-at-its-origin-when-col",
+  "title": "ask-colleague.sh is correct at its origin: when colleague is not on PATH it resolves the local-dev CLI against the --repo target (not just $PWD), it propagates colleague's documented tri-state exit code (0/1/2) end-to-end through a drive, and it never prints an artifact path that points into a soon-deleted worktree \u2014 so the downstreams that vendor it verbatim (steward, agentirc, culture) can re-vendor instead of carrying divergences.",
+  "frame_slug": "ask-colleague-sh-is-correct-at-its-origin-when-col",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-12T15:51:31Z",
+  "updated": "2026-06-12T15:56:12Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "ask-colleague.sh is correct at its origin: when colleague is not on PATH it resolves the local-dev CLI against the --repo target (not just $PWD), it propagates colleague's documented tri-state exit code (0/1/2) end-to-end through a drive, and it never prints an artifact path that points into a soon-deleted worktree \u2014 so the downstreams that vendor it verbatim (steward, agentirc, culture) can re-vendor instead of carrying divergences."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "All three fixes are wrapper-only (.claude/skills/ask-colleague/scripts/ask-colleague.sh): no change to colleague's Python CLI, the prompt templates, or SKILL.md; the normal colleague-on-PATH resolution and a successful drive's stdout stay byte-identical."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The three downstream repos that vendor ask-colleague verbatim (steward, agentirc, culture), the agents/automation that call the wrapper and branch on its exit code, and colleague maintainers."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The three downstreams are real and currently vendor this skill verbatim: steward (PR #76 / issue #179), agentirc (PR #39 / issue #180), culture (PR #447 / issue #181); each filed its defect upstream rather than forking. Callers that branch on exit code are the documented #161 tri-state consumers."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "With colleague off PATH and --repo pointing at a colleague checkout, the wrapper resolves via 'uv run --project <checkout> colleague' and runs; the normal colleague-on-PATH path stays byte-identical."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "'uv run --project <dir> colleague' runs the colleague console-script from <dir>'s project environment regardless of $PWD, and when colleague is on PATH the uv helper is never reached (installed path unchanged)."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "A drive environment/setup failure exits 2 through the wrapper, a user-input failure exits 1, success exits 0; parse-level failures (no stdout / unparseable JSON) stay 2; the failure digest is still printed."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Verified against colleague: 'colleague drive --json' on an engine/env failure WITH a partial result surfaces the partial TaskResult JSON to stdout AND exits 2 (emit_error result-to-stdout path, _errors.py:34-37) \u2014 the wrapper today parses it and exits 1. A no-partial env failure has empty stdout and already exits 2 via print_result's parse-level branch; a normal status=error drive (rc 1) stays 1."
+    },
+    {
+      "id": "c5",
+      "kind": "after_state",
+      "text": "A preview run, and a read-only run whose artifact was not preserved, print no 'artifact:' line into a deleted worktree; the line appears only when the artifact survives."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "ASK_COLLEAGUE_GRADABLE=='1' is true exactly when the artifact survives in the real repo (read-only run whose _preserve_artifact landed, or write --apply whose drive ran in $REPO); gating the 'artifact:' print on it suppresses the line for a preview / failed-preservation run and keeps it for write --apply (whose path is already real)."
+    },
+    {
+      "id": "c6",
+      "kind": "before_state",
+      "text": "Today the uv fallback walks only $PWD (a --repo checkout is missed -> 'error: colleague CLI not found', exit 2); every drive call discards rc with '|| true' and print_result collapses every non-ok status to 1; a preview prints an 'artifact:' path into the throwaway worktree that is deleted on exit."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Each defect is present in current main's .claude/skills/ask-colleague/scripts/ask-colleague.sh: resolve_colleague walks only $PWD (lines 51-62); the four drive call sites use '|| true' (425/449/502/504); print_result exits '0 if ok else 1' (line 306) and prints 'artifact:' whenever ap is set (lines 294-299)."
+    },
+    {
+      "id": "c7",
+      "kind": "why_it_matters",
+      "text": "colleague is the ORIGIN of this first-party skill; defects must be fixed at the source so downstreams re-vendor verbatim rather than fork \u2014 culture already carries a marked '# culture-divergence:' for #181, and the documented #161 tri-state must actually hold or caller automation breaks."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "colleague is the declared origin of this first-party skill (docs/skill-sources.md + SKILL.md 'first-party'); culture is carrying a marked '# culture-divergence:' for #181 that it drops only on re-vendor, which can happen only once the fix lands upstream here."
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Out of scope: changing colleague's CLI exit-code contract (the wrapper only faithfully propagates it); editing prompt templates or SKILL.md semantics; any markdownlint config change (colleague already ignores .claude/skills/** so the #179 prompts-gotcha does not apply here); building any downstream auto-sync or notification mechanism."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The out-of-scope items are genuinely untouched: colleague/cli/_errors.py's tri-state is unchanged (the wrapper only reads rc); prompts/*.md and SKILL.md stay byte-identical; .markdownlint-cli2.yaml already ignores '.claude/skills/**' so no lint change is needed; no sync/notification code is added."
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "tests/test_ask_colleague_skill.py gains cases that pass: (1) colleague hidden from PATH + --repo at a checkout resolves via uv and runs; (2) a drive env/setup failure exits 2 and a user-input failure exits 1 through the wrapper; (3) a preview / non-preserved run prints no 'artifact:' line at a dead path. Black-box, no live model. Downstreams can drop their divergence on re-vendor."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The new cases are black-box and need no live model \u2014 they install a fake 'colleague' stub on PATH exactly as test_ask_colleague_skill.py already does for the worktree/feedback/preserve cases \u2014 and assert the wrapper's resolution choice, propagated exit code, and the absence of a dead 'artifact:' line."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "#180 finding-1 fix: capture the real drive rc (replace '|| true' with a set +e / set -e capture at each drive call site) and thread it into print_result via ASK_COLLEAGUE_DRIVE_RC; print_result exits 0 on ok, its own 2 on parse-level failure (no stdout / unparseable), else the threaded rc when it is 1 or 2, else 1. The digest-on-failure behavior is preserved."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "print_result exit precedence becomes: 0 when status==ok; else 2 when its own parse checks fail (empty or unparseable stdin); else the threaded ASK_COLLEAGUE_DRIVE_RC when it is 1 or 2; else 1. The drive-failure digest still prints (to stderr), so digest-on-failure is preserved."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "#181: resolve_colleague() honors --repo for the uv local-dev fallback",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "With 'colleague' absent from PATH, --repo pointing at a colleague checkout, and uv present, the wrapper resolves and runs (e.g. 'clean --dry-run') instead of exiting 2",
+        "Resolution factors a '_colleague_via_uv <dir>' helper tried against $PWD then the resolved $REPO, invoking 'uv run --project <dir> colleague' so cwd need not be inside the checkout",
+        "When 'colleague' is on PATH the uv helper is never reached and COLLEAGUE=(colleague) is byte-identical to today"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h2"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "#180 finding-1: propagate colleague's tri-state drive exit code (0/1/2) end-to-end",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A drive env/setup failure (colleague exits 2 emitting a partial TaskResult JSON on stdout, --json mode) propagates as exit 2 through the wrapper; a user-input failure as 1; success as 0",
+        "Parse-level failures in print_result (empty stdout / unparseable JSON) still exit 2",
+        "The real drive rc is captured at each call site WITHOUT the 'local out; out=$(...)' rc-masking gotcha (declaration split from assignment, guarded by set +e/set -e) and threaded into print_result via ASK_COLLEAGUE_DRIVE_RC",
+        "print_result exit precedence is: 0 on status==ok; else 2 on its own parse failure; else the threaded rc when 1 or 2; else 1 \u2014 and the digest-on-failure still prints to stderr"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4",
+        "c12",
+        "h3",
+        "h5"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "#180 finding-2: never print an 'artifact:' line into a soon-deleted worktree",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A 'write --apply' run still prints its real 'artifact:' path (drive ran in $REPO)",
+        "A preview run, and a read-only run whose _preserve_artifact did not land, print NO 'artifact:' line",
+        "The print is gated on the existing ASK_COLLEAGUE_GRADABLE=='1' flag (unified with the grade: hint) \u2014 no new survives-signal is introduced"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c5",
+        "h4"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Black-box regression tests for all three fixes in tests/test_ask_colleague_skill.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "New cases install a fake 'colleague' stub on PATH (as the existing worktree/feedback/preserve cases do) and need no live model",
+        "Cases assert: (a) colleague-hidden-from-PATH + --repo-at-checkout resolves via uv and runs; (b) a stub env failure (exit 2 + partial JSON) yields wrapper exit 2 and a stub user-input failure yields exit 1; (c) a preview / non-preserved run prints no 'artifact:' line",
+        "The existing happy-path stdout assertions still pass (wrapper-only: a successful drive's stdout is byte-identical)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c1",
+        "c9",
+        "h1",
+        "h10"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Version bump + CHANGELOG + cross-reference the three downstream issues",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml + CHANGELOG.md bumped (patch) so the version-check CI gate passes",
+        "The CHANGELOG entry states the change is wrapper-only, names #180 + #181 and the three downstreams (steward/agentirc/culture), and notes #179 is re-vendored via the operator's ../rollout-cli (no repo change)",
+        "The final diff is confined to ask-colleague.sh + tests/test_ask_colleague_skill.py + CHANGELOG.md/pyproject.toml \u2014 colleague's Python CLI, prompts/*.md, SKILL.md, and .markdownlint-cli2.yaml are untouched"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c2",
+        "c6",
+        "c7",
+        "c8",
+        "h6",
+        "h7",
+        "h8",
+        "h9"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "The regression tests assert tri-state exit propagation against a FAKE colleague stub; the real CLI's 'exit 2 + partial TaskResult JSON on stdout' path is verified by code-reading (_errors.py:34-37, work.py:314) but not exercised live in CI.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    }
+  ]
+}
