@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from colleague.cli._commands import promote
-from colleague.cli._errors import CliError
+from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.explain.catalog import ENTRIES
 from colleague.resident import CultureExtraMissing
 
@@ -85,6 +85,28 @@ def test_culture_extra_missing_raises_clean_clierror(monkeypatch) -> None:
     with pytest.raises(CliError) as exc:
         promote.cmd_promote(_args())
     assert "colleague[culture]" in str(exc.value)
+
+
+def test_conflicting_culture_yaml_raises_actionable_clierror(monkeypatch) -> None:
+    """A pre-existing differing culture.yaml is a recoverable conflict: it surfaces an
+    actionable CliError pointing at --force, never the top-level 'unexpected … file a
+    bug' wrap (the conflict is caught in cmd_promote, not by the last-resort handler)."""
+    from colleague.resident.identity_mint import ConflictError
+
+    monkeypatch.setattr("colleague.resident.require_culture_deps", lambda: None)
+    monkeypatch.setattr("colleague.resident.channels.select_channels", _fake_sel)
+
+    def _conflict(repo, *, suffix, model, **kw):
+        raise ConflictError(
+            "culture.yaml already exists at /x/culture.yaml with different content."
+        )
+
+    monkeypatch.setattr("colleague.resident.register.register_resident", _conflict)
+    with pytest.raises(CliError) as exc:
+        promote.cmd_promote(_args(suffix="colleague"))
+    assert exc.value.code == EXIT_USER_ERROR
+    assert "culture.yaml" in str(exc.value)
+    assert "--force" in exc.value.remediation
 
 
 def test_serve_delegates_to_serve_live(monkeypatch, capsys) -> None:

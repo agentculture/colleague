@@ -47,6 +47,7 @@ def cmd_promote(args: argparse.Namespace) -> int:
         raise CliError(EXIT_USER_ERROR, str(exc))
 
     from colleague.resident.channels import select_channels
+    from colleague.resident.identity_mint import ConflictError
     from colleague.resident.register import register_resident
 
     suffix = args.suffix or resolve_identity(repo) or "colleague"
@@ -59,15 +60,29 @@ def cmd_promote(args: argparse.Namespace) -> int:
     )
     model = config.model
 
-    # Step 1 — mint identity + self-register (idempotent).
-    reg = register_resident(
-        repo,
-        suffix=suffix,
-        model=model,
-        steward_cli=args.roster_cli,
-        signal=not args.no_signal,
-        overwrite=args.force,
-    )
+    # Step 1 — mint identity + self-register (idempotent). A pre-existing,
+    # differing culture.yaml (e.g. promoting inside an AgentCulture repo that
+    # already declares an agent) is an expected, recoverable conflict — surface
+    # it as an actionable CliError pointing at --force, never the top-level
+    # "unexpected … file a bug" wrap.
+    try:
+        reg = register_resident(
+            repo,
+            suffix=suffix,
+            model=model,
+            steward_cli=args.roster_cli,
+            signal=not args.no_signal,
+            overwrite=args.force,
+        )
+    except ConflictError as exc:
+        raise CliError(
+            EXIT_USER_ERROR,
+            str(exc),
+            remediation=(
+                "re-run with --force to overwrite the existing culture.yaml, or "
+                "pass --suffix/--repo to mint under a different identity."
+            ),
+        )
 
     # Step 2 — channel selection (owns #<nick>, joins the agent-selected set).
     sel = select_channels(repo, roster_cli=args.roster_cli)

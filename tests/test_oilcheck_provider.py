@@ -25,12 +25,20 @@ _THIRD_PARTY_URL = "https://api.thirdparty.com/v1"
 _REAL_KEY = "sk-real-secret-key-abc123"
 _BUDGET_VAL = "50"
 
+# Canonical COLLEAGUE_* names first, then the legacy CONVERTIBLE_* fallbacks and
+# the provider OPENAI_* vars colleague reads. (The suite-wide autouse fixture in
+# conftest.py also clears these by prefix; this explicit list keeps _clean_env
+# correct on its own.)
 _PROVIDER_ENV_KEYS = (
+    "COLLEAGUE_BASE_URL",
     "CONVERTIBLE_BASE_URL",
     "OPENAI_BASE_URL",
+    "COLLEAGUE_API_KEY",
     "CONVERTIBLE_API_KEY",
     "OPENAI_API_KEY",
+    "COLLEAGUE_MODEL",
     "CONVERTIBLE_MODEL",
+    "COLLEAGUE_BUDGET",
     "CONVERTIBLE_BUDGET",
 )
 
