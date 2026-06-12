@@ -11,10 +11,15 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from agent_lifecycle.runtime.message import Message
-from agent_lifecycle.runtime.transport import Presence, Transport
 
-from colleague.resident.transport import IRCTransportAdapter
+pytest.importorskip(
+    "agent_lifecycle", reason="install the [culture] extra to test the resident seam"
+)
+
+from agent_lifecycle.runtime.message import Message  # noqa: E402
+from agent_lifecycle.runtime.transport import Presence, Transport  # noqa: E402
+
+from colleague.resident.transport import IRCTransportAdapter  # noqa: E402
 
 
 class _FakeConn:

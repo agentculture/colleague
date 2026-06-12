@@ -9,8 +9,18 @@ from __future__ import annotations
 
 import asyncio
 
-from colleague.resident.connection import IRCConnection, is_mention, parse_line
-from colleague.resident.transport import _IRCConn
+import pytest
+
+pytest.importorskip(
+    "agent_lifecycle", reason="install the [culture] extra to test the resident seam"
+)
+
+from colleague.resident.connection import (  # noqa: E402
+    IRCConnection,
+    is_mention,
+    parse_line,
+)
+from colleague.resident.transport import _IRCConn  # noqa: E402
 
 
 def test_parse_privmsg() -> None:

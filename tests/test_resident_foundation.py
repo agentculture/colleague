@@ -8,14 +8,25 @@ this module exercises the runtime behavior of the foundation seam.
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 from colleague.resident import CultureExtraMissing, require_culture_deps
 from colleague.resident import steward as steward_mod
 from colleague.resident.steward import ALLOWED_STEWARD_CLIS, StewardError, run_steward
 
+#: Whether the opt-in [culture] extra is installed in this environment. The
+#: import-clean core (steward, require_culture_deps raising) is tested either way;
+#: only the "passes when installed" assertion is gated on it.
+_HAS_CULTURE = (
+    importlib.util.find_spec("agent_lifecycle") is not None
+    and importlib.util.find_spec("agentirc") is not None
+)
+
 
 class TestRequireCultureDeps:
+    @pytest.mark.skipif(not _HAS_CULTURE, reason="needs the [culture] extra")
     def test_passes_when_extra_installed(self) -> None:
         """With the [culture] extra installed (dev/CI), the gate is a no-op."""
         # Should not raise — agent-lifecycle + agentirc-cli are installed.

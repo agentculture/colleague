@@ -12,10 +12,19 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from agent_lifecycle.runtime.supervisor import Supervisor, SupervisorStatus
+import pytest
 
-from colleague.contract import TaskResult
-from colleague.resident.supervisor import build_resident_supervisor
+pytest.importorskip(
+    "agent_lifecycle", reason="install the [culture] extra to test the resident seam"
+)
+
+from agent_lifecycle.runtime.supervisor import (  # noqa: E402
+    Supervisor,
+    SupervisorStatus,
+)
+
+from colleague.contract import TaskResult  # noqa: E402
+from colleague.resident.supervisor import build_resident_supervisor  # noqa: E402
 
 
 class _FakeConn:

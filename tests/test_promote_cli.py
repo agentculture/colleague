@@ -46,6 +46,9 @@ def _fake_sel(repo, **kw):
 
 
 def _patch_steps(monkeypatch):
+    # No-op the [culture] gate so the orchestration is testable without the extra
+    # installed (the gate itself is covered by test_culture_extra_missing_*).
+    monkeypatch.setattr("colleague.resident.require_culture_deps", lambda: None)
     monkeypatch.setattr("colleague.resident.register.register_resident", _fake_reg)
     monkeypatch.setattr("colleague.resident.channels.select_channels", _fake_sel)
 

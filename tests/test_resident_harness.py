@@ -13,11 +13,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from agent_lifecycle.runtime.harness import Harness
-from agent_lifecycle.runtime.message import Message
 
-from colleague.contract import TaskResult
-from colleague.resident.harness import ColleagueHarness
+pytest.importorskip(
+    "agent_lifecycle", reason="install the [culture] extra to test the resident seam"
+)
+
+from agent_lifecycle.runtime.harness import Harness  # noqa: E402
+from agent_lifecycle.runtime.message import Message  # noqa: E402
+
+from colleague.contract import TaskResult  # noqa: E402
+from colleague.resident.harness import ColleagueHarness  # noqa: E402
 
 
 class _FakeEngine:
