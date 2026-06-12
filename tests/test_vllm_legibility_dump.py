@@ -112,3 +112,18 @@ def test_no_dump_when_env_unset(
     complete = _complete_with(monkeypatch)
     complete([{"role": "user", "content": "hi"}])
     assert "outgoing request payload" not in capsys.readouterr().err
+
+
+def test_dump_failure_never_breaks_the_work_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#184: a broken/closed stderr (BrokenPipeError) during the dump must not abort
+    the work item — the dump is best-effort and the POST must still run."""
+
+    class _BrokenStderr:
+        def write(self, *_a: object) -> int:
+            raise BrokenPipeError("stderr is closed")
+
+    monkeypatch.setenv("COLLEAGUE_DUMP_REQUEST", "1")
+    monkeypatch.setattr("sys.stderr", _BrokenStderr())
+    complete = _complete_with(monkeypatch)
+    resp = complete([{"role": "user", "content": "hi"}])  # must NOT raise
+    assert resp.content == "ok"  # _post_json still ran past the failed dump

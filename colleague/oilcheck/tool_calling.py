@@ -12,9 +12,15 @@ the tool-calling requests Colleague actually sends (e.g. a vLLM ``EngineCore``
 ``ask-colleague`` should never have to discover that by hand-curling the model.
 This check POSTs ONE minimal ``tools`` + ``tool_choice`` request and classifies:
 
-``tool_calling`` (info | error)
-    * **WORKS** — the server returned a normal completion for a tools request
-      (``info``/passed).
+``tool_calling`` (info | warning | error)
+    * **WORKS** — the server **emitted a ``tool_call``** for the probe's
+      tool-demanding prompt (``info``/passed). The probe reads the response and
+      verifies the tool call; a 2xx alone is not enough (#184).
+    * **ACCEPTED-BUT-IGNORED** — a 2xx with no ``tool_call`` (``warning``): the
+      server took the tools payload but didn't act on it (tool calling unsupported/
+      ignored, or the model declined). Visible, not a silent green.
+    * **TIMED-OUT** — the tool-calling POST hung past the probe timeout
+      (``warning``): the server is reachable but stalled on the tool path (#184).
     * **TOOL-CALLS-UNSUPPORTED** — an HTTP 400 / tool-parser rejection
       (``error``): start vLLM with ``--enable-auto-tool-choice`` + a
       ``--tool-call-parser``.
@@ -66,7 +72,12 @@ _PROBE_TOOLS = [
         },
     }
 ]
-_PROBE_MESSAGES = [{"role": "user", "content": "Reply with the single word: ready."}]
+# The prompt DEMANDS the tool so a working server emits a tool_call we can verify
+# (#184): with a non-demanding prompt a server that ignores tools returns plain
+# text and the probe can't tell. max_tokens is generous enough for a reasoning
+# model to think *and* emit the call (16 was too small) while staying minimal.
+_PROBE_MESSAGES = [{"role": "user", "content": "Call the ping tool now."}]
+_PROBE_MAX_TOKENS = 128
 
 
 def checks(repo_path=None) -> list[dict]:
@@ -97,7 +108,7 @@ def _checks(repo_path) -> list[dict]:
         "messages": _PROBE_MESSAGES,
         "tools": _PROBE_TOOLS,
         "tool_choice": "auto",
-        "max_tokens": 16,
+        "max_tokens": _PROBE_MAX_TOKENS,
         "temperature": 0.0,
     }
     body = json.dumps(payload).encode("utf-8")
@@ -113,22 +124,65 @@ def _checks(repo_path) -> list[dict]:
     try:
         with urllib.request.urlopen(  # nosec B310 - operator-configured endpoint
             request, timeout=_PROBE_TIMEOUT
-        ):
-            pass
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         return [_classify_http_error(exc, url)]
+    except TimeoutError:
+        # A tool-calling POST that HANGS (server alive, `/models` reachable, but the
+        # tool path stalls — #182's ~199s churn precursor) is a distinct signal from
+        # "server down". TimeoutError is an OSError subclass, so catch it FIRST and
+        # report it rather than letting the OSError clause swallow it (#184).
+        return [
+            make_check(
+                "tool_calling",
+                False,
+                "warning",
+                f"tool-calling probe timed out after {_PROBE_TIMEOUT:.0f}s at {url!r}",
+                remediation=(
+                    "the server is reachable but stalled on a tool-calling request; "
+                    "check server load / speculative-decoding, or raise COLLEAGUE_TIMEOUT"
+                ),
+            )
+        ]
     except OSError:
-        # Connection refused / timeout: the server is down or unreachable.
-        # `provider_reachable` already reports that — don't double-report here.
+        # Connection refused / unreachable — `provider_reachable` already reports
+        # that, so don't double-report it as a tool-calling failure.
         return []
+    # 2xx: a working server EMITS a tool_call for the demanding prompt. A 200 with
+    # no tool_call means the server accepted but ignored the tools — the false-green
+    # this probe exists to catch (#184).
+    if _response_has_tool_call(data):
+        return [
+            make_check(
+                "tool_calling",
+                True,
+                "info",
+                f"tool-calling round-trip OK at {url!r} (server emitted a tool_call)",
+            )
+        ]
     return [
         make_check(
             "tool_calling",
-            True,
-            "info",
-            f"tool-calling round-trip OK at {url!r} (minimal probe)",
+            False,
+            "warning",
+            f"the server accepted a tools request at {url!r} but returned no tool_call",
+            remediation=(
+                "tool calling may be unsupported/ignored (or the model declined a "
+                "trivial tool) — verify --enable-auto-tool-choice + a --tool-call-parser "
+                "and a model that emits tool calls"
+            ),
         )
     ]
+
+
+def _response_has_tool_call(data: object) -> bool:
+    """True iff the chat-completion response's first choice carries a ``tool_calls``."""
+    if not isinstance(data, dict):
+        return False
+    choices = data.get("choices") or [{}]
+    message = choices[0].get("message", {}) if choices else {}
+    return bool(isinstance(message, dict) and message.get("tool_calls"))
 
 
 def _classify_http_error(exc: urllib.error.HTTPError, url: str) -> dict:

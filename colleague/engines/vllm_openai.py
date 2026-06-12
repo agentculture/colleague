@@ -249,9 +249,18 @@ class VllmOpenAIEngine(Engine):
                 "temperature": config.temperature,
             }
             if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
-                sys.stderr.write(
-                    "colleague: outgoing request payload:\n" + json.dumps(payload, indent=2) + "\n"
-                )
+                # Best-effort: a diagnostic dump must NEVER break a work item — a
+                # closed/broken stderr (e.g. `2>/dev/null`, a dead pipe) raises
+                # BrokenPipeError/OSError, which would otherwise abort before the
+                # POST even runs (#184).
+                try:
+                    sys.stderr.write(
+                        "colleague: outgoing request payload:\n"
+                        + json.dumps(payload, indent=2)
+                        + "\n"
+                    )
+                except OSError:  # nosec B110 - diagnostic only; never mask the real work
+                    pass
             data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
             return _parse_response(data)
 

@@ -15,6 +15,7 @@ determinism (no live server). Scenarios:
 from __future__ import annotations
 
 import io
+import json
 import urllib.error
 
 import pytest
@@ -22,19 +23,38 @@ import pytest
 from colleague.oilcheck import diagnose
 from colleague.oilcheck.tool_calling import checks
 
+_TOOL_CALL_BODY = {
+    "choices": [{"message": {"tool_calls": [{"id": "1", "function": {"name": "ping"}}]}}]
+}
+_NO_TOOL_CALL_BODY = {"choices": [{"message": {"content": "ready"}}]}
 
-class _OkResponse:
-    """Minimal 200 context-manager stand-in (the probe does not read the body)."""
 
-    def __enter__(self) -> "_OkResponse":
+class _Resp:
+    """200 context-manager stand-in carrying a JSON body the probe now reads (#184)."""
+
+    def __init__(self, body: dict) -> None:
+        self._body = json.dumps(body).encode("utf-8")
+
+    def __enter__(self) -> "_Resp":
         return self
 
     def __exit__(self, *exc: object) -> bool:
         return False
 
+    def read(self) -> bytes:
+        return self._body
 
-def _ok(*_a: object, **_k: object) -> _OkResponse:
-    return _OkResponse()
+
+def _ok(*_a: object, **_k: object) -> _Resp:
+    return _Resp(_TOOL_CALL_BODY)
+
+
+def _ok_no_tool_call(*_a: object, **_k: object) -> _Resp:
+    return _Resp(_NO_TOOL_CALL_BODY)
+
+
+def _timeout(*_a: object, **_k: object):
+    raise TimeoutError("timed out")
 
 
 def _raise_http(code: int, body: str):
@@ -64,12 +84,36 @@ _ENGINECORE_BODY = (
 )
 
 
-def test_works_when_server_handles_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_works_only_when_the_server_emits_a_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    # #184: a 2xx that actually carries a tool_call is the only WORKS.
     monkeypatch.setattr("urllib.request.urlopen", _ok)
     tc = _find(checks(), "tool_calling")
     assert tc is not None
     assert tc["passed"] is True
     assert tc["severity"] == "info"
+    assert "tool_call" in tc["message"]
+
+
+def test_accepted_but_no_tool_call_is_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    # #184: a 2xx text completion (server ignored the tools) must NOT be a green —
+    # this is the false-green the probe exists to catch.
+    monkeypatch.setattr("urllib.request.urlopen", _ok_no_tool_call)
+    tc = _find(checks(), "tool_calling")
+    assert tc is not None
+    assert tc["passed"] is False
+    assert tc["severity"] == "warning"
+    assert "no tool_call" in tc["message"]
+
+
+def test_timeout_is_reported_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # #184: a tool-calling POST that hangs is a distinct signal; it must surface as
+    # a check, not be dropped by the OSError omit clause (TimeoutError ⊂ OSError).
+    monkeypatch.setattr("urllib.request.urlopen", _timeout)
+    tc = _find(checks(), "tool_calling")
+    assert tc is not None
+    assert tc["passed"] is False
+    assert tc["severity"] == "warning"
+    assert "timed out" in tc["message"]
 
 
 def test_server_crash_is_an_actionable_error(monkeypatch: pytest.MonkeyPatch) -> None:
