@@ -958,3 +958,202 @@ def test_preview_does_not_print_dead_artifact_path(tmp_path) -> None:
     assert "PREVIEW_ART" in r.stdout
     assert "artifact:" not in (r.stdout + r.stderr)
     assert "grade:" not in (r.stdout + r.stderr)
+
+
+def test_preview_json_does_not_leak_dead_artifact_path(tmp_path) -> None:
+    """#186 qodo finding-3: a write PREVIEW in --json mode must NOT serialize a
+    dead `artifacts_path`. The drive runs in a throwaway worktree (deleted on
+    exit), so the raw artifacts_path names a gone dir. The json_mode branch gates
+    on the same survives-flag (ASK_COLLEAGUE_GRADABLE) as the human digest, so a
+    machine consumer never receives a path into the cleaned-up worktree."""
+    import json
+
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        'repo=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "--repo" ] && repo="$a"; prev="$a"; done\n'
+        'git -C "$repo" checkout -q -b colleague/prevartjson\n'
+        "printf 'hi\\n' > \"$repo/added.txt\"\n"
+        'git -C "$repo" add -A\n'
+        'git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m "c"\n'
+        "python3 -c \"import json; print(json.dumps({'status':'ok',"
+        "'summary':'PREVIEW_ART_JSON','task_id':'previd','changed_files':['added.txt'],"
+        "'branch':'colleague/prevartjson',"
+        "'artifacts_path':'/throwaway/.colleague/previd.json'}))\"\n",
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "add a file", "--repo", str(repo), "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    # The summary still carries through, but the stale worktree path is gone.
+    assert payload["summary"] == "PREVIEW_ART_JSON"
+    assert "artifacts_path" not in payload
+    assert "/throwaway/" not in r.stdout
+    # A preview is not gradable -> no grade hint on any stream.
+    assert "grade:" not in (r.stdout + r.stderr)
+
+
+# ── --json flag (qodo rule 824501): stdout reserved for JSON, diagnostics to stderr ──
+
+
+def test_help_lists_the_json_flag() -> None:
+    """The --json option must be discoverable in the usage text."""
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "--json" in r.stdout
+
+
+def test_json_flag_emits_pure_json_on_stdout(tmp_path) -> None:
+    """`--json` makes stdout carry ONLY the TaskResult JSON (no human digest); the
+    drive verbs already get JSON from `colleague drive --json`, so the wrapper
+    passes it through and routes the digest/diagnostics to stderr."""
+    import json
+
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        'echo \'{"status": "ok", "task_id": "t-1", "summary": "JSON_OK", '
+        '"changed_files": ["a.py"], "branch": "colleague/t-1"}\'\n',
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply", "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    # stdout is exactly one JSON object — parseable, with the drive's fields.
+    payload = json.loads(r.stdout)
+    assert payload["status"] == "ok"
+    assert payload["task_id"] == "t-1"
+    # The human digest must NOT leak onto stdout in --json mode.
+    assert "status:" not in r.stdout
+    assert "grade:" not in r.stdout
+    # #186 qodo finding-2: a gradable drive still emits the task:/grade: hints,
+    # but on STDERR so stdout stays pure JSON (the convention every work item
+    # follows; the task_id is in the payload too).
+    assert "grade: ask-colleague feedback t-1" in r.stderr
+    assert "task: t-1" in r.stderr
+
+
+def test_feedback_forwards_json_flag(tmp_path) -> None:
+    """feedback is a pass-through; `--json` must be forwarded to `colleague feedback`
+    (which supports it natively) so stdout stays machine-readable end-to-end."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "feedback", "list", "--repo", str(repo), "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "--json" in argv_log.read_text().splitlines()
+
+
+def test_clean_forwards_json_flag(tmp_path) -> None:
+    """clean forwards `--json` to `colleague clean` (native support)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{argv_log}"\n')
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "--repo", str(repo), "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "--json" in argv_log.read_text().splitlines()
+
+
+# ── per-verb tool requirements (qodo bug): don't demand python3/mktemp for ──────
+# ── feedback/clean, which never use them. ───────────────────────────────────────
+
+
+def _minimal_bin(bindir: Path, *, include: tuple[str, ...], colleague_body: str) -> dict[str, str]:
+    """A PATH containing only `include` tools (symlinked) + a fake colleague.
+    Used to prove a verb runs WITHOUT python3/mktemp/grep on PATH."""
+    bindir.mkdir(parents=True, exist_ok=True)
+    for tool in include:
+        src = shutil.which(tool)
+        if src:
+            (bindir / tool).symlink_to(src)
+    fake = bindir / "colleague"
+    fake.write_text(colleague_body)
+    fake.chmod(0o755)
+    # Replace PATH entirely (no fall-through to the real one) so python3/mktemp are
+    # genuinely absent; keep a clean env otherwise.
+    return {"PATH": str(bindir), "HOME": os.environ.get("HOME", "")}
+
+
+# Tools feedback/clean legitimately need pre-dispatch (git work-tree guard +
+# coreutils used while resolving paths) — deliberately excludes python3/mktemp/grep.
+_FEEDBACK_TOOLS = ("bash", "git", "dirname", "mkdir", "rm", "cat", "env", "tr", "head", "printf")
+
+
+def test_feedback_runs_without_python3_or_mktemp(tmp_path) -> None:
+    """qodo bug: the old blanket require_tools demanded python3/git/grep/mktemp for
+    EVERY verb, so feedback/clean failed exit-2 in minimal envs even though they
+    never use python3/mktemp. feedback must now succeed with only git on PATH."""
+    repo = _init_repo(tmp_path / "repo")
+    env = _minimal_bin(
+        tmp_path / "bin",
+        include=_FEEDBACK_TOOLS,
+        colleague_body="#!/usr/bin/env bash\necho feedback-ok\n",
+    )
+    # sanity: python3/mktemp really are absent from this PATH
+    assert shutil.which("python3", path=env["PATH"]) is None
+    assert shutil.which("mktemp", path=env["PATH"]) is None
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "feedback", "last", "--rating", "4", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+
+
+def test_drive_verb_still_requires_python3_and_mktemp(tmp_path) -> None:
+    """The drive verbs DO render a prompt + parse JSON (python3) and isolate in a
+    worktree (mktemp), so explore must still fail fast (exit 2) when they're absent,
+    naming the missing tools."""
+    repo = _init_repo(tmp_path / "repo")
+    env = _minimal_bin(
+        tmp_path / "bin",
+        include=_FEEDBACK_TOOLS,
+        colleague_body="#!/usr/bin/env bash\necho should-not-reach\n",
+    )
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "investigate x", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+    assert "missing required tool" in r.stderr
+    assert "python3" in r.stderr and "mktemp" in r.stderr

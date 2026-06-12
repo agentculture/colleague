@@ -120,10 +120,14 @@ else an install hint.
 | `--notes "..."` | (`feedback`) free-text notes stored with the rating. |
 | `--by NAME` | (`feedback`) who is grading (default: colleague's resolved identity). |
 | `--dry-run` | (`clean`) report what would be reaped without changing anything. |
+| `--json` | (any verb) machine-readable output: stdout carries **only** the result JSON, every diagnostic/digest line goes to stderr. |
 
 The result printed to stdout is the work item's `TaskResult.summary` (plus
 `changed_files` / work branch for `write`), parsed from `colleague work
---json`. Per-step progress streams to stderr while it runs.
+--json`. Per-step progress streams to stderr while it runs. Pass `--json` to get
+the raw `TaskResult` on stdout instead of the human digest (the drive verbs emit
+the normalized `TaskResult`; `feedback` / `clean` forward `--json` to colleague),
+keeping stdout valid JSON for a machine consumer while diagnostics stay on stderr.
 
 ## When to reach for which verb
 
