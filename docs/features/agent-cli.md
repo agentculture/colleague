@@ -33,7 +33,7 @@ in `colleague/cli/__init__.py`, and each gets an `explain` catalog entry.
 | Verb | What it reports |
 |------|-----------------|
 | `whoami` | The agent's nick + version + mesh backend (read from `culture.yaml`), plus the live `work_engine`/`work_model` a bare work item would actually run (resolved like a real work item; `work_model` is `null` for the `mock` engine). |
-| `learn` | A structured self-teaching prompt: purpose, command map, exit codes, `--json`, and the `explain` pointer. |
+| `learn` | A structured self-teaching prompt that teaches an **AI agent** how to operate colleague (purpose, command map, exit codes, `--json`, the `explain` pointer). Read-only — nothing is written. Humans usually prefer `explain` / `overview`. Not to be confused with `learn-from` (see note below). |
 | `explain <path>` | Markdown docs for any noun/verb path — global and addressable, unlike terse `--help`. |
 | `overview` | A read-only descriptive snapshot of the agent (identity + verb surface). |
 | `cli overview` | Describes the CLI surface itself (distinct from the agent `overview`). |
@@ -47,6 +47,12 @@ colleague explain doctor             # any verb
 colleague overview
 colleague cli overview
 ```
+
+> **`learn` vs `learn-from` — different commands.** `learn` (above) *teaches a
+> reader* how to drive colleague and writes nothing. `colleague learn-from
+> <source>` does the opposite: it *teaches colleague* by absorbing a peer agent's
+> skills into `.colleague/skills/` (it **writes files**). See
+> [`learn-from.md`](learn-from.md).
 
 ## Identity from `culture.yaml`
 

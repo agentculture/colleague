@@ -11,6 +11,11 @@ colleague folds into every backend's system prompt (`colleague/layers.py`) on th
 > YAML-frontmatter form. `learn-from` is the bridge that populates colleague's
 > skill layer from a peer — the *write* side of the read-only `skills list`/`overview`.
 
+**Not to be confused with `colleague learn`.** `learn` prints a self-teaching
+prompt that teaches *a reader* how to drive colleague and writes nothing;
+`learn-from` teaches *colleague* by absorbing a peer's skills, and it **writes
+files**. See [`agent-cli.md`](agent-cli.md).
+
 ## The two stages
 
 ### Stage 1 — deterministic copy (`colleague/learn_from.py`, stdlib only)
