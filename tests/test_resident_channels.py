@@ -136,8 +136,11 @@ class TestCandidateParsing:
         # only the owned channel (#colleague fallback) should be present
         assert sel.chosen == [sel.owned]
 
-    def test_steward_args_forwarded(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """select_channels passes the expected args to run_steward."""
+    def test_channel_discovery_uses_culture_channel_list(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Channel discovery shells ``culture channel list`` — even when the roster
+        CLI is ``steward`` (an agent registrar with no channel-listing verb)."""
         captured: dict = {}
 
         def _run(cli, args, *, root):  # noqa: ANN001
@@ -147,8 +150,34 @@ class TestCandidateParsing:
 
         monkeypatch.setattr("colleague.resident.channels.run_steward", _run)
         select_channels(tmp_path, roster_cli="steward")
-        assert captured["cli"] == "steward"
-        assert isinstance(captured["args"], list)
+        assert captured["cli"] == "culture"
+        assert captured["args"] == ["channel", "list"]
+
+    def test_real_culture_channel_list_output_parses(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real ``culture channel list`` output (a header, indented ``#channels``,
+        and stderr WARNING noise combined in) yields exactly the active channels — and
+        the warning lines do not leak a bogus channel."""
+        real = (
+            "exit=0\n"
+            "2026-06-12 23:51:39 culture WARNING culture.yaml missing for "
+            "spark-shushu at /home/spark/git/shushu — run 'culture agents unregister "
+            "shushu' to remove this stale manifest entry\n"
+            "Active channels:\n"
+            "  #general\n"
+            "  #system\n"
+        )
+
+        monkeypatch.setattr(
+            "colleague.resident.channels.run_steward",
+            lambda cli, args, *, root: real,  # noqa: ANN001
+        )
+        sel = select_channels(tmp_path)
+        assert "#general" in sel.chosen
+        assert "#system" in sel.chosen
+        assert sel.chosen == [sel.owned, "#general", "#system"]
+        assert not sel.degraded
 
 
 # ---------------------------------------------------------------------------

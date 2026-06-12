@@ -1,9 +1,10 @@
 """colleague.resident.channels — channel selection for resident promotion.
 
 When a colleague instance graduates to a Culture resident it OWNS its own
-channel (``#<nick>``) and JOINS a set of relevant channels chosen by querying
-the operator-installed roster CLI (``steward`` / ``culture``).  This module
-owns the pure selection logic: parse candidates from the roster output, rank
+channel (``#<nick>``) and JOINS a set of relevant channels chosen by listing the
+IRCd's active channels (``culture channel list``; ``steward`` is an agent
+registrar with no channel-listing verb).  This module owns the pure selection
+logic: parse candidates from the channel-list output, rank
 them, run the optional operator-confirm gate, and always include the owned
 channel in the result.
 
@@ -33,6 +34,17 @@ _CHANNEL_RE = re.compile(r"#\S+")
 
 #: Default channel name when no identity can be resolved.
 _DEFAULT_OWNED = "#colleague"
+
+#: The CLI + argv that enumerate active mesh channels. Channels live on the IRCd,
+#: which the ``culture`` CLI manages (``culture channel list``); ``steward`` is an
+#: agent registrar with **no** channel-listing verb. Channel *discovery* therefore
+#: always goes through ``culture`` — the ``roster_cli`` argument selects the
+#: registrar used to *signal arrival* (see :mod:`colleague.resident.register`), not
+#: the CLI that lists channels. (Earlier this module shelled ``<roster_cli> roster``,
+#: a subcommand neither installed CLI exposes, so discovery silently degraded to the
+#: owned channel only.)
+_CHANNEL_LIST_CLI = "culture"
+_CHANNEL_LIST_ARGS = ("channel", "list")
 
 
 @dataclass
@@ -171,11 +183,16 @@ def select_channels(
     owned = _resolve_owned(root)
     nick = resolve_identity(root)
 
-    # --- Query the roster CLI -------------------------------------------
+    # --- Query the active channels --------------------------------------
+    # Channels are an IRCd concept enumerated by ``culture channel list``. The
+    # ``roster_cli`` argument selects the registrar that *signals arrival*; a
+    # caller's ``steward`` (which has no channel-listing verb) falls back to
+    # ``culture`` here so discovery still works under the default ``--roster-cli``.
+    discovery_cli = _CHANNEL_LIST_CLI if roster_cli == "steward" else roster_cli
     try:
-        roster_output = run_steward(roster_cli, ["roster"], root=root)
+        roster_output = run_steward(discovery_cli, list(_CHANNEL_LIST_ARGS), root=root)
     except StewardError as exc:
-        note = f"roster CLI unavailable — degraded to owned channel only ({exc})"
+        note = f"channel-list CLI unavailable — degraded to owned channel only ({exc})"
         return ChannelSelection(owned=owned, chosen=[owned], degraded=True, note=note)
 
     # A non-zero exit means the roster CLI ran but failed — degrade rather than
@@ -183,7 +200,7 @@ def select_channels(
     exit_code, roster_body = parse_steward_output(roster_output)
     if exit_code != 0:
         note = (
-            f"roster CLI exited {exit_code} — degraded to owned channel only "
+            f"channel-list CLI exited {exit_code} — degraded to owned channel only "
             "(refusing to parse channels from error output)"
         )
         return ChannelSelection(owned=owned, chosen=[owned], degraded=True, note=note)
