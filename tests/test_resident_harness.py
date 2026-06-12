@@ -114,6 +114,24 @@ def test_stop_ends_replies(monkeypatch, tmp_path: Path) -> None:
     asyncio.run(_body())
 
 
+def test_replies_is_a_single_memoised_stream(monkeypatch, tmp_path: Path) -> None:
+    """replies() hands back the SAME iterator across calls — one consumer, no queue race.
+
+    Guards the multi-caller message-loss footgun: a fresh generator per call would
+    let a second caller compete on the reply queue and silently drop messages.
+    """
+
+    async def _body() -> bool:
+        h = _harness(monkeypatch, tmp_path, _FakeEngine())
+        await h.start()
+        first = h.replies()
+        second = h.replies()
+        await h.stop()
+        return first is second
+
+    assert asyncio.run(_body()) is True
+
+
 def test_harness_does_not_touch_handoff(monkeypatch, tmp_path: Path) -> None:
     """h3 (additive): the resident turn runs the loop only — no git handoff / PR.
 

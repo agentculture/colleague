@@ -76,10 +76,17 @@ class ColleagueHarness:
         self._engine: Optional["Engine"] = None
         # Queue bridges synchronous turn completion → the replies() async generator.
         self._reply_queue: "asyncio.Queue[Any]" = asyncio.Queue()
+        # Memoised single reply stream: replies() is a single-consumer iterator
+        # (one outbound pump drains it). Returning a fresh generator on every call
+        # would let a second caller race the queue and silently lose messages, so
+        # we hand back the SAME iterator — a second concurrent `async for` then
+        # fails loudly ("generator already running") instead of dropping replies.
+        self._replies_iter: Optional[AsyncIterator[Message]] = None
 
     async def start(self) -> None:
         """Resolve the engine once (the long-lived session boots here)."""
         self._engine = registry.load(self._engine_name)
+        self._replies_iter = None  # fresh reply stream per session (supports restart)
 
     async def feed_message(self, message: Message) -> None:
         """Run one bounded turn for *message* and enqueue the reply.
@@ -113,8 +120,14 @@ class ColleagueHarness:
         await self._reply_queue.put(reply)
 
     def replies(self) -> AsyncIterator[Message]:
-        """Return an async iterator yielding reply Messages until :meth:`stop`."""
-        return self._replies_gen()
+        """Return the single async iterator yielding reply Messages until :meth:`stop`.
+
+        The SAME iterator is returned on every call within a session (memoised) —
+        the reply stream has exactly one consumer (the supervisor's outbound pump).
+        """
+        if self._replies_iter is None:
+            self._replies_iter = self._replies_gen()
+        return self._replies_iter
 
     async def _replies_gen(self) -> AsyncIterator[Message]:
         while True:
