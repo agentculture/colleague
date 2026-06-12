@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-06-12
+
+### Changed
+
+- The `[culture]` install hint, `colleague explain promote`, and `docs/features/resident-promote.md` now document the `uv tool install --python 3.12 'colleague[culture]'` form and call out the Python >=3.12 requirement — the missing `--python 3.12` (uv defaulting to a <3.12 interpreter) was the cause of the `does not satisfy Python>=3.12` install failure, not the extra itself.
+
+### Fixed
+
+- `colleague promote` now surfaces a pre-existing / differing `culture.yaml` (e.g. promoting inside an AgentCulture repo such as colleague's own checkout) as an actionable error pointing at `--force`, instead of leaking it as the top-level `unexpected: ConflictError … file a bug` internal-error wrap.
+- Test suite is now hermetic with respect to provider environment variables. A new `tests/conftest.py` autouse fixture clears `COLLEAGUE_*` / `CONVERTIBLE_*` / provider `OPENAI_*` env vars before every test, so the config + oilcheck tests that assert built-in defaults pass regardless of a developer box exporting them for a live rig (they previously passed in CI but failed locally). Also refreshes `test_oilcheck_provider._PROVIDER_ENV_KEYS`, which still listed only the legacy `CONVERTIBLE_*` names and let the canonical `COLLEAGUE_API_KEY` leak through after the convertible→colleague rename.
+
 ## [1.6.0] - 2026-06-12
 
 ### Added

@@ -899,8 +899,15 @@ into a persistent peer that owns a channel and answers messages over a long-live
 session. (Spec: `docs/specs/2026-06-10-colleague-graduates-from-a-born-and-trained-task-r.md`.)
 
 The resident runtime ships only in the opt-in `[culture]` extra (agent-lifecycle +
-agentirc-cli). Without it, `promote` fails cleanly with an install hint —
-`pip install "colleague[culture]"` (or `uv sync --extra culture`).
+agentirc-cli), which requires Python >=3.12. Without it, `promote` fails cleanly
+with an install hint. Install with `uv tool install --python 3.12 'colleague[culture]'`
+(pip: `pip install "colleague[culture]"`; in a checkout: `uv sync --extra culture`).
+The `--python 3.12` is load-bearing: `uv tool install` otherwise defaults to a
+Python it has on hand, which may be <3.12 and fail to resolve.
+
+Promoting inside a repo that already declares a *different* `culture.yaml` (e.g.
+colleague's own checkout) is a recoverable conflict, not a bug: re-run with
+`--force` to overwrite, or pass `--suffix`/`--repo` to mint a separate identity.
 
 What it does:
 

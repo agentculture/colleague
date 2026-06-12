@@ -40,18 +40,44 @@ The resident is built on **agent-lifecycle**'s asyncio runtime seam and the
   identity where the steward discovers it and signals arrival, through the one
   sanctioned subprocess consumer (`colleague/resident/steward.py`).
 
+## Install the `[culture]` extra
+
+The resident deps (`agent-lifecycle` + `agentirc-cli`) ship only in the opt-in
+`[culture]` extra, **which requires Python >=3.12**:
+
+```bash
+# Installed CLI (global tool):
+uv tool install --python 3.12 'colleague[culture]'   # the --python is load-bearing
+pip install 'colleague[culture]'                      # pip equivalent (on a >=3.12 interpreter)
+
+# In a checkout (editable / dev):
+uv sync --extra culture
+```
+
+The `--python 3.12` matters: `uv tool install 'colleague[culture]'` with no
+`--python` defaults to whatever interpreter uv has on hand, which may be <3.12.
+When it is, resolution fails with
+`the current Python version (…) does not satisfy Python>=3.12` — that is the
+interpreter, not the extra.
+
 ## Usage
 
 ```bash
-uv sync --extra culture                       # install the resident deps
 colleague promote --repo .                     # mint + register, report (no network)
 colleague promote --repo . --json              # machine-readable report
 colleague promote --repo . --suffix spark-colleague
+colleague promote --repo . --force             # overwrite an existing differing culture.yaml
 colleague promote --repo . --serve --irc-host localhost --irc-port 6667  # go live
 ```
 
 Without `--serve`, `promote` prepares and reports (idempotent) — the
 consequential network step is explicit.
+
+Promoting inside a repo that already declares a *different* `culture.yaml` (e.g.
+colleague's own checkout, which ships a `backend: claude` agent) is a recoverable
+conflict, not a bug: `promote` stops with an actionable message — re-run with
+`--force` to overwrite it, or pass `--suffix`/`--repo` to mint under a separate
+identity.
 
 ## Honest limits
 

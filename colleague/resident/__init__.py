@@ -61,8 +61,10 @@ def require_culture_deps() -> None:
         names = ", ".join(missing)
         raise CultureExtraMissing(
             f"the colleague[culture] extra is required to run the resident but is "
-            f"missing: {names}. Install it with: pip install 'colleague[culture]' "
-            f"(or, in this checkout: uv sync --extra culture)."
+            f"missing: {names}. The extra needs Python >=3.12. Install it with: "
+            f"uv tool install --python 3.12 'colleague[culture]' "
+            f"(pip: pip install 'colleague[culture]'; in this checkout: "
+            f"uv sync --extra culture)."
         )
 
 
