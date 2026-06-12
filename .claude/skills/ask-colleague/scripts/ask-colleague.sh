@@ -321,13 +321,30 @@ if d.get("stopped_without_finish"):
 elif d.get("not_finished"):
     print("warning: drive ran out of steps without finishing — summary is partial.", file=sys.stderr)
 if json_mode:
-    # --json contract: stdout carries ONLY the TaskResult JSON (artifacts_path
-    # rewritten to the preserved copy); every human/diagnostic line already went
-    # to stderr above. The exit code still reflects drive success/failure.
-    if ap:
+    # --json contract: stdout carries ONLY the TaskResult JSON; every
+    # human/diagnostic line already went to stderr above. The exit code still
+    # reflects drive success/failure.
+    #
+    # artifacts_path mirrors the digest gate (ASK_COLLEAGUE_GRADABLE): it is only
+    # meaningful when the artifact SURVIVES. A preview (run_preview passes empty
+    # gradable) drives in a throwaway worktree the EXIT trap deletes, so the raw
+    # path points at a dir that is gone by the time the caller reads it — drop it
+    # rather than hand a machine consumer a dead path (#186 qodo finding-3). When
+    # gradable, rewrite it to the preserved copy in the real repo.
+    gradable = os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1"
+    if not gradable:
+        d.pop("artifacts_path", None)
+    elif ap:
         d["artifacts_path"] = ap
     json.dump(d, sys.stdout)
     sys.stdout.write("\n")
+    # The task:/grade: hints are diagnostics -> stderr (stdout stays pure JSON).
+    # task_id is already in the payload, but echoing the copy-paste grade hint
+    # keeps the convention every work item follows (rule 907536) without breaking
+    # the stdout contract. Gated on gradable, exactly like the digest below.
+    if tid and gradable:
+        print("task:", tid, file=sys.stderr)
+        print("grade:", "ask-colleague feedback", tid, "--rating N", file=sys.stderr)
 else:
     out = sys.stdout if ok else sys.stderr
     print("status:", d.get("status"), file=out)

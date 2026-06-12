@@ -960,6 +960,47 @@ def test_preview_does_not_print_dead_artifact_path(tmp_path) -> None:
     assert "grade:" not in (r.stdout + r.stderr)
 
 
+def test_preview_json_does_not_leak_dead_artifact_path(tmp_path) -> None:
+    """#186 qodo finding-3: a write PREVIEW in --json mode must NOT serialize a
+    dead `artifacts_path`. The drive runs in a throwaway worktree (deleted on
+    exit), so the raw artifacts_path names a gone dir. The json_mode branch gates
+    on the same survives-flag (ASK_COLLEAGUE_GRADABLE) as the human digest, so a
+    machine consumer never receives a path into the cleaned-up worktree."""
+    import json
+
+    env = _fake_colleague(
+        tmp_path / "bin",
+        "#!/usr/bin/env bash\n"
+        "set -e\n"
+        'repo=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "--repo" ] && repo="$a"; prev="$a"; done\n'
+        'git -C "$repo" checkout -q -b colleague/prevartjson\n'
+        "printf 'hi\\n' > \"$repo/added.txt\"\n"
+        'git -C "$repo" add -A\n'
+        'git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m "c"\n'
+        "python3 -c \"import json; print(json.dumps({'status':'ok',"
+        "'summary':'PREVIEW_ART_JSON','task_id':'previd','changed_files':['added.txt'],"
+        "'branch':'colleague/prevartjson',"
+        "'artifacts_path':'/throwaway/.colleague/previd.json'}))\"\n",
+    )
+    repo = _init_repo(tmp_path / "repo")
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "add a file", "--repo", str(repo), "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    # The summary still carries through, but the stale worktree path is gone.
+    assert payload["summary"] == "PREVIEW_ART_JSON"
+    assert "artifacts_path" not in payload
+    assert "/throwaway/" not in r.stdout
+    # A preview is not gradable -> no grade hint on any stream.
+    assert "grade:" not in (r.stdout + r.stderr)
+
+
 # ── --json flag (qodo rule 824501): stdout reserved for JSON, diagnostics to stderr ──
 
 
@@ -998,6 +1039,11 @@ def test_json_flag_emits_pure_json_on_stdout(tmp_path) -> None:
     # The human digest must NOT leak onto stdout in --json mode.
     assert "status:" not in r.stdout
     assert "grade:" not in r.stdout
+    # #186 qodo finding-2: a gradable drive still emits the task:/grade: hints,
+    # but on STDERR so stdout stays pure JSON (the convention every work item
+    # follows; the task_id is in the payload too).
+    assert "grade: ask-colleague feedback t-1" in r.stderr
+    assert "task: t-1" in r.stderr
 
 
 def test_feedback_forwards_json_flag(tmp_path) -> None:

@@ -13,6 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`--json` no longer leaks a dead `artifacts_path` for a `write` preview (#186 qodo finding-3).** A preview drives in a throwaway worktree that the EXIT trap deletes, so its `artifacts_path` names a dir that is gone by the time the caller reads the JSON. The non-`--json` digest already gates the printed `artifact:` line on the survives-flag (`ASK_COLLEAGUE_GRADABLE`); the `--json` branch now mirrors that gate — `artifacts_path` is dropped when the artifact is not gradable and rewritten to the preserved copy when it is — so a machine consumer never receives a path into the cleaned-up worktree.
+- **`--json` now echoes the `task:`/`grade:` hints to stderr for a gradable drive (#186 qodo finding-2).** The hints follow the convention every work item emits while keeping stdout pure JSON (the `task_id` is in the payload too); a preview stays hint-free since it is not gradable.
 - **`ask-colleague.sh` no longer over-requires tools (qodo bug).** `require_tools` was a single blanket check demanding `python3`/`git`/`grep`/`mktemp` for *every* verb, so `feedback`/`clean` — thin pass-throughs to the `colleague` CLI that never touch python3/mktemp — failed `exit 2` in minimal environments. The check is now verb-specific: `feedback`/`clean` need only `git` (the shared work-tree guard); `explore`/`review` and a `write` preview need `git`+`python3`+`mktemp`; `write --apply`/`--pr` (no throwaway worktree) needs `git`+`python3` but not `mktemp`. `grep` is dropped from the hard requirement (it is only used by the `uv`-fallback resolver, which degrades to the clear "colleague not found" message when absent).
 
 ## [1.6.4] - 2026-06-12
