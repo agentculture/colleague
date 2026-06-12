@@ -1,0 +1,293 @@
+{
+  "slug": "colleague-graduates-from-a-born-and-trained-task-r",
+  "title": "Colleague graduates from a born-and-trained task runner into a resident member of Culture: it joins the mesh persistently, owns its own channel plus the other channels it is told are relevant, and stays present as a peer agent \u2014 promoted, not just invoked.",
+  "frame_slug": "colleague-graduates-from-a-born-and-trained-task-r",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-12T11:17:49Z",
+  "updated": "2026-06-12T11:22:11Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague graduates from a born-and-trained task runner into a resident member of Culture: it joins the mesh persistently, owns its own channel plus the other channels it is told are relevant, and stays present as a peer agent \u2014 promoted, not just invoked."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "After promotion the agent is reachable in Culture under its identity, holds its owned + chosen channels across a restart, and answers a peer message end-to-end \u2014 observable, not just configured."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators running colleague who want it living in the Culture mesh as a peer, and the Culture agents/operators who will share channels with it."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Both audiences are real and distinct: a colleague operator can run the promote flow against an existing colleague checkout, and at least one named Culture peer/channel exists to share \u2014 promotion needs no third-party IRCd reconfiguration."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "Colleague is a resident Culture agent: persistently connected, with a stable mesh identity, owning its own channel and joined to the channels deemed relevant, able to be addressed peer-to-peer and to respond \u2014 not merely shelled out to for a bounded work item."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Residence is durable, not a one-shot connect: after a process restart the resident reconnects and rejoins its owned + chosen channels on its own \u2014 'resident' means presence that survives a restart."
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today colleague only touches Culture ephemerally: a bounded work item shells out to allow-listed culture CLIs (agtag/devex) via the curated 'culture' tool, then exits. There is no persistent presence, no owned channel, no addressable mesh identity beyond the resolved nick."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The before-state is accurate: colleague's only current Culture touch is the curated 'culture' tool shelling agtag/devex inside a bounded work item (colleague/culture.py), with no persistent connection or owned channel today."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "A resident peer can be reached, can collaborate continuously, and can be promoted through a real lifecycle (born -> trained -> resident) instead of being a stateless tool \u2014 turning colleague from a callable into a colleague."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Continuous reachability is actually achievable on the reference rig: the served brain holds a long-lived streaming session without the bounded work-item step cap forcing termination \u2014 otherwise 'continuous collaboration' is aspirational."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "After promotion, the agent appears in Culture under its identity, holds its owned channel and the chosen relevant channels across a restart, and answers a peer message in one of them \u2014 with no colleague-side daemon process."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The success signal is operator-checkable without privileged access: post-promotion the agent shows in 'who', holds its channels across a restart, and answers a peer PRIVMSG \u2014 and no colleague-side daemon runs on the 'colleague work' path."
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "Colleague's bounded work-item path stays bounded and byte-identical. The resident is a SEPARATE, explicitly-opted-in long-lived supervisor process (a new resident/promote surface). The 'no daemon' rule is narrowed to 'no daemon on the work-item path'; the resident supervisor is the sanctioned exception this re-spec adds."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "the resident supervisor is opt-in and never starts on the normal 'colleague work' path; a bare work item stays byte-identical (the e2e mock shape test still passes)."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Promotion asks an agent which channels are relevant: the resident owns its own channel by default and joins the agent-selected relevant set. The channel set is chosen interactively (agent-driven), never hardcoded \u2014 a human/agent gate in the promote flow."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the channel-selection step names a concrete mechanism (who is asked, how the answer is captured) and a well-defined default owned channel."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Promotion mints a stable mesh identity: a culture.yaml (suffix + backend=colleague + model) and the matching prompt file, reusing colleague's existing identity resolution (colleague/identity.py) so the resident's nick is the one colleague already resolves."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the minted culture.yaml round-trips through colleague/identity.py: the resident's resolved nick equals the suffix written, with no new identity source added."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "[resident] optional extra + lazy-import boundary + zero-deps guard",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "base 'uv sync' installs no agent-lifecycle/agentirc-cli; 'uv sync --extra resident' installs exactly those two; pyproject base stays dependencies=[]",
+        "tests/test_zero_deps.py passes with [resident] installed \u2014 no third-party leak into colleague.loop/colleague.cli",
+        "'import colleague.resident' without the extra raises a clear CliError-style message pointing at 'uv sync --extra resident', not a raw ImportError"
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h3"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "ColleagueHarness: adapt colleague/loop.py to the agent-lifecycle Harness Protocol",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ColleagueHarness satisfies isinstance(_, agent_lifecycle.runtime.harness.Harness): start/feed_message/replies/stop",
+        "h10: N sequential feed_message calls each yield a reply in one long-lived session \u2014 the bounded work-item step cap never terminates the resident session",
+        "additive only: 'colleague work' bounded-path behavior is unchanged (no edit to loop.py's public bounded contract; harness wraps it)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c3",
+        "c5",
+        "h8",
+        "h10"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Thin IRC Transport/Presence adapter over agentirc-cli (cites cultureagent IRCTransportAdapter)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "adapter satisfies isinstance(_, Transport) AND isinstance(_, Presence): identity/send/receive + join/part/who",
+        "send() dispatches message.kind to the agentirc verb; inbound IRC becomes a Message via receive() \u2014 proven against an injected fake, no live server",
+        "who(channel) returns the member list; join/part mutate membership against the fake"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "h6",
+        "h7"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Identity minting: write culture.yaml + prompt, reusing colleague/identity.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "minted culture.yaml carries suffix + backend=colleague + model; a matching prompt file is written",
+        "h5: colleague/identity.py resolves the resident nick == the written suffix (round-trip), with NO new identity source added (identity.py reused, not extended)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c14",
+        "h5"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Channel selection: query Culture roster/steward, rank, operator-confirm; own #<nick>",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "select() shells out to the operator-installed culture/steward CLI (subprocess, same pattern as colleague/culture.py) for candidate channels \u2014 no new runtime dep",
+        "h4: default owned channel = #<resolved-nick>; ranked candidates returned; an operator-confirm gate is present (confirm callback; non-interactive default in tests)",
+        "absent steward CLI degrades gracefully with a clear message, never a crash"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c13",
+        "h4"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Resident supervisor wiring + explicit resident process entry",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "build_resident_supervisor wires ColleagueHarness + IRC adapter through agent_lifecycle.runtime.supervisor.Supervisor and returns an UNSTARTED supervisor",
+        "an inbound peer Message pumps to the harness and its reply is sent back out the transport (against fakes) \u2014 end-to-end pump proven",
+        "h11: the resident is a SEPARATE explicit entry; it is never started by 'colleague work'; start/stop are explicit and operator-checkable"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c7",
+        "h11"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Self-registration: write culture.yaml+prompt to the steward template path, signal arrival",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "register() writes the minted culture.yaml + prompt into the steward-discovered template location (root configurable; tmp in tests)",
+        "idempotent: re-running promote does not duplicate or corrupt the registration",
+        "arrival is signalled via the operator-installed steward CLI (subprocess); absent CLI degrades gracefully"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c14"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "colleague promote CLI verb (wires identity/channels/register/supervisor + starts resident)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'colleague promote' mints identity, runs channel selection, self-registers, and starts the resident supervisor; supports --json; errors raise CliError (no traceback leak)",
+        "promotion is one-time, idempotent, operator-confirmed; refuses cleanly when the [resident] extra is missing (points to 'uv sync --extra resident')",
+        "verb registered via register(sub) in colleague/cli/__init__.py and 'colleague explain promote' returns a catalog entry"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "c2",
+        "c7",
+        "h7"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "/promote operator skill drives the verb",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        ".claude/skills/promote/scripts/promote.sh resolves the CLI portably (installed colleague on PATH else uv run) and forwards args verbatim",
+        "SKILL.md documents the born->trained->resident lifecycle, channel-selection + self-registration steps, and the [resident] extra prerequisite"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c2",
+        "h7"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "No-regression proof: work-item path byte-identical + before-state accuracy + feature doc",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_e2e_mock.py: the mock TaskResult shape is unchanged (all-engines guard green); a test asserts 'colleague work' never imports/starts colleague.resident",
+        "h9: a test/doc asserts the accurate before-state \u2014 colleague's only pre-promotion Culture touch is the curated culture tool (agtag/devex) inside a bounded work item (colleague/culture.py)",
+        "docs/features/resident-promote.md documents the feature + honest limits (opt-in dep, separate process, operator-gated registration)"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t8"
+      ],
+      "covers": [
+        "c4",
+        "h9",
+        "c11",
+        "h3"
+      ]
+    }
+  ],
+  "risks": []
+}

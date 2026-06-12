@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-12
+
+### Added
+
+- **Resident promotion — `colleague promote`** (mesh-member graduation): colleague graduates from a born-and-trained task runner into a persistent **resident** member of the Culture mesh. The same colleague that drives bounded `colleague work` items is elevated *in place* into a long-lived peer that owns a channel and answers messages. Built on agent-lifecycle's asyncio runtime seam + the agentirc-cli wire, both opt-in behind the new `[culture]` extra (base install stays `dependencies = []`). New `colleague/resident/` package: `ColleagueHarness` (the bounded loop adapted onto agent-lifecycle's `Harness`, no git handoff — h10/h3), `IRCTransportAdapter` (Transport + Presence), `IRCConnection` (the live IRC wire over `asyncio.open_connection`) + `serve_live`, `build_resident_supervisor` (the pump bridge), identity minting (`culture.yaml` + prompt, reuses `colleague/identity.py`), channel selection (queries the Culture roster/steward, owns `#<nick>`), self-registration, and `steward.py` (the one sanctioned subprocess consumer). Surfaced as the `colleague promote` verb + the `/promote` operator skill. Spec + plan: `docs/specs/2026-06-10-colleague-graduates-from-a-born-and-trained-task-r.md` / `docs/plans/2026-06-12-colleague-graduates-from-a-born-and-trained-task-r.md`; feature doc: `docs/features/resident-promote.md`.
+
+### Changed
+
+- The boundary guard (`tests/test_boundary.py`) now narrows the no-async rule: `colleague/resident/` is the **sanctioned async/networked exception** (the `c11` narrowing — "no daemon on the work-item path"). `asyncio` is permitted under `resident/` only; `socket` stays forbidden everywhere (agentirc-cli owns the wire); `subprocess` is confined to `resident/steward.py`. The bounded `colleague work` path stays byte-identical and async-free (guarded by `tests/test_resident_no_work_path.py`); the e2e mock TaskResult shape is unchanged.
+
 ## [1.5.0] - 2026-06-10
 
 ### Added

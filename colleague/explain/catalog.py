@@ -889,9 +889,49 @@ The runner builds `CockpitState.from_dict(initial)`, folds each event via
 - `colleague explain work`
 """
 
+_PROMOTE = """\
+# colleague promote
+
+Graduate colleague from a born-and-trained task runner into a **resident** member
+of the Culture mesh — the lifecycle transition born → trained → resident. The
+*same* colleague that drives bounded `colleague work` items is elevated in place
+into a persistent peer that owns a channel and answers messages over a long-lived
+session. (Spec: `docs/specs/2026-06-10-colleague-graduates-from-a-born-and-trained-task-r.md`.)
+
+The resident runtime ships only in the opt-in `[culture]` extra (agent-lifecycle +
+agentirc-cli). Without it, `promote` fails cleanly with an install hint —
+`pip install "colleague[culture]"` (or `uv sync --extra culture`).
+
+What it does:
+
+1. **Mint + self-register** a stable mesh identity — writes `culture.yaml`
+   (`suffix` + `backend=colleague` + `model`) and a prompt file where the Culture
+   steward discovers them, reusing colleague's own identity resolution
+   (`colleague/identity.py`), then signals arrival via the roster CLI. Idempotent.
+2. **Select channels** — queries the Culture roster/steward, ranks candidates, and
+   owns `#<nick>` by default; degrades cleanly to just the owned channel if the
+   roster CLI is absent.
+3. **Go live (`--serve`)** — connects to IRC and runs the resident supervisor (the
+   bounded loop as a brain, via agent-lifecycle's Transport/Harness/Supervisor seam)
+   until interrupted. Without `--serve` it *prepares and reports* — the consequential
+   network step is explicit.
+
+The bounded `colleague work` path is untouched: the resident is a SEPARATE, opt-in
+process; a bare work item never starts it.
+
+## Examples
+
+    colleague promote --repo .                          # prepare + register, report
+    colleague promote --repo . --json                   # machine-readable report
+    colleague promote --repo . --suffix spark-colleague # mint a specific nick
+    colleague promote --repo . --no-signal              # mint/register, skip arrival ping
+    colleague promote --repo . --serve --irc-host localhost --irc-port 6667  # go live
+"""
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("colleague",): _ROOT,
+    ("promote",): _PROMOTE,
     ("work",): _WORK,
     ("drive",): _WORK,  # deprecated alias — explain still resolves the old name
     ("session",): _SESSION,

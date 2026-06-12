@@ -288,6 +288,17 @@ _FORBIDDEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# colleague/resident/ is the SANCTIONED async exception (the Culture-resident
+# runtime — see colleague/resident/__init__.py): it implements agent-lifecycle's
+# asyncio-native Harness/Transport/Supervisor seam, so `import asyncio` is
+# permitted *there only*. Every OTHER forbidden pattern (socket, socketserver,
+# http.server, asyncio server primitives, os.fork, multiprocessing) STILL
+# applies under resident/ — agentirc-cli owns the wire; colleague never opens a
+# socket or forks a daemon itself. The exemption is exactly one description.
+_ASYNC_EXEMPT_PREFIX = "colleague/resident/"
+_ASYNC_IMPORT_DESCRIPTION = "asyncio import (no async I/O allowed in colleague)"
+
+
 class TestNoNetworkingOrDaemonMachinery:
     """No module in colleague/ may open a socket, fork a daemon, or start a server."""
 
@@ -297,12 +308,22 @@ class TestNoNetworkingOrDaemonMachinery:
         ids=lambda p: str(p.relative_to(_PACKAGE_DIR.parent)),
     )
     def test_source_has_no_forbidden_patterns(self, py_file: Path) -> None:
-        """Assert that *py_file* contains none of the forbidden networking patterns."""
+        """Assert that *py_file* contains none of the forbidden networking patterns.
+
+        ``colleague/resident/`` is exempt from the *asyncio import* pattern only
+        (it is the sanctioned async Culture-resident runtime); all other
+        networking/daemon patterns still apply to it.
+        """
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        is_resident = rel.startswith(_ASYNC_EXEMPT_PREFIX)
         source = py_file.read_text(encoding="utf-8")
         lines = source.splitlines()
 
         violations: list[str] = []
         for description, pattern in _FORBIDDEN_PATTERNS:
+            if is_resident and description == _ASYNC_IMPORT_DESCRIPTION:
+                # Sanctioned async exception — resident/ may import asyncio.
+                continue
             for lineno, line in enumerate(lines, start=1):
                 if pattern.search(line):
                     violations.append(
@@ -332,6 +353,10 @@ class TestNoNetworkingOrDaemonMachinery:
 #                   subprocess is the transport
 #   worktrees.py  — drives git worktree add/remove for per-child isolation;
 #                   subprocess is the transport
+#   resident/steward.py — the resident's ONE subprocess consumer: launches the
+#                   allow-listed roster/registrar CLI (steward/culture) for
+#                   channel selection + arrival; channels/register hold the logic
+#                   and call it, so subprocess stays confined to this one file
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -341,6 +366,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/culture.py",
         "colleague/devague.py",
         "colleague/worktrees.py",
+        "colleague/resident/steward.py",
     }
 )
 
