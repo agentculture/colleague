@@ -109,10 +109,11 @@ class IRCConnection:
         self._running = False
         if self._read_task is not None:
             self._read_task.cancel()
-            try:
-                await self._read_task
-            except asyncio.CancelledError:
-                pass
+            # gather(return_exceptions=True) collects the read task's CancelledError
+            # as a result rather than swallowing it with a bare ``except
+            # CancelledError`` (Sonar S7497) — a cancellation of disconnect() itself
+            # still propagates.
+            await asyncio.gather(self._read_task, return_exceptions=True)
             self._read_task = None
         if self._writer is not None:
             self._writer.close()

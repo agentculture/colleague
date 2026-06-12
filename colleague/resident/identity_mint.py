@@ -181,4 +181,4 @@ def _render_culture_yaml(*, suffix: str, model: str) -> str:
     Returns:
         The culture.yaml content as a UTF-8 string.
     """
-    return f"agents:\n" f"- suffix: {suffix}\n" f"  backend: colleague\n" f"  model: {model}\n"
+    return f"agents:\n- suffix: {suffix}\n  backend: colleague\n  model: {model}\n"
