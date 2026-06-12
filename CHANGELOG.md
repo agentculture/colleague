@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-06-13
+
+### Fixed
+
+- resident channel discovery shelled a non-existent `<roster_cli> roster` subcommand, so a promoted resident silently degraded to its owned channel only and never auto-joined existing mesh channels; discovery now uses `culture channel list` (steward has no channel-listing verb), so the resident joins discovered channels like #general/#system as the spec intends.
+
 ## [1.7.0] - 2026-06-12
 
 ### Added
