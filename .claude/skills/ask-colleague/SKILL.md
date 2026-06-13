@@ -10,6 +10,7 @@ description: >
   hands off a small implementation, `ask-colleague feedback` grades a finished
   work item (the ROI loop), and `ask-colleague clean` reaps stale/corrupt
   `colleague/*` branches a crashed run left behind (which can break `git fetch`).
+  Pilot a running work item with `monitor`/`guide`/`stop`.
   Reach for it REFLEXIVELY, the way you'd lean over to the
   teammate at the next desk — not only when asked: before you present or open a PR
   on a non-trivial committed diff, run `review` for a diverse second opinion; for a
@@ -153,6 +154,18 @@ keeping stdout valid JSON for a machine consumer while diagnostics stay on stder
   objects that **breaks `git fetch` / `git pull`**. Run `ask-colleague clean`
   (or `colleague clean`) to reap it — start with `--dry-run` to see what it would
   remove. It only ever touches `colleague/*` refs and `.colleague/` artifacts.
+
+## Piloting a flight
+
+Dispatch a drive with `--watch` (on `explore`, `review`, or `write`) to make the
+work item watchable. While it runs you can:
+
+- **`ask-colleague monitor <task-id>`** — watch the flight's live feed
+- **`ask-colleague guide <task-id> "<message>"`** — send mid-flight guidance
+- **`ask-colleague stop <task-id>`** — cooperatively ask the flight to stop
+
+Control is applied at the running loop's next turn boundary, so guidance and
+stop requests take effect on the next iteration rather than interrupting mid-step.
 
 ## Hard rules (do not violate)
 
