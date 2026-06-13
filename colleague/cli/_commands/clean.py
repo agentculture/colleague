@@ -23,7 +23,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague import artifact, handoff
+from colleague import artifact, flight, handoff
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
 
@@ -60,6 +60,10 @@ def cmd_clean(args: argparse.Namespace) -> int:
         base_branch=args.base,
     )
     artifacts = artifact.reap_artifacts(repo, dry_run=dry_run)
+    if dry_run:
+        flights = [str(p) for p in flight.list_flight_files(repo)]
+    else:
+        flights = [str(p) for p in flight.reap_orphans(repo)]
     empty_objects = handoff.empty_loose_objects(repo)
 
     report = {
@@ -67,6 +71,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         "dry_run": dry_run,
         "branches": branches,
         "artifacts": artifacts,
+        "flights": flights,
         "empty_loose_objects": empty_objects,
     }
     emit_result(report if json_mode else _render(report), json_mode=json_mode)
@@ -89,7 +94,11 @@ def _render(report: dict) -> str:
     if reaped_arts:
         lines.append(f"artifacts ({verb}):")
         lines += [f"  - {a['artifact']}" for a in reaped_arts]
-    if not reaped_branches and not reaped_arts:
+    reaped_flights = report.get("flights", [])
+    if reaped_flights:
+        lines.append(f"flight files ({verb}):")
+        lines += [f"  - {f}" for f in reaped_flights]
+    if not reaped_branches and not reaped_arts and not reaped_flights:
         lines.append(
             "nothing to reap — no stale colleague/* branches or orphaned .colleague/ artifacts"
         )
