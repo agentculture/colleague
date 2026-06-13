@@ -17,6 +17,8 @@ backend through a bounded tool-loop, then returns a JSON run report. One runtime
 many minds. Another agent works *with* it through the first-party `ask-colleague`
 skill (`ask-colleague explore | review | write | feedback`) or `colleague work`
 directly — `colleague learn` is the self-teaching entry point for collaborators.
+Pilot a running work item with `colleague work --watch` + the `colleague flight`
+noun (status/guide/stop) — cooperative, file-based, no daemon.
 
 Run `colleague` with no verb at a terminal to open the interactive harness (the
 `session` palette); piped or non-interactive, it prints this usage instead.
@@ -751,6 +753,8 @@ here.)
 - `ask-colleague write "<task>" [--apply|--pr]` — delegate a small implementation.
   Previews by default (throwaway worktree + would-be diff, no side effects);
   `--apply` lands a `colleague/<id>` work branch, `--pr` opens a PR.
+- `ask-colleague monitor|guide|stop <id>` — pilot a running flight; `--watch` on
+  the dispatching `colleague work` arms the flight for piloting.
 
 ## Safety
 
