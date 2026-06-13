@@ -406,6 +406,15 @@ The architecture, part by part:
   `docs/specs/2026-06-06-colleague-learns-from-others-starting-with-claude.md`
   and `docs/plans/2026-06-06-colleague-learns-from-others-starting-with-claude.md`;
   feature doc: `docs/features/learn-from.md`.
+- **Piloting / flight** — `colleague work --watch` arms a file-based flight-control
+  plane (`.colleague/flight/<id>.*`) the bounded loop appends a live feed to and
+  reads stop/guidance from at each turn boundary; pilot it via the `colleague
+  flight` noun (`status`/`guide`/`stop`/`list`/`overview`) and the `ask-colleague
+  monitor`/`guide`/`stop` verbs. Cooperative (not preemptive), runtime-owned
+  (all-engines), strict no-op when not a flight, caller-symmetric + depth-capped,
+  no daemon/socket/deps. Spec + plan:
+  `docs/specs/2026-06-13-colleague-flights-are-now-piloted-after-ask-collea.md`
+  and `docs/plans/2026-06-13-colleague-flights-are-now-piloted-after-ask-collea.md`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
