@@ -1,0 +1,433 @@
+{
+  "slug": "colleague-flights-are-now-piloted-after-ask-collea",
+  "title": "Colleague flights are now piloted: after ask-colleague dispatches a task, the calling agent can watch it work over a live feed, send mid-flight guidance to change its course, and call it back cleanly \u2014 a steerable delegation, not a black box you wait on \u2014 all over plain files, no daemon or socket.",
+  "frame_slug": "colleague-flights-are-now-piloted-after-ask-collea",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-13T20:18:30Z",
+  "updated": "2026-06-13T20:50:37Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague flights are now piloted: after ask-colleague dispatches a task, the calling agent can watch it work over a live feed, send mid-flight guidance to change its course, and call it back cleanly \u2014 a steerable delegation, not a black box you wait on \u2014 all over plain files, no daemon or socket."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "End-to-end, the announcement is demonstrable: a single recorded session shows dispatch -> live watch -> mid-flight guidance changes course -> cooperative stop with preserved partial, using only files under .colleague/ (no socket/daemon)."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The agent (usually Claude) that dispatched a colleague work item via ask-colleague, plus the operator watching the run."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The pilot surface is documented for the dispatching-agent audience: docs/features/ask-colleague.md gains a piloting section and 'colleague flight overview' names this audience."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today ask-colleague explore/review/write run synchronously and opaquely: the caller blocks until the single final TaskResult, with no way to see progress, redirect, or stop a running work item short of killing the process."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The before-state is provable: today's ask-colleague explore/review/write block until the final result with no progress/redirect/stop verb \u2014 confirmed by the absence of any such verb in the current CLI surface."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "After dispatching a flight, the caller can read a live progress feed, inject guidance the running loop picks up at its next turn boundary, and request a cooperative stop \u2014 instead of blocking blind until the one final result."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "All three caller affordances are exercised end-to-end against a running mock flight: a test reads the live feed mid-run, injects a guidance directive that appears in the next prompt, and requests a cooperative stop that yields a preserved partial result."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "A wrong-but-running delegation today burns its whole step/token budget before the caller learns it went off course; piloting lets the caller catch and correct it early, raising the ROI of delegating to a different (often weaker) mind."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "A worked example shows an early correction saving budget vs a blind run (e.g. a flight redirected at turn 3 instead of burning all 40 steps), demonstrable in the demo from c9."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Control is cooperative and checkpoint-based \u2014 directives are applied only at per-turn loop boundaries, never preemptively; it cannot interrupt an in-flight model call or a long-running run_command. A runaway is killed by the OS/harness, not by this feature."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "A test proves a stop/guidance directive written DURING a turn takes effect only at the NEXT boundary (cooperative), never mid-turn \u2014 and that no code path opens a socket or forks a daemon (boundary test extended)."
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "No daemon, no socket, no server, zero new deps: the control plane is plain files under .colleague/flight/, polled at turn boundaries \u2014 consistent with colleague's conventions (like hooks, telemetry, neighbours)."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "tests/test_zero_deps.py and the boundary tests are extended to assert the flight feature uses only stdlib (json/pathlib), opens no socket, and forks no daemon \u2014 and both still pass."
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "A live demo: Claude dispatches a flight, sees from the live feed it is heading the wrong way, sends one guidance message, the work item visibly changes course on its next turn, then is cleanly stopped with a preserved partial result."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The c9 demo is captured as a reproducible script/recording (steps: dispatch, observe wrong course, guide, observe course change, stop, inspect preserved partial)."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The loop writes an incremental live-progress feed (per-turn: step index, last tool + intent, running WorkStats) to a per-flight file at each turn boundary, readable WHILE the work item is still running."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A test runs a multi-turn mock flight and asserts the live-progress file gains a new turn record at each boundary, parseable mid-run (not only written at the end)."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "At each turn boundary the loop reads a per-flight control file and honors two directives: 'stop' (cooperative \u2014 preserves a partial result exactly like the degradation give-up path) and 'guidance' (injects a user-role message into the running history so the model incorporates it on the very next turn)."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A test drops a 'stop' control file mid-flight and asserts the loop ends cooperatively with a preserved partial result; a second test drops a 'guidance' file and asserts the injected message appears in the next model prompt."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The flight-control plane is runtime-owned in colleague/loop.py and fires identically for the mock and vllm-openai backends (the all-engines rule); with no flight/control file present it is a strict no-op \u2014 byte-identical TaskResult and step trace to today."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "tests/test_e2e_mock.py still passes unchanged with no flight files present (strict no-op), and a parallel mock-vs-vllm shape assertion shows the control plane is wired in the shared loop, not a backend."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A watchable dispatch prints the task_id AND the flight-file paths IMMEDIATELY on launch (before the work completes), so the pilot can attach; ask-colleague gains monitor/guide/stop verbs and a matching 'colleague flight' CLI noun with status/guide/stop/list plus an overview."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "An ask-colleague launch in watch mode prints a resolvable task_id + flight-file path to stdout BEFORE completion; 'colleague flight overview' and 'colleague flight status <id>' exist and pass the CLI rubric (teken doctor --strict)."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Flight files live under .colleague/flight/<task_id>.* and are reaped on finish and by 'colleague clean', scoped strictly to .colleague/flight/ (never an unrelated path), like neighbours and worktrees."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A test asserts flight files are created under .colleague/flight/<task_id>.* and removed on finish, and that 'colleague clean' reaps an orphaned flight file while leaving unrelated paths untouched."
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Piloting is caller-agnostic and symmetric: a colleague work-loop can ITSELF dispatch and pilot a sub-flight (the 'Colleague calls ask-colleague' path), not only Claude. No code path special-cases the caller being Claude; the watchable dispatch + 'colleague flight' verbs are the shared substrate, reached from a colleague run via the loaded ask-colleague skill + run_command over the same CLI."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "A test/demo shows a NON-Claude caller piloting: a colleague work-loop (mock engine) dispatches a sub-flight, reads its feed, and writes a guidance directive via the 'colleague flight' CLI \u2014 proving the pilot path has no Claude-specific assumption."
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "Honest concurrency limit for colleague-as-caller: colleague's loop is single-threaded and run_command blocks, so to pilot a sub-flight colleague launches it DETACHED via the shell (nohup/&) through run_command (gated by the approval gate) and polls the feed file across its own subsequent turns. This honors 'backgrounding is the caller's job' (c15) \u2014 colleague backgrounds via the shell, not a --detach feature \u2014 and is NOT true in-process parallelism."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A test confirms colleague-as-caller does NOT block on the sub-flight: the detached-launch + poll-across-turns pattern is exercised (or documented as the supported pattern), and run_command's detached launch is shown gated by the approval gate."
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Recursion/termination safety: a colleague piloting a sub-flight (which is itself a colleague that could pilot a sub-sub-flight) is structurally bounded by a depth cap (akin to MAX_SUBAGENT_DEPTH) so nested flights cannot fork-bomb; the flight CLI is gated by the approval gate when invoked via run_command, like any other program token."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "A test asserts a nested-flight depth cap is enforced before any sub-sub-flight starts (fork-bomb guard), mirroring the MAX_SUBAGENT_DEPTH check-before-work semantics."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Flight control-plane primitives (colleague/flight.py): paths strictly under .colleague/flight/<id>.{feed.jsonl,control.json} via configdir; FlightSession dataclass; feed-record append (step idx + last tool/intent + WorkStats snapshot) as one JSONL line per call; control read/parse into stop|guidance directives with guidance-consumed tracking; reap helper + orphan-lister scoped to .colleague/flight/; depth-cap helper over COLLEAGUE_FLIGHT_DEPTH. Pure stdlib (json/pathlib/os).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "feed-append writes exactly one JSONL-parseable record per call, readable mid-run",
+        "control parse returns a stop directive and an UNCONSUMED guidance, then marks the guidance consumed so it is not re-read next turn",
+        "path + reap helpers operate strictly under .colleague/flight/ and refuse/ignore any path outside it",
+        "depth helper denies arming when COLLEAGUE_FLIGHT_DEPTH >= cap (default 2, like MAX_SUBAGENT_DEPTH), before any work",
+        "colleague/flight.py imports only stdlib (json/pathlib/os) - no third-party, no socket, no threading"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "c11",
+        "c14",
+        "c20",
+        "h14"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Loop integration of the control plane (colleague/loop.py + colleague/contract.py): add optional Task.watch field; in run() build a FlightSession from the EXISTING task param when task.watch (NO new run() param - S107 13-ceiling); at the per-turn boundary in _work_loop append a feed record, read control, honor stop (cooperative finish reusing the degradation preserve-partial path) and guidance (inject a user-role message for the next turn, mark consumed); reap flight files on finish; strict no-op when not armed.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a multi-turn mock flight appends one feed record per turn boundary, each parseable mid-run (not only at the end)",
+        "a stop control file dropped mid-flight ends the loop cooperatively with a preserved partial result; a guidance file injects its message into the very next model prompt",
+        "a directive written DURING a turn takes effect only at the NEXT boundary, never mid-turn (cooperative, not preemptive)",
+        "tests/test_e2e_mock.py passes unchanged with no flight files present (strict no-op, byte-identical TaskResult); the control plane lives in the shared loop, identical for mock and vllm-openai"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4",
+        "c6",
+        "c12",
+        "h1",
+        "h2",
+        "h3",
+        "h9",
+        "h15"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "colleague work --watch dispatch (colleague/cli/_commands/work.py): add --watch; when set, mark Task.watch, create the flight feed file, and emit the flight handle (task_id + feed + control paths) at LAUNCH before work runs, on a documented machine-parseable stream (+ --json); read COLLEAGUE_FLIGHT_DEPTH, refuse arming at >= cap, and export depth+1 into os.environ so nested run_command flights inherit it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague work --watch prints a resolvable task_id + feed/control paths BEFORE completion, machine-parseable",
+        "without --watch, work output and side effects are byte-identical to today (no handle, no feed file)",
+        "arming is refused with a CliError when COLLEAGUE_FLIGHT_DEPTH >= cap; otherwise os.environ carries depth+1 to children"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c13"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "colleague flight CLI noun (colleague/cli/_commands/flight.py + register in colleague/cli/__init__.py + explain entry): flight status|guide|stop|list|overview; status reads the latest feed snapshot, guide writes a guidance directive, stop writes a stop directive, list reports active flights from .colleague/flight/. Agent-first: each supports --json, errors via CliError to stderr, results to stdout.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "flight overview + status/guide/stop/list all exist, each with --json, and the noun passes teken cli doctor . --strict",
+        "flight guide <id> writes a guidance directive the loop control-reader parses; flight stop <id> writes a stop directive",
+        "flight list reports active flights discovered under .colleague/flight/; flight overview names the dispatching-agent audience"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "h4"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Reap flight files via colleague clean (colleague/cli/_commands/clean.py): colleague clean reaps ORPHANED flight files (no live run) scoped strictly to .colleague/flight/, never an unrelated path; --dry-run reports without deleting. Reuses the t1 reap/orphan helpers (no subprocess in clean.py).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test runs a mock flight and asserts its flight files exist under .colleague/flight/<id>.* during the run and are removed on finish",
+        "colleague clean reaps an orphaned flight file while leaving an unrelated file under .colleague/ untouched; --dry-run changes nothing"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "h5"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Colleague-as-caller symmetry proof + depth guard at integration (tests/test_flight_symmetry.py, test-only): prove a NON-Claude caller pilots - a colleague mock work-loop dispatches a sub-flight (run_command launching colleague work --watch detached) and reads its feed + writes a guidance directive via the colleague flight CLI; assert the caller does NOT block (detached + poll-across-turns); assert the detached run_command launch is gated by the approval gate; assert a sub-sub-flight is refused by the depth cap (fork-bomb guard).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a colleague mock work-loop dispatches a sub-flight and reads its feed + writes guidance via colleague flight, with no Claude-specific assumption in the pilot path",
+        "the colleague caller does not block on the sub-flight (detached-launch + poll-across-turns pattern exercised); the detached run_command launch is shown gated by the approval gate",
+        "a nested sub-sub-flight is refused before any work by the depth cap, mirroring MAX_SUBAGENT_DEPTH check-before-work"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c18",
+        "c19",
+        "h12",
+        "h13"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "ask-colleague skill: piloting verbs (.claude/skills/ask-colleague/scripts/ask-colleague.sh + SKILL.md): add --watch passthrough to explore/review/write (arms the flight, surfaces the handle to the caller); add monitor <id> / guide <id> \"msg\" / stop <id> verbs wrapping colleague flight status|guide|stop with resolved identity; update usage, exit-code policy, and the SKILL.md trigger description.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ask-colleague --watch on explore/review/write surfaces a resolvable flight handle to the caller",
+        "ask-colleague monitor/guide/stop wrap colleague flight, forwarding args + the resolved identity; the CLI resolver still works inside the checkout",
+        "SKILL.md documents the piloting verbs and the dispatching-agent audience"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c2"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Docs: piloting feature (docs/features/ask-colleague.md piloting section + new docs/features/flight.md): document the dispatching-agent audience and the monitor/guide/stop surface; state the before-state (today no progress/redirect/stop verb exists); document the honest limits (cooperative-not-preemptive, one-turn latency, colleague-as-caller backgrounds via shell + polls across turns - not in-process parallelism); include a worked example where an early redirect at turn 3 saves budget vs a blind 40-step run.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/ask-colleague.md gains a piloting section naming the dispatching-agent audience; flight overview cross-referenced",
+        "docs prove the before-state (no progress/redirect/stop verb pre-feature) and document the cooperative + concurrency honest limits (c19)",
+        "a worked example shows an early correction saving budget vs a blind run; markdownlint-cli2 is clean"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t7"
+      ],
+      "covers": [
+        "c3",
+        "c5",
+        "h6",
+        "h7",
+        "h8"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "End-to-end demo + recording (scripts/demo_flight.sh + tests/test_flight_demo.py): a reproducible demo against the mock engine - dispatch a flight, watch the live feed, observe it heading wrong, send one guidance message, observe the next-turn course change, cooperative stop, inspect the preserved partial - using only files under .colleague/ (no socket/daemon).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the demo script runs against the mock engine and reproduces the full sequence (dispatch -> watch -> guide -> course change -> stop -> preserved partial)",
+        "the demo touches only files under .colleague/ and opens no socket / forks no daemon; it is captured as a reproducible script asserted by a test"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "c9",
+        "h10",
+        "h11"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "Version bump + CHANGELOG + zero-deps/boundary guard extension (pyproject.toml, colleague/__init__.py, CHANGELOG.md, tests/test_zero_deps.py, tests/test_boundary.py): minor version bump + Keep-a-Changelog entry; extend test_zero_deps to import colleague.flight and assert no third-party leak; extend test_boundary to assert flight.py opens no socket, forks no daemon, and adds no threading/subprocess at the loop level.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "version bumped (minor) in pyproject.toml + colleague/__init__.py with a CHANGELOG entry, satisfying the version-check CI job",
+        "tests/test_zero_deps.py imports colleague.flight and still passes (zero third-party); tests/test_boundary.py asserts flight.py has no socket/daemon/threading and still passes"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c7",
+        "h16"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Agent-facing discoverability: teach piloting in colleague learn + explain (colleague/cli/_commands/learn.py + the explain catalog prose for 'colleague' and 'ask-colleague' + the learn drift test). Update both the _TEXT and the _as_json_payload command-map/verbs so 'colleague learn' teaches the piloting flow: the --watch dispatch, the 'colleague flight' noun (status/guide/stop/list), and the ask-colleague monitor/guide/stop verbs; update 'explain colleague' (architecture) and 'explain ask-colleague' prose to describe piloting. Sequenced AFTER t4 so the shared explain catalog edits never collide.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague learn (both text and --json) teaches the piloting flow (--watch dispatch, colleague flight noun, ask-colleague monitor/guide/stop) and its drift test is updated and still passes the agent-first rubric (>=200 chars; purpose, command map, exit codes, --json, explain)",
+        "explain colleague (architecture) and explain ask-colleague prose describe piloting; teken cli doctor . --strict stays green",
+        "the flight noun appears in the learn command map (both text and JSON payload)"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t7"
+      ],
+      "covers": [
+        "c2",
+        "c13"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "run() is at the SonarCloud S107 13-param ceiling; flight arming MUST ride the existing task param (Task.watch) read inside run(), never a new run() param. Mitigation baked into t2.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    },
+    {
+      "id": "r2",
+      "text": "Guidance-injection accounting: an injected user-role message adds a turn + tokens. v0 leaning: it COUNTS against max_steps + context budget (honest accounting). Confirm during t2 build.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    },
+    {
+      "id": "r3",
+      "text": "The flight handle stream at launch (stdout result vs stderr diagnostic): leaning stderr-diagnostic + flight list for discovery, to keep the stdout TaskResult clean. Final choice in t3.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r4",
+      "text": "Exact live-feed record schema (reuse artifact step-trace/WorkStats verbatim vs a new lightweight JSONL shape optimized for tailing). Decided in t1.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r5",
+      "text": "Detached-launch reliability for colleague-as-caller (nohup/& through run_command, gated by approvals): a real honest-limit, not in-process parallelism; the supported pattern is documented + tested, not made bulletproof. t6/t8.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6"
+    },
+    {
+      "id": "r6",
+      "text": "Cooperative stop must report status honestly (compose with #188/#191/#192): a stopped flight must NOT report status 'ok' with no result. Align the preserve-partial status with that work, not duplicate it.",
+      "kind": "follow_up",
+      "task_id": "t2"
+    }
+  ]
+}
