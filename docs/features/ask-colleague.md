@@ -176,6 +176,63 @@ now covers exactly that path. A different mind earned its keep.
   also refuses a tree with uncommitted *tracked* changes unless `--allow-dirty`.
   So both `write --apply` and a direct `colleague work` are protected.
 
+## Piloting a flight
+
+Before piloting, a delegated work item was **fire-and-forget**: the caller blocked
+until the single final result, with no way to see progress, redirect, or stop
+it short of killing the process. Piloting fills that gap.
+
+Dispatch a work item with `colleague work --watch` (or `ask-colleague --watch`)
+to arm a **watchable flight**. The runtime creates a file-based control plane
+under `.colleague/flight/<task_id>.feed.jsonl` (live feed) and
+`.colleague/flight/<task_id>.control.json` (stop + guidance), which the bounded
+loop reads and appends at each turn boundary.
+
+The dispatching agent — Claude or a colleague work-loop — pilots it via the
+`colleague flight` noun:
+
+- `flight status <id>` — watch the latest feed record
+- `flight guide <id> "<msg>"` — inject guidance the model picks up on its next turn
+- `flight stop <id>` — cooperative stop
+- `flight list` — list active flights
+- `flight overview` — surface description
+
+The `ask-colleague` skill wraps these as `ask-colleague monitor <id>`,
+`ask-colleague guide <id> "<msg>"`, `ask-colleague stop <id>`, and adds
+`--watch` to explore/review/write to arm the flight.
+
+### Worked example
+
+```text
+$ ask-colleague write "refactor the auth module" --watch
+status: ok
+task: a1b2c3d4e5f6
+flight: a1b2c3d4e5f6
+
+$ ask-colleague monitor a1b2c3d4e5f6
+step 3/40 — rewriting auth.py …
+
+# It's heading the wrong way — rewriting the wrong file.
+$ ask-colleague guide a1b2c3d4e5f6 "the auth module is auth/core.py, not auth.py"
+
+# The model picks up the guidance on its next turn and corrects course,
+# saving the rest of a ~40-step budget that a blind run would have burned.
+
+$ ask-colleague stop a1b2c3d4e5f6
+# Clean cooperative stop with a preserved partial result.
+```
+
+### Honest limits
+
+1. **Control is cooperative, not preemptive.** Directives land at the loop's
+   next turn boundary — never mid-model-call or mid-tool. A runaway is killed
+   by the OS/harness, not this feature.
+2. **~one-turn latency.** The control plane is file-polling, not a live socket.
+3. **When a colleague work-loop is the caller**, it backgrounds the sub-flight
+   via the shell (`nohup`/`&`) through `run_command` and polls the feed across
+   its own turns — this is **not** in-process parallelism.
+4. **No daemon, no socket, zero new deps.**
+
 ## Honest limits
 
 - Read-only is enforced by **worktree isolation + a prompt constraint**, not a

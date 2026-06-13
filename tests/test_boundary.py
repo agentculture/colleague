@@ -337,6 +337,28 @@ class TestNoNetworkingOrDaemonMachinery:
         )
 
 
+def test_flight_module_has_no_io_surface() -> None:
+    """The piloting flight-control plane is pure stdlib file I/O.
+
+    Explicitly names ``flight.py`` (the piloting feature) so the no-socket /
+    no-daemon convention is asserted for it directly, not only via the
+    parametrized package-wide scan above.
+    """
+    flight_src = _PACKAGE_DIR / "flight.py"
+    assert flight_src in _all_py_sources(), "flight.py must be in the scanned package sources"
+    source = flight_src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        "import subprocess",
+    ):
+        assert (
+            forbidden not in source
+        ), f"flight.py must not use {forbidden!r} (no-daemon/no-socket)"
+
+
 # ---------------------------------------------------------------------------
 # Structural check 4 — subprocess confined to sanctioned files
 # ---------------------------------------------------------------------------

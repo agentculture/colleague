@@ -84,6 +84,9 @@ Usage:
   ask-colleague feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
   ask-colleague feedback list                    List every recorded drive by request + grade (find one by its request)
   ask-colleague clean [--dry-run]                Reap stale/corrupt colleague/* branches + orphaned .colleague/ artifacts (#162)
+  ask-colleague monitor <task-id>                Watch a running flight's live feed
+  ask-colleague guide   <task-id> "<msg>"         Send mid-flight guidance to a running flight
+  ask-colleague stop    <task-id>                Ask a running flight to stop (cooperative)
 
 Options:
   --repo PATH        Target repo (default: .)
@@ -100,6 +103,7 @@ Options:
   --rating N         (feedback) record a 1-5 quality rating for the drive
   --notes "..."      (feedback) free-text notes to store with the rating
   --by NAME          (feedback) who is grading (default: colleague's resolved identity)
+  --watch            (explore/review/write) arm a flight so you can monitor/guide/stop it
   --json             Machine-readable output: stdout carries only the result JSON,
                      every diagnostic/digest line goes to stderr (any verb)
 
@@ -119,11 +123,11 @@ EOF
 # ── parse the verb ──────────────────────────────────────────────────────────
 VERB="${1:-}"
 case "$VERB" in
-    explore | review | write | feedback | clean) shift ;;
+    explore | review | write | feedback | clean | monitor | guide | stop) shift ;;
     -h | --help) usage; exit 0 ;;
     "") usage >&2; exit 1 ;;  # missing arg -> user-input error (#161)
     *)
-        echo "error: unknown verb '$VERB' (expected explore|review|write|feedback|clean)" >&2
+        echo "error: unknown verb '$VERB' (expected explore|review|write|feedback|clean|monitor|guide|stop)" >&2
         echo "hint: run 'ask-colleague --help'" >&2
         exit 1  # bad verb -> user-input error (#161)
         ;;
@@ -173,6 +177,7 @@ ALLOW_DIRTY=0
 APPLY=0
 OPEN_PR=0
 DRY_RUN=0
+WATCH=0
 RATING=""
 NOTES=""
 BY=""
@@ -189,6 +194,7 @@ while [[ $# -gt 0 ]]; do
         --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; shift 2 ;;
         --timeout) need_value "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
         --apply) APPLY=1; shift ;;
+        --watch) WATCH=1; shift ;;
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
@@ -211,6 +217,7 @@ done
 # throwaway worktree, so it needs no mktemp either.
 case "$VERB" in
     feedback | clean) require_tools git ;;
+    monitor | guide | stop) : ;;
     write)
         if [[ "$APPLY" -eq 1 || "$OPEN_PR" -eq 1 ]]; then
             require_tools git python3
@@ -235,8 +242,15 @@ REPO="$(cd "$REPO" && pwd)"
 # it must at least be a real git work tree. Fail fast with a clear message instead
 # of an opaque mid-drive error (read-only verbs add a worktree, write commits a
 # drive branch, clean reaps colleague/* refs).
-git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-    || { echo "error: --repo is not a git repository: $REPO" >&2; exit 1; }
+# The pilot verbs (monitor/guide/stop) are pure .colleague/flight/ file I/O — they
+# need no git work tree, so they are exempt from this fail-fast guard.
+case "$VERB" in
+    monitor | guide | stop) : ;;
+    *)
+        git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+            || { echo "error: --repo is not a git repository: $REPO" >&2; exit 1; }
+        ;;
+esac
 
 # review interpolates --base into the LLM instruction ("git diff $BASE...HEAD"),
 # so reject a value that is not a real commit/ref before it is rendered into the
@@ -252,6 +266,9 @@ resolve_colleague || exit 2
 # A local model can be slow on a growing context, so default generously.
 export COLLEAGUE_TIMEOUT="$TIMEOUT"
 COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
+# --watch arms a flight for EVERY drive verb (explore/review/write), so it lives on
+# the shared flag list — not inside one verb's path — so monitor/guide/stop work.
+[[ "${WATCH:-0}" -eq 1 ]] && COMMON_FLAGS+=(--watch)
 
 # ── render an instruction from a prompt template ────────────────────────────
 render_prompt() {
@@ -624,10 +641,35 @@ run_clean() {
     "${cmd[@]}"
 }
 
+# ── piloting verbs: thin passthroughs to the `colleague flight` noun ─────────
+_flight_json_flag() { [[ "$JSON_OUT" -eq 1 ]] && printf -- '--json'; }
+
+run_monitor() {
+    local fid="${ARG%% *}"
+    [[ -z "$fid" ]] && { echo "error: monitor needs a flight task-id" >&2; exit 1; }
+    "${COLLEAGUE[@]}" flight status "$fid" --repo "$REPO" $(_flight_json_flag)
+}
+
+run_stop() {
+    local fid="${ARG%% *}"
+    [[ -z "$fid" ]] && { echo "error: stop needs a flight task-id" >&2; exit 1; }
+    "${COLLEAGUE[@]}" flight stop "$fid" --repo "$REPO" $(_flight_json_flag)
+}
+
+run_guide() {
+    local fid="${ARG%% *}"
+    local msg="${ARG#* }"
+    [[ -z "$fid" || "$msg" == "$fid" ]] && { echo "error: guide needs <task-id> <message>" >&2; exit 1; }
+    "${COLLEAGUE[@]}" flight guide "$fid" "$msg" --repo "$REPO" $(_flight_json_flag)
+}
+
 case "$VERB" in
     explore) run_readonly "$(render_prompt explore)" ;;
     review) run_readonly "$(render_prompt review)" ;;
     write) run_write "$(render_prompt write)" ;;
     feedback) run_feedback "$ARG" ;;
     clean) run_clean ;;
+    monitor) run_monitor ;;
+    guide) run_guide ;;
+    stop) run_stop ;;
 esac

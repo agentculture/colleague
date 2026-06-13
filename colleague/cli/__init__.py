@@ -82,6 +82,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import doctor as _doctor_cmd
     from colleague.cli._commands import explain as _explain_cmd
     from colleague.cli._commands import feedback as _feedback_group
+    from colleague.cli._commands import flight as _flight_cmd
     from colleague.cli._commands import hooks as _hooks_group
     from colleague.cli._commands import learn as _learn_cmd
     from colleague.cli._commands import learn_from as _learn_from_cmd
@@ -124,6 +125,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _backends_group.register(sub)  # registers `backends` (+ the deprecated `wheels` alias)
     # ROI loop: grade a work item after the fact (stats say cost; feedback says quality).
     _feedback_group.register(sub)
+    # Pilot a running work item: watch feed, redirect, or stop.
+    _flight_cmd.register(sub)
     # Extensibility layer: command templates + lifecycle hooks.
     _commands_group.register(sub)
     _hooks_group.register(sub)

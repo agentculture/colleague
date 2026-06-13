@@ -1,0 +1,354 @@
+{
+  "slug": "colleague-flights-are-now-piloted-after-ask-collea",
+  "title": "Colleague flights are now piloted: after ask-colleague dispatches a task, the calling agent can watch it work over a live feed, send mid-flight guidance to change its course, and call it back cleanly \u2014 a steerable delegation, not a black box you wait on \u2014 all over plain files, no daemon or socket.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-13T19:09:54Z",
+  "updated": "2026-06-13T20:03:53Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague flights are now piloted: after ask-colleague dispatches a task, the calling agent can watch it work over a live feed, send mid-flight guidance to change its course, and call it back cleanly \u2014 a steerable delegation, not a black box you wait on \u2014 all over plain files, no daemon or socket.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "End-to-end, the announcement is demonstrable: a single recorded session shows dispatch -> live watch -> mid-flight guidance changes course -> cooperative stop with preserved partial, using only files under .colleague/ (no socket/daemon).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The agent (usually Claude) that dispatched a colleague work item via ask-colleague, plus the operator watching the run.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The pilot surface is documented for the dispatching-agent audience: docs/features/ask-colleague.md gains a piloting section and 'colleague flight overview' names this audience.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today ask-colleague explore/review/write run synchronously and opaquely: the caller blocks until the single final TaskResult, with no way to see progress, redirect, or stop a running work item short of killing the process.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The before-state is provable: today's ask-colleague explore/review/write block until the final result with no progress/redirect/stop verb \u2014 confirmed by the absence of any such verb in the current CLI surface.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "After dispatching a flight, the caller can read a live progress feed, inject guidance the running loop picks up at its next turn boundary, and request a cooperative stop \u2014 instead of blocking blind until the one final result.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "All three caller affordances are exercised end-to-end against a running mock flight: a test reads the live feed mid-run, injects a guidance directive that appears in the next prompt, and requests a cooperative stop that yields a preserved partial result.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "A wrong-but-running delegation today burns its whole step/token budget before the caller learns it went off course; piloting lets the caller catch and correct it early, raising the ROI of delegating to a different (often weaker) mind.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "A worked example shows an early correction saving budget vs a blind run (e.g. a flight redirected at turn 3 instead of burning all 40 steps), demonstrable in the demo from c9.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Control is cooperative and checkpoint-based \u2014 directives are applied only at per-turn loop boundaries, never preemptively; it cannot interrupt an in-flight model call or a long-running run_command. A runaway is killed by the OS/harness, not by this feature.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "A test proves a stop/guidance directive written DURING a turn takes effect only at the NEXT boundary (cooperative), never mid-turn \u2014 and that no code path opens a socket or forks a daemon (boundary test extended).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "No daemon, no socket, no server, zero new deps: the control plane is plain files under .colleague/flight/, polled at turn boundaries \u2014 consistent with colleague's conventions (like hooks, telemetry, neighbours).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "tests/test_zero_deps.py and the boundary tests are extended to assert the flight feature uses only stdlib (json/pathlib), opens no socket, and forks no daemon \u2014 and both still pass.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "non_goal",
+      "text": "colleague does not background or detach itself into a long-lived process: the flight is a normal foreground 'colleague work' run that the CALLER (the harness's run_in_background, or a shell &) runs in the background; v0 adds no --detach fork and no pause/resume.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "A live demo: Claude dispatches a flight, sees from the live feed it is heading the wrong way, sends one guidance message, the work item visibly changes course on its next turn, then is cleanly stopped with a preserved partial result.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The c9 demo is captured as a reproducible script/recording (steps: dispatch, observe wrong course, guide, observe course change, stop, inspect preserved partial).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The loop writes an incremental live-progress feed (per-turn: step index, last tool + intent, running WorkStats) to a per-flight file at each turn boundary, readable WHILE the work item is still running.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A test runs a multi-turn mock flight and asserts the live-progress file gains a new turn record at each boundary, parseable mid-run (not only written at the end).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "At each turn boundary the loop reads a per-flight control file and honors two directives: 'stop' (cooperative \u2014 preserves a partial result exactly like the degradation give-up path) and 'guidance' (injects a user-role message into the running history so the model incorporates it on the very next turn).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "A test drops a 'stop' control file mid-flight and asserts the loop ends cooperatively with a preserved partial result; a second test drops a 'guidance' file and asserts the injected message appears in the next model prompt.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The flight-control plane is runtime-owned in colleague/loop.py and fires identically for the mock and vllm-openai backends (the all-engines rule); with no flight/control file present it is a strict no-op \u2014 byte-identical TaskResult and step trace to today.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "tests/test_e2e_mock.py still passes unchanged with no flight files present (strict no-op), and a parallel mock-vs-vllm shape assertion shows the control plane is wired in the shared loop, not a backend.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A watchable dispatch prints the task_id AND the flight-file paths IMMEDIATELY on launch (before the work completes), so the pilot can attach; ask-colleague gains monitor/guide/stop verbs and a matching 'colleague flight' CLI noun with status/guide/stop/list plus an overview.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "An ask-colleague launch in watch mode prints a resolvable task_id + flight-file path to stdout BEFORE completion; 'colleague flight overview' and 'colleague flight status <id>' exist and pass the CLI rubric (teken doctor --strict).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Flight files live under .colleague/flight/<task_id>.* and are reaped on finish and by 'colleague clean', scoped strictly to .colleague/flight/ (never an unrelated path), like neighbours and worktrees.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A test asserts flight files are created under .colleague/flight/<task_id>.* and removed on finish, and that 'colleague clean' reaps an orphaned flight file while leaving unrelated paths untouched.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "Backgrounding is the caller's responsibility: colleague work stays a single foreground process; the harness (run_in_background) or shell & runs it in the background. No --detach fork, no daemon.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "Pilot controls live under a new 'colleague flight' CLI noun (status/guide/stop/list/overview); ask-colleague gains monitor/guide/stop verbs that wrap it (agent-first, matches every other colleague surface).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "v0 ships exactly two control directives: 'stop' (cooperative) and 'guidance' (inject message); pause/resume is parked as a follow-up, not built in v0.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Piloting is caller-agnostic and symmetric: a colleague work-loop can ITSELF dispatch and pilot a sub-flight (the 'Colleague calls ask-colleague' path), not only Claude. No code path special-cases the caller being Claude; the watchable dispatch + 'colleague flight' verbs are the shared substrate, reached from a colleague run via the loaded ask-colleague skill + run_command over the same CLI.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "A test/demo shows a NON-Claude caller piloting: a colleague work-loop (mock engine) dispatches a sub-flight, reads its feed, and writes a guidance directive via the 'colleague flight' CLI \u2014 proving the pilot path has no Claude-specific assumption.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "Honest concurrency limit for colleague-as-caller: colleague's loop is single-threaded and run_command blocks, so to pilot a sub-flight colleague launches it DETACHED via the shell (nohup/&) through run_command (gated by the approval gate) and polls the feed file across its own subsequent turns. This honors 'backgrounding is the caller's job' (c15) \u2014 colleague backgrounds via the shell, not a --detach feature \u2014 and is NOT true in-process parallelism.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A test confirms colleague-as-caller does NOT block on the sub-flight: the detached-launch + poll-across-turns pattern is exercised (or documented as the supported pattern), and run_command's detached launch is shown gated by the approval gate.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Recursion/termination safety: a colleague piloting a sub-flight (which is itself a colleague that could pilot a sub-sub-flight) is structurally bounded by a depth cap (akin to MAX_SUBAGENT_DEPTH) so nested flights cannot fork-bomb; the flight CLI is gated by the approval gate when invoked via run_command, like any other program token.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "A test asserts a nested-flight depth cap is enforced before any sub-sub-flight starts (fork-bomb guard), mirroring the MAX_SUBAGENT_DEPTH check-before-work semantics.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "v0: Colleague-as-pilot works via the loaded ask-colleague skill + run_command over the 'colleague flight' CLI (launch detached, poll feed, guide/stop) \u2014 no dedicated loop tool. Symmetric with Claude-as-pilot by construction; gated by the approval gate.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Live-feed schema: reuse the existing artifact step-trace/WorkStats shape verbatim, or a new lightweight per-turn JSONL record optimized for tailing?",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Does an injected guidance message count against max_steps and the context budget (it adds a turn + tokens), or is it exempt? Leaning: counts (honest accounting), but TBD.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Pilot attach mechanism: does 'flight status' read a point-in-time snapshot, or does the pilot tail the JSONL feed directly? And how are concurrent active flights listed/disambiguated?",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Naming: flight/pilot/monitor/guide vs an alternative metaphor; and whether the verbs live under 'colleague flight' or fold into 'colleague session'.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "Relationship to issues #188/#191/#192 (no-result / forced-synthesis on step-budget exhaustion): a cooperative stop must report status honestly (not 'ok' with no result) \u2014 compose with that work rather than duplicate it.",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v6",
+      "text": "Follow-up: a dedicated curated 'flight' loop tool (flight_dispatch/status/guide/stop) so a colleague backend pilots a sub-flight first-class without shell-backgrounding through run_command. Deferred from v0.",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}

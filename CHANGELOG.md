@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-14
+
+### Added
+
+- **Pilot a running work item ("flights").** A work item dispatched with `colleague work --watch` becomes a *watchable flight*: the runtime arms a file-based control plane under `.colleague/flight/<task_id>.{feed.jsonl,control.json}` and, at each turn boundary in the bounded loop, appends a live-feed record and reads a per-flight control file. The dispatching agent — Claude **or** a colleague work-loop — pilots it via the new `colleague flight` noun: `flight status` (watch the live feed), `flight guide <id> "<msg>"` (inject mid-flight guidance the model picks up on its next turn), `flight stop <id>` (cooperative stop that preserves a partial result), `flight list`, and `flight overview`. The `ask-colleague` skill gains matching `--watch` / `monitor` / `guide` / `stop` verbs. Control is **cooperative, not preemptive** (applied only at turn boundaries — never mid-model-call), file-based (**no daemon, no socket, zero new deps**), runtime-owned (fires identically for `mock` and `vllm-openai` — the all-engines rule), and a **strict no-op** when a work item is not a flight (byte-identical `TaskResult`). Caller-symmetric and depth-capped (`COLLEAGUE_FLIGHT_DEPTH`, fork-bomb guard). A cooperative stop is recorded as a partial (`stopped_without_finish`), never a bare `ok` with no result.
+
 ## [1.7.1] - 2026-06-13
 
 ### Fixed

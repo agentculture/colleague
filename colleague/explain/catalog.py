@@ -17,6 +17,8 @@ backend through a bounded tool-loop, then returns a JSON run report. One runtime
 many minds. Another agent works *with* it through the first-party `ask-colleague`
 skill (`ask-colleague explore | review | write | feedback`) or `colleague work`
 directly — `colleague learn` is the self-teaching entry point for collaborators.
+Pilot a running work item with `colleague work --watch` + the `colleague flight`
+noun (status/guide/stop) — cooperative, file-based, no daemon.
 
 Run `colleague` with no verb at a terminal to open the interactive harness (the
 `session` palette); piped or non-interactive, it prints this usage instead.
@@ -751,6 +753,8 @@ here.)
 - `ask-colleague write "<task>" [--apply|--pr]` — delegate a small implementation.
   Previews by default (throwaway worktree + would-be diff, no side effects);
   `--apply` lands a `colleague/<id>` work branch, `--pr` opens a PR.
+- `ask-colleague monitor|guide|stop <id>` — pilot a running flight; `--watch` on
+  the dispatching `colleague work` arms the flight for piloting.
 
 ## Safety
 
@@ -889,6 +893,31 @@ The runner builds `CockpitState.from_dict(initial)`, folds each event via
 - `colleague explain work`
 """
 
+_FLIGHT = """\
+# colleague flight
+
+Pilot a running work item. The flight noun lets the dispatching agent (Claude or a
+colleague work-loop) pilot a running work item: watch its live feed (status),
+redirect it (guide), or call it back (stop). Control is cooperative — directives
+are applied at the running loop's next turn boundary.
+
+## Verbs
+
+- `flight status <task_id>` — read the latest feed record
+- `flight guide <task_id> <message>` — send guidance to the running loop
+- `flight stop <task_id>` — signal the running loop to stop
+- `flight list` — list active flight task ids
+- `flight overview` — describe the flight surface
+
+## Usage
+
+    colleague flight status tid
+    colleague flight guide tid "refactor the auth module"
+    colleague flight stop tid
+    colleague flight list
+    colleague flight overview
+"""
+
 _PROMOTE = """\
 # colleague promote
 
@@ -997,4 +1026,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("tui", "test"): _TUI,
     ("tui", "diagnose"): _TUI,
     ("tui", "overview"): _TUI,
+    ("flight",): _FLIGHT,
+    ("flight", "status"): _FLIGHT,
+    ("flight", "guide"): _FLIGHT,
+    ("flight", "stop"): _FLIGHT,
+    ("flight", "list"): _FLIGHT,
+    ("flight", "overview"): _FLIGHT,
 }

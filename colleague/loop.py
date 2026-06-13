@@ -42,6 +42,7 @@ from typing import Any, Callable
 from colleague import autosplit as _autosplit
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
+from colleague import flight as flightmod
 from colleague.capacity import assess_capacity
 from colleague.context import classify_degradable, window_messages
 from colleague.contract import (
@@ -131,6 +132,7 @@ _MAX_TIMEOUT_RETRIES = 1
 _EXIT_FINISHED = "finished"  # the finish tool was called -> authoritative result
 _EXIT_STOPPED = "stopped"  # ended on a no-tool-call turn without ever finishing
 _EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
+_EXIT_PILOT_STOP = "pilot_stop"  # a pilot wrote a cooperative `stop` to the flight control file
 
 # Recovery for the trail-off (colleague#142): when the model ends a turn with no
 # tool call and has not called ``finish``, nudge it ONCE to finish before giving up.
@@ -387,6 +389,12 @@ class _Work:
     # is OFFERED so the recorded reason matches the number named in the prompt (not
     # the slightly different count of the declaring turn).
     _fillline_used: list[int] = field(default_factory=list)
+    # Flight-control plane (the piloting feature): an armed ``FlightSession`` when the
+    # task is a watchable flight (``task.watch``), else ``None`` — a strict no-op.
+    # When set, the loop appends a live feed record per turn and reads the per-flight
+    # control file at each turn boundary (cooperative ``stop`` + ``guidance``
+    # injection). Runtime-owned, so every backend inherits it (the all-engines rule).
+    flight: "flightmod.FlightSession | None" = None
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -952,6 +960,72 @@ def _advance_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, st
     return nudges, None
 
 
+def _flight_stop_requested(ctx: _Work) -> bool:
+    """Read the flight control file at a turn boundary; inject guidance, report stop.
+
+    A strict no-op (returns ``False``) when the work item is not a watchable flight.
+    Each unconsumed guidance message is injected as a user-role turn so the model
+    incorporates it on its NEXT turn; a ``stop`` directive asks the loop to end
+    cooperatively. Both take effect only HERE, at the boundary — never mid-turn
+    (cooperative, not preemptive).
+    """
+    if ctx.flight is None:
+        return False
+    control = ctx.flight.read_control()
+    for message in control.guidance:
+        ctx.messages.append({"role": "user", "content": f"[pilot guidance] {message}"})
+    return bool(control.stop)
+
+
+def _flight_record(ctx: _Work, resp: ModelResponse) -> None:
+    """Append one live-feed record for the turn just processed (no-op when unwatched)."""
+    if ctx.flight is None:
+        return
+    tool = ctx.result.steps[-1].tool if ctx.result.steps else None
+    intent = (resp.content or "").strip()[:200] or (f"tool:{tool}" if tool else None)
+    ctx.flight.append_feed(
+        step_index=ctx.result.stats.step_count,
+        tool=tool,
+        intent=intent,
+        stats=ctx.result.stats.to_dict(),
+    )
+
+
+def _arm_flight(task: Task) -> "flightmod.FlightSession | None":
+    """Arm the flight-control plane for a watchable work item, else ``None`` (no-op).
+
+    Built from the existing ``task`` so :func:`run` needs no new parameter (it sits
+    near the S107 ceiling); ``arm`` creates the empty feed so a pilot can attach.
+    """
+    return flightmod.arm(task.repo_path, task.id) if task.watch else None
+
+
+def _reap_flight(ctx: _Work) -> None:
+    """Reap the live flight feed/control on finish (a no-op when not a flight).
+
+    The authoritative result lives in the artifact, not the feed, so the live
+    plane stays ephemeral — mirroring the neighbour cleanup. A reap failure must
+    never mask the task result.
+    """
+    if ctx.flight is not None:
+        with suppress(Exception):
+            ctx.flight.reap()
+
+
+def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> None:
+    """Map the loop's exit reason onto the result's partial-state flags + summary.
+
+    A pilot's cooperative ``stop`` is a PARTIAL, not an authoritative result, so it
+    is flagged like a no-finish stop (never a bare ``ok`` with no result; composes
+    with the honest-status work, colleague#192) and its summary names the cause.
+    """
+    result.not_finished = outcome == _EXIT_BUDGET
+    result.stopped_without_finish = outcome in (_EXIT_STOPPED, _EXIT_PILOT_STOP)
+    if outcome == _EXIT_PILOT_STOP:
+        note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -981,6 +1055,11 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     last_prompt_tokens = 0
     budget = max(1, max_steps)
     while ctx.result.stats.model_turns < budget:
+        # Flight-control checkpoint (piloting): at this turn boundary honor a pilot's
+        # cooperative `stop` and inject any new `guidance` BEFORE the next model call.
+        # A strict no-op when the work item is not a watchable flight.
+        if _flight_stop_requested(ctx):
+            return _EXIT_PILOT_STOP
         # Proactive fill-line decision (#156): when the last turn's context crossed the
         # threshold, offer the one capacity decision (compact | split | handoff) BEFORE
         # this turn completes, so the model declares it by its next action. No-op when
@@ -1008,6 +1087,10 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
             continue
 
         nudges, exit_reason = _advance_turn(ctx, resp, nudges)
+        # Record this turn on the live flight feed (no-op when unwatched) — placed
+        # after _advance_turn so the step trace + stats already reflect the turn, and
+        # before the exit return so a finishing turn is still recorded.
+        _flight_record(ctx, resp)
         if exit_reason is not None:
             return exit_reason
     return _EXIT_BUDGET
@@ -1260,6 +1343,10 @@ def run(
     # task_start — once, before the loop. Observe-only: side-effects only.
     _fire_hooks(hooks, result, event="task_start", task=task, policy=policy)
 
+    # Arm the flight-control plane when this is a watchable flight (a strict no-op
+    # otherwise); inherited by every backend (the all-engines rule).
+    flight_session = _arm_flight(task)
+
     # The fixed collaborators for this drive — passed as one ``ctx`` to the
     # per-turn / per-call helpers so the loop body stays shallow.
     ctx = _Work(
@@ -1275,6 +1362,7 @@ def run(
         count_tokens=_context.count_tokens,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
+        flight=flight_session,
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -1315,6 +1403,10 @@ def run(
     # Like clone_all above, a cleanup failure must never mask the task result.
     with suppress(Exception):
         neighbours.cleanup()
+
+    # Flight cleanup — reap the live feed/control on finish so the plane stays
+    # ephemeral (a no-op when the work item was not a flight).
+    _reap_flight(ctx)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,
@@ -1366,10 +1458,11 @@ def run(
     #   * stopped_without_finish — the model ended on a no-tool-call turn and, even
     #     after a nudge, never called finish (colleague#142); the summary holds its
     #     trailing prose, so a caller must treat it as a partial, not authoritative.
-    # A clean finish leaves both False. Do NOT derive either from stats.step_count:
-    # max_steps bounds model *turns* while step_count counts *tool calls*.
-    result.not_finished = outcome == _EXIT_BUDGET
-    result.stopped_without_finish = outcome == _EXIT_STOPPED
+    # A clean finish leaves both False; a pilot's cooperative stop is a partial too.
+    # Do NOT derive either from stats.step_count: max_steps bounds model *turns*
+    # while step_count counts *tool calls*. (Extracted to keep run() under the S3776
+    # cognitive-complexity threshold.)
+    _apply_outcome_flags(result, outcome, _last_sub)
 
     # Summary precedence (t2, #109) — RESOLVED BEFORE the not-finished escalation
     # below, so build_continuation() sees the finalized summary (the last
