@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from colleague import flight
 from colleague.cli._commands.work import cmd_work
 from colleague.cli._errors import CliError
-from colleague import flight
 
 
 def _make_ns(tmp_path: Path, *, watch: bool = False) -> argparse.Namespace:

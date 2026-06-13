@@ -14,10 +14,10 @@ import argparse
 import json
 from pathlib import Path
 
+import colleague.flight as flight
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
-import colleague.flight as flight
 
 
 def _flight_sections() -> list[dict[str, object]]:
