@@ -351,6 +351,12 @@ class Task:
     context: str = ""
     constraints: list[str] = field(default_factory=list)
     engine: str = "mock"
+    watch: bool = False
+    """When True the work item is a *watchable flight*: the runtime arms a
+    file-based flight-control plane under ``.colleague/flight/<id>.*`` so a
+    pilot can read the live feed and inject ``stop``/``guidance`` directives
+    (see :mod:`colleague.flight`). Default ``False`` is a strict no-op and is
+    omitted from ``to_dict`` so an unwatched task serializes byte-identically."""
 
     @classmethod
     def new(
@@ -361,6 +367,7 @@ class Task:
         engine: str = "mock",
         context: str = "",
         constraints: list[str] | None = None,
+        watch: bool = False,
     ) -> "Task":
         """Create a task with a fresh short id."""
         return cls(
@@ -370,10 +377,11 @@ class Task:
             engine=engine,
             context=context,
             constraints=list(constraints or []),
+            watch=watch,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "id": self.id,
             "repo_path": self.repo_path,
             "instruction": self.instruction,
@@ -381,6 +389,10 @@ class Task:
             "constraints": list(self.constraints),
             "engine": self.engine,
         }
+        # Omit when False so an unwatched task serializes byte-identically to pre-flight.
+        if self.watch:
+            data["watch"] = True
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Task":
@@ -391,6 +403,7 @@ class Task:
             context=str(data.get("context", "")),
             constraints=list(data.get("constraints", [])),
             engine=str(data.get("engine", "mock")),
+            watch=bool(data.get("watch", False)),
         )
 
 
