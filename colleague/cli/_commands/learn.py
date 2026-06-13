@@ -34,6 +34,8 @@ is the front door:
                                    (throwaway worktree, no side effects); --apply
                                    lands a work branch, --pr opens a PR.
   ask-colleague feedback ...       Grade a finished work item (closes the ROI loop).
+  ask-colleague monitor|guide|stop <id>   Pilot a running flight: watch its live feed,
+                                           send mid-flight guidance, or stop it cooperatively.
 explore/review are read-only (worktree-isolated) — always safe to run.
 
 Or run it directly:
@@ -71,6 +73,7 @@ Commands
   colleague explain <path>...  Markdown docs for any noun/verb path.
   colleague overview           Descriptive snapshot of the agent.
   colleague doctor             Check configuration readiness (health check).
+  colleague flight ...        Pilot a running work item (watch/guide/stop a flight).
 
 Machine-readable output
 -----------------------
@@ -122,6 +125,10 @@ def _as_json_payload() -> dict[str, object]:
                     "verb": "ask-colleague feedback",
                     "summary": "Grade a finished work item (closes the ROI loop).",
                 },
+                {
+                    "verb": "ask-colleague monitor|guide|stop",
+                    "summary": "Pilot a running flight (watch feed / guide / cooperative stop).",
+                },
             ],
             "work": 'colleague work "<task>" --repo . --engine <backend> --no-pr',
             "backend_resolution": "--engine > COLLEAGUE_ENGINE > vllm-openai (never a silent mock)",
@@ -156,6 +163,10 @@ def _as_json_payload() -> dict[str, object]:
             {
                 "path": ["doctor"],
                 "summary": "Check configuration readiness across all check-groups.",
+            },
+            {
+                "path": ["flight"],
+                "summary": "Pilot a running work item (watch/guide/stop a flight).",
             },
         ],
         "exit_codes": {
