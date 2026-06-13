@@ -266,6 +266,9 @@ resolve_colleague || exit 2
 # A local model can be slow on a growing context, so default generously.
 export COLLEAGUE_TIMEOUT="$TIMEOUT"
 COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
+# --watch arms a flight for EVERY drive verb (explore/review/write), so it lives on
+# the shared flag list — not inside one verb's path — so monitor/guide/stop work.
+[[ "${WATCH:-0}" -eq 1 ]] && COMMON_FLAGS+=(--watch)
 
 # ── render an instruction from a prompt template ────────────────────────────
 render_prompt() {
@@ -579,7 +582,6 @@ run_write() {
     # top — read-only/preview verbs run in a clean worktree and must not get it),
     # which sidesteps the `set -u` empty-array expansion hazard.
     [[ "$ALLOW_DIRTY" -eq 1 ]] && COMMON_FLAGS+=(--allow-dirty)
-    [[ "${WATCH:-0}" -eq 1 ]] && COMMON_FLAGS+=(--watch)
     # `|| rc=$?`: a failed drive (`colleague drive` exits non-zero, printing the
     # result JSON to stdout) must still flow into print_result so the digest is
     # emitted (to stderr) and the wrapper propagates the drive's real exit code.

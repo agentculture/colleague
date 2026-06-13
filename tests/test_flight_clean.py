@@ -1,10 +1,20 @@
-"""colleague clean — flight file reaping (t5)."""
+"""colleague clean — flight file reaping (t5 + the active-flight guard)."""
 
 import argparse
+import os
+import time
 from pathlib import Path
 
 from colleague import flight
 from colleague.cli._commands.clean import cmd_clean
+
+
+def _backdate(tmp: Path, task_id: str, seconds: float) -> None:
+    """Age a flight's files so they look stale (past the active window)."""
+    old = time.time() - seconds
+    for p in (flight.feed_path(tmp, task_id), flight.control_path(tmp, task_id)):
+        if p.exists():
+            os.utime(p, (old, old))
 
 
 def _init_git(tmp: Path) -> None:
@@ -35,45 +45,35 @@ def _make_ns(tmp: Path, dry_run: bool = False, json: bool = True):
     )
 
 
-def test_clean_reaps_flights_and_preserves_sibling(tmp_path: Path) -> None:
-    """Flight files are deleted; a sibling outside .colleague/flight/ survives."""
+def test_clean_reaps_stale_flights_preserves_active_and_sibling(tmp_path: Path) -> None:
+    """Stale flight files are reaped; an ACTIVE (recently-written) flight + a sibling survive."""
     _init_git(tmp_path)
 
-    flight.arm(tmp_path, "a")
-    flight.arm(tmp_path, "b")
+    # a crashed/stale flight (aged past the active window) -> should be reaped
+    flight.arm(tmp_path, "stale")
+    _backdate(tmp_path, "stale", flight.ACTIVE_WINDOW_SECONDS + 60)
+    # a running flight (feed just written) -> must be PRESERVED (Bug 5 guard)
+    flight.arm(tmp_path, "active")
 
     # Sibling file OUTSIDE the flight dir (must survive)
     sibling = tmp_path / ".colleague" / "some_data.txt"
     sibling.parent.mkdir(parents=True, exist_ok=True)
     sibling.write_text("keep me")
 
-    result = cmd_clean(_make_ns(tmp_path, dry_run=False))
-    assert result == 0
+    assert cmd_clean(_make_ns(tmp_path, dry_run=False)) == 0
 
-    fd = tmp_path / ".colleague" / "flight"
-    assert (
-        not fd.exists() or len(list(fd.iterdir())) == 0
-    ), "flight files should be gone after clean"
+    assert not flight.feed_path(tmp_path, "stale").exists(), "stale flight should be reaped"
+    assert flight.feed_path(tmp_path, "active").exists(), "active flight must NOT be reaped"
     assert sibling.exists(), "sibling outside flight dir must survive"
 
 
-def test_dry_run_preserves_flights_and_lists_them(tmp_path: Path) -> None:
-    """--dry-run leaves flight files intact and reports them under 'flights'."""
+def test_dry_run_preserves_stale_flights(tmp_path: Path) -> None:
+    """--dry-run never deletes, even a stale flight that a real clean would reap."""
     _init_git(tmp_path)
 
     flight.arm(tmp_path, "x")
+    _backdate(tmp_path, "x", flight.ACTIVE_WINDOW_SECONDS + 60)  # stale → reapable
 
-    result = cmd_clean(_make_ns(tmp_path, dry_run=True, json=True))
-    assert result == 0
+    assert cmd_clean(_make_ns(tmp_path, dry_run=True, json=True)) == 0
 
-    # The flight feed file must still exist
-    feed = tmp_path / ".colleague" / "flight" / "x.feed.jsonl"
-    assert feed.exists(), "dry-run must not delete flight files"
-
-    # The JSON output should contain the flights key with at least the feed file
-    # (we can't easily parse the emitted JSON without mocking emit_result,
-    #  so we verify via the report dict by re-running with a capture approach).
-    # Instead, check that the flight dir still has files:
-    fd = tmp_path / ".colleague" / "flight"
-    files = [p for p in fd.iterdir() if p.is_file()]
-    assert len(files) >= 1, "dry-run should leave flight files in place"
+    assert flight.feed_path(tmp_path, "x").exists(), "dry-run must not delete flight files"

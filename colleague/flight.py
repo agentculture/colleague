@@ -2,12 +2,32 @@
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 FLIGHT_DIR_NAME = "flight"
 DEPTH_ENV = "COLLEAGUE_FLIGHT_DEPTH"
 DEFAULT_DEPTH_CAP = 2
+# A flight whose files were touched within this window is treated as *likely
+# active* and preserved by reaping (no daemon/process registry exists, so this
+# mtime heuristic is the honest signal). Generous on purpose: a running flight
+# writes a feed record every turn, far more often than this, while crashed
+# residue sits untouched — so an active flight is never reaped and stale residue
+# still is. Flight files are gitignored and never wedge ``git fetch``, so a
+# conservative delay on reaping them is harmless.
+ACTIVE_WINDOW_SECONDS = 900
+
+
+def is_safe_task_id(task_id) -> bool:
+    """True if *task_id* is a single safe path segment (no traversal/escape).
+
+    The flight CLI accepts an operator/agent-supplied task id; interpolating one
+    containing ``/``, ``..``, or an absolute path into a flight path would escape
+    ``.colleague/flight/``. Runtime-generated ids are plain hex and always pass.
+    """
+    s = str(task_id)
+    return bool(s) and s not in (".", "..") and s == Path(s).name
 
 
 def flight_dir(repo_path):
@@ -15,14 +35,21 @@ def flight_dir(repo_path):
     return Path(repo_path) / ".colleague" / FLIGHT_DIR_NAME
 
 
+def _segment(task_id):
+    """Validate *task_id* as a safe path segment or raise ``ValueError``."""
+    if not is_safe_task_id(task_id):
+        raise ValueError(f"unsafe flight task id: {task_id!r}")
+    return str(task_id)
+
+
 def feed_path(repo_path, task_id):
-    """Return <flight_dir>/<task_id>.feed.jsonl."""
-    return flight_dir(repo_path) / f"{task_id}.feed.jsonl"
+    """Return <flight_dir>/<task_id>.feed.jsonl (rejects an unsafe task id)."""
+    return flight_dir(repo_path) / f"{_segment(task_id)}.feed.jsonl"
 
 
 def control_path(repo_path, task_id):
-    """Return <flight_dir>/<task_id>.control.json."""
-    return flight_dir(repo_path) / f"{task_id}.control.json"
+    """Return <flight_dir>/<task_id>.control.json (rejects an unsafe task id)."""
+    return flight_dir(repo_path) / f"{_segment(task_id)}.control.json"
 
 
 @dataclass
@@ -52,7 +79,7 @@ class FlightSession:
             return Control(stop=False, guidance=[])
         try:
             data = json.loads(cp.read_text())
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:  # json.JSONDecodeError is a ValueError subclass
             return Control(stop=False, guidance=[])
 
         stop = data.get("stop", False)
@@ -84,10 +111,11 @@ def write_stop(repo_path, task_id):
     """Set stop=true in the control file, preserving existing guidance."""
     repo_path = Path(repo_path)
     cp = control_path(repo_path, task_id)
+    cp.parent.mkdir(parents=True, exist_ok=True)
     if cp.exists():
         try:
             data = json.loads(cp.read_text())
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:  # json.JSONDecodeError is a ValueError subclass
             data = {}
     else:
         data = {}
@@ -101,10 +129,11 @@ def append_guidance(repo_path, task_id, message: str):
     """Append message to the control file's guidance list, preserving stop."""
     repo_path = Path(repo_path)
     cp = control_path(repo_path, task_id)
+    cp.parent.mkdir(parents=True, exist_ok=True)
     if cp.exists():
         try:
             data = json.loads(cp.read_text())
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:  # json.JSONDecodeError is a ValueError subclass
             data = {}
     else:
         data = {}
@@ -138,8 +167,31 @@ def list_flight_files(repo_path):
     return sorted(p for p in fd.iterdir() if p.is_file())
 
 
-def reap_orphans(repo_path, active_task_ids=None):
-    """Delete flight files not belonging to an active task id."""
+def recent_flight_task_ids(repo_path, within_seconds=ACTIVE_WINDOW_SECONDS):
+    """Task ids whose flight files were modified within *within_seconds* (likely active).
+
+    Used to keep ``reap_orphans`` from deleting the feed/control of a flight that is
+    still running — there is no process registry (no daemon), so file mtime is the
+    honest staleness signal.
+    """
+    now = time.time()
+    ids = set()
+    for f in list_flight_files(repo_path):
+        try:
+            if now - f.stat().st_mtime < within_seconds:
+                ids.add(_task_id_of(f))
+        except OSError:
+            continue
+    return ids
+
+
+def reap_orphans(repo_path, active_task_ids=None, *, dry_run=False):
+    """Reap flight files not belonging to an active task id; return the reaped paths.
+
+    With ``dry_run`` the paths that WOULD be reaped are returned without deleting.
+    Pass the result of :func:`recent_flight_task_ids` as *active_task_ids* to spare
+    a currently-running flight (see ``colleague clean``).
+    """
     repo_path = Path(repo_path)
     fd = flight_dir(repo_path)
     if not fd.is_dir():
@@ -151,13 +203,14 @@ def reap_orphans(repo_path, active_task_ids=None):
     if active_task_ids is None:
         active_task_ids = set()
 
-    deleted = []
+    reaped = []
     for f in all_files:
         if _task_id_of(f) not in active_task_ids:
-            f.unlink()
-            deleted.append(f)
+            if not dry_run:
+                f.unlink()
+            reaped.append(f)
 
-    return deleted
+    return reaped
 
 
 def current_depth():

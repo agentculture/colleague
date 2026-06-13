@@ -991,6 +991,41 @@ def _flight_record(ctx: _Work, resp: ModelResponse) -> None:
     )
 
 
+def _arm_flight(task: Task) -> "flightmod.FlightSession | None":
+    """Arm the flight-control plane for a watchable work item, else ``None`` (no-op).
+
+    Built from the existing ``task`` so :func:`run` needs no new parameter (it sits
+    near the S107 ceiling); ``arm`` creates the empty feed so a pilot can attach.
+    """
+    return flightmod.arm(task.repo_path, task.id) if task.watch else None
+
+
+def _reap_flight(ctx: _Work) -> None:
+    """Reap the live flight feed/control on finish (a no-op when not a flight).
+
+    The authoritative result lives in the artifact, not the feed, so the live
+    plane stays ephemeral — mirroring the neighbour cleanup. A reap failure must
+    never mask the task result.
+    """
+    if ctx.flight is not None:
+        with suppress(Exception):
+            ctx.flight.reap()
+
+
+def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> None:
+    """Map the loop's exit reason onto the result's partial-state flags + summary.
+
+    A pilot's cooperative ``stop`` is a PARTIAL, not an authoritative result, so it
+    is flagged like a no-finish stop (never a bare ``ok`` with no result; composes
+    with the honest-status work, colleague#192) and its summary names the cause.
+    """
+    result.not_finished = outcome == _EXIT_BUDGET
+    result.stopped_without_finish = outcome in (_EXIT_STOPPED, _EXIT_PILOT_STOP)
+    if outcome == _EXIT_PILOT_STOP:
+        note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -1308,12 +1343,9 @@ def run(
     # task_start — once, before the loop. Observe-only: side-effects only.
     _fire_hooks(hooks, result, event="task_start", task=task, policy=policy)
 
-    # Arm the flight-control plane when this is a watchable flight (``task.watch``),
-    # else ``None`` — a strict no-op. Built here from the existing ``task`` so no new
-    # ``run`` parameter is needed (run() sits near the S107 parameter ceiling), and
-    # every backend inherits it (the all-engines rule). ``arm`` creates the (empty)
-    # feed file so a pilot can attach immediately.
-    flight_session = flightmod.arm(task.repo_path, task.id) if task.watch else None
+    # Arm the flight-control plane when this is a watchable flight (a strict no-op
+    # otherwise); inherited by every backend (the all-engines rule).
+    flight_session = _arm_flight(task)
 
     # The fixed collaborators for this drive — passed as one ``ctx`` to the
     # per-turn / per-call helpers so the loop body stays shallow.
@@ -1372,13 +1404,9 @@ def run(
     with suppress(Exception):
         neighbours.cleanup()
 
-    # Flight cleanup — reap the live feed + control files on finish so they stay
-    # ephemeral (the authoritative result lives in the artifact, not the feed),
-    # mirroring the neighbour cleanup. No-op when the work item was not a flight; a
-    # reap failure must never mask the task result.
-    if ctx.flight is not None:
-        with suppress(Exception):
-            ctx.flight.reap()
+    # Flight cleanup — reap the live feed/control on finish so the plane stays
+    # ephemeral (a no-op when the work item was not a flight).
+    _reap_flight(ctx)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,
@@ -1430,20 +1458,11 @@ def run(
     #   * stopped_without_finish — the model ended on a no-tool-call turn and, even
     #     after a nudge, never called finish (colleague#142); the summary holds its
     #     trailing prose, so a caller must treat it as a partial, not authoritative.
-    # A clean finish leaves both False. Do NOT derive either from stats.step_count:
-    # max_steps bounds model *turns* while step_count counts *tool calls*.
-    result.not_finished = outcome == _EXIT_BUDGET
-    result.stopped_without_finish = outcome == _EXIT_STOPPED
-
-    # A pilot's cooperative `stop` (piloting): the work item ended early at the
-    # dispatcher's request, so it is a PARTIAL, not an authoritative result — flag it
-    # like a no-finish stop so a caller never treats it as complete (and never reads a
-    # bare "ok" with no result; composes with the honest-status work, colleague#192).
-    # The preserved steps/changed_files stand as the partial; the summary names the cause.
-    if outcome == _EXIT_PILOT_STOP:
-        result.stopped_without_finish = True
-        note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
-        result.summary = f"{note} {_last_sub}".strip() if _last_sub else note
+    # A clean finish leaves both False; a pilot's cooperative stop is a partial too.
+    # Do NOT derive either from stats.step_count: max_steps bounds model *turns*
+    # while step_count counts *tool calls*. (Extracted to keep run() under the S3776
+    # cognitive-complexity threshold.)
+    _apply_outcome_flags(result, outcome, _last_sub)
 
     # Summary precedence (t2, #109) — RESOLVED BEFORE the not-finished escalation
     # below, so build_continuation() sees the finalized summary (the last

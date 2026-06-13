@@ -132,7 +132,7 @@ def test_flight_module_is_stdlib_only():
     src = inspect.getsource(flight)
     # the module's import lines reference only stdlib
     import_lines = [ln.strip() for ln in src.splitlines() if ln.startswith(("import ", "from "))]
-    allowed_roots = {"json", "os", "dataclasses", "pathlib"}
+    allowed_roots = {"json", "os", "time", "dataclasses", "pathlib"}
     for ln in import_lines:
         root = ln.split()[1].split(".")[0]
         assert root in allowed_roots, f"non-stdlib import in flight.py: {ln}"
@@ -151,3 +151,61 @@ def test_session_reap_removes_feed_and_control(tmp_path):
 
     assert not flight.feed_path(tmp_path, "t-reap").exists()
     assert not flight.control_path(tmp_path, "t-reap").exists()
+
+
+# --- Bug 2: task-id path-traversal guard -----------------------------------
+
+
+@pytest.mark.parametrize("tid", ["abc123", "t-reap", "6633119e1c61"])
+def test_is_safe_task_id_accepts_normal_ids(tid):
+    assert flight.is_safe_task_id(tid) is True
+
+
+@pytest.mark.parametrize("tid", ["../escape", "/etc/passwd", "a/b", "..", ".", ""])
+def test_is_safe_task_id_rejects_traversal(tid):
+    assert flight.is_safe_task_id(tid) is False
+
+
+@pytest.mark.parametrize("tid", ["../escape", "/etc/passwd", "a/b"])
+def test_path_helpers_reject_unsafe_task_id(tmp_path, tid):
+    with pytest.raises(ValueError):
+        flight.feed_path(tmp_path, tid)
+    with pytest.raises(ValueError):
+        flight.control_path(tmp_path, tid)
+
+
+# --- Bug 3: write_stop/append_guidance create the flight dir ----------------
+
+
+def test_control_writers_create_dir_when_absent(tmp_path):
+    # no flight has ever been armed -> .colleague/flight/ does not exist
+    assert not flight.flight_dir(tmp_path).exists()
+    flight.write_stop(tmp_path, "fresh")  # must NOT raise FileNotFoundError
+    assert flight.control_path(tmp_path, "fresh").exists()
+
+    flight.append_guidance(tmp_path, "fresh2", "hello")  # also creates the dir
+    assert "hello" in flight.FlightSession(tmp_path, "fresh2").read_control().guidance
+
+
+# --- Bug 5: active-flight detection (mtime heuristic) -----------------------
+
+
+def test_recent_flight_task_ids_marks_recent_active(tmp_path):
+    import os
+    import time
+
+    flight.arm(tmp_path, "live")
+    flight.arm(tmp_path, "old")
+    old = time.time() - (flight.ACTIVE_WINDOW_SECONDS + 60)
+    os.utime(flight.feed_path(tmp_path, "old"), (old, old))
+
+    active = flight.recent_flight_task_ids(tmp_path)
+    assert "live" in active
+    assert "old" not in active
+
+
+def test_reap_orphans_dry_run_lists_without_deleting(tmp_path):
+    flight.arm(tmp_path, "d")
+    would = flight.reap_orphans(tmp_path, dry_run=True)
+    assert flight.feed_path(tmp_path, "d") in would
+    assert flight.feed_path(tmp_path, "d").exists()  # not deleted in dry-run

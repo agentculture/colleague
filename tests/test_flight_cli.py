@@ -45,6 +45,40 @@ class TestFlightStatus:
         with pytest.raises(CliError, match="no active flight nope"):
             cmd_flight_status(args)
 
+    def test_status_armed_but_empty_feed_is_not_error(self, tmp_path, capsys):
+        # Just armed: feed file exists but has no records yet — a valid state.
+        flight_mod.arm(tmp_path, "tid")
+        rc = cmd_flight_status(_ns(task_id="tid", repo=tmp_path))
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"flight": "tid", "records": 0}
+
+    def test_status_skips_torn_trailing_line(self, tmp_path, capsys):
+        flight_mod.arm(tmp_path, "tid")
+        session = flight_mod.FlightSession(repo_path=tmp_path, task_id="tid")
+        session.append_feed(step_index=0, tool="read_file", intent="ok", stats={})
+        # a crash can leave a partial (unparseable) trailing line
+        with open(flight_mod.feed_path(tmp_path, "tid"), "a") as f:
+            f.write('{"step_index": 1, "to')
+        rc = cmd_flight_status(_ns(task_id="tid", repo=tmp_path))
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["step_index"] == 0  # fell back to the last GOOD record
+
+
+class TestFlightTaskIdGuard:
+    @pytest.mark.parametrize("bad", ["../escape", "/etc/passwd", "a/b"])
+    def test_status_rejects_unsafe_task_id(self, tmp_path, bad):
+        with pytest.raises(CliError, match="invalid flight task id"):
+            cmd_flight_status(_ns(task_id=bad, repo=tmp_path))
+
+    @pytest.mark.parametrize("bad", ["../escape", "a/b"])
+    def test_guide_stop_reject_unsafe_task_id(self, tmp_path, bad):
+        with pytest.raises(CliError, match="invalid flight task id"):
+            cmd_flight_guide(_ns(task_id=bad, message="x", repo=tmp_path))
+        with pytest.raises(CliError, match="invalid flight task id"):
+            cmd_flight_stop(_ns(task_id=bad, repo=tmp_path))
+
 
 class TestFlightGuide:
     def test_guide_appends_guidance(self, tmp_path):

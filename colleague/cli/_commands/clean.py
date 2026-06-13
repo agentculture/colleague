@@ -60,10 +60,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
         base_branch=args.base,
     )
     artifacts = artifact.reap_artifacts(repo, dry_run=dry_run)
-    if dry_run:
-        flights = [str(p) for p in flight.list_flight_files(repo)]
-    else:
-        flights = [str(p) for p in flight.reap_orphans(repo)]
+    # Reap stale flight residue but SPARE a flight that is still running — a
+    # recently-written feed/control marks a likely-active flight (no daemon, so
+    # mtime is the signal). reap_orphans treats the recent ids as "active".
+    active_flights = flight.recent_flight_task_ids(repo)
+    flights = [str(p) for p in flight.reap_orphans(repo, active_flights, dry_run=dry_run)]
     empty_objects = handoff.empty_loose_objects(repo)
 
     report = {
