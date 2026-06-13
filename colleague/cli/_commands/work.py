@@ -22,8 +22,11 @@ palette delegate to it so the work path is never duplicated (honesty h11).
 from __future__ import annotations
 
 import argparse
+import os
 from contextlib import suppress
 from pathlib import Path
+
+from colleague import flight
 
 from colleague import registry
 from colleague.artifact import artifact_dir, failed_result, write
@@ -425,6 +428,22 @@ def cmd_work(args: argparse.Namespace) -> int:
     command_name: str | None = getattr(args, "command_name", None)
     task = _build_task(args, repo, engine, config)
 
+    watch = bool(getattr(args, "watch", False))
+    task.watch = watch
+    if watch:
+        if flight.depth_exceeded():
+            raise CliError(
+                EXIT_USER_ERROR,
+                "flight depth cap reached — refusing to nest another sub-flight",
+                "a flight may pilot a sub-flight, but not unbounded recursion",
+            )
+        os.environ.update(flight.child_depth_env())
+        emit_diagnostic(
+            f"flight: {task.id}\n"
+            f"feed: {flight.feed_path(repo, task.id)}\n"
+            f"control: {flight.control_path(repo, task.id)}"
+        )
+
     # Delegate the full work orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
     try:
@@ -521,6 +540,14 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
         help="Append a live WorkStep JSONL stream to PATH (replay with 'tui replay').",
     )
     p.add_argument("--json", action="store_true", help="Emit the result as structured JSON.")
+    p.add_argument(
+        "--watch",
+        action="store_true",
+        help=(
+            "Arm a flight-control plane so a pilot can watch/guide/stop "
+            "this work item (see 'colleague flight')."
+        ),
+    )
     p.set_defaults(func=cmd_work)
 
 
