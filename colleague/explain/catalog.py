@@ -889,6 +889,31 @@ The runner builds `CockpitState.from_dict(initial)`, folds each event via
 - `colleague explain work`
 """
 
+_FLIGHT = """\
+# colleague flight
+
+Pilot a running work item. The flight noun lets the dispatching agent (Claude or a
+colleague work-loop) pilot a running work item: watch its live feed (status),
+redirect it (guide), or call it back (stop). Control is cooperative — directives
+are applied at the running loop's next turn boundary.
+
+## Verbs
+
+- `flight status <task_id>` — read the latest feed record
+- `flight guide <task_id> <message>` — send guidance to the running loop
+- `flight stop <task_id>` — signal the running loop to stop
+- `flight list` — list active flight task ids
+- `flight overview` — describe the flight surface
+
+## Usage
+
+    colleague flight status tid
+    colleague flight guide tid "refactor the auth module"
+    colleague flight stop tid
+    colleague flight list
+    colleague flight overview
+"""
+
 _PROMOTE = """\
 # colleague promote
 
@@ -997,4 +1022,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("tui", "test"): _TUI,
     ("tui", "diagnose"): _TUI,
     ("tui", "overview"): _TUI,
+    ("flight",): _FLIGHT,
+    ("flight", "status"): _FLIGHT,
+    ("flight", "guide"): _FLIGHT,
+    ("flight", "stop"): _FLIGHT,
+    ("flight", "list"): _FLIGHT,
+    ("flight", "overview"): _FLIGHT,
 }
