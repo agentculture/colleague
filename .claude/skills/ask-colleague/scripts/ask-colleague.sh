@@ -242,8 +242,15 @@ REPO="$(cd "$REPO" && pwd)"
 # it must at least be a real git work tree. Fail fast with a clear message instead
 # of an opaque mid-drive error (read-only verbs add a worktree, write commits a
 # drive branch, clean reaps colleague/* refs).
-git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-    || { echo "error: --repo is not a git repository: $REPO" >&2; exit 1; }
+# The pilot verbs (monitor/guide/stop) are pure .colleague/flight/ file I/O — they
+# need no git work tree, so they are exempt from this fail-fast guard.
+case "$VERB" in
+    monitor | guide | stop) : ;;
+    *)
+        git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+            || { echo "error: --repo is not a git repository: $REPO" >&2; exit 1; }
+        ;;
+esac
 
 # review interpolates --base into the LLM instruction ("git diff $BASE...HEAD"),
 # so reject a value that is not a real commit/ref before it is rendered into the
@@ -632,26 +639,27 @@ run_clean() {
     "${cmd[@]}"
 }
 
-    _flight_json_flag() { [[ "$JSON_OUT" -eq 1 ]] && printf -- '--json'; }
+# ── piloting verbs: thin passthroughs to the `colleague flight` noun ─────────
+_flight_json_flag() { [[ "$JSON_OUT" -eq 1 ]] && printf -- '--json'; }
 
-    run_monitor() {
-        local fid="${ARG%% *}"
-        [[ -z "$fid" ]] && { echo "error: monitor needs a flight task-id" >&2; exit 1; }
-        "${COLLEAGUE[@]}" flight status "$fid" --repo "$REPO" $(_flight_json_flag)
-    }
+run_monitor() {
+    local fid="${ARG%% *}"
+    [[ -z "$fid" ]] && { echo "error: monitor needs a flight task-id" >&2; exit 1; }
+    "${COLLEAGUE[@]}" flight status "$fid" --repo "$REPO" $(_flight_json_flag)
+}
 
-    run_stop() {
-        local fid="${ARG%% *}"
-        [[ -z "$fid" ]] && { echo "error: stop needs a flight task-id" >&2; exit 1; }
-        "${COLLEAGUE[@]}" flight stop "$fid" --repo "$REPO" $(_flight_json_flag)
-    }
+run_stop() {
+    local fid="${ARG%% *}"
+    [[ -z "$fid" ]] && { echo "error: stop needs a flight task-id" >&2; exit 1; }
+    "${COLLEAGUE[@]}" flight stop "$fid" --repo "$REPO" $(_flight_json_flag)
+}
 
-    run_guide() {
-        local fid="${ARG%% *}"
-        local msg="${ARG#* }"
-        [[ -z "$fid" || "$msg" == "$fid" ]] && { echo "error: guide needs <task-id> <message>" >&2; exit 1; }
-        "${COLLEAGUE[@]}" flight guide "$fid" "$msg" --repo "$REPO" $(_flight_json_flag)
-    }
+run_guide() {
+    local fid="${ARG%% *}"
+    local msg="${ARG#* }"
+    [[ -z "$fid" || "$msg" == "$fid" ]] && { echo "error: guide needs <task-id> <message>" >&2; exit 1; }
+    "${COLLEAGUE[@]}" flight guide "$fid" "$msg" --repo "$REPO" $(_flight_json_flag)
+}
 
 case "$VERB" in
     explore) run_readonly "$(render_prompt explore)" ;;
