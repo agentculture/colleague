@@ -43,11 +43,19 @@ PROMPTS_DIR="$SKILL_DIR/prompts"
 # ── resolve the colleague CLI (installed, then local-dev fallback) ─────────
 COLLEAGUE=()
 
+_pyproject_is_colleague() {
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == 'name = "colleague"'* ]] && return 0
+    done < "$1"
+    return 1
+}
+
 _colleague_via_uv() {
     local dir="$1"
     while [[ -n "$dir" ]] && [[ "$dir" != "/" ]]; do
         if [[ -f "$dir/pyproject.toml" ]] \
-            && grep -q '^name = "colleague"' "$dir/pyproject.toml" 2>/dev/null; then
+            && _pyproject_is_colleague "$dir/pyproject.toml"; then
             command -v uv >/dev/null 2>&1 || return 1
             COLLEAGUE=(uv run --project "$dir" colleague)
             return 0
@@ -139,9 +147,7 @@ esac
 # feedback/clean are thin pass-throughs to `colleague` plus the shared git
 # work-tree guard, so they need only git; the drive verbs (explore/review/write)
 # also render a prompt and parse colleague's --json result via python3, and the
-# worktree-isolated paths additionally need mktemp. grep is only used by the
-# uv-fallback resolver, which degrades to the clear "colleague not found" message
-# when absent, so it is not a hard requirement here.
+# worktree-isolated paths additionally need mktemp.
 require_tools() {  # $@ = tool names this verb path needs
     local missing=() t
     for t in "$@"; do
