@@ -11,6 +11,7 @@ import pytest
 from colleague.contract import ERROR, INCOMPLETE, NO_RESULT_PRODUCED, OK, Task
 from colleague.loop import (
     CompleteFn,
+    ContextControls,
     ModelResponse,
     ToolCall,
     WorkAborted,
@@ -91,6 +92,40 @@ def test_budget_exhaustion_forces_synthesis(tmp_path: Path) -> None:
     assert result.summary == "SYNTHESIZED: the repo maps to modules A and B."
     # The forced synthesis executes no tool, so it adds no step (only a model turn).
     assert result.stats.step_count == 3
+
+
+def test_mapping_fanout_advisory_injected_after_threshold(tmp_path: Path) -> None:
+    """#188: once a read-only survey reads MORE than the files-read threshold, the
+    loop injects ONE advisory pointing at the ``subagents`` tool — and only once."""
+    captured: list[list[str]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        captured.append([str(m.get("content", "")) for m in messages])
+        return ModelResponse(tool_calls=[ToolCall("x", "list_dir", {"path": "."})])
+
+    task = Task.new(str(tmp_path), "map the repo")
+    run(complete, task, max_steps=6, context=ContextControls(fanout_files=2))
+
+    marker = "partition the unmapped surface"
+    # The recommendation is appended to the history once it fires, so the final
+    # turn the model saw must contain it EXACTLY once (one-shot) and name subagents.
+    final_turn = captured[-1]
+    assert sum(1 for c in final_turn if marker in c) == 1
+    assert any("subagents" in c for c in final_turn)
+
+
+def test_mapping_fanout_dormant_is_noop(tmp_path: Path) -> None:
+    """#188: with the advisory dormant (``fanout_files`` <= 0) a read-heavy run never
+    sees the recommendation — a strict no-op."""
+    seen: list[str] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        seen.extend(str(m.get("content", "")) for m in messages)
+        return ModelResponse(tool_calls=[ToolCall("x", "list_dir", {"path": "."})])
+
+    task = Task.new(str(tmp_path), "map the repo")
+    run(complete, task, max_steps=6, context=ContextControls(fanout_files=0))
+    assert not any("partition the unmapped surface" in c for c in seen)
 
 
 def test_loop_terminates_on_empty_tool_calls(tmp_path: Path) -> None:

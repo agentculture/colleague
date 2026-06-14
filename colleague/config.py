@@ -74,6 +74,13 @@ _DEFAULT_AUTOSPLIT_TARGET_TOKENS = 1_000_000
 # reactive auto-split still apply.
 _DEFAULT_FILLLINE_THRESHOLD = 0.8
 
+# Mapping fan-out trigger (issue #188): the number of files a read-only mapping run
+# may read before the runtime injects ONE advisory recommendation to fan the survey
+# out across folders via the ``subagents`` tool (instead of grinding serially through
+# the step budget). Override with COLLEAGUE_FANOUT_FILES; 0 (or negative) leaves the
+# advisory dormant — a strict no-op. This is the parked-`v1` default knob.
+_DEFAULT_FANOUT_FILES = 12
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -162,6 +169,7 @@ class EngineConfig:
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
     fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
+    fanout_files: int = _DEFAULT_FANOUT_FILES
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -196,6 +204,7 @@ class EngineConfig:
         subagent_concurrency: int | None = None,
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
+        fanout_files: int | None = None,
         repo_path: str | Path | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
@@ -306,6 +315,15 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_FILLLINE_THRESHOLD,
             ),
+            fanout_files=_try_int(
+                _pick(
+                    _str(fanout_files),
+                    "COLLEAGUE_FANOUT_FILES",
+                    "CONVERTIBLE_FANOUT_FILES",
+                    default=str(_DEFAULT_FANOUT_FILES),
+                ),
+                default=_DEFAULT_FANOUT_FILES,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -319,6 +337,7 @@ class EngineConfig:
             "context_budget_tokens": self.context_budget_tokens,
             "autosplit_target_tokens": self.autosplit_target_tokens,
             "fillline_threshold": self.fillline_threshold,
+            "fanout_files": self.fanout_files,
             "max_output_chars": self.max_output_chars,
         }
 

@@ -28,6 +28,7 @@ __all__ = [
     "child_count",
     "build_split_recommendation",
     "build_upfront_hint",
+    "build_mapping_fanout_recommendation",
 ]
 
 
@@ -115,6 +116,43 @@ def build_split_recommendation(
         f"do not carry over implicit state between children. "
         f"The `subagents` tool accepts up to {max_children} children "
         f"(per-child budget: {per_child_budget_tokens} tokens)."
+    )
+
+
+def build_mapping_fanout_recommendation(*, files_read: int, max_children: int) -> str:
+    """Render the ONE structured ADVISORY message body for a read-only mapping run
+    that is spending its step budget on serial file reads (issue #188).
+
+    Unlike :func:`build_split_recommendation` (a token-overflow recovery), this is a
+    *step-budget*-relative nudge: a wide codebase map should fan out across folders
+    rather than read every file in series. It names the literal ``subagents`` tool
+    and a concrete per-folder partition so the model can compose a delegation call.
+
+    Requirements (honesty condition h4):
+    - States the run has read many files serially.
+    - Names the literal tool ``subagents``.
+    - Includes the concrete ``files_read`` number.
+    - Includes the concrete ``max_children`` number.
+    - Frames the children as per-folder / per-subtree sub-surveys whose findings
+      the parent synthesizes — advisory, not a hard block.
+
+    Args:
+        files_read: How many files the run has read so far (the trigger count).
+        max_children: Maximum number of children to delegate (fanout cap - 1).
+
+    Returns:
+        A deterministic, non-empty string (no randomness, no timestamps).
+    """
+    return (
+        f"You have read {files_read} files one at a time and are spending your step "
+        f"budget on serial reads. For a wide codebase map this is slow and may run "
+        f"out of steps before you can answer.\n\n"
+        f"Consider fanning the survey out: partition the unmapped surface into at most "
+        f"{max_children} coherent per-folder (or per-subtree) sub-surveys and delegate "
+        f"them with the `subagents` tool, then synthesize their findings into your "
+        f"answer. Each child should map ONE folder/subtree and return its findings — "
+        f"read-only, nothing to write. This is an optional suggestion; if the remaining "
+        f"surface is small you may keep reading directly."
     )
 
 

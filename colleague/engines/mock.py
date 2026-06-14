@@ -84,5 +84,6 @@ class MockEngine(Engine):
                 budget=config.context_budget_tokens,
                 autosplit_target=config.autosplit_target_tokens,
                 fillline_threshold=config.fillline_threshold,
+                fanout_files=config.fanout_files,
             ),
         )

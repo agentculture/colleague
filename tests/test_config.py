@@ -38,6 +38,14 @@ def test_numeric_env_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert EngineConfig.resolve().max_steps == 7
 
 
+def test_fanout_files_knob(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#188: the mapping fan-out files-read trigger N is env-tunable (parked v1)."""
+    assert EngineConfig.resolve().fanout_files == 12  # default
+    assert EngineConfig.resolve(fanout_files=3).fanout_files == 3  # explicit
+    monkeypatch.setenv("COLLEAGUE_FANOUT_FILES", "5")
+    assert EngineConfig.resolve().fanout_files == 5  # env
+
+
 def test_to_dict_redacts_api_key() -> None:
     cfg = EngineConfig.resolve(api_key="sk-secret")
     snapshot = cfg.to_dict()

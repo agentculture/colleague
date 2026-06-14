@@ -44,6 +44,7 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague.capacity import assess_capacity
+from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import classify_degradable, window_messages
 from colleague.contract import (
     DECISION_DENY,
@@ -398,6 +399,14 @@ class _Work:
     # is OFFERED so the recorded reason matches the number named in the prompt (not
     # the slightly different count of the declaring turn).
     _fillline_used: list[int] = field(default_factory=list)
+    # Mapping fan-out advisory (#188): ``mapping_fanout_files`` is the files-read count
+    # at which the runtime injects ONE advisory recommendation to fan a wide read-only
+    # survey out across folders via the ``subagents`` tool (instead of grinding serially
+    # through the step budget). ``None``/<= 0 leaves it dormant — a strict no-op.
+    # ``_mapping_fanout_offered`` is a single-element mutable cell (the
+    # ``_fillline_offered`` pattern) so the advisory fires at most once per work item.
+    mapping_fanout_files: int | None = None
+    _mapping_fanout_offered: list[bool] = field(default_factory=list)
     # Flight-control plane (the piloting feature): an armed ``FlightSession`` when the
     # task is a watchable flight (``task.watch``), else ``None`` — a strict no-op.
     # When set, the loop appends a live feed record per turn and reads the per-flight
@@ -722,6 +731,41 @@ def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
         )
     ):
         _offer_fillline(ctx, last_prompt_tokens)
+
+
+def _files_read(ctx: _Work) -> int:
+    """Count the read-only mapping tool calls so far (``read_file`` + ``list_dir``)."""
+    return sum(1 for step in ctx.result.steps if step.tool in ("read_file", "list_dir"))
+
+
+def _maybe_offer_mapping_fanout(ctx: _Work) -> None:
+    """Offer the per-folder fan-out advisory once a wide survey has read many files (#188).
+
+    A strict no-op when dormant (``mapping_fanout_files`` unset / <= 0), already
+    offered, or still under the threshold — so a normal task that reads a handful of
+    files is byte-identical to today. Backend-judged + advisory: the loop injects ONE
+    recommendation pointing at the existing ``subagents`` tool (no new fan-out/merge
+    code) and the model decides whether to act. Offered at most once per work item via
+    ``_mapping_fanout_offered``. Runtime-owned, so it fires identically for every
+    backend (the all-engines rule).
+    """
+    threshold = ctx.mapping_fanout_files
+    if not isinstance(threshold, int) or threshold <= 0:
+        return
+    if ctx._mapping_fanout_offered:
+        return
+    files = _files_read(ctx)
+    if files <= threshold:
+        return
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": _autosplit.build_mapping_fanout_recommendation(
+                files_read=files, max_children=MAX_SUBAGENT_FANOUT - 1
+            ),
+        }
+    )
+    ctx._mapping_fanout_offered.append(True)
 
 
 def _resolve_fillline(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> str:
@@ -1104,6 +1148,11 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # this turn completes, so the model declares it by its next action. No-op when
         # dormant / already offered / under the line.
         _maybe_offer_fillline(ctx, last_prompt_tokens)
+        # Mapping fan-out advisory (#188): once a wide read-only survey has read many
+        # files serially, nudge the model ONCE to fan out per-folder via `subagents`
+        # rather than spend the rest of its step budget reading. No-op when dormant /
+        # already offered / under the files-read threshold.
+        _maybe_offer_mapping_fanout(ctx)
         try:
             resp = _complete_with_degradation(ctx, complete)
         except Exception as exc:  # noqa: BLE001
@@ -1182,6 +1231,11 @@ class ContextControls:
     # ``None`` or out of ``(0, 1]`` leaves the proactive decision dormant — a strict
     # no-op (degradation + reactive auto-split still apply).
     fillline_threshold: float | None = None
+    # Mapping fan-out advisory (#188): the files-read count at which the runtime
+    # injects ONE advisory recommendation to fan a wide read-only survey out across
+    # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
+    # no-op. Forwarded by every backend from ``config.fanout_files`` (all-engines rule).
+    fanout_files: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1401,6 +1455,7 @@ def run(
         count_tokens=_context.count_tokens,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
+        mapping_fanout_files=_context.fanout_files,
         flight=flight_session,
     )
 
