@@ -375,6 +375,62 @@ def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
     assert _wt_count() == before, "worktree leaked — run_readonly did not clean up"
 
 
+def test_explore_partial_warning_has_rerun_hint(tmp_path) -> None:
+    """#194: a not-finished explore drive prints an ACTIONABLE re-run hint naming the
+    reached step count and a concrete larger --max-steps (2x the explore default 30)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "colleague"
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo \'{"status": "incomplete", "not_finished": true, '
+        '"summary": "a partial map", "task_id": "deadbeef", '
+        '"stats": {"step_count": 41, "model_turns": 30}}\'\n'
+    )
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "map the repo", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    # explore default budget is 30; the hint must name the reached count AND 2x=60.
+    assert "30" in r.stderr, r.stderr
+    assert "--max-steps 60" in r.stderr, r.stderr
+
+
+def test_no_result_summary_warns_and_skips_grade_footer(tmp_path) -> None:
+    """#192: a drive whose summary is the NO_RESULT sentinel prints a clear
+    no-result warning and NO success-shaped grade footer."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "colleague"
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        'echo \'{"status": "incomplete", "not_finished": true, '
+        '"summary": "__COLLEAGUE_NO_RESULT_PRODUCED__", "task_id": "deadbeef", '
+        '"stats": {"step_count": 30, "model_turns": 30}}\'\n'
+    )
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "map the repo", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert "no result produced" in r.stderr.lower(), r.stderr
+    # The success-shaped grade footer must NOT appear for a no-result run.
+    assert "grade:" not in (r.stderr + r.stdout), (r.stdout, r.stderr)
+
+
 def test_readonly_preserves_artifact_to_real_repo(tmp_path) -> None:
     """C4 + #132: explore/review drive in a throwaway worktree, but the artifact is
     copied back to the REAL repo before the worktree is removed — so the drive can
@@ -1183,14 +1239,29 @@ def test_resolve_via_uv_without_grep_on_path(tmp_path) -> None:
 
     # Build a PATH with everything except colleague and grep.
     # We use _minimal_bin-style: only the tools we explicitly include.
-    needed = ("bash", "git", "python3", "mktemp", "dirname", "mkdir", "rm", "cat", "env", "tr", "head", "printf")
+    needed = (
+        "bash",
+        "git",
+        "python3",
+        "mktemp",
+        "dirname",
+        "mkdir",
+        "rm",
+        "cat",
+        "env",
+        "tr",
+        "head",
+        "printf",
+    )
     for tool in needed:
         src = shutil.which(tool)
         if src:
             (bindir / tool).symlink_to(src)
     # Ensure grep is NOT on this PATH.
     assert shutil.which("grep", path=str(bindir)) is None, "test setup: grep must be absent"
-    assert shutil.which("colleague", path=str(bindir)) is None, "test setup: colleague must be absent"
+    assert (
+        shutil.which("colleague", path=str(bindir)) is None
+    ), "test setup: colleague must be absent"
 
     # A --repo that looks like a colleague checkout (git repo + naming pyproject).
     checkout = _init_repo(tmp_path / "checkout")

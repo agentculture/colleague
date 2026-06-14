@@ -113,7 +113,7 @@ else an install hint.
 | `--engine NAME` | Backend plugin (default: `$COLLEAGUE_ENGINE` or `vllm-openai`). |
 | `--model NAME` | Model (default: `$COLLEAGUE_MODEL` or `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`). |
 | `--base-url URL` | OpenAI base URL (default: `$COLLEAGUE_BASE_URL` or `http://localhost:8001/v1`). |
-| `--max-steps N` | Loop step budget (default: 20). |
+| `--max-steps N` | Loop step budget (default: 20; **30 for `explore`**, since read-only mapping fans out across more files). `--max-steps N` overrides either default in both directions. |
 | `--apply` | (`write`) apply the change in place (work branch) instead of previewing. |
 | `--allow-dirty` | (`write`) allow running on a dirty tree (only matters with `--apply` / `--pr`). |
 | `--pr` | (`write`) push + open a PR instead of a local work branch (implies `--apply`). |

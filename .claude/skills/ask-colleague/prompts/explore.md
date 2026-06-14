@@ -18,6 +18,10 @@ Rules:
   report (or you are within a few steps of the budget), STOP reading and call
   `finish`. Err on the side of finishing early — a focused finding beats endless
   reading.
+- For a WIDE codebase map (many folders/modules), do NOT read every file in series
+  — that exhausts the step budget. Partition the surface by folder and delegate the
+  per-folder sub-surveys to the `subagents` tool (one child per folder/subtree, each
+  returning its findings), then synthesize their results into your report.
 
 When you are done, call finish with a structured findings report:
 1. What it is / how it works (with file:line references).

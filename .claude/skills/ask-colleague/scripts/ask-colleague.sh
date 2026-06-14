@@ -103,7 +103,7 @@ Options:
   --engine NAME      Backend plugin (default: $COLLEAGUE_ENGINE or vllm-openai)
   --model NAME       Model (default: $COLLEAGUE_MODEL or sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP)
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
-  --max-steps N      Loop step budget (default: 20)
+  --max-steps N      Loop step budget (default: 20; 30 for explore)
   --timeout N        Per-request timeout, seconds (default: $COLLEAGUE_TIMEOUT or 300)
   --apply            (write) apply the change in place (drive branch) instead of previewing
   --allow-dirty      (write) allow running on a dirty tree (only with --apply/--pr)
@@ -178,6 +178,7 @@ ENGINE="${COLLEAGUE_ENGINE:-${CONVERTIBLE_ENGINE:-vllm-openai}}"
 MODEL="${COLLEAGUE_MODEL:-${CONVERTIBLE_MODEL:-sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP}}"
 BASE_URL="${COLLEAGUE_BASE_URL:-${CONVERTIBLE_BASE_URL:-http://localhost:8001/v1}}"
 MAX_STEPS=20
+MAX_STEPS_EXPLICIT=0
 TIMEOUT="${COLLEAGUE_TIMEOUT:-${CONVERTIBLE_TIMEOUT:-300}}"
 ALLOW_DIRTY=0
 APPLY=0
@@ -197,7 +198,7 @@ while [[ $# -gt 0 ]]; do
         --engine) need_value "$#" "$1"; ENGINE="$2"; shift 2 ;;
         --model) need_value "$#" "$1"; MODEL="$2"; shift 2 ;;
         --base-url) need_value "$#" "$1"; BASE_URL="$2"; shift 2 ;;
-        --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; shift 2 ;;
+        --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; MAX_STEPS_EXPLICIT=1; shift 2 ;;
         --timeout) need_value "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
         --apply) APPLY=1; shift ;;
         --watch) WATCH=1; shift ;;
@@ -215,6 +216,13 @@ while [[ $# -gt 0 ]]; do
         *) ARG="${ARG:+$ARG }$1"; shift ;;
     esac
 done
+
+# Per-verb default: explore gets a modest higher budget (30) for wider surveys;
+# write and review keep the global default (20). Only apply when the user did NOT
+# pass an explicit --max-steps.
+if [[ "$VERB" == "explore" && "$MAX_STEPS_EXPLICIT" -eq 0 ]]; then
+    MAX_STEPS=30
+fi
 
 # Now that the verb and its flags are known, require only the tools THIS path
 # uses. feedback/clean shell straight to `colleague` (+ the git work-tree guard
@@ -311,7 +319,7 @@ print_result() {
     # empty (its artifact was discarded with the worktree, so it is not gradable).
     # $3 (optional): exit code from the colleague drive command, propagated to
     # the caller when the drive itself failed.
-    ASK_COLLEAGUE_REAL_ARTIFACT_DIR="${1:-}" ASK_COLLEAGUE_GRADABLE="${2:-}" ASK_COLLEAGUE_DRIVE_RC="${3:-}" ASK_COLLEAGUE_JSON="${JSON_OUT:-0}" python3 -c '
+    ASK_COLLEAGUE_REAL_ARTIFACT_DIR="${1:-}" ASK_COLLEAGUE_GRADABLE="${2:-}" ASK_COLLEAGUE_DRIVE_RC="${3:-}" ASK_COLLEAGUE_JSON="${JSON_OUT:-0}" ASK_COLLEAGUE_MAX_STEPS="${MAX_STEPS:-20}" python3 -c '
 import sys, json, os
 raw = sys.stdin.read().strip()
 json_mode = os.environ.get("ASK_COLLEAGUE_JSON") == "1"
@@ -338,11 +346,29 @@ if ap and real_dir:
 # trailing off mid-task. Warn so the caller treats it as a partial, not a verdict.
 # The warning is a DIAGNOSTIC -> always stderr (never stdout), so both the digest
 # and --json keep a clean, machine-readable stdout (no single quotes in this body).
+# Enriched partial warnings: include reached step count and a concrete larger
+# --max-steps to retry with, so the hint is actionable (#194).
+max_steps = int(os.environ.get("ASK_COLLEAGUE_MAX_STEPS", "20"))
+stats = d.get("stats") or {}
+model_turns = stats.get("model_turns")
+step_count = stats.get("step_count")
 if d.get("stopped_without_finish"):
-    print("warning: drive ended without calling finish — treat the summary as a", file=sys.stderr)
-    print("         partial (the model stopped mid-task), not an authoritative result.", file=sys.stderr)
+    reached = model_turns if model_turns is not None else step_count
+    if reached is not None:
+        print(f"warning: drive ended without calling finish (reached {reached} model turns of {max_steps}) — re-run with --max-steps {2 * max_steps} to go deeper.", file=sys.stderr)
+    else:
+        print("warning: drive ended without calling finish — treat the summary as a", file=sys.stderr)
+        print("         partial (the model stopped mid-task), not an authoritative result.", file=sys.stderr)
 elif d.get("not_finished"):
-    print("warning: drive ran out of steps without finishing — summary is partial.", file=sys.stderr)
+    reached = model_turns if model_turns is not None else step_count
+    if reached is not None:
+        print(f"warning: drive ran out of steps without finishing (reached {reached} model turns of {max_steps}) — re-run with --max-steps {2 * max_steps} to go deeper.", file=sys.stderr)
+    else:
+        print("warning: drive ran out of steps without finishing — summary is partial.", file=sys.stderr)
+# No-result sentinel: the drive produced nothing actionable (#192).
+summary = d.get("summary") or ""
+if summary == "__COLLEAGUE_NO_RESULT_PRODUCED__":
+    print("warning: no result produced — widen --max-steps or narrow the scope.", file=sys.stderr)
 if json_mode:
     # --json contract: stdout carries ONLY the TaskResult JSON; every
     # human/diagnostic line already went to stderr above. The exit code still
@@ -365,7 +391,8 @@ if json_mode:
     # task_id is already in the payload, but echoing the copy-paste grade hint
     # keeps the convention every work item follows (rule 907536) without breaking
     # the stdout contract. Gated on gradable, exactly like the digest below.
-    if tid and gradable:
+    # Skip the grade hint for the no-result sentinel (#192).
+    if tid and gradable and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
         print("task:", tid, file=sys.stderr)
         print("grade:", "ask-colleague feedback", tid, "--rating N", file=sys.stderr)
 else:
@@ -386,7 +413,10 @@ else:
     # drive (colleague writes an artifact on failure too, h5): a failure rated
     # 1/5 is exactly the ROI signal, so the hint must not be gated on `ok` (#139
     # qodo). It prints to `out` (stderr on failure), matching the failure digest.
-    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1":
+    # Skip the grade footer for the no-result sentinel (#192): a drive that
+    # produced nothing is not worth grading.
+    summary = d.get("summary") or ""
+    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1" and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
         print("grade:", "ask-colleague feedback", tid, "--rating N", file=out)
 if ok:
     sys.exit(0)
