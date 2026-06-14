@@ -145,6 +145,14 @@ _FINISH_NUDGE = (
     "another tool. If your work is complete, call `finish` now with your result as "
     "the summary. Otherwise, continue by calling a tool — do not reply with prose alone."
 )
+# Forced final synthesis (colleague#191): injected once when the loop exhausts its
+# step budget (or stops) after reading context but never answering, to turn a
+# wasted full-token run into a usable partial.
+_SYNTHESIS_PROMPT = (
+    "You are out of steps. Stop using tools and answer the original request NOW, "
+    "directly, from what you have already read. Do not request any more tools — write "
+    "the most complete, useful answer you can from the context gathered so far."
+)
 
 
 @dataclass
@@ -1027,6 +1035,36 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
+def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> None:
+    """Force ONE no-tools synthesis turn on budget/stopped exhaustion (colleague#191).
+
+    When the loop ran out of its step budget — or stopped without finishing — after
+    reading non-trivial context (``step_count > 0``) yet never produced a usable
+    summary, give the model one final turn to answer from what it already read,
+    turning the most expensive failure mode (full token spend, zero output) into a
+    usable partial. Best-effort: any error or an empty answer leaves ``summary``
+    untouched so the caller falls back to the last-substantive content or the
+    ``NO_RESULT_PRODUCED`` sentinel. Mirrors the retry-cap precedent
+    (:func:`_final_degraded_attempt`) and reuses :func:`_complete_with_degradation`
+    so the synthesis turn is windowed to the context budget like any other. A strict
+    no-op for a clean finish, a pilot stop (already carries a summary), or a run that
+    already answered — so a finished/answered work item is byte-identical to before.
+    Runtime-owned: fires identically for every backend (all-engines rule).
+    """
+    if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED):
+        return
+    if ctx.result.summary or ctx.result.stats.step_count <= 0:
+        return
+    ctx.messages.append({"role": "user", "content": _SYNTHESIS_PROMPT})
+    try:
+        resp = _complete_with_degradation(ctx, complete)
+    except Exception:  # noqa: BLE001 - best-effort; a finalize-time turn never raises
+        return
+    _account_turn(ctx, resp)
+    if resp.content:
+        ctx.result.summary = resp.content
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -1483,6 +1521,11 @@ def run(
     #   3. Last substantive assistant content seen across the work item (the t2 gap:
     #      narration emitted on a tool-call turn is now recoverable).
     #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
+    # Before falling back to the sentinel, give an unfinished-but-context-rich run
+    # one forced no-tools synthesis turn (colleague#191) — it sets result.summary
+    # when it yields content, so the sentinel is reached only when even that turn
+    # produces nothing (an immediate stop with zero context read).
+    _maybe_force_synthesis(ctx, outcome, complete)
     if not result.summary:
         result.summary = _last_sub or NO_RESULT_PRODUCED
 

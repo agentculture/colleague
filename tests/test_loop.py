@@ -70,6 +70,29 @@ def test_loop_stops_at_budget_when_never_finishing(tmp_path: Path) -> None:
     assert result.stats.step_count == 3
 
 
+def test_budget_exhaustion_forces_synthesis(tmp_path: Path) -> None:
+    """#191: a budget-exhausted run that read context but never finished gets ONE
+    forced no-tools synthesis turn, returned as the summary — not the sentinel.
+
+    Three tool-call turns consume ``max_steps=3``; the loop exits on the budget.
+    The forced synthesis turn (which executes no tool) then returns prose, which
+    becomes the summary.  Contrast with
+    :func:`test_loop_stops_at_budget_when_never_finishing`, where the model keeps
+    emitting tool calls (no content) even on the forced turn, so the run correctly
+    falls back to ``NO_RESULT_PRODUCED``.
+    """
+    tool = ModelResponse(tool_calls=[ToolCall("x", "list_dir", {"path": "."})])
+    synthesis = ModelResponse(content="SYNTHESIZED: the repo maps to modules A and B.")
+    task = Task.new(str(tmp_path), "map the repo")
+    result = run(scripted([tool, tool, tool, synthesis]), task, max_steps=3)
+
+    assert result.status == INCOMPLETE
+    assert result.not_finished is True
+    assert result.summary == "SYNTHESIZED: the repo maps to modules A and B."
+    # The forced synthesis executes no tool, so it adds no step (only a model turn).
+    assert result.stats.step_count == 3
+
+
 def test_loop_terminates_on_empty_tool_calls(tmp_path: Path) -> None:
     task = Task.new(str(tmp_path), "just answer")
     result = run(scripted([ModelResponse(content="nothing to do here")]), task, max_steps=5)
