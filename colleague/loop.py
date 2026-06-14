@@ -49,6 +49,7 @@ from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
     ERROR,
+    INCOMPLETE,
     NO_RESULT_PRODUCED,
     OK,
     CapacityDecision,
@@ -1463,6 +1464,13 @@ def run(
     # while step_count counts *tool calls*. (Extracted to keep run() under the S3776
     # cognitive-complexity threshold.)
     _apply_outcome_flags(result, outcome, _last_sub)
+
+    # Honest status (colleague#192): any non-_EXIT_FINISHED outcome that did not
+    # already become ERROR (via the aborted path above) is INCOMPLETE.  A clean
+    # finish stays OK.  This is orthogonal to the not_finished /
+    # stopped_without_finish flags which remain set as before.
+    if outcome != _EXIT_FINISHED:
+        result.status = INCOMPLETE
 
     # Summary precedence (t2, #109) — RESOLVED BEFORE the not-finished escalation
     # below, so build_continuation() sees the finalized summary (the last

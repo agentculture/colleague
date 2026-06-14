@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.contract import ERROR, NO_RESULT_PRODUCED, OK, Task
+from colleague.contract import ERROR, INCOMPLETE, NO_RESULT_PRODUCED, OK, Task
 from colleague.loop import (
     CompleteFn,
     ModelResponse,
@@ -61,7 +61,7 @@ def test_loop_stops_at_budget_when_never_finishing(tmp_path: Path) -> None:
     task = Task.new(str(tmp_path), "loop forever")
     result = run(never_finish, task, max_steps=3)
 
-    assert result.status == OK
+    assert result.status == INCOMPLETE
     assert len(result.steps) == 3
     # No content was ever produced, so the summary is the NO_RESULT_PRODUCED
     # sentinel (t2, #109).  Budget exhaustion is preserved in stats.step_count

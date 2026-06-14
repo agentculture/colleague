@@ -68,7 +68,7 @@ def test_pilot_stop_ends_cooperatively_with_partial(tmp_path: Path) -> None:
 
     result = run(complete, task, max_steps=10)
 
-    assert result.status == OK  # cooperative, not an error
+    assert result.status == "incomplete"  # cooperative stop is incomplete, not an error
     assert result.stopped_without_finish is True  # partial, not authoritative
     assert len(result.steps) == 1  # the in-flight turn completed (not interrupted)
     assert "Stopped by pilot" in result.summary

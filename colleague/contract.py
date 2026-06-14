@@ -20,6 +20,7 @@ from typing import Any, Optional
 # TaskResult.status values.
 OK = "ok"
 ERROR = "error"
+INCOMPLETE = "incomplete"
 
 # HookFiring.decision values.
 DECISION_ALLOW = "allow"
