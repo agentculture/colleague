@@ -1157,3 +1157,62 @@ def test_drive_verb_still_requires_python3_and_mktemp(tmp_path) -> None:
     assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
     assert "missing required tool" in r.stderr
     assert "python3" in r.stderr and "mktemp" in r.stderr
+
+
+# ── issue #190: remove the last grep dependency (grep-free wrapper) ────
+
+
+def test_script_contains_no_grep_invocation() -> None:
+    """#190: the script must not contain any `grep` token — the pure-bash
+    _pyproject_is_colleague helper replaced the last grep call."""
+    src = SCRIPT.read_text(encoding="utf-8")
+    assert "grep" not in src, "ask-colleague.sh must be grep-free"
+
+
+def test_resolve_via_uv_without_grep_on_path(tmp_path) -> None:
+    """#190: with `colleague` AND `grep` off PATH, the uv-fallback resolver must
+    still find a colleague checkout via pure-bash pyproject matching. On the
+    pre-fix wrapper (which used `grep -q`) this silently failed and printed
+    'colleague CLI not found' even inside a real checkout."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    uv_argv = tmp_path / "uv_argv.txt"
+    uv = bindir / "uv"
+    uv.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" > "{uv_argv}"\nexit 0\n')
+    uv.chmod(0o755)
+
+    # Build a PATH with everything except colleague and grep.
+    # We use _minimal_bin-style: only the tools we explicitly include.
+    needed = ("bash", "git", "python3", "mktemp", "dirname", "mkdir", "rm", "cat", "env", "tr", "head", "printf")
+    for tool in needed:
+        src = shutil.which(tool)
+        if src:
+            (bindir / tool).symlink_to(src)
+    # Ensure grep is NOT on this PATH.
+    assert shutil.which("grep", path=str(bindir)) is None, "test setup: grep must be absent"
+    assert shutil.which("colleague", path=str(bindir)) is None, "test setup: colleague must be absent"
+
+    # A --repo that looks like a colleague checkout (git repo + naming pyproject).
+    checkout = _init_repo(tmp_path / "checkout")
+    (checkout / "pyproject.toml").write_text('name = "colleague"\n')
+    # $PWD is deliberately OUTSIDE any checkout, so only the --repo walk can resolve.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    env = {**os.environ, "PATH": str(bindir)}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "clean", "--repo", str(checkout)],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(elsewhere),
+        check=False,
+    )
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "colleague CLI not found" not in r.stderr
+    argv = uv_argv.read_text().splitlines()
+    # Resolved as `uv run --project <checkout> colleague clean --repo <checkout>`.
+    assert argv[:2] == ["run", "--project"]
+    assert argv[2] == str(checkout)
+    assert argv[3] == "colleague"
+    assert "clean" in argv
