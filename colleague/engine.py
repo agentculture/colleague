@@ -17,9 +17,13 @@ from __future__ import annotations
 
 import abc
 import warnings
+from typing import TYPE_CHECKING
 
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
+
+if TYPE_CHECKING:
+    from colleague.loop import CompleteFn
 
 
 class Engine(abc.ABC):
@@ -74,6 +78,22 @@ class Engine(abc.ABC):
                 return _legacy(self, task, config)
 
             cls.work = _work_via_legacy_drive  # type: ignore[method-assign]
+
+    def make_complete(self, config: EngineConfig) -> "CompleteFn":
+        """Return a one-shot completion callable (``messages -> ModelResponse``).
+
+        The bounded work loop builds its own ``complete`` inside :meth:`work`;
+        this public seam exposes the same capability to features that need a
+        direct model turn *outside* the loop — e.g. ``colleague plan``, where the
+        backend proposes spec claims and plan items. The default raises: a
+        backend without a live model (the ``mock`` engine) inherits it, so plan
+        mode requires a real backend. The all-engines rule holds at the
+        contract level — every live backend exposes this identically.
+        """
+        raise NotImplementedError(
+            f"engine '{self.name}' does not support one-shot completions; "
+            "plan mode needs a live backend (e.g. vllm-openai)"
+        )
 
     def system_prompt(self, task: Task, config: EngineConfig) -> str | None:
         """Compose the model-specific system prompt (AGENTS + skills layers).

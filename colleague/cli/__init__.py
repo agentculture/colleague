@@ -87,6 +87,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import learn as _learn_cmd
     from colleague.cli._commands import learn_from as _learn_from_cmd
     from colleague.cli._commands import overview as _overview_cmd
+    from colleague.cli._commands import plan as _plan_cmd
     from colleague.cli._commands import promote as _promote_cmd
     from colleague.cli._commands import session as _session_cmd
     from colleague.cli._commands import skills as _skills_group
@@ -120,6 +121,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _cli_group.register(sub)
     # Colleague's working surface: assign repo work + inspect backend plugins.
     _work_cmd.register(sub)
+    # Plan mode: colleague plans a complex task (spec -> plan -> subagent workforce).
+    _plan_cmd.register(sub)
     # Mesh-member promotion: born -> trained -> resident Culture member ([culture] extra).
     _promote_cmd.register(sub)
     _backends_group.register(sub)  # registers `backends` (+ the deprecated `wheels` alias)

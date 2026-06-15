@@ -81,6 +81,13 @@ _DEFAULT_FILLLINE_THRESHOLD = 0.8
 # advisory dormant — a strict no-op. This is the parked-`v1` default knob.
 _DEFAULT_FANOUT_FILES = 12
 
+# Instruction-token threshold at/above which a normal work item injects ONE advisory
+# recommendation to enter plan mode (the auto-trigger, #t8). Override with
+# COLLEAGUE_PLAN_OFFER_TOKENS; 0 (or negative) leaves the advisory DORMANT — a strict
+# no-op (opt-in, so existing behavior is byte-identical). Detection lives in
+# ``colleague.plan.trigger``.
+_DEFAULT_PLAN_OFFER_TOKENS = 0
+
 # Number of times the loop nudges a stalled no-tool-call turn to continue before
 # giving up (lifts the previously hardcoded ``_MAX_FINISH_NUDGES = 1``).
 # Override with COLLEAGUE_MAX_CONTINUE_NUDGES.
@@ -175,6 +182,7 @@ class EngineConfig:
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
     fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
     fanout_files: int = _DEFAULT_FANOUT_FILES
+    plan_offer_tokens: int = _DEFAULT_PLAN_OFFER_TOKENS
     max_continue_nudges: int = _DEFAULT_MAX_CONTINUE_NUDGES
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
@@ -209,6 +217,7 @@ class EngineConfig:
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
         fanout_files: int | None = None,
+        plan_offer_tokens: int | None = None,
         max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
     ) -> "EngineConfig":
@@ -337,6 +346,15 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_FANOUT_FILES,
             ),
+            plan_offer_tokens=_try_int(
+                _pick(
+                    _str(plan_offer_tokens),
+                    "COLLEAGUE_PLAN_OFFER_TOKENS",
+                    "CONVERTIBLE_PLAN_OFFER_TOKENS",
+                    default=str(_DEFAULT_PLAN_OFFER_TOKENS),
+                ),
+                default=_DEFAULT_PLAN_OFFER_TOKENS,
+            ),
             max_continue_nudges=_try_int(
                 _pick(
                     _str(max_continue_nudges),
@@ -360,6 +378,7 @@ class EngineConfig:
             "autosplit_target_tokens": self.autosplit_target_tokens,
             "fillline_threshold": self.fillline_threshold,
             "fanout_files": self.fanout_files,
+            "plan_offer_tokens": self.plan_offer_tokens,
             "max_continue_nudges": self.max_continue_nudges,
             "max_output_chars": self.max_output_chars,
         }
