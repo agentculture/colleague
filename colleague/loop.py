@@ -386,6 +386,11 @@ class _Work:
     # mutable list[str] (single element) so the frozen ``_Work`` dataclass can
     # still update it through the binding.
     _last_substantive: list[str] = field(default_factory=list)
+    # auto-compact-on-finish (t3): the model-authored summary produced by the last
+    # fill-line compaction, kept on a dedicated cell so a later stall cannot
+    # overwrite it (unlike ``_last_substantive``); preferred as the clean summary at
+    # a stop/budget exit. Empty (a strict no-op) for a run that never compacted.
+    _compacted_summary: list[str] = field(default_factory=list)
     # Proactive fill-line decision (#156). ``capacity_threshold`` is the fraction of
     # ``context_budget`` at which the runtime offers the one capacity decision; armed
     # only when degradation is active and the threshold is in ``(0, 1]``.
@@ -720,6 +725,10 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
         raise
     _account_turn(ctx, resp)
     ctx.messages[:] = _fillline.apply_compaction(ctx.messages, resp.content)
+    # auto-compact-on-finish (t3): preserve the compaction summary on its own cell so
+    # it survives later turns and can serve as the clean summary at a stop/budget exit.
+    if resp.content:
+        ctx._compacted_summary[:] = [resp.content]
 
 
 def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
@@ -996,8 +1005,11 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
             ctx.messages.append({"role": "assistant", "content": resp.content})
         ctx.messages.append({"role": "user", "content": _FINISH_NUDGE})
         return nudges + 1, None
-    if resp.content:
-        ctx.result.summary = resp.content
+    # Do NOT pre-set the trailing prose as the summary (auto-compact-on-finish, t3):
+    # a context-rich stop is usually a mid-thought trail-off ("Let me check:") — the
+    # t5 failure. Leaving ``result.summary`` empty lets ``_maybe_force_synthesis``
+    # (#191) produce a clean summary from what was read; the prose still survives as
+    # the ``_last_substantive`` floor when synthesis (and compaction) yield nothing.
     return nudges, _EXIT_STOPPED
 
 
@@ -1594,6 +1606,13 @@ def run(
     # one forced no-tools synthesis turn (colleague#191) — it sets result.summary
     # when it yields content, so the sentinel is reached only when even that turn
     # produces nothing (an immediate stop with zero context read).
+    # auto-compact-on-finish (t3): a run that already compacted carries a model-
+    # authored summary of its work — prefer it at a stop/budget exit over a fresh
+    # synthesis turn (it is already computed) and over raw trailing prose. Forced-
+    # synthesis (#191) remains the floor for a run that never compacted; a strict
+    # no-op when no compaction occurred.
+    if outcome in (_EXIT_BUDGET, _EXIT_STOPPED) and ctx._compacted_summary and not result.summary:
+        result.summary = ctx._compacted_summary[0]
     _maybe_force_synthesis(ctx, outcome, complete)
     if not result.summary:
         result.summary = _last_sub or NO_RESULT_PRODUCED

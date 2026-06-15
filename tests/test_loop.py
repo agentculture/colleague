@@ -838,3 +838,62 @@ def test_continue_nudge_cap_bounds_termination(tmp_path: Path) -> None:
     assert result.stopped_without_finish is True
     assert result.not_finished is False  # cap stop, not budget exhaustion
     assert calls["n"] == 3  # 2 nudges (turns 1,2) then stop on turn 3
+
+
+# ---------------------------------------------------------------------------
+# auto-compact-on-finish: a clean summary at a stop, never mid-thought prose (t5 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_context_rich_stop_synthesizes_instead_of_trailing_prose(tmp_path: Path) -> None:
+    """A stop after real tool work no longer returns mid-thought trailing prose as the
+    summary (the t5 failure). The stop no longer pre-empts forced synthesis (#191), so
+    a clean summary is produced from what was read; the prose is only the floor.
+    """
+    turn = {"n": 0}
+
+    def reads_then_stalls(_messages: list[dict]) -> ModelResponse:
+        turn["n"] += 1
+        if turn["n"] == 1:
+            return ModelResponse(tool_calls=[ToolCall("1", "list_dir", {"path": "."})])  # real work
+        if turn["n"] >= 4:  # the forced-synthesis turn answers from what was read
+            return ModelResponse(content="SYNTH: surveyed the repo; modules A and B.")
+        return ModelResponse(content="Let me check:")  # a mid-thought stall (no tool call)
+
+    result = run(
+        reads_then_stalls,
+        Task.new(str(tmp_path), "context-rich stop"),
+        max_steps=10,
+        context=ContextControls(max_continue_nudges=1),
+    )
+    assert result.stopped_without_finish is True
+    assert result.summary == "SYNTH: surveyed the repo; modules A and B."  # not "Let me check:"
+
+
+def test_compaction_summary_is_preferred_at_stop(tmp_path: Path) -> None:
+    """A run that crossed the fill line and compacted carries its model-authored
+    self-summary to a stop exit — preferred over a fresh synthesis and over the
+    trailing prose (auto-compact-on-finish, t3)."""
+    turn = {"n": 0}
+
+    def complete(_messages: list[dict]) -> ModelResponse:
+        turn["n"] += 1
+        if turn["n"] == 1:  # cross the fill line (>= 0.8 * 100) with a working tool call
+            return ModelResponse(
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})], prompt_tokens=90
+            )
+        if turn["n"] == 2:  # fill line now offered; a no-tool reply declares COMPACT
+            return ModelResponse(content="Context is large; compacting.", prompt_tokens=90)
+        if turn["n"] == 3:  # the compaction summary turn (run inside _compact_history)
+            return ModelResponse(content="COMPACTED: read modules A and B; no edits yet.")
+        return ModelResponse(content="Let me check:")  # then stall to a stop
+
+    result = run(
+        complete,
+        Task.new(str(tmp_path), "compact then stop"),
+        max_steps=10,
+        context=ContextControls(budget=100, fillline_threshold=0.8, max_continue_nudges=1),
+    )
+    assert result.stopped_without_finish is True
+    assert result.summary == "COMPACTED: read modules A and B; no edits yet."
+    assert result.capacity_decision is not None and result.capacity_decision.kind == "compact"
