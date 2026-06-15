@@ -870,30 +870,74 @@ def test_context_rich_stop_synthesizes_instead_of_trailing_prose(tmp_path: Path)
     assert result.summary == "SYNTH: surveyed the repo; modules A and B."  # not "Let me check:"
 
 
-def test_compaction_summary_is_preferred_at_stop(tmp_path: Path) -> None:
-    """A run that crossed the fill line and compacted carries its model-authored
-    self-summary to a stop exit — preferred over a fresh synthesis and over the
-    trailing prose (auto-compact-on-finish, t3)."""
+def test_post_compaction_synthesis_preferred_over_stale_compaction(tmp_path: Path) -> None:
+    """A run that compacted mid-flight and then kept working does NOT return the
+    pre-work compaction self-summary at a stop. Forced synthesis (#191) runs FIRST
+    and reflects everything read — including the post-compaction work — so the
+    compaction note is only a fallback (fixes the stale-compaction-summary
+    regression, Qodo PR #198)."""
     turn = {"n": 0}
 
     def complete(_messages: list[dict]) -> ModelResponse:
         turn["n"] += 1
-        if turn["n"] == 1:  # cross the fill line (>= 0.8 * 100) with a working tool call
+        n = turn["n"]
+        if n == 1:  # cross the fill line (>= 0.8 * 100) with a working tool call
             return ModelResponse(
                 tool_calls=[ToolCall("1", "list_dir", {"path": "."})], prompt_tokens=90
             )
-        if turn["n"] == 2:  # fill line now offered; a no-tool reply declares COMPACT
+        if n == 2:  # fill line now offered; a no-tool reply declares COMPACT
             return ModelResponse(content="Context is large; compacting.", prompt_tokens=90)
-        if turn["n"] == 3:  # the compaction summary turn (run inside _compact_history)
+        if n == 3:  # the compaction summary turn (run inside _compact_history)
             return ModelResponse(content="COMPACTED: read modules A and B; no edits yet.")
-        return ModelResponse(content="Let me check:")  # then stall to a stop
+        if n == 4:  # MORE work AFTER compacting — the compaction note is now stale
+            return ModelResponse(tool_calls=[ToolCall("2", "list_dir", {"path": "."})])
+        if n in (5, 6):  # then stall to a stop (one nudge, then stop)
+            return ModelResponse(content="Let me check:")
+        # the forced-synthesis turn answers fresh, reflecting the post-compaction work
+        return ModelResponse(content="SYNTH: read A and B, then re-scanned; final survey.")
 
     result = run(
         complete,
-        Task.new(str(tmp_path), "compact then stop"),
+        Task.new(str(tmp_path), "compact then keep working then stop"),
+        max_steps=12,
+        context=ContextControls(budget=100, fillline_threshold=0.8, max_continue_nudges=1),
+    )
+    assert result.stopped_without_finish is True
+    assert result.capacity_decision is not None and result.capacity_decision.kind == "compact"
+    # The FRESH synthesis wins — not the stale "no edits yet" compaction note.
+    assert result.summary == "SYNTH: read A and B, then re-scanned; final survey."
+    assert "no edits yet" not in result.summary
+
+
+def test_compaction_summary_is_fallback_when_synthesis_empty(tmp_path: Path) -> None:
+    """When a stop's forced-synthesis turn yields nothing, the run's own compaction
+    self-summary is used as the FALLBACK clean summary (it still survives to the exit
+    — auto-compact-on-finish, t3) rather than the mid-thought trailing prose."""
+    turn = {"n": 0}
+
+    def complete(_messages: list[dict]) -> ModelResponse:
+        turn["n"] += 1
+        n = turn["n"]
+        if n == 1:  # cross the fill line with a working tool call
+            return ModelResponse(
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})], prompt_tokens=90
+            )
+        if n == 2:  # fill line offered; declare COMPACT
+            return ModelResponse(content="Context is large; compacting.", prompt_tokens=90)
+        if n == 3:  # the compaction summary turn
+            return ModelResponse(content="COMPACTED: read modules A and B.")
+        if n in (4, 5):  # stall to a stop (one nudge, then stop)
+            return ModelResponse(content="Let me check:")
+        return ModelResponse(content="")  # forced-synthesis yields nothing → fallback
+
+    result = run(
+        complete,
+        Task.new(str(tmp_path), "compact then stop, empty synthesis"),
         max_steps=10,
         context=ContextControls(budget=100, fillline_threshold=0.8, max_continue_nudges=1),
     )
     assert result.stopped_without_finish is True
-    assert result.summary == "COMPACTED: read modules A and B; no edits yet."
     assert result.capacity_decision is not None and result.capacity_decision.kind == "compact"
+    # Synthesis produced nothing → fall back to the compaction self-summary,
+    # NOT the trailing "Let me check:" prose.
+    assert result.summary == "COMPACTED: read modules A and B."

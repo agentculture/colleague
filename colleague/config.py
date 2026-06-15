@@ -203,8 +203,6 @@ class EngineConfig:
         api_key: str | None = None,
         model: str | None = None,
         max_steps: int | None = None,
-        temperature: float | None = None,
-        timeout: float | None = None,
         context_budget_tokens: int | None = None,
         max_output_chars: int | None = None,
         subagent_concurrency: int | None = None,
@@ -224,6 +222,14 @@ class EngineConfig:
 
         When *repo_path* is ``None`` or no config file exists, behaviour is
         byte-identical to the prior (no config-file) implementation.
+
+        ``temperature`` and ``timeout`` have no explicit-override keyword (and no
+        CLI flag): no caller in the codebase passes them, so their precedence is
+        simply ``COLLEAGUE_*`` env var > built-in default. Keeping them off the
+        signature holds ``resolve`` under the parameter ceiling (SonarCloud S107);
+        the dataclass still carries the fields, and the ``COLLEAGUE_TEMPERATURE`` /
+        ``COLLEAGUE_TIMEOUT`` env vars (with ``CONVERTIBLE_*`` fallbacks) override
+        them as before.
         """
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
@@ -266,7 +272,7 @@ class EngineConfig:
             ),
             temperature=float(
                 _pick(
-                    _str(temperature),
+                    None,
                     "COLLEAGUE_TEMPERATURE",
                     "CONVERTIBLE_TEMPERATURE",
                     default=str(_DEFAULT_TEMPERATURE),
@@ -274,7 +280,7 @@ class EngineConfig:
             ),
             timeout=float(
                 _pick(
-                    _str(timeout),
+                    None,
                     "COLLEAGUE_TIMEOUT",
                     "CONVERTIBLE_TIMEOUT",
                     default=str(_DEFAULT_TIMEOUT),

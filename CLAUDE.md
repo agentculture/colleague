@@ -466,9 +466,15 @@ The architecture, part by part:
     summary empty so #191 produces a clean summary from what was read (the prose
     survives only as the `_last_substantive` floor). The #156 fill-line compaction
     summary is captured on a dedicated `_compacted_summary` cell (a later stall
-    can't overwrite it, unlike `_last_substantive`) and **preferred** at a
-    stop/budget exit — a run that already summarized itself uses that, saving a
-    redundant synthesis turn. **Honest scope:** the *"free context to continue"*
+    can't overwrite it, unlike `_last_substantive`) and used as the **fallback**
+    clean summary at a stop/budget exit. Summary resolution lives in one helper
+    (`colleague/loop.py` `_resolve_terminal_summary`) with an explicit precedence:
+    finish summary → **fresh forced synthesis (#191)** → compaction self-summary
+    fallback → last-substantive → `NO_RESULT_PRODUCED`. Synthesis runs **before**
+    the compaction fallback so a run that compacted and then *kept working* returns a
+    summary reflecting the post-compaction work, never the stale pre-work compaction
+    note (the Qodo PR #198 stale-compaction-summary fix — an earlier draft preferred
+    the compaction summary over synthesis, which was the bug). **Honest scope:** the *"free context to continue"*
     half is already delivered by existing windowing (the hard floor) + the #156
     fill-line (summarize-as-you-grow), which the now-longer continued runs naturally
     trigger — so this adds **no new compaction-firing code**, only makes the clean
