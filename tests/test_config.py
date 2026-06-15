@@ -46,6 +46,19 @@ def test_fanout_files_knob(monkeypatch: pytest.MonkeyPatch) -> None:
     assert EngineConfig.resolve().fanout_files == 5  # env
 
 
+def test_max_continue_nudges_knob(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configurable continue-nudge cap: default 2, env-tunable, explicit flag wins."""
+    assert EngineConfig.resolve().max_continue_nudges == 2  # default
+    monkeypatch.setenv("COLLEAGUE_MAX_CONTINUE_NUDGES", "5")
+    assert EngineConfig.resolve().max_continue_nudges == 5  # env
+    assert (
+        EngineConfig.resolve(max_continue_nudges=3).max_continue_nudges == 3
+    )  # explicit wins over env
+    monkeypatch.setenv("CONVERTIBLE_MAX_CONTINUE_NUDGES", "7")
+    monkeypatch.delenv("COLLEAGUE_MAX_CONTINUE_NUDGES", raising=False)
+    assert EngineConfig.resolve().max_continue_nudges == 7  # CONVERTIBLE fallback
+
+
 def test_to_dict_redacts_api_key() -> None:
     cfg = EngineConfig.resolve(api_key="sk-secret")
     snapshot = cfg.to_dict()

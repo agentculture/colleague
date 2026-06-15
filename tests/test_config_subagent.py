@@ -60,6 +60,7 @@ def test_to_dict_has_expected_keys() -> None:
         "autosplit_target_tokens",
         "fillline_threshold",
         "fanout_files",
+        "max_continue_nudges",
         "max_output_chars",
     }
     assert set(snapshot.keys()) == expected_keys

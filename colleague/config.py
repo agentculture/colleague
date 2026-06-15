@@ -81,6 +81,11 @@ _DEFAULT_FILLLINE_THRESHOLD = 0.8
 # advisory dormant — a strict no-op. This is the parked-`v1` default knob.
 _DEFAULT_FANOUT_FILES = 12
 
+# Number of times the loop nudges a stalled no-tool-call turn to continue before
+# giving up (lifts the previously hardcoded ``_MAX_FINISH_NUDGES = 1``).
+# Override with COLLEAGUE_MAX_CONTINUE_NUDGES.
+_DEFAULT_MAX_CONTINUE_NUDGES = 2
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -170,6 +175,7 @@ class EngineConfig:
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
     fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
     fanout_files: int = _DEFAULT_FANOUT_FILES
+    max_continue_nudges: int = _DEFAULT_MAX_CONTINUE_NUDGES
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -197,14 +203,13 @@ class EngineConfig:
         api_key: str | None = None,
         model: str | None = None,
         max_steps: int | None = None,
-        temperature: float | None = None,
-        timeout: float | None = None,
         context_budget_tokens: int | None = None,
         max_output_chars: int | None = None,
         subagent_concurrency: int | None = None,
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
         fanout_files: int | None = None,
+        max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
@@ -217,6 +222,14 @@ class EngineConfig:
 
         When *repo_path* is ``None`` or no config file exists, behaviour is
         byte-identical to the prior (no config-file) implementation.
+
+        ``temperature`` and ``timeout`` have no explicit-override keyword (and no
+        CLI flag): no caller in the codebase passes them, so their precedence is
+        simply ``COLLEAGUE_*`` env var > built-in default. Keeping them off the
+        signature holds ``resolve`` under the parameter ceiling (SonarCloud S107);
+        the dataclass still carries the fields, and the ``COLLEAGUE_TEMPERATURE`` /
+        ``COLLEAGUE_TIMEOUT`` env vars (with ``CONVERTIBLE_*`` fallbacks) override
+        them as before.
         """
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
@@ -259,7 +272,7 @@ class EngineConfig:
             ),
             temperature=float(
                 _pick(
-                    _str(temperature),
+                    None,
                     "COLLEAGUE_TEMPERATURE",
                     "CONVERTIBLE_TEMPERATURE",
                     default=str(_DEFAULT_TEMPERATURE),
@@ -267,7 +280,7 @@ class EngineConfig:
             ),
             timeout=float(
                 _pick(
-                    _str(timeout),
+                    None,
                     "COLLEAGUE_TIMEOUT",
                     "CONVERTIBLE_TIMEOUT",
                     default=str(_DEFAULT_TIMEOUT),
@@ -324,6 +337,15 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_FANOUT_FILES,
             ),
+            max_continue_nudges=_try_int(
+                _pick(
+                    _str(max_continue_nudges),
+                    "COLLEAGUE_MAX_CONTINUE_NUDGES",
+                    "CONVERTIBLE_MAX_CONTINUE_NUDGES",
+                    default=str(_DEFAULT_MAX_CONTINUE_NUDGES),
+                ),
+                default=_DEFAULT_MAX_CONTINUE_NUDGES,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -338,6 +360,7 @@ class EngineConfig:
             "autosplit_target_tokens": self.autosplit_target_tokens,
             "fillline_threshold": self.fillline_threshold,
             "fanout_files": self.fanout_files,
+            "max_continue_nudges": self.max_continue_nudges,
             "max_output_chars": self.max_output_chars,
         }
 

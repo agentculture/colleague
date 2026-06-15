@@ -1,0 +1,230 @@
+{
+  "slug": "colleague-finishes-what-it-starts-a-run-that-stall",
+  "title": "Colleague finishes what it starts: a run that stalls mid-task is nudged to continue instead of ending on a half-done file, and at the finish boundary it auto-compacts its history \u2014 freeing context so it keeps working and leaving a clean model-authored summary instead of trailing prose.",
+  "frame_slug": "colleague-finishes-what-it-starts-a-run-that-stall",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-15T04:42:10Z",
+  "updated": "2026-06-15T04:48:44Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague finishes what it starts: a run that stalls mid-task is nudged to continue instead of ending on a half-done file, and at the finish boundary it auto-compacts its history \u2014 freeing context so it keeps working and leaving a clean model-authored summary instead of trailing prose."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Runtime-owned (all-engines rule): every backend behaves identically, and the change is a strict no-op \u2014 byte-identical TaskResult and success path \u2014 when no stall or finish-with-content boundary occurs."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Colleague's bounded tool-loop, and the ask-colleague callers who delegate write tasks to a smaller backend that intermittently stalls mid-task (the t5 case)."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Scoped to colleague's own bounded loop and ask-colleague's existing verbs \u2014 no new caller-facing surface or flag is required for the default behavior to apply."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "On a stall (a no-tool-call turn that never called finish) colleague injects one bounded continuation nudge and resumes; at the finish/stop boundary it auto-compacts history to free context for continuation AND to emit a clean model-authored summary; the run keeps working until truly done or its step/token budget is spent."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The continue+compact behavior is observable in the artifact (a completed run reaches more files / carries a clean summary) and reproducible on the mock backend, not only on a live model."
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today a no-tool-call turn ends the run immediately as stopped_without_finish even with work remaining, and the artifact summary can be raw trailing prose ('Let me check:') \u2014 exactly how t5 stopped after editing 1 of 4 files."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The t5 failure is recorded evidence, not anecdote: stopped_without_finish=True, summary trailing at 'Let me check:', files_changed=1 \u2014 the run JSON exists."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Delegating field-work to colleague only pays off if a run finishes what it started; a half-done write plus a junk summary forces the caller to salvage or redo it \u2014 a cost we hit live on t5."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The cost is concrete: on t5 the caller had to salvage the shell work and hand-finish 3 of 4 files \u2014 payoff is measured against that exact rework."
+    },
+    {
+      "id": "c6",
+      "kind": "success_signal",
+      "text": "A write run that previously stopped after file 1 of 4 now completes all four (or hands back a clean continuation summary at budget), and a t5-class 'Let me check:' artifact summary never ships again; strict no-op TaskResult when nothing triggers."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Success is testable on the mock backend without a live model: a scripted stall-then-resume run completes, a stop-without-finish run yields a compacted (non-prose) summary, and a no-trigger run stays byte-identical."
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "NOT an unbounded loop \u2014 continuation stays inside the existing step/token caps plus a small consecutive-empty-turn cap; NOT a multi-model router; NOT a new daemon/socket/runtime dep; NOT a new summarizer (reuses the fill-line compact move). Runtime-owned so it fires identically for every backend (all-engines rule)."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Every exclusion is enforced, not just stated: caps bound termination (test-proven), zero new runtime deps (zero-deps guard holds), same code path for mock and vllm (all-engines e2e shape test)."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "continue-working: on a no-tool-call turn that did not call finish, inject ONE continuation nudge ('you stopped without calling finish \u2014 continue working or call finish') and resume the loop, letting the model disambiguate stall-vs-done by either continuing or finishing. Sequences BEFORE the t3 forced-synthesis give-up (#191)."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Termination is guaranteed: a small consecutive-empty-turn cap plus the existing step/token budget bound the loop; the nudge is a strict no-op when the model called finish \u2014 a genuine completion is never overridden."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "auto-compact-on-finish: at the finish/stop boundary the loop runs the existing fill-line compact move to (a) free context so a continued run does not overflow AND (b) produce the run's summary, so the artifact summary is always a model-authored compaction rather than trailing prose."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Reuses the existing fill-line compact machinery (no new summarizer, zero new deps); on the compaction turn's own overflow it falls back to the documented lossy-windowing floor; strict no-op (byte-identical TaskResult) when there is no finish/stop boundary with content."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The only added cost is at most one extra model turn at the boundary; off/at-floor it adds nothing, and it composes with the existing mid-run fill-line compact (#156) as a second trigger point for the same move."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "config knob: COLLEAGUE_MAX_CONTINUE_NUDGES (lift the hardcoded _MAX_FINISH_NUDGES=1)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig.resolve reads COLLEAGUE_MAX_CONTINUE_NUDGES then CONVERTIBLE_ fallback, precedence flag>env>file>default, default >1; to_dict includes max_continue_nudges; a test pins precedence + default",
+        "config.py + tests/test_config.py only (file-disjoint from loop.py)"
+      ],
+      "deps": [],
+      "covers": [
+        "h1",
+        "c7"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "continue-working: configurable nudge cap; resume a stalled run instead of stopping after one nudge",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_handle_no_tool_turn uses the resolved cap threaded via ContextControls + both backends (mock + vllm), not the hardcoded _MAX_FINISH_NUDGES; a scripted mock that stalls then resumes continues past the first stall and only reaches _EXIT_STOPPED after the cap is spent",
+        "an explicit finish still ends immediately with no nudge; nudge turns count against the existing step/token budget so termination stays bounded (test asserts the cap is honored)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c8",
+        "c3",
+        "c4",
+        "h1"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "auto-compact-on-finish: compacted summary at the stop/give-up boundary + free context on nudge-resume",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "at the STOP/budget give-up boundary (where the summary would otherwise be trailing prose like 'Let me check:') the summary is produced via the existing compaction helper (build_compaction_request/apply_compaction), NOT raw prose; an explicit clean finish keeps the model's own finish summary (unchanged)",
+        "on the nudge-resume path context is compacted via the same helper when it exceeds budget so a continued run does not overflow; NO new summarizer; falls back to the documented windowing/forced-synthesis floor (#191) when compaction cannot run; strict no-op (byte-identical TaskResult) when there is no stop/give-up boundary with content"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c9",
+        "h2",
+        "h3",
+        "c3"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "prove the contract on mock: scripted stall->resume completes, stop yields compacted summary, strict no-op, mock==vllm shape",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_e2e_mock proves WITHOUT a live model: a scripted stall-then-resume run completes more work than a single-nudge run; a stop-without-finish run carries a compacted (non-prose) summary; a clean-finish (no-trigger) run's TaskResult is byte-identical to pre-change",
+        "mock and vllm result shapes stay identical (all-engines e2e), and the zero-deps + boundary guards still pass"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c6",
+        "h5",
+        "h7",
+        "h10",
+        "h11"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "document the feature + bump version",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md gains an architecture bullet for continue-working + auto-compact-on-finish with honest limits (cap-bounded termination, zero new deps, all-engines, strict no-op, NO new caller flag), citing the t5 evidence + salvage cost and naming the COLLEAGUE_MAX_CONTINUE_NUDGES knob",
+        "CHANGELOG.md + pyproject.toml bumped one minor; spec + plan cross-referenced"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c2",
+        "c5",
+        "c7",
+        "h6",
+        "h8",
+        "h9"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Exact COLLEAGUE_MAX_CONTINUE_NUDGES default value (2 vs 3) \u2014 tune at build against the t5-class stall",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r2",
+      "text": "Reconcile the auto-compact stop-summary with the t3 forced-synthesis floor (#191) so a run gets ONE end summary, not two \u2014 define ordering",
+      "kind": "follow_up",
+      "task_id": "t3"
+    },
+    {
+      "id": "r3",
+      "text": "Bound repeated compaction across multiple nudge-resume cycles (the #156 fill-line is once-per-item) to avoid compaction thrash",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r4",
+      "text": "Build depends on PR #195 (forced-synthesis #191 + fanout) landing on main; tasks are authored against the post-#195 tree \u2014 build after #195 merges or stack this branch on it",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

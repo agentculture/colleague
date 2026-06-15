@@ -445,6 +445,49 @@ The architecture, part by part:
   `vllm-openai`. Spec + plan:
   `docs/specs/2026-06-14-colleague-never-wastes-an-explore-a-read-only-expl.md`
   and `docs/plans/2026-06-14-colleague-never-wastes-an-explore-a-read-only-expl.md`.
+- **Colleague finishes what it starts** — two run-completion features born from a
+  live dogfood stall (a served 27B narrated `"Let me check:"` with no tool call and
+  ended after editing 1 of 4 files; the loop treats a no-tool-call turn as an
+  implicit stop):
+  - **continue-working** — the single finish-nudge (`_handle_no_tool_turn` /
+    `_FINISH_NUDGE`, #142) becomes a **configurable cap**:
+    `COLLEAGUE_MAX_CONTINUE_NUDGES` (`EngineConfig.max_continue_nudges`, default 2,
+    lifting the hardcoded `_MAX_FINISH_NUDGES = 1`), threaded
+    `config → ContextControls → _Work` and consulted in `_handle_no_tool_turn`. A
+    stalled run now resumes **past the first stall** instead of stopping after one
+    nudge. Forwarded by every backend (all-engines rule); the direct `run()` path
+    falls back to `_MAX_FINISH_NUDGES` (back-compat / strict no-op). Termination
+    stays bounded by the cap **plus** the existing step/token budget; an explicit
+    `finish` still ends immediately (no nudge). The `_FINISH_NUDGE` text already
+    said "continue … or call `finish`", so only the cap changed.
+  - **auto-compact-on-finish** — a context-rich stop no longer pre-empts the #191
+    forced-synthesis. `_handle_no_tool_turn` used to pre-set the trailing prose as
+    the summary, which made `_maybe_force_synthesis` no-op; it now leaves the
+    summary empty so #191 produces a clean summary from what was read (the prose
+    survives only as the `_last_substantive` floor). The #156 fill-line compaction
+    summary is captured on a dedicated `_compacted_summary` cell (a later stall
+    can't overwrite it, unlike `_last_substantive`) and used as the **fallback**
+    clean summary at a stop/budget exit. Summary resolution lives in one helper
+    (`colleague/loop.py` `_resolve_terminal_summary`) with an explicit precedence:
+    finish summary → **fresh forced synthesis (#191)** → compaction self-summary
+    fallback → last-substantive → `NO_RESULT_PRODUCED`. Synthesis runs **before**
+    the compaction fallback so a run that compacted and then *kept working* returns a
+    summary reflecting the post-compaction work, never the stale pre-work compaction
+    note (the Qodo PR #198 stale-compaction-summary fix — an earlier draft preferred
+    the compaction summary over synthesis, which was the bug). **Honest scope:** the *"free context to continue"*
+    half is already delivered by existing windowing (the hard floor) + the #156
+    fill-line (summarize-as-you-grow), which the now-longer continued runs naturally
+    trigger — so this adds **no new compaction-firing code**, only makes the clean
+    summary survive to the exit. Forced-synthesis (#191) stays the floor for a
+    never-compacted run; an explicit clean `finish` keeps the model's own summary;
+    a no-content / `step_count == 0` stop is **byte-identical**. **Residual limit:**
+    a *short* run (one that never crossed the fill line) that stalls to a stop still
+    falls back to its trailing prose when forced-synthesis itself yields nothing — a
+    documented follow-up; continue-working's extra nudges are what reduce those
+    short-run stops. Runtime-owned (all-engines): both features fire identically for
+    `mock` and `vllm-openai`. Spec + plan:
+    `docs/specs/2026-06-15-colleague-finishes-what-it-starts-a-run-that-stall.md`
+    and `docs/plans/2026-06-15-colleague-finishes-what-it-starts-a-run-that-stall.md`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the

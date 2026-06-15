@@ -386,6 +386,13 @@ class _Work:
     # mutable list[str] (single element) so the frozen ``_Work`` dataclass can
     # still update it through the binding.
     _last_substantive: list[str] = field(default_factory=list)
+    # auto-compact-on-finish (t3): the model-authored summary produced by the last
+    # fill-line compaction, kept on a dedicated cell so a later stall cannot
+    # overwrite it (unlike ``_last_substantive``); used as the FALLBACK clean summary
+    # at a stop/budget exit when forced synthesis yields nothing — never preferred
+    # over a fresh synthesis, which reflects any post-compaction work (Qodo PR #198).
+    # Empty (a strict no-op) for a run that never compacted.
+    _compacted_summary: list[str] = field(default_factory=list)
     # Proactive fill-line decision (#156). ``capacity_threshold`` is the fraction of
     # ``context_budget`` at which the runtime offers the one capacity decision; armed
     # only when degradation is active and the threshold is in ``(0, 1]``.
@@ -407,6 +414,11 @@ class _Work:
     # ``_fillline_offered`` pattern) so the advisory fires at most once per work item.
     mapping_fanout_files: int | None = None
     _mapping_fanout_offered: list[bool] = field(default_factory=list)
+    # continue-working: max consecutive no-tool-call nudges before the loop gives up
+    # and stops (replaces the hardcoded ``_MAX_FINISH_NUDGES``). Forwarded by every
+    # backend from ``config.max_continue_nudges`` (all-engines rule); falls back to
+    # ``_MAX_FINISH_NUDGES`` when a ContextControls omits it (back-compat / no-op).
+    max_continue_nudges: int = _MAX_FINISH_NUDGES
     # Flight-control plane (the piloting feature): an armed ``FlightSession`` when the
     # task is a watchable flight (``task.watch``), else ``None`` — a strict no-op.
     # When set, the loop appends a live feed record per turn and reads the per-flight
@@ -715,6 +727,11 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
         raise
     _account_turn(ctx, resp)
     ctx.messages[:] = _fillline.apply_compaction(ctx.messages, resp.content)
+    # auto-compact-on-finish (t3): preserve the compaction summary on its own cell so
+    # it survives later turns and can serve as the FALLBACK clean summary at a
+    # stop/budget exit when forced synthesis yields nothing (_resolve_terminal_summary).
+    if resp.content:
+        ctx._compacted_summary[:] = [resp.content]
 
 
 def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
@@ -977,22 +994,29 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
-    """Handle a turn that requested no tool — nudge once, else stop (colleague#142).
+    """Handle a turn that requested no tool — nudge up to the cap, else stop (#142).
 
     The contract is to call ``finish``; a bare prose turn is usually the model
-    trailing off mid-task. Returns ``(nudges, exit)``: with budget remaining it
-    appends the model's prose + a one-line finish reminder and returns
-    ``(nudges + 1, None)`` (caller continues the loop); once the nudge is spent it
-    records the trailing content as the summary (so a partial answer is not lost)
-    and returns ``(nudges, _EXIT_STOPPED)``.
+    trailing off mid-task. Returns ``(nudges, exit)``: while under the configurable
+    cap (``ctx.max_continue_nudges``, colleague PR #198) it appends the model's prose
+    + a one-line finish reminder and returns ``(nudges + 1, None)`` (caller continues
+    the loop); once the cap is reached it returns ``(nudges, _EXIT_STOPPED)`` WITHOUT
+    setting ``result.summary`` — the trailing prose is often a mid-thought trail-off
+    ("Let me check:"), so leaving the summary empty lets :func:`_maybe_force_synthesis`
+    (#191) produce a clean summary from what was read; the prose still survives as the
+    ``_last_substantive`` floor when synthesis (and the compaction fallback) yield
+    nothing (auto-compact-on-finish, t3).
     """
-    if nudges < _MAX_FINISH_NUDGES:
+    if nudges < ctx.max_continue_nudges:
         if resp.content:
             ctx.messages.append({"role": "assistant", "content": resp.content})
         ctx.messages.append({"role": "user", "content": _FINISH_NUDGE})
         return nudges + 1, None
-    if resp.content:
-        ctx.result.summary = resp.content
+    # Do NOT pre-set the trailing prose as the summary (auto-compact-on-finish, t3):
+    # a context-rich stop is usually a mid-thought trail-off ("Let me check:") — the
+    # t5 failure. Leaving ``result.summary`` empty lets ``_maybe_force_synthesis``
+    # (#191) produce a clean summary from what was read; the prose still survives as
+    # the ``_last_substantive`` floor when synthesis (and compaction) yield nothing.
     return nudges, _EXIT_STOPPED
 
 
@@ -1066,14 +1090,23 @@ def _reap_flight(ctx: _Work) -> None:
 
 
 def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> None:
-    """Map the loop's exit reason onto the result's partial-state flags + summary.
+    """Map the loop's exit reason onto the result's partial-state flags, status, + summary.
 
     A pilot's cooperative ``stop`` is a PARTIAL, not an authoritative result, so it
     is flagged like a no-finish stop (never a bare ``ok`` with no result; composes
     with the honest-status work, colleague#192) and its summary names the cause.
+
+    Honest status (colleague#192): any non-``_EXIT_FINISHED`` outcome that did not
+    already become ``ERROR`` (the aborted path in :func:`run` handles that, before
+    this is called) is ``INCOMPLETE``; a clean finish stays ``OK``. Orthogonal to
+    the ``not_finished`` / ``stopped_without_finish`` flags. Folded in here (rather
+    than a separate ``if`` in :func:`run`) to keep ``run`` under the S3776
+    cognitive-complexity threshold.
     """
     result.not_finished = outcome == _EXIT_BUDGET
     result.stopped_without_finish = outcome in (_EXIT_STOPPED, _EXIT_PILOT_STOP)
+    if outcome != _EXIT_FINISHED:
+        result.status = INCOMPLETE
     if outcome == _EXIT_PILOT_STOP:
         note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
@@ -1107,6 +1140,43 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     _account_turn(ctx, resp)
     if resp.content:
         ctx.result.summary = resp.content
+
+
+def _resolve_terminal_summary(
+    ctx: _Work, outcome: str, complete: CompleteFn, last_sub: str
+) -> None:
+    """Resolve ``result.summary`` on a non-finish exit; a finish/pilot summary is kept.
+
+    Order is the point (it fixes the stale-compaction-summary regression, Qodo
+    PR #198): force ONE no-tools synthesis turn (#191) **first** so the summary
+    reflects everything read — INCLUDING any tool work the model did *after* a
+    mid-run compaction. A run's own compaction self-summary (auto-compact-on-finish,
+    t3) predates that later work, so it is only the **fallback** when synthesis
+    yields nothing (it still survives to the exit — its reason for being captured),
+    never preferred over a fresh synthesis. Final fallback: the last substantive
+    prose, else the ``NO_RESULT_PRODUCED`` sentinel.
+
+    A clean ``finish`` (or a pilot stop) already set ``result.summary``, so
+    ``_maybe_force_synthesis`` and both fallbacks no-op — byte-identical to before.
+    Extracted from :func:`run` so that function stays under the S3776
+    cognitive-complexity threshold.
+    """
+    _maybe_force_synthesis(ctx, outcome, complete)
+    if not ctx.result.summary and ctx._compacted_summary:
+        ctx.result.summary = ctx._compacted_summary[0]
+    if not ctx.result.summary:
+        ctx.result.summary = last_sub or NO_RESULT_PRODUCED
+
+
+def _resolve_nudge_cap(context: "ContextControls") -> int:
+    """The continue-working nudge cap (#142 + colleague PR #198).
+
+    Defaults to ``_MAX_FINISH_NUDGES`` when a :class:`ContextControls` omits it
+    (direct :func:`run` callers / back-compat). Extracted to keep ``run`` under the
+    S3776 cognitive-complexity threshold.
+    """
+    cap = context.max_continue_nudges
+    return cap if cap is not None else _MAX_FINISH_NUDGES
 
 
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
@@ -1236,6 +1306,10 @@ class ContextControls:
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
     # no-op. Forwarded by every backend from ``config.fanout_files`` (all-engines rule).
     fanout_files: int | None = None
+    # continue-working: max consecutive no-tool-call nudges before the loop gives up.
+    # Forwarded by every backend from ``config.max_continue_nudges`` (all-engines
+    # rule); ``None`` falls back to ``_MAX_FINISH_NUDGES`` (back-compat / strict no-op).
+    max_continue_nudges: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1456,6 +1530,7 @@ def run(
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
+        max_continue_nudges=_resolve_nudge_cap(_context),
         flight=flight_session,
     )
 
@@ -1544,45 +1619,29 @@ def run(
             _escalation.escalate(result, result.stats, task.repo_path, model=model)
         raise WorkAborted(result) from aborted
 
-    # Outcome flags (#106 t5 + colleague#142): derived from the _work_loop return.
-    # We are in the non-aborted path here, so WorkAborted is not raised — that is a
-    # different signal and BOTH flags are deliberately left False for it (the default
-    # covers it above). Two orthogonal, mutually exclusive non-clean exits:
+    # Outcome flags + honest status (#106 t5 + colleague#142 + colleague#192):
+    # derived from the _work_loop return. We are in the non-aborted path here, so
+    # WorkAborted is not raised — that is a different signal and the flags are left
+    # False for it (the default covers it above). Two orthogonal non-clean exits:
     #   * not_finished           — step budget exhausted without finishing (#106 t5).
     #   * stopped_without_finish — the model ended on a no-tool-call turn and, even
-    #     after a nudge, never called finish (colleague#142); the summary holds its
-    #     trailing prose, so a caller must treat it as a partial, not authoritative.
-    # A clean finish leaves both False; a pilot's cooperative stop is a partial too.
-    # Do NOT derive either from stats.step_count: max_steps bounds model *turns*
-    # while step_count counts *tool calls*. (Extracted to keep run() under the S3776
+    #     after the nudge cap, never called finish (colleague#142); a caller must
+    #     treat the result as a partial, not authoritative.
+    # A clean finish leaves both False + status OK; any other outcome is INCOMPLETE;
+    # a pilot's cooperative stop is a partial too. Do NOT derive either flag from
+    # stats.step_count: max_steps bounds model *turns* while step_count counts *tool
+    # calls*. (Flags + status set in the helper to keep run() under the S3776
     # cognitive-complexity threshold.)
     _apply_outcome_flags(result, outcome, _last_sub)
 
-    # Honest status (colleague#192): any non-_EXIT_FINISHED outcome that did not
-    # already become ERROR (via the aborted path above) is INCOMPLETE.  A clean
-    # finish stays OK.  This is orthogonal to the not_finished /
-    # stopped_without_finish flags which remain set as before.
-    if outcome != _EXIT_FINISHED:
-        result.status = INCOMPLETE
-
-    # Summary precedence (t2, #109) — RESOLVED BEFORE the not-finished escalation
-    # below, so build_continuation() sees the finalized summary (the last
-    # substantive content), not an empty placeholder (Qodo #114):
-    #   1. finish_summary set by the finish tool (already on result.summary via
-    #      _apply_finish at line ~305 — highest priority, untouched here).
-    #   2. A no-tool-call terminating turn's content (already set at the
-    #      resp.content path in _work_loop above — second priority, also already
-    #      on result.summary before we reach here).
-    #   3. Last substantive assistant content seen across the work item (the t2 gap:
-    #      narration emitted on a tool-call turn is now recoverable).
-    #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
-    # Before falling back to the sentinel, give an unfinished-but-context-rich run
-    # one forced no-tools synthesis turn (colleague#191) — it sets result.summary
-    # when it yields content, so the sentinel is reached only when even that turn
-    # produces nothing (an immediate stop with zero context read).
-    _maybe_force_synthesis(ctx, outcome, complete)
-    if not result.summary:
-        result.summary = _last_sub or NO_RESULT_PRODUCED
+    # Summary precedence (t2 #109 + #191 + auto-compact-on-finish t3 + Qodo PR #198) —
+    # RESOLVED BEFORE the not-finished escalation below so build_continuation() sees
+    # the finalized summary, not an empty placeholder (Qodo #114). The ordered
+    # precedence (finish summary > fresh forced synthesis > compaction self-summary
+    # fallback > last-substantive > NO_RESULT_PRODUCED sentinel) lives in
+    # _resolve_terminal_summary — extracted so run() stays under the S3776 threshold
+    # and so synthesis runs BEFORE the compaction fallback (the stale-summary fix).
+    _resolve_terminal_summary(ctx, outcome, complete, _last_sub)
 
     # Escalation seam — not-finished path (#106 t3): step budget exhausted without
     # calling finish.  Runs AFTER summary resolution (above) so the continuation

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-06-15
+
+### Added
+
+- continue-working: a configurable no-tool-call nudge cap (`COLLEAGUE_MAX_CONTINUE_NUDGES`, default 2, lifting the hardcoded `_MAX_FINISH_NUDGES=1`) so a stalled run resumes past the FIRST stall instead of stopping after one nudge — the t5-class failure where a served 27B narrated "Let me check:" without a tool call and ended after editing 1 of 4 files. Forwarded by every backend via `ContextControls` (all-engines rule); the direct `run()` path falls back to 1 (back-compat). Termination stays bounded by the cap plus the step/token budget.
+- auto-compact-on-finish: a context-rich stop no longer pre-empts #191 forced-synthesis by pre-setting mid-thought trailing prose as the summary, so a stopped run gets a clean model-authored summary instead of junk like "Let me check:"; and a fill-line (#156) compaction summary is captured on a dedicated cell and used as the fallback summary at a stop/budget exit when synthesis yields nothing. An explicit finish keeps the model own summary; strict no-op when no stall/compaction occurs.
+
+### Changed
+
+- The summary at a stop-without-finish is now produced by forced-synthesis / a captured compaction summary rather than raw trailing prose (the prose survives only as the last-substantive floor when both yield nothing). A no-content / step_count==0 stop is byte-identical. Summary resolution is consolidated in `colleague/loop.py` `_resolve_terminal_summary`.
+
+### Fixed
+
+- Stale-compaction-summary regression (Qodo PR #198 review): on a stop/budget exit, forced synthesis (#191) now runs BEFORE the compaction self-summary fallback, so a run that compacted mid-flight and then kept working returns a summary reflecting the post-compaction work instead of the stale pre-work compaction note. An earlier draft preferred the compaction summary over synthesis.
+- Stale stop-summary docstrings/comments (Qodo PR #198): `_handle_no_tool_turn` and the `_compacted_summary` cell are re-documented to match the current behavior (cap-based nudging; the trailing prose is no longer pre-set as the summary; the compaction summary is a fallback, not preferred).
+- SonarCloud S3776 (`run()` cognitive complexity 18→under threshold): summary resolution, the nudge-cap default, and the outcome-flags/status mapping are extracted into helpers (`_resolve_terminal_summary`, `_resolve_nudge_cap`, `_apply_outcome_flags`).
+- SonarCloud S107 (`EngineConfig.resolve` parameter count): the unused explicit `temperature`/`timeout` keyword arguments are dropped (no caller, no CLI flag, no test passes them); both still resolve from `COLLEAGUE_*` env vars (with `CONVERTIBLE_*` fallbacks) and built-in defaults.
+
 ## [1.9.0] - 2026-06-15
 
 ### Added
