@@ -80,40 +80,51 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def parse_claims(text: str) -> tuple[list[Claim], list[HonestyCondition]]:
-    """Parse a model claims-proposal JSON blob into proposed frame items."""
+    """Parse a model claims-proposal JSON blob into proposed frame items.
+
+    Tolerant of model hallucination: a non-dict entry, or one missing the
+    essential ``id`` key, is skipped (not a crash); other fields default to ``""``.
+    """
     data = _extract_json_object(text)
     claims = [
         Claim(
             id=str(c["id"]),
-            kind=str(c["kind"]),
-            text=str(c["text"]),
+            kind=str(c.get("kind", "")),
+            text=str(c.get("text", "")),
             state="proposed",
         )
         for c in data.get("claims", [])
+        if isinstance(c, dict) and "id" in c
     ]
     honesty = [
         HonestyCondition(
             id=str(h["id"]),
-            claim_id=str(h["claim_id"]),
-            text=str(h["text"]),
+            claim_id=str(h.get("claim_id", "")),
+            text=str(h.get("text", "")),
             state="proposed",
         )
         for h in data.get("honesty", [])
+        if isinstance(h, dict) and "id" in h
     ]
     return claims, honesty
 
 
 def parse_plan_items(text: str) -> list[PlanItem]:
-    """Parse a model plan-items-proposal JSON blob into PlanItem objects."""
+    """Parse a model plan-items-proposal JSON blob into PlanItem objects.
+
+    Tolerant: a non-dict entry, or one missing ``id``, is skipped; other fields
+    default safely.
+    """
     data = _extract_json_object(text)
     return [
         PlanItem(
             id=str(i["id"]),
-            summary=str(i["summary"]),
+            summary=str(i.get("summary", "")),
             acceptance=[str(a) for a in i.get("acceptance", [])],
             deps=[str(d) for d in i.get("deps", [])],
         )
         for i in data.get("items", [])
+        if isinstance(i, dict) and "id" in i
     ]
 
 

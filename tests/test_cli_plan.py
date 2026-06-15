@@ -107,3 +107,29 @@ def test_plan_run_json(tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
     assert payload["converged"] is True
     assert payload["plan_items"] == ["t1", "t2"]
     assert payload["waves"] == [["t1"], ["t2"]]
+
+
+class _MalformedEngine:
+    """A backend that returns un-parseable proposals (no JSON)."""
+
+    name = "fake"
+
+    def make_complete(self, _config):
+        return lambda _messages: types.SimpleNamespace(content="sorry, I cannot help with that")
+
+
+def test_plan_run_malformed_proposal_is_clean_error(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A model that returns no parseable JSON must surface a clean CliError, never a
+    # traceback (the agent-first no-traceback contract).
+    monkeypatch.setattr("colleague.registry.load", lambda _name: _MalformedEngine())
+    monkeypatch.setattr(
+        "colleague.cli._commands.plan.make_batch_spawn",
+        lambda _r, _c, _e: (lambda _items: []),
+    )
+    rc = main(["plan", "run", "build a feature", "--yes", "--repo", str(tmp_path)])
+    err = capsys.readouterr().err
+    assert rc != 0
+    assert "unusable plan proposal" in err
+    assert "Traceback" not in err

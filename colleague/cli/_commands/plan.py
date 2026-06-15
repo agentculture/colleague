@@ -162,19 +162,29 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
     decide = _resolve_decide(args)
     batch_spawn = make_batch_spawn(str(repo), config, engine_name)
 
-    result = run_plan_mode(
-        args.request,
-        propose_claims=make_propose_claims(simple),
-        decide=decide,
-        propose_plan_items=make_propose_plan_items(simple),
-        batch_spawn=batch_spawn,
-        engine=engine_name,
-        model=config.model,
-        complete=simple,
-        reviewer_enabled=bool(getattr(args, "review", False)),
-        repo_path=str(repo),
-        plan_id=_PLAN_ID,
-    )
+    try:
+        result = run_plan_mode(
+            args.request,
+            propose_claims=make_propose_claims(simple),
+            decide=decide,
+            propose_plan_items=make_propose_plan_items(simple),
+            batch_spawn=batch_spawn,
+            engine=engine_name,
+            model=config.model,
+            complete=simple,
+            reviewer_enabled=bool(getattr(args, "review", False)),
+            repo_path=str(repo),
+            plan_id=_PLAN_ID,
+        )
+    except ValueError as exc:
+        # The model returned a malformed proposal (unparseable JSON, an invalid
+        # plan-item set, or a cyclic/dangling dependency graph). Surface a clean
+        # error, never a traceback (the agent-first no-traceback contract).
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"the backend returned an unusable plan proposal: {exc}",
+            "retry, or use a stronger backend/model",
+        ) from exc
 
     emit_result(_run_payload(result) if json_mode else _render_run(result), json_mode=json_mode)
     return 0 if result.converged else EXIT_USER_ERROR

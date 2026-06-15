@@ -51,6 +51,27 @@ def test_parse_claims_raises_without_json() -> None:
         parse_claims("no json here")
 
 
+def test_parse_claims_tolerates_missing_keys() -> None:
+    # A model that omits keys or emits a non-dict entry must not crash (no KeyError):
+    # entries without an "id" are skipped; other fields default to "".
+    blob = (
+        '{"claims": [{"id": "c1"}, {"kind": "audience"}, "garbage", '
+        '{"id": "c2", "kind": "audience", "text": "ops"}], '
+        '"honesty": [{"claim_id": "c1"}, {"id": "h1", "claim_id": "c1"}]}'
+    )
+    claims, honesty = parse_claims(blob)
+    assert [c.id for c in claims] == ["c1", "c2"]  # the keyless + non-dict entries dropped
+    assert claims[0].kind == "" and claims[0].text == ""  # defaulted, not crashed
+    assert [h.id for h in honesty] == ["h1"]
+
+
+def test_parse_plan_items_tolerates_missing_keys() -> None:
+    blob = '{"items": [{"summary": "no id"}, {"id": "t1"}, 42]}'
+    items = parse_plan_items(blob)
+    assert [i.id for i in items] == ["t1"]
+    assert items[0].summary == "" and items[0].acceptance == []
+
+
 def test_to_simple_complete_wraps_completefn() -> None:
     seen: dict[str, object] = {}
 
