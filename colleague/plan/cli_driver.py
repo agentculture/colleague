@@ -44,38 +44,49 @@ PLAN_SYSTEM_PROMPT = (
 )
 
 
+def _scan_string(text: str, i: int) -> int:
+    """Scan past a JSON string. *i* points just after the opening quote; returns
+    the index just after the closing quote (or ``len(text)`` if unterminated).
+    """
+    escape = False
+    while i < len(text):
+        ch = text[i]
+        if escape:
+            escape = False
+        elif ch == "\\":
+            escape = True
+        elif ch == '"':
+            return i + 1
+        i += 1
+    return i
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     """Tolerantly extract the first top-level JSON object from *text*.
 
     A served model often wraps JSON in prose or a ```json fence; this finds the
-    first balanced ``{...}`` and parses it. Raises ``ValueError`` when no valid
-    JSON object is present.
+    first balanced ``{...}`` and parses it. String contents (which may contain
+    braces or escaped quotes) are skipped via :func:`_scan_string`. Raises
+    ``ValueError`` when no valid JSON object is present.
     """
     start = text.find("{")
     if start == -1:
         raise ValueError("no JSON object found in model output")
     depth = 0
-    in_str = False
-    escape = False
-    for i in range(start, len(text)):
+    i = start
+    n = len(text)
+    while i < n:
         ch = text[i]
-        if in_str:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_str = False
-            continue
         if ch == '"':
-            in_str = True
-        elif ch == "{":
+            i = _scan_string(text, i + 1)
+            continue
+        if ch == "{":
             depth += 1
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                candidate = text[start : i + 1]
-                return json.loads(candidate)
+                return json.loads(text[start : i + 1])
+        i += 1
     raise ValueError("unbalanced JSON object in model output")
 
 

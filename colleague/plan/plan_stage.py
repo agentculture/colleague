@@ -115,17 +115,17 @@ def compute_waves(items: list[PlanItem]) -> list[list[str]]:
                 raise ValueError(f"item {item.id} depends on unknown {dep}")
 
     remaining = set(ids)
+    placed: set[str] = set()  # ids already assigned to an earlier wave
     waves: list[list[str]] = []
 
     while remaining:
         wave = sorted(
-            item_id
-            for item_id in remaining
-            if all(dep in (set().union(*(w for w in waves))) for dep in item_map[item_id].deps)
+            item_id for item_id in remaining if all(dep in placed for dep in item_map[item_id].deps)
         )
         if not wave:
             raise ValueError("cycle detected: cannot make progress")
         waves.append(wave)
+        placed.update(wave)
         remaining -= set(wave)
 
     return waves
