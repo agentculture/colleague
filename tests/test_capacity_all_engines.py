@@ -66,6 +66,20 @@ def test_vllm_engine_forwards_fillline_threshold(monkeypatch, tmp_path: Path) ->
     assert captured["context"].fillline_threshold == 0.55
 
 
+def test_mock_engine_forwards_max_continue_nudges(monkeypatch, tmp_path: Path) -> None:
+    captured = _capture_context(monkeypatch, mock_eng)
+    cfg = EngineConfig.resolve(max_continue_nudges=4)
+    mock_eng.MockEngine().work(Task.new(str(tmp_path), "do", engine="mock"), cfg)
+    assert captured["context"].max_continue_nudges == 4
+
+
+def test_vllm_engine_forwards_max_continue_nudges(monkeypatch, tmp_path: Path) -> None:
+    captured = _capture_context(monkeypatch, vllm_eng)
+    cfg = EngineConfig.resolve(max_continue_nudges=4)
+    vllm_eng.VllmOpenAIEngine().work(Task.new(str(tmp_path), "do", engine="vllm-openai"), cfg)
+    assert captured["context"].max_continue_nudges == 4
+
+
 # ---------------------------------------------------------------------------
 # Strict no-op: no fill-line event → no extra turn, byte-identical shape
 # ---------------------------------------------------------------------------
