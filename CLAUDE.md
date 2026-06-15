@@ -488,6 +488,33 @@ The architecture, part by part:
     `mock` and `vllm-openai`. Spec + plan:
     `docs/specs/2026-06-15-colleague-finishes-what-it-starts-a-run-that-stall.md`
     and `docs/plans/2026-06-15-colleague-finishes-what-it-starts-a-run-that-stall.md`.
+- **Plan mode** — colleague plans a complex task itself, the same arc as the
+  `/think` → `/spec-to-plan` → `/assign-to-workforce` skills but with **colleague
+  as the planning mind** (a different mind from the requester — `/think` keeps
+  Claude as planner; the diversity is the point). A new `colleague/plan/`
+  subpackage: a native frame model (`frame.py`), the required-kinds convergence
+  gate (`convergence.py`), file-based gate checkpoints (`checkpoint.py`), a
+  same-model critic reviewer (`reviewer.py`), the spec/plan/workforce stages
+  (`spec_stage.py` per-item micro-cycle, `plan_stage.py` items + deterministic
+  waves, `workforce.py` fan-out reusing `colleague.subagents`
+  `make_batch_spawn`/`batch_spawn` unchanged), the auto-trigger + pushback
+  judgment (`trigger.py`/`pushback.py`), and the `orchestrator.py` that drives
+  spec→plan→workforce gated at every step (**never self-confirms**;
+  planning/implementation never runs before the spec converges). Surfaced as the
+  **`colleague plan`** verb (`plan run`/`status`/`overview`; operator gates each
+  item, `--yes` auto-confirms, `--review` runs the critic) and the
+  **`ask-colleague plan`** skill verb. Engine-agnostic (the orchestrator takes
+  injected seams; fires identically for `mock` and `vllm-openai`); native-first
+  and **zero-deps** (no devague dependency). A public **`Engine.make_complete`**
+  one-shot completion seam lets the verb drive the model outside the work loop
+  (`mock` inherits the default — plan mode needs a live backend). The auto-trigger
+  is opt-in via `COLLEAGUE_PLAN_OFFER_TOKENS` (`EngineConfig.plan_offer_tokens`,
+  default 0 = dormant, strict no-op). Runtime-owned (all-engines). Spec + plan:
+  `docs/specs/2026-06-15-colleague-has-a-plan-mode-hand-it-a-vague-or-overs.md`
+  and `docs/plans/2026-06-15-colleague-has-a-plan-mode-hand-it-a-vague-or-overs.md`.
+  Honest limits: the interactive cross-invocation `plan continue` resume and a
+  spec-less "quick plan" middle ground are documented follow-ups (#199); the verb
+  needs a live backend.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
@@ -729,14 +756,17 @@ colleague ships one **first-party** Claude Code skill,
 [`ask-colleague`](.claude/skills/ask-colleague/) — the *inverse* of the vendored
 skills (origin = colleague; see [`docs/skill-sources.md`](docs/skill-sources.md)).
 It lets another agent hand a scoped task to colleague — a *different* backend/mind,
-not a stronger one; diversity is the point. Three verbs over `colleague work`:
-`ask-colleague explore` (read-only investigation), `ask-colleague review` (a
-diverse second opinion on the committed `<base>...HEAD` diff — the headline verb),
-and `ask-colleague write` (delegate a small change — previews by default;
-`--apply` lands a work item branch, `--pr` opens a PR). explore/review run in a
+not a stronger one; diversity is the point. Four verbs over `colleague work` /
+`colleague plan`: `ask-colleague explore` (read-only investigation),
+`ask-colleague review` (a diverse second opinion on the committed `<base>...HEAD`
+diff — the headline verb), `ask-colleague write` (delegate a small change —
+previews by default; `--apply` lands a work item branch, `--pr` opens a PR), and
+`ask-colleague plan` (delegate the *whole* planning arc — colleague plans a
+complex task spec→plan→workforce; the inverse of `/think`). explore/review run in a
 throwaway `git worktree` (no side effects); `write` previews in one too unless
-`--apply`/`--pr`, and guards against a dirty tree when applying. (Renamed from
-`outsource`; "outsource this" still triggers it.) Details + worked examples:
+`--apply`/`--pr`, and guards against a dirty tree when applying; `plan` runs
+`colleague plan` directly (its workforce stage spawns isolated subagent worktrees).
+(Renamed from `outsource`; "outsource this" still triggers it.) Details + worked examples:
 [`docs/features/ask-colleague.md`](docs/features/ask-colleague.md).
 
 ### Division of labor — Claude thinks, Colleague does the field-work
