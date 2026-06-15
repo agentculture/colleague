@@ -85,6 +85,25 @@ def test_validate_items_clean():
     assert validate_items(items) == []
 
 
+def test_validate_items_duplicate_id():
+    """validate_items returns a 'duplicate item id: X' problem when two items share id X."""
+    items = _items(
+        ("X", "work1", ["a"], []),
+        ("X", "work2", ["b"], []),
+    )
+    problems = validate_items(items)
+    assert "duplicate item id: X" in problems
+
+
+def test_validate_items_unique_ids():
+    """validate_items returns [] when all ids are unique."""
+    items = _items(
+        ("t1", "work1", ["a"], []),
+        ("t2", "work2", ["b"], []),
+    )
+    assert validate_items(items) == []
+
+
 def test_validate_items_multiple_problems():
     """validate_items reports all problems, not just the first."""
     items = _items(

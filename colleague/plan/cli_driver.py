@@ -120,6 +120,19 @@ def parse_claims(text: str) -> tuple[list[Claim], list[HonestyCondition]]:
     return claims, honesty
 
 
+def _coerce_str_list(value: object) -> list[str]:
+    """Coerce *value* to a list of strings.
+
+    If *value* is a ``str``, return ``[value]``.  If it is a list/tuple,
+    return ``[str(x) for x in value]``.  Otherwise return ``[]``.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(x) for x in value]
+    return []
+
+
 def parse_plan_items(text: str) -> list[PlanItem]:
     """Parse a model plan-items-proposal JSON blob into PlanItem objects.
 
@@ -131,8 +144,8 @@ def parse_plan_items(text: str) -> list[PlanItem]:
         PlanItem(
             id=str(i["id"]),
             summary=str(i.get("summary", "")),
-            acceptance=[str(a) for a in i.get("acceptance", [])],
-            deps=[str(d) for d in i.get("deps", [])],
+            acceptance=_coerce_str_list(i.get("acceptance")),
+            deps=_coerce_str_list(i.get("deps")),
         )
         for i in data.get("items", [])
         if isinstance(i, dict) and "id" in i

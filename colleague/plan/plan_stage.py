@@ -66,6 +66,7 @@ def validate_items(items: list[PlanItem]) -> list[str]:
 
     Checks
     ------
+    * Duplicate item ids are a problem (``"duplicate item id: <id>"``).
     * An item with an empty ``acceptance`` list is a problem
       (``"item <id> has no acceptance criteria"``).
     * A dep referencing an unknown item id is a problem
@@ -78,6 +79,16 @@ def validate_items(items: list[PlanItem]) -> list[str]:
     """
     ids = {item.id for item in items}
     problems: list[str] = []
+
+    # Detect duplicate ids (deterministic order).
+    seen: dict[str, int] = {}
+    for item in items:
+        if item.id in seen:
+            if seen[item.id] == 0:
+                problems.append(f"duplicate item id: {item.id}")
+                seen[item.id] = 1
+        else:
+            seen[item.id] = 0
 
     for item in items:
         if not item.acceptance:

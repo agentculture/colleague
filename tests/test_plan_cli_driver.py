@@ -112,6 +112,36 @@ def test_make_propose_claims_uses_simple() -> None:
     assert calls and calls[0][1] == "build a thing"
 
 
+def test_parse_plan_items_acceptance_string_not_split_into_chars() -> None:
+    """When the model returns acceptance as a string, it should NOT be split into chars."""
+    blob = '{"items": [{"id": "t1", "acceptance": "A works"}]}'
+    items = parse_plan_items(blob)
+    assert items[0].acceptance == ["A works"]
+    assert items[0].acceptance != ["A", " ", "w", "o", "r", "k", "s"]
+
+
+def test_parse_plan_items_deps_string_not_split_into_chars() -> None:
+    """When the model returns deps as a string, it should NOT be split into chars."""
+    blob = '{"items": [{"id": "t1", "deps": "t0"}]}'
+    items = parse_plan_items(blob)
+    assert items[0].deps == ["t0"]
+    assert items[0].deps != ["t", "0"]
+
+
+def test_parse_plan_items_acceptance_list_still_works() -> None:
+    """A list value for acceptance still works element-wise."""
+    blob = '{"items": [{"id": "t1", "acceptance": ["A works", "B works"]}]}'
+    items = parse_plan_items(blob)
+    assert items[0].acceptance == ["A works", "B works"]
+
+
+def test_parse_plan_items_deps_list_still_works() -> None:
+    """A list value for deps still works element-wise."""
+    blob = '{"items": [{"id": "t1", "deps": ["t0", "t2"]}]}'
+    items = parse_plan_items(blob)
+    assert items[0].deps == ["t0", "t2"]
+
+
 def test_make_propose_plan_items_includes_confirmed_claims() -> None:
     captured: dict[str, str] = {}
 
