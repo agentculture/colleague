@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-06-15
+
+### Added
+
+- Explore/drive never wastes a run (#188/#191): a budget-exhausted or stopped run that read context but never finished now performs one forced no-tools synthesis turn and returns that as the summary, falling back to NO_RESULT_PRODUCED only when even that turn is empty.
+- Advisory subagent fan-out for wide read-only mapping (#188): once a survey reads more than COLLEAGUE_FANOUT_FILES files (default 12, env-tunable), the loop injects one advisory recommendation to fan out per-folder via the subagents tool. Backend-judged, strict no-op when dormant; the explore prompt now steers wide maps toward subagents.
+- ask-colleague explore gets its own default step budget (30 vs 20 for write/review, #194) and an actionable partial-run warning naming the reached step count and a concrete larger --max-steps to retry with.
+
+### Changed
+
+- A run that does not cleanly finish now reports status:incomplete with a non-zero exit (#192) instead of a misleading status:ok, so callers can detect a no-result/partial run without sentinel string-matching. ask-colleague.sh suppresses the success-shaped grade footer and warns on a NO_RESULT_PRODUCED summary.
+
+### Fixed
+
+- ask-colleague.sh uv-fallback resolver is grep-free (#190): a pure-bash _pyproject_is_colleague check resolves a colleague checkout even on a PATH with no grep.
+
 ## [1.8.0] - 2026-06-14
 
 ### Added

@@ -34,7 +34,7 @@ from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, resolve_engine
-from colleague.contract import OK, Task, TaskResult
+from colleague.contract import INCOMPLETE, OK, Task, TaskResult
 from colleague.feedback import set_last_work
 from colleague.handoff import HandoffError, handoff, untracked_snapshot, working_tree_dirty
 from colleague.subagents import make_batch_spawn, make_spawn
@@ -477,7 +477,11 @@ def cmd_work(args: argparse.Namespace) -> int:
         emit_result(result.to_dict(), json_mode=True)
     else:
         emit_result(_render(result, engine, artifact_path), json_mode=False)
-    return 0 if result.status == OK else 1
+    if result.status == OK:
+        return 0
+    if result.status == INCOMPLETE:
+        return 2
+    return 1
 
 
 def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: str) -> None:

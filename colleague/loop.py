@@ -44,11 +44,13 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague.capacity import assess_capacity
+from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import classify_degradable, window_messages
 from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
     ERROR,
+    INCOMPLETE,
     NO_RESULT_PRODUCED,
     OK,
     CapacityDecision,
@@ -143,6 +145,14 @@ _FINISH_NUDGE = (
     "You ended your turn without calling the `finish` tool and without requesting "
     "another tool. If your work is complete, call `finish` now with your result as "
     "the summary. Otherwise, continue by calling a tool — do not reply with prose alone."
+)
+# Forced final synthesis (colleague#191): injected once when the loop exhausts its
+# step budget (or stops) after reading context but never answering, to turn a
+# wasted full-token run into a usable partial.
+_SYNTHESIS_PROMPT = (
+    "You are out of steps. Stop using tools and answer the original request NOW, "
+    "directly, from what you have already read. Do not request any more tools — write "
+    "the most complete, useful answer you can from the context gathered so far."
 )
 
 
@@ -389,6 +399,14 @@ class _Work:
     # is OFFERED so the recorded reason matches the number named in the prompt (not
     # the slightly different count of the declaring turn).
     _fillline_used: list[int] = field(default_factory=list)
+    # Mapping fan-out advisory (#188): ``mapping_fanout_files`` is the files-read count
+    # at which the runtime injects ONE advisory recommendation to fan a wide read-only
+    # survey out across folders via the ``subagents`` tool (instead of grinding serially
+    # through the step budget). ``None``/<= 0 leaves it dormant — a strict no-op.
+    # ``_mapping_fanout_offered`` is a single-element mutable cell (the
+    # ``_fillline_offered`` pattern) so the advisory fires at most once per work item.
+    mapping_fanout_files: int | None = None
+    _mapping_fanout_offered: list[bool] = field(default_factory=list)
     # Flight-control plane (the piloting feature): an armed ``FlightSession`` when the
     # task is a watchable flight (``task.watch``), else ``None`` — a strict no-op.
     # When set, the loop appends a live feed record per turn and reads the per-flight
@@ -715,6 +733,41 @@ def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
         _offer_fillline(ctx, last_prompt_tokens)
 
 
+def _files_read(ctx: _Work) -> int:
+    """Count the read-only mapping tool calls so far (``read_file`` + ``list_dir``)."""
+    return sum(1 for step in ctx.result.steps if step.tool in ("read_file", "list_dir"))
+
+
+def _maybe_offer_mapping_fanout(ctx: _Work) -> None:
+    """Offer the per-folder fan-out advisory once a wide survey has read many files (#188).
+
+    A strict no-op when dormant (``mapping_fanout_files`` unset / <= 0), already
+    offered, or still under the threshold — so a normal task that reads a handful of
+    files is byte-identical to today. Backend-judged + advisory: the loop injects ONE
+    recommendation pointing at the existing ``subagents`` tool (no new fan-out/merge
+    code) and the model decides whether to act. Offered at most once per work item via
+    ``_mapping_fanout_offered``. Runtime-owned, so it fires identically for every
+    backend (the all-engines rule).
+    """
+    threshold = ctx.mapping_fanout_files
+    if not isinstance(threshold, int) or threshold <= 0:
+        return
+    if ctx._mapping_fanout_offered:
+        return
+    files = _files_read(ctx)
+    if files <= threshold:
+        return
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": _autosplit.build_mapping_fanout_recommendation(
+                files_read=files, max_children=MAX_SUBAGENT_FANOUT - 1
+            ),
+        }
+    )
+    ctx._mapping_fanout_offered.append(True)
+
+
 def _resolve_fillline(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> str:
     """Classify + record the model's declaring turn, acting on a compact move (#156).
 
@@ -1026,6 +1079,36 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
+def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> None:
+    """Force ONE no-tools synthesis turn on budget/stopped exhaustion (colleague#191).
+
+    When the loop ran out of its step budget — or stopped without finishing — after
+    reading non-trivial context (``step_count > 0``) yet never produced a usable
+    summary, give the model one final turn to answer from what it already read,
+    turning the most expensive failure mode (full token spend, zero output) into a
+    usable partial. Best-effort: any error or an empty answer leaves ``summary``
+    untouched so the caller falls back to the last-substantive content or the
+    ``NO_RESULT_PRODUCED`` sentinel. Mirrors the retry-cap precedent
+    (:func:`_final_degraded_attempt`) and reuses :func:`_complete_with_degradation`
+    so the synthesis turn is windowed to the context budget like any other. A strict
+    no-op for a clean finish, a pilot stop (already carries a summary), or a run that
+    already answered — so a finished/answered work item is byte-identical to before.
+    Runtime-owned: fires identically for every backend (all-engines rule).
+    """
+    if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED):
+        return
+    if ctx.result.summary or ctx.result.stats.step_count <= 0:
+        return
+    ctx.messages.append({"role": "user", "content": _SYNTHESIS_PROMPT})
+    try:
+        resp = _complete_with_degradation(ctx, complete)
+    except Exception:  # noqa: BLE001 - best-effort; a finalize-time turn never raises
+        return
+    _account_turn(ctx, resp)
+    if resp.content:
+        ctx.result.summary = resp.content
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -1065,6 +1148,11 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # this turn completes, so the model declares it by its next action. No-op when
         # dormant / already offered / under the line.
         _maybe_offer_fillline(ctx, last_prompt_tokens)
+        # Mapping fan-out advisory (#188): once a wide read-only survey has read many
+        # files serially, nudge the model ONCE to fan out per-folder via `subagents`
+        # rather than spend the rest of its step budget reading. No-op when dormant /
+        # already offered / under the files-read threshold.
+        _maybe_offer_mapping_fanout(ctx)
         try:
             resp = _complete_with_degradation(ctx, complete)
         except Exception as exc:  # noqa: BLE001
@@ -1143,6 +1231,11 @@ class ContextControls:
     # ``None`` or out of ``(0, 1]`` leaves the proactive decision dormant — a strict
     # no-op (degradation + reactive auto-split still apply).
     fillline_threshold: float | None = None
+    # Mapping fan-out advisory (#188): the files-read count at which the runtime
+    # injects ONE advisory recommendation to fan a wide read-only survey out across
+    # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
+    # no-op. Forwarded by every backend from ``config.fanout_files`` (all-engines rule).
+    fanout_files: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1362,6 +1455,7 @@ def run(
         count_tokens=_context.count_tokens,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
+        mapping_fanout_files=_context.fanout_files,
         flight=flight_session,
     )
 
@@ -1464,6 +1558,13 @@ def run(
     # cognitive-complexity threshold.)
     _apply_outcome_flags(result, outcome, _last_sub)
 
+    # Honest status (colleague#192): any non-_EXIT_FINISHED outcome that did not
+    # already become ERROR (via the aborted path above) is INCOMPLETE.  A clean
+    # finish stays OK.  This is orthogonal to the not_finished /
+    # stopped_without_finish flags which remain set as before.
+    if outcome != _EXIT_FINISHED:
+        result.status = INCOMPLETE
+
     # Summary precedence (t2, #109) — RESOLVED BEFORE the not-finished escalation
     # below, so build_continuation() sees the finalized summary (the last
     # substantive content), not an empty placeholder (Qodo #114):
@@ -1475,6 +1576,11 @@ def run(
     #   3. Last substantive assistant content seen across the work item (the t2 gap:
     #      narration emitted on a tool-call turn is now recoverable).
     #   4. NO_RESULT_PRODUCED sentinel — when the model never emitted any prose.
+    # Before falling back to the sentinel, give an unfinished-but-context-rich run
+    # one forced no-tools synthesis turn (colleague#191) — it sets result.summary
+    # when it yields content, so the sentinel is reached only when even that turn
+    # produces nothing (an immediate stop with zero context read).
+    _maybe_force_synthesis(ctx, outcome, complete)
     if not result.summary:
         result.summary = _last_sub or NO_RESULT_PRODUCED
 

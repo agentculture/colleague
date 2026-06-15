@@ -76,7 +76,7 @@ def test_stubborn_no_tool_call_sets_stopped_without_finish(tmp_path: Path) -> No
 
     assert result.stopped_without_finish is True
     assert result.not_finished is False  # not a budget exhaustion
-    assert result.status == "ok"
+    assert result.status == "incomplete"  # no finish called → incomplete
     assert result.summary == "Here is the answer."  # trailing prose preserved as partial
 
 

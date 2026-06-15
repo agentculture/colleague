@@ -415,6 +415,36 @@ The architecture, part by part:
   no daemon/socket/deps. Spec + plan:
   `docs/specs/2026-06-13-colleague-flights-are-now-piloted-after-ask-collea.md`
   and `docs/plans/2026-06-13-colleague-flights-are-now-piloted-after-ask-collea.md`.
+- **Explore never wastes a run** — a read-only explore/drive that exhausts its step
+  budget is never a silent no-result. Four threads (issues #194/#192/#191/#190/#188):
+  (1) **Forced synthesis (#191)** — when `_work_loop` exits via `_EXIT_BUDGET`/
+  `_EXIT_STOPPED` having read context (`step_count > 0`) but never produced a usable
+  summary, `colleague/loop.py` `_maybe_force_synthesis` injects ONE no-tools turn
+  ("out of steps; answer now from what you've read") and uses its text as the summary,
+  reusing `_complete_with_degradation` (windowed) and mirroring the
+  `_final_degraded_attempt` retry-cap precedent; `NO_RESULT_PRODUCED` is reached only
+  when even that turn is empty. (2) **Honest status (#192)** — any non-`_EXIT_FINISHED`
+  outcome reports `status: incomplete` (`colleague/contract.py` `INCOMPLETE`) with a
+  non-zero `work`/`drive` exit (code 2; `ok`→0, `error`→1), so a caller branches on
+  status/exit without sentinel string-matching; `ask-colleague.sh` suppresses the
+  success-shaped `grade:` footer and warns on a `NO_RESULT_PRODUCED` summary.
+  (3) **Advisory fan-out (#188)** — once a survey reads more than
+  `COLLEAGUE_FANOUT_FILES` files (`EngineConfig.fanout_files`, default 12, env-tunable),
+  `_maybe_offer_mapping_fanout` injects ONE advisory recommendation
+  (`colleague/autosplit.py` `build_mapping_fanout_recommendation`) pointing the model at
+  the existing `subagents` tool with a per-folder partition; backend-judged, reuses
+  `make_batch_spawn`/`batch_spawn` with **no new worktree/merge code** (read-only
+  children write nothing, so the merge child no-ops — the FANOUT-slot optimisation is a
+  documented follow-up), strict no-op when dormant/under-threshold/already-offered.
+  (4) **Loud partials (#194)** — `ask-colleague explore` defaults to `--max-steps 30`
+  (write/review stay 20; an explicit flag overrides either), and the partial warning
+  names the reached step count + a concrete larger `--max-steps`. **Grep-free (#190):**
+  `ask-colleague.sh`'s uv-fallback resolver is pure-bash (`_pyproject_is_colleague`),
+  resolving a checkout even on a PATH with no `grep`. Runtime-owned (all-engines);
+  forced synthesis + incomplete status + fan-out fire identically for `mock` and
+  `vllm-openai`. Spec + plan:
+  `docs/specs/2026-06-14-colleague-never-wastes-an-explore-a-read-only-expl.md`
+  and `docs/plans/2026-06-14-colleague-never-wastes-an-explore-a-read-only-expl.md`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the

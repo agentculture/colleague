@@ -31,7 +31,7 @@ import pytest
 from colleague import registry
 from colleague.cli import main
 from colleague.config import EngineConfig
-from colleague.contract import OK, SubResult, Task
+from colleague.contract import INCOMPLETE, OK, SubResult, Task
 from colleague.engines import vllm_openai
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.tools import SCHEMAS
@@ -611,3 +611,58 @@ def test_subagents_chassis_tool_present_in_engine_tool_surface() -> None:
     assert (
         vllm_openai.SCHEMAS is SCHEMAS
     ), "vllm_openai.SCHEMAS must be the same object as colleague.tools.SCHEMAS"
+
+
+# ---------------------------------------------------------------------------
+# Honest status (colleague#192): status reflects whether the work item
+# called finish or not.
+# ---------------------------------------------------------------------------
+
+
+def test_clean_finish_is_ok_exit_zero(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A run that ends by calling finish is status==OK and exits 0."""
+    rc = main(
+        [
+            "work",
+            "do work",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == OK
+
+
+def test_budget_exhausted_is_incomplete_non_zero_exit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A run that exhausts the step budget without calling finish is
+    status==INCOMPLETE and exits non-zero.
+
+    The mock engine's script is two turns (write_file, then finish).  With
+    max_steps=1 the loop runs one turn, executes the write_file, and then
+    hits the budget — the finish turn never happens.
+    """
+    rc = main(
+        [
+            "work",
+            "do work",
+            "--repo",
+            str(tmp_path),
+            "--engine",
+            "mock",
+            "--no-pr",
+            "--json",
+            "--max-steps",
+            "1",
+        ]
+    )
+    assert rc != 0, "Budget-exhausted run must exit non-zero"
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == INCOMPLETE
+    assert result["not_finished"] is True

@@ -296,5 +296,6 @@ class VllmOpenAIEngine(Engine):
                 count_tokens=self._make_count_tokens(config),
                 autosplit_target=config.autosplit_target_tokens,
                 fillline_threshold=config.fillline_threshold,
+                fanout_files=config.fanout_files,
             ),
         )

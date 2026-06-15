@@ -1,0 +1,274 @@
+{
+  "slug": "colleague-never-wastes-an-explore-a-read-only-expl",
+  "title": "colleague never wastes an explore: a read-only explore/drive that exhausts its step budget forces one final no-tools synthesis turn and returns a usable partial answer; a run that truly produces nothing reports a distinct non-ok status instead of a misleading status:ok so callers like ask-colleague can detect-and-retry without sentinel string-matching; explore gets a step budget tuned for codebase-mapping; and the ask-colleague wrapper resolves the colleague CLI with zero external-tool dependencies.",
+  "frame_slug": "colleague-never-wastes-an-explore-a-read-only-expl",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-14T20:16:53Z",
+  "updated": "2026-06-14T20:21:41Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague never wastes an explore: a read-only explore/drive that exhausts its step budget forces one final no-tools synthesis turn and returns a usable partial answer; a run that truly produces nothing reports a distinct non-ok status instead of a misleading status:ok so callers like ask-colleague can detect-and-retry without sentinel string-matching; explore gets a step budget tuned for codebase-mapping; and the ask-colleague wrapper resolves the colleague CLI with zero external-tool dependencies."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Each of the four threads is independently verifiable by a test: a budget-exhausted explore returns synthesized text not the sentinel; an unfinished run reports status:incomplete with non-zero exit; a wide map can fan out to subagents; ask-colleague resolves with no grep."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Agents and wrappers that delegate read-only mapping to colleague: ask-colleague explore callers, culture front-door surveys, and any orchestrator batching explore or drive runs and keying off their status."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The audience is real and already keys off run status/exit today: ask-colleague explore, culture front-door surveys, and batching orchestrators exist, so the contract change is observable by them."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "A read-only explore that exhausts its step budget mapping a large codebase burns the whole budget (up to ~500K tokens) on serial list_dir and read_file, then returns the __COLLEAGUE_NO_RESULT_PRODUCED__ sentinel while reporting status:ok with not_finished or stopped_without_finish set. The most expensive failure mode: full token spend, zero output, misleading success that callers can only detect by string-matching a sentinel."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The failure reproduces: a broad explore at --max-steps 20 on a medium repo lands an artifact with summary == __COLLEAGUE_NO_RESULT_PRODUCED__ and large usage.prompt_tokens (the #191 and #192 repros)."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "When a read-only mapping run detects it has read more than N files (or context is filling toward the budget), it strategizes a subagent fan-out: partition the unmapped surface into small per-folder or N-file chunks explored by parallel subagents whose findings the parent synthesizes, instead of grinding serially or merely demanding a bigger budget. If the run still exhausts the budget or stops without finishing, the loop forces one final no-tools synthesis turn so the caller still gets a usable partial. Any run that did not cleanly finish reports status:incomplete with a non-zero exit, never status:ok. And the ask-colleague wrapper resolves the colleague CLI with zero external-tool dependencies (no grep)."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Each behavior is demonstrable end to end on both mock and vllm: fan-out yields a synthesized map, the forced turn yields a partial, and an unfinished run reports status:incomplete."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "explore is the headline read-only verb; a survey one step too broad must not return nothing after reading everything it needed. A no-result or unfinished run must be detectable by callers at the contract boundary (status plus exit code) without sentinel string-matching, so orchestrators can retry, widen the budget, or escalate."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A caller can branch on the outcome using status plus exit code alone with no sentinel string-match, proven by ask-colleague.sh keying off them."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Out of scope: a raw max-steps bump as the primary fix (fan-out replaces grinding); a new daemon, multi-backend router, or execution sandbox; forced delegation (fan-out stays backend-judged and advisory, a strict no-op when not triggered or declined). Read-only fan-out does no git merge: children return findings only, nothing is written or merged. The subagent caps are unchanged (MAX_SUBAGENT_FANOUT=4, MAX_SUBAGENT_DEPTH=2). No new runtime dependency, socket, or daemon."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The non-goals hold structurally: no new runtime dependency, socket, or daemon (zero-deps guard green); fan-out reuses existing subagents code with no new worktree or merge; and MAX_SUBAGENT_FANOUT=4 / MAX_SUBAGENT_DEPTH=2 are unchanged."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A whole-repo explore on an 80-plus-module package returns a usable synthesized map (via fan-out and/or the forced-synthesis turn) rather than the no-result sentinel; a genuinely empty run reports status:incomplete with a non-zero exit; ask-colleague resolves a colleague checkout on a PATH that has no grep; the e2e mock-vs-vllm shape test and the zero-deps guard stay green."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Each success signal is pinned by a test: synthesized map not the sentinel, status:incomplete plus non-zero exit for the empty run, grep-less PATH resolution, and the e2e shape and zero-deps guards stay green."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "R1 (#191): When _work_loop exits via _EXIT_BUDGET or _EXIT_STOPPED with non-trivial context read but no finish, force ONE final no-tools synthesis turn (out of steps; stop using tools and answer now from what you have read) before assembling the result; fall back to NO_RESULT_PRODUCED only when that forced turn also yields nothing. Mirror the existing _finalize_after_cap precedent at colleague/loop.py:835, runtime-owned so it fires for every backend."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The forced synthesis turn fires for BOTH mock and vllm (runtime-owned in loop.py); a regression test asserts a scripted run consuming the whole max_steps budget on tool calls yields the forced-synthesis text as summary, not NO_RESULT_PRODUCED; existing test_loop / test_clone_lifecycle assertions for the genuinely-empty case still hold."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "R2 (#192): A run that did not cleanly finish (any exit other than _EXIT_FINISHED) reports a distinct status:incomplete and a non-zero exit code; status:ok is reserved for a clean finish via the finish tool. The new status value is part of the contract for every backend (all-engines rule; the e2e mock-vs-vllm shape test is updated to pin it)."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The e2e mock-vs-vllm shape test pins status:incomplete for an unfinished run and status:ok only for a clean finish; ask-colleague.sh branches on the status and exit code with no sentinel string-match; genuine successful runs stay status:ok with exit 0."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "R3 (#188 + #194): During a read-only mapping run the runtime detects read-more-than-N-files (and/or context filling toward the fill-line threshold) and injects ONE structured fan-out recommendation handing the model a concrete per-folder or N-file partition pointed at the existing subagents tool. Backend-judged and advisory (strict no-op if declined), reusing make_batch_spawn / batch_spawn with no new worktree or merge code; read-only fan-out collects child findings without a merge child and respects MAX_SUBAGENT_FANOUT and MAX_SUBAGENT_DEPTH."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The fan-out is a strict no-op (byte-identical TaskResult) when not triggered or declined; it adds no new worktree or merge code (reuses make_batch_spawn / batch_spawn); it fires identically for mock and vllm; read-only children open no PR and perform no merge; the existing FANOUT and DEPTH caps are respected."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R4 (#194): The partial-summary warning gains an exact re-run hint (the step count reached plus the concrete larger --max-steps value to retry with); --max-steps still overrides the default in both directions; explore's default budget is reconsidered in light of fan-out (kept modest because fan-out, not a bigger number, handles breadth) and any change to write or review defaults is deliberate and documented in SKILL.md and the --help usage block."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "The re-run hint prints the actual step count reached and a concrete larger --max-steps value; --max-steps still overrides the default in both directions; any default change to write or review is reflected in SKILL.md and the --help usage block; a test asserts the hint text contains the reached count and a larger budget."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R5 (#190): ask-colleague.sh _colleague_via_uv resolver is grep-free via a pure-bash _pyproject_is_colleague check, resolving a colleague checkout on a PATH that has no grep; the stale comment claiming grep is only used by the uv-fallback resolver is corrected (grep is no longer used at all); a regression test mirrors the existing no-python3 and no-mktemp tests in tests/test_ask_colleague_skill.py."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "No grep invocation remains anywhere in ask-colleague.sh; a regression test resolves a checkout on a grep-less PATH (stub colleague off PATH, point --repo at a checkout, assert resolution via uv run --project); black, isort, flake8, bandit and teken cli doctor --strict stay clean."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "R2 contract: add an INCOMPLETE run status and a non-zero exit for any non-clean-finish run",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/contract.py defines an INCOMPLETE status distinct from OK and ERROR; the loop sets it for any _work_loop exit other than _EXIT_FINISHED, and status:ok is reached only via a clean finish.",
+        "tests/test_e2e_mock.py asserts a clean finish is status:ok with exit 0 while an unfinished (budget or stopped) run is status:incomplete with a non-zero exit, identically for mock and the vllm shape (all-engines).",
+        "a genuine successful finish is unchanged (status:ok, exit 0); the exact non-zero code composes with the existing tri-state 0/1/2 convention ask-colleague.sh already propagates."
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h3"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "R5 grep-free ask-colleague.sh resolver via pure-bash _pyproject_is_colleague",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ask-colleague.sh _colleague_via_uv uses a pure-bash _pyproject_is_colleague check; no grep invocation remains anywhere in the script, asserted by a test scanning the script source.",
+        "a regression test stubs colleague off a grep-less PATH, points --repo at a checkout, and asserts resolution via uv run --project (mirrors the existing no-python3 and no-mktemp tests).",
+        "the stale comment claiming grep is only used by the uv-fallback resolver is corrected; black, isort, flake8, bandit and teken cli doctor --strict stay clean."
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h6"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "R1 forced no-tools synthesis turn on budget/stopped exhaustion",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "when _work_loop exits via _EXIT_BUDGET or _EXIT_STOPPED with non-trivial context read and no finish, the loop runs exactly one no-tools completion (out of steps; answer now from what you have read) and uses its text as summary; mirrors _finalize_after_cap, runtime-owned so it fires for every backend.",
+        "tests/test_loop.py: a scripted run that consumes the whole max_steps budget on tool calls yields the forced-synthesis text as summary, not NO_RESULT_PRODUCED, on mock.",
+        "NO_RESULT_PRODUCED is returned only when the forced turn also yields empty (immediate stop, zero context read); existing genuinely-empty-case assertions in test_loop and test_clone_lifecycle still pass."
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c8",
+        "h2",
+        "c3",
+        "h8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "R3 advisory subagent fan-out for read-only mapping runs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "during a read-only mapping run, when files-read crosses the threshold N or context crosses the fill-line threshold, the loop injects exactly one structured fan-out recommendation naming a concrete per-folder or N-file partition and the subagents tool.",
+        "the recommendation is advisory: when the model declines, TaskResult is byte-identical to today (strict no-op), asserted by a not-triggered test; it fires identically for mock and the vllm shape.",
+        "read-only fan-out reuses make_batch_spawn/batch_spawn with no new worktree or merge code, spawns no merge child, opens no PR, and respects MAX_SUBAGENT_FANOUT and MAX_SUBAGENT_DEPTH; the zero-deps guard stays green."
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c10",
+        "h4",
+        "c4",
+        "h9",
+        "c6",
+        "h11"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "R4 ask-colleague re-run hint, modest budget, status/exit branching, subagent steer",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ask-colleague.sh partial warning prints the actual step count reached and a concrete larger --max-steps value to retry with; a test asserts the hint contains both.",
+        "ask-colleague.sh branches on the run status and exit code (not the NO_RESULT_PRODUCED sentinel string): an incomplete run prints a no-result / widen-scope warning instead of the success-shaped grade footer; a test asserts this.",
+        "--max-steps still overrides the default in both directions; any change to write or review defaults is reflected in SKILL.md and the --help usage block; prompts/explore.md steers toward subagents for wide maps."
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c11",
+        "h5",
+        "c2",
+        "h7",
+        "c5",
+        "h10"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Integration: docs, CLAUDE.md, version bump, and all guards green",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md documents the explore run-completion behavior (forced synthesis, incomplete status, advisory fan-out, grep-free resolver) and its honest limits; CHANGELOG.md gains an entry; pyproject.toml and __init__.py are version-bumped per the version-check CI gate.",
+        "the full suite is green: e2e mock-vs-vllm shape test, zero-deps guard, and the new R1-R5 regression tests; teken cli doctor --strict clean.",
+        "each of the four threads (forced synthesis, incomplete status, advisory fan-out, grep-free resolver) is independently demonstrable via its task's test."
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c7",
+        "h12"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Default value of N and whether the fan-out trigger keys off files-read count, the context fill-line threshold, or both. Proposed: fire on whichever crosses first, N env-tunable, reuse the existing fill-line plumbing.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r2",
+      "text": "Whether read-only fan-out may use all 4 MAX_SUBAGENT_FANOUT slots (no merge child reserved for a read-only map) or stays capped like the write path. Proposed: reserve no merge slot but stay within the existing cap.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r3",
+      "text": "R2 broadens status from ok to incomplete for ANY unfinished run; existing tests and consumers that expect status:ok on a not_finished run (ask-colleague.sh not_finished handling, test_loop, test_clone_lifecycle) must be audited and updated so genuine partials are not mis-flagged.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    }
+  ]
+}
