@@ -414,6 +414,12 @@ class _Work:
     # ``_fillline_offered`` pattern) so the advisory fires at most once per work item.
     mapping_fanout_files: int | None = None
     _mapping_fanout_offered: list[bool] = field(default_factory=list)
+    # Plan-mode auto-trigger (#t8): the instruction-token threshold at/above which
+    # the runtime injects ONE advisory recommendation to enter plan mode. ``None``/
+    # <= 0 is dormant. ``_plan_offered`` is the single-element fired-once cell (the
+    # ``_mapping_fanout_offered`` pattern) so the advisory fires at most once.
+    plan_offer_tokens: int | None = None
+    _plan_offered: list[bool] = field(default_factory=list)
     # continue-working: max consecutive no-tool-call nudges before the loop gives up
     # and stops (replaces the hardcoded ``_MAX_FINISH_NUDGES``). Forwarded by every
     # backend from ``config.max_continue_nudges`` (all-engines rule); falls back to
@@ -783,6 +789,31 @@ def _maybe_offer_mapping_fanout(ctx: _Work) -> None:
         }
     )
     ctx._mapping_fanout_offered.append(True)
+
+
+def _maybe_offer_plan_mode(ctx: _Work) -> None:
+    """Offer the plan-mode advisory once, up front, for a complex task (#t8).
+
+    A strict no-op when dormant (``plan_offer_tokens`` unset / <= 0) or already
+    offered — so a normal task is byte-identical to today. Backend-judged +
+    advisory: the loop injects ONE recommendation pointing at the ``colleague
+    plan`` verb and the model decides whether to act. Offered at most once per
+    work item. Runtime-owned, so it fires identically for every backend (the
+    all-engines rule). Detection lives in :mod:`colleague.plan.trigger`.
+    """
+    threshold = ctx.plan_offer_tokens
+    if not isinstance(threshold, int) or threshold <= 0:
+        return
+    if ctx._plan_offered:
+        return
+    from colleague.plan import trigger as _plan_trigger
+
+    if not _plan_trigger.should_offer_plan_mode(
+        ctx.task.instruction, already_offered=False, threshold_tokens=threshold
+    ):
+        return
+    ctx.messages.append({"role": "user", "content": _plan_trigger.build_plan_recommendation()})
+    ctx._plan_offered.append(True)
 
 
 def _resolve_fillline(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> str:
@@ -1306,6 +1337,11 @@ class ContextControls:
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
     # no-op. Forwarded by every backend from ``config.fanout_files`` (all-engines rule).
     fanout_files: int | None = None
+    # Plan-mode auto-trigger (#t8): the instruction-token threshold at/above which a
+    # normal work item injects ONE advisory recommendation to enter plan mode
+    # (``colleague plan``). ``None``/<= 0 leaves it dormant — a strict no-op (opt-in).
+    # Forwarded by every backend from ``config.plan_offer_tokens`` (all-engines rule).
+    plan_offer_tokens: int | None = None
     # continue-working: max consecutive no-tool-call nudges before the loop gives up.
     # Forwarded by every backend from ``config.max_continue_nudges`` (all-engines
     # rule); ``None`` falls back to ``_MAX_FINISH_NUDGES`` (back-compat / strict no-op).
@@ -1530,6 +1566,7 @@ def run(
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
+        plan_offer_tokens=_context.plan_offer_tokens,
         max_continue_nudges=_resolve_nudge_cap(_context),
         flight=flight_session,
     )
@@ -1537,6 +1574,10 @@ def run(
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
     # complexity within budget; a strict no-op unless armed and the task looks big.
     _maybe_inject_upfront_hint(ctx)
+
+    # Up-front plan-mode advisory (#t8) — injects ONE recommendation to enter plan
+    # mode for a complex task; a strict no-op unless armed (plan_offer_tokens > 0).
+    _maybe_offer_plan_mode(ctx)
 
     # Up-front "too big for one repo" caller warning (#156) — sets
     # result.capacity_warning when even a split can't hold the job; a strict no-op

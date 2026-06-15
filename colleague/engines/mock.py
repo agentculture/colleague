@@ -85,6 +85,7 @@ class MockEngine(Engine):
                 autosplit_target=config.autosplit_target_tokens,
                 fillline_threshold=config.fillline_threshold,
                 fanout_files=config.fanout_files,
+                plan_offer_tokens=config.plan_offer_tokens,
                 max_continue_nudges=config.max_continue_nudges,
             ),
         )

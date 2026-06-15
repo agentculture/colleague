@@ -89,6 +89,7 @@ Usage:
   ask-colleague explore "<question or area>"     Read-only investigation -> findings (no side effects)
   ask-colleague review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
   ask-colleague write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
+  ask-colleague plan    "<task>"                 Colleague PLANS a complex task (spec -> plan -> subagent workforce)
   ask-colleague feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
   ask-colleague feedback list                    List every recorded drive by request + grade (find one by its request)
   ask-colleague clean [--dry-run]                Reap stale/corrupt colleague/* branches + orphaned .colleague/ artifacts (#162)
@@ -131,11 +132,11 @@ EOF
 # ── parse the verb ──────────────────────────────────────────────────────────
 VERB="${1:-}"
 case "$VERB" in
-    explore | review | write | feedback | clean | monitor | guide | stop) shift ;;
+    explore | review | write | plan | feedback | clean | monitor | guide | stop) shift ;;
     -h | --help) usage; exit 0 ;;
     "") usage >&2; exit 1 ;;  # missing arg -> user-input error (#161)
     *)
-        echo "error: unknown verb '$VERB' (expected explore|review|write|feedback|clean|monitor|guide|stop)" >&2
+        echo "error: unknown verb '$VERB' (expected explore|review|write|plan|feedback|clean|monitor|guide|stop)" >&2
         echo "hint: run 'ask-colleague --help'" >&2
         exit 1  # bad verb -> user-input error (#161)
         ;;
@@ -230,7 +231,7 @@ fi
 # failed those verbs in minimal envs). write --apply/--pr lands in place with no
 # throwaway worktree, so it needs no mktemp either.
 case "$VERB" in
-    feedback | clean) require_tools git ;;
+    feedback | clean | plan) require_tools git ;;
     monitor | guide | stop) : ;;
     write)
         if [[ "$APPLY" -eq 1 || "$OPEN_PR" -eq 1 ]]; then
@@ -279,6 +280,20 @@ resolve_colleague || exit 2
 # Per-request timeout is config (no drive flag); EngineConfig reads it from env.
 # A local model can be slow on a growing context, so default generously.
 export COLLEAGUE_TIMEOUT="$TIMEOUT"
+
+# ── plan: colleague does the planning (the inverse of /think) ────────────────
+# plan delegates the WHOLE planning arc to colleague via the `colleague plan`
+# verb — no throwaway worktree, no prompt template. Gated non-interactively
+# (--yes) so a delegating agent can hand off the arc and read the
+# spec -> plan -> workforce result. colleague is the planning mind; /think keeps
+# Claude as the planner (same arc, a different mind).
+if [[ "$VERB" == "plan" ]]; then
+    plan_flags=(--repo "$REPO" --engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --yes)
+    [[ "${JSON_OUT:-0}" -eq 1 ]] && plan_flags+=(--json)
+    "${COLLEAGUE[@]}" plan run "$ARG" "${plan_flags[@]}"
+    exit $?
+fi
+
 COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
 # --watch arms a flight for EVERY drive verb (explore/review/write), so it lives on
 # the shared flag list — not inside one verb's path — so monitor/guide/stop work.

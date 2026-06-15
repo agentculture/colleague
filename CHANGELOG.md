@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-06-15
+
+### Added
+
+- **Plan mode (`colleague plan`)** — colleague now plans a complex task itself: the same arc as the `/think` → `/spec-to-plan` → `/assign-to-workforce` skills, but with **colleague as the planning mind** (a different mind from the requester; the diversity is the point — `/think` keeps Claude as the planner). Native-first and zero-deps (no devague dependency); the orchestrator is engine-agnostic and fires identically for `mock` and `vllm-openai` (all-engines rule). New `colleague/plan/` subpackage:
+  - **frame** (`frame.py`) — native plan-mode data model: claims, honesty conditions, steps with a mandatory/optional attribute; stdlib-only, JSON round-trip.
+  - **convergence** (`convergence.py`) — the required-kinds gate (announcement, audience, after_state, before_state-or-why, boundary, success_signal + a confirmed honesty condition on every spec-affecting claim); optional steps are skippable.
+  - **checkpoint** (`checkpoint.py`) — durable file-based gate state under `.colleague/plan/<id>.json`; resume from the last resolved gate; no daemon/socket.
+  - **reviewer** (`reviewer.py`) — a same-model critic (different system prompt) that critiques a proposed item before the operator gate; advisory, never confirms; disabled → byte-identical no-op.
+  - **spec / plan / workforce stages** (`spec_stage.py`, `plan_stage.py`, `workforce.py`) — per-item capture→interrogate→review micro-cycle; plan items sized for one bounded child with acceptance criteria + deterministic dependency waves; workforce fan-out reusing `colleague.subagents` `make_batch_spawn`/`batch_spawn` unchanged (FANOUT=4/DEPTH=2), surfacing (never force-merging) conflicts.
+  - **judgment** (`trigger.py`, `pushback.py`) — auto-trigger an advisory plan-mode recommendation for a complex task; push back when a task is too small for the pipeline.
+  - **orchestrator** (`orchestrator.py`) — drives spec→plan→workforce gated at every step; **never self-confirms**; planning/implementation never runs before the spec converges.
+- **`colleague plan` CLI verb** — `plan run` / `plan status` / `plan overview` (+ `explain plan`); the operator gates each item on stdin, `--yes` auto-confirms for non-interactive/agent use, `--review` runs the critic. Needs a live backend.
+- **`Engine.make_complete`** — a public one-shot completion seam so non-work-loop features (plan mode) can drive the model directly; `vllm-openai` implements it, `mock` inherits the default (plan mode needs a live backend).
+- **Auto-trigger** — `COLLEAGUE_PLAN_OFFER_TOKENS` (`EngineConfig.plan_offer_tokens`, default 0 = dormant): a normal work item injects ONE advisory recommendation to enter plan mode for a complex task; opt-in, strict no-op when dormant, forwarded by every backend (all-engines rule).
+- **`ask-colleague plan`** — the inverse-skill surface: a delegating agent hands the whole planning arc to colleague.
+
+Specification + plan: `docs/specs/2026-06-15-colleague-has-a-plan-mode-hand-it-a-vague-or-overs.md` and `docs/plans/2026-06-15-colleague-has-a-plan-mode-hand-it-a-vague-or-overs.md`. Follow-ups filed: spec-less "quick plan" (#199), internal lint pre-finish gate (#200), `Engine.make_complete` seam (#204).
+
 ## [1.10.0] - 2026-06-15
 
 ### Added

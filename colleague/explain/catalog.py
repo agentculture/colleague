@@ -964,6 +964,42 @@ process; a bare work item never starts it.
     colleague promote --repo . --serve --irc-host localhost --irc-port 6667  # go live
 """
 
+_PLAN = """\
+# colleague plan
+
+Colleague plans a complex task — the same arc as the `/think` -> `/spec-to-plan`
+-> `/assign-to-workforce` skills, but with COLLEAGUE as the planning mind (a
+different mind from the requester; the diversity is the point). It proposes spec
+claims, you gate each one, it proposes a split plan (items + dependency waves),
+then it fans the waves out to a subagent-colleague workforce, reusing the
+existing `subagents` machinery. Plan mode needs a live backend (the `mock` engine
+has no model).
+
+## Verbs
+
+- `plan "<request>"` — plan a task end to end (spec -> plan -> workforce)
+- `plan status` — read the last plan checkpoint
+- `plan overview` — describe the plan surface
+
+## Gating
+
+You gate each proposed item — colleague proposes, you confirm/reject:
+
+- default: gate each item on stdin (an interactive terminal)
+- `--yes`: auto-confirm every gate (non-interactive / agent use)
+- `--review`: run the same-model critic before each gate (advisory)
+
+Colleague never self-confirms; planning/implementation never runs before the spec
+converges. The cross-invocation `plan continue` resume is a documented follow-up.
+
+## Usage
+
+    colleague plan "add a rate limiter to the API" --repo .
+    colleague plan "refactor the auth module" --yes --json
+    colleague plan status --repo .
+    colleague plan overview
+"""
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("colleague",): _ROOT,
@@ -1032,4 +1068,8 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("flight", "stop"): _FLIGHT,
     ("flight", "list"): _FLIGHT,
     ("flight", "overview"): _FLIGHT,
+    ("plan",): _PLAN,
+    ("plan", "run"): _PLAN,
+    ("plan", "status"): _PLAN,
+    ("plan", "overview"): _PLAN,
 }

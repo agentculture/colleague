@@ -266,6 +266,14 @@ class VllmOpenAIEngine(Engine):
 
         return complete
 
+    def make_complete(self, config: EngineConfig) -> CompleteFn:
+        """Public one-shot completion seam (see :meth:`Engine.make_complete`).
+
+        Returns the same ``complete`` the work loop uses, so non-work-loop
+        features (``colleague plan``) can drive the live model directly.
+        """
+        return self._make_complete(config)
+
     def work(self, task: Task, config: EngineConfig) -> TaskResult:
         """Work the task through the shared bounded tool-loop.
 
@@ -297,6 +305,7 @@ class VllmOpenAIEngine(Engine):
                 autosplit_target=config.autosplit_target_tokens,
                 fillline_threshold=config.fillline_threshold,
                 fanout_files=config.fanout_files,
+                plan_offer_tokens=config.plan_offer_tokens,
                 max_continue_nudges=config.max_continue_nudges,
             ),
         )
