@@ -23,8 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
-
+from colleague.plan.frame import PlanFrame
 
 # ── constants ────────────────────────────────────────────────────────────────
 
@@ -43,12 +42,21 @@ MANDATORY_KINDS = frozenset(MANDATORY_KIND_ORDER)
 BEFORE_OR_WHY = frozenset(["before_state", "why_it_matters"])
 
 SPEC_AFFECTING_KINDS = frozenset(
-    ["announcement", "audience", "after_state", "before_state",
-     "why_it_matters", "boundary", "success_signal", "requirement"]
+    [
+        "announcement",
+        "audience",
+        "after_state",
+        "before_state",
+        "why_it_matters",
+        "boundary",
+        "success_signal",
+        "requirement",
+    ]
 )
 
 
 # ── result type ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class ConvergenceResult:
@@ -76,6 +84,7 @@ class ConvergenceResult:
 
 # ── convergence logic ───────────────────────────────────────────────────────
 
+
 def converge(frame: PlanFrame) -> ConvergenceResult:
     """Evaluate the convergence gate for *frame*.
 
@@ -84,9 +93,7 @@ def converge(frame: PlanFrame) -> ConvergenceResult:
     """
 
     # ── 1. mandatory kinds ──────────────────────────────────────────────
-    confirmed_kinds: set[str] = {
-        c.kind for c in frame.claims if c.state == "confirmed"
-    }
+    confirmed_kinds: set[str] = {c.kind for c in frame.claims if c.state == "confirmed"}
 
     missing_kinds: list[str] = []
     for kind in MANDATORY_KIND_ORDER:
@@ -102,8 +109,7 @@ def converge(frame: PlanFrame) -> ConvergenceResult:
     # ── 2. honesty conditions for spec-affecting confirmed claims ──────
     # Build a set of claim_ids that have at least one confirmed honesty condition.
     confirmed_honesty_claim_ids: set[str] = {
-        hc.claim_id for hc in frame.honesty_conditions
-        if hc.state == "confirmed"
+        hc.claim_id for hc in frame.honesty_conditions if hc.state == "confirmed"
     }
 
     claims_missing_honesty: list[str] = []
@@ -116,9 +122,7 @@ def converge(frame: PlanFrame) -> ConvergenceResult:
             claims_missing_honesty.append(claim.id)
 
     # ── 3. optional steps ───────────────────────────────────────────────
-    skipped_optional: list[str] = [
-        step.id for step in frame.steps if not step.mandatory
-    ]
+    skipped_optional: list[str] = [step.id for step in frame.steps if not step.mandatory]
 
     passed = len(missing_kinds) == 0 and len(claims_missing_honesty) == 0
 

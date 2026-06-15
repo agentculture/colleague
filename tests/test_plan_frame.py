@@ -7,7 +7,6 @@ Covers:
 """
 
 import json
-import sys
 from importlib import import_module
 
 import pytest
@@ -19,8 +18,8 @@ from colleague.plan.frame import (
     Step,
 )
 
-
 # ── (a) Round-trip: save -> load -> equal ──────────────────────────────────
+
 
 def _sample_frame() -> PlanFrame:
     """A representative PlanFrame exercising every field."""
@@ -84,6 +83,7 @@ def test_planframe_empty_roundtrip():
 
 # ── (b) Claims carry kind + state; steps carry mandatory ───────────────────
 
+
 def test_claim_defaults():
     """A Claim with only id, kind, text gets default state='proposed'."""
     c = Claim(id="x", kind="decision", text="Go with option A")
@@ -126,14 +126,13 @@ def test_claim_roundtrip():
 
 def test_honesty_condition_roundtrip():
     """An HonestyCondition round-trips through to_dict / from_dict."""
-    original = HonestyCondition(
-        id="h1", claim_id="c1", text="Check", state="confirmed"
-    )
+    original = HonestyCondition(id="h1", claim_id="c1", text="Check", state="confirmed")
     restored = HonestyCondition.from_dict(original.to_dict())
     assert restored == original
 
 
 # ── (c) frame.py imports only stdlib ────────────────────────────────────────
+
 
 def test_frame_imports_stdlib_only():
     """colleague.plan.frame imports only stdlib modules (no third-party)."""
@@ -158,10 +157,7 @@ def test_frame_imports_stdlib_only():
             continue
         top = mod_name.split(".")[0]
         if top not in _stdlib_allowlist:
-            pytest.fail(
-                f"frame.py references non-stdlib module {mod_name!r} "
-                f"(via {name!r})"
-            )
+            pytest.fail(f"frame.py references non-stdlib module {mod_name!r} " f"(via {name!r})")
 
 
 def test_no_devague_import():

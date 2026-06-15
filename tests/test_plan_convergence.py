@@ -5,15 +5,17 @@ from __future__ import annotations
 from colleague.plan.convergence import ConvergenceResult, converge
 from colleague.plan.frame import Claim, HonestyCondition, PlanFrame, Step
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _claim(kind: str, state: str = "confirmed", id: str = "") -> Claim:
     return Claim(id=id or kind, kind=kind, text=f"{kind} text", state=state)
 
 
 def _honesty(claim_id: str, state: str = "confirmed", id: str = "") -> HonestyCondition:
-    return HonestyCondition(id=id or f"hc-{claim_id}", claim_id=claim_id, text=f"hc for {claim_id}", state=state)
+    return HonestyCondition(
+        id=id or f"hc-{claim_id}", claim_id=claim_id, text=f"hc for {claim_id}", state=state
+    )
 
 
 def _step(id: str, mandatory: bool) -> Step:
@@ -21,6 +23,7 @@ def _step(id: str, mandatory: bool) -> Step:
 
 
 # ── missing mandatory kinds ─────────────────────────────────────────────────
+
 
 def test_empty_frame_blocks_with_all_missing_kinds():
     frame = PlanFrame()
@@ -72,6 +75,7 @@ def test_all_mandatory_kinds_confirmed_but_no_honesty_blocks():
 
 
 # ── passed case ──────────────────────────────────────────────────────────────
+
 
 def test_all_mandatory_confirmed_with_honesty_passes():
     """All mandatory kinds confirmed + every spec-affecting claim has confirmed honesty → passes."""
@@ -127,6 +131,7 @@ def test_both_before_state_and_why_it_matters_passes():
 
 
 # ── honesty condition checks ────────────────────────────────────────────────
+
 
 def test_unconfirmed_honesty_blocks():
     """A confirmed claim with only a proposed honesty condition still blocks."""
@@ -210,10 +215,21 @@ def test_confirmed_requirement_needs_honesty():
         _claim("requirement", id="req-1"),
     ]
     # Spec-affecting claims without honesty for req-1
-    spec_affecting = [c for c in claims if c.kind in {
-        "announcement", "audience", "after_state", "before_state",
-        "why_it_matters", "boundary", "success_signal", "requirement",
-    }]
+    spec_affecting = [
+        c
+        for c in claims
+        if c.kind
+        in {
+            "announcement",
+            "audience",
+            "after_state",
+            "before_state",
+            "why_it_matters",
+            "boundary",
+            "success_signal",
+            "requirement",
+        }
+    ]
     honesty = [_honesty(c.id) for c in spec_affecting if c.id != "req-1"]
     frame = PlanFrame(claims=claims, honesty_conditions=honesty)
     result = converge(frame)
@@ -232,10 +248,22 @@ def test_unconfirmed_spec_affecting_claim_ignored_for_honesty():
         _claim("before_state"),
         _claim("requirement", id="req-1", state="proposed"),
     ]
-    spec_affecting = [c for c in claims if c.kind in {
-        "announcement", "audience", "after_state", "before_state",
-        "why_it_matters", "boundary", "success_signal", "requirement",
-    } and c.state == "confirmed"]
+    spec_affecting = [
+        c
+        for c in claims
+        if c.kind
+        in {
+            "announcement",
+            "audience",
+            "after_state",
+            "before_state",
+            "why_it_matters",
+            "boundary",
+            "success_signal",
+            "requirement",
+        }
+        and c.state == "confirmed"
+    ]
     honesty = [_honesty(c.id) for c in spec_affecting]
     frame = PlanFrame(claims=claims, honesty_conditions=honesty)
     result = converge(frame)
@@ -244,6 +272,7 @@ def test_unconfirmed_spec_affecting_claim_ignored_for_honesty():
 
 
 # ── optional steps ───────────────────────────────────────────────────────────
+
 
 def test_optional_step_skipped_and_recorded():
     """Skipping an optional step is permitted and the id is recorded."""
@@ -304,6 +333,7 @@ def test_mixed_steps_only_optional_recorded():
 
 
 # ── ConvergenceResult dataclass ──────────────────────────────────────────────
+
 
 def test_convergence_result_fields():
     """ConvergenceResult has the expected fields."""

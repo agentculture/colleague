@@ -14,8 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ── Claim ────────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class Claim:
@@ -61,6 +61,7 @@ class Claim:
 
 # ── HonestyCondition ────────────────────────────────────────────────────────
 
+
 @dataclass
 class HonestyCondition:
     """An honesty condition attached to a claim.
@@ -103,6 +104,7 @@ class HonestyCondition:
 
 # ── Step ────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Step:
     """One step within a plan frame.
@@ -139,6 +141,7 @@ class Step:
 
 # ── PlanFrame ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class PlanFrame:
     """A plan-mode frame: claims, honesty conditions, and steps.
@@ -164,8 +167,7 @@ class PlanFrame:
         return cls(
             claims=[Claim.from_dict(c) for c in data.get("claims", [])],
             honesty_conditions=[
-                HonestyCondition.from_dict(h)
-                for h in data.get("honesty_conditions", [])
+                HonestyCondition.from_dict(h) for h in data.get("honesty_conditions", [])
             ],
             steps=[Step.from_dict(s) for s in data.get("steps", [])],
         )
