@@ -407,6 +407,11 @@ class _Work:
     # ``_fillline_offered`` pattern) so the advisory fires at most once per work item.
     mapping_fanout_files: int | None = None
     _mapping_fanout_offered: list[bool] = field(default_factory=list)
+    # continue-working: max consecutive no-tool-call nudges before the loop gives up
+    # and stops (replaces the hardcoded ``_MAX_FINISH_NUDGES``). Forwarded by every
+    # backend from ``config.max_continue_nudges`` (all-engines rule); falls back to
+    # ``_MAX_FINISH_NUDGES`` when a ContextControls omits it (back-compat / no-op).
+    max_continue_nudges: int = _MAX_FINISH_NUDGES
     # Flight-control plane (the piloting feature): an armed ``FlightSession`` when the
     # task is a watchable flight (``task.watch``), else ``None`` — a strict no-op.
     # When set, the loop appends a live feed record per turn and reads the per-flight
@@ -977,7 +982,7 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
-    """Handle a turn that requested no tool — nudge once, else stop (colleague#142).
+    """Handle a turn that requested no tool — nudge up to the cap, else stop (#142).
 
     The contract is to call ``finish``; a bare prose turn is usually the model
     trailing off mid-task. Returns ``(nudges, exit)``: with budget remaining it
@@ -986,7 +991,7 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
     records the trailing content as the summary (so a partial answer is not lost)
     and returns ``(nudges, _EXIT_STOPPED)``.
     """
-    if nudges < _MAX_FINISH_NUDGES:
+    if nudges < ctx.max_continue_nudges:
         if resp.content:
             ctx.messages.append({"role": "assistant", "content": resp.content})
         ctx.messages.append({"role": "user", "content": _FINISH_NUDGE})
@@ -1236,6 +1241,10 @@ class ContextControls:
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
     # no-op. Forwarded by every backend from ``config.fanout_files`` (all-engines rule).
     fanout_files: int | None = None
+    # continue-working: max consecutive no-tool-call nudges before the loop gives up.
+    # Forwarded by every backend from ``config.max_continue_nudges`` (all-engines
+    # rule); ``None`` falls back to ``_MAX_FINISH_NUDGES`` (back-compat / strict no-op).
+    max_continue_nudges: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1456,6 +1465,11 @@ def run(
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
+        max_continue_nudges=(
+            _context.max_continue_nudges
+            if _context.max_continue_nudges is not None
+            else _MAX_FINISH_NUDGES
+        ),
         flight=flight_session,
     )
 

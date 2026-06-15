@@ -774,3 +774,67 @@ def test_run_model_none_is_identical_to_no_model_kwarg(tmp_path: Path) -> None:
 
     assert (tmp_path / "nm.txt").read_text() == "x"
     assert result.hook_firings == []
+
+
+# ---------------------------------------------------------------------------
+# continue-working: configurable no-tool-call nudge cap (the t5-class stall fix)
+# ---------------------------------------------------------------------------
+
+
+def test_continue_nudge_cap_resumes_past_first_stall(tmp_path: Path) -> None:
+    """With ``max_continue_nudges=2`` a model that stalls twice then finishes resumes
+    past the FIRST stall and completes — where the old single-nudge cap stops it after
+    the first stall (the t5-class failure: a no-tool-call turn ended the run mid-task).
+    """
+    turn = {"n": 0}
+
+    def stalls_twice_then_finishes(_messages: list[dict]) -> ModelResponse:
+        turn["n"] += 1
+        if turn["n"] <= 2:
+            return ModelResponse(content="Let me check:")  # a stall — no tool call
+        return ModelResponse(
+            tool_calls=[ToolCall("1", "finish", {"summary": "done after resuming"})]
+        )
+
+    # cap=2: two nudges absorb both stalls, the third turn finishes cleanly.
+    result = run(
+        stalls_twice_then_finishes,
+        Task.new(str(tmp_path), "resume past stall"),
+        max_steps=8,
+        context=ContextControls(max_continue_nudges=2),
+    )
+    assert result.status == OK
+    assert result.stopped_without_finish is False
+    assert result.summary == "done after resuming"
+
+    # Contrast — the SAME model under the old single-nudge cap stops without finishing.
+    turn["n"] = 0
+    stopped = run(
+        stalls_twice_then_finishes,
+        Task.new(str(tmp_path), "single nudge stops"),
+        max_steps=8,
+        context=ContextControls(max_continue_nudges=1),
+    )
+    assert stopped.stopped_without_finish is True
+    assert stopped.status == INCOMPLETE
+
+
+def test_continue_nudge_cap_bounds_termination(tmp_path: Path) -> None:
+    """An always-stalling model stops after exactly the cap's worth of nudges — the
+    loop terminates on the cap (not the step budget), so continuation never runs away.
+    """
+    calls = {"n": 0}
+
+    def always_stalls(_messages: list[dict]) -> ModelResponse:
+        calls["n"] += 1
+        return ModelResponse(content="thinking...")
+
+    result = run(
+        always_stalls,
+        Task.new(str(tmp_path), "bounded"),
+        max_steps=20,  # generous: the CAP must end it, not the step budget
+        context=ContextControls(max_continue_nudges=2),
+    )
+    assert result.stopped_without_finish is True
+    assert result.not_finished is False  # cap stop, not budget exhaustion
+    assert calls["n"] == 3  # 2 nudges (turns 1,2) then stop on turn 3
