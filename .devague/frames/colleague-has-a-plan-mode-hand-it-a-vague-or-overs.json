@@ -1,0 +1,543 @@
+{
+  "slug": "colleague-has-a-plan-mode-hand-it-a-vague-or-overs",
+  "title": "Colleague has a plan mode: hand it a vague or oversized assignment and it works backwards into a reviewed spec, turns that spec into a split plan, then runs the small items as a workforce of subagent colleagues \u2014 staged in small steps, not one big leap",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-15T15:45:12Z",
+  "updated": "2026-06-15T16:43:36Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague has a plan mode: hand it a vague or oversized assignment and it works backwards into a reviewed spec, turns that spec into a split plan, then runs the small items as a workforce of subagent colleagues \u2014 staged in small steps, not one big leap",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "With devague installed, 'colleague plan \"<vague task>\"' drives the staged arc to a reviewed spec, then a plan, then a workforce fan-out, pausing at every operator gate; with devague absent it fails fast with a precondition message, never a crash or a silent skip",
+          "status": "rejected"
+        },
+        {
+          "id": "h9",
+          "text": "'colleague plan \"<vague task>\"' runs the staged arc to a reviewed spec, then a plan, then a workforce fan-out, pausing at every operator gate, with NOTHING extra installed (native-first, zero deps); any devague fallback degrades gracefully when devague is absent, never crashing or silently skipping",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators \u2014 and delegating agents via ask-colleague \u2014 who hand colleague an assignment too vague or too large for a single bounded work item",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "A real class of assignments is genuinely too vague or too large for a single bounded colleague work item (today they hit auto-split or degradation); plan mode targets exactly those, not ordinary scoped tasks",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "Colleague stages the assignment itself: idea -> reviewed spec (handled per-item), spec -> plan, plan -> small items, items -> a subagent-colleague workforce \u2014 each stage a discrete checkpoint, all inside the bounded loop",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A single 'colleague plan' invocation carries an assignment through all four stages with checkpoints \u2014 the operator never hand-stitches think/spec-to-plan/assign-to-workforce for colleague's own planning",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today colleague meets a too-big/too-vague task with a one-shot auto-split or graceful degradation; the staged spec->plan->workforce pipeline only exists as external Claude Code skills (think / spec-to-plan / assign-to-workforce) the operator drives by hand \u2014 colleague can't run it itself",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "Today colleague has no native staged planner \u2014 verifiable by the absence of a 'plan' verb in the CLI; the staged arc exists only as the Claude Code skills",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "A vague or oversized assignment gets the same backwards-spec discipline \u2014 converge on evidence, not vibes \u2014 natively, repeatably and verifiably, instead of one lossy leap",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "A plan-mode spec exports only after its convergence gate passes (the same evidence discipline), so the output is a pressure-tested spec, not a one-shot guess \u2014 demonstrable by the gate refusing to export an unconverged frame",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "success_signal",
+      "text": "A vague/oversized assignment yields a reviewed spec artifact, a split plan, and a workforce run, staged with checkpoints; fires identically for mock and vllm-openai; zero new runtime deps; strict no-op shape when plan mode isn't engaged",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "On a sample vague/oversized assignment, plan mode yields a reviewed spec + a split plan + a workforce run, identical in shape for mock and vllm-openai, with no new runtime dep and a byte-identical no-op when not engaged \u2014 checkable by the e2e shape test + zero-deps guard",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "Not a daemon/server, not a multi-backend router, not auto-confirmation of its own spec (the spec-review checkpoint stays operator-owned, matching devague's user-only-confirm rule), not a reimplementation of subagents (reuses the existing fan-out/merge machinery), not a hard dependency on devague (degrades when absent)",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "decision",
+      "text": "Surface: a new agent-first verb 'colleague plan' with staged sub-states (plan status / plan continue), not a session toggle or a single loop tool",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "decision",
+      "text": "Gate model: between stages colleague stops at a file-based checkpoint (precedent: the flight control plane) and resumes via 'colleague plan continue'; the spec-review checkpoint is an operator gate, downstream stages may run autonomously once the spec is approved",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "decision",
+      "text": "Engine: the staged planner is native and zero-deps (colleague-owned plan artifact), optionally enriched by the existing devague loop tool when installed, degrading gracefully when absent (like the /tokenize carve-out)",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The spec stage handles each spec item separately \u2014 a per-claim capture -> interrogate -> review micro-cycle \u2014 rather than capturing the whole spec in one turn",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The spec stage surfaces one proposed item at a time and blocks on the operator's confirm/reject before proposing the next \u2014 demonstrable in a transcript of per-item gates, not a single bulk capture",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The workforce stage maps the plan's small items onto the existing subagents fan-out (dependency-aware waves), reusing make_batch_spawn / batch_spawn with no new worktree/merge code",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "Not a daemon/server, not a multi-backend router, not autonomous (every stage AND every sub-step is an operator gate; colleague never self-confirms a spec), not a reimplementation of subagents (the workforce reuses the existing fan-out/merge machinery), and not a reimplementation of devague/spec-to-plan (it orchestrates those CLIs)",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "Gate model: every stage AND every sub-step inside a stage is an operator gate (the announcement, each captured claim, each risk, each plan item, the workforce go/no-go). Colleague proposes via devague capture/interrogate; the operator runs confirm/reject. Nothing past a gate runs autonomously \u2014 plan mode is a guided, heavily-checkpointed flow, not fire-and-forget",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "Engine: plan mode orchestrates the real devague CLIs \u2014 'devague' (idea->spec) and 'devague plan' (spec->plan) \u2014 driving their deterministic moves, and performs the workforce fan-out from 'devague plan waves' using colleague's own subagents machinery. 'colleague plan' therefore REQUIRES devague installed: a hard precondition for this verb (fails fast with a clear message when absent), unlike the rest of colleague where the devague tool is optional",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The plan stage produces items each sized for one bounded child work item \u2014 granular in the plan stage as well as the spec stage \u2014 each carrying acceptance criteria and an honest dependency order",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Each plan item carries acceptance criteria and is small enough that one child work item completes it within the step/token budget; the dependency order is explicit (waves), not implied",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Each gate is a durable file-based checkpoint (precedent: the flight control plane plus devague's own .devague state): 'colleague plan' stops with the proposed item + the recommended operator move surfaced, and 'colleague plan continue' resumes after the operator resolves it. No daemon, no socket",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "Killing colleague between stages or sub-steps and re-running 'colleague plan continue' resumes from the last resolved gate (state is entirely on disk); no daemon/socket/background process is required",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The workforce stage fans the plan's dependency waves out to parallel subagent colleagues in isolated worktrees with a sequential merge child, reusing make_batch_spawn / batch_spawn unchanged (caps unchanged: FANOUT=4, DEPTH=2) \u2014 TDD-gated merges, surfacing not force-merging conflicts",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "The fan-out calls colleague/subagents.py make_batch_spawn/batch_spawn unchanged (no new worktree/merge code), honours FANOUT=4/DEPTH=2, and surfaces unresolvable merge conflicts rather than force-merging",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "assumption",
+      "text": "devague is a subprocess CLI dependency for the 'colleague plan' verb, not a Python runtime dependency \u2014 'dependencies = []' still holds (colleague shells out, same model as the existing culture/devague loop tools); only this one verb hard-requires the external CLI",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The zero-deps guard still passes: 'colleague plan' invokes devague only via subprocess, never imports it; 'dependencies = []' is unchanged",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "This is a deliberate re-spec expanding colleague's v1 scope with a new orchestration verb; it holds the conventions \u2014 zero Python runtime deps (devague is a subprocess precondition), no socket, no daemon (gates are file-based + resume), all-engines (orchestration/checkpoints/fan-out are runtime-owned; only proposal quality varies by backend)",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "Plan-mode steps carry a mandatory/optional attribute. Mandatory steps cannot be skipped and must be resolved at their gate \u2014 the announcement plus the devague convergence-required kinds (audience, after_state, before_state-or-why_it_matters, boundary, success_signal, and a confirmed honesty condition on every spec-affecting claim). Optional steps (extra risks, extra assumptions, nice-to-have claims) the operator may skip, and the skip is recorded",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "Proceeding past a mandatory step without resolving it is blocked (plan mode reuses the existing convergence gate's required-kinds rule rather than re-implementing it); skipping an optional step is permitted and recorded in the artifact",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "Selected steps get an agent-reviewer critique pass BEFORE the operator gate: colleague runs the SAME backend model with a critic system prompt (an adversarial persona) over the proposed item and surfaces weaknesses, risks, and missing honesty conditions as advisory input. The reviewer never confirms \u2014 confirmation stays user-only. This intra-model critique (persona swap) is deliberately distinct from the different-backend diversity of ask-colleague / subagents",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The reviewer is a second completion against config.model with a critic system prompt (no second model required); its critique is surfaced at the gate as non-authoritative input; with the reviewer disabled the propose->operator-gate flow is byte-identical, and it fires identically for mock and vllm-openai (all-engines)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "The agent-reviewer is same-model / different-system-prompt by default, on for consequential steps (the spec as a whole, each parked risk, the plan, the workforce go/no-go) and configurable/disableable; the critic prompt is a built-in plan-mode default, overridable via the existing layered AGENTS/skills config",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Mandatory steps cannot be skipped and must be resolved at their gate: announcement, audience, after_state, before_state-or-why_it_matters, boundary, success_signal, and a confirmed honesty condition on every spec-affecting claim. Every other step (extra risks, extra assumptions, nice-to-have claims) is optional; the operator may skip it and the skip is recorded",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Proceeding past a mandatory step without resolving it is blocked by plan mode's own native convergence check (the same required-kinds rule); skipping an optional step is permitted and recorded in the artifact",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "Engine: plan mode drives the staged arc NATIVELY \u2014 a colleague-owned plan artifact plus its own staged capture/interrogate/converge/waves logic mirroring devague's methodology \u2014 so the verb carries NO hard dependency and 'dependencies = []' holds; it runs with nothing extra installed. devague is added as an optional subprocess fallback ONLY IF reimplementing its convergence/spec-to-plan/waves engine proves too costly. Native-first, devague-only-if-we-have-to",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c26",
+      "kind": "boundary",
+      "text": "Not a daemon/server, not a multi-backend router, not autonomous (every stage AND every sub-step is an operator gate; colleague never self-confirms), not a reimplementation of subagents (the workforce reuses the existing fan-out/merge machinery). It DOES reimplement devague's planning methodology natively (native-first) rather than hard-depending on the devague CLI",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "Plan mode opens no socket and forks no daemon, never auto-confirms its own spec, and reuses colleague/subagents.py for the fan-out \u2014 verifiable by the boundary tests and the absence of a self-confirm path in colleague's own gate",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c27",
+      "kind": "assumption",
+      "text": "Plan mode keeps 'dependencies = []': the native arc imports no third-party package and shells out to nothing by default. Any future devague fallback is a subprocess CLI (never a Python import), so the zero-deps guard passes either way",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The zero-deps guard still passes: plan mode imports no third-party package; any devague use is via subprocess only, never an import",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c28",
+      "kind": "decision",
+      "text": "Overlap resolved: SAME arc, DIFFERENT planner. 'colleague plan' / 'ask-colleague plan' = COLLEAGUE is the planning mind; the 'think' skill = Claude is the planning mind. Parallel-by-design (the diversity is the point), not duplication",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c29",
+      "kind": "decision",
+      "text": "'ask-colleague' gains a 'plan' verb so a delegating agent (e.g. Claude) can hand the WHOLE planning arc to colleague \u2014 colleague does the planning \u2014 the inverse-skill surface mirroring how 'think' keeps Claude as planner",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "Deliberate re-spec expanding colleague's v1 scope with a new orchestration verb, holding the conventions: zero Python runtime deps (native-first; devague only as an optional subprocess fallback), no socket, no daemon (gates are file-based + resume), all-engines (orchestration/checkpoints/critique/fan-out are runtime-owned; only proposal quality varies by backend)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c31",
+      "kind": "decision",
+      "text": "Gate model: every stage AND every sub-step is an operator gate (the announcement, each captured claim, each risk, each plan item, the workforce go/no-go). Colleague proposes via its native staged capture/interrogate; the operator confirms or rejects each one. Nothing past a gate runs autonomously \u2014 a guided, heavily-checkpointed flow, not fire-and-forget",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c32",
+      "kind": "audience",
+      "text": "Operators \u2014 and delegating agents via ask-colleague \u2014 who need colleague to handle genuinely COMPLEX implementations using the devague paradigm (spec -> plan -> workforce), not just single scoped work items",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "There is a real class of complex implementations colleague today cannot do well in one bounded work item; plan mode lets colleague carry them via the devague paradigm \u2014 verifiable on a sample complex task",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c33",
+      "kind": "after_state",
+      "text": "Plan mode has two entry paths: (1) explicit \u2014 invoked with 'colleague plan' / 'ask-colleague plan'; (2) automatic \u2014 during a normal work item colleague detects a feature that needs investigation (no clean implementation path) and triggers/suggests the spec-based devague-paradigm flow. Either path stages the assignment idea -> reviewed spec -> plan -> small items -> subagent-colleague workforce, each step a gated checkpoint",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "Both entry paths reach the SAME staged gated arc: 'colleague plan <task>' enters it explicitly, and a normal work item on a no-clean-path feature surfaces an advisory trigger into it",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c34",
+      "kind": "why_it_matters",
+      "text": "Two reasons: colleague can carry genuinely complex tasks instead of degrading on them; and a DIFFERENT mind does the planning (the diversity is the value) \u2014 converging on evidence, not vibes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "The planning mind is colleague (a different backend than the requesting agent) and the staged arc converges on confirmed evidence before any implementation",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c35",
+      "kind": "success_signal",
+      "text": "Colleague can spec, plan, and implement a complex task end-to-end via the subagent-colleague workforce; AND it exercises judgment about WHEN to plan \u2014 pushing back when a task is too small for the pipeline, suggesting the spec-based flow when a task is hard. Fires identically for mock and vllm-openai; zero new runtime deps; strict no-op when not engaged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "On a complex task colleague produces spec+plan+workforce implementation; on a trivially small task 'colleague plan' pushes back to a plain work item; on a hard normal task colleague suggests plan mode \u2014 all three observable, identical in shape for mock and vllm-openai, zero new deps",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "Auto-trigger: beyond the explicit verb, during a normal work item colleague detects when a feature needs investigation (no clean implementation path / genuinely hard) and injects ONE advisory recommendation to enter the spec-based plan flow \u2014 precedent: the auto-split and capacity-warning recommendations; backend-judged, never a forced gate, strict no-op on a clear task",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "On a no-clean-path task colleague injects exactly ONE advisory plan-mode recommendation (like the auto-split recommendation); the model decides whether to act; on a clear scoped task it is a byte-identical no-op",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "Pushback: colleague declines to spin up the full spec -> plan -> workforce pipeline for a clearly small/scoped task \u2014 it pushes back and recommends a direct 'colleague work' instead, rather than over-engineering a trivial task",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "Invoking 'colleague plan' on a trivially small task yields a pushback recommending a plain 'colleague work', not a full pipeline run",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Relationship to the existing think / spec-to-plan / assign-to-workforce Claude Code skills: does 'colleague plan' replace that operator-driven arc for colleague's own use, or run as a parallel native path? Risk of two divergent pipelines",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Ergonomics of many sub-step gates: one 'colleague plan continue' per gate could be tedious; may need a batched-review confirm (devague confirm --from-review) or a session-embedded interactive mode",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Whether 'devague plan waves' is the authoritative dependency-wave source colleague consumes for the workforce stage, and the exact output contract it must parse",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Exact boundary of native vs devague-fallback: how much of devague's convergence / spec-to-plan / waves engine colleague reimplements natively vs shells out to devague if reimplementation proves too costly. Decide during the build (native-first)",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
