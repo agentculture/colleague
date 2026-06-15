@@ -51,7 +51,9 @@ def test_max_continue_nudges_knob(monkeypatch: pytest.MonkeyPatch) -> None:
     assert EngineConfig.resolve().max_continue_nudges == 2  # default
     monkeypatch.setenv("COLLEAGUE_MAX_CONTINUE_NUDGES", "5")
     assert EngineConfig.resolve().max_continue_nudges == 5  # env
-    assert EngineConfig.resolve(max_continue_nudges=3).max_continue_nudges == 3  # explicit wins over env
+    assert (
+        EngineConfig.resolve(max_continue_nudges=3).max_continue_nudges == 3
+    )  # explicit wins over env
     monkeypatch.setenv("CONVERTIBLE_MAX_CONTINUE_NUDGES", "7")
     monkeypatch.delenv("COLLEAGUE_MAX_CONTINUE_NUDGES", raising=False)
     assert EngineConfig.resolve().max_continue_nudges == 7  # CONVERTIBLE fallback
