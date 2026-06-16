@@ -179,9 +179,7 @@ _PHASE_SYNTHESIZING = (
     "synthesizing the final answer from what was read — this can take a while on a "
     "slow backend; it is working, not stalled…"
 )
-_PHASE_COMPACTING = (
-    "compacting the conversation to free context — this can take a moment on a slow " "backend…"
-)
+_PHASE_COMPACTING = "compacting the conversation to free context — this can take a moment…"
 
 
 @dataclass
