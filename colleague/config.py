@@ -92,6 +92,11 @@ _DEFAULT_PLAN_OFFER_TOKENS = 0
 # giving up (lifts the previously hardcoded ``_MAX_FINISH_NUDGES = 1``).
 # Override with COLLEAGUE_MAX_CONTINUE_NUDGES.
 _DEFAULT_MAX_CONTINUE_NUDGES = 2
+# Synthesis reserve (#197): steps held back from the reading budget so the
+# forced-synthesis verdict turn isn't starved by context-reading on a big-diff
+# review. 0 = off (byte-identical: the whole budget is spent reading); the review
+# caller raises it.
+_DEFAULT_SYNTHESIS_RESERVE = 0
 
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
@@ -184,6 +189,7 @@ class EngineConfig:
     fanout_files: int = _DEFAULT_FANOUT_FILES
     plan_offer_tokens: int = _DEFAULT_PLAN_OFFER_TOKENS
     max_continue_nudges: int = _DEFAULT_MAX_CONTINUE_NUDGES
+    synthesis_reserve_steps: int = _DEFAULT_SYNTHESIS_RESERVE
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -219,6 +225,7 @@ class EngineConfig:
         fanout_files: int | None = None,
         plan_offer_tokens: int | None = None,
         max_continue_nudges: int | None = None,
+        synthesis_reserve_steps: int | None = None,
         repo_path: str | Path | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
@@ -364,6 +371,15 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_MAX_CONTINUE_NUDGES,
             ),
+            synthesis_reserve_steps=_try_int(
+                _pick(
+                    _str(synthesis_reserve_steps),
+                    "COLLEAGUE_SYNTHESIS_RESERVE_STEPS",
+                    "CONVERTIBLE_SYNTHESIS_RESERVE_STEPS",
+                    default=str(_DEFAULT_SYNTHESIS_RESERVE),
+                ),
+                default=_DEFAULT_SYNTHESIS_RESERVE,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -380,6 +396,7 @@ class EngineConfig:
             "fanout_files": self.fanout_files,
             "plan_offer_tokens": self.plan_offer_tokens,
             "max_continue_nudges": self.max_continue_nudges,
+            "synthesis_reserve_steps": self.synthesis_reserve_steps,
             "max_output_chars": self.max_output_chars,
         }
 

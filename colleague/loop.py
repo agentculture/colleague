@@ -1364,6 +1364,14 @@ class ContextControls:
     # Forwarded by every backend from ``config.max_continue_nudges`` (all-engines
     # rule); ``None`` falls back to ``_MAX_FINISH_NUDGES`` (back-compat / strict no-op).
     max_continue_nudges: int | None = None
+    # Synthesis reserve (#197): steps held back from the reading budget so a
+    # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
+    # verdict turn (#191) runs with fresher, less-windowed context instead of being
+    # starved after the budget is spent reading. ``None``/<= 0 reserves nothing — a
+    # strict no-op (the full ``max_steps`` is spent reading, as before). Forwarded by
+    # every backend from ``config.synthesis_reserve_steps``; the caller (review) sets
+    # it. Clamped so at least one reading step always remains.
+    synthesis_reserve: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1614,8 +1622,15 @@ def run(
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
+    # Synthesis reserve (#197): hold back a few steps from the reading budget so a
+    # read-heavy run stops reading early and the forced-synthesis verdict (#191) runs
+    # with fresher context. Clamped to leave at least one reading step; 0/None is
+    # byte-identical (the full budget is spent reading). The full ``max_steps`` is
+    # still what the partial-warning hint reports.
+    _reserve = _context.synthesis_reserve or 0
+    reading_budget = max(1, max_steps - _reserve) if _reserve > 0 else max_steps
     try:
-        outcome = _work_loop(ctx, complete, max_steps)
+        outcome = _work_loop(ctx, complete, reading_budget)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
         aborted = exc
         result.status = ERROR
