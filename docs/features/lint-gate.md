@@ -66,21 +66,29 @@ lists. The field is **omitted** from the artifact when the gate did not run.
 
 ## Worked example
 
+The gate runs quietly inside the work item — it adds no per-linter chatter to
+stdout. The only thing it prints (to **stderr**) is leftover residual it could
+not auto-fix; the full record is in the artifact's `lint_report`.
+
+The common case — every violation auto-fixed, nothing to surface:
+
 ```text
-$ colleague work "add a utility function to utils/helpers.py"
-… (work item runs) …
-lint: running isort, black on 1 changed file(s)
-lint: black fixed 2 line(s)
-lint: running flake8 — 1 residual violation(s)
-lint: model fix-turn (1/1) — fixing F401 …
-lint: re-running gate — clean
+$ colleague work "add a utility function to utils/helpers.py" --repo .
+… (work item runs; the gate auto-fixes the changed .py with isort/black) …
 status: ok
 task: a1b2c3d4e5f6
 ```
 
-The gate ran `isort` and `black` as fixers, found one `F401` residual, invoked
-the model fix-turn to remove the unused import, re-ran the gate, and found it
-clean. The handoff proceeds with a lint-clean diff.
+The branch lands black/isort-clean with no integrator fix-up. When a reporter
+violation survives the fixers *and* the (capped) model fix-turn, it is surfaced
+on stderr and recorded — but the handoff still proceeds (non-blocking):
+
+```text
+lint: 1 issue(s) not auto-fixed:
+utils/helpers.py:3:1: F821 undefined name 'helper'
+```
+
+Disable the gate for a run with `--no-lint`.
 
 ## Honest limits
 
