@@ -154,6 +154,17 @@ _SYNTHESIS_PROMPT = (
     "directly, from what you have already read. Do not request any more tools — write "
     "the most complete, useful answer you can from the context gathered so far."
 )
+# Empty-finish synthesis (colleague#202): the model called `finish` but gave no
+# usable summary — for a read-only verb (review/explore) the summary IS the
+# deliverable, so a blank finish is a silent no-op (worse than an error: status
+# reads ok). Force ONE no-tools turn to produce the answer from what was read,
+# rather than falling back to the last planning line.
+_EMPTY_FINISH_PROMPT = (
+    "You called `finish` without a summary, but the summary IS your deliverable. "
+    "Write your complete result NOW, directly, from what you have already read — for "
+    "a review, the concrete findings and verdict you gathered. Do not request any "
+    "more tools."
+)
 
 
 @dataclass
@@ -1144,26 +1155,33 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
 
 
 def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> None:
-    """Force ONE no-tools synthesis turn on budget/stopped exhaustion (colleague#191).
+    """Force ONE no-tools synthesis turn when a context-rich run produced no summary.
 
-    When the loop ran out of its step budget — or stopped without finishing — after
-    reading non-trivial context (``step_count > 0``) yet never produced a usable
-    summary, give the model one final turn to answer from what it already read,
-    turning the most expensive failure mode (full token spend, zero output) into a
-    usable partial. Best-effort: any error or an empty answer leaves ``summary``
-    untouched so the caller falls back to the last-substantive content or the
-    ``NO_RESULT_PRODUCED`` sentinel. Mirrors the retry-cap precedent
-    (:func:`_final_degraded_attempt`) and reuses :func:`_complete_with_degradation`
-    so the synthesis turn is windowed to the context budget like any other. A strict
-    no-op for a clean finish, a pilot stop (already carries a summary), or a run that
-    already answered — so a finished/answered work item is byte-identical to before.
+    Fires on three exits, all guarded on ``not ctx.result.summary`` (an answered run
+    is never touched) and ``step_count > 0`` (nothing read, nothing to synthesise):
+
+    - **budget / stopped** (colleague#191) — the loop exhausted its step budget or
+      stopped without finishing, the most expensive failure mode (full token spend,
+      zero output); turn it into a usable partial.
+    - **finish with an empty summary** (colleague#202) — the model *called* ``finish``
+      but gave no usable summary. For a read-only verb the summary IS the deliverable,
+      so a blank finish is a silent no-op (status reads ``ok``); synthesise the answer
+      from what was read instead of falling back to the last planning line.
+
+    Best-effort: any error or an empty answer leaves ``summary`` untouched so the
+    caller falls back to the last-substantive content or the ``NO_RESULT_PRODUCED``
+    sentinel. Mirrors the retry-cap precedent (:func:`_final_degraded_attempt`) and
+    reuses :func:`_complete_with_degradation` so the synthesis turn is windowed to the
+    context budget like any other. A finish that carries a real summary, a pilot stop
+    (already carries one), or a run that already answered is byte-identical to before.
     Runtime-owned: fires identically for every backend (all-engines rule).
     """
-    if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED):
+    if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED, _EXIT_FINISHED):
         return
     if ctx.result.summary or ctx.result.stats.step_count <= 0:
         return
-    ctx.messages.append({"role": "user", "content": _SYNTHESIS_PROMPT})
+    prompt = _EMPTY_FINISH_PROMPT if outcome == _EXIT_FINISHED else _SYNTHESIS_PROMPT
+    ctx.messages.append({"role": "user", "content": prompt})
     try:
         resp = _complete_with_degradation(ctx, complete)
     except Exception:  # noqa: BLE001 - best-effort; a finalize-time turn never raises
@@ -1346,6 +1364,14 @@ class ContextControls:
     # Forwarded by every backend from ``config.max_continue_nudges`` (all-engines
     # rule); ``None`` falls back to ``_MAX_FINISH_NUDGES`` (back-compat / strict no-op).
     max_continue_nudges: int | None = None
+    # Synthesis reserve (#197): steps held back from the reading budget so a
+    # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
+    # verdict turn (#191) runs with fresher, less-windowed context instead of being
+    # starved after the budget is spent reading. ``None``/<= 0 reserves nothing — a
+    # strict no-op (the full ``max_steps`` is spent reading, as before). Forwarded by
+    # every backend from ``config.synthesis_reserve_steps``; the caller (review) sets
+    # it. Clamped so at least one reading step always remains.
+    synthesis_reserve: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1596,8 +1622,15 @@ def run(
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
+    # Synthesis reserve (#197): hold back a few steps from the reading budget so a
+    # read-heavy run stops reading early and the forced-synthesis verdict (#191) runs
+    # with fresher context. Clamped to leave at least one reading step; 0/None is
+    # byte-identical (the full budget is spent reading). The full ``max_steps`` is
+    # still what the partial-warning hint reports.
+    _reserve = _context.synthesis_reserve or 0
+    reading_budget = max(1, max_steps - _reserve) if _reserve > 0 else max_steps
     try:
-        outcome = _work_loop(ctx, complete, max_steps)
+        outcome = _work_loop(ctx, complete, reading_budget)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
         aborted = exc
         result.status = ERROR

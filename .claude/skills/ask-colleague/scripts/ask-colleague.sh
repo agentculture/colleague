@@ -218,11 +218,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Per-verb default: explore gets a modest higher budget (30) for wider surveys;
-# write and review keep the global default (20). Only apply when the user did NOT
-# pass an explicit --max-steps.
-if [[ "$VERB" == "explore" && "$MAX_STEPS_EXPLICIT" -eq 0 ]]; then
+# Per-verb default: explore and review get a modest higher budget (30) for wider
+# surveys and read-heavy diffs; write keeps the global default (20). Only apply
+# when the user did NOT pass an explicit --max-steps.
+if [[ ( "$VERB" == "explore" || "$VERB" == "review" ) && "$MAX_STEPS_EXPLICIT" -eq 0 ]]; then
     MAX_STEPS=30
+fi
+
+# Read-heavy verbs reserve a few steps for the final verdict turn so a big-diff
+# review/explore yields findings instead of dying mid-read (#197). Caller env wins.
+if [[ "$VERB" == "explore" || "$VERB" == "review" ]]; then
+    : "${COLLEAGUE_SYNTHESIS_RESERVE_STEPS:=3}"
+    export COLLEAGUE_SYNTHESIS_RESERVE_STEPS
 fi
 
 # Now that the verb and its flags are known, require only the tools THIS path

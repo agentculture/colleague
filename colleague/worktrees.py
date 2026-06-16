@@ -150,6 +150,56 @@ def worktree_add(repo_path: str, child_id: str) -> str:
     return str(wt_path)
 
 
+def isolation_worktree_add(repo_path: str, task_id: str, branch: str) -> str:
+    """Create an isolated worktree at HEAD on *branch* for an isolated write item (#196/#201).
+
+    Unlike :func:`worktree_add` (which mints a ``sub/<id>`` branch for a parallel
+    subagent child), this places the worktree on the caller-supplied work branch —
+    the ``colleague/<id>`` name the handoff will use — so a model self-commit
+    *during* the run lands on that branch directly, never on the operator's
+    checked-out branch (#196). The worktree is created at the repo's current HEAD,
+    so the operator's uncommitted edits are deliberately excluded (clean-HEAD
+    isolation; ``--allow-dirty`` is moot for the isolated path — q1). Two concurrent
+    isolated runs get distinct ``iso-<task_id>`` worktrees, so they can never
+    cross-pollute each other's working tree (#201).
+
+    Args:
+        repo_path: Absolute (or relative) path to the git repository root.
+        task_id: The work item's task id; names the worktree directory.
+        branch: The work branch to create the worktree on (``colleague/<id>``).
+
+    Returns:
+        The absolute path of the newly created worktree directory (as a string).
+    """
+    repo = Path(repo_path).resolve()
+    wt_path = repo / _WORKTREES_SUBDIR / f"iso-{task_id}"
+    wt_path.parent.mkdir(parents=True, exist_ok=True)
+    # Reclaim any leftovers a crashed prior run with this task id left behind: a
+    # stale worktree dir or the ``colleague/<id>`` branch would make ``worktree add
+    # -b`` fail and silently drop isolation back to the in-place path (colleague
+    # review of t1, finding A). The branch is recreated from HEAD below, so dropping
+    # the stale one loses nothing the operator could still recover (a same-id retry
+    # only happens after a crash). All tolerant (``check=False``).
+    _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
+    _git(repo, "worktree", "prune", check=False)
+    _git(repo, "branch", "-D", branch, check=False)
+    _git(repo, "worktree", "add", str(wt_path), "-b", branch)
+    return str(wt_path)
+
+
+def isolation_worktree_remove(repo_path: str, worktree_path: str) -> None:
+    """Idempotently remove an isolation worktree, KEEPING its ``colleague/<id>`` branch.
+
+    The branch is the deliverable (the operator merges it), so only the working
+    directory is torn down. Best-effort: a teardown failure must never mask the
+    work item's real outcome, so git errors are swallowed (``check=False``) and a
+    trailing ``prune`` clears any stale administrative entry.
+    """
+    repo = Path(repo_path).resolve()
+    _git(repo, "worktree", "remove", "--force", str(worktree_path), check=False)
+    _git(repo, "worktree", "prune", check=False)
+
+
 def commit_all(worktree_path: str, message: str) -> bool:
     """Stage and commit every change inside a child worktree onto its sub branch.
 

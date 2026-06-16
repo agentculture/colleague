@@ -87,5 +87,6 @@ class MockEngine(Engine):
                 fanout_files=config.fanout_files,
                 plan_offer_tokens=config.plan_offer_tokens,
                 max_continue_nudges=config.max_continue_nudges,
+                synthesis_reserve=config.synthesis_reserve_steps,
             ),
         )

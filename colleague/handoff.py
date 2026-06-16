@@ -77,6 +77,23 @@ def _branch_name(task_id: str, instruction: str = "") -> str:
     return f"colleague/{task_id}-{slug}" if slug else f"colleague/{task_id}"
 
 
+#: Public alias — the work-branch name an isolated run pre-creates its worktree on
+#: must match the name the handoff would mint, so they agree (#196).
+branch_name = _branch_name
+
+
+def head_sha(repo_path: str | Path) -> str | None:
+    """The current HEAD commit SHA, or ``None`` when git can't answer (no commits).
+
+    Captured *before* an isolated run so the handoff can tell a model self-commit
+    (HEAD advanced past this base) from a genuinely empty run (#196). Public so the
+    work path reads it without importing ``subprocess`` itself (boundary rule).
+    """
+    repo = Path(repo_path).resolve()
+    proc = _git(repo, "rev-parse", "-q", "HEAD", check=False)
+    return proc.stdout.strip() or None
+
+
 def current_ref(repo: Path) -> str | None:
     """The operator's current branch name, or the commit SHA if detached.
 
@@ -144,6 +161,7 @@ def handoff(
     baseline_untracked: list[str] | None = None,
     open_pr: bool = True,
     base_branch: str = "main",
+    base_sha: str | None = None,
 ) -> HandoffResult:
     """Branch + commit the working-tree changes; push + open a PR when gated on.
 
@@ -174,14 +192,14 @@ def handoff(
     result = HandoffResult(branch=branch)
     ignored = _ignored_paths(repo, changed_files or [])
 
-    # Nothing staged or unstaged -> nothing to hand off. This is the authority on
-    # whether work happened — so edits made via run_command (which the loop's
-    # change-tracking doesn't see) are still captured here.
-    status = _git(repo, "status", "--porcelain")
-    if not status.stdout.strip():
-        result.branch = None
-        result.note = _with_ignored("no changes to hand off", ignored)
-        return result
+    # A clean working tree is terminal: either the model self-committed during an
+    # isolated run (#196 reap) or there is genuinely nothing to hand off. The
+    # decision lives in a helper so ``handoff`` stays under the S3776 threshold.
+    early = _handoff_clean_tree(
+        repo, branch, instruction, task_id, open_pr, base_branch, ignored, base_sha
+    )
+    if early is not None:
+        return early
 
     # Stage BEFORE switching branches: a no-op must never leave the operator
     # checked out on a freshly-created task branch (the index built here is
@@ -250,6 +268,90 @@ def handoff(
     return result
 
 
+def _finish_self_committed(
+    repo: Path,
+    branch: str,
+    instruction: str,
+    task_id: str,
+    open_pr: bool,
+    base_branch: str,
+    ignored: list[str],
+    base_sha: str,
+) -> HandoffResult:
+    """Report an isolated run whose model committed its own work during the loop (#196).
+
+    The work is already committed in the isolation worktree (created on the
+    ``colleague/<id>`` branch), so there is nothing to stage — only to optionally
+    push + open a PR. No operator ref is restored: the isolation worktree is
+    disposable and was never on the operator's branch, which is the whole point —
+    a self-commit can no longer advance the operator's HEAD.
+
+    Two robustness guards (PR #207 review):
+    - **Force the branch to HEAD** (``checkout -B``) before reporting, so the work
+      is captured on ``colleague/<id>`` even if the model committed on a *different*
+      ref (it ran ``git checkout -b X`` / ``--detach`` via ``run_command``). A no-op
+      in the normal case (already on the branch); without it that commit would be
+      lost on worktree teardown.
+    - **Populate ``changed_files``** from ``base_sha..HEAD`` (symmetric with the
+      normal path's staged set), so a self-commit whose edits came via ``run_command``
+      isn't reported as ``changed files: (none)`` despite a real commit.
+    """
+    _git(repo, "checkout", "-B", branch)
+    result = HandoffResult(branch=branch)
+    result.committed = True
+    result.changed_files = _committed_paths(repo, base_sha)
+    subject = _commit_subject(instruction, task_id)
+    if not should_open_pr(repo, open_pr):
+        result.note = _with_ignored(
+            "local commit only (model self-committed in isolation)", ignored
+        )
+        return result
+    try:
+        _git(repo, "push", "-u", "origin", branch)
+        result.pushed = True
+        result.pr_url = _gh_pr_create(repo, base_branch, subject)
+        result.note = _with_ignored("pushed and opened PR", ignored)
+    except HandoffError as exc:
+        if result.pushed:
+            result.note = _with_ignored(f"pushed branch; PR creation failed: {exc}", ignored)
+        else:
+            result.note = _with_ignored(f"local commit only (push failed: {exc})", ignored)
+    return result
+
+
+def _handoff_clean_tree(
+    repo: Path,
+    branch: str,
+    instruction: str,
+    task_id: str,
+    open_pr: bool,
+    base_branch: str,
+    ignored: list[str],
+    base_sha: str | None,
+) -> HandoffResult | None:
+    """Terminal handoff for a CLEAN working tree, or ``None`` to keep staging.
+
+    ``git status`` is the authority on whether work happened — so ``run_command``
+    edits the loop's change-tracking never saw are still captured. A clean tree is
+    terminal in two ways: the model self-committed during an isolated run
+    (``base_sha`` given and HEAD advanced past it -> #196 reap via
+    :func:`_finish_self_committed`), or there is genuinely nothing to hand off.
+    Returns ``None`` when the tree is dirty so :func:`handoff` proceeds to stage +
+    commit. Extracted from ``handoff`` to keep its cognitive complexity under the
+    S3776 threshold (PR #207 review)."""
+    status = _git(repo, "status", "--porcelain")
+    if status.stdout.strip():
+        return None
+    head_sha_now = _git(repo, "rev-parse", "-q", "HEAD", check=False).stdout.strip()
+    if base_sha and head_sha_now and head_sha_now != base_sha:
+        return _finish_self_committed(
+            repo, branch, instruction, task_id, open_pr, base_branch, ignored, base_sha
+        )
+    result = HandoffResult(branch=None)
+    result.note = _with_ignored("no changes to hand off", ignored)
+    return result
+
+
 def _commit_subject(instruction: str, task_id: str) -> str:
     """A single short commit subject: ``colleague: <first line | task_id>`` (#40).
 
@@ -269,6 +371,20 @@ def _commit_subject(instruction: str, task_id: str) -> str:
 def _staged_paths(repo: Path) -> list[str]:
     """The paths staged for commit (index vs HEAD) — the committed set (#39)."""
     proc = _git(repo, "diff", "--cached", "--name-only")
+    return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
+
+
+def _committed_paths(repo: Path, base_sha: str | None) -> list[str]:
+    """Files a model self-commit changed — ``base_sha..HEAD`` (PR #207 review).
+
+    Symmetric with :func:`_staged_paths` but for the self-commit path, where the
+    work is already committed (no index to read). Returns ``[]`` when ``base_sha``
+    is unknown or git can't answer (never raises)."""
+    if not base_sha:
+        return []
+    proc = _git(repo, "diff", "--name-only", f"{base_sha}..HEAD", check=False)
+    if proc.returncode != 0:
+        return []
     return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
 
 
