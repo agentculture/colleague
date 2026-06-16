@@ -308,5 +308,7 @@ class VllmOpenAIEngine(Engine):
                 plan_offer_tokens=config.plan_offer_tokens,
                 max_continue_nudges=config.max_continue_nudges,
                 synthesis_reserve=config.synthesis_reserve_steps,
+                lint=config.lint,
+                lint_fix_retries=config.lint_fix_retries,
             ),
         )

@@ -43,6 +43,7 @@ from colleague import autosplit as _autosplit
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
+from colleague import lint as _lint
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import classify_degradable, window_messages
@@ -457,6 +458,14 @@ class _Work:
     # control file at each turn boundary (cooperative ``stop`` + ``guidance``
     # injection). Runtime-owned, so every backend inherits it (the all-engines rule).
     flight: "flightmod.FlightSession | None" = None
+    # Lint pre-finish gate (#200): ``lint_enabled`` arms the gate (run the repo's
+    # configured linters on the changed files + auto-fix before handoff);
+    # ``lint_fix_retries`` caps the bounded model fix-turn for residual violations
+    # (0 = deterministic fixers only). Both default OFF so a direct ``run`` caller
+    # (no ContextControls) is byte-identical; the backends forward ``config.lint`` /
+    # ``config.lint_fix_retries`` (all-engines rule).
+    lint_enabled: bool = False
+    lint_fix_retries: int = 0
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1420,6 +1429,14 @@ class ContextControls:
     # every backend from ``config.synthesis_reserve_steps``; the caller (review) sets
     # it. Clamped so at least one reading step always remains.
     synthesis_reserve: int | None = None
+    # Lint pre-finish gate (#200): when ``lint`` is truthy the runtime runs the repo's
+    # configured linters on the work item's changed files before handoff and auto-fixes
+    # what it can; ``lint_fix_retries`` caps the bounded model fix-turn for residual
+    # violations (0 = fixers only). ``None`` (the default) leaves the gate OFF — a strict
+    # no-op for direct ``run`` callers. Forwarded by every backend from ``config.lint`` /
+    # ``config.lint_fix_retries`` (all-engines rule).
+    lint: bool | None = None
+    lint_fix_retries: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1501,6 +1518,78 @@ def _maybe_warn_too_big(ctx: _Work) -> None:
             f"instances). Consider splitting it across multiple repositories or colleague "
             f"instances — colleague will not write across repos (warn-only)."
         )
+
+
+# Bounded extra model turns granted to ONE lint fix-turn (#200). Small — the fix-turn
+# only needs to read/edit a few files and finish; the per-work-item cap is
+# ``ctx.lint_fix_retries`` fix-turns, each running up to this many model turns.
+_LINT_FIX_STEPS = 6
+
+_LINT_FIX_PROMPT = (
+    "The pre-finish lint gate ran the repo's configured linters and auto-fixed what it "
+    "could, but these violations remain and the auto-fixers cannot resolve them. Fix "
+    "ONLY these, using read_file/edit_file/write_file, then call finish:\n"
+)
+
+
+def _maybe_run_lint_gate(ctx: _Work, complete: CompleteFn, outcome: str) -> None:
+    """Run the pre-finish lint gate: auto-fix changed files, then surface residual (#200).
+
+    Deterministic fixers (black/isort/ruff) run first; if reporter (flake8 / ruff
+    check) violations remain AND the main loop finished cleanly AND a fix-turn budget
+    is left, ONE bounded model fix-turn is injected per remaining retry (capped by
+    ``ctx.lint_fix_retries``), re-running the gate after each. Non-blocking: the
+    handoff always proceeds; the final :class:`~colleague.contract.LintReport` is
+    attached to ``result.lint_report``. A strict no-op when lint is disabled, no files
+    changed, or no linters are configured (the gate returns ``None``). The model
+    fix-turn is held to a clean finish — an incomplete run (budget/stop) should not
+    spend extra turns chasing lint nits, and its INCOMPLETE status must stand.
+    """
+    if not ctx.lint_enabled:
+        return
+    changed = sorted(ctx.executor.changed)
+    if not changed:
+        return
+    report = _lint.run_lint_gate(ctx.task.repo_path, changed)
+    if report is None:
+        return
+    retries = ctx.lint_fix_retries if outcome == _EXIT_FINISHED else 0
+    while report.residual and retries > 0:
+        _run_lint_fix_turn(ctx, complete, report.residual)
+        retries -= 1
+        next_report = _lint.run_lint_gate(ctx.task.repo_path, sorted(ctx.executor.changed))
+        if next_report is None:
+            break
+        report = next_report
+    ctx.result.lint_report = report
+
+
+def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) -> None:
+    """Inject ONE bounded model turn to fix residual lint, preserving terminal state.
+
+    Re-enters :func:`_work_loop` with a small extra step budget after appending a fix
+    instruction listing the residual violations. The main work's terminal fields
+    (``summary`` / ``status`` / the two outcome flags) are saved and restored so a
+    fix-turn ``finish`` cannot clobber the work item's real summary or flip its status.
+    Any fix-turn failure is suppressed — the lint gate is best-effort and must never
+    abort the work item (the same fail-safe as hooks / neighbour clones).
+    """
+    saved = (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    )
+    ctx.messages.append({"role": "user", "content": _LINT_FIX_PROMPT + "\n".join(residual[:50])})
+    budget = ctx.result.stats.model_turns + _LINT_FIX_STEPS
+    with suppress(Exception):
+        _work_loop(ctx, complete, budget)
+    (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    ) = saved
 
 
 def run(
@@ -1643,6 +1732,8 @@ def run(
         plan_offer_tokens=_context.plan_offer_tokens,
         max_continue_nudges=_resolve_nudge_cap(_context),
         flight=flight_session,
+        lint_enabled=bool(_context.lint),
+        lint_fix_retries=_context.lint_fix_retries or 0,
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -1698,6 +1789,15 @@ def run(
     # Flight cleanup — reap the live feed/control on finish so the plane stays
     # ephemeral (a no-op when the work item was not a flight).
     _reap_flight(ctx)
+
+    # Pre-finish lint gate (#200): on a NON-aborted exit, run the repo's configured
+    # linters on the changed files and auto-fix what they can; if reporter violations
+    # remain after a clean finish, inject ONE bounded model fix-turn (capped by
+    # lint_fix_retries). Runs BEFORE the changed_files snapshot + stats below so any
+    # fix-turn edits are captured. Non-blocking: the handoff always proceeds. A strict
+    # no-op when lint is disabled, no files changed, or no linters are configured.
+    if aborted is None:
+        _maybe_run_lint_gate(ctx, complete, outcome)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,
