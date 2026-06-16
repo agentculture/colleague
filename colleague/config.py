@@ -225,7 +225,6 @@ class EngineConfig:
         fanout_files: int | None = None,
         plan_offer_tokens: int | None = None,
         max_continue_nudges: int | None = None,
-        synthesis_reserve_steps: int | None = None,
         repo_path: str | Path | None = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
@@ -371,9 +370,11 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_MAX_CONTINUE_NUDGES,
             ),
+            # Env-only (no CLI flag / explicit override) — keeping it off the
+            # parameter list holds resolve() at 13 params (Sonar S107, PR #207).
             synthesis_reserve_steps=_try_int(
                 _pick(
-                    _str(synthesis_reserve_steps),
+                    None,
                     "COLLEAGUE_SYNTHESIS_RESERVE_STEPS",
                     "CONVERTIBLE_SYNTHESIS_RESERVE_STEPS",
                     default=str(_DEFAULT_SYNTHESIS_RESERVE),

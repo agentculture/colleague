@@ -31,6 +31,11 @@ from colleague.engine import Engine
 from colleague.loop import ContextControls, ModelResponse, ToolCall, run
 from colleague.tools import ToolExecutor
 
+# Shell commands kept as module constants so the deeply-indented ToolCall stays
+# within the line-length limit.
+_SIDE_BRANCH_COMMIT = "git checkout -q -b sidebranch && git add -A && git commit -q -m side"
+_RUN_COMMAND_EDIT = "printf 'more\\n' >> README.md && git add -A && git commit -q -m edit"
+
 
 def _run(repo: Path, *args: str) -> str:
     return subprocess.run(
@@ -179,3 +184,146 @@ def test_isolation_worktree_add_reclaims_stale_leftovers(tmp_path: Path) -> None
     # same id must reclaim them and succeed (before the fix, `worktree add -b` 128'd).
     second = worktrees.isolation_worktree_add(str(repo), "abc123", branch)
     assert Path(second).is_dir()
+
+
+class _SideBranchCommitEngine(Engine):
+    """Model commits on a DIFFERENT ref before finishing (the Bug 1 pathological case)."""
+
+    name = "side-branch"
+
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
+        turns = [
+            ModelResponse(
+                content="write",
+                tool_calls=[
+                    ToolCall("c1", "write_file", {"path": "newfile.txt", "content": "wip\n"})
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            ModelResponse(
+                content="commit on a side branch via shell",
+                tool_calls=[
+                    ToolCall(
+                        "c2",
+                        "run_command",
+                        {"command": _SIDE_BRANCH_COMMIT},
+                    )
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            ModelResponse(
+                content="done",
+                tool_calls=[ToolCall("c3", "finish", {"summary": "committed on a side branch"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+        state = {"i": 0}
+
+        def complete(_m: list[dict]) -> ModelResponse:
+            turn = turns[min(state["i"], len(turns) - 1)]
+            state["i"] += 1
+            return turn
+
+        return run(
+            complete,
+            task,
+            max_steps=config.max_steps,
+            system_prompt="",
+            model=config.model,
+            executor=ToolExecutor(task.repo_path),
+            context=ContextControls(budget=config.context_budget_tokens),
+        )
+
+
+class _RunCommandEditEngine(Engine):
+    """Model edits a TRACKED file via run_command ONLY (no write_file), then self-commits."""
+
+    name = "run-cmd-edit"
+
+    def work(self, task: Task, config: EngineConfig) -> TaskResult:
+        turns = [
+            ModelResponse(
+                content="edit + commit via shell",
+                tool_calls=[
+                    ToolCall(
+                        "c1",
+                        "run_command",
+                        {"command": _RUN_COMMAND_EDIT},
+                    )
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            ModelResponse(
+                content="done",
+                tool_calls=[ToolCall("c2", "finish", {"summary": "edited via shell"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+        state = {"i": 0}
+
+        def complete(_m: list[dict]) -> ModelResponse:
+            turn = turns[min(state["i"], len(turns) - 1)]
+            state["i"] += 1
+            return turn
+
+        return run(
+            complete,
+            task,
+            max_steps=config.max_steps,
+            system_prompt="",
+            model=config.model,
+            executor=ToolExecutor(task.repo_path),
+            context=ContextControls(budget=config.context_budget_tokens),
+        )
+
+
+def test_self_commit_on_a_side_ref_is_still_captured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bug 1 (PR #207): a model that commits on a different ref still has its work
+    captured on colleague/<id> (checkout -B), not lost when the worktree is torn down."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    monkeypatch.setattr(registry, "load", lambda _name: _SideBranchCommitEngine())
+
+    before_head = _run(repo, "rev-parse", "HEAD")
+    rc = main(["work", "do it", "--repo", str(repo), "--engine", "side-branch", "--no-pr"])
+    assert rc == 0
+
+    assert _run(repo, "rev-parse", "HEAD") == before_head  # operator HEAD unmoved
+    cb = _colleague_branch(repo)
+    assert cb is not None, "self-commit on a side ref was stranded (#207 Bug 1)"
+    assert "newfile.txt" in _run(repo, "show", "--stat", "--format=", cb)
+
+
+def test_self_commit_via_run_command_reports_changed_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Bug 2 (PR #207): a self-commit whose edits came via run_command still reports
+    changed_files — never '(none)' despite a real commit."""
+    import json
+
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    monkeypatch.setattr(registry, "load", lambda _name: _RunCommandEditEngine())
+
+    rc = main(
+        [
+            "work",
+            "edit readme",
+            "--repo",
+            str(repo),
+            "--engine",
+            "run-cmd-edit",
+            "--no-pr",
+            "--json",
+        ]
+    )
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    assert "README.md" in result["changed_files"], "self-commit dropped changed_files (#207 Bug 2)"

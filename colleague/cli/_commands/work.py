@@ -165,6 +165,36 @@ def _guard_clean_tree(repo: Path, *, allow_dirty: bool) -> None:
     )
 
 
+def _setup_isolation(
+    repo: Path, task: Task, isolate: bool
+) -> tuple[Path, str | None, str | None, Task]:
+    """Worktree-isolate a write item (#196/#201); returns ``(work_repo, base_sha,
+    worktree_path, task)``.
+
+    An isolated run drives the loop in a throwaway git worktree at the operator's
+    HEAD on the ``colleague/<id>`` branch — operator tree/branch untouchable, a
+    model self-commit lands on that branch, concurrent runs can't cross-pollute.
+    Only isolates when there is a HEAD to isolate from (``head_sha`` not None) and
+    the worktree creates cleanly; otherwise falls back to the in-place path so a
+    work item that ran before always still runs (h7). Extracted from
+    :func:`execute_work` to keep its cognitive complexity under the S3776 threshold
+    (PR #207 review)."""
+    if not isolate:
+        return repo, None, None, task
+    base_sha = head_sha(repo)
+    if base_sha is None:
+        return repo, None, None, task
+    try:
+        worktree_path = worktrees.isolation_worktree_add(
+            str(repo), task.id, branch_name(task.id, task.instruction)
+        )
+    except Exception as exc:  # noqa: BLE001 - isolation must never break a work item
+        emit_diagnostic(f"isolation worktree unavailable ({exc}); running in place")
+        return repo, None, None, task
+    work_repo = Path(worktree_path)
+    return work_repo, base_sha, worktree_path, replace(task, repo_path=str(work_repo))
+
+
 def execute_work(
     *,
     repo: Path,
@@ -240,33 +270,7 @@ def execute_work(
         ) from exc
 
     _guard_clean_tree(repo, allow_dirty=allow_dirty)
-
-    # Isolated runs (`colleague work` / `ask-colleague write --apply`) drive the
-    # loop inside a throwaway git worktree created at the operator's HEAD on the
-    # `colleague/<id>` branch — so the operator's working tree and checked-out
-    # branch are untouchable, a model self-commit lands on that branch (not theirs,
-    # #196), and two concurrent runs get distinct worktrees (no cross-pollution,
-    # #201). Only isolate when there is a HEAD to isolate from: a non-git or
-    # commit-less repo has no branch to pollute and no concurrent tree to share, so
-    # fall back to the in-place path — a work item that ran before must still run
-    # (h7). ``head_sha`` returns None in exactly those cases, and a worktree-add
-    # failure degrades the same way (isolation must never break a work item).
-    base_sha: str | None = None
-    work_repo = repo
-    worktree_path: str | None = None
-    if isolate:
-        base_sha = head_sha(repo)
-        if base_sha is not None:
-            try:
-                worktree_path = worktrees.isolation_worktree_add(
-                    str(repo), task.id, branch_name(task.id, task.instruction)
-                )
-            except Exception as exc:  # noqa: BLE001 - isolation must never break a work item
-                emit_diagnostic(f"isolation worktree unavailable ({exc}); running in place")
-                base_sha = None
-            else:
-                work_repo = Path(worktree_path)
-                task = replace(task, repo_path=str(work_repo))
+    work_repo, base_sha, worktree_path, task = _setup_isolation(repo, task, isolate)
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
