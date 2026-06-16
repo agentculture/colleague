@@ -1,0 +1,200 @@
+{
+  "slug": "when-you-delegate-to-colleague-it-never-silently-b",
+  "title": "When you delegate to colleague, it never silently betrays you: write --apply lands its own changes on an isolated colleague/<id> branch (never your branch, never cross-polluted), and review/explore always hand back the verdict they found (never an empty or budget-starved no-op)",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-16T04:16:36Z",
+  "updated": "2026-06-16T04:25:36Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "When you delegate to colleague, it never silently betrays you: write --apply lands its own changes on an isolated colleague/<id> branch (never your branch, never cross-polluted), and review/explore always hand back the verdict they found (never an empty or budget-starved no-op)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "every documented silent-betrayal mode has a regression test that FAILS on today's main and PASSES after \u2014 #196 (self-commit\u2192operator branch), #201 (concurrent cross-pollute + incomplete strand), #202 (empty finish), #197 (verdict-less big-diff review) \u2014 'never betrays' is verified, not asserted",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators and agents who delegate scoped work to colleague via 'ask-colleague write --apply'/'review'/'explore' or 'colleague work' \u2014 especially parallel fan-out, where a different mind works the repo and the caller reviews+merges the colleague/<id> branch",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "the same isolation guarantee serves both callers with no divergence: the interactive ask-colleague.sh write --apply path and the direct 'colleague work --apply' path land identical worktree-isolated branches",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "write --apply runs IN-PLACE in the caller's repo: a model self-commit (git add/commit during the run) lands on the operator's checked-out branch with NO drive branch (#196), concurrent runs sweep each other's tracked edits onto the wrong branch (#201), and an incomplete run leaves loose half-applied files with no branch; meanwhile review can finish with empty args (status ok, no review text \u2014 #202) or spend its whole step budget reading a large diff and return incomplete with no verdict (#197)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "each before_state failure is first reproduced by a test on current main: a self-committing write --apply advances the operator branch; two concurrent runs cross-pollute; an empty finish returns status ok; a big-diff review returns incomplete with no verdict",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "write --apply ALWAYS runs worktree-isolated and lands ONLY its own task's changes on a fresh colleague/<id> branch, never advancing the operator's checked-out branch or HEAD even when the model self-commits, and never cross-polluting a concurrent run; review/explore ALWAYS return a non-empty verdict or fail loudly \u2014 an empty/whitespace finish is never a silent success, and a big-diff review reserves enough budget to synthesize a verdict",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "after a write --apply run (with OR without a model self-commit) 'git rev-parse HEAD' and the current branch name are byte-identical to pre-run, and the colleague/<id> branch's diff contains exactly the run's own changed files",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "the colleague/<id>-branch-then-merge contract IS colleague's isolation+review gate and its whole value as a delegated 'second mind'; a silent betrayal \u2014 a commit on the wrong branch, a review that delivers nothing, lost findings (one #202 case lost a real off-by-one bug) \u2014 destroys trust in delegation, the exact reflex CLAUDE.md tells callers to reach for",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "the success summary can never claim a committed change without pointing at a recoverable colleague/<id> branch \u2014 the #196 'reported success, no branch' contradiction is structurally impossible after the fix",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "success_signal",
+      "text": "a parallel two-task 'write --apply' fan-out in one repo yields two colleague/<id> branches whose diffs are DISJOINT (neither contains the other's files) and leaves the operator's branch+HEAD byte-identical; a review of a 100+-file diff (or a model that calls finish with empty args) always returns a non-empty verdict or a loud non-zero error, never 'status ok' with no text",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "the disjoint-parallel-branches test and the non-empty-verdict review test both run in CI and fire identically for mock and vllm-openai (e2e shape test / all-engines rule holds)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "NOT an execution sandbox, NOT a multi-backend router, NOT a daemon/socket; does not change the default write PREVIEW (read-only) behavior; adds NO runtime dependency (reuses worktrees.py + handoff.py, stays zero-deps/all-engines); chunked-per-file diff aggregation is one OPTION for #197, not a required mechanism",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "no new pyproject runtime dependency (zero-deps guard holds), no socket/daemon opened, and a write --apply with no self-commit / a review with no stall is byte-identical (strict no-op) to before",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "write --apply runs in an isolated git worktree at the operator's HEAD (the SAME machinery review/explore already use), so the model works a private tree; the operator's working tree and checked-out branch are structurally untouchable, and the colleague/<id> branch stays visible+mergeable from the main repo via the shared .git",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "the operator's tree+branch are provably unmodifiable by the run (every model write/commit happens in the worktree), and the colleague/<id> branch is still listed by 'git branch' and mergeable from the main repo after the run",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "a model self-commit during write --apply is reaped onto the colleague/<id> branch, never left on the operator's branch: the handoff detects 'the agent already committed' (a clean tree is no longer read as 'no changes to hand off') and still produces a recoverable branch (#196)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "a write --apply whose model itself runs 'git commit' still produces a colleague/<id> branch containing that commit, with the operator's branch HEAD unchanged (#196 repro passes)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "an empty/whitespace finish on review/explore is never a silent success: the runtime folds the gathered findings (last-substantive/scratchpad) into the summary or fails loudly \u2014 extending the #191 forced-synthesis safety net to the explicit-finish (_EXIT_FINISHED) path for read-only verbs (#202)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "a review whose model calls finish with empty/whitespace args returns either a non-empty verdict folded from what it read OR a non-zero error \u2014 never 'status ok' with an empty summary (#202 repro passes)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "a read-heavy review/explore reliably yields a verdict on a large diff instead of spending its whole budget reading \u2014 review reserves synthesis capacity so a 100+-file review returns findings or a loud, actionable partial naming a concrete larger budget (#197)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "a review of a large (100+-file) diff returns a non-empty verdict within budget, or a loud partial that names a concrete larger --max-steps \u2014 never a silent 'incomplete, no findings' (#197 repro passes)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "exact mechanism to keep a model self-commit on colleague/<id>: run on a detached HEAD in the worktree, pre-create+checkout the colleague/<id> branch, or cherry-pick+reset after the fact",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "exact mechanism for big-diff review-verdict reliability (#197): auto-scale --max-steps by diff size, hold back a fixed synthesis-reserve budget, or chunk the diff per-file and aggregate \u2014 multiple viable, choose in the plan",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}
