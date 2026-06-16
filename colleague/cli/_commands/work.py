@@ -481,6 +481,11 @@ def cmd_work(args: argparse.Namespace) -> int:
         repo_path=repo,
     )
 
+    # --no-lint opt-out: the flag is the highest-precedence lint switch, applied
+    # after resolve() (which handled env > config.json > default-on for config.lint).
+    if getattr(args, "no_lint", False):
+        config.lint = False
+
     command_name: str | None = getattr(args, "command_name", None)
     task = _build_task(args, repo, engine, config)
 
@@ -536,6 +541,14 @@ def cmd_work(args: argparse.Namespace) -> int:
     if result.capacity_warning:
         emit_diagnostic(f"capacity warning: {result.capacity_warning}")
 
+    # Surface any lint violations the gate could not auto-fix (#200) on stderr — a
+    # diagnostic, never the stdout result stream; the full report is in the artifact.
+    if result.lint_report and result.lint_report.residual:
+        n = len(result.lint_report.residual)
+        emit_diagnostic(
+            f"lint: {n} issue(s) not auto-fixed:\n" + "\n".join(result.lint_report.residual)
+        )
+
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)
     else:
@@ -581,6 +594,15 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
             "Run even when the working tree has uncommitted tracked changes "
             "(they get committed onto the work branch). Default: refuse, to "
             "protect in-progress work (#149)."
+        ),
+    )
+    p.add_argument(
+        "--no-lint",
+        action="store_true",
+        help=(
+            "Skip the pre-finish lint gate (by default the repo's configured "
+            "linters are run + auto-fixed before handoff; this opts out). Also "
+            'via COLLEAGUE_LINT=0 or .colleague/config.json {"lint": false}.'
         ),
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
