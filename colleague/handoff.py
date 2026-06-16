@@ -77,6 +77,23 @@ def _branch_name(task_id: str, instruction: str = "") -> str:
     return f"colleague/{task_id}-{slug}" if slug else f"colleague/{task_id}"
 
 
+#: Public alias — the work-branch name an isolated run pre-creates its worktree on
+#: must match the name the handoff would mint, so they agree (#196).
+branch_name = _branch_name
+
+
+def head_sha(repo_path: str | Path) -> str | None:
+    """The current HEAD commit SHA, or ``None`` when git can't answer (no commits).
+
+    Captured *before* an isolated run so the handoff can tell a model self-commit
+    (HEAD advanced past this base) from a genuinely empty run (#196). Public so the
+    work path reads it without importing ``subprocess`` itself (boundary rule).
+    """
+    repo = Path(repo_path).resolve()
+    proc = _git(repo, "rev-parse", "-q", "HEAD", check=False)
+    return proc.stdout.strip() or None
+
+
 def current_ref(repo: Path) -> str | None:
     """The operator's current branch name, or the commit SHA if detached.
 
@@ -144,6 +161,7 @@ def handoff(
     baseline_untracked: list[str] | None = None,
     open_pr: bool = True,
     base_branch: str = "main",
+    base_sha: str | None = None,
 ) -> HandoffResult:
     """Branch + commit the working-tree changes; push + open a PR when gated on.
 
@@ -176,9 +194,20 @@ def handoff(
 
     # Nothing staged or unstaged -> nothing to hand off. This is the authority on
     # whether work happened — so edits made via run_command (which the loop's
-    # change-tracking doesn't see) are still captured here.
+    # change-tracking doesn't see) are still captured here. EXCEPT: in an isolated
+    # run (``base_sha`` given) the model may have committed its own work during the
+    # loop, leaving the tree clean while the current ``colleague/<id>`` branch
+    # already carries the commit. Reading that as "no changes" is the #196 bug —
+    # the run reports success with no recoverable branch. So when the branch HEAD
+    # has advanced past the operator's base, the work is real and already on the
+    # branch: report it committed instead of dropping it.
     status = _git(repo, "status", "--porcelain")
     if not status.stdout.strip():
+        head_sha = _git(repo, "rev-parse", "-q", "HEAD", check=False).stdout.strip()
+        if base_sha and head_sha and head_sha != base_sha:
+            return _finish_self_committed(
+                repo, branch, instruction, task_id, open_pr, base_branch, ignored
+            )
         result.branch = None
         result.note = _with_ignored("no changes to hand off", ignored)
         return result
@@ -247,6 +276,44 @@ def handoff(
     # Restore only after push + `gh pr create` (which infer the head from the
     # checked-out branch) have run on the work branch.
     _restore_ref(repo, original_ref)
+    return result
+
+
+def _finish_self_committed(
+    repo: Path,
+    branch: str,
+    instruction: str,
+    task_id: str,
+    open_pr: bool,
+    base_branch: str,
+    ignored: list[str],
+) -> HandoffResult:
+    """Report an isolated run whose model committed its own work during the loop (#196).
+
+    The work is already on the current ``colleague/<id>`` branch (the isolation
+    worktree was created on it), so there is nothing to stage — only to optionally
+    push + open a PR. No operator ref is restored: the isolation worktree is
+    disposable and was never on the operator's branch, which is the whole point —
+    a self-commit can no longer advance the operator's HEAD.
+    """
+    result = HandoffResult(branch=branch)
+    result.committed = True
+    subject = _commit_subject(instruction, task_id)
+    if not should_open_pr(repo, open_pr):
+        result.note = _with_ignored(
+            "local commit only (model self-committed in isolation)", ignored
+        )
+        return result
+    try:
+        _git(repo, "push", "-u", "origin", branch)
+        result.pushed = True
+        result.pr_url = _gh_pr_create(repo, base_branch, subject)
+        result.note = _with_ignored("pushed and opened PR", ignored)
+    except HandoffError as exc:
+        if result.pushed:
+            result.note = _with_ignored(f"pushed branch; PR creation failed: {exc}", ignored)
+        else:
+            result.note = _with_ignored(f"local commit only (push failed: {exc})", ignored)
     return result
 
 

@@ -24,9 +24,10 @@ from __future__ import annotations
 import argparse
 import os
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 
-from colleague import flight, registry
+from colleague import flight, registry, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
@@ -36,7 +37,14 @@ from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, resolve_engine
 from colleague.contract import INCOMPLETE, OK, Task, TaskResult
 from colleague.feedback import set_last_work
-from colleague.handoff import HandoffError, handoff, untracked_snapshot, working_tree_dirty
+from colleague.handoff import (
+    HandoffError,
+    branch_name,
+    handoff,
+    head_sha,
+    untracked_snapshot,
+    working_tree_dirty,
+)
 from colleague.subagents import make_batch_spawn, make_spawn
 from colleague.telemetry import Telemetry, load_telemetry
 
@@ -98,6 +106,7 @@ def _handoff_result(
     open_pr: bool,
     base: str,
     telemetry: Telemetry,
+    base_sha: str | None = None,
 ) -> None:
     """Branch/commit (+push/PR) a successful work item; fold the outcome onto *result*.
 
@@ -116,6 +125,7 @@ def _handoff_result(
                 baseline_untracked=baseline_untracked,
                 open_pr=open_pr,
                 base_branch=base,
+                base_sha=base_sha,
             )
         except HandoffError as exc:
             emit_diagnostic(f"handoff skipped: {exc}")
@@ -164,6 +174,7 @@ def execute_work(
     base: str,
     config: EngineConfig,
     allow_dirty: bool = False,
+    isolate: bool = False,
     command_name: str | None = None,
     tui: bool | None = None,
     tui_events: str | None = None,
@@ -230,6 +241,33 @@ def execute_work(
 
     _guard_clean_tree(repo, allow_dirty=allow_dirty)
 
+    # Isolated runs (`colleague work` / `ask-colleague write --apply`) drive the
+    # loop inside a throwaway git worktree created at the operator's HEAD on the
+    # `colleague/<id>` branch — so the operator's working tree and checked-out
+    # branch are untouchable, a model self-commit lands on that branch (not theirs,
+    # #196), and two concurrent runs get distinct worktrees (no cross-pollution,
+    # #201). Only isolate when there is a HEAD to isolate from: a non-git or
+    # commit-less repo has no branch to pollute and no concurrent tree to share, so
+    # fall back to the in-place path — a work item that ran before must still run
+    # (h7). ``head_sha`` returns None in exactly those cases, and a worktree-add
+    # failure degrades the same way (isolation must never break a work item).
+    base_sha: str | None = None
+    work_repo = repo
+    worktree_path: str | None = None
+    if isolate:
+        base_sha = head_sha(repo)
+        if base_sha is not None:
+            try:
+                worktree_path = worktrees.isolation_worktree_add(
+                    str(repo), task.id, branch_name(task.id, task.instruction)
+                )
+            except Exception as exc:  # noqa: BLE001 - isolation must never break a work item
+                emit_diagnostic(f"isolation worktree unavailable ({exc}); running in place")
+                base_sha = None
+            else:
+                work_repo = Path(worktree_path)
+                task = replace(task, repo_path=str(work_repo))
+
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
     # The same shared path serves `work` and `session`, so both are instrumented.
@@ -248,7 +286,7 @@ def execute_work(
             # Snapshot untracked files BEFORE the work item so the handoff stages only
             # the files the work item itself produces — never pre-existing operator
             # work-in-progress (#39).
-            baseline_untracked = untracked_snapshot(repo)
+            baseline_untracked = untracked_snapshot(work_repo)
             # A live `--tui-events` stream written into the repo is harness
             # telemetry, not drive output: register it as baseline so the handoff
             # never sweeps it into the work branch (after which the branch-restore
@@ -328,13 +366,14 @@ def execute_work(
 
             if result.status == OK:
                 _handoff_result(
-                    repo=repo,
+                    repo=work_repo,
                     task=task,
                     result=result,
                     baseline_untracked=baseline_untracked,
                     open_pr=open_pr,
                     base=base,
                     telemetry=telemetry,
+                    base_sha=base_sha,
                 )
 
             work_span.set(
@@ -352,6 +391,12 @@ def execute_work(
             return result, artifact_path
     finally:
         telemetry.flush()
+        # Tear down the isolation worktree on every exit path (success, engine
+        # failure, handoff error), KEEPING its colleague/<id> branch — the branch
+        # is the deliverable the operator merges; only the working dir is disposable.
+        if worktree_path is not None:
+            with suppress(Exception):
+                worktrees.isolation_worktree_remove(str(repo), worktree_path)
 
 
 def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: EngineConfig) -> Task:
@@ -451,6 +496,11 @@ def cmd_work(args: argparse.Namespace) -> int:
             task=task,
             open_pr=not args.no_pr,
             allow_dirty=getattr(args, "allow_dirty", False),
+            # `colleague work`/`drive` (and `ask-colleague write --apply`) ALWAYS
+            # run worktree-isolated, so the result lands on colleague/<id> and the
+            # operator's tree/branch are never touched (#196/#201). `session` keeps
+            # its in-place interactive path (it calls execute_work without isolate).
+            isolate=True,
             base=args.base,
             config=config,
             command_name=command_name or None,
