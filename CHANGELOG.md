@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-06-16
+
+### Added
+
+- ask-colleague review/explore + colleague work: a pre-completion progress signal so a long model turn on a slow backend is visibly working, not stalled (#206). The bounded loop now fires a phase notice through the existing per-step progress sink (#38) right BEFORE every model completion — `thinking…` before a normal turn, a louder `synthesizing…` before the no-tools forced-synthesis turn (#191/#202), and `compacting…` before a fill-line summary turn (#156). Previously a single completion (above all the final synthesis turn, observed at ~15 min on a serializing 27B) emitted nothing and was indistinguishable from a hang.
+
+### Changed
+
+- Phase notices are encoded as a progress event with an EMPTY tool name (a reserved sentinel — a real tool always has a name): the plain stderr sink renders the detail as a standalone line, while the structured cockpit and tui-events sinks skip it so `tui replay`/`snapshot` stay step-only. Runtime-owned and all-engines (fires identically for `mock` and `vllm-openai`); a strict no-op without a progress sink; zero new deps/threads. The flight feed is untouched — the synthesis turn runs after the feed is reaped, so a piloting agent already reads the run as ended, not stalled. A live-cockpit `synthesizing` status line is a documented follow-up.
+
 ## [1.12.0] - 2026-06-16
 
 ### Added

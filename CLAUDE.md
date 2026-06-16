@@ -22,7 +22,21 @@ The architecture, part by part:
   existing file no longer requires regenerating the whole file) plus one curated
   `culture` tool (allow-list: `agtag`, `devex`) — added via the mesh-member
   re-spec (spec/plan committed on this branch). Hook firing lives here — every
-  backend inherits lifecycle behavior automatically.
+  backend inherits lifecycle behavior automatically. The per-step **progress sink**
+  (`#38`, `ProgressFn`/`_emit_progress`) lives here too, and a **pre-completion phase
+  notice** (`#206`, `_emit_phase`) fires through that same sink right *before* every
+  model completion — `thinking…` before a normal turn, a louder `synthesizing…`
+  before the no-tools forced-synthesis turn (#191), and `compacting…` before a
+  fill-line summary turn — so a long single completion on a slow backend is visibly
+  *working, not stalled* instead of going silent for minutes. A phase notice is
+  encoded as a progress event with an EMPTY tool name (a reserved sentinel — a real
+  tool always has a name); the plain stderr sink renders it as a standalone line, the
+  structured cockpit/events sinks skip it (so `tui replay`/`snapshot` stay step-only —
+  a live cockpit "synthesizing" status is a documented follow-up). Runtime-owned, so
+  every backend inherits it (all-engines rule); a strict no-op without a progress
+  sink, and zero new deps/threads (the flight feed is untouched — the synthesis turn
+  runs after the feed is reaped, so a piloting agent already reads it as ended, not
+  stalled).
 - **Plugins** — backends are plugins discovered via the `colleague.engines`
   Python entry-point group (`colleague/registry.py`).
 - **Run report** — the JSON result artifact + step trace (`colleague/artifact.py`).
