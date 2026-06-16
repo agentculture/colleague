@@ -174,6 +174,31 @@ def _guard_clean_tree(repo: Path, *, allow_dirty: bool) -> None:
     )
 
 
+def _apply_lint_optout(args: argparse.Namespace, config: EngineConfig) -> None:
+    """Apply the ``--no-lint`` opt-out — the highest-precedence lint switch (#200).
+
+    Applied AFTER ``EngineConfig.resolve`` (which handled env > config.json >
+    default-on for ``config.lint``); the flag wins last. Extracted to keep
+    ``cmd_work`` under the S3776 cognitive-complexity threshold.
+    """
+    if getattr(args, "no_lint", False):
+        config.lint = False
+
+
+def _surface_lint_residual(result: TaskResult) -> None:
+    """Surface lint violations the gate could not auto-fix on stderr (#200).
+
+    A diagnostic, never the stdout result stream; the full report is in the
+    artifact (``result.lint_report``). Extracted to keep ``cmd_work`` under the
+    S3776 cognitive-complexity threshold.
+    """
+    if result.lint_report and result.lint_report.residual:
+        n = len(result.lint_report.residual)
+        emit_diagnostic(
+            f"lint: {n} issue(s) not auto-fixed:\n" + "\n".join(result.lint_report.residual)
+        )
+
+
 def _setup_isolation(
     repo: Path, task: Task, isolate: bool
 ) -> tuple[Path, str | None, str | None, Task]:
@@ -481,6 +506,8 @@ def cmd_work(args: argparse.Namespace) -> int:
         repo_path=repo,
     )
 
+    _apply_lint_optout(args, config)
+
     command_name: str | None = getattr(args, "command_name", None)
     task = _build_task(args, repo, engine, config)
 
@@ -536,6 +563,8 @@ def cmd_work(args: argparse.Namespace) -> int:
     if result.capacity_warning:
         emit_diagnostic(f"capacity warning: {result.capacity_warning}")
 
+    _surface_lint_residual(result)
+
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)
     else:
@@ -581,6 +610,15 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
             "Run even when the working tree has uncommitted tracked changes "
             "(they get committed onto the work branch). Default: refuse, to "
             "protect in-progress work (#149)."
+        ),
+    )
+    p.add_argument(
+        "--no-lint",
+        action="store_true",
+        help=(
+            "Skip the pre-finish lint gate (by default the repo's configured "
+            "linters are run + auto-fixed before handoff; this opts out). Also "
+            'via COLLEAGUE_LINT=0 or .colleague/config.json {"lint": false}.'
         ),
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")

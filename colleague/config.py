@@ -98,6 +98,17 @@ _DEFAULT_MAX_CONTINUE_NUDGES = 2
 # caller raises it.
 _DEFAULT_SYNTHESIS_RESERVE = 0
 
+# Lint pre-finish gate (#200). When enabled (the default — operator intent is
+# default-ON with an opt-out), the runtime runs the repo's configured linters on
+# the work item's changed files before handoff and auto-fixes what it can. Disable
+# per run with the ``--no-lint`` flag, ``COLLEAGUE_LINT=0``, or
+# ``.colleague/config.json`` ``{"lint": false}`` (precedence flag > env > config
+# > default-on). ``lint_fix_retries`` caps the bounded model fix-turn for residual
+# (non-auto-fixable) violations; 0 runs only the deterministic fixers. A repo with
+# no linter configured is a strict no-op regardless of this flag.
+_DEFAULT_LINT_ENABLED = True
+_DEFAULT_LINT_FIX_RETRIES = 1
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -145,6 +156,58 @@ def load_config_file(repo_path: str | Path) -> dict[str, str]:
     return {k: str(v) for k, v in data.items() if k in _CONFIG_KEYS and v is not None}
 
 
+def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
+    """Read ``lint`` / ``lint_fix_retries`` from .colleague/config.json as raw strings.
+
+    Kept separate from :func:`load_config_file` (whose ``dict[str, str]`` endpoint
+    contract — base_url/api_key/model — must not change): the lint keys carry a
+    bool / int, not an endpoint string. Returns ``(lint, lint_fix_retries)`` where
+    each is the stringified config value or ``None`` when absent. A missing or
+    malformed file yields ``(None, None)`` and never raises.
+    """
+    path = configdir.resolve_file(repo_path, "config.json")
+    if path is None:
+        return None, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    lint = data.get("lint")
+    retries = data.get("lint_fix_retries")
+    return (
+        None if lint is None else str(lint),
+        None if retries is None else str(retries),
+    )
+
+
+def _parse_bool(value: str) -> bool:
+    """Parse a config/env boolean: ``0``/``false``/``no``/``off``/empty → False, else True.
+
+    Case-insensitive and whitespace-tolerant so ``COLLEAGUE_LINT=0``,
+    ``COLLEAGUE_LINT=false`` and a JSON ``"lint": false`` (which stringifies to
+    ``"False"``) all disable the gate.
+    """
+    return value.strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def _resolve_lint_enabled(file_value: str | None) -> bool:
+    """Resolve the lint-gate enabled flag: env ``COLLEAGUE_LINT`` > config.json > default-on.
+
+    The ``--no-lint`` CLI flag is applied by the work path *after* ``resolve()``
+    (it sets ``config.lint = False``), so this stays off the ``resolve()`` signature
+    and the S107 parameter ceiling is held (the synthesis-reserve precedent).
+    """
+    for env_key in ("COLLEAGUE_LINT", "CONVERTIBLE_LINT"):
+        env = os.environ.get(env_key)
+        if env is not None and env.strip() != "":
+            return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_LINT_ENABLED
+
+
 def resolve_engine(explicit: str | None) -> str:
     """Resolve the backend plugin name to drive.
 
@@ -190,6 +253,8 @@ class EngineConfig:
     plan_offer_tokens: int = _DEFAULT_PLAN_OFFER_TOKENS
     max_continue_nudges: int = _DEFAULT_MAX_CONTINUE_NUDGES
     synthesis_reserve_steps: int = _DEFAULT_SYNTHESIS_RESERVE
+    lint: bool = _DEFAULT_LINT_ENABLED
+    lint_fix_retries: int = _DEFAULT_LINT_FIX_RETRIES
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -249,8 +314,11 @@ class EngineConfig:
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
         file_cfg: dict[str, str] = {}
+        file_lint: str | None = None
+        file_lint_retries: str | None = None
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
+            file_lint, file_lint_retries = _load_lint_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -381,6 +449,23 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_SYNTHESIS_RESERVE,
             ),
+            # Lint gate (#200) — env > config.json > default-on. Kept off the
+            # signature (the --no-lint flag overrides post-resolve) to hold the
+            # S107 parameter ceiling, mirroring synthesis_reserve_steps above.
+            lint=_resolve_lint_enabled(file_lint),
+            lint_fix_retries=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_LINT_FIX_RETRIES",
+                    "CONVERTIBLE_LINT_FIX_RETRIES",
+                    default=(
+                        file_lint_retries
+                        if file_lint_retries is not None
+                        else str(_DEFAULT_LINT_FIX_RETRIES)
+                    ),
+                ),
+                default=_DEFAULT_LINT_FIX_RETRIES,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -399,6 +484,8 @@ class EngineConfig:
             "max_continue_nudges": self.max_continue_nudges,
             "synthesis_reserve_steps": self.synthesis_reserve_steps,
             "max_output_chars": self.max_output_chars,
+            "lint": self.lint,
+            "lint_fix_retries": self.lint_fix_retries,
         }
 
 

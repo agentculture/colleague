@@ -126,6 +126,31 @@ def test_same_task_yields_identical_result_shape_across_engines(
     assert mock_result.changed_files and vllm_result.changed_files
 
 
+def test_no_linter_repo_omits_lint_report_byte_identical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All-engines lint no-op (#200, c16/h1/h3): a repo with no configured linter
+    yields a byte-identical TaskResult on BOTH engines — the lint gate fires from the
+    shared loop (so it is forwarded identically) but is a strict no-op when nothing is
+    configured, so ``lint_report`` is absent from the serialized result for both.
+    """
+    _mock_vllm_http(monkeypatch)
+    cfg = EngineConfig.resolve()
+    assert cfg.lint is True  # default-ON, yet a no-linter repo stays a no-op
+
+    mock_repo = tmp_path / "mock"
+    vllm_repo = tmp_path / "vllm"
+    mock_repo.mkdir()
+    vllm_repo.mkdir()
+
+    mock_result = registry.load("mock").work(Task.new(str(mock_repo), "do work"), cfg)
+    vllm_result = registry.load("vllm-openai").work(Task.new(str(vllm_repo), "do work"), cfg)
+
+    for result in (mock_result, vllm_result):
+        assert result.lint_report is None
+        assert "lint_report" not in result.to_dict()
+
+
 def test_engine_swap_needs_no_task_change(tmp_path: Path) -> None:
     """The Task is engine-agnostic: only the `engine` field selects the driver (h12)."""
     a = Task.new(str(tmp_path), "identical instruction", engine="mock")

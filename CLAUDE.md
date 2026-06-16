@@ -207,6 +207,42 @@ The architecture, part by part:
   (all-engines). Spec + plan:
   `docs/specs/2026-06-16-when-you-delegate-to-colleague-it-never-silently-b.md`
   and `docs/plans/2026-06-16-when-you-delegate-to-colleague-it-never-silently-b.md`.
+- **Lint pre-finish gate (#200)** — `colleague work` hands back lint-clean code
+  by **default**: after a non-aborted tool loop, before the git handoff, the
+  runtime (`colleague/lint.py` + `colleague/loop.py` `_maybe_run_lint_gate`)
+  detects the repo's configured Python linters and auto-fixes the work item's
+  **changed files**, so a delegated work item no longer needs an integrator
+  lint-fix pass. Detection is config-driven and stdlib-only: `[tool.black]`/
+  `[tool.isort]`/`[tool.ruff]` in `pyproject.toml` (via `tomllib`) and a
+  `[flake8]` section in `.flake8`/`setup.cfg`/`tox.ini` (via `configparser`).
+  `run_lint_gate` runs the **fixers** (`isort`, `black`, `ruff check --fix`,
+  `ruff format`) then the **reporters** (`flake8`, `ruff check`) on the changed
+  `.py` files, returning a `LintReport` (`fixed`/`residual`/`skipped`) recorded
+  on `TaskResult.lint_report` (omit-when-None like destination/capacity_decision,
+  so a run with no lint is byte-identical). When reporter violations remain after
+  a **clean finish**, the loop injects ONE bounded model fix-turn per remaining
+  retry (`COLLEAGUE_LINT_FIX_RETRIES`, on `EngineConfig.lint_fix_retries`,
+  default 1; 0 = deterministic fixers only) and re-runs the gate; the fix-turn
+  reuses `_work_loop` and **saves/restores the work item's terminal summary/status**
+  so its own `finish` can't clobber the real result. **Non-blocking** — the
+  handoff always proceeds; residual is surfaced on stderr + in the artifact, never
+  wedging the work item. **Default-ON with an opt-out**: `--no-lint`,
+  `COLLEAGUE_LINT=0`, or `.colleague/config.json` `{"lint": false}` (precedence
+  flag > env > config > default-on; the flag is applied post-`resolve()`). The
+  curated allow-list is exactly `black`/`isort`/`ruff`/`flake8` — `lint.py` is the
+  only new sanctioned `subprocess` consumer (the boundary test enforces this); a
+  configured-but-missing binary degrades to a recorded `skipped`, never a crash.
+  Runtime-owned (all-engines rule): both backends forward `config.lint` /
+  `config.lint_fix_retries` via `ContextControls`; a strict no-op when lint is
+  disabled, no files changed, or no linter is configured. **Honest limits:**
+  Python-toolchain only (other languages a follow-up); changed-**files** scope
+  (a fixer may widen the diff on a touched file in a non-conformant repo);
+  standalone `ruff.toml` and non-pyproject black/isort config are not detected in
+  v1; it is a best-effort convenience, not a CI lint replacement; the model
+  fix-turn needs a live backend (a no-op on `mock`). Spec + plan:
+  `docs/specs/2026-06-16-colleague-work-hands-back-lint-clean-code-by-defau.md`
+  and `docs/plans/2026-06-16-colleague-work-hands-back-lint-clean-code-by-defau.md`;
+  feature doc: `docs/features/lint-gate.md`.
 - **Cleanup / reap** — `colleague clean` (`colleague/cli/_commands/clean.py`)
   self-heals a repo a crashed `work` left wedged (#162): a dangling
   `colleague/<id>` ref pointing at a 0-byte loose object breaks `git fetch`.
@@ -603,9 +639,13 @@ always-on per-work-item `WorkStats` in the artifact (`colleague/contract.py` +
 the proactive fill-line decision (compact | split | finish-with-handoff,
 `colleague/fillline.py`), self-compaction with lossy windowing as the fallback
 floor, the coarse complexity assessment (`colleague/capacity.py`), and the
-warn-only "too big for one repo" caller warning. All integrated features
+warn-only "too big for one repo" caller warning — and the **lint pre-finish gate**
+(#200): `colleague/lint.py` + `colleague/loop.py` detect the repo's configured
+Python linters and auto-fix the work item's changed files before handoff
+(default-ON with a `--no-lint` opt-out), so delegated work lands lint-clean.
+All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
-and the capacity standard) were added via explicit re-specs (spec + plan committed
+the capacity standard, and the lint gate) were added via explicit re-specs (spec + plan committed
 under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
 no-socket / no-daemon conventions.
 

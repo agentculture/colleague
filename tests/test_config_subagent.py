@@ -64,6 +64,8 @@ def test_to_dict_has_expected_keys() -> None:
         "max_continue_nudges",
         "synthesis_reserve_steps",
         "max_output_chars",
+        "lint",
+        "lint_fix_retries",
     }
     assert set(snapshot.keys()) == expected_keys
 

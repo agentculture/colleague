@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-06-16
+
+### Added
+
+- Lint pre-finish gate (#200): `colleague work` (and `drive` / `ask-colleague write --apply`) detects the repo's configured Python linters (black/isort/ruff via pyproject.toml, flake8 via .flake8/setup.cfg/tox.ini) and auto-fixes the work item's changed files before the git handoff, so delegated work lands lint-clean without an integrator lint-fix pass. Default-ON with an opt-out (`--no-lint`, `COLLEAGUE_LINT=0`, or `.colleague/config.json` `{"lint": false}`). When reporter violations remain after a clean finish, a bounded model fix-turn (capped by `COLLEAGUE_LINT_FIX_RETRIES`, default 1) is injected; the gate is non-blocking and surfaces residual on stderr + in `TaskResult.lint_report`. Runtime-owned (all-engines rule), zero new runtime deps, curated linter allow-list.
+
 ## [1.13.0] - 2026-06-16
 
 ### Added
