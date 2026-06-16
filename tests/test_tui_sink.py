@@ -119,6 +119,45 @@ def test_events_sink_warns_once_on_write_failure(tmp_path) -> None:
     assert len(warnings) == 1 and "tui-events" in warnings[0]
 
 
+# --- phase notices (#206): empty-tool events are not steps --------------------
+
+
+def test_cockpit_sink_skips_phase_events() -> None:
+    """A phase notice (#206) carries an EMPTY tool name — the cockpit must not fold it
+    as a step (no phantom step, the step count tracks real tool calls only)."""
+    sink = CockpitProgressSink("t1", "mock", stream=_Stream(isatty=False))
+    sink(0, "read_file", "a.py", True)
+    sink(1, "", "synthesizing the final answer…", True)  # a phase notice, not a step
+    assert sink._state.work_item.step_count == 1  # the phase event did not advance it
+
+
+def test_events_sink_skips_phase_events(tmp_path) -> None:
+    """A phase notice (#206) must stay out of the structured replay stream (step-only)."""
+    path = tmp_path / "ev.jsonl"
+    sink = make_events_sink(str(path))
+    sink(0, "write_file", "a.py", True)
+    sink(1, "", "thinking…", True)  # phase notice — not a step
+    sink(2, "finish", "done", True)
+    events = loads_events(path.read_text())
+    assert [(e.tool, e.summary, e.ok) for e in events] == [
+        ("write_file", "a.py", True),
+        ("finish", "done", True),
+    ]
+
+
+def test_step_progress_renders_phase_as_standalone_line(capsys) -> None:
+    """The plain stderr sink renders a phase notice (#206) as a bare line, a step as
+    a `step N:` line — so a slow synthesis turn is visibly working, not a silent gap."""
+    from colleague.cli._commands.work import _step_progress
+
+    _step_progress(3, "", "synthesizing the final answer…", True)  # phase notice
+    _step_progress(3, "read_file", "a.py", True)  # a real step
+    err = capsys.readouterr().err
+    assert "synthesizing the final answer…" in err
+    assert "step 3: synthesizing" not in err  # the phase line is NOT shaped like a step
+    assert "step 3: read_file a.py [ok]" in err  # a real step keeps its shape
+
+
 # --- fan-out isolation -------------------------------------------------------
 
 

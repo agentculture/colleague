@@ -532,6 +532,26 @@ def test_session_failed_step_surfaces_error_popup(tmp_path: Path) -> None:
     assert "popup.error.run_command" in out.text()
 
 
+def test_session_work_sink_skips_phase_events() -> None:
+    """The in-session progress sink ignores empty-tool phase notices (#206) so the
+    session cockpit never folds a phantom step — matching the cockpit + events sinks
+    in _tui_sink.py (Qodo: the session sink was the one progress consumer left out)."""
+    from types import SimpleNamespace
+
+    from colleague.cli._commands.session import _WorkSink
+    from colleague.tui.state import CockpitState, WorkItem
+
+    state = CockpitState()
+    state.work_item = WorkItem(task_id="t", engine="mock", step_count=0, running=True)
+    sess = SimpleNamespace(state=state, view="markdown")  # not "ansi" → no live redraw
+    sink = _WorkSink(sess)
+
+    sink(0, "read_file", "a.py", True)  # a real step advances the count
+    assert sess.state.work_item.step_count == 1
+    sink(1, "", "synthesizing the final answer…", True)  # a phase notice — must be skipped
+    assert sess.state.work_item.step_count == 1  # the phantom step was NOT folded
+
+
 def test_session_unknown_slash_is_a_stderr_error(tmp_path: Path) -> None:
     err = _CollectingOut()
     rc = run_session(

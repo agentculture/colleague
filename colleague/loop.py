@@ -166,6 +166,21 @@ _EMPTY_FINISH_PROMPT = (
     "more tools."
 )
 
+# Pre-completion phase notices (colleague#206) — fired through the progress sink
+# right BEFORE a model completion so a long single turn (above all the final
+# no-tools synthesis turn) is visibly "working, not stalled" on a slow backend. A
+# single completion emits no per-step progress, so for ~minutes a slow but healthy
+# run is indistinguishable from a hang. Each notice is encoded as a progress event
+# with an EMPTY tool name — a reserved sentinel, since a real tool always has a
+# name — so a sink renders it as a standalone phase line, never a `step N:` line.
+# Observability only; runtime-owned, so every backend inherits it (all-engines rule).
+_PHASE_THINKING = "thinking… (waiting on the model — this can be slow on a large model)"
+_PHASE_SYNTHESIZING = (
+    "synthesizing the final answer from what was read — this can take a while on a "
+    "slow backend; it is working, not stalled…"
+)
+_PHASE_COMPACTING = "compacting the conversation to free context — this can take a moment…"
+
 
 @dataclass
 class ToolCall:
@@ -497,6 +512,27 @@ def _emit_progress(ctx: _Work, step_index: int, tool: str, arguments: Any, ok: b
         ctx.progress(step_index, tool, _progress_target(arguments), ok)
 
 
+def _emit_phase(ctx: _Work, detail: str) -> None:
+    """Announce, through the progress sink, that a model completion is in flight (#206).
+
+    A long single turn — above all the final no-tools synthesis turn — emits no
+    per-step progress, so on a slow backend it is indistinguishable from a stall.
+    Fire a phase notice via the SAME progress sink (#38), encoded with an EMPTY tool
+    name so a sink renders it as a standalone line, never a step (the CLI sinks
+    special-case the empty tool). Observability is never control: a missing sink is a
+    no-op and a raising sink is suppressed, exactly like :func:`_emit_progress`. The
+    step index carries the LIVE step count — ``len(result.steps)``, the same
+    expression the per-step counter uses (#206 review: ``stats.step_count`` is only
+    populated at loop exit by ``_finalize_stats``, so it would report a stale 0
+    mid-run) — but the empty tool is the signal that this is a phase, not a step.
+    """
+    if ctx.progress is None:
+        return
+    step_index = len(ctx.result.steps)  # live count; stats.step_count is 0 until finalize
+    with suppress(Exception):
+        ctx.progress(step_index, "", detail, True)
+
+
 def _deny_by_policy(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
     """Check the approval policy for ``run_command``; record and return True on deny.
 
@@ -733,6 +769,9 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
     """
     budget = int(ctx.context_budget)
     request = _fillline.build_compaction_request(ctx.messages, budget, ctx.count_tokens)
+    # Phase notice (#206): a compaction is a no-tools model turn that emits no step
+    # line, so announce it before the (possibly slow) summarization completion.
+    _emit_phase(ctx, _PHASE_COMPACTING)
     try:
         resp = complete(request)
     except Exception as exc:  # noqa: BLE001
@@ -967,7 +1006,9 @@ def _final_degraded_attempt(ctx: _Work, complete: CompleteFn, effective: int) ->
         raise
 
 
-def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelResponse:
+def _complete_with_degradation(
+    ctx: _Work, complete: CompleteFn, *, phase: str = _PHASE_THINKING
+) -> ModelResponse:
     """Window the history, call ``complete``, and degrade-on-overflow-or-timeout if budgeted.
 
     Owns the proactive window + the bounded reactive shrink-and-retry so
@@ -991,6 +1032,11 @@ def _complete_with_degradation(ctx: _Work, complete: CompleteFn) -> ModelRespons
     :func:`_remember_degraded_floor`. Non-degradable errors are never retried — they
     propagate immediately.
     """
+    # Phase notice (#206): announce the model turn is in flight BEFORE the (possibly
+    # long) completion — fired here, the one chokepoint every model turn passes
+    # through, so the notice reaches the operator whether or not the context-budget
+    # feature is on. Observability only; a no-op without a progress sink.
+    _emit_phase(ctx, phase)
     budget = ctx.context_budget
     if not isinstance(budget, int) or budget <= 0:
         # Feature off: strict pass-through, byte-identical to the pre-feature loop.
@@ -1183,7 +1229,9 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     prompt = _EMPTY_FINISH_PROMPT if outcome == _EXIT_FINISHED else _SYNTHESIS_PROMPT
     ctx.messages.append({"role": "user", "content": prompt})
     try:
-        resp = _complete_with_degradation(ctx, complete)
+        # The synthesis turn is the worst case for #206: a single no-tools completion
+        # that emits no step line, so a slow backend looks wedged. Announce it loudly.
+        resp = _complete_with_degradation(ctx, complete, phase=_PHASE_SYNTHESIZING)
     except Exception:  # noqa: BLE001 - best-effort; a finalize-time turn never raises
         return
     _account_turn(ctx, resp)

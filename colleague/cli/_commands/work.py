@@ -57,7 +57,16 @@ def _step_progress(step_index: int, tool: str, target: str, ok: bool) -> None:
     modes. Wired onto :class:`~colleague.config.EngineConfig` by
     :func:`execute_work`, so both ``work`` and ``session`` (and every backend)
     report progress identically.
+
+    A phase notice (colleague#206) arrives with an EMPTY ``tool`` name: render its
+    detail (carried in ``target``) as a standalone line — never shaped like a
+    ``step N:`` line — so a long model turn, above all the final synthesis turn, is
+    visibly "working, not stalled" on a slow backend instead of going silent.
     """
+    if not tool:
+        if target:
+            emit_diagnostic(target)
+        return
     detail = f" {target}" if target else ""
     emit_diagnostic(f"step {step_index}: {tool}{detail} [{'ok' if ok else 'err'}]")
 

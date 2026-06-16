@@ -195,7 +195,12 @@ def test_loop_preserves_partial_result_when_complete_raises(tmp_path: Path) -> N
 
 
 def test_loop_emits_progress_per_step(tmp_path: Path) -> None:
-    """The progress sink fires once per tool call with (index, tool, target, ok) (#38)."""
+    """The progress sink fires once per tool call with (index, tool, target, ok) (#38).
+
+    A pre-completion phase notice (#206) now also fires before each turn — encoded with
+    an EMPTY tool name — so the per-step contract is asserted over the step events
+    (non-empty tool) only; the phase events are asserted separately below.
+    """
     events: list[tuple] = []
     responses = [
         ModelResponse(tool_calls=[ToolCall("1", "write_file", {"path": "a.txt", "content": "x"})]),
@@ -205,12 +210,66 @@ def test_loop_emits_progress_per_step(tmp_path: Path) -> None:
     task = Task.new(str(tmp_path), "two steps then finish")
     run(scripted(responses), task, max_steps=10, progress=lambda *a: events.append(a))
 
-    assert [e[0] for e in events] == [0, 1, 2]  # step indices, in order
-    assert [e[1] for e in events] == ["write_file", "read_file", "finish"]
-    assert events[0][2] == "a.txt"  # target hint = the path
-    assert events[0][3] is True  # write ok
-    assert events[1][3] is False  # read of a missing file is not ok
-    assert events[2][3] is True  # finish ok
+    steps = [e for e in events if e[1]]  # step events carry a real (non-empty) tool name
+    assert [e[0] for e in steps] == [0, 1, 2]  # step indices, in order
+    assert [e[1] for e in steps] == ["write_file", "read_file", "finish"]
+    assert steps[0][2] == "a.txt"  # target hint = the path
+    assert steps[0][3] is True  # write ok
+    assert steps[1][3] is False  # read of a missing file is not ok
+    assert steps[2][3] is True  # finish ok
+
+
+def test_loop_emits_thinking_phase_before_each_turn(tmp_path: Path) -> None:
+    """A pre-completion 'thinking' phase notice (#206) fires before every model turn.
+
+    It is encoded as a progress event with an EMPTY tool name (a real tool always has
+    a name), so a sink can render it as a phase line, never a step. One fires per turn,
+    so on a slow backend a long completion is visibly working, not stalled.
+    """
+    events: list[tuple] = []
+    responses = [
+        ModelResponse(tool_calls=[ToolCall("1", "read_file", {"path": "a.txt"})]),
+        ModelResponse(tool_calls=[ToolCall("2", "finish", {"summary": "done"})]),
+    ]
+    (tmp_path / "a.txt").write_text("hi")
+    task = Task.new(str(tmp_path), "read then finish")
+    run(scripted(responses), task, max_steps=10, progress=lambda *a: events.append(a))
+
+    phases = [e for e in events if not e[1]]  # phase events carry an EMPTY tool name
+    assert len(phases) == 2  # one before each of the two model turns
+    assert all(e[2] for e in phases)  # each carries a human-readable detail line
+    assert all("thinking" in e[2] for e in phases)
+    # The phase step index is the LIVE step count (len(result.steps)), not the
+    # stats.step_count field that stays 0 until _finalize_stats (#206 review): the
+    # first phase fires with 0 steps done, the second after the read_file step.
+    assert [e[0] for e in phases] == [0, 1]
+
+
+def test_loop_emits_synthesizing_phase_before_synthesis_turn(tmp_path: Path) -> None:
+    """The forced no-tools synthesis turn (#191) gets its own louder phase notice (#206).
+
+    The synthesis turn is the worst case: a single completion that emits no step line,
+    so on a slow backend it is indistinguishable from a hang (the exact friction #206
+    reports). It must announce a distinct 'synthesizing' phase, not a generic step.
+    """
+    events: list[tuple] = []
+    marker = "Stop using tools and answer"  # from _SYNTHESIS_PROMPT
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        last = messages[-1].get("content", "") if messages else ""
+        if marker in last:  # the forced-synthesis prompt arrived
+            return ModelResponse(content="VERDICT: done.", tool_calls=[])
+        return ModelResponse(
+            content="reading", tool_calls=[ToolCall("r", "read_file", {"path": "m.py"})]
+        )
+
+    (tmp_path / "m.py").write_text("x = 1\n")
+    task = Task.new(str(tmp_path), "review", engine="mock")
+    result = run(complete, task, max_steps=2, progress=lambda *a: events.append(a))
+
+    assert "VERDICT" in result.summary  # synthesis produced the answer
+    phases = [e[2] for e in events if not e[1]]
+    assert any("synthesizing" in detail for detail in phases)  # the loud synthesis notice fired
 
 
 def test_loop_progress_default_is_noop(tmp_path: Path) -> None:

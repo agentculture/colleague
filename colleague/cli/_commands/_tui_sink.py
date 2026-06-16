@@ -109,6 +109,11 @@ class CockpitProgressSink:
         self._writer = FrameWriter(stream)
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        # A phase notice (#206) carries an EMPTY tool name and is NOT a step — skip it
+        # so the cockpit never folds a phantom step or bumps the step count (a live
+        # "synthesizing…" status line in the cockpit is a documented follow-up).
+        if not tool:
+            return
         self._state = reduce(self._state, work_step(tool, target, ok))
         self._writer.write(self._state)
 
@@ -130,6 +135,11 @@ def make_events_sink(path: str, *, diag: Optional[Callable[[str], None]] = None)
     state = {"warned": False}
 
     def _sink(step_index: int, tool: str, target: str, ok: bool) -> None:
+        # Phase notices (#206) carry an EMPTY tool name and are not steps — keep them
+        # out of the structured replay stream so `tui replay`/`snapshot` stay step-only
+        # (byte-identical to before).
+        if not tool:
+            return
         line = dumps_events([work_step(tool, target, ok)])
         try:
             with open(path, "a", encoding="utf-8") as handle:

@@ -159,6 +159,11 @@ class _WorkSink:
         self._session = session
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        # A phase notice (#206) carries an EMPTY tool name and is NOT a step — skip it
+        # so the session cockpit never folds a phantom step or bumps step_count
+        # (consistent with the cockpit + events sinks in _tui_sink.py).
+        if not tool:
+            return
         sess = self._session
         sess.state = reduce(sess.state, work_step(tool, target, ok))
         if sess.view == "ansi":
