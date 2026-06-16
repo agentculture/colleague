@@ -23,6 +23,16 @@ this one is **authored here** — colleague is its origin (see
 | `review "<focus>" [--base main]` | A diverse second opinion on the **committed** diff (`<base>...HEAD`). | **None** — throwaway worktree; committed changes only. |
 | `write "<task>" [--apply\|--pr]` | Implement a change. **Previews by default**; `--apply` lands it, `--pr` opens a PR. | **None** by default (preview in a throwaway worktree); a `colleague/<id>` work branch with `--apply` (or a PR with `--pr`). |
 
+**`write --apply` is worktree-isolated too (#196/#201).** The applied run drives the
+loop in a throwaway git worktree at the operator's HEAD on the `colleague/<id>`
+branch, so it **never** advances the operator's checked-out branch or touches their
+working tree — even if the model commits its own work mid-run — and two concurrent
+`write --apply` runs in one repo can't cross-pollute. Uncommitted operator edits are
+excluded (clean-HEAD isolation; commit them first to include them). **`review`/`explore`
+default to `--max-steps 30`** (read-heavy) and reserve a few steps for the final verdict
+turn (`COLLEAGUE_SYNTHESIS_RESERVE_STEPS=3`), so a big-diff review yields findings
+instead of spending its whole budget reading (#197).
+
 Each verb builds an instruction from a prompt template
 (`prompts/{explore,review,write}.md`), runs `colleague work --json`, and
 prints the work item's `TaskResult.summary` to stdout. Per-step progress streams to

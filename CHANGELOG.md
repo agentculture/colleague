@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-06-16
+
+### Added
+
+- **Delegation never silently betrays you** — a four-issue trust pass on `colleague work` / `ask-colleague write --apply` / `review`, so a delegated run never silently misplaces, strands, empties, or abandons your work. Spec + plan (authored via the `/think` → `/spec-to-plan` → `/assign-to-workforce` arc): `docs/specs/2026-06-16-when-you-delegate-to-colleague-it-never-silently-b.md` and `docs/plans/2026-06-16-when-you-delegate-to-colleague-it-never-silently-b.md`.
+  - **`write --apply` is worktree-isolated (#196/#201)** — `colleague work`/`drive` (and therefore `ask-colleague write --apply`) now run the bounded loop inside a throwaway git worktree created at the operator's HEAD on the `colleague/<id>` branch (`colleague/worktrees.py` `isolation_worktree_add`/`isolation_worktree_remove`, wired in `execute_work`). The operator's working tree and checked-out branch are never touched, a model self-commit *during* the loop lands on `colleague/<id>` instead of the operator's branch (`colleague/handoff.py` `head_sha` + `_finish_self_committed`, gated on the new `base_sha` arg), and two concurrent runs get distinct `iso-<id>` worktrees so they can never cross-pollute. Degrades to the in-place path when there is no HEAD to isolate from or the worktree can't be created — a work item that ran before always still runs.
+  - **An empty `finish` on review/explore is never a silent ok (#202)** — `colleague/loop.py` `_maybe_force_synthesis` now also fires on the explicit `_EXIT_FINISHED` path when the finish summary is empty/whitespace, forcing ONE no-tools turn to produce the answer from what was read instead of falling back to the last planning line. A finish carrying a real summary is byte-identical.
+  - **A read-heavy review reserves synthesis budget (#197)** — new `COLLEAGUE_SYNTHESIS_RESERVE_STEPS` knob (`EngineConfig.synthesis_reserve_steps`, `ContextControls.synthesis_reserve`, default 0 = byte-identical, forwarded by both backends): the loop holds that many steps back from the reading budget so the forced-synthesis verdict runs with fresher, less-windowed context. `ask-colleague review` now defaults to `--max-steps 30` (alongside `explore`) and exports `COLLEAGUE_SYNTHESIS_RESERVE_STEPS=3` for the read-heavy verbs.
+
+### Notes
+
+- `--allow-dirty` is unchanged: the in-place dirty-tree guard (#149) is kept as the acknowledgement gate. Because `write --apply` now isolates at HEAD, the q1 decision (uncommitted edits are excluded from an isolated run — commit them first to include them) is a clean-HEAD-isolation behavior; a fuller `--allow-dirty` messaging refinement is a documented follow-up.
+- Built via `/assign-to-workforce` with **colleague as the writer for the tests + the shell wiring** (t2/t5/t6, engine `vllm-openai`, Qwen3.6-27B) and Claude for the runtime edits (t1/t3/t4) — a different mind doing the field-work, every diff TDD-gated. Follow-ups filed: review/explore progress signal during long synthesis (#206), internal lint pre-finish gate (#200).
+
 ## [1.11.0] - 2026-06-15
 
 ### Added

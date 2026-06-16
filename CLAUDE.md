@@ -172,6 +172,26 @@ The architecture, part by part:
   path stays byte-identical. A SIGKILL/OOM/power-loss *inside* the commit is
   uncatchable (git/filesystem durability, not colleague's to guarantee); that
   residual wedge is what the `clean` verb recovers.
+- **Write isolation (#196/#201)** — `colleague work`/`drive` (and therefore
+  `ask-colleague write --apply`) run the bounded loop inside a throwaway git
+  worktree created at the operator's HEAD on the `colleague/<id>` branch
+  (`colleague/worktrees.py` `isolation_worktree_add`/`isolation_worktree_remove`,
+  wired in `colleague/cli/_commands/work.py` `execute_work` via the `isolate`
+  flag). The operator's working tree + checked-out branch are **never touched**,
+  a model self-commit *during* the loop lands on `colleague/<id>` (not the
+  operator's branch — `handoff.py` `head_sha`/`base_sha` + `_finish_self_committed`
+  treat a clean-but-advanced HEAD as committed work, not "no changes"), and two
+  concurrent runs get distinct `iso-<id>` worktrees so they can never
+  cross-pollute. **Degrades to in-place** when there is no HEAD to isolate from or
+  the worktree can't be created (`head_sha` is `None`) — a work item that ran
+  before always still runs (h7). `session` keeps its in-place interactive path
+  (it calls `execute_work` without `isolate`). The `--allow-dirty` dirty-tree
+  guard (#149) is **kept** as the acknowledgement gate; because the isolated run
+  works at HEAD, an operator's uncommitted edits are excluded (clean-HEAD
+  isolation — commit them first to include them; the q1 decision). Runtime-owned
+  (all-engines). Spec + plan:
+  `docs/specs/2026-06-16-when-you-delegate-to-colleague-it-never-silently-b.md`
+  and `docs/plans/2026-06-16-when-you-delegate-to-colleague-it-never-silently-b.md`.
 - **Cleanup / reap** — `colleague clean` (`colleague/cli/_commands/clean.py`)
   self-heals a repo a crashed `work` left wedged (#162): a dangling
   `colleague/<id>` ref pointing at a 0-byte loose object breaks `git fetch`.
@@ -423,7 +443,17 @@ The architecture, part by part:
   ("out of steps; answer now from what you've read") and uses its text as the summary,
   reusing `_complete_with_degradation` (windowed) and mirroring the
   `_final_degraded_attempt` retry-cap precedent; `NO_RESULT_PRODUCED` is reached only
-  when even that turn is empty. (2) **Honest status (#192)** — any non-`_EXIT_FINISHED`
+  when even that turn is empty. **Extended for review (#202/#197):**
+  `_maybe_force_synthesis` *also* fires on the explicit `_EXIT_FINISHED` path when a
+  `finish` carries an empty/whitespace summary (a review's deliverable IS the text, so
+  a blank finish was a silent `status: ok` no-op) — it forces the answer from what was
+  read instead of falling back to the last planning line; a finish with a real summary
+  is byte-identical. And a `COLLEAGUE_SYNTHESIS_RESERVE_STEPS` knob
+  (`EngineConfig.synthesis_reserve_steps`, `ContextControls.synthesis_reserve`,
+  default 0 = byte-identical, forwarded by both backends) holds steps back from the
+  reading budget so a big-diff review's verdict turn runs with fresher context;
+  `ask-colleague review` defaults to `--max-steps 30` and sets the reserve to 3.
+  (2) **Honest status (#192)** — any non-`_EXIT_FINISHED`
   outcome reports `status: incomplete` (`colleague/contract.py` `INCOMPLETE`) with a
   non-zero `work`/`drive` exit (code 2; `ok`→0, `error`→1), so a caller branches on
   status/exit without sentinel string-matching; `ask-colleague.sh` suppresses the
