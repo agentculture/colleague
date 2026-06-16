@@ -375,6 +375,9 @@ def test_flight_module_has_no_io_surface() -> None:
 #                   subprocess is the transport
 #   worktrees.py  — drives git worktree add/remove for per-child isolation;
 #                   subprocess is the transport
+#   lint.py       — runs the curated linter allow-list (black/isort/ruff/flake8)
+#                   for the pre-finish lint gate (#200); subprocess is the
+#                   transport, the program set is curated (never arbitrary)
 #   resident/steward.py — the resident's ONE subprocess consumer: launches the
 #                   allow-listed roster/registrar CLI (steward/culture) for
 #                   channel selection + arrival; channels/register hold the logic
@@ -388,6 +391,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/culture.py",
         "colleague/devague.py",
         "colleague/worktrees.py",
+        "colleague/lint.py",
         "colleague/resident/steward.py",
     }
 )
