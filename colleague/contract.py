@@ -585,9 +585,7 @@ class TaskResult:
             ),
             capacity_warning=data.get("capacity_warning"),
             lint_report=(
-                LintReport.from_dict(data["lint_report"])
-                if data.get("lint_report")
-                else None
+                LintReport.from_dict(data["lint_report"]) if data.get("lint_report") else None
             ),
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
