@@ -239,6 +239,10 @@ def test_loop_emits_thinking_phase_before_each_turn(tmp_path: Path) -> None:
     assert len(phases) == 2  # one before each of the two model turns
     assert all(e[2] for e in phases)  # each carries a human-readable detail line
     assert all("thinking" in e[2] for e in phases)
+    # The phase step index is the LIVE step count (len(result.steps)), not the
+    # stats.step_count field that stays 0 until _finalize_stats (#206 review): the
+    # first phase fires with 0 steps done, the second after the read_file step.
+    assert [e[0] for e in phases] == [0, 1]
 
 
 def test_loop_emits_synthesizing_phase_before_synthesis_turn(tmp_path: Path) -> None:

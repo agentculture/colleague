@@ -521,13 +521,16 @@ def _emit_phase(ctx: _Work, detail: str) -> None:
     name so a sink renders it as a standalone line, never a step (the CLI sinks
     special-case the empty tool). Observability is never control: a missing sink is a
     no-op and a raising sink is suppressed, exactly like :func:`_emit_progress`. The
-    step index carries the current step count so a sink that wants it can show where
-    the turn sits, but the empty tool is the signal that this is a phase, not a step.
+    step index carries the LIVE step count — ``len(result.steps)``, the same
+    expression the per-step counter uses (#206 review: ``stats.step_count`` is only
+    populated at loop exit by ``_finalize_stats``, so it would report a stale 0
+    mid-run) — but the empty tool is the signal that this is a phase, not a step.
     """
     if ctx.progress is None:
         return
+    step_index = len(ctx.result.steps)  # live count; stats.step_count is 0 until finalize
     with suppress(Exception):
-        ctx.progress(ctx.result.stats.step_count, "", detail, True)
+        ctx.progress(step_index, "", detail, True)
 
 
 def _deny_by_policy(ctx: _Work, call: ToolCall, span: Any, step_index: int) -> bool:
