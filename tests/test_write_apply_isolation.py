@@ -162,3 +162,20 @@ def test_isolated_run_without_self_commit_still_isolates(tmp_path: Path) -> None
     assert _run(repo, "rev-parse", "HEAD") == before_head  # operator HEAD unmoved
     assert _operator_dirty(repo) == ""  # operator tree clean
     assert _colleague_branch(repo) is not None  # work recoverable on a branch
+
+
+def test_isolation_worktree_add_reclaims_stale_leftovers(tmp_path: Path) -> None:
+    """Finding A (colleague t1 review): a stale worktree+branch from a crashed run
+    with the same task id is reclaimed, not a hard failure that drops isolation."""
+    from colleague import worktrees
+
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    branch = "colleague/abc123-task"
+
+    first = worktrees.isolation_worktree_add(str(repo), "abc123", branch)
+    assert Path(first).is_dir()
+    # Simulate a crash: the worktree dir + branch persist. A second call with the
+    # same id must reclaim them and succeed (before the fix, `worktree add -b` 128'd).
+    second = worktrees.isolation_worktree_add(str(repo), "abc123", branch)
+    assert Path(second).is_dir()

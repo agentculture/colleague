@@ -174,6 +174,15 @@ def isolation_worktree_add(repo_path: str, task_id: str, branch: str) -> str:
     repo = Path(repo_path).resolve()
     wt_path = repo / _WORKTREES_SUBDIR / f"iso-{task_id}"
     wt_path.parent.mkdir(parents=True, exist_ok=True)
+    # Reclaim any leftovers a crashed prior run with this task id left behind: a
+    # stale worktree dir or the ``colleague/<id>`` branch would make ``worktree add
+    # -b`` fail and silently drop isolation back to the in-place path (colleague
+    # review of t1, finding A). The branch is recreated from HEAD below, so dropping
+    # the stale one loses nothing the operator could still recover (a same-id retry
+    # only happens after a crash). All tolerant (``check=False``).
+    _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
+    _git(repo, "worktree", "prune", check=False)
+    _git(repo, "branch", "-D", branch, check=False)
     _git(repo, "worktree", "add", str(wt_path), "-b", branch)
     return str(wt_path)
 
