@@ -1532,7 +1532,9 @@ _LINT_FIX_PROMPT = (
 )
 
 
-def _maybe_run_lint_gate(ctx: _Work, complete: CompleteFn, outcome: str) -> None:
+def _maybe_run_lint_gate(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
     """Run the pre-finish lint gate: auto-fix changed files, then surface residual (#200).
 
     Deterministic fixers (black/isort/ruff) run first; if reporter (flake8 / ruff
@@ -1540,28 +1542,35 @@ def _maybe_run_lint_gate(ctx: _Work, complete: CompleteFn, outcome: str) -> None
     is left, ONE bounded model fix-turn is injected per remaining retry (capped by
     ``ctx.lint_fix_retries``), re-running the gate after each. Non-blocking: the
     handoff always proceeds; the final :class:`~colleague.contract.LintReport` is
-    attached to ``result.lint_report``. A strict no-op when lint is disabled, no files
-    changed, or no linters are configured (the gate returns ``None``). The model
-    fix-turn is held to a clean finish — an incomplete run (budget/stop) should not
-    spend extra turns chasing lint nits, and its INCOMPLETE status must stand.
+    attached to ``result.lint_report``. A strict no-op when the loop aborted, lint is
+    disabled, no files changed, or no linters are configured (the gate returns
+    ``None``). The model fix-turn is held to a clean finish — an incomplete run
+    (budget/stop) should not spend extra turns chasing lint nits, and its INCOMPLETE
+    status must stand.
+
+    Best-effort + fail-safe (#209 review): the body is wrapped in ``suppress`` so a
+    linter that hangs/errors past :mod:`colleague.lint`'s own guards can NEVER abort
+    ``run()`` (which calls this AFTER its main try/except, before the changed_files
+    snapshot). Mirrors the neighbour-clone / hook fail-safes.
     """
-    if not ctx.lint_enabled:
+    if aborted is not None or not ctx.lint_enabled:
         return
-    changed = sorted(ctx.executor.changed)
-    if not changed:
-        return
-    report = _lint.run_lint_gate(ctx.task.repo_path, changed)
-    if report is None:
-        return
-    retries = ctx.lint_fix_retries if outcome == _EXIT_FINISHED else 0
-    while report.residual and retries > 0:
-        _run_lint_fix_turn(ctx, complete, report.residual)
-        retries -= 1
-        next_report = _lint.run_lint_gate(ctx.task.repo_path, sorted(ctx.executor.changed))
-        if next_report is None:
-            break
-        report = next_report
-    ctx.result.lint_report = report
+    with suppress(Exception):
+        changed = sorted(ctx.executor.changed)
+        if not changed:
+            return
+        report = _lint.run_lint_gate(ctx.task.repo_path, changed)
+        if report is None:
+            return
+        retries = ctx.lint_fix_retries if outcome == _EXIT_FINISHED else 0
+        while report.residual and retries > 0:
+            _run_lint_fix_turn(ctx, complete, report.residual)
+            retries -= 1
+            next_report = _lint.run_lint_gate(ctx.task.repo_path, sorted(ctx.executor.changed))
+            if next_report is None:
+                break
+            report = next_report
+        ctx.result.lint_report = report
 
 
 def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) -> None:
@@ -1794,10 +1803,10 @@ def run(
     # linters on the changed files and auto-fix what they can; if reporter violations
     # remain after a clean finish, inject ONE bounded model fix-turn (capped by
     # lint_fix_retries). Runs BEFORE the changed_files snapshot + stats below so any
-    # fix-turn edits are captured. Non-blocking: the handoff always proceeds. A strict
-    # no-op when lint is disabled, no files changed, or no linters are configured.
-    if aborted is None:
-        _maybe_run_lint_gate(ctx, complete, outcome)
+    # fix-turn edits are captured. Non-blocking: the handoff always proceeds. The
+    # aborted guard + the best-effort wrapping live in the helper (so it can never
+    # abort run(), #209 review) — call it unconditionally to keep run() flat.
+    _maybe_run_lint_gate(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,
