@@ -128,6 +128,7 @@ def test_no_third_party_imports():
         import colleague.flight  # noqa: F401
         import colleague.hooks  # noqa: F401
         import colleague.layers  # noqa: F401
+        import colleague.lint  # noqa: F401
         import colleague.loop  # noqa: F401
         import colleague.neighbours  # noqa: F401
         import colleague.policy  # noqa: F401
