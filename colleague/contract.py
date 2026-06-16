@@ -308,6 +308,37 @@ class CapacityDecision:
 
 
 @dataclass
+class LintReport:
+    """Report from the lint pre-finish gate.
+
+    ``fixed`` lists human-readable notes of what was auto-fixed
+    (e.g. "black reformatted 2 file(s)").  ``residual`` lists remaining
+    violations surfaced after auto-fix (e.g. "flake8 F811 colleague/x.py:10").
+    ``skipped`` lists linters configured but skipped because the binary was
+    missing (e.g. "ruff: not installed").
+    """
+
+    fixed: list[str] = field(default_factory=list)
+    residual: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "fixed": list(self.fixed),
+            "residual": list(self.residual),
+            "skipped": list(self.skipped),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "LintReport":
+        return cls(
+            fixed=list(data.get("fixed", [])),
+            residual=list(data.get("residual", [])),
+            skipped=list(data.get("skipped", [])),
+        )
+
+
+@dataclass
 class Step:
     """One iteration of the agentic tool-loop: a tool call and its result."""
 
@@ -463,6 +494,11 @@ class TaskResult:
     assessment exceeds even the in-repo split capacity (#156), else ``None``. The
     operator performs the cross-repo split; colleague only warns. Omitted from the
     artifact (not null) when ``None``."""
+    lint_report: Optional[LintReport] = None
+    """The lint pre-finish gate's report, or ``None`` when linting did not run
+    (disabled, or no linters configured). Like destination/capacity_decision,
+    the serialized key is OMITTED (not null) when ``None``, so a work item that
+    ran no lint gate is byte-identical to today."""
     not_finished: bool = False
     """True iff the work item exhausted the step budget without calling ``finish`` AND
     without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
@@ -513,6 +549,8 @@ class TaskResult:
             d["capacity_decision"] = self.capacity_decision.to_dict()
         if self.capacity_warning is not None:
             d["capacity_warning"] = self.capacity_warning
+        if self.lint_report is not None:
+            d["lint_report"] = self.lint_report.to_dict()
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -546,6 +584,11 @@ class TaskResult:
                 else None
             ),
             capacity_warning=data.get("capacity_warning"),
+            lint_report=(
+                LintReport.from_dict(data["lint_report"])
+                if data.get("lint_report")
+                else None
+            ),
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
         )
