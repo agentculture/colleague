@@ -31,8 +31,9 @@ The architecture, part by part:
   *working, not stalled* instead of going silent for minutes. A phase notice is
   encoded as a progress event with an EMPTY tool name (a reserved sentinel — a real
   tool always has a name); the plain stderr sink renders it as a standalone line, the
-  structured cockpit/events sinks skip it (so `tui replay`/`snapshot` stay step-only —
-  a live cockpit "synthesizing" status is a documented follow-up). Runtime-owned, so
+  structured cockpit/events/session sinks all skip it (so `tui replay`/`snapshot` stay
+  step-only and the interactive session cockpit never folds a phantom step — a live
+  cockpit "synthesizing" status is a documented follow-up). Runtime-owned, so
   every backend inherits it (all-engines rule); a strict no-op without a progress
   sink, and zero new deps/threads (the flight feed is untouched — the synthesis turn
   runs after the feed is reaped, so a piloting agent already reads it as ended, not
