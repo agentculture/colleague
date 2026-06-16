@@ -18,6 +18,10 @@ from colleague.contract import LintReport
 
 _LINTER_NAMES = frozenset({"black", "isort", "ruff", "flake8"})
 
+# Per-linter subprocess ceiling (#209 review): a hung linter must never block the
+# handoff. Generous — changed-files linting takes seconds; this is only a hang-guard.
+_LINT_TIMEOUT = 300
+
 
 def detect_linters(repo_path: str | Path) -> set[str]:
     """Return the set of configured linter names in *repo_path*.
@@ -66,76 +70,85 @@ def _first_nonempty_line(text: str | None) -> str:
     return "ran"
 
 
+def _record_fixer(
+    report: LintReport, name: str, result: Optional[subprocess.CompletedProcess]
+) -> None:
+    """Record one fixer run on the report: a note in ``fixed`` or ``skipped``."""
+    if result is None:
+        report.skipped.append(f"{name}: not installed")
+    else:
+        report.fixed.append(f"{name}: {_first_nonempty_line(result.stdout or result.stderr)}")
+
+
+def _record_reporter(
+    report: LintReport, name: str, result: Optional[subprocess.CompletedProcess]
+) -> None:
+    """Record one reporter run: residual violation lines, or a ``skipped`` note."""
+    if result is None:
+        report.skipped.append(f"{name}: not installed")
+    elif result.returncode != 0:
+        report.residual.extend(line for line in (result.stdout or "").splitlines() if line.strip())
+
+
+def _fixer_commands(detected: set[str], py: list[str]) -> list[tuple[str, list[str]]]:
+    """The (name, argv) fixer commands for the configured linters, in run order."""
+    cmds: list[tuple[str, list[str]]] = []
+    if "isort" in detected:
+        cmds.append(("isort", ["isort", *py]))
+    if "black" in detected:
+        cmds.append(("black", ["black", *py]))
+    if "ruff" in detected:
+        cmds.append(("ruff check --fix", ["ruff", "check", "--fix", *py]))
+        cmds.append(("ruff format", ["ruff", "format", *py]))
+    return cmds
+
+
+def _reporter_commands(detected: set[str], py: list[str]) -> list[tuple[str, list[str]]]:
+    """The (name, argv) reporter commands for the configured linters, in run order."""
+    cmds: list[tuple[str, list[str]]] = []
+    if "flake8" in detected:
+        cmds.append(("flake8", ["flake8", *py]))
+    if "ruff" in detected:
+        cmds.append(("ruff check", ["ruff", "check", *py]))
+    return cmds
+
+
 def _run(cmd: list[str], repo_path: str | Path) -> Optional[subprocess.CompletedProcess]:
-    """Run *cmd* in *repo_path*; return ``None`` on ``FileNotFoundError``."""
+    """Run *cmd* in *repo_path*; return ``None`` on ANY launch/timeout failure.
+
+    The lint gate is best-effort and must never crash or block the handoff: a
+    missing binary, a hung linter (``TimeoutExpired``), or any other OS/value
+    error all degrade to ``None`` (recorded by the caller as ``skipped``).
+    """
     try:
-        return subprocess.run(cmd, cwd=str(repo_path), capture_output=True, text=True, check=False)
-    except FileNotFoundError:
+        return subprocess.run(
+            cmd,
+            cwd=str(repo_path),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_LINT_TIMEOUT,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
 
 
 def run_lint_gate(repo_path: str | Path, changed_files: list[str]) -> Optional[LintReport]:
     """Run configured fixers then reporters on the changed Python files.
 
-    Returns ``None`` when no linters are configured or there are no Python
-    files to lint.  Otherwise returns a :class:`~colleague.contract.LintReport`.
+    Returns ``None`` when no linters are configured or there are no Python files
+    to lint. Otherwise returns a :class:`~colleague.contract.LintReport`.
     """
     detected = detect_linters(repo_path)
     if not detected:
         return None
-
     repo = Path(repo_path)
     py = [f for f in changed_files if f.endswith(".py") and (repo / f).is_file()]
     if not py:
         return None
-
-    fixed: list[str] = []
-    residual: list[str] = []
-    skipped: list[str] = []
-
-    # ── FIXERS (auto-fix in place) ──────────────────────────────────
-    if "isort" in detected:
-        result = _run(["isort", *py], repo_path)
-        if result is None:
-            skipped.append("isort: not installed")
-        else:
-            fixed.append(f"isort: {_first_nonempty_line(result.stdout or result.stderr)}")
-
-    if "black" in detected:
-        result = _run(["black", *py], repo_path)
-        if result is None:
-            skipped.append("black: not installed")
-        else:
-            fixed.append(f"black: {_first_nonempty_line(result.stdout or result.stderr)}")
-
-    if "ruff" in detected:
-        # ruff check --fix
-        result = _run(["ruff", "check", "--fix", *py], repo_path)
-        if result is None:
-            skipped.append("ruff: not installed")
-        else:
-            fixed.append(
-                f"ruff check --fix: {_first_nonempty_line(result.stdout or result.stderr)}"
-            )
-        # ruff format
-        result = _run(["ruff", "format", *py], repo_path)
-        if result is not None:
-            fixed.append(f"ruff format: {_first_nonempty_line(result.stdout or result.stderr)}")
-
-    # ── REPORTERS (residual violations) ─────────────────────────────
-    if "flake8" in detected:
-        result = _run(["flake8", *py], repo_path)
-        if result is None:
-            skipped.append("flake8: not installed")
-        elif result.returncode != 0:
-            residual.extend(line for line in (result.stdout or "").splitlines() if line.strip())
-
-    if "ruff" in detected:
-        result = _run(["ruff", "check", *py], repo_path)
-        if result is None:
-            # Already recorded above; skip duplicate.
-            pass
-        elif result.returncode != 0:
-            residual.extend(line for line in (result.stdout or "").splitlines() if line.strip())
-
-    return LintReport(fixed=fixed, residual=residual, skipped=skipped)
+    report = LintReport()
+    for name, cmd in _fixer_commands(detected, py):
+        _record_fixer(report, name, _run(cmd, repo_path))
+    for name, cmd in _reporter_commands(detected, py):
+        _record_reporter(report, name, _run(cmd, repo_path))
+    return report
