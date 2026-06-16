@@ -1,0 +1,305 @@
+{
+  "slug": "colleague-work-hands-back-lint-clean-code-by-defau",
+  "title": "Colleague work hands back lint-clean code by default: before every git handoff it detects the repo's configured linters (black, isort, flake8, ruff) and auto-fixes what it can as a pre-finish gate, so a delegated colleague work no longer needs an integrator lint-fix pass",
+  "frame_slug": "colleague-work-hands-back-lint-clean-code-by-defau",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-16T14:37:04Z",
+  "updated": "2026-06-16T14:39:25Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague work hands back lint-clean code by default: before every git handoff it detects the repo's configured linters (black, isort, flake8, ruff) and auto-fixes what it can as a pre-finish gate, so a delegated colleague work no longer needs an integrator lint-fix pass"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "After a colleague work item in a linter-configured repo, the handed-off branch passes that repo's own lint gate (black --check / isort --check / flake8) with zero integrator edits"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "An operator delegating a coding task to colleague (work/drive, and ask-colleague write --apply) in a repo that configures Python linters (black/isort/flake8/ruff)"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The feature activates only for an operator whose repo configures at least one of black/isort/flake8/ruff; for every other repo it is invisible (strict no-op)"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "colleague returns functionally-correct code (its own pytest passes) that fails the repo lint gate \u2014 flake8 F401/E501, black/isort formatting \u2014 so every delegated task needs an avoidable integrator lint-fix pass after handoff"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Reproducible today: a colleague work item on the colleague repo itself produces black/isort/flake8 violations that need a manual fix-up before the repo lint gate passes"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Before the git handoff, colleague detects the repo's configured linters and auto-fixes the work item's changed files, so a delegated colleague work lands lint-clean by default with no integrator fix-up"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "After the gate, re-running the repo's own lint commands on the changed files reports clean, except for any residual the bounded model fix-turn could not resolve (which is surfaced, not hidden)"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The recurring integrator lint-fix pass is the tax that made delegation feel unfinished; removing it is what makes 'delegate to colleague' actually save the requester work"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The operator can merge the handed-off branch with zero separate lint-fix edits \u2014 measurable as no integrator lint commit on top of the colleague diff"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a whole-repo reformat: the gate operates only on the work item's changed files, never pre-existing violations elsewhere in the repo"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "git diff of the handoff shows edits only to files the work item already touched; a pre-existing violation in an untouched file is never modified by the gate"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "Python-toolchain only in v1 (black, isort, flake8, ruff); other-language linters and a generic lint hook are a documented follow-up"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "In a repo with no Python linter configured (e.g. a JS-only repo) the gate detects nothing and is a strict no-op; non-Python linters are explicitly deferred"
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "Not a sandbox or a CI lint replacement: it is a best-effort, bounded, degradable pre-finish convenience that shells out only to a curated linter allow-list"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The gate shells out only to the curated allow-list black/isort/flake8/ruff, opens no socket/daemon, runs no arbitrary program, and is best-effort (not a guarantee equal to CI)"
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "A delegated colleague work in a black/isort/flake8-configured repo lands a branch that passes the repo lint gate with no integrator fix-up; a repo with no configured linters yields a byte-identical TaskResult to today"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Demonstrated end-to-end: a delegated work item on a linter-configured repo lands a branch passing black --check/isort --check/flake8 with no integrator edit; a no-linter repo yields a byte-identical TaskResult (e2e shape test pins it)"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Runtime-owned: the lint gate fires from the loop/handoff pre-finish path so it behaves identically for mock and vllm-openai (all-engines rule), exactly like hooks/telemetry/stats"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "There is no lint code in any colleague/engines/* backend module; the gate is invoked once from colleague/loop.py (or the shared execute_work path) and the e2e mock/vllm shape test proves identical lint_report behavior"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Zero new runtime deps: detect linters by parsing config with stdlib (tomllib for pyproject.toml, configparser for setup.cfg/.flake8/tox.ini); shell out only to the curated linter allow-list (black/isort/flake8/ruff), the same permitted-subprocess exception as the culture/devague tools, sanctioned in a new colleague/lint.py and the boundary test"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "pyproject.toml keeps dependencies = []; the zero-deps guard still passes; lint.py is the only new module that imports subprocess, and test_boundary.py is updated to sanction exactly it (curated allow-list black/isort/flake8/ruff, no arbitrary program)"
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Strict no-op when no linters are configured (or all are opted out): TaskResult is byte-identical to today, and TaskResult.lint_report is omitted-when-empty like destination/announcement so the e2e shape test stays green"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "With no [tool.black]/[tool.isort]/[tool.ruff]/[flake8] section detected, run_lint_gate returns an empty report and TaskResult serializes byte-identically to a pre-feature run; lint_report is absent from the JSON when empty"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "contract.py: add LintReport dataclass + TaskResult.lint_report (omit-when-empty)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A TaskResult with no lint findings serializes byte-identically to today (lint_report key absent from JSON); a populated LintReport (fixed[], residual[], skipped[]) round-trips through to_dict/from_dict"
+      ],
+      "deps": [],
+      "covers": [
+        "c16",
+        "h3"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "config.py: lint opt-out resolution on EngineConfig (lint enabled + lint_fix_retries) wired into resolve() + load_config_file",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig.resolve yields lint enabled by default; an explicit flag, COLLEAGUE_LINT=0 env, and .colleague/config.json {lint:false} each disable it with precedence flag>env>config>default-on; COLLEAGUE_LINT_FIX_RETRIES resolves to int (default 1) via the same precedence"
+      ],
+      "deps": [],
+      "covers": [
+        "h7"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "colleague/lint.py: linter detection + curated pre-finish gate + tests/test_lint.py (TDD)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "detect_linters parses [tool.black]/[tool.isort]/[tool.ruff] from pyproject.toml (stdlib tomllib) and [flake8] from setup.cfg/.flake8/tox.ini (stdlib configparser), returning an empty result for an unconfigured repo",
+        "run_lint_gate shells out ONLY to black/isort/ruff/flake8 (curated allow-list, never an arbitrary program) and operates ONLY on the supplied changed-files list, returning a LintReport of fixed + residual violations",
+        "a configured-but-missing linter binary is skipped with a recorded note and never raises; lint.py is the only colleague module that imports subprocess"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "c6",
+        "c7",
+        "c8",
+        "c15",
+        "c16",
+        "h2",
+        "h7",
+        "h11",
+        "h12",
+        "h13"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "loop.py + mock/vllm backends: wire the pre-finish lint gate (bounded model fix-turn, non-blocking, top-level only)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "after the work loop and before handoff, when lint is enabled and the work item changed files, the gate runs on the changed files and attaches the LintReport to TaskResult",
+        "if residual reporter violations remain it injects ONE bounded model fix-turn capped by lint_fix_retries (default 1), then proceeds to handoff regardless of any leftover (never wedges); fires once at the top level, not per-subagent",
+        "the gate fires identically for mock and vllm-openai (config forwarded via ContextControls); no lint logic lives in any engines/* module beyond config forwarding; lint disabled OR no files changed is a strict no-op"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "c14",
+        "h1",
+        "h5",
+        "h9"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "work.py CLI: --no-lint flag + residual lint surfaced to stderr",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague work accepts --no-lint and threads it into EngineConfig resolution; a default run has lint on",
+        "residual lint violations from TaskResult.lint_report print to stderr (never stdout) as a warning, and --json output carries the lint_report payload"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c5",
+        "h10"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "tests: boundary + zero-deps + e2e-shape guards for the lint gate",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_boundary.py sanctions exactly colleague/lint.py as a subprocess consumer and still fails if any OTHER module gains a subprocess import",
+        "test_zero_deps.py imports colleague.lint and asserts no third-party import leak; pyproject.toml dependencies stays []",
+        "test_e2e_mock.py proves the lint_report behavior is identical for mock and vllm and that a repo with no configured linter yields a byte-identical TaskResult (lint_report absent)"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c9",
+        "h8",
+        "h14"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "docs: CLAUDE.md lint-gate architecture bullet + docs/features/lint-gate.md",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md gains a Lint gate bullet covering the pre-finish gate, default-on/opt-out, curated allow-list, bounded fix-turn, and HONEST limits (python-only, changed-files scope, not a CI replacement, missing-binary degradation)",
+        "docs/features/lint-gate.md documents detection, the fix-then-surface flow, the opt-out knobs, and a worked example"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c7",
+        "c8"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "version bump (minor) + CHANGELOG entry",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml and colleague/__init__.py bump one minor version; CHANGELOG.md prepends a Keep-a-Changelog entry for the lint pre-finish gate; the version-check CI job passes"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": []
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Changed-files source: t4 must reuse the tool executor's write-tracking / git diff vs base_sha to scope the gate; if unavailable it falls back to git status in the isolation worktree",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r2",
+      "text": "The bounded model fix-turn needs a live backend; on mock it is a no-op (no real fix) \u2014 acceptable under all-engines (fires identically, produces no edit), demonstrated by the e2e test",
+      "kind": "follow_up",
+      "task_id": "t4"
+    },
+    {
+      "id": "r3",
+      "text": "ruff standalone config (ruff.toml/.ruff.toml) and non-pyproject black/isort config are not detected in v1 \u2014 pyproject sections + setup.cfg/.flake8/tox.ini [flake8] only; standalone ruff.toml is a documented follow-up",
+      "kind": "follow_up",
+      "task_id": "t3"
+    }
+  ]
+}
