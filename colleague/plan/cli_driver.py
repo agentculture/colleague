@@ -69,6 +69,50 @@ def _scan_string(text: str, i: int) -> int:
     return i
 
 
+def _balance_and_parse(fragment: str) -> dict[str, Any] | None:
+    """Best-effort parse of a JSON object **truncated mid-structure**.
+
+    A served reasoning model sometimes stops generating before the final
+    ``}`` (it runs out of budget or just halts), leaving e.g.
+    ``{"items": [ {...}, {...} ]`` with the closing brace missing. Walk
+    *fragment* tracking the unclosed ``{`` / ``[`` stack (skipping string
+    contents via :func:`_scan_string`), append the implied closers, and parse.
+    If that fails (truncation landed mid-token), retreat to the last complete
+    ``}`` / ``]`` and retry once. Returns ``None`` when unrecoverable.
+    """
+
+    def _close(frag: str) -> dict[str, Any] | None:
+        stack: list[str] = []
+        i, n = 0, len(frag)
+        while i < n:
+            ch = frag[i]
+            if ch == '"':
+                i = _scan_string(frag, i + 1)
+                continue
+            if ch in "{[":
+                stack.append(ch)
+            elif ch == "}" and stack and stack[-1] == "{":
+                stack.pop()
+            elif ch == "]" and stack and stack[-1] == "[":
+                stack.pop()
+            i += 1
+        closed = frag + "".join("}" if c == "{" else "]" for c in reversed(stack))
+        try:
+            obj = json.loads(closed)
+        except ValueError:
+            return None
+        return obj if isinstance(obj, dict) else None
+
+    obj = _close(fragment)
+    if obj is not None:
+        return obj
+    # Truncation landed mid-token: retreat to the last complete element + retry.
+    cut = max(fragment.rfind("}"), fragment.rfind("]"))
+    if cut <= 0:
+        return None
+    return _close(fragment[: cut + 1])
+
+
 def _extract_json_object(text: str, required_key: str | None = None) -> dict[str, Any]:
     """Tolerantly extract a top-level JSON object from *text*.
 
@@ -109,7 +153,15 @@ def _extract_json_object(text: str, required_key: str | None = None) -> dict[str
                     break
             i += 1
         if end == -1:
-            break  # unbalanced from this start — no later object can close
+            # Truncated mid-structure (no closing brace): a reasoning model that
+            # stopped early. Try a bounded repair before giving up.
+            repaired = _balance_and_parse(text[start:])
+            if isinstance(repaired, dict):
+                if required_key is None or required_key in repaired:
+                    return repaired
+                if first_obj is None:
+                    first_obj = repaired
+            break  # no later object can close once we hit an unclosed one
         try:
             obj = json.loads(text[start : end + 1])
         except ValueError:

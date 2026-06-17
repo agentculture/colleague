@@ -419,3 +419,30 @@ def test_extract_falls_back_to_first_object_when_key_absent() -> None:
     assert _extract_json_object('{"a": 1} {"b": 2}', required_key="items") == {"a": 1}
     # And the keyless default still returns the first object byte-identically.
     assert _extract_json_object('{"a": 1} {"b": 2}') == {"a": 1}
+
+
+def test_extract_repairs_object_missing_trailing_brace() -> None:
+    """A reasoning model that stops before the final ``}`` (truncation) is
+    recovered by the bounded repair path (#210 — the live 27B failure mode)."""
+    truncated = '\n\n{"items": [{"id": "t1", "summary": "a", "acceptance": [], "deps": []}]'
+    items = parse_plan_items(truncated)
+    assert [i.id for i in items] == ["t1"]
+
+
+def test_extract_repairs_truncated_mid_element() -> None:
+    """Truncation mid-element retreats to the last complete element + recloses."""
+    # Closes through t2, then t3 is cut off mid-string and the structure is open.
+    truncated = (
+        '{"items": [{"id": "t1", "summary": "a", "acceptance": [], "deps": []}, '
+        '{"id": "t2", "summary": "b", "acceptance": [], "deps": []}, '
+        '{"id": "t3", "summary": "unterminat'
+    )
+    items = parse_plan_items(truncated)
+    assert [i.id for i in items] == ["t1", "t2"]
+
+
+def test_extract_balanced_object_unchanged_by_repair() -> None:
+    """A well-formed (balanced) object is returned without invoking repair."""
+    items = parse_plan_items('{"items": [{"id": "t1", "summary": "ok", "deps": []}]}')
+    assert [i.id for i in items] == ["t1"]
+    assert items[0].summary == "ok"
