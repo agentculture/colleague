@@ -330,6 +330,30 @@ def robust_simple_complete(complete: Callable[[list[dict]], Any]) -> SimpleCompl
     return simple
 
 
+def _shrink_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Shrink *messages* by truncating the longest user-role message to half its
+    length.  Returns a new list with the mutated message in place.
+
+    Used as a degradation step before retrying on overflow: a too-large
+    proposal prompt gets smaller on each overflow retry.
+    """
+    # Find the longest user-role message.
+    longest_idx = -1
+    longest_len = 0
+    for idx, msg in enumerate(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if len(content) > longest_len:
+                longest_len = len(content)
+                longest_idx = idx
+    if longest_idx < 0:
+        return messages  # no user message to shrink
+    # Truncate to roughly half.
+    half = max(1, longest_len // 2)
+    messages[longest_idx]["content"] = messages[longest_idx]["content"][:half]
+    return messages
+
+
 def _call_with_retry(
     messages: list[dict[str, str]],
     call: Callable[[list[dict[str, str]]], Any],
@@ -337,7 +361,8 @@ def _call_with_retry(
     """Call *call(messages)* with bounded retry on degradable errors.
 
     Timeout: retry once (``_MAX_TIMEOUT_RETRIES``).
-    Overflow: retry up to three times (``_MAX_OVERFLOW_RETRIES``).
+    Overflow: retry up to three times (``_MAX_OVERFLOW_RETRIES``), shrinking
+    the request on each overflow retry so a too-large prompt gets smaller.
     Non-degradable errors re-raise immediately.
     """
     attempt = 0
@@ -353,6 +378,8 @@ def _call_with_retry(
                 raise  # non-degradable: propagate immediately
             saw_overflow = saw_overflow or signal == "overflow"
             cap = _MAX_OVERFLOW_RETRIES if saw_overflow else _MAX_TIMEOUT_RETRIES
+            if signal == "overflow":
+                _shrink_messages(messages)
             attempt += 1
             if attempt > cap:
                 raise

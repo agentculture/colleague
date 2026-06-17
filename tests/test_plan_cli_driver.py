@@ -510,3 +510,91 @@ def test_make_propose_plan_items_raises_on_total_failure() -> None:
     frame.claims.append(Claim(id="c1", kind="announcement", text="X", state="confirmed"))
     with pytest.raises(ValueError):
         make_propose_plan_items(simple)(frame)
+
+
+# ---------------------------------------------------------------------------
+# Overflow-shrinking retry tests (Qodo #2 on PR #214)
+# ---------------------------------------------------------------------------
+
+
+def test_overflow_retry_shrinks_user_message() -> None:
+    """When an overflow error occurs, the retried call receives a shorter
+    user message than the first attempt."""
+    good_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+    received_user_lengths: list[int] = []
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        # Record the user message length at call time (before any later shrink).
+        user_content = messages[1]["content"]
+        received_user_lengths.append(len(user_content))
+        if call_count == 1:
+            raise RuntimeError("maximum context length exceeded")
+        return _ModelResp(content=good_json)
+
+    simple = robust_simple_complete(fake_complete)
+    long_user = "X" * 200
+    result = simple("SYS", long_user)
+    assert result == good_json
+    assert call_count == 2
+    # First call had the full user message; second call has a shorter one.
+    assert received_user_lengths[1] < received_user_lengths[0]
+    assert received_user_lengths[1] == received_user_lengths[0] // 2
+
+
+def test_overflow_retry_exhausted_cap_raises() -> None:
+    """When overflow errors exhaust the retry cap, the error re-raises."""
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("maximum context length exceeded")
+
+    simple = robust_simple_complete(fake_complete)
+    with pytest.raises(RuntimeError, match="maximum context length exceeded"):
+        simple("SYS", "USR")
+    # 1 initial + 3 overflow retries = 4 total calls
+    assert call_count == 4
+
+
+def test_timeout_retry_does_not_shrink() -> None:
+    """A timeout retry retries without shrinking (shrinking is overflow-only)."""
+    good_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+    received_messages: list[list[dict]] = []
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        received_messages.append(messages)
+        if call_count == 1:
+            raise RuntimeError("request timed out")
+        return _ModelResp(content=good_json)
+
+    simple = robust_simple_complete(fake_complete)
+    long_user = "X" * 200
+    result = simple("SYS", long_user)
+    assert result == good_json
+    assert call_count == 2
+    # Timeout retry does NOT shrink — messages are identical.
+    first_user = received_messages[0][1]["content"]
+    second_user = received_messages[1][1]["content"]
+    assert second_user == first_user
+
+
+def test_non_degradable_error_raises_immediately() -> None:
+    """A non-degradable error re-raises immediately without retry."""
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("something unrelated")
+
+    simple = robust_simple_complete(fake_complete)
+    with pytest.raises(ValueError, match="something unrelated"):
+        simple("SYS", "USR")
+    assert call_count == 1
