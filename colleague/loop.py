@@ -475,6 +475,9 @@ class _Work:
     # None), so the gate fires for every backend (the all-engines rule) without a
     # behavior change for findings-free runs. Forwarded from ``_context.testintegrity``.
     testintegrity_enabled: bool = True
+    # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
+    # only). Forwarded from ``_context.testintegrity_fix_retries`` (all-engines rule).
+    testintegrity_fix_retries: int = 0
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1451,8 +1454,12 @@ class ContextControls:
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
     # blocks the handoff, makes no network call, and a no-finding run is byte-identical
     # (omit-when-None). Defaults ON so the gate fires for every backend without each
-    # backend opting in; pass ``False`` to disable (the t3 env/config opt-out feeds it).
+    # backend opting in; pass ``False`` to disable (the env/config opt-out feeds it).
     testintegrity: bool = True
+    # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
+    # only, the conservative default). ``None`` leaves it at 0. Forwarded by every
+    # backend from ``config.testintegrity_fix_retries`` (all-engines rule).
+    testintegrity_fix_retries: int | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1617,7 +1624,9 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
     ) = saved
 
 
-def _maybe_run_test_integrity_gate(ctx: _Work, outcome: str, aborted: Exception | None) -> None:
+def _maybe_run_test_integrity_gate(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
     """Run the post-loop test-integrity gate: flag the mirror signature (#203).
 
     Deterministic and code-locked: on a non-aborted exit it runs the
@@ -1630,6 +1639,16 @@ def _maybe_run_test_integrity_gate(ctx: _Work, outcome: str, aborted: Exception 
     a test merely mirrors the implementation's own (possibly wrong) assumption (the
     #203 self-confirming false positive).
 
+    Bounded re-examine turn (#203 t3): when findings remain after a CLEAN finish
+    (``outcome == _EXIT_FINISHED``) and a fix-turn budget is left
+    (``ctx.testintegrity_fix_retries``), ONE bounded model turn is injected per
+    remaining retry asking the model to verify the flagged symbol against the REAL
+    API shape and fix it if wrong, re-running the gate after each. Conservative by
+    default (``testintegrity_fix_retries`` defaults to 0 — detect-and-record only).
+    Effectively a no-op on ``mock`` (the replayed script has already finished, so the
+    fix-turn does nothing) and the work item's terminal summary/status are saved and
+    restored either way, so a fix-turn ``finish`` can never clobber the real result.
+
     Advisory + non-blocking: it NEVER blocks the git handoff and makes NO network
     call. A no-finding run is byte-identical — the report stays ``None`` and is
     omitted from the artifact (the h6 omit-when-None guarantee). A strict no-op when
@@ -1638,8 +1657,7 @@ def _maybe_run_test_integrity_gate(ctx: _Work, outcome: str, aborted: Exception 
     Best-effort + fail-safe (mirrors the lint-gate / neighbour-clone / hook
     fail-safes): the body is wrapped in ``suppress`` so detection can NEVER abort
     ``run()`` (which calls this after its main try/except, before the changed_files
-    snapshot). The bounded re-examine turn + diverse-model reviewer are layered on in
-    #203 tasks t3/t4; this t2 increment is detect-and-record only.
+    snapshot). The diverse-model reviewer is layered on in #203 task t4.
     """
     if aborted is not None or not ctx.testintegrity_enabled:
         return
@@ -1652,6 +1670,60 @@ def _maybe_run_test_integrity_gate(ctx: _Work, outcome: str, aborted: Exception 
             return
         ctx.result.test_integrity_report = report
         _surface_test_integrity(report)
+        # Bounded re-examine turn(s) — only after a clean finish with budget left.
+        retries = ctx.testintegrity_fix_retries if outcome == _EXIT_FINISHED else 0
+        while report.findings and retries > 0:
+            _run_test_integrity_fix_turn(ctx, complete, report.findings)
+            retries -= 1
+            report = _testintegrity.detect_mirror(ctx.task.repo_path, sorted(ctx.executor.changed))
+            ctx.result.test_integrity_report = report if report.findings else None
+
+
+# A re-examine turn re-enters the loop for at most this many model turns.
+_TESTINTEGRITY_FIX_STEPS = 6
+
+_TESTINTEGRITY_FIX_PROMPT = (
+    "The test-integrity gate flagged a possible self-confirming test: you and your "
+    "test BOTH introduced the following symbol(s), found NOWHERE ELSE in the repo. "
+    "This is the signature of a test that merely mirrors the implementation's own "
+    "(possibly wrong) assumption about an external API. For each symbol, verify it "
+    "against the REAL API shape (the actual library/SDK attribute name or dict key) "
+    "and FIX it in BOTH the implementation and the test if it is wrong, using "
+    "read_file/edit_file/write_file; if it is genuinely correct, leave it. Then call "
+    "finish:\n"
+)
+
+
+def _run_test_integrity_fix_turn(
+    ctx: _Work, complete: CompleteFn, findings: "list[_testintegrity.MirrorFinding]"
+) -> None:
+    """Inject ONE bounded model turn to re-examine a flagged symbol, preserving state.
+
+    Re-enters :func:`_work_loop` with a small extra step budget after appending the
+    re-examine instruction. The main work's terminal fields (summary / status / the
+    two outcome flags) are saved and restored so a re-examine ``finish`` cannot
+    clobber the work item's real result — the exact lint-fix-turn precedent. Any
+    failure is suppressed (the gate is best-effort and must never abort the work item).
+    """
+    saved = (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    )
+    detail = "\n".join(
+        f"- {f.symbol} ({f.kind}) in {f.test_file} & {f.impl_file}" for f in findings[:50]
+    )
+    ctx.messages.append({"role": "user", "content": _TESTINTEGRITY_FIX_PROMPT + detail})
+    budget = ctx.result.stats.model_turns + _TESTINTEGRITY_FIX_STEPS
+    with suppress(Exception):
+        _work_loop(ctx, complete, budget)
+    (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    ) = saved
 
 
 def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> None:
@@ -1810,6 +1882,7 @@ def run(
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
         testintegrity_enabled=bool(_context.testintegrity),
+        testintegrity_fix_retries=_context.testintegrity_fix_retries or 0,
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -1880,7 +1953,7 @@ def run(
     # Advisory + non-blocking (never blocks the handoff, no network); the aborted
     # guard + best-effort wrapping live in the helper so it can never abort run().
     # Runs after the lint gate so it sees the lint-fixed changed set.
-    _maybe_run_test_integrity_gate(ctx, outcome, aborted)
+    _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,

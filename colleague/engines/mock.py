@@ -90,5 +90,7 @@ class MockEngine(Engine):
                 synthesis_reserve=config.synthesis_reserve_steps,
                 lint=config.lint,
                 lint_fix_retries=config.lint_fix_retries,
+                testintegrity=config.testintegrity,
+                testintegrity_fix_retries=config.testintegrity_fix_retries,
             ),
         )
