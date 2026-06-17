@@ -129,7 +129,7 @@ class AffectedTestsReport:
         counts = []
         if self.passed is not None:
             counts.append(f"{self.passed} passed")
-        if self.failed:
+        if self.failed is not None:
             counts.append(f"{self.failed} failed")
         tail = ", ".join(counts) or self.status
         return f"affected-tests: {self.status} — {len(self.selected)} file(s){cap}: {tail}"
@@ -170,54 +170,75 @@ def _is_package_path(rel: str) -> bool:
 
 
 def _is_test_file(rel: str) -> bool:
-    """Return True if *rel* looks like a test file."""
+    """True for a pytest-discoverable test file (``test_*.py`` / ``*_test.py``).
+
+    Deliberately does NOT treat every file under a ``tests/`` directory as a test:
+    pytest only collects the ``test_*`` / ``_test`` naming, so a ``conftest.py`` or
+    a shared fixture helper under ``tests/`` must not be selected and handed to
+    pytest (it would be wasteful noise against the file cap).
+    """
     base = Path(rel).name
-    if base.startswith("test_") and base.endswith(".py"):
-        return True
-    if base.endswith("_test.py"):
-        return True
-    return "tests" in Path(rel).parts
+    return base.endswith(".py") and (base.startswith("test_") or base.endswith("_test.py"))
+
+
+def _package_parts(current_module: str, is_package: bool) -> list[str]:
+    """The package a relative import is resolved against: the module itself when
+    it is a package (``__init__``), else its parent."""
+    parts = current_module.split(".") if current_module else []
+    if not is_package and parts:
+        parts = parts[:-1]
+    return parts
+
+
+def _import_targets(node: ast.Import) -> set[str]:
+    """Candidate module names for an ``import a.b.c`` node (full + top-level)."""
+    out: set[str] = set()
+    for alias in node.names:
+        out.add(alias.name)
+        out.add(alias.name.split(".")[0])
+    return out
+
+
+def _resolve_from_module(node: ast.ImportFrom, pkg_parts: list[str]) -> str:
+    """The imported module for a ``from … import …`` node, resolving a relative
+    ``level`` against *pkg_parts*."""
+    if not node.level:
+        return node.module or ""
+    base = pkg_parts[: len(pkg_parts) - (node.level - 1)] if node.level > 1 else pkg_parts
+    prefix = ".".join(base)
+    return f"{prefix}.{node.module}" if node.module else prefix
+
+
+def _import_from_targets(node: ast.ImportFrom, pkg_parts: list[str]) -> set[str]:
+    """Candidate module names for a ``from pkg.mod import name`` node — both
+    ``pkg.mod`` and each ``pkg.mod.name`` (the caller keeps the real ones)."""
+    mod = _resolve_from_module(node, pkg_parts)
+    if not mod:
+        return set()
+    out = {mod}
+    for alias in node.names:
+        out.add(f"{mod}.{alias.name}")
+    return out
 
 
 def _candidate_imports(source: str, current_module: str, is_package: bool) -> set[str]:
     """Return candidate imported module names from *source* (ALL imports).
 
     Walks the **whole** tree (``ast.walk``) so function-local / lazy imports are
-    captured.  For ``from pkg.mod import name`` both ``pkg.mod`` and
-    ``pkg.mod.name`` are emitted (the caller keeps only those matching a real
-    repo module).  Relative imports (``level > 0``) are resolved against the
-    current module's package.  Unparseable source yields an empty set.
+    captured.  Relative imports (``level > 0``) are resolved against the current
+    module's package.  Unparseable source yields an empty set.
     """
-    out: set[str] = set()
     try:
         tree = ast.parse(source)
     except (SyntaxError, ValueError, RecursionError):
-        return out
-
-    # The package a relative import is resolved against: the module itself when
-    # it is a package (__init__), else its parent.
-    pkg_parts = current_module.split(".") if current_module else []
-    if not is_package and pkg_parts:
-        pkg_parts = pkg_parts[:-1]
-
+        return set()
+    pkg_parts = _package_parts(current_module, is_package)
+    out: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for alias in node.names:
-                out.add(alias.name)
-                out.add(alias.name.split(".")[0])
+            out |= _import_targets(node)
         elif isinstance(node, ast.ImportFrom):
-            if node.level and node.level > 0:
-                base = (
-                    pkg_parts[: len(pkg_parts) - (node.level - 1)] if node.level > 1 else pkg_parts
-                )
-                prefix = ".".join(base)
-                mod = f"{prefix}.{node.module}" if node.module else prefix
-            else:
-                mod = node.module or ""
-            if mod:
-                out.add(mod)
-                for alias in node.names:
-                    out.add(f"{mod}.{alias.name}")
+            out |= _import_from_targets(node, pkg_parts)
     return out
 
 
@@ -259,6 +280,22 @@ def build_import_graph(repo: Path) -> tuple[dict[str, set[str]], dict[str, str]]
 # ── selection ───────────────────────────────────────────────────────────
 
 
+def _step_frontier(
+    graph: dict[str, set[str]], frontier: set[str], targets: set[str], seen: set[str]
+) -> Optional[set[str]]:
+    """Expand one BFS layer. Returns the next frontier, or ``None`` if a target
+    module was reached this layer."""
+    nxt: set[str] = set()
+    for node in frontier:
+        for neigh in graph.get(node, ()):  # noqa: SIM118
+            if neigh in targets:
+                return None
+            if neigh not in seen:
+                seen.add(neigh)
+                nxt.add(neigh)
+    return nxt
+
+
 def _reaches_within(graph: dict[str, set[str]], start: str, targets: set[str], depth: int) -> bool:
     """True iff any *targets* module is reachable from *start* within *depth* hops."""
     if start in targets:
@@ -266,14 +303,9 @@ def _reaches_within(graph: dict[str, set[str]], start: str, targets: set[str], d
     seen = {start}
     frontier = {start}
     for _ in range(max(0, depth)):
-        nxt: set[str] = set()
-        for node in frontier:
-            for neigh in graph.get(node, ()):  # noqa: SIM118
-                if neigh in targets:
-                    return True
-                if neigh not in seen:
-                    seen.add(neigh)
-                    nxt.add(neigh)
+        nxt = _step_frontier(graph, frontier, targets, seen)
+        if nxt is None:
+            return True
         if not nxt:
             break
         frontier = nxt

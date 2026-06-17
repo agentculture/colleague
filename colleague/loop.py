@@ -1985,6 +1985,19 @@ def _maybe_spawn_test_integrity_reviewer(
                 )
 
 
+def _affectedtests_controls(controls: "ContextControls") -> dict[str, Any]:
+    """The affected-tests gate kwargs for ``_Work``, defaulting each unset
+    (``None``) ContextControls field. Kept out of ``run()`` so the per-field
+    ``or``-defaults don't inflate its cognitive complexity (all-engines rule)."""
+    return {
+        "affectedtests_enabled": bool(controls.affectedtests),
+        "affectedtests_fix_retries": controls.affectedtests_fix_retries or 0,
+        "affectedtests_depth": controls.affectedtests_depth or 3,
+        "affectedtests_max_files": controls.affectedtests_max_files or 20,
+        "affectedtests_override": controls.affectedtests_override,
+    }
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -2130,11 +2143,7 @@ def run(
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
-        affectedtests_enabled=bool(_context.affectedtests),
-        affectedtests_fix_retries=_context.affectedtests_fix_retries or 0,
-        affectedtests_depth=_context.affectedtests_depth or 3,
-        affectedtests_max_files=_context.affectedtests_max_files or 20,
-        affectedtests_override=_context.affectedtests_override,
+        **_affectedtests_controls(_context),
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
