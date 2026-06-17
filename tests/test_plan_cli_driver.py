@@ -396,3 +396,26 @@ def test_robust_identical_claims_to_old_path() -> None:
     assert [c.text for c in r_claims] == [c.text for c in o_claims]
     assert [h.id for h in r_honesty] == [h.id for h in o_honesty]
     assert [h.claim_id for h in r_honesty] == [h.claim_id for h in o_honesty]
+
+
+def test_extract_prefers_object_with_required_key() -> None:
+    """A stray object (e.g. a schema example) before the real payload must not
+    shadow it: parse_plan_items skips the keyless object and returns the one
+    carrying ``items`` (the reasoning-model robustness case, #210)."""
+    blob = (
+        'Here is the schema: {"id": "t1", "summary": "example"} and the answer:\n'
+        '{"items": [{"id": "t1", "summary": "real", "acceptance": [], "deps": []}]}'
+    )
+    items = parse_plan_items(blob)
+    assert [i.id for i in items] == ["t1"]
+    assert items[0].summary == "real"
+
+
+def test_extract_falls_back_to_first_object_when_key_absent() -> None:
+    """When no object carries the key, the first balanced object is returned
+    (back-compat with the keyless extractor)."""
+    from colleague.plan.cli_driver import _extract_json_object
+
+    assert _extract_json_object('{"a": 1} {"b": 2}', required_key="items") == {"a": 1}
+    # And the keyless default still returns the first object byte-identically.
+    assert _extract_json_object('{"a": 1} {"b": 2}') == {"a": 1}

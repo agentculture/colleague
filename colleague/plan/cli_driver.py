@@ -69,32 +69,61 @@ def _scan_string(text: str, i: int) -> int:
     return i
 
 
-def _extract_json_object(text: str) -> dict[str, Any]:
-    """Tolerantly extract the first top-level JSON object from *text*.
+def _extract_json_object(text: str, required_key: str | None = None) -> dict[str, Any]:
+    """Tolerantly extract a top-level JSON object from *text*.
 
-    A served model often wraps JSON in prose or a ```json fence; this finds the
-    first balanced ``{...}`` and parses it. String contents (which may contain
-    braces or escaped quotes) are skipped via :func:`_scan_string`. Raises
-    ``ValueError`` when no valid JSON object is present.
+    A served model often wraps JSON in prose or a ```json fence; this finds a
+    balanced ``{...}`` and parses it. String contents (which may contain braces
+    or escaped quotes) are skipped via :func:`_scan_string`.
+
+    When *required_key* is given, successive top-level objects are scanned and
+    the first one **containing that key** is returned — so a stray ``{...}`` in a
+    reasoning model's prose (e.g. an inline schema example) cannot shadow the
+    real payload. Falls back to the first balanced object when none carries the
+    key (back-compat with ``required_key=None``, which returns the first object).
+    Raises ``ValueError`` when no valid JSON object is present.
     """
-    start = text.find("{")
-    if start == -1:
-        raise ValueError("no JSON object found in model output")
-    depth = 0
-    i = start
     n = len(text)
-    while i < n:
-        ch = text[i]
-        if ch == '"':
-            i = _scan_string(text, i + 1)
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start : i + 1])
-        i += 1
+    pos = 0
+    first_obj: dict[str, Any] | None = None
+    saw_brace = False
+    while True:
+        start = text.find("{", pos)
+        if start == -1:
+            break
+        saw_brace = True
+        depth = 0
+        i = start
+        end = -1
+        while i < n:
+            ch = text[i]
+            if ch == '"':
+                i = _scan_string(text, i + 1)
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+            i += 1
+        if end == -1:
+            break  # unbalanced from this start — no later object can close
+        try:
+            obj = json.loads(text[start : end + 1])
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict):
+            if required_key is None or required_key in obj:
+                return obj
+            if first_obj is None:
+                first_obj = obj
+        pos = end + 1
+    if first_obj is not None:
+        return first_obj
+    if not saw_brace:
+        raise ValueError("no JSON object found in model output")
     raise ValueError("unbalanced JSON object in model output")
 
 
@@ -104,7 +133,7 @@ def parse_claims(text: str) -> tuple[list[Claim], list[HonestyCondition]]:
     Tolerant of model hallucination: a non-dict entry, or one missing the
     essential ``id`` key, is skipped (not a crash); other fields default to ``""``.
     """
-    data = _extract_json_object(text)
+    data = _extract_json_object(text, required_key="claims")
     claims = [
         Claim(
             id=str(c["id"]),
@@ -147,7 +176,7 @@ def parse_plan_items(text: str) -> list[PlanItem]:
     Tolerant: a non-dict entry, or one missing ``id``, is skipped; other fields
     default safely.
     """
-    data = _extract_json_object(text)
+    data = _extract_json_object(text, required_key="items")
     return [
         PlanItem(
             id=str(i["id"]),
