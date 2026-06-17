@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from colleague.testintegrity import TestIntegrityReport
 
 # TaskResult.status values.
 OK = "ok"
@@ -499,6 +502,11 @@ class TaskResult:
     (disabled, or no linters configured). Like destination/capacity_decision,
     the serialized key is OMITTED (not null) when ``None``, so a work item that
     ran no lint gate is byte-identical to today."""
+    test_integrity_report: Optional["TestIntegrityReport"] = None
+    """The test-integrity mirror-detection report, or ``None`` when the gate
+    produced no findings. Like lint_report, the serialized key is OMITTED
+    (not null) when ``None``, so a work item with no mirror findings is
+    byte-identical to pre-t1 artifacts."""
     not_finished: bool = False
     """True iff the work item exhausted the step budget without calling ``finish`` AND
     without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
@@ -551,6 +559,8 @@ class TaskResult:
             d["capacity_warning"] = self.capacity_warning
         if self.lint_report is not None:
             d["lint_report"] = self.lint_report.to_dict()
+        if self.test_integrity_report is not None:
+            d["test_integrity_report"] = self.test_integrity_report.to_dict()
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -587,6 +597,27 @@ class TaskResult:
             lint_report=(
                 LintReport.from_dict(data["lint_report"]) if data.get("lint_report") else None
             ),
+            test_integrity_report=(
+                _get_test_integrity_report_class().from_dict(data["test_integrity_report"])
+                if data.get("test_integrity_report")
+                else None
+            ),
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
         )
+
+
+# ── lazy import helper (avoids circular import at module level) ─────────
+
+
+def _get_test_integrity_report_class():
+    """Return the TestIntegrityReport class via a lazy import.
+
+    ``colleague.testintegrity`` imports ``colleague.contract`` (for the
+    type annotation on ``TaskResult.test_integrity_report``), so we cannot
+    import it at the top of this module.  This helper defers the import to
+    the point where it is actually needed (``from_dict``).
+    """
+    from colleague.testintegrity import TestIntegrityReport
+
+    return TestIntegrityReport
