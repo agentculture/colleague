@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import ast
 import os
-import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,12 +75,6 @@ _SKIP_DIRS = frozenset(
         ".devague",
     }
 )
-
-# Parse pytest's summary line, e.g. "3 failed, 10 passed in 0.5s".
-_PASSED_RE = re.compile(r"(\d+) passed")
-_FAILED_RE = re.compile(r"(\d+) failed")
-_ERROR_RE = re.compile(r"(\d+) error")
-
 
 # ── report ──────────────────────────────────────────────────────────────
 
@@ -338,15 +331,23 @@ def select_affected_tests(
 
 
 def _parse_counts(text: str) -> tuple[Optional[int], Optional[int]]:
-    """Best-effort parse of pytest's summary line → (passed, failed+errors)."""
+    """Best-effort parse of pytest's summary line → (passed, failed+errors).
+
+    Regex-free token scan (a ``<n> passed`` / ``<n> failed`` / ``<n> error[s]``
+    pair in pytest's own bounded summary output), so there is no backtracking
+    surface at all.
+    """
     passed = failed = None
-    pm = _PASSED_RE.search(text)
-    if pm:
-        passed = int(pm.group(1))
-    fm = _FAILED_RE.search(text)
-    em = _ERROR_RE.search(text)
-    if fm or em:
-        failed = (int(fm.group(1)) if fm else 0) + (int(em.group(1)) if em else 0)
+    for line in text.splitlines():
+        words = line.replace(",", " ").split()
+        for i, word in enumerate(words):
+            if i == 0 or not words[i - 1].isdigit():
+                continue
+            count = int(words[i - 1])
+            if word == "passed":
+                passed = count
+            elif word in ("failed", "error", "errors"):
+                failed = (failed or 0) + count
     return passed, failed
 
 
