@@ -185,6 +185,19 @@ def _apply_lint_optout(args: argparse.Namespace, config: EngineConfig) -> None:
         config.lint = False
 
 
+def _apply_affected_tests_optout(args: argparse.Namespace, config: EngineConfig) -> None:
+    """Apply the ``--no-affected-tests`` and ``--test`` opt-outs (#213).
+
+    Applied AFTER ``EngineConfig.resolve`` (which handled env > config.json >
+    default-on for ``config.affected_tests``); the flags win last. Extracted to
+    keep ``cmd_work`` under the S3776 cognitive-complexity threshold.
+    """
+    if getattr(args, "no_affected_tests", False):
+        config.affected_tests = False
+    if getattr(args, "test", None):
+        config.affected_tests_override = args.test
+
+
 def _surface_lint_residual(result: TaskResult) -> None:
     """Surface lint violations the gate could not auto-fix on stderr (#200).
 
@@ -507,6 +520,7 @@ def cmd_work(args: argparse.Namespace) -> int:
     )
 
     _apply_lint_optout(args, config)
+    _apply_affected_tests_optout(args, config)
 
     command_name: str | None = getattr(args, "command_name", None)
     task = _build_task(args, repo, engine, config)
@@ -619,6 +633,25 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
             "Skip the pre-finish lint gate (by default the repo's configured "
             "linters are run + auto-fixed before handoff; this opts out). Also "
             'via COLLEAGUE_LINT=0 or .colleague/config.json {"lint": false}.'
+        ),
+    )
+    p.add_argument(
+        "--no-affected-tests",
+        action="store_true",
+        dest="no_affected_tests",
+        help=(
+            "Skip the pre-finish affected-tests gate (by default the tests that "
+            "transitively import the changed module(s) are run before handoff; "
+            "this opts out). Also via COLLEAGUE_AFFECTED_TESTS=0 or "
+            '.colleague/config.json {"affected_tests": false}.'
+        ),
+    )
+    p.add_argument(
+        "--test",
+        metavar="PYTEST_ARGS",
+        help=(
+            "Run this explicit pytest selection as the affected-tests gate "
+            "instead of the auto reverse-import selection."
         ),
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
