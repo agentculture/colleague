@@ -311,14 +311,20 @@ def robust_simple_complete(complete: Callable[[list[dict]], Any]) -> SimpleCompl
         # --- Empty content: follow-up turn ---
         content = getattr(resp, "content", "") or ""
         if not content.strip():
+            # Capture first response's reasoning before the follow-up, so we
+            # never lose JSON that lived in the reasoning channel.
+            first_reasoning = getattr(resp, "reasoning", "") or ""
             # Append the (empty) assistant message and a follow-up prompt.
             messages.append({"role": "assistant", "content": content})
             messages.append({"role": "user", "content": _FOLLOWUP_PROMPT})
             resp2 = _call_with_retry(messages, _call)
             content = getattr(resp2, "content", "") or ""
             if not content.strip():
-                # Still empty — fall back to reasoning.
+                # Still empty — fall back to reasoning.  Prefer the follow-up's
+                # reasoning, but never lose the first response's reasoning.
                 content = getattr(resp2, "reasoning", "") or ""
+                if not content:
+                    content = first_reasoning
         return content
 
     return simple

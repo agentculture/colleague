@@ -327,6 +327,44 @@ def test_robust_empty_both_turns_falls_back_to_reasoning() -> None:
     assert call_count == 2
 
 
+def test_robust_first_reasoning_preserved_when_followup_empty() -> None:
+    """When call 1 has JSON in reasoning and the follow-up returns empty
+    content + empty reasoning, the first call's reasoning is returned."""
+    first_reasoning_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _ModelResp(content="", reasoning=first_reasoning_json)
+        return _ModelResp(content="", reasoning="")
+
+    simple = robust_simple_complete(fake_complete)
+    result = simple("SYS", "USR")
+    assert result == first_reasoning_json
+    assert call_count == 2
+
+
+def test_robust_followup_reasoning_preferred_over_first() -> None:
+    """When both calls have reasoning, the follow-up's reasoning is preferred."""
+    first_reasoning = '{"claims": [{"id": "c1", "kind": "announcement", "text": "old"}]}'
+    followup_reasoning = '{"claims": [{"id": "c2", "kind": "audience", "text": "new"}]}'
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _ModelResp(content="", reasoning=first_reasoning)
+        return _ModelResp(content="", reasoning=followup_reasoning)
+
+    simple = robust_simple_complete(fake_complete)
+    result = simple("SYS", "USR")
+    assert result == followup_reasoning
+    assert call_count == 2
+
+
 def test_robust_timeout_retry_then_success() -> None:
     """Fake raises a timeout-classified error once then succeeds -> retried, not raised."""
     good_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
