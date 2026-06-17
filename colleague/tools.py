@@ -439,7 +439,7 @@ class ToolExecutor:
         if name == "subagents":
             return self._subagents(arguments)
         if name == "check_test_integrity":
-            return self._check_test_integrity(arguments)
+            return self._check_test_integrity()
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -686,8 +686,12 @@ class ToolExecutor:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
 
-    def _check_test_integrity(self, arguments: dict[str, Any]) -> ToolOutcome:
-        """Run the mirror-detection heuristic on the work item's changed files."""
+    def _check_test_integrity(self) -> ToolOutcome:
+        """Run the mirror-detection heuristic on the work item's changed files.
+
+        Takes no arguments — it inspects the work item's already-changed files
+        (``self.changed``), so the schema declares no parameters.
+        """
         report = testintegrity.detect_mirror(str(self.root), sorted(self.changed))
         if not report.findings:
             return ToolOutcome(result="no mirror findings")

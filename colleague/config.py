@@ -136,6 +136,8 @@ _DEFAULT_ENGINE = "vllm-openai"
 MAX_SUBAGENT_DEPTH = 2
 MAX_SUBAGENT_FANOUT = 4
 
+# The persistent per-repo config file, resolved under .colleague/ (configdir).
+_CONFIG_FILENAME = "config.json"
 # Recognised keys in .colleague/config.json.
 _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 
@@ -160,7 +162,7 @@ def load_config_file(repo_path: str | Path) -> dict[str, str]:
     ``api_key``, ``model``). On a missing file, malformed JSON, or any read
     error, returns an empty dict and never raises.
     """
-    path = configdir.resolve_file(repo_path, "config.json")
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
     if path is None:
         return {}
     try:
@@ -181,7 +183,7 @@ def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]
     each is the stringified config value or ``None`` when absent. A missing or
     malformed file yields ``(None, None)`` and never raises.
     """
-    path = configdir.resolve_file(repo_path, "config.json")
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
     if path is None:
         return None, None
     try:
@@ -207,7 +209,7 @@ def _load_testintegrity_overrides(repo_path: str | Path) -> tuple[str | None, st
     each the stringified value or ``None`` when absent. A missing/malformed file
     yields ``(None, None)`` and never raises.
     """
-    path = configdir.resolve_file(repo_path, "config.json")
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
     if path is None:
         return None, None
     try:

@@ -1467,14 +1467,14 @@ class ContextControls:
     # backend opting in; pass ``False`` to disable (the env/config opt-out feeds it).
     testintegrity: bool = True
     # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
-    # only, the conservative default). ``None`` leaves it at 0. Forwarded by every
-    # backend from ``config.testintegrity_fix_retries`` (all-engines rule).
-    testintegrity_fix_retries: int | None = None
+    # only, the conservative default). Forwarded by every backend from
+    # ``config.testintegrity_fix_retries`` (all-engines rule).
+    testintegrity_fix_retries: int = 0
     # The DIFFERENT model id for the diverse reviewer subagent (the robust guard). When
     # set, a flagged finding auto-spawns a reviewer on this model to independently
-    # re-derive the real API shape; empty/None degrades to record-only. Forwarded from
+    # re-derive the real API shape; empty ("") degrades to record-only. Forwarded from
     # ``config.testintegrity_reviewer_model`` (all-engines rule).
-    testintegrity_reviewer_model: str | None = None
+    testintegrity_reviewer_model: str = ""
 
 
 def _build_user_message(task: Task) -> str:
@@ -1950,8 +1950,8 @@ def run(
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
         testintegrity_enabled=bool(_context.testintegrity),
-        testintegrity_fix_retries=_context.testintegrity_fix_retries or 0,
-        testintegrity_reviewer_model=_context.testintegrity_reviewer_model or "",
+        testintegrity_fix_retries=_context.testintegrity_fix_retries,
+        testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive

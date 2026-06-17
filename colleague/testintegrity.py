@@ -103,6 +103,25 @@ def _is_test_file(name: str) -> bool:
     return False
 
 
+def _string_dict_keys(node: ast.AST) -> set[str]:
+    """String-literal dict keys introduced by *node*.
+
+    Handles both subscript access (``d["key"]``) and dict literals
+    (``{"key": ...}``); any non-string key is ignored. Returns an empty set for
+    any other node type.
+    """
+    if isinstance(node, ast.Subscript):
+        idx = node.slice
+        if isinstance(idx, ast.Constant) and isinstance(idx.value, str):
+            return {idx.value}
+        return set()
+    if isinstance(node, ast.Dict):
+        return {
+            k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)
+        }
+    return set()
+
+
 def _extract_identifiers(source: str) -> dict[str, set[str]]:
     """Extract candidate identifiers from *source*.
 
@@ -120,15 +139,8 @@ def _extract_identifiers(source: str) -> dict[str, set[str]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
             attrs.add(node.attr)
-        elif isinstance(node, ast.Subscript):
-            # d["key"] — the index is a string constant
-            idx = node.slice
-            if isinstance(idx, ast.Constant) and isinstance(idx.value, str):
-                keys.add(idx.value)
-        elif isinstance(node, ast.Dict):
-            for k in node.keys:
-                if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                    keys.add(k.value)
+        else:
+            keys |= _string_dict_keys(node)
 
     return {"attribute": attrs, "dict_key": keys}
 
@@ -185,6 +197,68 @@ def _iter_repo_py(repo: Path) -> "list[Path]":
 # ── public API ──────────────────────────────────────────────────────────
 
 
+def _partition_changed_files(changed_files: list[str]) -> tuple[list[str], list[str]]:
+    """Split *changed_files* into (test files, module-under-test files).
+
+    Non-``.py`` paths are ignored.
+    """
+    test_files: list[str] = []
+    impl_files: list[str] = []
+    for f in changed_files:
+        if not f.endswith(".py"):
+            continue
+        (test_files if _is_test_file(f) else impl_files).append(f)
+    return test_files, impl_files
+
+
+def _read_file(repo: Path, rel: str) -> str:
+    """Read *rel* under *repo*; return ``""`` on any read/decode error."""
+    try:
+        return (repo / rel).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def _gather_other_identifiers(repo: Path, changed_set: set[str]) -> tuple[set[str], set[str]]:
+    """Union of (attribute, dict_key) identifiers across all OTHER repo ``.py`` files.
+
+    "Other" = every repo-owned source file not in *changed_set*; this is the
+    "nowhere else" universe a co-introduced symbol is checked against.
+    """
+    other_attrs: set[str] = set()
+    other_keys: set[str] = set()
+    for py_path in _iter_repo_py(repo):
+        rel = str(py_path.relative_to(repo))
+        if rel in changed_set:
+            continue
+        ids = _extract_identifiers(_read_file(repo, rel))
+        other_attrs |= ids["attribute"]
+        other_keys |= ids["dict_key"]
+    return other_attrs, other_keys
+
+
+def _find_mirrors(
+    test_ids: dict[str, dict[str, set[str]]],
+    impl_ids: dict[str, dict[str, set[str]]],
+    other: dict[str, set[str]],
+) -> list[MirrorFinding]:
+    """Build a finding per (symbol, test_file, impl_file) exhibiting the mirror signature.
+
+    A symbol qualifies when it appears in BOTH a changed test file and a changed
+    impl file (per kind) yet is absent from *other* (the rest of the repo).
+    """
+    findings: list[MirrorFinding] = []
+    for tf, tids in test_ids.items():
+        for mf, mids in impl_ids.items():
+            for kind in ("attribute", "dict_key"):
+                novel = (tids[kind] & mids[kind]) - other[kind]
+                for symbol in sorted(novel):
+                    findings.append(
+                        MirrorFinding(symbol=symbol, kind=kind, test_file=tf, impl_file=mf)
+                    )
+    return findings
+
+
 def detect_mirror(repo_path: str | Path, changed_files: list[str]) -> TestIntegrityReport:
     """Detect mirror signatures among *changed_files* in *repo_path*.
 
@@ -196,70 +270,13 @@ def detect_mirror(repo_path: str | Path, changed_files: list[str]) -> TestIntegr
     Advisory: never raises on a malformed/unparseable file — skip it.
     """
     repo = Path(repo_path)
-
-    # ── partition changed files ──────────────────────────────────────
-    test_files: list[str] = []
-    impl_files: list[str] = []
-    for f in changed_files:
-        if not f.endswith(".py"):
-            continue
-        if _is_test_file(f):
-            test_files.append(f)
-        else:
-            impl_files.append(f)
-
+    test_files, impl_files = _partition_changed_files(changed_files)
     if not test_files or not impl_files:
         return TestIntegrityReport()
 
-    # ── gather identifiers from changed files ────────────────────────
-    def _read(path: str) -> str:
-        try:
-            return (repo / path).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            return ""
+    test_ids = {tf: _extract_identifiers(_read_file(repo, tf)) for tf in test_files}
+    impl_ids = {mf: _extract_identifiers(_read_file(repo, mf)) for mf in impl_files}
 
-    test_ids: dict[str, dict[str, set[str]]] = {}
-    for tf in test_files:
-        test_ids[tf] = _extract_identifiers(_read(tf))
-
-    impl_ids: dict[str, dict[str, set[str]]] = {}
-    for mf in impl_files:
-        impl_ids[mf] = _extract_identifiers(_read(mf))
-
-    # ── gather identifiers from ALL other .py files in the repo ─────
-    other_attrs: set[str] = set()
-    other_keys: set[str] = set()
-    changed_set = set(changed_files)
-    for py_path in _iter_repo_py(repo):
-        rel = str(py_path.relative_to(repo))
-        if rel in changed_set:
-            continue
-        try:
-            source = py_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        ids = _extract_identifiers(source)
-        other_attrs |= ids["attribute"]
-        other_keys |= ids["dict_key"]
-
-    # ── find mirror signatures ──────────────────────────────────────
-    findings: list[MirrorFinding] = []
-    for tf, tids in test_ids.items():
-        for mf, mids in impl_ids.items():
-            for kind in ("attribute", "dict_key"):
-                shared = tids[kind] & mids[kind]
-                if kind == "attribute":
-                    novel = shared - other_attrs
-                else:
-                    novel = shared - other_keys
-                for symbol in sorted(novel):
-                    findings.append(
-                        MirrorFinding(
-                            symbol=symbol,
-                            kind=kind,
-                            test_file=tf,
-                            impl_file=mf,
-                        )
-                    )
-
+    other_attrs, other_keys = _gather_other_identifiers(repo, set(changed_files))
+    findings = _find_mirrors(test_ids, impl_ids, {"attribute": other_attrs, "dict_key": other_keys})
     return TestIntegrityReport(findings=findings)
