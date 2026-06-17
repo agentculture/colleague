@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] - 2026-06-17
+
+### Added
+
+- colleague plan run --quick / --no-spec: spec-less quick-plan path that skips the per-claim spec micro-cycle and plans directly from the request, still operator-gated at the plan level (#199).
+- docs/features/plan-mode.md documenting the degradation-aware proposal path.
+- tests/test_engine_make_complete.py pinning the public Engine.make_complete one-shot completion seam (#204, verify-and-close).
+
+### Changed
+
+- Plan-mode proposals are degradation-aware and take smaller jumps (#210): robust_simple_complete adds a forced no-thinking JSON follow-up on empty content, a resp.reasoning recovery, and a classify_degradable timeout/overflow shrink-retry; claims are proposed in two calls and plan items in bounded deduped-by-id batches. Makes colleague-as-planner functional on a reasoning served backend (the reference 27B), which previously failed with no JSON object found.
+
+### Fixed
+
+- _extract_json_object prefers the top-level object carrying the expected key (claims/items) so a stray prose object cannot shadow the payload, and repairs a JSON object truncated mid-structure (a reasoning model dropping its final brace) by appending the implied closers — the live 27B plan-items failure mode.
+- Chunked proposals dedup by id and a total parse failure still surfaces the clean unusable plan proposal error (partial chunk failures are tolerated).
+- PR #214 review (Qodo): the spec-less --quick path now invokes the operator gate (decide) on the proposed plan items before workforce execution, so a quick plan is never run ungated; robust_simple_complete preserves the first response's reasoning when the follow-up turn is empty (no lost JSON); and _call_with_retry shrinks the longest user message on an overflow retry instead of re-sending the same too-large payload.
+
 ## [1.16.0] - 2026-06-17
 
 ### Added

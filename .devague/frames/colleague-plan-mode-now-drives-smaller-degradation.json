@@ -1,0 +1,231 @@
+{
+  "slug": "colleague-plan-mode-now-drives-smaller-degradation",
+  "title": "colleague plan mode now drives smaller, degradation-aware plan jumps \u2014 it stays robust on a smaller or reasoning served model where a monolithic one-shot proposal used to fail empty-handed, and it offers a spec-less quick-plan middle path for medium tasks",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-17T14:02:32Z",
+  "updated": "2026-06-17T14:09:11Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague plan mode now drives smaller, degradation-aware plan jumps \u2014 it stays robust on a smaller or reasoning served model where a monolithic one-shot proposal used to fail empty-handed, and it offers a spec-less quick-plan middle path for medium tasks",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Shipped behavior matches the announcement: a 27B plan run that used to fail empty-handed now completes both proposal stages",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "An operator or Claude dogfooding colleague-as-planner (the diverse-second-mind) against a smaller or reasoning served backend such as the reference Qwen3.6-27B",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The audience is real \u2014 this is the exact #210 dogfood path that failed live on Qwen3.6-27B",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "colleague plan run completes the claims-proposal and plan-items-proposal stages on a reasoning model that emits its answer in the reasoning channel with empty content, instead of dying with 'no JSON object found in model output'",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The after_state is observable: the previously-raising run now returns parsed claims and plan items",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "The proposal seams (propose_claims/propose_plan_items in cli_driver.py) make two monolithic one-shot completions via to_simple_complete, which reads resp.content only and bypasses the loop's forced-synthesis (#191) and degradation (#154/#156) machinery; on the 27B the JSON lands in resp.reasoning with empty content so parse_claims raises ValueError",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The before_state is accurate \u2014 to_simple_complete reads resp.content only (cli_driver.py:167) and parse_claims raises 'no JSON object found' on empty content",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "colleague-as-planner is the whole point of dogfooding plan mode with a diverse second mind; if it cannot run on the served reasoning model it is non-functional exactly where its value lies (filed live as #210)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The value holds \u2014 colleague-as-planner runs on the served reasoning model, not only on a hosted frontier model",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a multi-backend router, not a change to gate semantics (operator still gates every step, LLM proposals stay proposed), not an MCP/daemon/socket, no new runtime deps, runtime-owned and all-engines (fires for mock and vllm-openai)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "No new runtime dep, no socket/daemon, no router: the zero-deps guard and boundary tests stay green",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A plan run on the reference 27B produces a parseable claims proposal and plan-items proposal end-to-end without raising; the mock backend stays byte-identical and the e2e shape test passes",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The success signal is checkable: an end-to-end plan run on the 27B and the mock e2e shape test both pass",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Plan proposals route through a robust JSON-completion helper that: (1) on empty content fires ONE forced no-thinking follow-up turn ('emit ONLY the JSON now, do not think step by step'), reusing the loop's _maybe_force_synthesis pattern; (2) if still empty, recovers the first balanced JSON object from resp.reasoning before failing; (3) classifies timeout/overflow via classify_degradable and shrink-retries bounded, like _complete_with_degradation",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Unit tests simulate the three failure shapes \u2014 empty content, JSON-only-in-reasoning, and a classify_degradable timeout \u2014 and assert the helper recovers/retries rather than raising; a live 27B claims-proposal that previously raised 'no JSON object found' now parses",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "to_simple_complete (or its robust successor) surfaces resp.reasoning to the recovery path instead of discarding it; the public CompleteFn/ModelResponse contract is unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "A unit test feeds a ModelResponse with content='' and reasoning carrying the JSON object and asserts the helper returns the parsed object; the CompleteFn/ModelResponse public contract is unchanged (no field added/removed)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "decision",
+      "text": "Chunk the proposal jumps smaller: propose the mandatory claim kinds first, then requirements + honesty conditions in a follow-up call; propose plan items in bounded batches conditioned on the prior set rather than one monolithic JSON",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "risk: Chunking into more model calls raises latency/cost on a serializing server; bound the number of follow-up calls and keep each within the timeout so the cure is not slower than the monolith it replaces",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "Add a spec-less quick-plan path (colleague plan run --quick / --no-spec, #199) that skips the per-claim spec micro-cycle and goes straight to the plan stage from the request, still operator-gated at the plan level",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "quick-plan still requires operator confirmation of the task split + waves at the plan level; it skips only the per-claim spec micro-cycle, never the plan-level gate",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The robust proposal path fires identically for mock and vllm-openai (all-engines) and is a strict no-op for a run that already succeeds (non-empty content): TaskResult/plan-result shape byte-identical, e2e shape test green",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The e2e mock shape test (tests/test_e2e_mock.py) passes unchanged, and a content-non-empty proposal path yields byte-identical Claim/PlanItem objects to the pre-change code (a regression test pins this)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "Close #204 with no new code \u2014 Engine.make_complete already landed (engine.py:82, vllm_openai.py:269, consumed at plan.py:153); the spec records it as done and the work is verify-and-close",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "assumption",
+      "text": "Given an explicit no-thinking JSON-only follow-up, the served reasoning 27B will emit content (the #191 forced-synthesis bet); this needs live validation, and the reasoning-recovery fallback is the insurance if it does not",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Whether the reference 27B reliably emits content under the no-thinking JSON-only follow-up (c14) \u2014 verified only by a live plan run; the reasoning-recovery fallback is built regardless, so this is non-blocking",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}
