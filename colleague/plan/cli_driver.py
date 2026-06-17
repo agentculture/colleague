@@ -22,17 +22,24 @@ from colleague.plan.plan_stage import PlanItem
 #: A one-shot text completion: ``(system_prompt, user_prompt) -> text``.
 SimpleComplete = Callable[[str, str], str]
 
-CLAIMS_SYSTEM_PROMPT = (
+CLAIMS_MANDATORY_SYSTEM_PROMPT = (
     "You are the planning mind for colleague's plan mode. Read the request and "
-    "propose the spec claims that a buildable spec needs. Reply with ONLY a JSON "
-    'object of the form: {"claims": [{"id": "c1", "kind": "announcement", '
-    '"text": "..."}], "honesty": [{"id": "h1", "claim_id": "c1", '
-    '"text": "..."}]}. Use these claim kinds: announcement, audience, '
-    "after_state, before_state, why_it_matters, boundary, success_signal, "
-    "requirement, assumption, decision, non_goal. Cover the mandatory kinds "
-    "(announcement, audience, after_state, boundary, success_signal, and "
-    "before_state or why_it_matters) and attach an honesty condition to each "
-    "spec-affecting claim. No prose outside the JSON."
+    "propose the MANDATORY spec claims. Reply with ONLY a JSON object of the form: "
+    '{"claims": [{"id": "c1", "kind": "announcement", "text": "..."}]}. '
+    "Use ONLY these claim kinds: announcement, audience, after_state, "
+    "before_state, why_it_matters, boundary, success_signal. Cover all of them. "
+    "No prose outside the JSON."
+)
+
+CLAIMS_REQUIREMENTS_SYSTEM_PROMPT = (
+    "You are the planning mind for colleague's plan mode. Given the already-proposed "
+    "claims below, propose additional requirement claims and honesty conditions. "
+    "Reply with ONLY a JSON object of the form: "
+    '{"claims": [{"id": "c1", "kind": "requirement", "text": "..."}], '
+    '"honesty": [{"id": "h1", "claim_id": "c1", "text": "..."}]}. '
+    "Use these claim kinds: requirement, assumption, decision, non_goal. "
+    "Attach an honesty condition to each spec-affecting claim. "
+    "No prose outside the JSON."
 )
 
 PLAN_SYSTEM_PROMPT = (
@@ -256,22 +263,87 @@ def _call_with_retry(
 def make_propose_claims(
     simple: SimpleComplete,
 ) -> Callable[[str], tuple[list[Claim], list[HonestyCondition]]]:
-    """Build a ``propose_claims(request)`` seam backed by *simple*."""
+    """Build a ``propose_claims(request)`` seam backed by *simple*.
+
+    Issues TWO calls:
+    1. Mandatory claim kinds (announcement, audience, after_state, boundary,
+       success_signal, before_state/why_it_matters).
+    2. Requirement claims + honesty conditions, conditioned on call-1 results.
+
+    A failing or empty chunk is tolerated (skipped), never aborting the stage.
+    """
 
     def propose_claims(request: str) -> tuple[list[Claim], list[HonestyCondition]]:
-        return parse_claims(simple(CLAIMS_SYSTEM_PROMPT, request))
+        all_claims: list[Claim] = []
+        all_honesty: list[HonestyCondition] = []
+
+        # --- Call 1: mandatory kinds ---
+        try:
+            text = simple(CLAIMS_MANDATORY_SYSTEM_PROMPT, request)
+            claims, honesty = parse_claims(text)
+            all_claims.extend(claims)
+            all_honesty.extend(honesty)
+        except ValueError:
+            pass  # tolerate unparseable JSON
+
+        # --- Call 2: requirements + honesty, conditioned on call-1 ---
+        if all_claims:
+            context = "Already-proposed claims:\n" + "\n".join(
+                f"- [{c.kind}] {c.text}" for c in all_claims
+            )
+            try:
+                text = simple(CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context)
+                claims, honesty = parse_claims(text)
+                all_claims.extend(claims)
+                all_honesty.extend(honesty)
+            except ValueError:
+                pass  # tolerate unparseable JSON
+
+        return all_claims, all_honesty
 
     return propose_claims
+
+
+#: Maximum plan items per batch (keeps each call small for slower models).
+_PLAN_ITEM_BATCH = 5
+#: Maximum number of batches (bounds total call count).
+_PLAN_ITEM_MAX_BATCHES = 4
 
 
 def make_propose_plan_items(
     simple: SimpleComplete,
 ) -> Callable[[PlanFrame], list[PlanItem]]:
-    """Build a ``propose_plan_items(frame)`` seam backed by *simple*."""
+    """Build a ``propose_plan_items(frame)`` seam backed by *simple*.
+
+    Proposes plan items in bounded batches of at most ``_PLAN_ITEM_BATCH``.
+    Each batch is conditioned on items already proposed (so deps can reference
+    prior items).  Stops when a batch returns no new items or the max-batch
+    cap is reached.  A failing or empty batch is tolerated (skipped).
+    """
 
     def propose_plan_items(frame: PlanFrame) -> list[PlanItem]:
         confirmed = [c.text for c in frame.claims if c.state == "confirmed"]
-        user = "Confirmed spec claims:\n" + "\n".join(f"- {t}" for t in confirmed)
-        return parse_plan_items(simple(PLAN_SYSTEM_PROMPT, user))
+        base_user = "Confirmed spec claims:\n" + "\n".join(f"- {t}" for t in confirmed)
+
+        all_items: list[PlanItem] = []
+
+        for _batch in range(_PLAN_ITEM_MAX_BATCHES):
+            # Build user prompt: base context + already-proposed items
+            user = base_user
+            if all_items:
+                user += "\n\nAlready-proposed plan items:\n"
+                user += "\n".join(f"- [{item.id}] {item.summary}" for item in all_items)
+
+            prompt = PLAN_SYSTEM_PROMPT + f"\n\nPropose up to {_PLAN_ITEM_BATCH} plan items."
+            try:
+                text = simple(prompt, user)
+                items = parse_plan_items(text)
+                if not items:
+                    break  # empty batch -> stop
+                all_items.extend(items)
+            except ValueError:
+                pass  # tolerate unparseable JSON; continue to next batch
+
+        return all_items
 
     return propose_plan_items

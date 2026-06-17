@@ -102,15 +102,51 @@ def test_to_simple_complete_handles_empty_content() -> None:
 
 def test_make_propose_claims_uses_simple() -> None:
     calls: list[tuple[str, str]] = []
+    call_count = 0
 
     def simple(system: str, user: str) -> str:
+        nonlocal call_count
         calls.append((system, user))
-        return _CLAIMS_JSON
+        call_count += 1
+        if call_count == 1:
+            # First call: mandatory kinds
+            return (
+                '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}], "honesty": []}'
+            )
+        # Second call: requirements + honesty
+        return (
+            '{"claims": [{"id": "c2", "kind": "requirement", "text": "fast"}], '
+            '"honesty": [{"id": "h1", "claim_id": "c1", "text": "true"}]}'
+        )
 
     propose = make_propose_claims(simple)
     claims, honesty = propose("build a thing")
+    # Accumulates claims from BOTH calls
     assert [c.id for c in claims] == ["c1", "c2"]
-    assert calls and calls[0][1] == "build a thing"
+    # First call's user prompt = the request
+    assert calls[0][1] == "build a thing"
+    # Second call's user prompt contains the already-proposed claims
+    assert "announcement" in calls[1][1]
+    assert honesty[0].claim_id == "c1"
+
+
+def test_make_propose_claims_tolerates_bad_second_chunk() -> None:
+    """A bad second chunk does not abort; first chunk's claims survive."""
+    call_count = 0
+
+    def simple(system: str, user: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return (
+                '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}], "honesty": []}'
+            )
+        return "not json at all"
+
+    propose = make_propose_claims(simple)
+    claims, honesty = propose("build a thing")
+    assert [c.id for c in claims] == ["c1"]
+    assert call_count == 2  # both calls attempted
 
 
 def test_parse_plan_items_acceptance_string_not_split_into_chars() -> None:
@@ -144,11 +180,20 @@ def test_parse_plan_items_deps_list_still_works() -> None:
 
 
 def test_make_propose_plan_items_includes_confirmed_claims() -> None:
-    captured: dict[str, str] = {}
+    captured: list[str] = []
+    call_count = 0
 
     def simple(system: str, user: str) -> str:
-        captured["user"] = user
-        return _PLAN_JSON
+        nonlocal call_count
+        call_count += 1
+        captured.append(user)
+        if call_count == 1:
+            return (
+                '{"items": [{"id": "t1", "summary": "do A", '
+                '"acceptance": ["A works"], "deps": []}]}'
+            )
+        # Second batch returns empty -> stops
+        return '{"items": []}'
 
     frame = PlanFrame()
     from colleague.plan.frame import Claim
@@ -158,10 +203,60 @@ def test_make_propose_plan_items_includes_confirmed_claims() -> None:
 
     propose = make_propose_plan_items(simple)
     items = propose(frame)
-    assert [i.id for i in items] == ["t1", "t2"]
+    assert [i.id for i in items] == ["t1"]
     # Only the CONFIRMED claim text is fed to the plan proposal.
-    assert "ABC" in captured["user"]
-    assert "XYZ" not in captured["user"]
+    assert "ABC" in captured[0]
+    assert "XYZ" not in captured[0]
+
+
+def test_make_propose_plan_items_accumulates_batches() -> None:
+    """Two batches accumulate; an empty batch ends the loop."""
+    call_count = 0
+
+    def simple(system: str, user: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return '{"items": [{"id": "t1", "summary": "do A", "acceptance": [], "deps": []}]}'
+        elif call_count == 2:
+            return '{"items": [{"id": "t2", "summary": "do B", "acceptance": [], "deps": ["t1"]}]}'
+        else:
+            return '{"items": []}'
+
+    frame = PlanFrame()
+    from colleague.plan.frame import Claim
+
+    frame.claims.append(Claim(id="c1", kind="announcement", text="X", state="confirmed"))
+
+    propose = make_propose_plan_items(simple)
+    items = propose(frame)
+    assert [i.id for i in items] == ["t1", "t2"]
+    assert call_count == 3  # batch1 + batch2 + empty batch3
+
+
+def test_make_propose_plan_items_tolerates_bad_batch() -> None:
+    """A bad batch does not abort; good batches still accumulate."""
+    call_count = 0
+
+    def simple(system: str, user: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return '{"items": [{"id": "t1", "summary": "do A", "acceptance": [], "deps": []}]}'
+        elif call_count == 2:
+            return "not json"  # bad batch
+        else:
+            return '{"items": []}'  # stop
+
+    frame = PlanFrame()
+    from colleague.plan.frame import Claim
+
+    frame.claims.append(Claim(id="c1", kind="announcement", text="X", state="confirmed"))
+
+    propose = make_propose_plan_items(simple)
+    items = propose(frame)
+    assert [i.id for i in items] == ["t1"]
+    assert call_count == 3  # all 3 batches attempted
 
 
 # ---------------------------------------------------------------------------
