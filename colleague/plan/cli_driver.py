@@ -107,10 +107,21 @@ def _balance_and_parse(fragment: str) -> dict[str, Any] | None:
     if obj is not None:
         return obj
     # Truncation landed mid-token: retreat to the last complete element + retry.
-    cut = max(fragment.rfind("}"), fragment.rfind("]"))
-    if cut <= 0:
+    # Find the last } or ] lying OUTSIDE a string literal (a string-blind rfind
+    # could cut inside a value that happens to contain a brace).
+    last_close = -1
+    i, n = 0, len(fragment)
+    while i < n:
+        ch = fragment[i]
+        if ch == '"':
+            i = _scan_string(fragment, i + 1)
+            continue
+        if ch in "}]":
+            last_close = i
+        i += 1
+    if last_close <= 0:
         return None
-    return _close(fragment[: cut + 1])
+    return _close(fragment[: last_close + 1])
 
 
 def _extract_json_object(text: str, required_key: str | None = None) -> dict[str, Any]:
@@ -443,6 +454,13 @@ def make_propose_plan_items(
                 break
             seen_ids.update(it.id for it in fresh)
             all_items.extend(fresh)
+
+        # A total failure (no items parsed across all batches) surfaces the clean
+        # "unusable plan proposal" error rather than a silent converged-with-no-work
+        # run (validate_items([]) reports no problems) — symmetric with
+        # make_propose_claims raising on zero claims.
+        if not all_items:
+            raise ValueError("no plan items could be parsed from the model output")
 
         return all_items
 

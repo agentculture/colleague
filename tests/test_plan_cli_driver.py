@@ -446,3 +446,29 @@ def test_extract_balanced_object_unchanged_by_repair() -> None:
     items = parse_plan_items('{"items": [{"id": "t1", "summary": "ok", "deps": []}]}')
     assert [i.id for i in items] == ["t1"]
     assert items[0].summary == "ok"
+
+
+def test_extract_repair_retreat_skips_brace_inside_string() -> None:
+    """The truncation retreat is string-aware: a '}' inside a string value does
+    not cause the retreat to cut at the wrong position (colleague review #210)."""
+    # t1 closes cleanly; t2's summary contains a literal '}' then truncates.
+    truncated = (
+        '{"items": [{"id": "t1", "summary": "ok", "acceptance": ["a"], "deps": []}, '
+        '{"id": "t2", "summary": "uses a } brace then cut off'
+    )
+    items = parse_plan_items(truncated)
+    assert [i.id for i in items] == ["t1"]
+
+
+def test_make_propose_plan_items_raises_on_total_failure() -> None:
+    """When no batch yields any item, propose_plan_items raises (clean error),
+    not a silent empty plan (symmetric with make_propose_claims)."""
+    from colleague.plan.frame import Claim
+
+    def simple(system: str, user: str) -> str:
+        return "no json here at all"
+
+    frame = PlanFrame()
+    frame.claims.append(Claim(id="c1", kind="announcement", text="X", state="confirmed"))
+    with pytest.raises(ValueError):
+        make_propose_plan_items(simple)(frame)
