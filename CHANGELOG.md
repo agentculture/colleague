@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-06-17
+
+### Added
+
+- Test-integrity gate (#203): a code-locked, runtime-owned post-loop gate that flags the *mirror signature* — a novel identifier (attribute or string-literal dict key) co-introduced in BOTH a changed test file and the module-under-test yet found nowhere else in the repo, the mechanical signal that a test merely mirrors the implementation's own wrong assumption (the write/TDD self-confirming false positive). Pure-stdlib detection (colleague/testintegrity.py), recorded on TaskResult.test_integrity_report (omit-when-None) and surfaced on stderr; advisory + non-blocking (never blocks the handoff, no network). Default-ON (all-engines) with a COLLEAGUE_TESTINTEGRITY opt-out.
+- Bounded re-examine turn (COLLEAGUE_TESTINTEGRITY_FIX_RETRIES, default 0): on a flagged finding after a clean finish, ask the model to verify the symbol against the real API shape and fix it, preserving the work item's terminal summary/status.
+- Diverse-model reviewer subagent (COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL): the robust guard — auto-spawns a DIFFERENT-model reviewer to independently re-derive the real API shape; degrades to record-only when unconfigured.
+- Model-callable check_test_integrity loop tool (all-engines) so a backend MAY self-check mid-work.
+- docs/features/test-integrity.md feature doc.
+
 ## [1.14.0] - 2026-06-16
 
 ### Added

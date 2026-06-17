@@ -66,6 +66,9 @@ def test_to_dict_has_expected_keys() -> None:
         "max_output_chars",
         "lint",
         "lint_fix_retries",
+        "testintegrity",
+        "testintegrity_fix_retries",
+        "testintegrity_reviewer_model",
     }
     assert set(snapshot.keys()) == expected_keys
 

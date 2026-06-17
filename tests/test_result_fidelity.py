@@ -231,6 +231,7 @@ class TestNoFinishResultFidelity:
             "capacity_decision",
             "capacity_warning",
             "lint_report",
+            "test_integrity_report",
             "not_finished",
             "stopped_without_finish",
         }

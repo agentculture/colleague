@@ -109,6 +109,22 @@ _DEFAULT_SYNTHESIS_RESERVE = 0
 _DEFAULT_LINT_ENABLED = True
 _DEFAULT_LINT_FIX_RETRIES = 1
 
+# Test-integrity gate (#203). Default-ON like lint (an opt-out, not opt-in): after
+# the loop the runtime flags the *mirror signature* on the work item's changed files
+# (a novel identifier co-introduced in both a changed test and the module under test,
+# found nowhere else). Disable with ``COLLEAGUE_TESTINTEGRITY=0`` or
+# ``.colleague/config.json`` ``{"testintegrity": false}``. ``testintegrity_fix_retries``
+# caps the bounded model re-examine turn for a flagged symbol; 0 (the conservative
+# default) is detect-and-record only.
+_DEFAULT_TESTINTEGRITY_ENABLED = True
+_DEFAULT_TESTINTEGRITY_FIX_RETRIES = 0
+# The diverse-model reviewer (the robust guard — a same-model re-examine turn can
+# re-confirm its own mirror). When a DIFFERENT model id is configured here
+# (``COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL`` / config.json), a flagged finding
+# auto-spawns a reviewer subagent on that model to independently re-derive the real
+# API shape. Empty (the default) degrades to record-only — no reviewer is spawned.
+_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -120,6 +136,8 @@ _DEFAULT_ENGINE = "vllm-openai"
 MAX_SUBAGENT_DEPTH = 2
 MAX_SUBAGENT_FANOUT = 4
 
+# The persistent per-repo config file, resolved under .colleague/ (configdir).
+_CONFIG_FILENAME = "config.json"
 # Recognised keys in .colleague/config.json.
 _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 
@@ -144,7 +162,7 @@ def load_config_file(repo_path: str | Path) -> dict[str, str]:
     ``api_key``, ``model``). On a missing file, malformed JSON, or any read
     error, returns an empty dict and never raises.
     """
-    path = configdir.resolve_file(repo_path, "config.json")
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
     if path is None:
         return {}
     try:
@@ -165,7 +183,7 @@ def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]
     each is the stringified config value or ``None`` when absent. A missing or
     malformed file yields ``(None, None)`` and never raises.
     """
-    path = configdir.resolve_file(repo_path, "config.json")
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
     if path is None:
         return None, None
     try:
@@ -178,6 +196,32 @@ def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]
     retries = data.get("lint_fix_retries")
     return (
         None if lint is None else str(lint),
+        None if retries is None else str(retries),
+    )
+
+
+def _load_testintegrity_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
+    """Read ``testintegrity`` / ``testintegrity_fix_retries`` from config.json as strings.
+
+    Mirrors :func:`_load_lint_overrides` (kept separate from
+    :func:`load_config_file`, whose endpoint-string contract must not change): these
+    keys carry a bool / int. Returns ``(testintegrity, testintegrity_fix_retries)``,
+    each the stringified value or ``None`` when absent. A missing/malformed file
+    yields ``(None, None)`` and never raises.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    enabled = data.get("testintegrity")
+    retries = data.get("testintegrity_fix_retries")
+    return (
+        None if enabled is None else str(enabled),
         None if retries is None else str(retries),
     )
 
@@ -206,6 +250,21 @@ def _resolve_lint_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_LINT_ENABLED
+
+
+def _resolve_testintegrity_enabled(file_value: str | None) -> bool:
+    """Resolve the test-integrity gate flag: env ``COLLEAGUE_TESTINTEGRITY`` > config > default-on.
+
+    Kept off the ``resolve()`` signature (no CLI flag in v0), mirroring
+    :func:`_resolve_lint_enabled` so the S107 parameter ceiling holds.
+    """
+    for env_key in ("COLLEAGUE_TESTINTEGRITY", "CONVERTIBLE_TESTINTEGRITY"):
+        env = os.environ.get(env_key)
+        if env is not None and env.strip() != "":
+            return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_TESTINTEGRITY_ENABLED
 
 
 def resolve_engine(explicit: str | None) -> str:
@@ -255,6 +314,9 @@ class EngineConfig:
     synthesis_reserve_steps: int = _DEFAULT_SYNTHESIS_RESERVE
     lint: bool = _DEFAULT_LINT_ENABLED
     lint_fix_retries: int = _DEFAULT_LINT_FIX_RETRIES
+    testintegrity: bool = _DEFAULT_TESTINTEGRITY_ENABLED
+    testintegrity_fix_retries: int = _DEFAULT_TESTINTEGRITY_FIX_RETRIES
+    testintegrity_reviewer_model: str = _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -316,9 +378,12 @@ class EngineConfig:
         file_cfg: dict[str, str] = {}
         file_lint: str | None = None
         file_lint_retries: str | None = None
+        file_ti: str | None = None
+        file_ti_retries: str | None = None
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
+            file_ti, file_ti_retries = _load_testintegrity_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -466,6 +531,28 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_LINT_FIX_RETRIES,
             ),
+            # Test-integrity gate (#203) — env > config.json > default-on, mirroring
+            # lint. Kept off the signature (no CLI flag in v0) for the S107 ceiling.
+            testintegrity=_resolve_testintegrity_enabled(file_ti),
+            testintegrity_fix_retries=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_TESTINTEGRITY_FIX_RETRIES",
+                    "CONVERTIBLE_TESTINTEGRITY_FIX_RETRIES",
+                    default=(
+                        file_ti_retries
+                        if file_ti_retries is not None
+                        else str(_DEFAULT_TESTINTEGRITY_FIX_RETRIES)
+                    ),
+                ),
+                default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
+            ),
+            testintegrity_reviewer_model=_pick(
+                None,
+                "COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL",
+                "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
+                default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -486,6 +573,9 @@ class EngineConfig:
             "max_output_chars": self.max_output_chars,
             "lint": self.lint,
             "lint_fix_retries": self.lint_fix_retries,
+            "testintegrity": self.testintegrity,
+            "testintegrity_fix_retries": self.testintegrity_fix_retries,
+            "testintegrity_reviewer_model": self.testintegrity_reviewer_model,
         }
 
 

@@ -65,8 +65,15 @@ class TestCultureToolExposed:
         names = {s["function"]["name"] for s in SCHEMAS}
         assert _BASE_TOOLS <= names, "the six base tools must remain"
         assert "culture" in names, "the curated culture tool must be exposed"
-        # Curated tools beyond the base six (culture + devague + subagent + subagents, chassis).
-        assert names == _BASE_TOOLS | {"culture", "devague", "subagent", "subagents"}
+        # Curated tools beyond the base six (culture + devague + subagent + subagents
+        # + check_test_integrity, the runtime chassis).
+        assert names == _BASE_TOOLS | {
+            "culture",
+            "devague",
+            "subagent",
+            "subagents",
+            "check_test_integrity",
+        }
 
     def test_tool_names_includes_culture(self) -> None:
         assert "culture" in TOOL_NAMES

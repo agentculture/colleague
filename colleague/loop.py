@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import sys
 import time
 from collections import Counter
 from contextlib import suppress
@@ -44,6 +45,7 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
+from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import classify_degradable, window_messages
@@ -110,6 +112,13 @@ _DEFAULT_SYSTEM = (
     "initiative. Only agtag and devex are permitted, and identity is injected for you, so "
     "you never pass it yourself. This is advisory and entirely your own judgement: a "
     "self-contained in-repo task needs neither."
+    "\n\n"
+    "Test integrity (advisory). When you write code test-first, derive the test's "
+    "fixtures and assertions from the REAL external API shape, not from your own "
+    "implementation — a test that merely mirrors the code's own assumption passes even "
+    "when both are wrong. You MAY call check_test_integrity to self-check for that "
+    "mirror signature. (This is only a hint: a code-locked harness gate runs the same "
+    "check after you finish regardless, so ignoring this line changes nothing.)"
 )
 
 
@@ -466,6 +475,19 @@ class _Work:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint_enabled: bool = False
     lint_fix_retries: int = 0
+    # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
+    # mirror-detection heuristic on the work item's changed files after the loop and
+    # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
+    # lint, a no-finding run is byte-identical via omit-when-None (the report stays
+    # None), so the gate fires for every backend (the all-engines rule) without a
+    # behavior change for findings-free runs. Forwarded from ``_context.testintegrity``.
+    testintegrity_enabled: bool = True
+    # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
+    # only). Forwarded from ``_context.testintegrity_fix_retries`` (all-engines rule).
+    testintegrity_fix_retries: int = 0
+    # The DIFFERENT model id for the diverse reviewer subagent; "" degrades to
+    # record-only. Forwarded from ``_context.testintegrity_reviewer_model``.
+    testintegrity_reviewer_model: str = ""
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1437,6 +1459,22 @@ class ContextControls:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint: bool | None = None
     lint_fix_retries: int | None = None
+    # Test-integrity gate (#203): when truthy (the default) the runtime runs the
+    # mirror-detection heuristic on the changed files after the loop and records the
+    # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
+    # blocks the handoff, makes no network call, and a no-finding run is byte-identical
+    # (omit-when-None). Defaults ON so the gate fires for every backend without each
+    # backend opting in; pass ``False`` to disable (the env/config opt-out feeds it).
+    testintegrity: bool = True
+    # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
+    # only, the conservative default). Forwarded by every backend from
+    # ``config.testintegrity_fix_retries`` (all-engines rule).
+    testintegrity_fix_retries: int = 0
+    # The DIFFERENT model id for the diverse reviewer subagent (the robust guard). When
+    # set, a flagged finding auto-spawns a reviewer on this model to independently
+    # re-derive the real API shape; empty ("") degrades to record-only. Forwarded from
+    # ``config.testintegrity_reviewer_model`` (all-engines rule).
+    testintegrity_reviewer_model: str = ""
 
 
 def _build_user_message(task: Task) -> str:
@@ -1601,6 +1639,196 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
     ) = saved
 
 
+def _maybe_run_test_integrity_gate(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
+    """Run the post-loop test-integrity gate: flag the mirror signature (#203).
+
+    Deterministic and code-locked: on a non-aborted exit it runs the
+    mirror-detection heuristic (:func:`colleague.testintegrity.detect_mirror`) on
+    the work item's changed files REGARDLESS of model behaviour — the model cannot
+    skip it — and records any findings on ``result.test_integrity_report`` plus a
+    line on stderr. The mirror signature is a novel identifier (attribute access or
+    string-literal dict key) co-introduced in BOTH a changed test file and a changed
+    module-under-test yet found nowhere else in the repo — the mechanical signal that
+    a test merely mirrors the implementation's own (possibly wrong) assumption (the
+    #203 self-confirming false positive).
+
+    Bounded re-examine turn (#203 t3): when findings remain after a CLEAN finish
+    (``outcome == _EXIT_FINISHED``) and a fix-turn budget is left
+    (``ctx.testintegrity_fix_retries``), ONE bounded model turn is injected per
+    remaining retry asking the model to verify the flagged symbol against the REAL
+    API shape and fix it if wrong, re-running the gate after each. Conservative by
+    default (``testintegrity_fix_retries`` defaults to 0 — detect-and-record only).
+    Effectively a no-op on ``mock`` (the replayed script has already finished, so the
+    fix-turn does nothing) and the work item's terminal summary/status are saved and
+    restored either way, so a fix-turn ``finish`` can never clobber the real result.
+
+    Advisory + non-blocking: it NEVER blocks the git handoff and makes NO network
+    call. A no-finding run is byte-identical — the report stays ``None`` and is
+    omitted from the artifact (the h6 omit-when-None guarantee). A strict no-op when
+    the loop aborted, the gate is disabled, or no files changed.
+
+    Best-effort + fail-safe (mirrors the lint-gate / neighbour-clone / hook
+    fail-safes): the body is wrapped in ``suppress`` so detection can NEVER abort
+    ``run()`` (which calls this after its main try/except, before the changed_files
+    snapshot). The diverse-model reviewer is layered on in #203 task t4.
+    """
+    if aborted is not None or not ctx.testintegrity_enabled:
+        return
+    with suppress(Exception):
+        changed = sorted(ctx.executor.changed)
+        if not changed:
+            return
+        report = _testintegrity.detect_mirror(ctx.task.repo_path, changed)
+        if not report.findings:
+            return
+        ctx.result.test_integrity_report = report
+        _surface_test_integrity(report)
+        # Bounded re-examine turn(s) — only after a clean finish with budget left.
+        retries = ctx.testintegrity_fix_retries if outcome == _EXIT_FINISHED else 0
+        while report.findings and retries > 0:
+            _run_test_integrity_fix_turn(ctx, complete, report.findings)
+            retries -= 1
+            report = _testintegrity.detect_mirror(ctx.task.repo_path, sorted(ctx.executor.changed))
+            ctx.result.test_integrity_report = report if report.findings else None
+        # Diverse-model reviewer — the robust guard: a same-model re-examine turn can
+        # re-confirm its own mirror, so spawn a DIFFERENT model to re-derive the real
+        # API shape independently. Only when findings remain and a reviewer is wired.
+        if ctx.result.test_integrity_report is not None and report.findings:
+            _maybe_spawn_test_integrity_reviewer(ctx, report.findings)
+
+
+# A re-examine turn re-enters the loop for at most this many model turns.
+_TESTINTEGRITY_FIX_STEPS = 6
+
+_TESTINTEGRITY_FIX_PROMPT = (
+    "The test-integrity gate flagged a possible self-confirming test: you and your "
+    "test BOTH introduced the following symbol(s), found NOWHERE ELSE in the repo. "
+    "This is the signature of a test that merely mirrors the implementation's own "
+    "(possibly wrong) assumption about an external API. For each symbol, verify it "
+    "against the REAL API shape (the actual library/SDK attribute name or dict key) "
+    "and FIX it in BOTH the implementation and the test if it is wrong, using "
+    "read_file/edit_file/write_file; if it is genuinely correct, leave it. Then call "
+    "finish:\n"
+)
+
+
+def _run_test_integrity_fix_turn(
+    ctx: _Work, complete: CompleteFn, findings: "list[_testintegrity.MirrorFinding]"
+) -> None:
+    """Inject ONE bounded model turn to re-examine a flagged symbol, preserving state.
+
+    Re-enters :func:`_work_loop` with a small extra step budget after appending the
+    re-examine instruction. The main work's terminal fields (summary / status / the
+    two outcome flags) are saved and restored so a re-examine ``finish`` cannot
+    clobber the work item's real result — the exact lint-fix-turn precedent. Any
+    failure is suppressed (the gate is best-effort and must never abort the work item).
+    """
+    saved = (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    )
+    detail = "\n".join(
+        f"- {f.symbol} ({f.kind}) in {f.test_file} & {f.impl_file}" for f in findings[:50]
+    )
+    ctx.messages.append({"role": "user", "content": _TESTINTEGRITY_FIX_PROMPT + detail})
+    budget = ctx.result.stats.model_turns + _TESTINTEGRITY_FIX_STEPS
+    with suppress(Exception):
+        _work_loop(ctx, complete, budget)
+    (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    ) = saved
+
+
+def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> None:
+    """Write the mirror-signature findings to stderr (advisory; never raises)."""
+    detail = "; ".join(
+        f"{f.symbol} ({f.kind}) co-introduced in {f.test_file} & {f.impl_file}"
+        for f in report.findings
+    )
+    with suppress(OSError):
+        sys.stderr.write(
+            "test-integrity: possible self-confirming test(s) — mirror signature "
+            f"flagged: {detail}\n"
+        )
+
+
+_TESTINTEGRITY_REVIEWER_PROMPT = (
+    "You are a DIFFERENT model reviewing another agent's work for a self-confirming "
+    "test. An automated check flagged the following symbol(s) as a mirror signature — "
+    "co-introduced in BOTH a test and its module-under-test and found nowhere else, "
+    "which can mean the test merely mirrors the implementation's own (possibly wrong) "
+    "assumption about an external API. INDEPENDENTLY determine the CORRECT real API "
+    "shape for each symbol (the actual library/SDK attribute name or dict key) WITHOUT "
+    "trusting the existing code, then report whether the code's usage is CORRECT or "
+    "WRONG and, if wrong, what the right symbol is. This is a READ-ONLY review: do not "
+    "modify files — read what you need and report your verdict via finish.\n\n"
+    "Flagged symbol(s):\n"
+)
+
+
+def _maybe_spawn_test_integrity_reviewer(
+    ctx: _Work, findings: "list[_testintegrity.MirrorFinding]"
+) -> None:
+    """Spawn a DIFFERENT-model reviewer subagent to vet a flagged mirror (#203 t4).
+
+    The same-model re-examine turn can re-confirm its own mirror, so the robust guard
+    is an independent second mind: when ``ctx.testintegrity_reviewer_model`` names a
+    model AND a single-spawn callback is wired into the executor, spawn ONE reviewer
+    subagent on that model (read-only) to re-derive the real API shape and report
+    disagreement. Its :class:`~colleague.contract.SubResult` is appended to the
+    executor's accumulator so the standard snapshot folds it into
+    ``result.sub_results``. Reuses the existing subagent launcher with NO new
+    worktree/merge code, and is bounded by the existing fan-out cap.
+
+    Reviewer-write reconciliation (Qodo PR #211): the single-subagent launcher
+    (``make_spawn`` → ``run_subagent``) runs the child **in-place** in the work
+    item's tree (only the *batch* path uses isolated worktrees), and the handoff
+    stages the whole tree (``git add -u``). So although the reviewer is prompted
+    read-only, any file it nonetheless writes WOULD be committed — and would be
+    *invisible* if left out of ``executor.changed``. We therefore merge the
+    reviewer's ``changed_files`` into ``executor.changed`` (so they are tracked in
+    ``TaskResult.changed_files`` and the artifact agrees with the commit) and emit a
+    stderr warning, rather than letting a read-only-contract violation ship silently.
+
+    Degrades to record-only — a strict no-op — when no reviewer model is configured,
+    no spawn callback is wired, or the per-work-item fan-out cap is already reached.
+    Best-effort: any launcher/engine error is suppressed so the gate never aborts.
+    """
+    reviewer_model = (ctx.testintegrity_reviewer_model or "").strip()
+    spawn = getattr(ctx.executor, "_spawn", None)
+    if not reviewer_model or spawn is None:
+        return
+    if len(ctx.executor.sub_results) >= MAX_SUBAGENT_FANOUT:
+        return
+    detail = "\n".join(
+        f"- {f.symbol} ({f.kind}) in {f.test_file} & {f.impl_file}" for f in findings[:50]
+    )
+    with suppress(Exception):
+        sub = spawn(_TESTINTEGRITY_REVIEWER_PROMPT + detail, None, reviewer_model)
+        if sub is None:
+            return
+        ctx.executor.sub_results.append(sub)
+        # The reviewer should not write (read-only prompt), but the in-place spawn +
+        # `git add -u` handoff mean any writes WOULD be committed; track them so they
+        # are never silent/untracked, and warn on the contract violation.
+        if sub.changed_files:
+            ctx.executor.changed.update(sub.changed_files)
+            with suppress(OSError):
+                sys.stderr.write(
+                    "test-integrity: reviewer subagent modified "
+                    f"{len(sub.changed_files)} file(s) despite the read-only review "
+                    "contract — tracked in changed_files (not silent): "
+                    f"{', '.join(sorted(sub.changed_files)[:20])}\n"
+                )
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -1743,6 +1971,9 @@ def run(
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
+        testintegrity_enabled=bool(_context.testintegrity),
+        testintegrity_fix_retries=_context.testintegrity_fix_retries,
+        testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -1807,6 +2038,13 @@ def run(
     # aborted guard + the best-effort wrapping live in the helper (so it can never
     # abort run(), #209 review) — call it unconditionally to keep run() flat.
     _maybe_run_lint_gate(ctx, complete, outcome, aborted)
+
+    # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
+    # signature on the changed files and record it on result.test_integrity_report.
+    # Advisory + non-blocking (never blocks the handoff, no network); the aborted
+    # guard + best-effort wrapping live in the helper so it can never abort run().
+    # Runs after the lint gate so it sees the lint-fixed changed set.
+    _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,

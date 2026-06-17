@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from colleague import culture, devague
+from colleague import culture, devague, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -311,6 +311,21 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "check_test_integrity",
+            "description": (
+                "Check your changed test+impl files for the mirror signature (a novel "
+                "symbol co-introduced in both a test and the module under test, found "
+                "nowhere else) — a self-check against self-confirming tests."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -423,6 +438,8 @@ class ToolExecutor:
             return self._subagent(arguments)
         if name == "subagents":
             return self._subagents(arguments)
+        if name == "check_test_integrity":
+            return self._check_test_integrity()
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -668,6 +685,20 @@ class ToolExecutor:
         except devague.DevagueToolError as exc:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
+
+    def _check_test_integrity(self) -> ToolOutcome:
+        """Run the mirror-detection heuristic on the work item's changed files.
+
+        Takes no arguments — it inspects the work item's already-changed files
+        (``self.changed``), so the schema declares no parameters.
+        """
+        report = testintegrity.detect_mirror(str(self.root), sorted(self.changed))
+        if not report.findings:
+            return ToolOutcome(result="no mirror findings")
+        lines = [
+            f"  {f.symbol} ({f.kind}) in {f.test_file} + {f.impl_file}" for f in report.findings
+        ]
+        return ToolOutcome(result="mirror findings:\n" + "\n".join(lines))
 
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Delegate a scoped sub-task to a nested child work item via the injected spawn.
