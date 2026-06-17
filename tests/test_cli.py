@@ -183,6 +183,52 @@ def test_every_catalog_path_resolves(capsys: pytest.CaptureFixture[str]) -> None
         capsys.readouterr()
 
 
+def test_explain_root_hints_topic_arg(capsys: pytest.CaptureFixture[str]) -> None:
+    """Bare `explain` tells a new user the per-topic form exists; --json stays raw."""
+    assert main(["explain"]) == 0
+    assert "colleague explain <topic>" in capsys.readouterr().out
+
+    assert main(["explain", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    # The machine contract is the raw catalog markdown — no human tip injected.
+    assert "colleague explain <topic>" not in payload["markdown"]
+
+
+# --- quickstart -----------------------------------------------------------
+
+
+def test_quickstart_text(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["quickstart"]) == 0
+    out = capsys.readouterr().out
+    assert "# colleague quickstart" in out  # the markdown heading, not just the word
+    # The ordered first-run path is present.
+    assert "colleague doctor" in out
+    assert "colleague backends list" in out
+
+
+def test_quickstart_json(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["quickstart", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["steps"]
+    assert all({"title", "command", "why"} <= set(s) for s in payload["steps"])
+
+
+# --- small UX tweaks (from the dogfood) -----------------------------------
+
+
+def test_backends_list_has_header(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["backends", "list"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "NAME\tTARGET"
+    assert "mock" in out
+
+
+def test_config_show_no_file_is_explicit(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["config", "show", "--repo", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "config_file: (none" in out  # explicit, not a bare "none"
+
+
 def _subparsers_action(parser: argparse.ArgumentParser):
     """The parser's ``_SubParsersAction`` (its sub-commands), or ``None`` if it has none."""
     for action in parser._actions:

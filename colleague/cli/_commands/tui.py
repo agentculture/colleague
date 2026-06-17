@@ -24,6 +24,7 @@ from typing import Any, Optional
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
+from colleague.tui.colors import should_color, strip_ansi
 from colleague.tui.diagnose import diagnose, diagnose_snapshot
 from colleague.tui.events import event_from_dict, loads_events
 from colleague.tui.from_work import trace_to_work_steps
@@ -200,6 +201,13 @@ def cmd_tui_render(args: argparse.Namespace) -> int:
     # Dispatch on format; invalid format raises CliError (EXIT_USER_ERROR).
     if fmt == "ansi":
         frame = render(state)
+        # The renderer always returns a colored frame (deterministic). When the
+        # frame is being printed (not wrapped in JSON) and stdout is not an
+        # interactive terminal — piped, redirected, or NO_COLOR — strip the
+        # escapes so a captured frame is clean text, not raw `\x1b[…m` codes.
+        # Mirrors the live cockpit, which also strips when ``not should_color``.
+        if not json_mode and not should_color(sys.stdout):
+            frame = strip_ansi(frame)
         payload = {"ansi": frame} if json_mode else frame
     elif fmt == "markdown":
         frame = render_markdown(state)

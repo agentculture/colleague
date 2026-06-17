@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-06-17
+
+### Added
+
+- `colleague quickstart` — a guided first-run walkthrough for new users (the "where do I start?" path the flat --help did not answer); text + --json, with an explain catalog entry.
+- `WorkStats` now records `engine` and `model` so a work item ROI block names which mind produced it (comparable across backends).
+- A grouped, scannable getting-started cheatsheet is appended to `colleague --help`.
+
+### Changed
+
+- `colleague explain` (bare) now hints the per-topic form `colleague explain <topic>`; the --json contract is unchanged (raw catalog markdown).
+- `colleague backends list` prints a `NAME\tTARGET` header row so the two columns are labelled.
+- `colleague config show` reports `config_file: (none — using env vars + built-in defaults)` instead of a bare `none`.
+
+### Fixed
+
+- `colleague tui render` no longer dumps raw ANSI escape codes to a non-TTY/piped stdout — it strips them via the existing should_color/strip_ansi gate (surfaced by a colleague-on-colleague CLI dogfood).
+
 ## [1.15.0] - 2026-06-17
 
 ### Added

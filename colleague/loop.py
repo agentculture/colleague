@@ -512,6 +512,7 @@ def _finalize_stats(
     *,
     started_at: str,
     duration_seconds: float,
+    model: str = "",
 ) -> None:
     """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
 
@@ -519,9 +520,15 @@ def _finalize_stats(
     are accumulated in :func:`_work_loop`; this fills the rest from the finished
     result + executor. Called on EVERY exit path (model finish / empty turn /
     budget / mid-loop abort) so a partial drive still gets populated stats.
+
+    ``engine``/``model`` make the ROI block self-describing (which mind ran it):
+    ``engine`` is ``task.engine``; ``model`` is the id the engine was configured
+    to call (threaded from :func:`run`'s ``model`` param, ``""`` when not given).
     """
     stats = result.stats
     stats.request = task.instruction
+    stats.engine = task.engine
+    stats.model = model
     stats.started_at = started_at
     stats.duration_seconds = duration_seconds
     stats.step_count = len(result.steps)
@@ -1307,6 +1314,22 @@ def _resolve_nudge_cap(context: "ContextControls") -> int:
     return cap if cap is not None else _MAX_FINISH_NUDGES
 
 
+def _resolve_reading_budget(context: "ContextControls", max_steps: int) -> int:
+    """The reading-step budget after the synthesis reserve (#197).
+
+    Hold back ``context.synthesis_reserve`` steps from the reading budget so a
+    read-heavy run stops reading early and the forced-synthesis verdict (#191)
+    runs with fresher context. Clamped to leave at least one reading step; a
+    0/``None`` reserve is byte-identical (the full budget is spent reading). The
+    full ``max_steps`` is still what the partial-warning hint reports. Extracted
+    to keep ``run`` under the S3776 cognitive-complexity threshold.
+    """
+    reserve = context.synthesis_reserve or 0
+    if reserve > 0:
+        return max(1, max_steps - reserve)
+    return max_steps
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -2001,13 +2024,10 @@ def run(
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
-    # Synthesis reserve (#197): hold back a few steps from the reading budget so a
-    # read-heavy run stops reading early and the forced-synthesis verdict (#191) runs
-    # with fresher context. Clamped to leave at least one reading step; 0/None is
-    # byte-identical (the full budget is spent reading). The full ``max_steps`` is
-    # still what the partial-warning hint reports.
-    _reserve = _context.synthesis_reserve or 0
-    reading_budget = max(1, max_steps - _reserve) if _reserve > 0 else max_steps
+    # Synthesis reserve (#197) — held back from the reading budget so the
+    # forced-synthesis verdict (#191) runs with fresher context. A strict no-op
+    # when no reserve is set (see _resolve_reading_budget).
+    reading_budget = _resolve_reading_budget(_context, max_steps)
     try:
         outcome = _work_loop(ctx, complete, reading_budget)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
@@ -2061,6 +2081,7 @@ def run(
         executor,
         started_at=started_at,
         duration_seconds=round(time.monotonic() - start_monotonic, 6),
+        model=model or "",
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 
