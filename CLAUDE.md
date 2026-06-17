@@ -243,6 +243,52 @@ The architecture, part by part:
   `docs/specs/2026-06-16-colleague-work-hands-back-lint-clean-code-by-defau.md`
   and `docs/plans/2026-06-16-colleague-work-hands-back-lint-clean-code-by-defau.md`;
   feature doc: `docs/features/lint-gate.md`.
+- **Test-integrity gate (#203)** — `colleague work` hands back tests that can
+  *actually fail*: a test no longer passes just because it mirrors the
+  implementation's own bug (the write/TDD self-confirming false positive). A
+  deterministic, code-locked post-loop gate (`colleague/testintegrity.py` +
+  `colleague/loop.py` `_maybe_run_test_integrity_gate`, sibling to the lint gate)
+  runs the **mirror-detection heuristic** on the work item's **changed files**
+  REGARDLESS of model behaviour: it flags the **mirror signature** — an unusual
+  identifier (attribute access or string-literal dict key, via stdlib `ast`)
+  co-introduced in BOTH a changed test file and the changed module-under-test yet
+  found NOWHERE ELSE in the repo (the repo scan prunes `.venv`/`.git`/
+  `node_modules`/… vendored trees) — the mechanical signal that a test merely
+  mirrors the implementation's own (possibly wrong) assumption about an external
+  API. The two real #203 cases: AWS error mapping (`exc.response_error` vs
+  botocore's `exc.response`) and Cost Explorer (`TotalEstimate` vs the real key
+  `Total`). Recorded on `TaskResult.test_integrity_report` (omit-when-None like
+  `lint_report`, so a no-finding run is byte-identical) and surfaced on stderr.
+  **Advisory + non-blocking**: never blocks the git handoff, makes no network
+  call. **Layered guards:** (1) the deterministic gate (the source of truth); (2)
+  a **bounded re-examine turn** (`COLLEAGUE_TESTINTEGRITY_FIX_RETRIES`,
+  `EngineConfig.testintegrity_fix_retries`, default 0 = detect-and-record only) —
+  on a flagged finding after a clean finish, ONE model turn asks the model to
+  verify the symbol against the real API shape and fix it, reusing the lint
+  fix-turn pattern (saves/restores the work item's terminal summary/status); (3) a
+  **diverse-model reviewer subagent** (`COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL`)
+  — the robust guard (a same-model re-examine turn can re-confirm its own mirror),
+  auto-spawning a DIFFERENT-model reviewer via the existing subagent launcher (no
+  new worktree/merge code, bounded by `MAX_SUBAGENT_FANOUT`) to independently
+  re-derive the real API shape, degrading to record-only when unconfigured; (4) a
+  model-callable **`check_test_integrity`** loop tool (`colleague/tools.py`,
+  all-engines) so a backend MAY self-check mid-work, the gate enforcing
+  regardless. **Default-ON with an opt-out** (`COLLEAGUE_TESTINTEGRITY=0` /
+  `.colleague/config.json` `{"testintegrity": false}`); a single
+  **non-load-bearing** nudge in `_DEFAULT_SYSTEM` mentions test integrity but
+  explicitly says the harness gate runs regardless (the operator's "behavior is
+  locked in code and harness, not prompts" principle). Runtime-owned (all-engines
+  rule): both backends forward `config.testintegrity` /
+  `testintegrity_fix_retries` / `testintegrity_reviewer_model` via
+  `ContextControls`; a strict no-op when disabled, no files changed, or no mirror
+  found. **Honest limits:** a heuristic, not a correctness oracle — it flags a
+  *suspicious co-introduced symbol*, never verifies a mock against the live SDK
+  (no network, no bundled SDK in v0); Python/`ast`-only (other languages a
+  follow-up); test EXECUTION is explicitly NOT the fix (a mirrored test passes, so
+  a pytest gate would only re-confirm the bug). Spec + plan:
+  `docs/specs/2026-06-16-colleague-s-write-tdd-hands-back-tests-that-can-ac.md`
+  and `docs/plans/2026-06-17-colleague-s-write-tdd-hands-back-tests-that-can-ac.md`;
+  feature doc: `docs/features/test-integrity.md`.
 - **Cleanup / reap** — `colleague clean` (`colleague/cli/_commands/clean.py`)
   self-heals a repo a crashed `work` left wedged (#162): a dangling
   `colleague/<id>` ref pointing at a 0-byte loose object breaks `git fetch`.
@@ -642,10 +688,17 @@ floor, the coarse complexity assessment (`colleague/capacity.py`), and the
 warn-only "too big for one repo" caller warning — and the **lint pre-finish gate**
 (#200): `colleague/lint.py` + `colleague/loop.py` detect the repo's configured
 Python linters and auto-fix the work item's changed files before handoff
-(default-ON with a `--no-lint` opt-out), so delegated work lands lint-clean.
+(default-ON with a `--no-lint` opt-out), so delegated work lands lint-clean —
+and the **test-integrity gate** (#203): `colleague/testintegrity.py` +
+`colleague/loop.py` flag the *mirror signature* (a novel identifier co-introduced
+in both a changed test and the module-under-test, found nowhere else) on the
+changed files after the loop, with a bounded re-examine turn + a diverse-model
+reviewer subagent + a model-callable `check_test_integrity` tool (default-ON,
+advisory/non-blocking), so a delegated test can no longer pass merely by mirroring
+the implementation's own bug.
 All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
-the capacity standard, and the lint gate) were added via explicit re-specs (spec + plan committed
+the capacity standard, the lint gate, and the test-integrity gate) were added via explicit re-specs (spec + plan committed
 under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
 no-socket / no-daemon conventions.
 
