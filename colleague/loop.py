@@ -112,6 +112,13 @@ _DEFAULT_SYSTEM = (
     "initiative. Only agtag and devex are permitted, and identity is injected for you, so "
     "you never pass it yourself. This is advisory and entirely your own judgement: a "
     "self-contained in-repo task needs neither."
+    "\n\n"
+    "Test integrity (advisory). When you write code test-first, derive the test's "
+    "fixtures and assertions from the REAL external API shape, not from your own "
+    "implementation — a test that merely mirrors the code's own assumption passes even "
+    "when both are wrong. You MAY call check_test_integrity to self-check for that "
+    "mirror signature. (This is only a hint: a code-locked harness gate runs the same "
+    "check after you finish regardless, so ignoring this line changes nothing.)"
 )
 
 
@@ -478,6 +485,9 @@ class _Work:
     # Caps the bounded model re-examine turn for a flagged symbol (0 = detect-and-record
     # only). Forwarded from ``_context.testintegrity_fix_retries`` (all-engines rule).
     testintegrity_fix_retries: int = 0
+    # The DIFFERENT model id for the diverse reviewer subagent; "" degrades to
+    # record-only. Forwarded from ``_context.testintegrity_reviewer_model``.
+    testintegrity_reviewer_model: str = ""
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1460,6 +1470,11 @@ class ContextControls:
     # only, the conservative default). ``None`` leaves it at 0. Forwarded by every
     # backend from ``config.testintegrity_fix_retries`` (all-engines rule).
     testintegrity_fix_retries: int | None = None
+    # The DIFFERENT model id for the diverse reviewer subagent (the robust guard). When
+    # set, a flagged finding auto-spawns a reviewer on this model to independently
+    # re-derive the real API shape; empty/None degrades to record-only. Forwarded from
+    # ``config.testintegrity_reviewer_model`` (all-engines rule).
+    testintegrity_reviewer_model: str | None = None
 
 
 def _build_user_message(task: Task) -> str:
@@ -1677,6 +1692,11 @@ def _maybe_run_test_integrity_gate(
             retries -= 1
             report = _testintegrity.detect_mirror(ctx.task.repo_path, sorted(ctx.executor.changed))
             ctx.result.test_integrity_report = report if report.findings else None
+        # Diverse-model reviewer — the robust guard: a same-model re-examine turn can
+        # re-confirm its own mirror, so spawn a DIFFERENT model to re-derive the real
+        # API shape independently. Only when findings remain and a reviewer is wired.
+        if ctx.result.test_integrity_report is not None and report.findings:
+            _maybe_spawn_test_integrity_reviewer(ctx, report.findings)
 
 
 # A re-examine turn re-enters the loop for at most this many model turns.
@@ -1737,6 +1757,54 @@ def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> Non
             "test-integrity: possible self-confirming test(s) — mirror signature "
             f"flagged: {detail}\n"
         )
+
+
+_TESTINTEGRITY_REVIEWER_PROMPT = (
+    "You are a DIFFERENT model reviewing another agent's work for a self-confirming "
+    "test. An automated check flagged the following symbol(s) as a mirror signature — "
+    "co-introduced in BOTH a test and its module-under-test and found nowhere else, "
+    "which can mean the test merely mirrors the implementation's own (possibly wrong) "
+    "assumption about an external API. INDEPENDENTLY determine the CORRECT real API "
+    "shape for each symbol (the actual library/SDK attribute name or dict key) WITHOUT "
+    "trusting the existing code, then report whether the code's usage is CORRECT or "
+    "WRONG and, if wrong, what the right symbol is. This is a READ-ONLY review: do not "
+    "modify files — read what you need and report your verdict via finish.\n\n"
+    "Flagged symbol(s):\n"
+)
+
+
+def _maybe_spawn_test_integrity_reviewer(
+    ctx: _Work, findings: "list[_testintegrity.MirrorFinding]"
+) -> None:
+    """Spawn a DIFFERENT-model reviewer subagent to vet a flagged mirror (#203 t4).
+
+    The same-model re-examine turn can re-confirm its own mirror, so the robust guard
+    is an independent second mind: when ``ctx.testintegrity_reviewer_model`` names a
+    model AND a single-spawn callback is wired into the executor, spawn ONE reviewer
+    subagent on that model (read-only) to re-derive the real API shape and report
+    disagreement. Its :class:`~colleague.contract.SubResult` is appended to the
+    executor's accumulator so the standard snapshot folds it into
+    ``result.sub_results``; its changed files are intentionally NOT merged into the
+    handoff (the review is read-only). Reuses the existing subagent launcher with NO
+    new worktree/merge code, and is bounded by the existing fan-out cap.
+
+    Degrades to record-only — a strict no-op — when no reviewer model is configured,
+    no spawn callback is wired, or the per-work-item fan-out cap is already reached.
+    Best-effort: any launcher/engine error is suppressed so the gate never aborts.
+    """
+    reviewer_model = (ctx.testintegrity_reviewer_model or "").strip()
+    spawn = getattr(ctx.executor, "_spawn", None)
+    if not reviewer_model or spawn is None:
+        return
+    if len(ctx.executor.sub_results) >= MAX_SUBAGENT_FANOUT:
+        return
+    detail = "\n".join(
+        f"- {f.symbol} ({f.kind}) in {f.test_file} & {f.impl_file}" for f in findings[:50]
+    )
+    with suppress(Exception):
+        sub = spawn(_TESTINTEGRITY_REVIEWER_PROMPT + detail, None, reviewer_model)
+        if sub is not None:
+            ctx.executor.sub_results.append(sub)
 
 
 def run(
@@ -1883,6 +1951,7 @@ def run(
         lint_fix_retries=_context.lint_fix_retries or 0,
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries or 0,
+        testintegrity_reviewer_model=_context.testintegrity_reviewer_model or "",
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive

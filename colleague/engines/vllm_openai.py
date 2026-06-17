@@ -312,5 +312,6 @@ class VllmOpenAIEngine(Engine):
                 lint_fix_retries=config.lint_fix_retries,
                 testintegrity=config.testintegrity,
                 testintegrity_fix_retries=config.testintegrity_fix_retries,
+                testintegrity_reviewer_model=config.testintegrity_reviewer_model,
             ),
         )

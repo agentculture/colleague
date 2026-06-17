@@ -118,6 +118,12 @@ _DEFAULT_LINT_FIX_RETRIES = 1
 # default) is detect-and-record only.
 _DEFAULT_TESTINTEGRITY_ENABLED = True
 _DEFAULT_TESTINTEGRITY_FIX_RETRIES = 0
+# The diverse-model reviewer (the robust guard — a same-model re-examine turn can
+# re-confirm its own mirror). When a DIFFERENT model id is configured here
+# (``COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL`` / config.json), a flagged finding
+# auto-spawns a reviewer subagent on that model to independently re-derive the real
+# API shape. Empty (the default) degrades to record-only — no reviewer is spawned.
+_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
@@ -308,6 +314,7 @@ class EngineConfig:
     lint_fix_retries: int = _DEFAULT_LINT_FIX_RETRIES
     testintegrity: bool = _DEFAULT_TESTINTEGRITY_ENABLED
     testintegrity_fix_retries: int = _DEFAULT_TESTINTEGRITY_FIX_RETRIES
+    testintegrity_reviewer_model: str = _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -538,6 +545,12 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
             ),
+            testintegrity_reviewer_model=_pick(
+                None,
+                "COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL",
+                "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
+                default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -560,6 +573,7 @@ class EngineConfig:
             "lint_fix_retries": self.lint_fix_retries,
             "testintegrity": self.testintegrity,
             "testintegrity_fix_retries": self.testintegrity_fix_retries,
+            "testintegrity_reviewer_model": self.testintegrity_reviewer_model,
         }
 
 
