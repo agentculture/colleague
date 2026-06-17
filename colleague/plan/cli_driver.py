@@ -276,13 +276,25 @@ def make_propose_claims(
     def propose_claims(request: str) -> tuple[list[Claim], list[HonestyCondition]]:
         all_claims: list[Claim] = []
         all_honesty: list[HonestyCondition] = []
+        claim_ids: set[str] = set()
+        honesty_ids: set[str] = set()
+
+        def _absorb(text: str) -> None:
+            # Dedup by id: a model (or a re-prompted chunk) may re-emit prior
+            # items; duplicate ids would otherwise break downstream validation.
+            claims, honesty = parse_claims(text)
+            for c in claims:
+                if c.id not in claim_ids:
+                    claim_ids.add(c.id)
+                    all_claims.append(c)
+            for h in honesty:
+                if h.id not in honesty_ids:
+                    honesty_ids.add(h.id)
+                    all_honesty.append(h)
 
         # --- Call 1: mandatory kinds ---
         try:
-            text = simple(CLAIMS_MANDATORY_SYSTEM_PROMPT, request)
-            claims, honesty = parse_claims(text)
-            all_claims.extend(claims)
-            all_honesty.extend(honesty)
+            _absorb(simple(CLAIMS_MANDATORY_SYSTEM_PROMPT, request))
         except ValueError:
             pass  # tolerate unparseable JSON
 
@@ -292,12 +304,15 @@ def make_propose_claims(
                 f"- [{c.kind}] {c.text}" for c in all_claims
             )
             try:
-                text = simple(CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context)
-                claims, honesty = parse_claims(text)
-                all_claims.extend(claims)
-                all_honesty.extend(honesty)
+                _absorb(simple(CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context))
             except ValueError:
                 pass  # tolerate unparseable JSON
+
+        # A partial failure (one bad chunk) is tolerated above, but a TOTAL
+        # failure (no claims parsed at all) must still surface the clean
+        # "unusable plan proposal" error, never a silent empty frame.
+        if not all_claims:
+            raise ValueError("no claims could be parsed from the model output")
 
         return all_claims, all_honesty
 
@@ -326,6 +341,7 @@ def make_propose_plan_items(
         base_user = "Confirmed spec claims:\n" + "\n".join(f"- {t}" for t in confirmed)
 
         all_items: list[PlanItem] = []
+        seen_ids: set[str] = set()
 
         for _batch in range(_PLAN_ITEM_MAX_BATCHES):
             # Build user prompt: base context + already-proposed items
@@ -336,13 +352,16 @@ def make_propose_plan_items(
 
             prompt = PLAN_SYSTEM_PROMPT + f"\n\nPropose up to {_PLAN_ITEM_BATCH} plan items."
             try:
-                text = simple(prompt, user)
-                items = parse_plan_items(text)
-                if not items:
-                    break  # empty batch -> stop
-                all_items.extend(items)
+                items = parse_plan_items(simple(prompt, user))
             except ValueError:
-                pass  # tolerate unparseable JSON; continue to next batch
+                continue  # tolerate unparseable JSON; try the next batch
+            # Dedup by id: a model may re-propose prior items. A batch that adds
+            # nothing new ends the loop (and bounds the call count regardless).
+            fresh = [it for it in items if it.id not in seen_ids]
+            if not fresh:
+                break
+            seen_ids.update(it.id for it in fresh)
+            all_items.extend(fresh)
 
         return all_items
 
