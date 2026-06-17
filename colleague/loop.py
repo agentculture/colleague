@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import sys
 import time
 from collections import Counter
 from contextlib import suppress
@@ -44,6 +45,7 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
+from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import classify_degradable, window_messages
@@ -466,6 +468,13 @@ class _Work:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint_enabled: bool = False
     lint_fix_retries: int = 0
+    # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
+    # mirror-detection heuristic on the work item's changed files after the loop and
+    # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
+    # lint, a no-finding run is byte-identical via omit-when-None (the report stays
+    # None), so the gate fires for every backend (the all-engines rule) without a
+    # behavior change for findings-free runs. Forwarded from ``_context.testintegrity``.
+    testintegrity_enabled: bool = True
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1437,6 +1446,13 @@ class ContextControls:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint: bool | None = None
     lint_fix_retries: int | None = None
+    # Test-integrity gate (#203): when truthy (the default) the runtime runs the
+    # mirror-detection heuristic on the changed files after the loop and records the
+    # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
+    # blocks the handoff, makes no network call, and a no-finding run is byte-identical
+    # (omit-when-None). Defaults ON so the gate fires for every backend without each
+    # backend opting in; pass ``False`` to disable (the t3 env/config opt-out feeds it).
+    testintegrity: bool = True
 
 
 def _build_user_message(task: Task) -> str:
@@ -1601,6 +1617,56 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
     ) = saved
 
 
+def _maybe_run_test_integrity_gate(ctx: _Work, outcome: str, aborted: Exception | None) -> None:
+    """Run the post-loop test-integrity gate: flag the mirror signature (#203).
+
+    Deterministic and code-locked: on a non-aborted exit it runs the
+    mirror-detection heuristic (:func:`colleague.testintegrity.detect_mirror`) on
+    the work item's changed files REGARDLESS of model behaviour — the model cannot
+    skip it — and records any findings on ``result.test_integrity_report`` plus a
+    line on stderr. The mirror signature is a novel identifier (attribute access or
+    string-literal dict key) co-introduced in BOTH a changed test file and a changed
+    module-under-test yet found nowhere else in the repo — the mechanical signal that
+    a test merely mirrors the implementation's own (possibly wrong) assumption (the
+    #203 self-confirming false positive).
+
+    Advisory + non-blocking: it NEVER blocks the git handoff and makes NO network
+    call. A no-finding run is byte-identical — the report stays ``None`` and is
+    omitted from the artifact (the h6 omit-when-None guarantee). A strict no-op when
+    the loop aborted, the gate is disabled, or no files changed.
+
+    Best-effort + fail-safe (mirrors the lint-gate / neighbour-clone / hook
+    fail-safes): the body is wrapped in ``suppress`` so detection can NEVER abort
+    ``run()`` (which calls this after its main try/except, before the changed_files
+    snapshot). The bounded re-examine turn + diverse-model reviewer are layered on in
+    #203 tasks t3/t4; this t2 increment is detect-and-record only.
+    """
+    if aborted is not None or not ctx.testintegrity_enabled:
+        return
+    with suppress(Exception):
+        changed = sorted(ctx.executor.changed)
+        if not changed:
+            return
+        report = _testintegrity.detect_mirror(ctx.task.repo_path, changed)
+        if not report.findings:
+            return
+        ctx.result.test_integrity_report = report
+        _surface_test_integrity(report)
+
+
+def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> None:
+    """Write the mirror-signature findings to stderr (advisory; never raises)."""
+    detail = "; ".join(
+        f"{f.symbol} ({f.kind}) co-introduced in {f.test_file} & {f.impl_file}"
+        for f in report.findings
+    )
+    with suppress(OSError):
+        sys.stderr.write(
+            "test-integrity: possible self-confirming test(s) — mirror signature "
+            f"flagged: {detail}\n"
+        )
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -1743,6 +1809,7 @@ def run(
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
+        testintegrity_enabled=bool(_context.testintegrity),
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -1807,6 +1874,13 @@ def run(
     # aborted guard + the best-effort wrapping live in the helper (so it can never
     # abort run(), #209 review) — call it unconditionally to keep run() flat.
     _maybe_run_lint_gate(ctx, complete, outcome, aborted)
+
+    # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
+    # signature on the changed files and record it on result.test_integrity_report.
+    # Advisory + non-blocking (never blocks the handoff, no network); the aborted
+    # guard + best-effort wrapping live in the helper so it can never abort run().
+    # Runs after the lint gate so it sees the lint-fixed changed set.
+    _maybe_run_test_integrity_gate(ctx, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Snapshot any nested child work items the executor accumulated — captured here,
