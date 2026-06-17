@@ -69,76 +69,128 @@ def _scan_string(text: str, i: int) -> int:
     return i
 
 
+def _find_object_end(text: str, start: int) -> int:
+    """Index of the ``}`` closing the object that opens at ``text[start] == '{'``.
+
+    Skips string contents (:func:`_scan_string`) so braces inside string values
+    don't miscount. Returns ``-1`` when the object never closes (truncated).
+    """
+    depth = 0
+    i, n = start, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            i = _scan_string(text, i + 1)
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _close_and_load(frag: str) -> dict[str, Any] | None:
+    """Append the closers implied by *frag*'s unclosed ``{``/``[`` stack, then parse.
+
+    Skips string contents. Returns the parsed dict, or ``None`` when the balanced
+    text still isn't a valid JSON object.
+    """
+    stack: list[str] = []
+    i, n = 0, len(frag)
+    while i < n:
+        ch = frag[i]
+        if ch == '"':
+            i = _scan_string(frag, i + 1)
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch == "}" and stack and stack[-1] == "{":
+            stack.pop()
+        elif ch == "]" and stack and stack[-1] == "[":
+            stack.pop()
+        i += 1
+    closed = frag + "".join("}" if c == "{" else "]" for c in reversed(stack))
+    try:
+        obj = json.loads(closed)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _last_top_level_close(frag: str) -> int:
+    """Index of the last ``}``/``]`` lying OUTSIDE a string literal, or ``-1``.
+
+    A string-blind ``rfind`` could cut inside a value that contains a brace.
+    """
+    last = -1
+    i, n = 0, len(frag)
+    while i < n:
+        ch = frag[i]
+        if ch == '"':
+            i = _scan_string(frag, i + 1)
+            continue
+        if ch in "}]":
+            last = i
+        i += 1
+    return last
+
+
 def _balance_and_parse(fragment: str) -> dict[str, Any] | None:
     """Best-effort parse of a JSON object **truncated mid-structure**.
 
-    A served reasoning model sometimes stops generating before the final
-    ``}`` (it runs out of budget or just halts), leaving e.g.
-    ``{"items": [ {...}, {...} ]`` with the closing brace missing. Walk
-    *fragment* tracking the unclosed ``{`` / ``[`` stack (skipping string
-    contents via :func:`_scan_string`), append the implied closers, and parse.
-    If that fails (truncation landed mid-token), retreat to the last complete
-    ``}`` / ``]`` and retry once. Returns ``None`` when unrecoverable.
+    A served reasoning model sometimes stops before the final ``}`` (it runs out
+    of budget or just halts), leaving e.g. ``{"items": [ {...}, {...} ]`` with
+    the closing brace missing. Append the implied closers and parse; if that
+    fails (truncation landed mid-token), retreat to the last complete ``}``/``]``
+    and retry once. Returns ``None`` when unrecoverable.
     """
-
-    def _close(frag: str) -> dict[str, Any] | None:
-        stack: list[str] = []
-        i, n = 0, len(frag)
-        while i < n:
-            ch = frag[i]
-            if ch == '"':
-                i = _scan_string(frag, i + 1)
-                continue
-            if ch in "{[":
-                stack.append(ch)
-            elif ch == "}" and stack and stack[-1] == "{":
-                stack.pop()
-            elif ch == "]" and stack and stack[-1] == "[":
-                stack.pop()
-            i += 1
-        closed = frag + "".join("}" if c == "{" else "]" for c in reversed(stack))
-        try:
-            obj = json.loads(closed)
-        except ValueError:
-            return None
-        return obj if isinstance(obj, dict) else None
-
-    obj = _close(fragment)
+    obj = _close_and_load(fragment)
     if obj is not None:
         return obj
-    # Truncation landed mid-token: retreat to the last complete element + retry.
-    # Find the last } or ] lying OUTSIDE a string literal (a string-blind rfind
-    # could cut inside a value that happens to contain a brace).
-    last_close = -1
-    i, n = 0, len(fragment)
-    while i < n:
-        ch = fragment[i]
-        if ch == '"':
-            i = _scan_string(fragment, i + 1)
-            continue
-        if ch in "}]":
-            last_close = i
-        i += 1
+    last_close = _last_top_level_close(fragment)
     if last_close <= 0:
         return None
-    return _close(fragment[: last_close + 1])
+    return _close_and_load(fragment[: last_close + 1])
+
+
+def _try_load(s: str) -> Any:
+    """``json.loads(s)`` or ``None`` on a decode error."""
+    try:
+        return json.loads(s)
+    except ValueError:
+        return None
+
+
+def _select_object(
+    obj: Any, required_key: str | None, first_obj: dict[str, Any] | None
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Decide whether *obj* satisfies the extraction.
+
+    Returns ``(result, first_obj)``: *result* is the object to return now (it
+    carries *required_key*, or no key is required), else ``None``. The first dict
+    seen is remembered in *first_obj* as the no-key fallback.
+    """
+    if not isinstance(obj, dict):
+        return None, first_obj
+    if required_key is None or required_key in obj:
+        return obj, first_obj
+    return None, first_obj if first_obj is not None else obj
 
 
 def _extract_json_object(text: str, required_key: str | None = None) -> dict[str, Any]:
     """Tolerantly extract a top-level JSON object from *text*.
 
-    A served model often wraps JSON in prose or a ```json fence; this finds a
-    balanced ``{...}`` and parses it. String contents (which may contain braces
-    or escaped quotes) are skipped via :func:`_scan_string`.
-
-    When *required_key* is given, successive top-level objects are scanned and
-    the first one **containing that key** is returned — so a stray ``{...}`` in a
-    reasoning model's prose (e.g. an inline schema example) cannot shadow the
-    real payload. Falls back to the first balanced object when none carries the
-    key (back-compat with ``required_key=None``, which returns the first object).
-    Raises ``ValueError`` when no valid JSON object is present.
+    A served model often wraps JSON in prose or a ```json fence. When
+    *required_key* is given, successive top-level objects are scanned and the
+    first one **containing that key** is returned — so a stray ``{...}`` in a
+    reasoning model's prose (an inline schema example) cannot shadow the real
+    payload; otherwise the first balanced object is returned. A trailing object
+    truncated mid-structure is repaired via :func:`_balance_and_parse`. Raises
+    ``ValueError`` when no valid JSON object is present.
     """
-    n = len(text)
     pos = 0
     first_obj: dict[str, Any] | None = None
     saw_brace = False
@@ -147,42 +199,25 @@ def _extract_json_object(text: str, required_key: str | None = None) -> dict[str
         if start == -1:
             break
         saw_brace = True
-        depth = 0
-        i = start
-        end = -1
-        while i < n:
-            ch = text[i]
-            if ch == '"':
-                i = _scan_string(text, i + 1)
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-            i += 1
+        end = _find_object_end(text, start)
         if end == -1:
-            # Truncated mid-structure (no closing brace): a reasoning model that
-            # stopped early. Try a bounded repair before giving up.
-            repaired = _balance_and_parse(text[start:])
-            if isinstance(repaired, dict):
-                if required_key is None or required_key in repaired:
-                    return repaired
-                if first_obj is None:
-                    first_obj = repaired
-            break  # no later object can close once we hit an unclosed one
-        try:
-            obj = json.loads(text[start : end + 1])
-        except ValueError:
-            obj = None
-        if isinstance(obj, dict):
-            if required_key is None or required_key in obj:
-                return obj
-            if first_obj is None:
-                first_obj = obj
+            # Truncated mid-structure: bounded repair, then stop (no later object
+            # can close once we hit an unclosed one).
+            result, first_obj = _select_object(
+                _balance_and_parse(text[start:]), required_key, first_obj
+            )
+            return result if result is not None else _resolve_or_raise(first_obj, saw_brace)
+        result, first_obj = _select_object(
+            _try_load(text[start : end + 1]), required_key, first_obj
+        )
+        if result is not None:
+            return result
         pos = end + 1
+    return _resolve_or_raise(first_obj, saw_brace)
+
+
+def _resolve_or_raise(first_obj: dict[str, Any] | None, saw_brace: bool) -> dict[str, Any]:
+    """Return the fallback object, or raise the appropriate ``ValueError``."""
     if first_obj is not None:
         return first_obj
     if not saw_brace:
@@ -367,22 +402,55 @@ def _call_with_retry(
     """
     attempt = 0
     saw_overflow = False
-    cap = _MAX_OVERFLOW_RETRIES
 
-    while attempt <= cap:
+    while True:
         try:
             return call(messages)
         except Exception as exc:
             signal = classify_degradable(str(exc))
             if signal is None:
                 raise  # non-degradable: propagate immediately
-            saw_overflow = saw_overflow or signal == "overflow"
-            cap = _MAX_OVERFLOW_RETRIES if saw_overflow else _MAX_TIMEOUT_RETRIES
             if signal == "overflow":
+                # An overflow re-sent unchanged just repeats; shrink before retry.
+                saw_overflow = True
                 _shrink_messages(messages)
+            cap = _MAX_OVERFLOW_RETRIES if saw_overflow else _MAX_TIMEOUT_RETRIES
             attempt += 1
             if attempt > cap:
                 raise
+
+
+class _ClaimAcc:
+    """Accumulate claims + honesty across chunked proposal calls, deduped by id.
+
+    A model (or a re-prompted chunk) may re-emit prior items; duplicate ids would
+    otherwise break downstream validation.
+    """
+
+    def __init__(self) -> None:
+        self.claims: list[Claim] = []
+        self.honesty: list[HonestyCondition] = []
+        self._claim_ids: set[str] = set()
+        self._honesty_ids: set[str] = set()
+
+    def absorb(self, text: str) -> None:
+        claims, honesty = parse_claims(text)
+        for c in claims:
+            if c.id not in self._claim_ids:
+                self._claim_ids.add(c.id)
+                self.claims.append(c)
+        for h in honesty:
+            if h.id not in self._honesty_ids:
+                self._honesty_ids.add(h.id)
+                self.honesty.append(h)
+
+
+def _try_absorb(acc: _ClaimAcc, simple: SimpleComplete, system: str, user: str) -> None:
+    """Run one proposal call and absorb its claims; tolerate unparseable JSON."""
+    try:
+        acc.absorb(simple(system, user))
+    except ValueError:
+        pass  # partial chunk failure is non-fatal
 
 
 def make_propose_claims(
@@ -399,47 +467,25 @@ def make_propose_claims(
     """
 
     def propose_claims(request: str) -> tuple[list[Claim], list[HonestyCondition]]:
-        all_claims: list[Claim] = []
-        all_honesty: list[HonestyCondition] = []
-        claim_ids: set[str] = set()
-        honesty_ids: set[str] = set()
-
-        def _absorb(text: str) -> None:
-            # Dedup by id: a model (or a re-prompted chunk) may re-emit prior
-            # items; duplicate ids would otherwise break downstream validation.
-            claims, honesty = parse_claims(text)
-            for c in claims:
-                if c.id not in claim_ids:
-                    claim_ids.add(c.id)
-                    all_claims.append(c)
-            for h in honesty:
-                if h.id not in honesty_ids:
-                    honesty_ids.add(h.id)
-                    all_honesty.append(h)
+        acc = _ClaimAcc()
 
         # --- Call 1: mandatory kinds ---
-        try:
-            _absorb(simple(CLAIMS_MANDATORY_SYSTEM_PROMPT, request))
-        except ValueError:
-            pass  # tolerate unparseable JSON
+        _try_absorb(acc, simple, CLAIMS_MANDATORY_SYSTEM_PROMPT, request)
 
         # --- Call 2: requirements + honesty, conditioned on call-1 ---
-        if all_claims:
+        if acc.claims:
             context = "Already-proposed claims:\n" + "\n".join(
-                f"- [{c.kind}] {c.text}" for c in all_claims
+                f"- [{c.kind}] {c.text}" for c in acc.claims
             )
-            try:
-                _absorb(simple(CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context))
-            except ValueError:
-                pass  # tolerate unparseable JSON
+            _try_absorb(acc, simple, CLAIMS_REQUIREMENTS_SYSTEM_PROMPT, context)
 
         # A partial failure (one bad chunk) is tolerated above, but a TOTAL
         # failure (no claims parsed at all) must still surface the clean
         # "unusable plan proposal" error, never a silent empty frame.
-        if not all_claims:
+        if not acc.claims:
             raise ValueError("no claims could be parsed from the model output")
 
-        return all_claims, all_honesty
+        return acc.claims, acc.honesty
 
     return propose_claims
 
