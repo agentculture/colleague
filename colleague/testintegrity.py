@@ -13,6 +13,7 @@ Sibling to :mod:`colleague.lint` in structure: dataclass report,
 from __future__ import annotations
 
 import ast
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -173,42 +174,25 @@ _SKIP_DIRS = frozenset(
 def _iter_repo_py(repo: Path) -> "list[Path]":
     """Yield repo-owned ``*.py`` files, skipping vendored/generated/VCS trees.
 
-    Walks ``repo`` but prunes any directory in :data:`_SKIP_DIRS` so the
-    "nowhere else in the repo" scan stays fast and considers only first-party
-    source. Unreadable directories are skipped, never raised.
+    Walks ``repo`` via :func:`os.walk` with ``followlinks=False``, pruning any
+    directory in :data:`_SKIP_DIRS` (in place, so ``os.walk`` never descends into
+    it) so the "nowhere else in the repo" scan stays fast and considers only
+    first-party source.
 
-    Symlink-safe (Qodo PR #211): symlinked directories are NOT followed (a symlink
-    into a huge external tree, e.g. ``/usr``, would balloon the scan) and a
-    visited-set of resolved directory paths breaks any symlink/hardlink cycle
-    (e.g. ``repo/link -> repo``) that would otherwise re-queue a directory forever
-    and hang the post-loop gate. Symlinked ``*.py`` files are likewise skipped so
-    the scan stays confined to the repo's own source.
+    Symlink-safe (Qodo PR #211): ``followlinks=False`` means a symlinked directory
+    is never descended into — so a ``repo/loop -> repo`` cycle cannot hang the
+    post-loop gate and a symlink into a huge external tree (e.g. ``/usr``) cannot
+    balloon the scan, with no manual stack or visited-set needed. Symlinked
+    ``*.py`` files are skipped too, keeping the scan confined to the repo's own
+    source.
     """
     found: list[Path] = []
-    visited: set[str] = set()
-    stack: list[Path] = [repo]
-    while stack:
-        current = stack.pop()
-        try:
-            real = str(current.resolve())
-        except OSError:
-            continue
-        if real in visited:
-            continue
-        visited.add(real)
-        try:
-            entries = list(current.iterdir())
-        except OSError:
-            continue
-        for entry in entries:
-            if entry.is_symlink():
-                # Never follow a symlink — neither into a dir (cycle / external
-                # tree) nor a file (would read outside the repo).
-                continue
-            if entry.is_dir():
-                if entry.name not in _SKIP_DIRS:
-                    stack.append(entry)
-            elif entry.suffix == ".py":
+    for dirpath, dirnames, filenames in os.walk(repo, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        base = Path(dirpath)
+        for name in filenames:
+            entry = base / name
+            if name.endswith(".py") and not entry.is_symlink():
                 found.append(entry)
     return found
 
