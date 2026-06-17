@@ -109,6 +109,21 @@ _DEFAULT_SYNTHESIS_RESERVE = 0
 _DEFAULT_LINT_ENABLED = True
 _DEFAULT_LINT_FIX_RETRIES = 1
 
+# Affected-tests gate (#213). Default-ON with an opt-out: after the loop the
+# runtime selects and runs only the tests whose import chain reaches the changed
+# files (bounded-depth transitive reverse-import selection). Disable with
+# ``COLLEAGUE_AFFECTED_TESTS=0`` or ``.colleague/config.json``
+# ``{"affected_tests": false}``. ``affected_tests_fix_retries`` caps the bounded
+# model fix-turn for failing tests; 0 is run-and-record only.
+# ``affected_tests_depth`` controls the transitive reverse-import walk depth.
+# ``affected_tests_max_files`` caps the number of selected test files (honest cap:
+# reports total and whether the cap was hit). ``affected_tests_override`` is set
+# later from a CLI flag (no env var); default None.
+_DEFAULT_AFFECTED_TESTS_ENABLED = True
+_DEFAULT_AFFECTED_TESTS_FIX_RETRIES = 1
+_DEFAULT_AFFECTED_TESTS_DEPTH = 3
+_DEFAULT_AFFECTED_TESTS_MAX_FILES = 20
+
 # Test-integrity gate (#203). Default-ON like lint (an opt-out, not opt-in): after
 # the loop the runtime flags the *mirror signature* on the work item's changed files
 # (a novel identifier co-introduced in both a changed test and the module under test,
@@ -252,6 +267,40 @@ def _resolve_lint_enabled(file_value: str | None) -> bool:
     return _DEFAULT_LINT_ENABLED
 
 
+def _load_affected_tests_overrides(
+    repo_path: str | Path,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Read affected-tests keys from .colleague/config.json as raw strings.
+
+    Mirrors :func:`_load_lint_overrides` (kept separate from
+    :func:`load_config_file`, whose endpoint-string contract must not change):
+    these keys carry a bool / int. Returns
+    ``(affected_tests, affected_tests_fix_retries, affected_tests_depth,
+    affected_tests_max_files)``, each the stringified value or ``None`` when
+    absent. A missing/malformed file yields ``(None, None, None, None)`` and
+    never raises.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None, None, None, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None, None, None
+    if not isinstance(data, dict):
+        return None, None, None, None
+    enabled = data.get("affected_tests")
+    retries = data.get("affected_tests_fix_retries")
+    depth = data.get("affected_tests_depth")
+    max_files = data.get("affected_tests_max_files")
+    return (
+        None if enabled is None else str(enabled),
+        None if retries is None else str(retries),
+        None if depth is None else str(depth),
+        None if max_files is None else str(max_files),
+    )
+
+
 def _resolve_testintegrity_enabled(file_value: str | None) -> bool:
     """Resolve the test-integrity gate flag: env ``COLLEAGUE_TESTINTEGRITY`` > config > default-on.
 
@@ -265,6 +314,20 @@ def _resolve_testintegrity_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_TESTINTEGRITY_ENABLED
+
+
+def _resolve_affected_tests_enabled(file_value: str | None) -> bool:
+    """Resolve the affected-tests gate flag: env ``COLLEAGUE_AFFECTED_TESTS`` > config > default-on.
+
+    Mirrors :func:`_resolve_lint_enabled` so the S107 parameter ceiling holds.
+    ``0``/``false`` disables; any truthy value enables.
+    """
+    env = os.environ.get("COLLEAGUE_AFFECTED_TESTS")
+    if env is not None and env.strip() != "":
+        return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_AFFECTED_TESTS_ENABLED
 
 
 def resolve_engine(explicit: str | None) -> str:
@@ -317,6 +380,11 @@ class EngineConfig:
     testintegrity: bool = _DEFAULT_TESTINTEGRITY_ENABLED
     testintegrity_fix_retries: int = _DEFAULT_TESTINTEGRITY_FIX_RETRIES
     testintegrity_reviewer_model: str = _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL
+    affected_tests: bool = _DEFAULT_AFFECTED_TESTS_ENABLED
+    affected_tests_fix_retries: int = _DEFAULT_AFFECTED_TESTS_FIX_RETRIES
+    affected_tests_depth: int = _DEFAULT_AFFECTED_TESTS_DEPTH
+    affected_tests_max_files: int = _DEFAULT_AFFECTED_TESTS_MAX_FILES
+    affected_tests_override: Optional[str] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -380,10 +448,17 @@ class EngineConfig:
         file_lint_retries: str | None = None
         file_ti: str | None = None
         file_ti_retries: str | None = None
+        file_at: str | None = None
+        file_at_retries: str | None = None
+        file_at_depth: str | None = None
+        file_at_max_files: str | None = None
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
             file_ti, file_ti_retries = _load_testintegrity_overrides(repo_path)
+            file_at, file_at_retries, file_at_depth, file_at_max_files = (
+                _load_affected_tests_overrides(repo_path)
+            )
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -553,6 +628,47 @@ class EngineConfig:
                 "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
                 default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
             ),
+            # Affected-tests gate (#213) — env > config.json > default-on, mirroring
+            # lint. Kept off the signature (no CLI flag in v0) for the S107 ceiling.
+            affected_tests=_resolve_affected_tests_enabled(file_at),
+            affected_tests_fix_retries=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES",
+                    default=(
+                        file_at_retries
+                        if file_at_retries is not None
+                        else str(_DEFAULT_AFFECTED_TESTS_FIX_RETRIES)
+                    ),
+                ),
+                default=_DEFAULT_AFFECTED_TESTS_FIX_RETRIES,
+            ),
+            affected_tests_depth=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_AFFECTED_TESTS_DEPTH",
+                    default=(
+                        file_at_depth
+                        if file_at_depth is not None
+                        else str(_DEFAULT_AFFECTED_TESTS_DEPTH)
+                    ),
+                ),
+                default=_DEFAULT_AFFECTED_TESTS_DEPTH,
+            ),
+            affected_tests_max_files=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_AFFECTED_TESTS_MAX_FILES",
+                    default=(
+                        file_at_max_files
+                        if file_at_max_files is not None
+                        else str(_DEFAULT_AFFECTED_TESTS_MAX_FILES)
+                    ),
+                ),
+                default=_DEFAULT_AFFECTED_TESTS_MAX_FILES,
+            ),
+            # affected_tests_override has no env var (set later from a CLI flag).
+            affected_tests_override=None,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -576,6 +692,10 @@ class EngineConfig:
             "testintegrity": self.testintegrity,
             "testintegrity_fix_retries": self.testintegrity_fix_retries,
             "testintegrity_reviewer_model": self.testintegrity_reviewer_model,
+            "affected_tests": self.affected_tests,
+            "affected_tests_fix_retries": self.affected_tests_fix_retries,
+            "affected_tests_depth": self.affected_tests_depth,
+            "affected_tests_max_files": self.affected_tests_max_files,
         }
 
 
