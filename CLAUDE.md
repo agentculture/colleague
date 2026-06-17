@@ -639,9 +639,36 @@ The architecture, part by part:
   default 0 = dormant, strict no-op). Runtime-owned (all-engines). Spec + plan:
   `docs/specs/2026-06-15-colleague-has-a-plan-mode-hand-it-a-vague-or-overs.md`
   and `docs/plans/2026-06-15-colleague-has-a-plan-mode-hand-it-a-vague-or-overs.md`.
-  Honest limits: the interactive cross-invocation `plan continue` resume and a
-  spec-less "quick plan" middle ground are documented follow-ups (#199); the verb
-  needs a live backend.
+  **Degradation-aware proposals (#210/#199/#204, smaller "plan jumps"):** the
+  proposal seams (`colleague/plan/cli_driver.py`) used to ask for everything in
+  one shot and read `resp.content` only, so a *reasoning* served backend that
+  emits its answer into `reasoning` with empty `content` failed with `no JSON
+  object found` — plan mode was non-functional on the reference 27B. Proposals now
+  route through `robust_simple_complete`: a forced no-thinking JSON follow-up on
+  empty content, then a `resp.reasoning` recovery, then a `classify_degradable`
+  timeout/overflow shrink-retry (mirroring the loop's `_MAX_TIMEOUT_RETRIES`/
+  `_MAX_OVERFLOW_RETRIES`). The jumps are smaller — claims in two calls
+  (mandatory kinds, then requirements+honesty), plan items in bounded
+  deduped-by-id batches (≤5 items, ≤4 batches; a bad chunk is tolerated, a total
+  failure still raises the clean `unusable plan proposal`). `_extract_json_object`
+  prefers the object carrying the expected key (`claims`/`items`, so a stray
+  prose `{...}` can't shadow the payload) and **repairs a truncated object** (the
+  live 27B dropped its final `}`; it appends the implied closers, retreating to
+  the last complete element on a mid-token cut). A balanced response is
+  byte-identical through all of it. The **spec-less `--quick`/`--no-spec` path**
+  (#199) skips the per-claim spec micro-cycle and plans directly from the request,
+  still operator-gated at the plan level. The public `Engine.make_complete` seam
+  (#204) is pinned by `tests/test_engine_make_complete.py`. Live-validated: the
+  27B that failed at the claims stage now yields 11 claims + 8 honesty conditions
+  and 4 plan items end-to-end. Feature doc:
+  `docs/features/plan-mode.md`; spec + plan:
+  `docs/specs/2026-06-17-colleague-plan-mode-now-drives-smaller-degradation.md`
+  and `docs/plans/2026-06-17-colleague-plan-mode-now-drives-smaller-degradation.md`.
+  Honest limits: the verb still needs a live backend (`mock` inherits
+  `make_complete`'s `NotImplementedError`); chunking adds model calls (bounded);
+  JSON repair is best-effort (structural truncation, not arbitrary malformed
+  JSON); the interactive cross-invocation `plan continue` resume remains a
+  documented follow-up.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
