@@ -1314,6 +1314,22 @@ def _resolve_nudge_cap(context: "ContextControls") -> int:
     return cap if cap is not None else _MAX_FINISH_NUDGES
 
 
+def _resolve_reading_budget(context: "ContextControls", max_steps: int) -> int:
+    """The reading-step budget after the synthesis reserve (#197).
+
+    Hold back ``context.synthesis_reserve`` steps from the reading budget so a
+    read-heavy run stops reading early and the forced-synthesis verdict (#191)
+    runs with fresher context. Clamped to leave at least one reading step; a
+    0/``None`` reserve is byte-identical (the full budget is spent reading). The
+    full ``max_steps`` is still what the partial-warning hint reports. Extracted
+    to keep ``run`` under the S3776 cognitive-complexity threshold.
+    """
+    reserve = context.synthesis_reserve or 0
+    if reserve > 0:
+        return max(1, max_steps - reserve)
+    return max_steps
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -2008,13 +2024,10 @@ def run(
     # then run on *every* exit path, including this one.
     aborted: Exception | None = None
     outcome = _EXIT_BUDGET
-    # Synthesis reserve (#197): hold back a few steps from the reading budget so a
-    # read-heavy run stops reading early and the forced-synthesis verdict (#191) runs
-    # with fresher context. Clamped to leave at least one reading step; 0/None is
-    # byte-identical (the full budget is spent reading). The full ``max_steps`` is
-    # still what the partial-warning hint reports.
-    _reserve = _context.synthesis_reserve or 0
-    reading_budget = max(1, max_steps - _reserve) if _reserve > 0 else max_steps
+    # Synthesis reserve (#197) — held back from the reading budget so the
+    # forced-synthesis verdict (#191) runs with fresher context. A strict no-op
+    # when no reserve is set (see _resolve_reading_budget).
+    reading_budget = _resolve_reading_budget(_context, max_steps)
     try:
         outcome = _work_loop(ctx, complete, reading_budget)
     except Exception as exc:  # noqa: BLE001 - preserve partial work on any engine failure
