@@ -93,6 +93,36 @@ def test_render_json_wraps_ansi(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "ansi" in payload and isinstance(payload["ansi"], str)
 
 
+def test_render_strips_ansi_when_not_a_tty(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Piped/redirected (non-TTY) ANSI render is clean text, not raw escape codes.
+
+    Under capsys stdout is not a terminal, so the gate strips the escapes the
+    deterministic renderer always emits — a captured/piped frame stays readable
+    instead of dumping ``\\x1b[…m`` codes (the dogfood bug). --json is unaffected.
+    """
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    rc = main(["tui", "render", "--state", str(sf)])
+    assert rc == 0
+    frame = capsys.readouterr().out
+    assert frame  # still a real frame …
+    assert "\x1b[" not in frame  # … but with no raw ANSI escape sequences
+
+
+def test_render_keeps_ansi_for_a_tty(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At an interactive terminal the colored frame is preserved (color in, raw out)."""
+    sf = _write_state(tmp_path / "s.json", CockpitState())
+    monkeypatch.setattr("colleague.cli._commands.tui.should_color", lambda stream=None: True)
+    rc = main(["tui", "render", "--state", str(sf)])
+    assert rc == 0
+    assert "\x1b[" in capsys.readouterr().out  # escapes preserved when a human watches
+
+
 def test_render_tolerates_taui_mirror(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A TAUI mirror has extra keys (taui_version, available_actions); from_dict tolerates them."""
     from colleague.tui.taui import serialize

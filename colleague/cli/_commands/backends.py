@@ -54,7 +54,10 @@ def cmd_backends_list(args: argparse.Namespace) -> int:
     elif not catalog:
         emit_result("(no backend plugins installed)", json_mode=False)
     else:
-        emit_result("\n".join(f"{b.name}\t{b.target}" for b in catalog), json_mode=False)
+        # Header row so a reader knows what the two tab-separated columns mean
+        # (the backend name vs. its target class path). --json above is unchanged.
+        rows = [f"{b.name}\t{b.target}" for b in catalog]
+        emit_result("\n".join(["NAME\tTARGET", *rows]), json_mode=False)
     return 0
 
 

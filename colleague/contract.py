@@ -160,6 +160,14 @@ class WorkStats:
     ------
     request:
         The originating task instruction (the request the work item answered).
+    engine:
+        The backend that ran the work item (e.g. ``mock`` / ``vllm-openai``) —
+        ``task.engine``. With ``model`` it makes the ROI block self-describing:
+        a caller comparing two artifacts knows which mind produced each.
+    model:
+        The model id the engine was configured to call. This is the configured
+        id even for the no-op ``mock`` backend (which calls no model); read it
+        alongside ``engine`` to disambiguate. Empty when no model was threaded.
     started_at:
         ISO-8601 UTC timestamp of when the loop began.
     duration_seconds:
@@ -183,6 +191,8 @@ class WorkStats:
     """
 
     request: str = ""
+    engine: str = ""
+    model: str = ""
     started_at: str = ""
     duration_seconds: float = 0.0
     model_turns: int = 0
@@ -210,6 +220,8 @@ class WorkStats:
     def to_dict(self) -> dict[str, Any]:
         return {
             "request": self.request,
+            "engine": self.engine,
+            "model": self.model,
             "started_at": self.started_at,
             "duration_seconds": self.duration_seconds,
             "model_turns": self.model_turns,
@@ -227,6 +239,8 @@ class WorkStats:
     def from_dict(cls, data: dict[str, Any]) -> "WorkStats":
         return cls(
             request=str(data.get("request", "")),
+            engine=str(data.get("engine", "")),
+            model=str(data.get("model", "")),
             started_at=str(data.get("started_at", "")),
             duration_seconds=float(data.get("duration_seconds", 0.0)),
             model_turns=int(data.get("model_turns", 0)),

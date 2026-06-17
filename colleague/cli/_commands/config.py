@@ -68,7 +68,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
             keys = ", ".join(sorted(file_cfg.keys()))
             lines.append(f"config_file: .colleague/config.json sets [{keys}]")
         else:
-            lines.append("config_file: none")
+            lines.append("config_file: (none — using env vars + built-in defaults)")
         emit_result("\n".join(lines), json_mode=False)
     return 0
 

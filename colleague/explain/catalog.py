@@ -70,6 +70,23 @@ Reports two identities in one glance, plus the package version. Read-only.
     colleague whoami --json
 """
 
+_QUICKSTART = """\
+# colleague quickstart
+
+A guided first-run walkthrough for new users — the "where do I start?" answer the
+flat `--help` doesn't give. Read-only: it prints an ordered path, runs nothing.
+
+The path: (1) `colleague doctor` to check setup, (2) `colleague backends list` to
+see the available minds, (3) a zero-cost `colleague work … --engine mock --no-pr`
+dry run of the whole loop, (4) `colleague feedback show last` to read the run
+report, (5) `colleague explain work` to go deeper.
+
+## Usage
+
+    colleague quickstart
+    colleague quickstart --json
+"""
+
 _LEARN = """\
 # colleague learn
 
@@ -1014,6 +1031,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("wheels", "list"): _BACKENDS,
     ("wheels", "overview"): _BACKENDS,
     ("whoami",): _WHOAMI,
+    ("quickstart",): _QUICKSTART,
     ("learn",): _LEARN,
     ("explain",): _EXPLAIN,
     ("overview",): _OVERVIEW,

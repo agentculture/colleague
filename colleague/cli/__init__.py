@@ -30,6 +30,31 @@ from colleague.cli._output import emit_error
 
 _ISSUES_URL = "https://github.com/agentculture/colleague/issues"
 
+# Grouped, scannable cheatsheet appended below argparse's flat subcommand list so
+# a first-time user has a "start here" path instead of an undifferentiated wall of
+# ~26 verbs. Rendered verbatim (RawDescriptionHelpFormatter); the flat list above
+# stays the authoritative, complete enumeration.
+_HELP_EPILOG = """\
+getting started:
+  colleague quickstart       guided first-run walkthrough — start here
+  colleague doctor           check your configuration is ready to run
+  colleague whoami           identity + the live work engine and model
+
+working:
+  colleague work <goal>      delegate a scoped repo task to a backend
+  colleague session          interactive foreground palette
+  colleague plan <goal>      plan a complex task (spec -> plan -> workforce)
+  colleague feedback ...     grade a finished work item (the ROI loop)
+
+inspecting:
+  colleague backends list    discovered model backends (the minds)
+  colleague config show      resolved provider configuration
+  colleague explain <topic>  markdown docs for any noun/verb
+
+Tip: 'colleague <verb> --help' for a verb's flags, or 'colleague explain' for
+the full command catalog.
+"""
+
 
 class _CliArgumentParser(argparse.ArgumentParser):
     """ArgumentParser that routes errors through :func:`emit_error`.
@@ -89,6 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import overview as _overview_cmd
     from colleague.cli._commands import plan as _plan_cmd
     from colleague.cli._commands import promote as _promote_cmd
+    from colleague.cli._commands import quickstart as _quickstart_cmd
     from colleague.cli._commands import session as _session_cmd
     from colleague.cli._commands import skills as _skills_group
     from colleague.cli._commands import telemetry as _telemetry_group
@@ -99,6 +125,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = _CliArgumentParser(
         prog="colleague",
         description="colleague — a swappable coder-agent harness. One runtime, many minds.",
+        epilog=_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version",
@@ -110,6 +138,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", parser_class=_CliArgumentParser)
 
     _whoami_cmd.register(sub)
+    # Guided first-run walkthrough for new users (the "where do I start?" path).
+    _quickstart_cmd.register(sub)
     _learn_cmd.register(sub)
     # Learn skills from a peer agent (e.g. claude) into .colleague/skills/.
     _learn_from_cmd.register(sub)

@@ -512,6 +512,7 @@ def _finalize_stats(
     *,
     started_at: str,
     duration_seconds: float,
+    model: str = "",
 ) -> None:
     """Fill the work item-level :class:`WorkStats` fields known only at loop exit.
 
@@ -519,9 +520,15 @@ def _finalize_stats(
     are accumulated in :func:`_work_loop`; this fills the rest from the finished
     result + executor. Called on EVERY exit path (model finish / empty turn /
     budget / mid-loop abort) so a partial drive still gets populated stats.
+
+    ``engine``/``model`` make the ROI block self-describing (which mind ran it):
+    ``engine`` is ``task.engine``; ``model`` is the id the engine was configured
+    to call (threaded from :func:`run`'s ``model`` param, ``""`` when not given).
     """
     stats = result.stats
     stats.request = task.instruction
+    stats.engine = task.engine
+    stats.model = model
     stats.started_at = started_at
     stats.duration_seconds = duration_seconds
     stats.step_count = len(result.steps)
@@ -2061,6 +2068,7 @@ def run(
         executor,
         started_at=started_at,
         duration_seconds=round(time.monotonic() - start_monotonic, 6),
+        model=model or "",
     )
     telemetry.on_bytes_written(result.stats.bytes_written)
 

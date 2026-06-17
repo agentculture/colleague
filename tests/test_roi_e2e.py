@@ -45,6 +45,9 @@ def test_roi_inputs_readable_from_one_artifact_plus_feedback(
     assert stats["bytes_written"] > 0  # written
     assert stats["tool_counts"]  # tools used (non-empty)
     assert stats["model_turns"] >= 1
+    # WHICH-MIND signal (#8) — the ROI block is self-describing across backends:
+    assert stats["engine"] == "mock"  # the backend that ran it (task.engine)
+    assert "model" in stats  # the configured model id, recorded alongside engine
 
     # QUALITY signal — the feedback record:
     rc = main(["feedback", "record", "last", "--rating", "4", "--repo", str(tmp_path), "--json"])
@@ -61,6 +64,8 @@ def test_stats_block_carries_the_previously_missing_fields() -> None:
     the fields WorkStats now adds (pin the schema so a drop is caught)."""
     assert set(WorkStats().to_dict().keys()) == {
         "request",
+        "engine",
+        "model",
         "started_at",
         "duration_seconds",
         "model_turns",

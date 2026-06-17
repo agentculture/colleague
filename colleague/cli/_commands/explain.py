@@ -20,6 +20,15 @@ def cmd_explain(args: argparse.Namespace) -> int:
     if json_mode:
         emit_result({"path": list(path), "markdown": markdown}, json_mode=True)
     else:
+        # On the bare root form, surface that `explain` takes a topic — a new
+        # user otherwise can't tell the richer per-verb docs exist. Human output
+        # only; the --json contract above stays the raw catalog markdown.
+        if not path:
+            markdown += (
+                "\n\n---\n"
+                "_Tip: `colleague explain <topic>` shows docs for a specific verb "
+                "(e.g. `colleague explain work`, `colleague explain feedback`)._"
+            )
         emit_result(markdown, json_mode=False)
     return 0
 
