@@ -324,8 +324,8 @@ The architecture, part by part:
   selection (cannot resolve dynamic imports); needs a runnable pytest in the
   isolated worktree else recorded as skipped; the integrator re-run stays the
   backstop. Spec + plan:
-  `docs/specs/2026-06-17-colleague-runs-the-tests-that-transitively-import-yo.md`
-  and `docs/plans/2026-06-17-colleague-runs-the-tests-that-transitively-import-yo.md`;
+  `docs/specs/2026-06-17-colleague-work-runs-the-tests-your-edit-might-have.md`
+  and `docs/plans/2026-06-17-colleague-work-runs-the-tests-your-edit-might-have.md`;
   feature doc: `docs/features/affected-tests.md`.
 - **Cleanup / reap** — `colleague clean` (`colleague/cli/_commands/clean.py`)
   self-heals a repo a crashed `work` left wedged (#162): a dangling
