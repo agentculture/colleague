@@ -66,6 +66,10 @@ class TestIntegrityReport:
     signature.  Empty when no suspicious mirroring was detected.
     """
 
+    # Opt out of pytest collection: the ``Test`` prefix makes pytest try to
+    # collect this dataclass as a test class (it cannot, it has __init__).
+    __test__ = False
+
     findings: list[MirrorFinding] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,6 +133,55 @@ def _extract_identifiers(source: str) -> dict[str, set[str]]:
     return {"attribute": attrs, "dict_key": keys}
 
 
+#: Directory names skipped when scanning the repo for the "nowhere else" check.
+#: Vendored / generated / VCS trees are not the repo's own source — including
+#: them would both slow the gate (a .venv has thousands of files) and mask a
+#: novel symbol that happens to appear in a third-party package.
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".venv",
+        "venv",
+        ".env",
+        "node_modules",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        "build",
+        "dist",
+        "site-packages",
+        ".colleague",
+        ".devague",
+    }
+)
+
+
+def _iter_repo_py(repo: Path) -> "list[Path]":
+    """Yield repo-owned ``*.py`` files, skipping vendored/generated/VCS trees.
+
+    Walks ``repo`` but prunes any directory in :data:`_SKIP_DIRS` so the
+    "nowhere else in the repo" scan stays fast and considers only first-party
+    source. Unreadable directories are skipped, never raised.
+    """
+    found: list[Path] = []
+    stack: list[Path] = [repo]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(current.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_dir():
+                if entry.name not in _SKIP_DIRS:
+                    stack.append(entry)
+            elif entry.suffix == ".py":
+                found.append(entry)
+    return found
+
+
 # ── public API ──────────────────────────────────────────────────────────
 
 
@@ -177,7 +230,7 @@ def detect_mirror(repo_path: str | Path, changed_files: list[str]) -> TestIntegr
     other_attrs: set[str] = set()
     other_keys: set[str] = set()
     changed_set = set(changed_files)
-    for py_path in repo.rglob("*.py"):
+    for py_path in _iter_repo_py(repo):
         rel = str(py_path.relative_to(repo))
         if rel in changed_set:
             continue
