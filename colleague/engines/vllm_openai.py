@@ -313,5 +313,10 @@ class VllmOpenAIEngine(Engine):
                 testintegrity=config.testintegrity,
                 testintegrity_fix_retries=config.testintegrity_fix_retries,
                 testintegrity_reviewer_model=config.testintegrity_reviewer_model,
+                affectedtests=config.affected_tests,
+                affectedtests_fix_retries=config.affected_tests_fix_retries,
+                affectedtests_depth=config.affected_tests_depth,
+                affectedtests_max_files=config.affected_tests_max_files,
+                affectedtests_override=config.affected_tests_override,
             ),
         )
