@@ -32,7 +32,7 @@ from colleague.plan import checkpoint as ckpt
 from colleague.plan.cli_driver import (
     make_propose_claims,
     make_propose_plan_items,
-    to_simple_complete,
+    robust_simple_complete,
 )
 from colleague.plan.orchestrator import run_plan_mode
 from colleague.subagents import make_batch_spawn
@@ -158,7 +158,7 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
             "use a live backend, e.g. --engine vllm-openai",
         ) from exc
 
-    simple = to_simple_complete(complete)
+    simple = robust_simple_complete(complete)
     decide = _resolve_decide(args)
     batch_spawn = make_batch_spawn(str(repo), config, engine_name)
 

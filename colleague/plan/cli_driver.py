@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
+from colleague.context import classify_degradable
 from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
 from colleague.plan.plan_stage import PlanItem
 
@@ -167,6 +168,89 @@ def to_simple_complete(complete: Callable[[list[dict]], Any]) -> SimpleComplete:
         return getattr(resp, "content", "") or ""
 
     return simple
+
+
+# Retry caps mirroring the loop's degradation constants.
+_MAX_TIMEOUT_RETRIES = 1
+_MAX_OVERFLOW_RETRIES = 3
+
+_FOLLOWUP_PROMPT = "Respond with ONLY the JSON object now. Do not think step by step."
+
+
+def robust_simple_complete(complete: Callable[[list[dict]], Any]) -> SimpleComplete:
+    """Adapt a ``CompleteFn`` to a one-shot ``(system, user) -> text`` callable
+    that handles reasoning models returning empty ``content``.
+
+    Strategy
+    --------
+    1. Call ``complete`` with [system, user].
+    2. If ``resp.content`` is empty/whitespace, append the (empty) assistant
+       message + a follow-up user message, call ``complete`` again, and use
+       the new content.
+    3. If content is *still* empty after the follow-up, fall back to
+       ``resp.reasoning`` so the caller's ``_extract_json_object`` can
+       recover the JSON the reasoning model placed in its reasoning channel.
+    4. On a degradable error (``classify_degradable``), retry: timeout
+       once, overflow up to three times.  Non-degradable errors re-raise.
+
+    When ``resp.content`` is non-empty on the first turn the result is
+    byte-identical to :func:`to_simple_complete`.
+    """
+
+    def simple(system_prompt: str, user_prompt: str) -> str:
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        def _call(messages: list[dict[str, str]]) -> Any:
+            return complete(messages)
+
+        # --- First attempt with retry on degradable errors ---
+        resp = _call_with_retry(messages, _call)
+
+        # --- Empty content: follow-up turn ---
+        content = getattr(resp, "content", "") or ""
+        if not content.strip():
+            # Append the (empty) assistant message and a follow-up prompt.
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": _FOLLOWUP_PROMPT})
+            resp2 = _call_with_retry(messages, _call)
+            content = getattr(resp2, "content", "") or ""
+            if not content.strip():
+                # Still empty — fall back to reasoning.
+                content = getattr(resp2, "reasoning", "") or ""
+        return content
+
+    return simple
+
+
+def _call_with_retry(
+    messages: list[dict[str, str]],
+    call: Callable[[list[dict[str, str]]], Any],
+) -> Any:
+    """Call *call(messages)* with bounded retry on degradable errors.
+
+    Timeout: retry once (``_MAX_TIMEOUT_RETRIES``).
+    Overflow: retry up to three times (``_MAX_OVERFLOW_RETRIES``).
+    Non-degradable errors re-raise immediately.
+    """
+    attempt = 0
+    saw_overflow = False
+    cap = _MAX_OVERFLOW_RETRIES
+
+    while attempt <= cap:
+        try:
+            return call(messages)
+        except Exception as exc:
+            signal = classify_degradable(str(exc))
+            if signal is None:
+                raise  # non-degradable: propagate immediately
+            saw_overflow = saw_overflow or signal == "overflow"
+            cap = _MAX_OVERFLOW_RETRIES if saw_overflow else _MAX_TIMEOUT_RETRIES
+            attempt += 1
+            if attempt > cap:
+                raise
 
 
 def make_propose_claims(

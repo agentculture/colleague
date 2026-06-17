@@ -12,6 +12,7 @@ from colleague.plan.cli_driver import (
     make_propose_plan_items,
     parse_claims,
     parse_plan_items,
+    robust_simple_complete,
     to_simple_complete,
 )
 from colleague.plan.frame import PlanFrame
@@ -161,3 +162,142 @@ def test_make_propose_plan_items_includes_confirmed_claims() -> None:
     # Only the CONFIRMED claim text is fed to the plan proposal.
     assert "ABC" in captured["user"]
     assert "XYZ" not in captured["user"]
+
+
+# ---------------------------------------------------------------------------
+# robust_simple_complete tests
+# ---------------------------------------------------------------------------
+
+
+class _ModelResp:
+    """Minimal ModelResponse stand-in for tests."""
+
+    def __init__(
+        self,
+        content: str = "",
+        reasoning: str = "",
+    ):
+        self.content = content
+        self.reasoning = reasoning
+
+
+def test_robust_non_empty_content_is_byte_identical() -> None:
+    """Non-empty content on the first turn -> byte-identical to to_simple_complete."""
+    expected = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+
+    def fake_complete(messages):
+        return _ModelResp(content=expected)
+
+    robust = robust_simple_complete(fake_complete)
+    old = to_simple_complete(fake_complete)
+
+    assert robust("SYS", "USR") == expected
+    assert old("SYS", "USR") == expected
+    assert robust("SYS", "USR") == old("SYS", "USR")
+
+
+def test_robust_empty_content_then_non_empty_on_followup() -> None:
+    """Empty content first turn, non-empty on follow-up -> parses correctly."""
+    followup_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _ModelResp(content="", reasoning="thinking...")
+        return _ModelResp(content=followup_json)
+
+    simple = robust_simple_complete(fake_complete)
+    result = simple("SYS", "USR")
+    assert result == followup_json
+    assert call_count == 2
+
+
+def test_robust_empty_both_turns_falls_back_to_reasoning() -> None:
+    """Content empty on both turns but JSON in reasoning -> recovered."""
+    reasoning_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _ModelResp(content="", reasoning="thinking...")
+        return _ModelResp(content="", reasoning=reasoning_json)
+
+    simple = robust_simple_complete(fake_complete)
+    result = simple("SYS", "USR")
+    assert result == reasoning_json
+    assert call_count == 2
+
+
+def test_robust_timeout_retry_then_success() -> None:
+    """Fake raises a timeout-classified error once then succeeds -> retried, not raised."""
+    good_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("request timed out")
+        return _ModelResp(content=good_json)
+
+    simple = robust_simple_complete(fake_complete)
+    result = simple("SYS", "USR")
+    assert result == good_json
+    assert call_count == 2
+
+
+def test_robust_overflow_retry_then_success() -> None:
+    """Fake raises an overflow-classified error once then succeeds -> retried."""
+    good_json = '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}'
+    call_count = 0
+
+    def fake_complete(messages):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("maximum context length exceeded")
+        return _ModelResp(content=good_json)
+
+    simple = robust_simple_complete(fake_complete)
+    result = simple("SYS", "USR")
+    assert result == good_json
+    assert call_count == 2
+
+
+def test_robust_non_degradable_error_raises() -> None:
+    """A non-degradable error re-raises immediately."""
+
+    def fake_complete(messages):
+        raise ValueError("something unrelated")
+
+    simple = robust_simple_complete(fake_complete)
+    with pytest.raises(ValueError, match="something unrelated"):
+        simple("SYS", "USR")
+
+
+def test_robust_identical_claims_to_old_path() -> None:
+    """Non-empty content produces identical Claim objects to the current code."""
+    blob = _CLAIMS_JSON
+
+    def fake_complete(messages):
+        return _ModelResp(content=blob)
+
+    robust = robust_simple_complete(fake_complete)
+    old = to_simple_complete(fake_complete)
+
+    robust_text = robust("SYS", "USR")
+    old_text = old("SYS", "USR")
+    assert robust_text == old_text
+
+    r_claims, r_honesty = parse_claims(robust_text)
+    o_claims, o_honesty = parse_claims(old_text)
+
+    assert [c.id for c in r_claims] == [c.id for c in o_claims]
+    assert [c.kind for c in r_claims] == [c.kind for c in o_claims]
+    assert [c.text for c in r_claims] == [c.text for c in o_claims]
+    assert [h.id for h in r_honesty] == [h.id for h in o_honesty]
+    assert [h.claim_id for h in r_honesty] == [h.claim_id for h in o_honesty]
