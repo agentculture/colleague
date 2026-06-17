@@ -67,9 +67,7 @@ def test_gate_flags_mirror_signature_by_default(tmp_path: Path) -> None:
     assert result.test_integrity_report is not None
     symbols = {f.symbol for f in result.test_integrity_report.findings}
     assert "response_error" in symbols
-    finding = next(
-        f for f in result.test_integrity_report.findings if f.symbol == "response_error"
-    )
+    finding = next(f for f in result.test_integrity_report.findings if f.symbol == "response_error")
     assert finding.kind == "attribute"
     assert finding.test_file == "test_thing.py"
     assert finding.impl_file == "thing.py"
@@ -101,7 +99,7 @@ def test_gate_disabled_is_strict_noop(tmp_path: Path) -> None:
 def test_gate_not_flagged_when_symbol_exists_elsewhere(tmp_path: Path) -> None:
     """A symbol also present in a non-changed repo file is not novel → not flagged."""
     # Pre-existing file (not in the changed set) that also uses response_error.
-    (tmp_path / "legacy.py").write_text('import exc\n\n\ndef old():\n    exc.response_error\n')
+    (tmp_path / "legacy.py").write_text("import exc\n\n\ndef old():\n    exc.response_error\n")
     result = _run_mirror(tmp_path)
     assert result.status == OK
     assert result.test_integrity_report is None
