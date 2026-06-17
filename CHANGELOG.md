@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-06-18
+
+### Added
+
+- colleague work pre-finish **affected-tests gate** (#213): after the loop and before the git handoff, run the tests whose bounded-depth transitive import closure (incl. function-local/lazy imports, default depth >=3) reaches a changed module, so a scoped edit can no longer hide a regression in another file the model never ran. Sibling to the lint (#200) and test-integrity (#203) gates in colleague/affectedtests.py + colleague/loop.py. Advisory + non-blocking, default-ON with --no-affected-tests / COLLEAGUE_AFFECTED_TESTS=0 / config opt-out, an explicit --test override, a bounded model fix-turn (COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES, default 1), an honest file cap, and degrade-to-skipped when pytest is unavailable. Recorded on TaskResult.affected_tests_report (omit-when-None). Runtime-owned (all-engines).
+
 ## [1.17.0] - 2026-06-17
 
 ### Added

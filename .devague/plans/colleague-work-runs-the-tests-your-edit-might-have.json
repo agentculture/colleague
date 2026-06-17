@@ -1,0 +1,309 @@
+{
+  "slug": "colleague-work-runs-the-tests-your-edit-might-have",
+  "title": "colleague work runs the tests your edit might have broken \u2014 not just the ones it was told to run \u2014 before handing back",
+  "frame_slug": "colleague-work-runs-the-tests-your-edit-might-have",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-17T19:31:09Z",
+  "updated": "2026-06-17T19:36:25Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague work runs the tests your edit might have broken \u2014 not just the ones it was told to run \u2014 before handing back"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "The #210/t2 case (edit colleague/plan/cli_driver.py, green on tests/test_plan_cli_driver.py) actually surfaces the 3 tests/test_cli_plan.py failures pre-handoff once the gate runs \u2014 i.e. the reverse-import scan selects test_cli_plan.py because it imports the changed module"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "An agent/operator delegating a scoped edit to 'colleague work' (and via 'ask-colleague write --apply'); and the human integrator who is currently the ONLY backstop that re-runs the broader suite"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The feature changes the experience for a delegator of a scoped colleague work item (incl. ask-colleague write --apply) and shrinks what the human integrator must catch by hand; it does not target the interactive session user (session keeps its in-place path)."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "The two pre-handoff gates \u2014 lint (#200, colleague/lint.py) and test-integrity (#203, colleague/testintegrity.py), both wired in colleague/loop.py after the loop and before handoff \u2014 operate ONLY on the work item's changed FILES; nothing runs tests in OTHER files that exercise the changed module, so green-on-scope can hide red-on-suite (the #210/t2 instance: green on tests/test_plan_cli_driver.py, 3 failures in tests/test_cli_plan.py)"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "On main TODAY (gate absent), editing colleague/plan/cli_driver.py and running only tests/test_plan_cli_driver.py finishes status: ok while tests/test_cli_plan.py is red \u2014 the gap is reproducible, not hypothetical."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Before the git handoff, colleague auto-selects the test files that import the changed module(s) and runs them; failures are surfaced advisory + non-blocking on TaskResult and stderr, so a scoped edit that regresses a sibling test file is flagged by colleague itself, sooner \u2014 not only by the integrator's re-run"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "After the change, the same scoped edit selects + runs tests/test_cli_plan.py before handoff and the report carries its failures, so the model/operator sees them without the integrator re-run."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "colleague's pre-handoff safety net is incomplete: a delegated work item can hand back code that is green on its own scoped test yet red on the broader suite, relying entirely on the human to notice. colleague should give the signal itself"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The gap is real and not already covered: neither lint #200 nor test-integrity #203 runs any test living in a file other than the changed ones \u2014 verifiable by reading colleague/lint.py + colleague/testintegrity.py (both scope strictly to changed files)."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "NOT a full-suite runner (never always run everything \u2014 slow, out of scope of a scoped task); NOT a CI replacement or correctness oracle (best-effort selection); NOT a blocking gate (advisory, non-blocking, handoff always proceeds, like lint/test-integrity); NOT a router/sandbox/daemon; Python/pytest only (other languages a follow-up); the integrator re-run stays the backstop"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The implementation never runs the full suite unconditionally, never blocks the handoff, opens no socket/daemon, adds no runtime dep, and touches no language other than Python/pytest \u2014 each enforceable by a test (boundary + e2e shape + non-blocking)."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "The #210/t2 replication (edit cli_driver.py, green on test_plan_cli_driver.py) now surfaces the 3 test_cli_plan.py failures in the report + stderr BEFORE handoff; and a run with the gate disabled / no affected tests / no pytest available is a strict no-op (byte-identical TaskResult); fires identically for mock and vllm-openai"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "A regression test reproduces the #210/t2 shape (a changed module reachable only TRANSITIVELY from a sibling test) and asserts the gate selects + reports that sibling test's failure; and tests/test_e2e_mock.py stays byte-identical with the gate disabled."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Selection: a reverse-import scan via stdlib 'ast' over the repo's test files (test_*.py / *_test.py), selecting those that import the changed module(s); prune vendored trees (.venv/.git/node_modules/...) reusing the testintegrity repo-scan pattern; bounded by a cap on the number of selected files"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Selection = BOUNDED-DEPTH transitive reverse-import. Build the repo module import graph with stdlib ast collecting ALL imports (function-local/lazy included, via ast.walk over the whole tree \u2014 NOT just module-level: colleague's CLI registers every command via a lazy import inside register(), and the motivating edge colleague.cli -> colleague.cli._commands.plan is exactly such a lazy import). Select a test file iff a changed module is within DEPTH N of its import closure. Default N must reach the motivating case: cli_driver sits 3 edges from tests/test_cli_plan.py, so default N>=3 (tunable). The selected set is bounded by a file cap; on overflow report 'selected X of Y (capped)' honestly, never silent truncation."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Execution: run pytest on the selected files via subprocess, pre-handoff, after the tool loop, inside the isolated worktree (a sibling to colleague/loop.py _maybe_run_lint_gate / _maybe_run_test_integrity_gate); degrade to a recorded 'skipped' (never crash) when pytest or the env is unavailable"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "pytest runs only on the selected files, inside the work item's isolated worktree, and a missing/unrunnable pytest degrades to report.status='skipped' with a reason \u2014 never a traceback and never a blocked handoff"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Reporting: results recorded on TaskResult.affected_tests_report (omit-when-None, like lint_report / test_integrity_report) and surfaced on stderr; the gate is ADVISORY and NON-BLOCKING \u2014 the git handoff always proceeds even on failures"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "affected_tests_report is omitted entirely (key absent) when the gate did not run, matching lint_report/test_integrity_report; failures appear on stderr + in the artifact but never change the work exit code or block the handoff"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Boundary/conventions: a NEW sanctioned subprocess consumer module (e.g. colleague/affectedtests.py) is added to tests/test_boundary.py's allow-list and no other module gains subprocess; zero new runtime deps (stdlib ast/subprocess/json only)"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "tests/test_boundary.py is updated to add the new module to the sanctioned subprocess allow-list and still fails if ANY other module imports subprocess; pyproject 'dependencies' stays []"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "All-engines + strict no-op: runtime-owned, fires identically for mock and vllm-openai (both backends forward config via ContextControls); a run with the gate disabled, no affected tests selected, or no pytest available is byte-identical to today's TaskResult"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "tests/test_e2e_mock.py still passes with the gate disabled (byte-identical TaskResult) and both mock + vllm-openai forward the new config field via ContextControls"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "[Claude \u2014 risky core] colleague/affectedtests.py: bounded-depth transitive reverse-import selection + pytest execution + AffectedTestsReport",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ast graph collects ALL imports incl. function-local/lazy ones (ast.walk over the whole tree), so an edge created by a lazy import inside a function (e.g. colleague.cli register()) is present",
+        "select_affected_tests(changed) returns test files whose bounded-depth (default N>=3) transitive import closure reaches a changed module; a test reaching it only via a depth-3 lazy chain IS selected; vendored trees (.venv/.git/node_modules) pruned",
+        "selection capped at a max-files limit; on overflow the report records selected X of Y with capped=True, never silently dropping",
+        "run_affected_tests runs pytest only on the selected files and returns AffectedTestsReport{status,passed,failed,selected,total,capped,reason}; pytest unavailable -> status='skipped' with a reason, never raises"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h8",
+        "c9",
+        "h3",
+        "h1"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "[colleague] colleague/contract.py: TaskResult.affected_tests_report (omit-when-None)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult gains affected_tests_report; when None the serialized dict OMITS the key entirely (like lint_report/test_integrity_report)",
+        "a populated report round-trips through TaskResult serialization with no runtime import cycle (TYPE_CHECKING annotation)"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h4"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "[colleague] colleague/config.py: EngineConfig affected-tests knobs + resolution precedence",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig resolves affected_tests (default True), affected_tests_fix_retries, affected_tests_depth (default >=3), affected_tests_max_files, and the --test override; precedence flag > env (COLLEAGUE_AFFECTED_TESTS*) > .colleague/config.json > default",
+        "affected_tests=False resolves cleanly and is the single switch the gate consults to no-op"
+      ],
+      "deps": [],
+      "covers": [
+        "c12"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "[Claude \u2014 spine] colleague/loop.py: _maybe_run_affected_tests_gate wiring + bounded model fix-turn + ContextControls",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_maybe_run_affected_tests_gate runs after a non-aborted loop and before handoff (sibling to _maybe_run_lint_gate); populates TaskResult.affected_tests_report and NEVER blocks the handoff (handoff proceeds on failures)",
+        "on failures after a clean finish, up to affected_tests_fix_retries bounded model fix-turns run and re-run the gate, saving/restoring the work item's terminal summary/status; 0 retries = detect-and-record only",
+        "strict no-op (report None, byte-identical TaskResult) when disabled / no files changed / no affected tests selected"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "c9",
+        "c10",
+        "c6",
+        "h13",
+        "h11"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "[colleague] colleague/cli/_commands/work.py: --no-affected-tests + --test override flags",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague work exposes --no-affected-tests and --test \"<pytest args>\"; flags override env/config (precedence flag > env > config), applied post-resolve like --no-lint"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c2",
+        "h9"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "[colleague] tests/test_boundary.py: add affectedtests.py to the sanctioned subprocess allow-list",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_boundary.py adds colleague/affectedtests.py to the sanctioned subprocess allow-list and still FAILS if any OTHER module imports subprocess; pyproject 'dependencies' stays []"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11",
+        "h5"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "[colleague] engines/mock.py + engines/vllm_openai.py: forward affected-tests config (all-engines)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "both mock and vllm_openai forward the affected-tests config into ContextControls identically (all-engines)",
+        "tests/test_e2e_mock.py passes byte-identical with the gate disabled"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c12",
+        "h6"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "[Claude \u2014 correctness proof] tests: #210/t2 transitive regression + before/after + gap-not-covered",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a regression test reproduces the #210/t2 shape \u2014 a module reachable from a sibling test ONLY via a transitive (incl. lazy) import chain \u2014 and asserts the gate selects that sibling test and its failure appears in the report",
+        "a before/after test shows gate-absent the sibling test is never run (green-on-scope) and gate-present its failure is surfaced; plus a test asserting neither lint #200 nor test-integrity #203 selects a cross-file test"
+      ],
+      "deps": [
+        "t4",
+        "t1"
+      ],
+      "covers": [
+        "c7",
+        "c3",
+        "h1",
+        "h10",
+        "h12",
+        "h14",
+        "h6"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "[colleague] docs/features/affected-tests.md + CLAUDE.md runtime bullet",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/affected-tests.md documents selection/execution/config/honest-limits and CLAUDE.md gains a runtime bullet consistent with the lint/test-integrity bullets"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c5"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Exact pytest invocation inside the isolated worktree (uv run pytest vs PATH pytest vs python -m pytest); the worktree shares .git but not necessarily an installed .venv \u2014 v0 degrades to 'skipped' when pytest is not runnable, but the preferred invocation is open",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r2",
+      "text": "Numeric defaults for affected_tests_depth (>=3) and affected_tests_max_files + an overall wall-clock budget \u2014 the CLI-hub transitive fan-out makes the file cap load-bearing; chosen conservatively, tunable via env",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    }
+  ]
+}
