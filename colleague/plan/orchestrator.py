@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 from colleague.contract import SubResult
 from colleague.plan.checkpoint import Checkpoint, save
+from colleague.plan.convergence import ConvergenceResult
 from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
 from colleague.plan.plan_stage import PlanItem, compute_waves, validate_items
 from colleague.plan.spec_stage import SpecStageResult, run_spec_stage
@@ -74,6 +75,7 @@ def run_plan_mode(
     reviewer_enabled: bool = False,
     repo_path: str | None = None,
     plan_id: str = "plan",
+    quick: bool = False,
 ) -> OrchestratorResult:
     """Drive the full plan-mode lifecycle end to end.
 
@@ -124,6 +126,10 @@ def run_plan_mode(
         When not ``None``, persist checkpoints to disk.
     plan_id:
         Identifier for checkpoint files (default ``"plan"``).
+    quick:
+        When ``True``, skip the spec stage entirely and build a minimal
+        frame from the request text, proceeding straight to plan-item
+        proposal.  The plan-level gate (``decide``) is still invoked.
 
     Returns
     -------
@@ -137,17 +143,31 @@ def run_plan_mode(
     """
 
     # ── a. Build frame from proposed claims + honesty ──────────────────
-    claims, honesty = propose_claims(request)
-    frame = PlanFrame(claims=claims, honesty_conditions=honesty)
+    if quick:
+        # Quick path: skip the spec stage entirely. Build a minimal frame
+        # whose single confirmed claim carries the request text, so the
+        # existing propose_plan_items (which reads confirmed claims) has
+        # the request as its input.
+        frame = PlanFrame(
+            claims=[Claim(id="request", kind="requirement", text=request, state="confirmed")],
+        )
+        spec_result = SpecStageResult(
+            transcript=[],
+            result=ConvergenceResult(passed=True),
+        )
+        converged = True
+    else:
+        claims, honesty = propose_claims(request)
+        frame = PlanFrame(claims=claims, honesty_conditions=honesty)
 
-    # ── b. Run spec stage ──────────────────────────────────────────────
-    spec_result = run_spec_stage(
-        frame,
-        decide,
-        complete=complete,
-        reviewer_enabled=reviewer_enabled,
-    )
-    converged = spec_result.result.passed
+        # ── b. Run spec stage ──────────────────────────────────────────
+        spec_result = run_spec_stage(
+            frame,
+            decide,
+            complete=complete,
+            reviewer_enabled=reviewer_enabled,
+        )
+        converged = spec_result.result.passed
 
     # ── c. Checkpoint after spec stage ─────────────────────────────────
     if repo_path is not None:

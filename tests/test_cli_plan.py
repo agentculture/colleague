@@ -133,3 +133,25 @@ def test_plan_run_malformed_proposal_is_clean_error(
     assert rc != 0
     assert "unusable plan proposal" in err
     assert "Traceback" not in err
+
+
+def test_plan_run_quick_flag(tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """--quick skips the spec stage and goes straight to plan proposal."""
+    calls = _patch_live_backend(monkeypatch)
+    rc = main(["plan", "run", "build a feature", "--quick", "--yes", "--repo", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "converged: True" in out
+    # With --quick, propose_claims is not called, so the model only gets
+    # called for plan items (one call).  batch_spawn still runs per wave.
+    assert len(calls) == 2  # two waves from the plan JSON
+
+
+def test_plan_run_no_spec_alias(tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """--no-spec is accepted as an alias for --quick."""
+    calls = _patch_live_backend(monkeypatch)
+    rc = main(["plan", "run", "build a feature", "--no-spec", "--yes", "--repo", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "converged: True" in out
+    assert len(calls) == 2

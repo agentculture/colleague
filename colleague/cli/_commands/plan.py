@@ -175,6 +175,7 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
             reviewer_enabled=bool(getattr(args, "review", False)),
             repo_path=str(repo),
             plan_id=_PLAN_ID,
+            quick=bool(getattr(args, "quick", False)),
         )
     except ValueError as exc:
         # The model returned a malformed proposal (unparseable JSON, an invalid
@@ -250,5 +251,12 @@ def _add_run_args(run: argparse.ArgumentParser) -> None:
     )
     run.add_argument(
         "--review", action="store_true", help="Run the same-model critic before each gate."
+    )
+    run.add_argument(
+        "--quick",
+        "--no-spec",
+        dest="quick",
+        action="store_true",
+        help="Skip the spec stage; plan directly from the request (#199).",
     )
     run.add_argument("--json", action="store_true", help=JSON_HELP)

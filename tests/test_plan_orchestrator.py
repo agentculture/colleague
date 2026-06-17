@@ -752,3 +752,158 @@ class TestDefaults:
         cp = load_checkpoint("plan", tmp_path)
         assert cp is not None
         assert cp.plan_id == "plan"
+
+
+# ── (k) Quick path (--quick / --no-spec) ────────────────────────────────────
+
+
+class TestQuickPath:
+    def test_quick_skips_spec_stage(self):
+        """When quick=True, propose_claims is NOT called (spec stage skipped)."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        # propose_claims should NOT have been called
+        assert not deps.propose_claims_called
+        # But plan items and workforce should still run
+        assert deps.propose_plan_items_called
+        assert deps.batch_spawn_called
+
+    def test_quick_produces_converged_result(self):
+        """Quick path produces a converged=True result with plan items."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert len(result.plan_items) == 2
+        assert len(result.waves) == 1
+        assert len(result.sub_results) == 1
+
+    def test_quick_spec_result_has_empty_transcript(self):
+        """Quick path's spec_result has an empty transcript (no gates)."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.spec_result is not None
+        assert result.spec_result.transcript == []
+        assert result.spec_result.result.passed is True
+
+    def test_quick_frame_contains_request_text(self):
+        """The quick path frame carries the request as a confirmed claim."""
+        # We verify indirectly: propose_plan_items receives the frame,
+        # and the quick path builds a frame with a single confirmed claim
+        # whose text is the request.
+        captured_frames: list[PlanFrame] = []
+
+        def capture_propose_plan_items(frame: PlanFrame) -> list[PlanItem]:
+            captured_frames.append(frame)
+            return [PlanItem(id="q1", summary="from request", acceptance=["ok"])]
+
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "my quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=capture_propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert len(captured_frames) == 1
+        frame = captured_frames[0]
+        assert len(frame.claims) == 1
+        assert frame.claims[0].text == "my quick request"
+        assert frame.claims[0].state == "confirmed"
+
+    def test_quick_checkpoint_has_plan_move(self, tmp_path: Path):
+        """Quick path saves a checkpoint with recommended_move='plan'."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            repo_path=str(tmp_path),
+            plan_id="quick-plan",
+            quick=True,
+        )
+
+        cp = load_checkpoint("quick-plan", tmp_path)
+        assert cp is not None
+        # After workforce runs, the final checkpoint says "workforce"
+        assert cp.recommended_move == "workforce"
+
+    def test_quick_default_false_is_identical(self):
+        """When quick=False (default), behaviour is identical to before."""
+        deps = FakeDependencies()
+        deps.set_claims(_full_claims(), _full_honesty())
+        deps.set_plan_items(_valid_plan_items())
+        deps.set_subresults([_make_subresult("child-0")])
+
+        result = run_plan_mode(
+            "test request",
+            propose_claims=deps.propose_claims,
+            decide=deps.decide,
+            propose_plan_items=deps.propose_plan_items,
+            batch_spawn=deps.batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=False,
+        )
+
+        # Full spec stage ran
+        assert deps.propose_claims_called
+        assert result.converged is True
+        assert len(result.spec_result.transcript) == 12  # 6 claims + 6 honesty
+        assert len(result.plan_items) == 2
