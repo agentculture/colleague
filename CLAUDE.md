@@ -289,6 +289,44 @@ The architecture, part by part:
   `docs/specs/2026-06-16-colleague-s-write-tdd-hands-back-tests-that-can-ac.md`
   and `docs/plans/2026-06-17-colleague-s-write-tdd-hands-back-tests-that-can-ac.md`;
   feature doc: `docs/features/test-integrity.md`.
+- **Affected-tests gate (#213)** — `colleague work` runs the tests that
+  **transitively import** the work item's changed module(s) before the git
+  handoff, so a scoped edit cannot hide a regression in another file the model
+  never ran. A deterministic, code-locked post-loop gate
+  (`colleague/affectedtests.py` + `colleague/loop.py`
+  `_maybe_run_affected_tests_gate`, sibling to the lint and test-integrity
+  gates) builds the repo's module import graph with `ast`, collecting **all**
+  imports including **function-local / lazy** ones (`ast.walk` over the whole
+  tree, not just the module body) — this matters because colleague registers
+  every CLI command via a lazy import inside `register()`, so a module-level-only
+  graph would dead-end at the `colleague.cli` hub and miss every transitively
+  affected test. For each test file it computes the modules reachable within
+  `depth` hops (default 3, reaching the #210/t2 motivating case:
+  `test_cli_plan.py` reaches the changed `cli_driver.py` at depth 3 via a lazy
+  CLI-register import chain) and selects it iff a changed module is in that
+  set. The selected set is **capped** (default 20 files); overflow is reported
+  honestly (`capped=True`), never silently truncated. Runs `pytest` on the
+  selected files; a missing/unrunnable pytest degrades to `status='skipped'`
+  with a reason — never a traceback or blocked handoff. On a `failed` status
+  after a clean finish, ONE bounded model fix-turn is injected per remaining
+  retry (`COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES`, default 1; 0 = detect-and-record
+  only), re-running the gate after each. Recorded on
+  `TaskResult.affected_tests_report` (omit-when-None). **Advisory +
+  non-blocking**: never blocks the git handoff. **Default-ON with an opt-out**:
+  `--no-affected-tests`, `COLLEAGUE_AFFECTED_TESTS=0`, or
+  `.colleague/config.json` `{"affected_tests": false}` (precedence flag > env >
+  config > default-on). The `--test` override bypasses transitive selection and
+  uses explicit pytest arguments verbatim. Runtime-owned (all-engines rule):
+  both backends forward `config.affected_tests` / `affected_tests_fix_retries` /
+  `affected_tests_depth` / `affected_tests_max_files` via `ContextControls`; a
+  strict no-op when disabled, no files changed, nothing affected, or pytest is
+  unavailable. **Honest limits:** Python/pytest only; best-effort AST-based
+  selection (cannot resolve dynamic imports); needs a runnable pytest in the
+  isolated worktree else recorded as skipped; the integrator re-run stays the
+  backstop. Spec + plan:
+  `docs/specs/2026-06-17-colleague-runs-the-tests-that-transitively-import-yo.md`
+  and `docs/plans/2026-06-17-colleague-runs-the-tests-that-transitively-import-yo.md`;
+  feature doc: `docs/features/affected-tests.md`.
 - **Cleanup / reap** — `colleague clean` (`colleague/cli/_commands/clean.py`)
   self-heals a repo a crashed `work` left wedged (#162): a dangling
   `colleague/<id>` ref pointing at a 0-byte loose object breaks `git fetch`.
@@ -722,10 +760,17 @@ in both a changed test and the module-under-test, found nowhere else) on the
 changed files after the loop, with a bounded re-examine turn + a diverse-model
 reviewer subagent + a model-callable `check_test_integrity` tool (default-ON,
 advisory/non-blocking), so a delegated test can no longer pass merely by mirroring
-the implementation's own bug.
+the implementation's own bug — and the **affected-tests gate** (#213):
+`colleague/affectedtests.py` + `colleague/loop.py` run the tests that
+transitively import the changed module(s) (bounded-depth AST reverse-import
+walk, default depth 3, capped at 20 files) before handoff, with a bounded
+model fix-turn on failure (`COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES`, default 1),
+so a scoped edit cannot hide a regression in a file the model never ran
+(default-ON, advisory/non-blocking, degrade-to-skipped when pytest is
+unavailable).
 All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
-the capacity standard, the lint gate, and the test-integrity gate) were added via explicit re-specs (spec + plan committed
+the capacity standard, the lint gate, the test-integrity gate, and the affected-tests gate) were added via explicit re-specs (spec + plan committed
 under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
 no-socket / no-daemon conventions.
 
