@@ -93,6 +93,17 @@ def test_changed_test_file_is_its_own_affected_test(lazy_chain_repo: Path) -> No
     assert "tests/test_direct.py" in selected
 
 
+def test_non_test_files_under_tests_dir_are_not_selected(lazy_chain_repo: Path) -> None:
+    """A conftest.py / fixture helper under tests/ must NOT be selected even when it
+    imports the changed module — pytest only collects test_*/_test (review #1)."""
+    _write(lazy_chain_repo, "tests/conftest.py", "from pkg.impl import thing\n")
+    _write(lazy_chain_repo, "tests/fixtures.py", "from pkg.impl import thing\n")
+    selected, _, _ = select_affected_tests(lazy_chain_repo, ["pkg/impl.py"], depth=3)
+    assert "tests/conftest.py" not in selected
+    assert "tests/fixtures.py" not in selected
+    assert "tests/test_via_hub.py" in selected  # real test files still selected
+
+
 def test_no_changed_python_is_a_noop(lazy_chain_repo: Path) -> None:
     assert select_affected_tests(lazy_chain_repo, ["README.md"], depth=3) == ([], 0, False)
 
