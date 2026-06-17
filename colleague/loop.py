@@ -1784,9 +1784,18 @@ def _maybe_spawn_test_integrity_reviewer(
     subagent on that model (read-only) to re-derive the real API shape and report
     disagreement. Its :class:`~colleague.contract.SubResult` is appended to the
     executor's accumulator so the standard snapshot folds it into
-    ``result.sub_results``; its changed files are intentionally NOT merged into the
-    handoff (the review is read-only). Reuses the existing subagent launcher with NO
-    new worktree/merge code, and is bounded by the existing fan-out cap.
+    ``result.sub_results``. Reuses the existing subagent launcher with NO new
+    worktree/merge code, and is bounded by the existing fan-out cap.
+
+    Reviewer-write reconciliation (Qodo PR #211): the single-subagent launcher
+    (``make_spawn`` → ``run_subagent``) runs the child **in-place** in the work
+    item's tree (only the *batch* path uses isolated worktrees), and the handoff
+    stages the whole tree (``git add -u``). So although the reviewer is prompted
+    read-only, any file it nonetheless writes WOULD be committed — and would be
+    *invisible* if left out of ``executor.changed``. We therefore merge the
+    reviewer's ``changed_files`` into ``executor.changed`` (so they are tracked in
+    ``TaskResult.changed_files`` and the artifact agrees with the commit) and emit a
+    stderr warning, rather than letting a read-only-contract violation ship silently.
 
     Degrades to record-only — a strict no-op — when no reviewer model is configured,
     no spawn callback is wired, or the per-work-item fan-out cap is already reached.
@@ -1803,8 +1812,21 @@ def _maybe_spawn_test_integrity_reviewer(
     )
     with suppress(Exception):
         sub = spawn(_TESTINTEGRITY_REVIEWER_PROMPT + detail, None, reviewer_model)
-        if sub is not None:
-            ctx.executor.sub_results.append(sub)
+        if sub is None:
+            return
+        ctx.executor.sub_results.append(sub)
+        # The reviewer should not write (read-only prompt), but the in-place spawn +
+        # `git add -u` handoff mean any writes WOULD be committed; track them so they
+        # are never silent/untracked, and warn on the contract violation.
+        if sub.changed_files:
+            ctx.executor.changed.update(sub.changed_files)
+            with suppress(OSError):
+                sys.stderr.write(
+                    "test-integrity: reviewer subagent modified "
+                    f"{len(sub.changed_files)} file(s) despite the read-only review "
+                    "contract — tracked in changed_files (not silent): "
+                    f"{', '.join(sorted(sub.changed_files)[:20])}\n"
+                )
 
 
 def run(

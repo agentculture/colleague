@@ -176,16 +176,35 @@ def _iter_repo_py(repo: Path) -> "list[Path]":
     Walks ``repo`` but prunes any directory in :data:`_SKIP_DIRS` so the
     "nowhere else in the repo" scan stays fast and considers only first-party
     source. Unreadable directories are skipped, never raised.
+
+    Symlink-safe (Qodo PR #211): symlinked directories are NOT followed (a symlink
+    into a huge external tree, e.g. ``/usr``, would balloon the scan) and a
+    visited-set of resolved directory paths breaks any symlink/hardlink cycle
+    (e.g. ``repo/link -> repo``) that would otherwise re-queue a directory forever
+    and hang the post-loop gate. Symlinked ``*.py`` files are likewise skipped so
+    the scan stays confined to the repo's own source.
     """
     found: list[Path] = []
+    visited: set[str] = set()
     stack: list[Path] = [repo]
     while stack:
         current = stack.pop()
+        try:
+            real = str(current.resolve())
+        except OSError:
+            continue
+        if real in visited:
+            continue
+        visited.add(real)
         try:
             entries = list(current.iterdir())
         except OSError:
             continue
         for entry in entries:
+            if entry.is_symlink():
+                # Never follow a symlink — neither into a dir (cycle / external
+                # tree) nor a file (would read outside the repo).
+                continue
             if entry.is_dir():
                 if entry.name not in _SKIP_DIRS:
                     stack.append(entry)

@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from colleague.contract import OK, TaskResult
 from colleague.testintegrity import (
     MirrorFinding,
@@ -248,3 +250,48 @@ def test_detect_mirror_no_test_files(tmp_path: Path) -> None:
     )
     report = detect_mirror(str(repo), ["thing.py"])
     assert report.findings == []
+
+
+def test_detect_mirror_survives_symlink_cycle(tmp_path: Path) -> None:
+    """A symlink cycle in the repo must not hang the scan (Qodo PR #211).
+
+    `_iter_repo_py` skips symlinked dirs + keeps a visited-set of resolved paths,
+    so a `repo/loop -> repo` cycle terminates and the mirror is still flagged.
+    """
+    import os
+
+    repo = _make_repo(
+        tmp_path,
+        test_content="import exc\n\ndef test_x():\n    raise exc.response_error('boom')\n",
+        impl_content="import exc\n\ndef handle():\n    raise exc.response_error('boom')\n",
+    )
+    try:
+        os.symlink(repo, repo / "loop")  # cycle: repo/loop -> repo
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
+
+    # Must terminate (no hang) and still flag the co-introduced novel symbol.
+    report = detect_mirror(str(repo), ["test_thing.py", "thing.py"])
+    assert "response_error" in {f.symbol for f in report.findings}
+
+
+def test_iter_repo_py_skips_symlinked_dir(tmp_path: Path) -> None:
+    """A symlinked directory is not descended into (no external-tree blow-up)."""
+    import os
+
+    from colleague.testintegrity import _iter_repo_py
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "real.py").write_text("x = 1\n")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "huge.py").write_text("y = 2\n")
+    try:
+        os.symlink(external, repo / "linked")  # symlinked dir into an external tree
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
+
+    found = {p.name for p in _iter_repo_py(repo)}
+    assert "real.py" in found
+    assert "huge.py" not in found  # the symlinked dir was not followed

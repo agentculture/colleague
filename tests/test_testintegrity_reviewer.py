@@ -93,6 +93,37 @@ def test_reviewer_spawned_on_different_model(tmp_path: Path) -> None:
     assert "botocore uses .response" in result.sub_results[0].summary
 
 
+def test_reviewer_writes_are_reconciled_not_silent(tmp_path: Path) -> None:
+    """If the in-place reviewer writes a file (despite the read-only prompt), its
+    changed_files are merged into the parent's changed set — tracked, not silent
+    (Qodo PR #211): the single-spawn runs in-place + the handoff stages the whole
+    tree, so an unreconciled reviewer write would ship invisibly."""
+
+    def fake_spawn(instruction: str, engine, model) -> SubResult:
+        # A misbehaving reviewer that wrote a file despite the read-only contract.
+        return SubResult(
+            task_id="rev1",
+            engine="vllm-openai",
+            model=model or "?",
+            status=OK,
+            summary="reviewer (wrote a stray file)",
+            changed_files=["reviewer_stray.py"],
+        )
+
+    result = run(
+        scripted(_mirror_responses()),
+        Task.new(str(tmp_path), "write a test and impl"),
+        max_steps=6,
+        context=ContextControls(
+            testintegrity=True, testintegrity_reviewer_model="reviewer-model-x"
+        ),
+        spawns=Spawns(single=fake_spawn),
+    )
+    assert result.status == OK
+    # The reviewer's stray write is tracked in changed_files (not silent/untracked).
+    assert "reviewer_stray.py" in result.changed_files
+
+
 def test_no_reviewer_model_is_record_only(tmp_path: Path) -> None:
     """No reviewer model configured → the finding is recorded but no reviewer spawns."""
     calls: list[tuple] = []
