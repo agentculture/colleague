@@ -907,3 +907,98 @@ class TestQuickPath:
         assert result.converged is True
         assert len(result.spec_result.transcript) == 12  # 6 claims + 6 honesty
         assert len(result.plan_items) == 2
+
+    def test_quick_calls_decide_before_workforce(self):
+        """When quick=True, decide is called exactly once with plan items
+        before any batch_spawn call."""
+        decide_calls: list[tuple[Any, str | None]] = []
+
+        def spy_decide(item, critique):
+            decide_calls.append((item, critique))
+            return "confirm"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        plan_items = _valid_plan_items()
+
+        run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=spy_decide,
+            propose_plan_items=lambda frame: plan_items,
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        # decide called exactly once with the plan items list
+        assert len(decide_calls) == 1
+        assert decide_calls[0][0] is plan_items
+        assert decide_calls[0][1] == "quick-plan"
+        # batch_spawn was called (workforce ran)
+        assert batch_spawn_called[0]
+
+    def test_quick_reject_skips_workforce(self):
+        """When quick=True and decide returns 'reject', batch_spawn is NOT
+        called and waves is empty."""
+
+        def reject_decide(item, critique):
+            return "reject"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=reject_decide,
+            propose_plan_items=lambda frame: _valid_plan_items(),
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert result.plan_items == _valid_plan_items()
+        assert result.waves == []
+        assert result.sub_results == []
+        assert not batch_spawn_called[0]
+
+    def test_quick_confirm_runs_workforce(self):
+        """When quick=True and decide returns 'confirm', the workforce runs
+        (batch_spawn called) as before."""
+
+        def confirm_decide(item, critique):
+            return "confirm"
+
+        batch_spawn_called = [False]
+
+        def spy_batch_spawn(items):
+            batch_spawn_called[0] = True
+            return [_make_subresult("child-0")]
+
+        result = run_plan_mode(
+            "quick request",
+            propose_claims=lambda r: ([], []),
+            decide=confirm_decide,
+            propose_plan_items=lambda frame: _valid_plan_items(),
+            batch_spawn=spy_batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+        )
+
+        assert result.converged is True
+        assert len(result.plan_items) == 2
+        assert len(result.waves) == 1
+        assert len(result.sub_results) == 1
+        assert batch_spawn_called[0]

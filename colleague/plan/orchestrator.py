@@ -129,7 +129,8 @@ def run_plan_mode(
     quick:
         When ``True``, skip the spec stage entirely and build a minimal
         frame from the request text, proceeding straight to plan-item
-        proposal.  The plan-level gate (``decide``) is still invoked.
+        proposal.  The plan-level gate (``decide``) is invoked on the
+        proposed plan items before any workforce execution.
 
     Returns
     -------
@@ -195,6 +196,16 @@ def run_plan_mode(
     problems = validate_items(plan_items)
     if problems:
         raise ValueError("; ".join(problems))
+
+    # ── e1. Quick path: gate the proposed plan before workforce ──────
+    if quick:
+        decision = decide(plan_items, "quick-plan")
+        if decision != "confirm":
+            return OrchestratorResult(
+                spec_result=spec_result,
+                converged=True,
+                plan_items=plan_items,
+            )
 
     # ── f. Compute waves ──────────────────────────────────────────────
     waves = compute_waves(plan_items)
