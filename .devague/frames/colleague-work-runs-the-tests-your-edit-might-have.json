@@ -1,0 +1,306 @@
+{
+  "slug": "colleague-work-runs-the-tests-your-edit-might-have",
+  "title": "colleague work runs the tests your edit might have broken \u2014 not just the ones it was told to run \u2014 before handing back",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-17T18:34:11Z",
+  "updated": "2026-06-17T19:07:39Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague work runs the tests your edit might have broken \u2014 not just the ones it was told to run \u2014 before handing back",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "The #210/t2 case (edit colleague/plan/cli_driver.py, green on tests/test_plan_cli_driver.py) actually surfaces the 3 tests/test_cli_plan.py failures pre-handoff once the gate runs \u2014 i.e. the reverse-import scan selects test_cli_plan.py because it imports the changed module",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "An agent/operator delegating a scoped edit to 'colleague work' (and via 'ask-colleague write --apply'); and the human integrator who is currently the ONLY backstop that re-runs the broader suite",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The feature changes the experience for a delegator of a scoped colleague work item (incl. ask-colleague write --apply) and shrinks what the human integrator must catch by hand; it does not target the interactive session user (session keeps its in-place path).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "The two pre-handoff gates \u2014 lint (#200, colleague/lint.py) and test-integrity (#203, colleague/testintegrity.py), both wired in colleague/loop.py after the loop and before handoff \u2014 operate ONLY on the work item's changed FILES; nothing runs tests in OTHER files that exercise the changed module, so green-on-scope can hide red-on-suite (the #210/t2 instance: green on tests/test_plan_cli_driver.py, 3 failures in tests/test_cli_plan.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "On main TODAY (gate absent), editing colleague/plan/cli_driver.py and running only tests/test_plan_cli_driver.py finishes status: ok while tests/test_cli_plan.py is red \u2014 the gap is reproducible, not hypothetical.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Before the git handoff, colleague auto-selects the test files that import the changed module(s) and runs them; failures are surfaced advisory + non-blocking on TaskResult and stderr, so a scoped edit that regresses a sibling test file is flagged by colleague itself, sooner \u2014 not only by the integrator's re-run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "After the change, the same scoped edit selects + runs tests/test_cli_plan.py before handoff and the report carries its failures, so the model/operator sees them without the integrator re-run.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "colleague's pre-handoff safety net is incomplete: a delegated work item can hand back code that is green on its own scoped test yet red on the broader suite, relying entirely on the human to notice. colleague should give the signal itself",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The gap is real and not already covered: neither lint #200 nor test-integrity #203 runs any test living in a file other than the changed ones \u2014 verifiable by reading colleague/lint.py + colleague/testintegrity.py (both scope strictly to changed files).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "NOT a full-suite runner (never always run everything \u2014 slow, out of scope of a scoped task); NOT a CI replacement or correctness oracle (best-effort selection); NOT a blocking gate (advisory, non-blocking, handoff always proceeds, like lint/test-integrity); NOT a router/sandbox/daemon; Python/pytest only (other languages a follow-up); the integrator re-run stays the backstop",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "The implementation never runs the full suite unconditionally, never blocks the handoff, opens no socket/daemon, adds no runtime dep, and touches no language other than Python/pytest \u2014 each enforceable by a test (boundary + e2e shape + non-blocking).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "The #210/t2 replication (edit cli_driver.py, green on test_plan_cli_driver.py) now surfaces the 3 test_cli_plan.py failures in the report + stderr BEFORE handoff; and a run with the gate disabled / no affected tests / no pytest available is a strict no-op (byte-identical TaskResult); fires identically for mock and vllm-openai",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "A regression test reproduces the #210/t2 shape (a changed module reachable only TRANSITIVELY from a sibling test) and asserts the gate selects + reports that sibling test's failure; and tests/test_e2e_mock.py stays byte-identical with the gate disabled.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Selection: a reverse-import scan via stdlib 'ast' over the repo's test files (test_*.py / *_test.py), selecting those that import the changed module(s); prune vendored trees (.venv/.git/node_modules/...) reusing the testintegrity repo-scan pattern; bounded by a cap on the number of selected files",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The ast scan selects a test file iff it imports the changed module by any import form (import M / from M import x / from pkg.M import x), resolving module paths repo-relatively; vendored trees are pruned; a repo with no importing test file selects nothing (clean no-op)",
+          "status": "rejected"
+        },
+        {
+          "id": "h7",
+          "text": "Selection follows TRANSITIVE reverse-import closure: build the repo's module import graph via ast, then select a test file iff its import closure reaches a changed module (so tests/test_cli_plan.py, which imports only colleague.cli.main but transitively reaches the changed colleague/plan/cli_driver.py, IS selected). Direct-importers-only is insufficient \u2014 it would miss the #213 motivating case. h2 (direct-only) is therefore superseded by this condition.",
+          "status": "rejected"
+        },
+        {
+          "id": "h8",
+          "text": "Selection = BOUNDED-DEPTH transitive reverse-import. Build the repo module import graph with stdlib ast collecting ALL imports (function-local/lazy included, via ast.walk over the whole tree \u2014 NOT just module-level: colleague's CLI registers every command via a lazy import inside register(), and the motivating edge colleague.cli -> colleague.cli._commands.plan is exactly such a lazy import). Select a test file iff a changed module is within DEPTH N of its import closure. Default N must reach the motivating case: cli_driver sits 3 edges from tests/test_cli_plan.py, so default N>=3 (tunable). The selected set is bounded by a file cap; on overflow report 'selected X of Y (capped)' honestly, never silent truncation.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Execution: run pytest on the selected files via subprocess, pre-handoff, after the tool loop, inside the isolated worktree (a sibling to colleague/loop.py _maybe_run_lint_gate / _maybe_run_test_integrity_gate); degrade to a recorded 'skipped' (never crash) when pytest or the env is unavailable",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "pytest runs only on the selected files, inside the work item's isolated worktree, and a missing/unrunnable pytest degrades to report.status='skipped' with a reason \u2014 never a traceback and never a blocked handoff",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Reporting: results recorded on TaskResult.affected_tests_report (omit-when-None, like lint_report / test_integrity_report) and surfaced on stderr; the gate is ADVISORY and NON-BLOCKING \u2014 the git handoff always proceeds even on failures",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "affected_tests_report is omitted entirely (key absent) when the gate did not run, matching lint_report/test_integrity_report; failures appear on stderr + in the artifact but never change the work exit code or block the handoff",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Boundary/conventions: a NEW sanctioned subprocess consumer module (e.g. colleague/affectedtests.py) is added to tests/test_boundary.py's allow-list and no other module gains subprocess; zero new runtime deps (stdlib ast/subprocess/json only)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "tests/test_boundary.py is updated to add the new module to the sanctioned subprocess allow-list and still fails if ANY other module imports subprocess; pyproject 'dependencies' stays []",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "All-engines + strict no-op: runtime-owned, fires identically for mock and vllm-openai (both backends forward config via ContextControls); a run with the gate disabled, no affected tests selected, or no pytest available is byte-identical to today's TaskResult",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "tests/test_e2e_mock.py still passes with the gate disabled (byte-identical TaskResult) and both mock + vllm-openai forward the new config field via ContextControls",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "DEFAULT POSTURE: opt-in (off by default) vs default-on-with-opt-out. Lint (#200) and test-integrity (#203) are default-on, but they are fast/static/side-effect-free; this gate EXECUTES arbitrary test code (slow, possibly side-effecting), and the issue says 'bounded + opt-in'. Lean: opt-in (off by default), env+config+flag to enable",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "SELECTION HEURISTIC: reverse-import via ast (robust to renames) vs a naming heuristic (test_<module>.py) vs both; and direct importers only vs transitive (a test that imports a module that imports the changed one). Lean: reverse-import via ast, direct importers in v0, transitive a follow-up",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "ON FAILURE: detect+run+record only (advisory, v0) vs also a bounded model fix-turn like the lint gate's COLLEAGUE_LINT_FIX_RETRIES. Lean: record-only in v0 (the value is the SIGNAL); a fix-turn is a follow-up",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "CONFIG SURFACE: an enable toggle (--run-affected-tests / COLLEAGUE_AFFECTED_TESTS / .colleague/config.json) PLUS an explicit override knob --test \"<pytest args>\" to run a caller-chosen selection; precedence flag > env > config, matching the lint gate",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "DEFAULT POSTURE = DEFAULT-ON with opt-out (matches lint #200 / test-integrity #203 posture). Disable via --no-affected-tests / COLLEAGUE_AFFECTED_TESTS=0 / .colleague/config.json {affected_tests:false}. Rationale: maximize 'colleague gives the signal sooner'; the file cap + advisory/non-blocking nature bound the cost.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "decision",
+      "text": "SELECTION = bounded-depth transitive reverse-import via ast over ALL imports (nested/lazy included); default depth bound >=3 (reaches the motivating case), tunable via env; plus a cap on the number of selected test files. Direct-only and name-matching are rejected (both miss the #213 case).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "decision",
+      "text": "ON FAILURE = record + surface AND a bounded model fix-turn (like the lint gate's COLLEAGUE_LINT_FIX_RETRIES): on failures after a clean finish, inject one bounded model turn to fix, re-run the gate (saves/restores the work item's terminal summary/status). Knob COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES on EngineConfig; non-blocking; needs a live backend (no-op on mock).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "CONFIG SURFACE = an enable/disable toggle (flag/env/.colleague config) PLUS an explicit override knob --test \"<pytest args>\" to run a caller-chosen selection instead of/in addition to the auto selection; precedence flag > env > config, matching the lint gate.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Exact env resolution for running pytest inside the isolated worktree \u2014 'uv run pytest' vs a PATH pytest vs 'python -m pytest'. The worktree shares .git but not necessarily an installed .venv; v0 answer is degrade-to-skipped when pytest is not runnable, but the preferred invocation is open",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "The cap on the number of selected test files + an overall wall-clock/time budget for the affected-tests run, so a fat reverse-import set cannot blow up handoff time",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}
