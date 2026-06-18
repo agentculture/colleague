@@ -244,15 +244,12 @@ class TestFinishAndPureRead:
             f"would always burn to budget exhaustion"
         )
 
-    @pytest.mark.parametrize(
-        "role_name", ("explorer", "planner", "reviewer", "validator")
-    )
+    @pytest.mark.parametrize("role_name", ("explorer", "planner", "reviewer", "validator"))
     def test_readonly_roles_are_pure_read(self, role_name: str) -> None:
         # No write tools AND no write-capable shell-out CLIs, so a read-only
         # role provably cannot mutate the tree by any offered tool.
         forbidden = {"write_file", "edit_file", "run_command", "culture", "devague"}
         allow = set(BUILTIN_ROLES[role_name].tool_allowlist)
         assert not (allow & forbidden), (
-            f"{role_name} allowlist carries a write-capable tool: "
-            f"{allow & forbidden}"
+            f"{role_name} allowlist carries a write-capable tool: " f"{allow & forbidden}"
         )

@@ -35,7 +35,7 @@ def _roles_sections() -> list[dict[str, object]]:
             "items": [
                 "Lists the typed subagent roles (a child's prompt + curated tools + skills)",
                 "Built-ins: explorer, planner, reviewer, validator (read-only); writer (full)",
-                "Read-only roles withhold write_file, edit_file, run_command — cannot mutate the tree",
+                "Read-only roles withhold write_file/edit_file/run_command (cannot write)",
                 "validator adds a read-only run_tests capability (no write/exec surface)",
             ],
         },

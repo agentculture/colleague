@@ -18,9 +18,7 @@ import pytest
 from colleague.cli import main
 
 
-def test_roles_list_json_shape(
-    tmp_path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_roles_list_json_shape(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["roles", "list", "--repo", str(tmp_path), "--model", "test-model", "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
@@ -31,9 +29,7 @@ def test_roles_list_json_shape(
         assert set(r) >= {"name", "read_only", "tools", "skills"}
 
 
-def test_read_only_roles_have_no_write_tools(
-    tmp_path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_read_only_roles_have_no_write_tools(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["roles", "list", "--repo", str(tmp_path), "--model", "m", "--json"])
     assert rc == 0
     roles = {r["name"]: r for r in json.loads(capsys.readouterr().out)["roles"]}
