@@ -120,6 +120,7 @@ def test_no_third_party_imports():
     def _import_core():
         import colleague  # noqa: F401
         import colleague.cli  # noqa: F401
+        import colleague.cli._commands.roles  # noqa: F401
         import colleague.cli._commands.telemetry  # noqa: F401
         import colleague.commands  # noqa: F401
         import colleague.configdir  # noqa: F401
@@ -132,6 +133,7 @@ def test_no_third_party_imports():
         import colleague.loop  # noqa: F401
         import colleague.neighbours  # noqa: F401
         import colleague.policy  # noqa: F401
+        import colleague.roles  # noqa: F401
         import colleague.subagents  # noqa: F401
         import colleague.telemetry  # noqa: F401
 
