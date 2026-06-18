@@ -130,24 +130,23 @@ def cmd_flight_status(args: argparse.Namespace) -> int:
 
     if follow:
         _cmd_flight_status_follow(fp, json_mode)
-        return 0
-
-    # One-shot: find the last PARSEABLE non-empty line. An armed flight
-    # legitimately has an empty feed before its first turn boundary, and a
-    # crash can leave a partial trailing line — neither is an error, so
-    # json.loads is guarded.
-    record = None
-    for line in reversed(fp.read_text().splitlines()):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-            break
-        except ValueError:  # skip a torn/partial trailing line
-            continue
-    # No record yet (just armed) is a valid state, not "no active flight".
-    payload = record if record is not None else {"flight": task_id, "records": 0}
-    emit_result(payload, json_mode=json_mode)
+    else:
+        # One-shot: find the last PARSEABLE non-empty line. An armed flight
+        # legitimately has an empty feed before its first turn boundary, and a
+        # crash can leave a partial trailing line — neither is an error, so
+        # json.loads is guarded.
+        record = None
+        for line in reversed(fp.read_text().splitlines()):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+                break
+            except ValueError:  # skip a torn/partial trailing line
+                continue
+        # No record yet (just armed) is a valid state, not "no active flight".
+        payload = record if record is not None else {"flight": task_id, "records": 0}
+        emit_result(payload, json_mode=json_mode)
     return 0
 
 
