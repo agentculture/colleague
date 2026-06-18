@@ -60,6 +60,7 @@ def test_to_dict_has_expected_keys() -> None:
         "autosplit_target_tokens",
         "fillline_threshold",
         "fanout_files",
+        "review_fanout_folders",
         "plan_offer_tokens",
         "max_continue_nudges",
         "synthesis_reserve_steps",
