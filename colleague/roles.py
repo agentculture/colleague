@@ -61,12 +61,17 @@ class Role:
 _WRITE_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 
 #: Read-only tools available to explorer / planner / reviewer.
+#: Strictly pure-read so a read-only role *provably cannot mutate the tree*:
+#: ``culture``/``devague`` are deliberately excluded because they shell out to
+#: write-capable CLIs (``devex``, ``devague converge`` writes a frame), which
+#: would quietly contradict the read-only guarantee. ``finish`` is REQUIRED —
+#: without it a curated read-only child has no way to complete cleanly and
+#: would always burn to budget exhaustion.
 _READONLY_TOOLS = (
     "read_file",
     "list_dir",
-    "culture",
-    "devague",
     "check_test_integrity",
+    "finish",
 )
 
 #: Read-only tools for the validator role (includes the dedicated test runner).

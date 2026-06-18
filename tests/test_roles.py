@@ -225,3 +225,34 @@ class TestDefaultRole:
     def test_default_skill_subset_is_none(self) -> None:
         role = default_role()
         assert role.skill_subset is None
+
+
+# ---------------------------------------------------------------------------
+# Review fix: every role must offer `finish`; read-only roles are pure-read
+# ---------------------------------------------------------------------------
+
+
+class TestFinishAndPureRead:
+    """A curated read-only child needs `finish` to complete cleanly, and a
+    read-only role must not carry a write-capable shell-out tool."""
+
+    @pytest.mark.parametrize("role_name", sorted(BUILTIN_ROLES))
+    def test_every_role_can_finish(self, role_name: str) -> None:
+        role = BUILTIN_ROLES[role_name]
+        assert "finish" in role.tool_allowlist, (
+            f"{role_name} cannot finish — a curated child with no `finish` "
+            f"would always burn to budget exhaustion"
+        )
+
+    @pytest.mark.parametrize(
+        "role_name", ("explorer", "planner", "reviewer", "validator")
+    )
+    def test_readonly_roles_are_pure_read(self, role_name: str) -> None:
+        # No write tools AND no write-capable shell-out CLIs, so a read-only
+        # role provably cannot mutate the tree by any offered tool.
+        forbidden = {"write_file", "edit_file", "run_command", "culture", "devague"}
+        allow = set(BUILTIN_ROLES[role_name].tool_allowlist)
+        assert not (allow & forbidden), (
+            f"{role_name} allowlist carries a write-capable tool: "
+            f"{allow & forbidden}"
+        )
