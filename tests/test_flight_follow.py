@@ -95,7 +95,44 @@ class TestIterNewFeedRecords:
         records, new_pos = _iter_new_feed_records(feed, 0)
         assert len(records) == 1
         assert records[0]["step_index"] == 0
-        assert new_pos == 2  # counts both lines
+        assert new_pos == 1  # cursor stays at the torn line so it will be retried
+
+    def test_torn_trailing_line_emitted_when_completed(self, tmp_path):
+        feed = tmp_path / "feed.jsonl"
+        feed.write_text(
+            json.dumps({"step_index": 0, "tool": "read_file", "intent": "read", "stats": {}})
+            + "\n"
+            + '{"step_index": 1, "to'  # torn/partial line
+        )
+
+        records, new_pos = _iter_new_feed_records(feed, 0)
+        assert len(records) == 1
+        assert new_pos == 1  # cursor at the torn line
+
+        # Simulate the torn line completing on the next write
+        with open(feed, "a") as f:
+            f.write('ol": "write_file", "intent": "write", "stats": {}}\n')
+
+        records2, new_pos2 = _iter_new_feed_records(feed, new_pos)
+        assert len(records2) == 1
+        assert records2[0]["step_index"] == 1
+        assert new_pos2 == 2
+
+    def test_corrupt_middle_line_skipped_not_wedge(self, tmp_path):
+        feed = tmp_path / "feed.jsonl"
+        feed.write_text(
+            json.dumps({"step_index": 0, "tool": "read_file", "intent": "read", "stats": {}})
+            + "\n"
+            + "NOT-JSON-GARBAGE\n"
+            + json.dumps({"step_index": 1, "tool": "write_file", "intent": "write", "stats": {}})
+            + "\n"
+        )
+
+        records, new_pos = _iter_new_feed_records(feed, 0)
+        assert len(records) == 2
+        assert records[0]["step_index"] == 0
+        assert records[1]["step_index"] == 1
+        assert new_pos == 3  # advanced past the corrupt middle line
 
     def test_missing_file_returns_empty(self, tmp_path):
         feed = tmp_path / "missing.jsonl"
