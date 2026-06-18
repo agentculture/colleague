@@ -75,7 +75,8 @@ def cmd_flight_overview(args: argparse.Namespace) -> int:
 def _iter_new_feed_records(path: Path, start_line: int) -> Tuple[List[dict], int]:
     """Return newly parseable records appended since *start_line*, and the new line count.
 
-    Skips blank and torn/partial trailing lines without raising.
+    Skips blank and corrupt middle lines. A torn/partial trailing line is
+    *not* advanced so the next poll re-reads it once the write completes.
     The caller owns the file-read; this function is deterministic (no sleeping,
     no unbounded loop) so it is directly testable.
     """
@@ -84,15 +85,23 @@ def _iter_new_feed_records(path: Path, start_line: int) -> Tuple[List[dict], int
     lines = path.read_text().splitlines()
     records: List[dict] = []
     idx = start_line
-    for line in lines[start_line:]:
+    slice_lines = lines[start_line:]
+    for i, line in enumerate(slice_lines):
         if not line.strip():
             idx += 1
             continue
         try:
             records.append(json.loads(line))
+            idx += 1
         except ValueError:
-            pass  # skip torn/partial trailing line
-        idx += 1
+            if i == len(slice_lines) - 1:
+                # Last line: likely torn mid-write; break WITHOUT advancing
+                # so the next poll re-reads and emits it once complete.
+                break
+            # Not the last line: complete-but-corrupt; advance and continue
+            # (do NOT break, otherwise a corrupt middle line would wedge the
+            # stream in an infinite loop).
+            idx += 1
     return records, idx
 
 
@@ -120,7 +129,8 @@ def cmd_flight_status(args: argparse.Namespace) -> int:
         raise CliError(EXIT_USER_ERROR, f"no active flight {task_id}")
 
     if follow:
-        return _cmd_flight_status_follow(fp, json_mode)
+        _cmd_flight_status_follow(fp, json_mode)
+        return 0
 
     # One-shot: find the last PARSEABLE non-empty line. An armed flight
     # legitimately has an empty feed before its first turn boundary, and a
@@ -141,7 +151,7 @@ def cmd_flight_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_flight_status_follow(fp: Path, json_mode: bool) -> int:
+def _cmd_flight_status_follow(fp: Path, json_mode: bool) -> None:
     """Streaming follow loop: poll for new records until the feed is reaped.
 
     Terminates cleanly on file removal (flight finished) or KeyboardInterrupt.
@@ -150,13 +160,13 @@ def _cmd_flight_status_follow(fp: Path, json_mode: bool) -> int:
     try:
         while True:
             if not fp.exists():
-                return 0
+                return
             records, line_pos = _iter_new_feed_records(fp, line_pos)
             for record in records:
                 print(_format_record(record, json_mode))
             time.sleep(1.0)
     except KeyboardInterrupt:
-        return 0
+        return
 
 
 def cmd_flight_guide(args: argparse.Namespace) -> int:

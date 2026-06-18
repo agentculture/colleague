@@ -441,7 +441,6 @@ class EngineConfig:
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
         fanout_files: int | None = None,
-        review_fanout_folders: int | None = None,
         plan_offer_tokens: int | None = None,
         max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
@@ -605,7 +604,7 @@ class EngineConfig:
             ),
             review_fanout_folders=_try_int_or_none(
                 _pick(
-                    _str(review_fanout_folders),
+                    None,
                     "COLLEAGUE_REVIEW_FANOUT_FOLDERS",
                     "CONVERTIBLE_REVIEW_FANOUT_FOLDERS",
                     default="",
