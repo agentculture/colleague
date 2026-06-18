@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -40,6 +41,9 @@ _PATH_DESC = "Path relative to the repo root."
 #: Bound a runaway model-issued command so it cannot stall the loop indefinitely
 #: (mirrors culture/devague ``_TIMEOUT_SECONDS`` and neighbours ``_GIT_TIMEOUT_SECONDS``).
 _COMMAND_TIMEOUT_SECONDS = 300
+
+#: Timeout for the curated pytest runner (mirrors lint.py's _LINT_TIMEOUT).
+_TESTS_TIMEOUT_SECONDS = 300
 
 
 class ToolError(Exception):
@@ -337,6 +341,31 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "run_tests",
+            "description": (
+                "Run the repository's test suite via pytest. Optionally supply "
+                "specific test paths to narrow the run. Read-only: this tool "
+                "never writes files."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional list of test file/module paths to pass to "
+                            "pytest (e.g. ['tests/test_foo.py']). Omit to run "
+                            "the full suite."
+                        ),
+                    }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -487,6 +516,8 @@ class ToolExecutor:
             return self._subagents(arguments)
         if name == "check_test_integrity":
             return self._check_test_integrity()
+        if name == "run_tests":
+            return self._run_tests(arguments)
         if name == FINISH:
             return ToolOutcome(
                 result="finished",
@@ -746,6 +777,42 @@ class ToolExecutor:
             f"  {f.symbol} ({f.kind}) in {f.test_file} + {f.impl_file}" for f in report.findings
         ]
         return ToolOutcome(result="mirror findings:\n" + "\n".join(lines))
+
+    def _run_tests(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Run the repository's test suite via pytest.
+
+        Curated runner: the command is fixed to ``python -m pytest [paths]`` —
+        never taken from the model, so a read-only validator role can run tests
+        without access to ``run_command``. Mirrors lint.py's ``_run`` pattern
+        (curated program set, per-call timeout, graceful degradation).
+
+        Returns a concise pass/fail summary string.  Never writes files.
+        """
+        paths: list[str] = arguments.get("paths") or []
+        cmd = [sys.executable, "-m", "pytest", *paths]
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_TESTS_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return ToolOutcome(
+                result=f"run_tests skipped: timed out after {_TESTS_TIMEOUT_SECONDS}s"
+            )
+        except (OSError, ValueError) as exc:
+            return ToolOutcome(result=f"run_tests skipped: {exc}")
+
+        body = (proc.stdout or "") + (proc.stderr or "")
+        if proc.returncode == 0:
+            return ToolOutcome(result="tests passed")
+        # Non-zero: include last ~20 lines of output for context.
+        last_lines = "\n".join(body.splitlines()[-20:])
+        return ToolOutcome(result=f"tests FAILED (exit={proc.returncode})\n{last_lines}")
 
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Delegate a scoped sub-task to a nested child work item via the injected spawn.
