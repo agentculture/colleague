@@ -36,6 +36,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the pre-role full-surface delegation. Runtime-owned (all-engines rule), zero new
   runtime deps. Spec/plan under `docs/specs|plans/2026-06-17-…typed-subage.md`;
   feature doc `docs/features/subagent-roles.md`.
+
 ## [1.18.0] - 2026-06-18
 
 ### Added
