@@ -836,6 +836,7 @@ class ToolExecutor:
 
         engine = arguments.get("engine") or None
         model = arguments.get("model") or None
+        role = arguments.get("role") or None
 
         if len(self.sub_results) >= MAX_SUBAGENT_FANOUT:
             raise ToolError(
@@ -843,7 +844,7 @@ class ToolExecutor:
             )
 
         try:
-            sub = self._spawn(instruction, engine, model)
+            sub = self._spawn(instruction, engine, model, role)
         except ToolError:
             raise
         except Exception as exc:  # launcher/engine errors -> clean string for the model
@@ -893,8 +894,12 @@ class ToolExecutor:
                     "instruction": instruction,
                     "engine": item.get("engine") or None,
                     "model": item.get("model") or None,
+                    "role": item.get("role") or None,
                 }
             )
+
+        # Batch-level role (#t4): applies to every child unless an item set its own.
+        batch_role = arguments.get("role") or None
 
         # Fan-out cap: reserve one slot for the merge child.  The batch may have
         # at most MAX_SUBAGENT_FANOUT - 1 parallel children.
@@ -906,7 +911,7 @@ class ToolExecutor:
             )
 
         try:
-            batch_results = self._batch_spawn(items)
+            batch_results = self._batch_spawn(items, batch_role)
         except ToolError:
             raise
         except Exception as exc:

@@ -1498,6 +1498,30 @@ class ContextControls:
     # re-derive the real API shape; empty ("") degrades to record-only. Forwarded from
     # ``config.testintegrity_reviewer_model`` (all-engines rule).
     testintegrity_reviewer_model: str = ""
+    # Typed-subagent role NAME this work item runs as (#t4). The engine forwards
+    # ``config.role`` here so the loop can RECORD it on the result/trace (the curated
+    # tool schema + role prompt + role-aware executor are built by the engine from
+    # ``config.role``). ``None`` (the default) records nothing — byte-identical.
+    role: str | None = None
+
+
+def resolve_role(config, repo_path: str):
+    """Resolve ``config.role`` (a role NAME) to a :class:`~colleague.roles.Role`,
+    or ``None`` when no role is set or the name is unknown (#t4).
+
+    Runtime-owned so every backend types a child identically (all-engines rule):
+    both bundled engines call this in ``work()`` to build the child's curated tool
+    schema (``curate_schemas(role)``) and a role-aware ``ToolExecutor``
+    (``allowlist=role``). ``None`` → the caller keeps its full-surface defaults,
+    byte-identical to the pre-role contract. The role's PROMPT is composed
+    separately by the role-aware :meth:`colleague.engine.Engine.system_prompt`.
+    """
+    name = getattr(config, "role", None)
+    if not name:
+        return None
+    from colleague.roles import load_role
+
+    return load_role(name, repo_path, config.model)
 
 
 def _build_user_message(task: Task) -> str:
@@ -2067,6 +2091,9 @@ def run(
     _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
+    # Record the typed-subagent role this work item ran as (#t4), on every exit
+    # path. ``None`` (no role) is omit-when-None in to_dict → byte-identical.
+    result.role = _context.role
     # Snapshot any nested child work items the executor accumulated — captured here,
     # the single place that runs on EVERY exit path (model finish / empty turn /
     # budget / the aborted path below), so a delegation survives even a mid-loop

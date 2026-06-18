@@ -290,6 +290,7 @@ def run_subagent(
         summary=result.summary,
         changed_files=list(result.changed_files),
         usage=result.usage,
+        role=role,
     )
 
 

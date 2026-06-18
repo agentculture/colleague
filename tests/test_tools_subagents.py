@@ -52,6 +52,10 @@ _SUBAGENT_SCHEMA_SNAPSHOT = {
                     "type": "string",
                     "description": "Model override for the subagent (omit to inherit parent).",
                 },
+                "role": {
+                    "type": "string",
+                    "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
+                },
             },
             "required": ["instruction"],
         },
@@ -85,7 +89,7 @@ def _make_batch_spawn(results: List[SubResult] | None = None, *, call_log: list 
     """
     ret = results if results is not None else []
 
-    def batch_spawn(items: list) -> List[SubResult]:
+    def batch_spawn(items: list, role=None) -> List[SubResult]:
         if call_log is not None:
             call_log.append(items)
         return ret
@@ -132,8 +136,9 @@ def test_subagents_schema_instructions_required():
     ), "'instructions' must be a required parameter of the subagents schema"
 
 
-def test_subagent_schema_unchanged():
-    """The existing single-child 'subagent' tool schema must be byte-identical to the snapshot."""
+def test_subagent_schema_matches_snapshot():
+    """The single-child 'subagent' tool schema must match the pinned snapshot
+    (which now includes the optional typed-subagent 'role' param, #t4)."""
     schema = next(s for s in SCHEMAS if s["function"]["name"] == "subagent")
     assert schema == _SUBAGENT_SCHEMA_SNAPSHOT, (
         "The 'subagent' tool schema was modified — it must stay byte-identical. "
@@ -282,7 +287,7 @@ def test_subagents_item_missing_instruction_raises_tool_error(tmp_path):
 
 
 def test_subagents_launcher_exception_converted_to_tool_error(tmp_path):
-    def bad_spawn(items):
+    def bad_spawn(items, role=None):
         raise RuntimeError("batch exploded")
 
     executor = ToolExecutor(tmp_path, batch_spawn=bad_spawn)
@@ -291,7 +296,7 @@ def test_subagents_launcher_exception_converted_to_tool_error(tmp_path):
 
 
 def test_subagents_tool_error_from_batch_spawn_propagated(tmp_path):
-    def bad_spawn(items):
+    def bad_spawn(items, role=None):
         raise ToolError("inner batch error")
 
     executor = ToolExecutor(tmp_path, batch_spawn=bad_spawn)

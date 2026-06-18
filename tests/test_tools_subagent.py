@@ -50,13 +50,13 @@ def _make_spawn(sub: Optional[SubResult] = None, exc: Optional[Exception] = None
     """Return a fake spawn callable that either returns ``sub`` or raises ``exc``."""
     if exc is not None:
 
-        def spawn(instruction: str, engine=None, model=None):
+        def spawn(instruction: str, engine=None, model=None, role=None):
             raise exc
 
     else:
         s = sub or _fake_sub()
 
-        def spawn(instruction: str, engine=None, model=None):
+        def spawn(instruction: str, engine=None, model=None, role=None):
             return s
 
     return spawn

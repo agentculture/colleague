@@ -274,9 +274,13 @@ class SubResult:
     summary: str = ""
     changed_files: list[str] = field(default_factory=list)
     usage: Usage = field(default_factory=Usage)
+    role: Optional[str] = None
+    """The typed-subagent role this child ran as, or ``None`` for the default
+    full-surface delegation (#t4). Omitted from ``to_dict`` when None so a
+    role-less child serializes byte-identically to the pre-role contract."""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "task_id": self.task_id,
             "engine": self.engine,
             "model": self.model,
@@ -285,6 +289,10 @@ class SubResult:
             "changed_files": list(self.changed_files),
             "usage": self.usage.to_dict(),
         }
+        # Omit-when-None: a role-less child is byte-identical to the pre-role shape.
+        if self.role is not None:
+            d["role"] = self.role
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SubResult":
@@ -296,6 +304,7 @@ class SubResult:
             summary=str(data.get("summary", "")),
             changed_files=list(data.get("changed_files", [])),
             usage=Usage.from_dict(data.get("usage", {})),
+            role=data.get("role"),
         )
 
 
@@ -535,6 +544,12 @@ class TaskResult:
     a *partial*, not an authoritative result. Orthogonal to ``not_finished`` (the
     step-budget case) and to the aborted path; a clean finish leaves both False.
     Set by :func:`loop.run` from the ``_work_loop`` return value."""
+    role: Optional[str] = None
+    """The typed-subagent role this work item ran as, or ``None`` for the default
+    full-surface behavior (#t4). Set by :func:`loop.run` from
+    ``ContextControls.role`` (the engine forwards ``config.role``). Omitted from
+    ``to_dict`` when ``None``, so a role-less work item serializes byte-identically
+    to the pre-role artifact shape."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -575,6 +590,10 @@ class TaskResult:
             d["lint_report"] = self.lint_report.to_dict()
         if self.test_integrity_report is not None:
             d["test_integrity_report"] = self.test_integrity_report.to_dict()
+        # role gets the same omit-when-None treatment (#t4): a role-less work item
+        # serializes byte-identically to the pre-role artifact (no extra key).
+        if self.role is not None:
+            d["role"] = self.role
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -618,6 +637,7 @@ class TaskResult:
             ),
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
+            role=data.get("role"),
         )
 
 

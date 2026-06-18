@@ -12,7 +12,14 @@ from __future__ import annotations
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.engine import Engine
-from colleague.loop import CompleteFn, ContextControls, ModelResponse, ToolCall, run
+from colleague.loop import (
+    CompleteFn,
+    ContextControls,
+    ModelResponse,
+    ToolCall,
+    resolve_role,
+    run,
+)
 from colleague.tools import ToolExecutor
 
 #: Where the mock writes its marker file (relative to the repo root).
@@ -60,6 +67,12 @@ class MockEngine(Engine):
     name = "mock"
 
     def work(self, task: Task, config: EngineConfig) -> TaskResult:
+        # Typed-subagent role (#t4): resolve config.role and build a role-aware
+        # executor identically to the live backend (all-engines rule). The mock's
+        # scripted ``complete`` carries no tool schema, so the executor's
+        # ``allowlist`` is the role-enforcement point here. None → unrestricted
+        # (byte-identical to the pre-role path). Prompt via role-aware system_prompt.
+        role = resolve_role(config, task.repo_path)
         return run(
             _script(task),
             task,
@@ -70,11 +83,13 @@ class MockEngine(Engine):
             # The engine builds the repo-confined executor so the config-derived
             # output cap (and subagent spawn) ride the existing ``executor`` seam
             # — keeps ``run()`` from growing another parameter (all-engines rule).
+            # ``allowlist=role`` makes the executor REFUSE any tool the role withholds.
             executor=ToolExecutor(
                 task.repo_path,
                 spawn=config.subagent_spawn,
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
+                allowlist=role,
             ),
             # All-engines rule: the mock exercises the SAME loop windowing path and
             # arms reactive auto-split (#151) identically (dormant unless an
@@ -93,5 +108,6 @@ class MockEngine(Engine):
                 testintegrity=config.testintegrity,
                 testintegrity_fix_retries=config.testintegrity_fix_retries,
                 testintegrity_reviewer_model=config.testintegrity_reviewer_model,
+                role=config.role,
             ),
         )

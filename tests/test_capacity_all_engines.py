@@ -21,6 +21,7 @@ import colleague.engines.vllm_openai as vllm_eng
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
     MAX_SUBAGENT_FANOUT,
+    MAX_SUBAGENT_TOTAL,
     EngineConfig,
 )
 from colleague.contract import OK, Task, TaskResult
@@ -117,8 +118,11 @@ def test_no_fillline_event_makes_no_extra_turn(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_structural_caps_unchanged() -> None:
+def test_structural_caps() -> None:
+    # Typed-subagent roles (#t4) deepened recursion (2 -> 4) and added a single
+    # global per-top-level agent budget (24); the fan-out cap is unchanged.
     assert MAX_SUBAGENT_FANOUT == 4
-    assert MAX_SUBAGENT_DEPTH == 2
+    assert MAX_SUBAGENT_DEPTH == 4
+    assert MAX_SUBAGENT_TOTAL == 24
     assert _MAX_OVERFLOW_RETRIES == 3
     assert _MAX_TIMEOUT_RETRIES == 1

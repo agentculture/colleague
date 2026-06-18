@@ -26,8 +26,15 @@ from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
 from colleague.engine import Engine
-from colleague.loop import CompleteFn, ContextControls, ModelResponse, ToolCall, run
-from colleague.tools import SCHEMAS, ToolExecutor
+from colleague.loop import (
+    CompleteFn,
+    ContextControls,
+    ModelResponse,
+    ToolCall,
+    resolve_role,
+    run,
+)
+from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas
 
 
 def _post_json(
@@ -237,14 +244,20 @@ class VllmOpenAIEngine(Engine):
 
         return counter
 
-    def _make_complete(self, config: EngineConfig) -> CompleteFn:
+    def _make_complete(
+        self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
+    ) -> CompleteFn:
         url = f"{config.base_url.rstrip('/')}/chat/completions"
+        # The offered tool schema: the full SCHEMAS by default, or the role-curated
+        # subset (#t4) when work() resolved a role. Captured once (per-config, not
+        # per-turn). make_complete()/plan mode pass no tools → full SCHEMAS.
+        offered_tools = tools if tools is not None else SCHEMAS
 
         def complete(messages: list[dict[str, Any]]) -> ModelResponse:
             payload: dict[str, Any] = {
                 "model": config.model,
                 "messages": messages,
-                "tools": SCHEMAS,
+                "tools": offered_tools,
                 "tool_choice": "auto",
                 "temperature": config.temperature,
             }
@@ -280,8 +293,14 @@ class VllmOpenAIEngine(Engine):
         Each model turn is completed via the server's OpenAI-compatible
         ``/v1/chat/completions`` endpoint. Returns a :class:`TaskResult`.
         """
+        # Typed-subagent role (#t4): resolve config.role once and build the child's
+        # curated tool schema + role-aware executor from it. None → full-surface
+        # SCHEMAS + an unrestricted executor (byte-identical to the pre-role path).
+        # The role PROMPT is composed by the role-aware self.system_prompt below.
+        role = resolve_role(config, task.repo_path)
+        offered_tools = curate_schemas(role) if role is not None else SCHEMAS
         return run(
-            self._make_complete(config),
+            self._make_complete(config, tools=offered_tools),
             task,
             max_steps=config.max_steps,
             system_prompt=self.system_prompt(task, config),
@@ -290,11 +309,13 @@ class VllmOpenAIEngine(Engine):
             # The engine builds the repo-confined executor so the config-derived
             # output cap (and subagent spawn) ride the existing ``executor`` seam
             # — keeps ``run()`` from growing another parameter (all-engines rule).
+            # ``allowlist=role`` makes the executor REFUSE any tool the role withholds.
             executor=ToolExecutor(
                 task.repo_path,
                 spawn=config.subagent_spawn,
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
+                allowlist=role,
             ),
             # Context-window management (windowing + reactive auto-split #151),
             # forwarded identically by every backend (all-engines rule); dormant
@@ -313,5 +334,6 @@ class VllmOpenAIEngine(Engine):
                 testintegrity=config.testintegrity,
                 testintegrity_fix_retries=config.testintegrity_fix_retries,
                 testintegrity_reviewer_model=config.testintegrity_reviewer_model,
+                role=config.role,
             ),
         )

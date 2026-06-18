@@ -210,7 +210,7 @@ def test_model_acts_on_split_via_subagents_batch(tmp_path, _no_real_escalation):
     """End-to-end: recommendation → model calls `subagents` → batch results folded (c18/h6)."""
     batch_items: list[list[dict]] = []
 
-    def fake_batch(items):
+    def fake_batch(items, role=None):
         batch_items.append(items)
         children = [
             SubResult(
