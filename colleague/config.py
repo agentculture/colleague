@@ -59,6 +59,13 @@ _DEFAULT_MAX_OUTPUT_CHARS = 100000
 # Tunable per environment with COLLEAGUE_SUBAGENT_CONCURRENCY.
 _DEFAULT_SUBAGENT_CONCURRENCY = 1
 
+# Subagent recursion depth cap (agents of agents). Tunable per environment
+# with COLLEAGUE_SUBAGENT_DEPTH.
+_DEFAULT_SUBAGENT_DEPTH = 4
+# Global per-top-level total-agent budget for subagent delegation. Tunable per
+# environment with COLLEAGUE_SUBAGENT_TOTAL.
+_DEFAULT_SUBAGENT_TOTAL = 24
+
 # Auto-split capacity target in tokens (issue #151). The operator-tunable
 # "~1M effective capacity" knob: colleague recommends splitting a too-large
 # assignment into children whose count is derived from this target divided by
@@ -133,8 +140,9 @@ _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 _DEFAULT_ENGINE = "vllm-openai"
 
 # Subagent delegation bounds.
-MAX_SUBAGENT_DEPTH = 2
+MAX_SUBAGENT_DEPTH = 4
 MAX_SUBAGENT_FANOUT = 4
+MAX_SUBAGENT_TOTAL = 24
 
 # The persistent per-repo config file, resolved under .colleague/ (configdir).
 _CONFIG_FILENAME = "config.json"
@@ -306,6 +314,8 @@ class EngineConfig:
     context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
     max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
+    subagent_depth: int = _DEFAULT_SUBAGENT_DEPTH
+    subagent_total: int = _DEFAULT_SUBAGENT_TOTAL
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
     fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
     fanout_files: int = _DEFAULT_FANOUT_FILES
@@ -347,6 +357,8 @@ class EngineConfig:
         context_budget_tokens: int | None = None,
         max_output_chars: int | None = None,
         subagent_concurrency: int | None = None,
+        subagent_depth: int | None = None,
+        subagent_total: int | None = None,
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
         fanout_files: int | None = None,
@@ -458,6 +470,24 @@ class EngineConfig:
                     default=str(_DEFAULT_SUBAGENT_CONCURRENCY),
                 ),
                 default=_DEFAULT_SUBAGENT_CONCURRENCY,
+            ),
+            subagent_depth=_try_int(
+                _pick(
+                    _str(subagent_depth),
+                    "COLLEAGUE_SUBAGENT_DEPTH",
+                    "CONVERTIBLE_SUBAGENT_DEPTH",
+                    default=str(_DEFAULT_SUBAGENT_DEPTH),
+                ),
+                default=_DEFAULT_SUBAGENT_DEPTH,
+            ),
+            subagent_total=_try_int(
+                _pick(
+                    _str(subagent_total),
+                    "COLLEAGUE_SUBAGENT_TOTAL",
+                    "CONVERTIBLE_SUBAGENT_TOTAL",
+                    default=str(_DEFAULT_SUBAGENT_TOTAL),
+                ),
+                default=_DEFAULT_SUBAGENT_TOTAL,
             ),
             autosplit_target_tokens=int(
                 _pick(
@@ -571,6 +601,8 @@ class EngineConfig:
             "max_continue_nudges": self.max_continue_nudges,
             "synthesis_reserve_steps": self.synthesis_reserve_steps,
             "max_output_chars": self.max_output_chars,
+            "subagent_depth": self.subagent_depth,
+            "subagent_total": self.subagent_total,
             "lint": self.lint,
             "lint_fix_retries": self.lint_fix_retries,
             "testintegrity": self.testintegrity,
