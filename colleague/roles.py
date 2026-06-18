@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional, cast
 
 from colleague import layers
+from colleague.configdir import CONFIG_DIR_NAME
 
 # ---------------------------------------------------------------------------
 # Role data model
@@ -164,6 +165,45 @@ def default_role() -> Role:
 # ---------------------------------------------------------------------------
 
 
+def _within_config(path: Path, config_dir: Path) -> bool:
+    """True if *path* resolves to *config_dir* or somewhere beneath it.
+
+    Both sides are fully resolved (symlinks included), mirroring
+    :func:`colleague.layers._within` / :meth:`colleague.tools.ToolExecutor._safe_path`,
+    so a symlink whose target escapes the config dir is refused.
+    """
+    try:
+        resolved = path.resolve()
+        base = config_dir.resolve()
+    except OSError:
+        return False
+    return resolved == base or base in resolved.parents
+
+
+def _resolve_role_prompt(repo: Path, safe_model: str, name: str) -> Optional[str]:
+    """Return the operator-authored prompt for *name*, or ``None`` to fall back to
+    the built-in default.
+
+    Resolves the per-model overlay then the base file (exact paths, no sibling
+    globbing), both confined to the config dir — a role file that resolves OUTSIDE
+    ``.colleague/`` (a symlink planted in the config dir) is refused so it can never
+    pull an arbitrary file into the system prompt. An unreadable file is treated as
+    absent (fall back to the built-in), never an empty prompt.
+    """
+    config_dir = repo / CONFIG_DIR_NAME
+    candidates = (
+        config_dir / safe_model / "agents" / f"{name}.md",  # 1. per-model overlay
+        config_dir / "agents" / f"{name}.md",  # 2. base role file
+    )
+    role_file = next((c for c in candidates if c.is_file()), None)
+    if role_file is None or not _within_config(role_file, config_dir):
+        return None
+    try:
+        return role_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
 def load_role(
     name: str,
     repo_path: str | Path,
@@ -181,65 +221,24 @@ def load_role(
     When no file is present the built-in default is returned.  An unknown
     role name with no file on disk returns ``None``.
 
-    The overlay is composed by exact path — no sibling globbing — matching the
-    established pattern in :mod:`colleague.layers`.
-
     The *name* is validated as a simple identifier before it is interpolated into
     a path (#t4 Q1): a role name is never a path, so a name carrying a separator,
-    dot, or ``..`` traversal is rejected (returns ``None``) — it can never be used
-    to read an arbitrary file off disk.
+    dot, or ``..`` traversal is rejected (returns ``None``). The resolved file is
+    additionally confined to ``.colleague/`` (symlink-safe) by
+    :func:`_resolve_role_prompt`, so it can never read an arbitrary file off disk.
     """
     # Reject anything that is not a bare identifier (letters/digits/_/-). This stops
     # ``../../etc/passwd``-style traversal (and symlink-bait) before any path build.
     if not name or not name.replace("_", "").replace("-", "").isalnum():
         return None
-    repo = Path(repo_path)
-    safe_model = layers.sanitize_model(model)
 
-    # 1. Per-model overlay (exact path, no globbing)
-    overlay_path = repo / ".colleague" / safe_model / "agents" / f"{name}.md"
-    # 2. Base role file
-    base_path = repo / ".colleague" / "agents" / f"{name}.md"
-
-    # Read whichever file exists (overlay shadows base).
-    role_file: Path | None = None
-    if overlay_path.is_file():
-        role_file = overlay_path
-    elif base_path.is_file():
-        role_file = base_path
-
-    # Defense-in-depth on top of the name guard above: refuse a role file that
-    # RESOLVES outside ``.colleague/``. The name can't traverse, but a symlink
-    # planted in the config dir (``.colleague/agents/<name>.md`` -> ``/etc/…``)
-    # would otherwise pull an arbitrary file into the system prompt. Mirrors the
-    # symlink confinement in :func:`colleague.layers._within` / ``_safe_path``.
-    if role_file is not None:
-        try:
-            resolved = role_file.resolve()
-            base = (repo / ".colleague").resolve()
-        except OSError:
-            role_file = None
-        else:
-            if resolved != base and base not in resolved.parents:
-                role_file = None
-
-    # If a file exists, use its contents as the prompt fragment; otherwise
-    # fall back to the built-in role's prompt.
-    if role_file is not None:
-        try:
-            prompt = role_file.read_text(encoding="utf-8")
-        except OSError:
-            prompt = ""
-    else:
-        prompt = None  # will use built-in prompt below
-
-    # Look up the built-in default for this name.
+    # Unknown role name with no built-in default → not a role at all.
     builtin = BUILTIN_ROLES.get(name)
     if builtin is None:
-        # Unknown role name with no file on disk.
         return None
 
-    # Compose the final role: file prompt overrides built-in prompt.
+    prompt = _resolve_role_prompt(Path(repo_path), layers.sanitize_model(model), name)
+    # The file prompt overrides the built-in; ``None`` keeps the built-in.
     final_prompt = prompt if prompt is not None else builtin.prompt_fragment
     # The cast is for the static analyser: Sonar models dataclasses.replace()'s
     # return as a generic DataclassInstance, not Role, which trips S5886 (mirrors
