@@ -346,6 +346,13 @@ class EngineConfig:
     # behavior, not serializable config).
     subagent_batch_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
 
+    # Typed-subagent role NAME this work item runs as (#t4). ``None`` = today's
+    # full-surface behavior (byte-identical to pre-role). Set on a *child's* config
+    # by the subagent launcher; the engine builds the child's curated tool schema +
+    # role-composed prompt from it (t8). A runtime field, not env-resolved, so it is
+    # excluded from eq/repr/to_dict like the spawn callbacks above.
+    role: Optional[str] = field(default=None, compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,

@@ -148,7 +148,16 @@ class TestBatchShape:
         real_run = sa.run_subagent
 
         def _spy_run(
-            instruction, *, repo_path, parent_config, parent_engine, depth, engine=None, model=None
+            instruction,
+            *,
+            repo_path,
+            parent_config,
+            parent_engine,
+            depth,
+            engine=None,
+            model=None,
+            role=None,
+            counter=None,
         ):
             seen_repo_paths.append(repo_path)
             return real_run(
@@ -159,6 +168,8 @@ class TestBatchShape:
                 depth=depth,
                 engine=engine,
                 model=model,
+                role=role,
+                counter=counter,
             )
 
         sa.run_subagent = _spy_run
@@ -212,6 +223,8 @@ class TestMerge:
             depth,
             engine=None,
             model=None,
+            role=None,
+            counter=None,
         ):
             # Create the isolated worktree (the real runner does this), write a
             # unique file inside it keyed on the instruction, and commit the branch.
@@ -260,6 +273,8 @@ class TestMerge:
             depth,
             engine=None,
             model=None,
+            role=None,
+            counter=None,
         ):
             # Both children write the SAME path with DIFFERENT content -> conflict.
             wt = worktrees.worktree_add(repo_path, child_id)
@@ -315,6 +330,8 @@ class TestMerge:
             depth,
             engine=None,
             model=None,
+            role=None,
+            counter=None,
         ):
             wt = worktrees.worktree_add(repo_path, child_id)
             # Both children write the SAME path with DIFFERENT content -> the
@@ -388,6 +405,8 @@ class TestConcurrency:
             depth,
             engine=None,
             model=None,
+            role=None,
+            counter=None,
         ):
             time.sleep(_DELAY)
             return SubResult(
@@ -456,6 +475,8 @@ class TestConcurrency:
             depth,
             engine=None,
             model=None,
+            role=None,
+            counter=None,
         ):
             order.append(instruction)
             return SubResult(

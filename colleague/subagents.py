@@ -38,11 +38,18 @@ conflicted paths in the summary) — never force-merged and never silently dropp
 order followed by exactly one merge child. Per-child worktrees/branches are torn
 down on EVERY exit path (success, partial, or exception) so nothing leaks.
 
-Termination is structural for both paths. The depth cap is checked *first, before
-any work*: a child at ``depth > MAX_SUBAGENT_DEPTH`` is refused before any drive
-(or any worktree) is created, so there is no unbounded recursion. Each single
-child is handed its OWN spawn callback bound to ``depth + 1`` (via
-:func:`make_spawn`), carrying the bound down every level once the loop wires it.
+Termination is structural for both paths via TWO caps, both checked *first, before
+any work* (no drive, no worktree). (1) The per-path **depth** cap: a child at
+``depth > MAX_SUBAGENT_DEPTH`` is refused. (2) The shared **global agent budget**
+(#t4, :class:`_AgentBudget`): a single :data:`~colleague.config.MAX_SUBAGENT_TOTAL`
+cap on the TOTAL agents spawned under one top-level work item, regardless of
+nesting shape — charged atomically (thread-safe) so concurrent batch children
+cannot race past it. The budget is created once by the loop wiring and threaded
+down every level; each child is handed its OWN spawn AND batch-spawn callbacks
+bound to ``depth + 1`` and the same budget, so nested batches are now PERMITTED
+(agents of agents of agents) yet the total stays bounded. When no budget is
+threaded (a direct call with ``counter=None``) the budget is skipped — byte-
+identical to the pre-budget behavior, only the depth cap applies.
 
 The engine/model switch is pure configuration: the launcher resolves the child
 engine by name through :func:`colleague.registry.load` and inherits the parent's
@@ -55,22 +62,30 @@ from __future__ import annotations
 
 import concurrent.futures
 import dataclasses
+import threading
 from typing import Callable, List, Optional, cast
 
 from colleague import registry, worktrees
-from colleague.config import MAX_SUBAGENT_DEPTH, EngineConfig, effective_concurrency
+from colleague.config import (
+    MAX_SUBAGENT_DEPTH,
+    MAX_SUBAGENT_TOTAL,
+    EngineConfig,
+    effective_concurrency,
+)
 from colleague.contract import ERROR, OK, SubResult, Task, Usage
 
-#: A spawn callback: ``spawn(instruction, engine=None, model=None) -> SubResult``.
-#: Bound to a repo/parent-config/parent-engine/depth by :func:`make_spawn` and
-#: assigned to ``EngineConfig.subagent_spawn`` so the loop can offer delegation.
-SpawnFn = Callable[[str, Optional[str], Optional[str]], SubResult]
+#: A spawn callback: ``spawn(instruction, engine=None, model=None, role=None)
+#: -> SubResult``. Bound to a repo/parent-config/parent-engine/depth/budget by
+#: :func:`make_spawn` and assigned to ``EngineConfig.subagent_spawn`` so the loop
+#: can offer delegation. ``role`` (optional) types the child (#t4).
+SpawnFn = Callable[..., SubResult]
 
-#: A batch spawn callback: ``batch_spawn(items) -> list[SubResult]`` where each
-#: item is ``{"instruction": str, "engine": Optional[str], "model": Optional[str]}``.
-#: Bound by :func:`make_batch_spawn`; consumed by the ``subagents`` (plural) loop
-#: tool (t4) and wired by the loop (t5).
-BatchSpawnFn = Callable[[List[dict]], List[SubResult]]
+#: A batch spawn callback: ``batch_spawn(items, role=None) -> list[SubResult]``
+#: where each item is ``{"instruction": str, "engine": Optional[str], "model":
+#: Optional[str], "role": Optional[str]}``. Bound by :func:`make_batch_spawn`;
+#: consumed by the ``subagents`` (plural) loop tool and wired by the loop. The
+#: batch-level ``role`` applies to every child unless an item carries its own.
+BatchSpawnFn = Callable[..., List[SubResult]]
 
 __all__ = [
     "SpawnFn",
@@ -83,7 +98,50 @@ __all__ = [
 
 
 class SubagentError(Exception):
-    """A subagent launch was refused — e.g. the depth cap was exceeded."""
+    """A subagent launch was refused — e.g. the depth or global-budget cap was exceeded."""
+
+
+class _AgentBudget:
+    """A thread-safe global agent counter shared across ONE top-level work item.
+
+    Every spawned child (single or batch, at ANY nesting depth) charges this
+    budget exactly once before it does work, so the TOTAL number of agents
+    spawned under one top-level work item is bounded by ``limit`` for every
+    nesting shape — the structural termination guarantee for "agents of agents".
+
+    Charging is guarded by a lock because concurrent batch children (and their
+    own nested delegations) run in ``ThreadPoolExecutor`` worker threads — the one
+    place in colleague where shared mutable state is touched off the main thread.
+
+    The budget is created ONCE per top-level work item (by the loop wiring, t6)
+    and threaded down every level. When no budget is threaded (a direct
+    ``run_subagent`` / ``make_spawn`` call with ``counter=None``), charging is
+    skipped entirely — byte-identical to the pre-budget behavior (only the depth
+    cap applies).
+    """
+
+    def __init__(self, limit: int = MAX_SUBAGENT_TOTAL) -> None:
+        self._lock = threading.Lock()
+        self.limit = limit
+        self.count = 0
+
+    def charge(self) -> int:
+        """Account for one more spawned agent; raise past the cap (zero work done).
+
+        Checks BEFORE incrementing so ``count`` never exceeds ``limit`` even across
+        repeated refused attempts: the (limit+1)-th charge raises without bumping
+        the count, so ``count`` is exactly the number of agents that actually ran.
+        """
+        with self._lock:
+            if self.count >= self.limit:
+                raise SubagentError(f"global agent budget ({self.limit}) exceeded")
+            self.count += 1
+            return self.count
+
+    def remaining(self) -> int:
+        """A snapshot of how many more agents may be spawned (best-effort, for pre-checks)."""
+        with self._lock:
+            return max(0, self.limit - self.count)
 
 
 def make_spawn(
@@ -91,27 +149,31 @@ def make_spawn(
     parent_config: EngineConfig,
     parent_engine: str,
     depth: int = 1,
+    *,
+    counter: Optional["_AgentBudget"] = None,
 ) -> SpawnFn:
     """Build a depth-bound spawn callback over :func:`run_subagent`.
 
     The returned closure captures ``repo_path``, ``parent_config``,
-    ``parent_engine``, and this ``depth`` (the nesting level of the child it will
-    launch — top-level children are ``depth=1``). The loop wiring (t6) calls
-    ``make_spawn(task.repo_path, config, task.engine)`` (depth defaults to 1) and
-    assigns the result to ``config.subagent_spawn``; the tool executor (t4) then
-    calls ``spawn(instruction, engine, model)`` per delegation.
+    ``parent_engine``, this ``depth`` (the nesting level of the child it will
+    launch — top-level children are ``depth=1``), and the shared global
+    ``counter`` (#t4). The loop wiring (t6) calls
+    ``make_spawn(task.repo_path, config, task.engine, counter=budget)`` and
+    assigns the result to ``config.subagent_spawn``; the tool executor then calls
+    ``spawn(instruction, engine, model, role)`` per delegation.
 
     Each launched child is itself handed a spawn callback bound to ``depth + 1``
-    inside :func:`run_subagent`, so the recursion bound is carried down every
-    level structurally.
+    and the SAME ``counter`` inside :func:`run_subagent`, so both the depth bound
+    and the global agent budget are carried down every level structurally.
     """
 
     def spawn(
         instruction: str,
         engine: Optional[str] = None,
         model: Optional[str] = None,
+        role: Optional[str] = None,
     ) -> SubResult:
-        """Run one child subagent.
+        """Run one child subagent, optionally typed by ``role`` (#t4).
 
         Drives the given instruction through the same bounded tool-loop in an
         isolated throwaway git worktree on a ``sub/<id>`` branch, and returns the
@@ -125,6 +187,8 @@ def make_spawn(
             depth=depth,
             engine=engine,
             model=model,
+            role=role,
+            counter=counter,
         )
 
     return spawn
@@ -139,29 +203,44 @@ def run_subagent(
     depth: int,
     engine: Optional[str] = None,
     model: Optional[str] = None,
+    role: Optional[str] = None,
+    counter: Optional["_AgentBudget"] = None,
 ) -> SubResult:
     """Run one nested child work item and return its :class:`SubResult`.
 
-    ``depth`` is the nesting level of THIS child (top-level children = 1). The
-    cap is enforced *first, before any work*: a child past
-    :data:`~colleague.config.MAX_SUBAGENT_DEPTH` is refused before its drive
-    starts, guaranteeing termination.
+    ``depth`` is the nesting level of THIS child (top-level children = 1). Two
+    structural caps are enforced *first, before any work* — a refused child does
+    zero work and starts no child work item, guaranteeing termination:
+
+    - the per-path **depth** cap (:data:`~colleague.config.MAX_SUBAGENT_DEPTH`); and
+    - the shared **global agent budget** (#t4): when a ``counter`` is threaded, it
+      is charged once here, and a child that would push the TOTAL agents spawned
+      under the top-level work item past :data:`~colleague.config.MAX_SUBAGENT_TOTAL`
+      is refused. ``counter=None`` skips the budget (byte-identical to before).
 
     The child engine is ``engine or parent_engine``, resolved through
     :func:`colleague.registry.load`. The child config inherits the parent's
-    unchanged except the model, which switches to ``model`` when provided
-    (otherwise inherits the parent's) — a pure config-level switch with no engine
-    code change. The child is given its own ``subagent_spawn`` bound to
-    ``depth + 1`` so it can delegate further, still bounded.
+    unchanged except the model (switched when provided) and the typed ``role``
+    (#t4) — both pure config-level switches with no engine code change. The engine
+    builds the child's curated tool schema + role-composed prompt from
+    ``config.role`` (t8). The child is given its own ``subagent_spawn`` AND
+    ``subagent_batch_spawn`` bound to ``depth + 1`` and the SAME ``counter`` so it
+    can delegate further (nested batches now permitted), still globally bounded.
 
     The work item runs via ``engine.work`` — the bounded loop, **no** git handoff,
     fully synchronous.
     """
     # (a) Depth cap FIRST — before loading an engine or building any config, so a
-    # refused level does zero work and starts no child work item. This is what makes
-    # the recursion provably terminating.
+    # refused level does zero work and starts no child work item.
     if depth > MAX_SUBAGENT_DEPTH:
         raise SubagentError(f"subagent depth limit ({MAX_SUBAGENT_DEPTH}) exceeded")
+
+    # (a2) Global agent budget NEXT — also before any work. Charging is atomic
+    # (thread-safe) so concurrent batch children can't race past the cap. When no
+    # budget is threaded (counter is None) this is skipped entirely — byte-identical
+    # to the pre-budget behavior.
+    if counter is not None:
+        counter.charge()
 
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
@@ -171,27 +250,31 @@ def run_subagent(
     except registry.UnknownEngine as exc:
         raise SubagentError(str(exc)) from exc
 
-    # (c) Inherit the parent's config, overriding ONLY the model when provided.
-    # dataclasses.replace keeps base_url/api_key/max_steps/temperature/timeout
-    # (and any future field) intact and leaves the parent object untouched. The
-    # cast is purely for the static analyser: Sonar models replace()'s return as a
-    # generic DataclassInstance, not EngineConfig, which would trip S5655/S5890.
+    # (c) Inherit the parent's config, overriding ONLY the model and the typed role
+    # when provided. dataclasses.replace keeps base_url/api_key/max_steps/... intact
+    # and leaves the parent object untouched. The cast is purely for the static
+    # analyser (Sonar models replace()'s return as a generic DataclassInstance).
     child_config = cast(
         EngineConfig,
-        dataclasses.replace(parent_config, model=(model or parent_config.model)),
+        dataclasses.replace(
+            parent_config,
+            model=(model or parent_config.model),
+            role=role,
+        ),
     )
 
-    # (d) Give the child its OWN spawn callback bound to depth + 1 so it can
-    # delegate further, still bounded. (The loop won't consume this until t6
-    # wires it, but binding it now makes the recursion structurally bounded.)
-    child_config.subagent_spawn = make_spawn(repo_path, child_config, child_engine, depth + 1)
-    # NESTED BATCHES ARE FORBIDDEN IN v0 (parked risk r2). The parent's
-    # ``subagent_batch_spawn`` closure is bound to the PARENT's repo_path/depth;
-    # inheriting it via ``dataclasses.replace`` would let a child run a batch
-    # against the wrong worktree and without incrementing depth. Null it so a
-    # child work item simply has no ``subagents`` tool — single-child delegation
-    # (depth-bounded ``subagent_spawn`` above) still works.
-    child_config.subagent_batch_spawn = None
+    # (d) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
+    # and the SAME global budget, so it can delegate further (single OR batch),
+    # still bounded by both the depth cap and the shared agent budget. Nested
+    # batches are now PERMITTED (#t4): the child's batch closure is bound to the
+    # CHILD's repo_path/depth/counter, so a child batch runs against the correct
+    # worktree, increments depth, and counts against the one global budget.
+    child_config.subagent_spawn = make_spawn(
+        repo_path, child_config, child_engine, depth + 1, counter=counter
+    )
+    child_config.subagent_batch_spawn = make_batch_spawn(
+        repo_path, child_config, child_engine, depth + 1, counter=counter
+    )
 
     # (e) Build + run the nested child work item. engine.work runs the bounded loop
     # and never hands off; the call is synchronous (no thread/process/socket).
@@ -235,6 +318,8 @@ def _run_child_in_worktree(
     depth: int,
     engine: Optional[str] = None,
     model: Optional[str] = None,
+    role: Optional[str] = None,
+    counter: Optional["_AgentBudget"] = None,
 ) -> SubResult:
     """Drive ONE batch child inside its own git worktree, then commit its branch.
 
@@ -266,6 +351,8 @@ def _run_child_in_worktree(
         depth=depth,
         engine=engine,
         model=model,
+        role=role,
+        counter=counter,
     )
     # Commit whatever the child wrote onto its sub/<child_id> branch so the
     # post-join merge has something to integrate. An empty diff is fine.
@@ -346,6 +433,8 @@ def make_batch_spawn(
     parent_config: EngineConfig,
     parent_engine: str,
     depth: int = 1,
+    *,
+    counter: Optional["_AgentBudget"] = None,
 ) -> BatchSpawnFn:
     """Build a batch spawn callback that fans children out and merges them back.
 
@@ -364,12 +453,14 @@ def make_batch_spawn(
     Per-child worktrees/branches are torn down on every exit path.
     """
 
-    def batch_spawn(items: List[dict]) -> List[SubResult]:
+    def batch_spawn(items: List[dict], role: Optional[str] = None) -> List[SubResult]:
         """Run a batch of child subagents, each in its own isolated worktree.
 
         Children run sequentially by default, or concurrently when
-        COLLEAGUE_SUBAGENT_CONCURRENCY > 1 (bounded by MAX_SUBAGENT_FANOUT).
-        Returns the list of their :class:`~colleague.contract.SubResult` objects.
+        COLLEAGUE_SUBAGENT_CONCURRENCY > 1 (bounded by MAX_SUBAGENT_FANOUT). The
+        batch-level ``role`` (#t4) types every child unless an item carries its
+        own ``"role"``. Returns the list of their
+        :class:`~colleague.contract.SubResult` objects.
         """
         return _run_batch(
             items,
@@ -377,6 +468,8 @@ def make_batch_spawn(
             parent_config=parent_config,
             parent_engine=parent_engine,
             depth=depth,
+            role=role,
+            counter=counter,
         )
 
     return batch_spawn
@@ -389,11 +482,14 @@ def _run_batch(
     parent_config: EngineConfig,
     parent_engine: str,
     depth: int,
+    role: Optional[str] = None,
+    counter: Optional["_AgentBudget"] = None,
 ) -> List[SubResult]:
     """Fan a batch of children out concurrently, then merge their branches.
 
     See :func:`make_batch_spawn` for the contract. Termination is structural: the
-    depth cap is enforced FIRST, before any worktree is created.
+    depth cap AND the global agent budget are enforced FIRST, before any worktree
+    is created.
     """
     # (a) Depth cap FIRST — before any worktree or thread is created, so a refused
     # level does zero work (mirrors run_subagent's guarantee for the batch path).
@@ -410,6 +506,17 @@ def _run_batch(
             merge_model=parent_config.model,
         )
         return [empty_merge]
+
+    # (a2) Global agent budget PRE-CHECK — before any worktree is created, refuse
+    # the whole batch when it obviously cannot fit (#t4), so an over-budget batch
+    # does zero work and leaks no worktree. This is a best-effort snapshot; each
+    # child is also charged authoritatively (thread-safe) inside run_subagent, which
+    # catches the deep-nested-concurrent race the snapshot cannot.
+    if counter is not None and counter.remaining() < len(items):
+        raise SubagentError(
+            f"global agent budget ({counter.limit}) exceeded: batch of "
+            f"{len(items)} exceeds {counter.remaining()} remaining"
+        )
 
     # (b) Resolve the effective concurrency width. Width 1 (the default) is the
     # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to the
@@ -443,6 +550,8 @@ def _run_batch(
                     depth=depth,
                     engine=(item.get("engine") or None),
                     model=(item.get("model") or None),
+                    role=(item.get("role") or role),
+                    counter=counter,
                 )
         else:
             # CONCURRENT path — ThreadPoolExecutor confined to this module. Each
@@ -463,6 +572,8 @@ def _run_batch(
                         depth=depth,
                         engine=(item.get("engine") or None),
                         model=(item.get("model") or None),
+                        role=(item.get("role") or role),
+                        counter=counter,
                     )
                     future_index[fut] = i
                 # Join: collect every result AFTER the threads finish. future.result()
