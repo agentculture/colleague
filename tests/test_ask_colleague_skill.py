@@ -99,10 +99,14 @@ def test_readonly_prompts_carry_a_guard(name: str) -> None:
     assert "do not" in out and "modify" in out
 
 
-def test_review_prompt_uses_the_base_diff() -> None:
+def test_review_prompt_says_diff_is_provided() -> None:
+    """The review prompt no longer instructs running `git diff` itself; the diff
+    is front-loaded by the wrapper (issue #220a). The prompt should say the diff
+    is already provided."""
     out = _render("review", "x", "develop")
-    assert "develop...HEAD" in out
-    assert "$BASE" not in out
+    assert "ALREADY PROVIDED" in out or "already provided" in out.lower()
+    # The prompt should NOT contain `git diff` instructions.
+    assert "git diff" not in out
 
 
 def test_write_prompt_leads_with_the_task_so_the_commit_subject_describes_it() -> None:
