@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
+from typing import List, Tuple
 
 import colleague.flight as flight
 from colleague.cli._commands.overview import emit_overview
@@ -70,15 +72,60 @@ def cmd_flight_overview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _iter_new_feed_records(path: Path, start_line: int) -> Tuple[List[dict], int]:
+    """Return newly parseable records appended since *start_line*, and the new line count.
+
+    Skips blank and torn/partial trailing lines without raising.
+    The caller owns the file-read; this function is deterministic (no sleeping,
+    no unbounded loop) so it is directly testable.
+    """
+    if not path.exists():
+        return [], start_line
+    lines = path.read_text().splitlines()
+    records: List[dict] = []
+    idx = start_line
+    for line in lines[start_line:]:
+        if not line.strip():
+            idx += 1
+            continue
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            pass  # skip torn/partial trailing line
+        idx += 1
+    return records, idx
+
+
+def _format_record(record: dict, json_mode: bool) -> str:
+    """Format a single feed record for output."""
+    if json_mode:
+        return json.dumps(record, ensure_ascii=False)
+    parts = []
+    if "step_index" in record:
+        parts.append(f"step={record['step_index']}")
+    if "tool" in record:
+        parts.append(f"tool={record['tool']}")
+    if "intent" in record:
+        parts.append(f"intent={record['intent']}")
+    return " | ".join(parts) if parts else str(record)
+
+
 def cmd_flight_status(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
+    follow = bool(getattr(args, "follow", False))
+
     repo, task_id = _checked_task_id(args)
     fp = flight.feed_path(repo, task_id)
     if not fp.exists():
         raise CliError(EXIT_USER_ERROR, f"no active flight {task_id}")
-    # Find the last PARSEABLE non-empty line. An armed flight legitimately has an
-    # empty feed before its first turn boundary, and a crash can leave a partial
-    # trailing line — neither is an error, so json.loads is guarded.
+
+    if follow:
+        return _cmd_flight_status_follow(fp, json_mode)
+
+    # One-shot: find the last PARSEABLE non-empty line. An armed flight
+    # legitimately has an empty feed before its first turn boundary, and a
+    # crash can leave a partial trailing line — neither is an error, so
+    # json.loads is guarded.
     record = None
     for line in reversed(fp.read_text().splitlines()):
         if not line.strip():
@@ -92,6 +139,24 @@ def cmd_flight_status(args: argparse.Namespace) -> int:
     payload = record if record is not None else {"flight": task_id, "records": 0}
     emit_result(payload, json_mode=json_mode)
     return 0
+
+
+def _cmd_flight_status_follow(fp: Path, json_mode: bool) -> int:
+    """Streaming follow loop: poll for new records until the feed is reaped.
+
+    Terminates cleanly on file removal (flight finished) or KeyboardInterrupt.
+    """
+    line_pos = 0
+    try:
+        while True:
+            if not fp.exists():
+                return 0
+            records, line_pos = _iter_new_feed_records(fp, line_pos)
+            for record in records:
+                print(_format_record(record, json_mode))
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        return 0
 
 
 def cmd_flight_guide(args: argparse.Namespace) -> int:
@@ -146,6 +211,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     st.add_argument("task_id", help=_TASK_ID_HELP)
     _add_repo(st)
     st.add_argument("--json", action="store_true", help=JSON_HELP)
+    st.add_argument("--follow", action="store_true", help="Stream feed records as they arrive.")
     st.set_defaults(func=cmd_flight_status)
 
     gu = noun_sub.add_parser("guide", help="Send guidance to a running flight.")
