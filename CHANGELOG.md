@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-06-18
+
+### Added
+
+- **Subagent roles — a typed workforce, with read-only roles that cannot write.**
+  A delegated subagent can be a typed *role*: a tailored system prompt, a curated
+  subset of the tool surface, and a curated skill subset. Built-in roles
+  (`colleague/roles.py`): `explorer`/`planner`/`reviewer` (read-only), `validator`
+  (read + a dedicated read-only `run_tests` tool, no write), `writer` (full
+  surface). A read-only role withholds `write_file`/`edit_file`/`run_command` and
+  the role-aware `ToolExecutor` refuses any withheld tool, so it provably cannot
+  mutate the tree. The engine resolves `config.role` once (`mock`==`vllm-openai`):
+  curated `SCHEMAS` (`curate_schemas`), a role-composed prompt (`compose_role_prompt`
+  via the one layered-config path), and the role-aware executor; the applied role
+  is recorded on `TaskResult.role`/`SubResult.role` (omit-when-None → a role-less
+  run is byte-identical).
+- **Deeper recursion + a global agent budget.** `MAX_SUBAGENT_DEPTH` raised from 2
+  to 4; a single `MAX_SUBAGENT_TOTAL=24` global budget (a thread-safe counter)
+  bounds the TOTAL agents spawned under one top-level work item regardless of
+  nesting shape, charged before any child work so every shape terminates; nested
+  batches are now permitted. Env-tunable via `COLLEAGUE_SUBAGENT_DEPTH` /
+  `COLLEAGUE_SUBAGENT_TOTAL`.
+- **Surfaces for selecting + inspecting roles:** a `role` parameter on the
+  `subagent`/`subagents` loop tools, `colleague work --role`, `ask-colleague …
+  --role`, the plan workforce's per-child role, and a new `colleague roles`
+  inspection noun (distinct from `agents`, which inspects AGENTS instruction files).
+  Operator prompt overlays at `.colleague/agents/<name>.md` (+ per-model overlay).
+- Selection is backend-judged and optional; omitting a role is byte-identical to
+  the pre-role full-surface delegation. Runtime-owned (all-engines rule), zero new
+  runtime deps. Spec/plan under `docs/specs|plans/2026-06-17-…typed-subage.md`;
+  feature doc `docs/features/subagent-roles.md`.
+
 ## [1.17.0] - 2026-06-17
 
 ### Added
