@@ -126,6 +126,63 @@ class TestGracefulDegradation:
             assert isinstance(outcome.result, str)
 
 
+# ── read-only safety: option injection, path confinement, no tree writes ──
+
+
+class TestRunTestsReadOnlySafety:
+    """The validator role exposes run_tests *instead of* run_command precisely so a
+    read-only role can run tests without a write surface. These pin that promise:
+    no option injection, no path escape, and no files left behind (#221 qodo)."""
+
+    def test_rejects_option_like_path(self, tmp_path):
+        """A leading-dash arg (e.g. --junitxml=) is an option, not a test path."""
+        ex = _executor(tmp_path)
+        outcome = ex.execute("run_tests", {"paths": ["--junitxml=/tmp/out.xml"]})
+        assert "invalid test path" in outcome.result.lower()
+        assert not (tmp_path / "out.xml").exists()
+
+    def test_rejects_short_option(self, tmp_path):
+        ex = _executor(tmp_path)
+        outcome = ex.execute("run_tests", {"paths": ["-p", "evilplugin"]})
+        assert "invalid test path" in outcome.result.lower()
+
+    def test_rejects_path_escaping_repo_root(self, tmp_path):
+        """A ../ traversal must be refused before it reaches pytest."""
+        ex = _executor(tmp_path)
+        outcome = ex.execute("run_tests", {"paths": ["../outside.py"]})
+        assert "escapes the repo root" in outcome.result.lower()
+
+    def test_rejects_absolute_path_outside_root(self, tmp_path):
+        ex = _executor(tmp_path)
+        outcome = ex.execute("run_tests", {"paths": ["/etc/passwd"]})
+        assert "escapes the repo root" in outcome.result.lower()
+
+    def test_leaves_no_cache_artifacts(self, tmp_path):
+        """A clean run must not drop .pytest_cache / __pycache__ into the tree —
+        the read-only guarantee is literal (PYTHONDONTWRITEBYTECODE + no:cacheprovider)."""
+        (tmp_path / "test_ok.py").write_text("def test_ok(): pass\n")
+        ex = _executor(tmp_path)
+        ex.execute("run_tests", {"paths": ["test_ok.py"]})
+        leftovers = [
+            p.name for p in tmp_path.rglob("*") if p.name in {".pytest_cache", "__pycache__"}
+        ]
+        assert leftovers == [], f"run_tests left cache artifacts: {leftovers}"
+
+    def test_strips_env_injected_pytest_options(self, tmp_path, monkeypatch):
+        """The ``--`` separator only guards CLI args; PYTEST_ADDOPTS / PYTEST_PLUGINS
+        are honored from the env. A read-only run must NOT let an inherited env
+        re-open the option/plugin-injection vector."""
+        monkeypatch.setenv("PYTEST_ADDOPTS", f"--junitxml={tmp_path}/pwn.xml")
+        monkeypatch.setenv("PYTEST_PLUGINS", "definitely_not_a_real_plugin")
+        (tmp_path / "test_ok.py").write_text("def test_ok(): pass\n")
+        ex = _executor(tmp_path)
+        outcome = ex.execute("run_tests", {"paths": ["test_ok.py"]})
+        # The injected --junitxml must NOT have produced a report, and the bogus
+        # plugin must NOT have crashed the run (it would, if PYTEST_PLUGINS survived).
+        assert not (tmp_path / "pwn.xml").exists(), "PYTEST_ADDOPTS was honored from env"
+        assert "passed" in outcome.result.lower()
+
+
 # ── validator role curation ──────────────────────────────────────────────
 
 

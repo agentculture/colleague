@@ -1,5 +1,7 @@
 """Tests for subagent depth cap and total-agent budget config fields."""
 
+import pytest
+
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
     MAX_SUBAGENT_FANOUT,
@@ -54,25 +56,27 @@ class TestEngineConfigResolveEnv:
         assert cfg.subagent_total == 100
 
 
-class TestEngineConfigResolveExplicitBeatsEnv:
-    """Explicit constructor/resolve argument beats the env var."""
+class TestEngineConfigResolveSubagentCapsAreEnvOnly:
+    """``subagent_depth`` / ``subagent_total`` are env-only knobs (no CLI flag, no
+    production caller), kept off ``resolve``'s signature to hold it under the
+    SonarCloud S107 parameter ceiling — exactly like ``temperature`` / ``timeout``.
+    They resolve from the env var (then the built-in default); there is no
+    explicit ``resolve(...)`` keyword for them."""
 
-    def test_explicit_subagent_depth_beats_env(self, monkeypatch):
+    def test_resolve_rejects_explicit_subagent_depth_kwarg(self):
+        with pytest.raises(TypeError):
+            EngineConfig.resolve(subagent_depth=3)
+
+    def test_resolve_rejects_explicit_subagent_total_kwarg(self):
+        with pytest.raises(TypeError):
+            EngineConfig.resolve(subagent_total=10)
+
+    def test_env_var_drives_resolution(self, monkeypatch):
         monkeypatch.setenv("COLLEAGUE_SUBAGENT_DEPTH", "6")
-        cfg = EngineConfig.resolve(subagent_depth=3)
-        assert cfg.subagent_depth == 3
-
-    def test_explicit_subagent_total_beats_env(self, monkeypatch):
         monkeypatch.setenv("COLLEAGUE_SUBAGENT_TOTAL", "50")
-        cfg = EngineConfig.resolve(subagent_total=10)
-        assert cfg.subagent_total == 10
-
-    def test_explicit_both_beat_env(self, monkeypatch):
-        monkeypatch.setenv("COLLEAGUE_SUBAGENT_DEPTH", "6")
-        monkeypatch.setenv("COLLEAGUE_SUBAGENT_TOTAL", "50")
-        cfg = EngineConfig.resolve(subagent_depth=3, subagent_total=10)
-        assert cfg.subagent_depth == 3
-        assert cfg.subagent_total == 10
+        cfg = EngineConfig.resolve()
+        assert cfg.subagent_depth == 6
+        assert cfg.subagent_total == 50
 
 
 class TestEngineConfigToDict:

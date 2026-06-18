@@ -203,6 +203,35 @@ class TestLoadRole:
         assert role.name == "reviewer"
         assert role.read_only is True
 
+    @pytest.mark.parametrize(
+        "bad_name", ["../../etc/passwd", "a/b", "name.md", "..", "", "foo/../bar"]
+    )
+    def test_name_traversal_rejected(self, bad_name: str, tmp_path) -> None:
+        """A role name is never a path: a separator/dot/.. is refused (returns None),
+        so it can never be interpolated into a path to read an arbitrary file."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        assert load_role(bad_name, str(repo), "gpt-4") is None
+
+    def test_symlinked_role_file_outside_colleague_is_refused(self, tmp_path) -> None:
+        """Defense-in-depth: even a valid name must not read a role file that
+        RESOLVES outside .colleague/ — a symlink planted in the config dir could
+        otherwise pull an arbitrary file into the system prompt. The read is refused
+        and the loader falls back to the built-in prompt."""
+        repo = tmp_path / "repo"
+        (repo / ".colleague" / "agents").mkdir(parents=True)
+        secret = tmp_path / "secret.md"
+        secret.write_text("SUPER SECRET CONTENTS")
+        link = repo / ".colleague" / "agents" / "explorer.md"
+        try:
+            link.symlink_to(secret)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not supported on this platform")
+        role = load_role("explorer", str(repo), "gpt-4")
+        # The symlinked-out file must NOT become the prompt; fall back to built-in.
+        assert role is not None
+        assert "SUPER SECRET" not in role.prompt_fragment
+
 
 # ---------------------------------------------------------------------------
 # AC5: default_role yields full-surface writer

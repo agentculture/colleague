@@ -432,8 +432,6 @@ class EngineConfig:
         context_budget_tokens: int | None = None,
         max_output_chars: int | None = None,
         subagent_concurrency: int | None = None,
-        subagent_depth: int | None = None,
-        subagent_total: int | None = None,
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
         fanout_files: int | None = None,
@@ -452,13 +450,14 @@ class EngineConfig:
         When *repo_path* is ``None`` or no config file exists, behaviour is
         byte-identical to the prior (no config-file) implementation.
 
-        ``temperature`` and ``timeout`` have no explicit-override keyword (and no
-        CLI flag): no caller in the codebase passes them, so their precedence is
-        simply ``COLLEAGUE_*`` env var > built-in default. Keeping them off the
-        signature holds ``resolve`` under the parameter ceiling (SonarCloud S107);
-        the dataclass still carries the fields, and the ``COLLEAGUE_TEMPERATURE`` /
-        ``COLLEAGUE_TIMEOUT`` env vars (with ``CONVERTIBLE_*`` fallbacks) override
-        them as before.
+        ``temperature``, ``timeout``, ``subagent_depth`` and ``subagent_total``
+        have no explicit-override keyword (and no CLI flag): no production caller
+        passes them, so their precedence is simply ``COLLEAGUE_*`` env var >
+        built-in default. Keeping them off the signature holds ``resolve`` under
+        the parameter ceiling (SonarCloud S107); the dataclass still carries the
+        fields, and the ``COLLEAGUE_TEMPERATURE`` / ``COLLEAGUE_TIMEOUT`` /
+        ``COLLEAGUE_SUBAGENT_DEPTH`` / ``COLLEAGUE_SUBAGENT_TOTAL`` env vars (with
+        ``CONVERTIBLE_*`` fallbacks) override them as before.
         """
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
@@ -555,7 +554,7 @@ class EngineConfig:
             ),
             subagent_depth=_try_int(
                 _pick(
-                    _str(subagent_depth),
+                    None,
                     "COLLEAGUE_SUBAGENT_DEPTH",
                     "CONVERTIBLE_SUBAGENT_DEPTH",
                     default=str(_DEFAULT_SUBAGENT_DEPTH),
@@ -564,7 +563,7 @@ class EngineConfig:
             ),
             subagent_total=_try_int(
                 _pick(
-                    _str(subagent_total),
+                    None,
                     "COLLEAGUE_SUBAGENT_TOTAL",
                     "CONVERTIBLE_SUBAGENT_TOTAL",
                     default=str(_DEFAULT_SUBAGENT_TOTAL),

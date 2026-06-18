@@ -1530,6 +1530,41 @@ class ContextControls:
     affectedtests_max_files: int | None = None
     affectedtests_override: str | None = None
 
+    @classmethod
+    def from_config(cls, config, *, count_tokens=None) -> "ContextControls":
+        """Build the controls a backend forwards from its :class:`EngineConfig`.
+
+        Every backend forwards the *same* config fields here (the all-engines
+        rule), so this is the single source for that mapping — a backend that
+        diverges is a bug. The only per-backend variation is ``count_tokens``:
+        the vLLM backend passes its exact ``/tokenize`` counter; the mock (and any
+        backend without one) leaves it ``None`` for the char-based estimate.
+
+        ``config`` is left untyped to avoid an import cycle with
+        :mod:`colleague.config` (same precedent as :func:`resolve_role`).
+        """
+        return cls(
+            budget=config.context_budget_tokens,
+            count_tokens=count_tokens,
+            autosplit_target=config.autosplit_target_tokens,
+            fillline_threshold=config.fillline_threshold,
+            fanout_files=config.fanout_files,
+            plan_offer_tokens=config.plan_offer_tokens,
+            max_continue_nudges=config.max_continue_nudges,
+            synthesis_reserve=config.synthesis_reserve_steps,
+            lint=config.lint,
+            lint_fix_retries=config.lint_fix_retries,
+            testintegrity=config.testintegrity,
+            testintegrity_fix_retries=config.testintegrity_fix_retries,
+            testintegrity_reviewer_model=config.testintegrity_reviewer_model,
+            role=config.role,
+            affectedtests=config.affected_tests,
+            affectedtests_fix_retries=config.affected_tests_fix_retries,
+            affectedtests_depth=config.affected_tests_depth,
+            affectedtests_max_files=config.affected_tests_max_files,
+            affectedtests_override=config.affected_tests_override,
+        )
+
 
 def resolve_role(config, repo_path: str):
     """Resolve ``config.role`` (a role NAME) to a :class:`~colleague.roles.Role`,

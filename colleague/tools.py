@@ -18,6 +18,7 @@ sandboxing is a later wheel.
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
 import sys
@@ -828,7 +829,20 @@ class ToolExecutor:
             except ToolError:
                 return ToolOutcome(result=f"run_tests skipped: path {p!r} escapes the repo root")
             safe_paths.append(p)
-        cmd = [sys.executable, "-m", "pytest", "--", *safe_paths]
+        # Keep the validator role's "never writes files" promise literally true
+        # (#221 qodo): pytest/python otherwise drop ``.pytest_cache`` and
+        # ``__pycache__`` into the tree. ``-p no:cacheprovider`` disables pytest's
+        # cache plugin and ``PYTHONDONTWRITEBYTECODE=1`` stops bytecode caches, so a
+        # read-only run leaves the tree byte-identical.
+        cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "--", *safe_paths]
+        # The ``--`` separator de-weaponizes CLI args but NOT the env: pytest honors
+        # ``PYTEST_ADDOPTS`` (arbitrary options) and ``PYTEST_PLUGINS`` (arbitrary
+        # plugin imports) from the environment regardless. Strip both so an inherited
+        # env can't re-open the option/plugin-injection vector behind the validator's
+        # back, and disable bytecode caches to keep the tree byte-identical.
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        env.pop("PYTEST_ADDOPTS", None)
+        env.pop("PYTEST_PLUGINS", None)
 
         try:
             proc = subprocess.run(
@@ -838,6 +852,7 @@ class ToolExecutor:
                 text=True,
                 check=False,
                 timeout=_TESTS_TIMEOUT_SECONDS,
+                env=env,
             )
         except subprocess.TimeoutExpired:
             return ToolOutcome(

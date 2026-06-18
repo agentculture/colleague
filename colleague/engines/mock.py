@@ -94,25 +94,7 @@ class MockEngine(Engine):
             # All-engines rule: the mock exercises the SAME loop windowing path and
             # arms reactive auto-split (#151) identically (dormant unless an
             # exhausted overflow fires it). No count_tokens → the loop uses the char
-            # estimate via window_messages.
-            context=ContextControls(
-                budget=config.context_budget_tokens,
-                autosplit_target=config.autosplit_target_tokens,
-                fillline_threshold=config.fillline_threshold,
-                fanout_files=config.fanout_files,
-                plan_offer_tokens=config.plan_offer_tokens,
-                max_continue_nudges=config.max_continue_nudges,
-                synthesis_reserve=config.synthesis_reserve_steps,
-                lint=config.lint,
-                lint_fix_retries=config.lint_fix_retries,
-                testintegrity=config.testintegrity,
-                testintegrity_fix_retries=config.testintegrity_fix_retries,
-                testintegrity_reviewer_model=config.testintegrity_reviewer_model,
-                role=config.role,
-                affectedtests=config.affected_tests,
-                affectedtests_fix_retries=config.affected_tests_fix_retries,
-                affectedtests_depth=config.affected_tests_depth,
-                affectedtests_max_files=config.affected_tests_max_files,
-                affectedtests_override=config.affected_tests_override,
-            ),
+            # estimate via window_messages. ``from_config`` is the single source for
+            # the config→controls forwarding both backends share.
+            context=ContextControls.from_config(config),
         )

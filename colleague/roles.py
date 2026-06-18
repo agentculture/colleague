@@ -208,6 +208,21 @@ def load_role(
     elif base_path.is_file():
         role_file = base_path
 
+    # Defense-in-depth on top of the name guard above: refuse a role file that
+    # RESOLVES outside ``.colleague/``. The name can't traverse, but a symlink
+    # planted in the config dir (``.colleague/agents/<name>.md`` -> ``/etc/…``)
+    # would otherwise pull an arbitrary file into the system prompt. Mirrors the
+    # symlink confinement in :func:`colleague.layers._within` / ``_safe_path``.
+    if role_file is not None:
+        try:
+            resolved = role_file.resolve()
+            base = (repo / ".colleague").resolve()
+        except OSError:
+            role_file = None
+        else:
+            if resolved != base and base not in resolved.parents:
+                role_file = None
+
     # If a file exists, use its contents as the prompt fragment; otherwise
     # fall back to the built-in role's prompt.
     if role_file is not None:

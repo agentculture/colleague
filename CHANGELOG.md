@@ -37,6 +37,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runtime deps. Spec/plan under `docs/specs|plans/2026-06-17-…typed-subage.md`;
   feature doc `docs/features/subagent-roles.md`.
 
+### Fixed
+
+- **`run_tests` read-only guarantee is now literal (PR #221 review).** The
+  validator role's curated pytest runner already rejected option-like args and
+  confined paths; it now also disables pytest's cache plugin
+  (`-p no:cacheprovider`) and bytecode caching (`PYTHONDONTWRITEBYTECODE=1`), so a
+  read-only validator run leaves no `.pytest_cache`/`__pycache__` behind — the tree
+  stays byte-identical. It additionally strips `PYTEST_ADDOPTS` / `PYTEST_PLUGINS`
+  from the subprocess env, closing the env-injected option/plugin vector the `--`
+  separator does not (surfaced by an `ask-colleague` diverse-mind audit).
+- **`load_role` symlink confinement (PR #221 review).** On top of the strict
+  role-name guard, a resolved role file that escapes `.colleague/` is now refused
+  (mirrors `colleague.layers._within` / `ToolExecutor._safe_path`), so a symlink
+  planted in the config dir can't pull an arbitrary file into the system prompt.
+- **SonarCloud S107 on `EngineConfig.resolve`.** The new `subagent_depth` /
+  `subagent_total` knobs are now resolved env-only (like `temperature`/`timeout`),
+  keeping `resolve` under the 13-parameter ceiling. They remain tunable via
+  `COLLEAGUE_SUBAGENT_DEPTH` / `COLLEAGUE_SUBAGENT_TOTAL`.
+- **De-duplicated the engines' `ContextControls` forwarding.** Both backends now
+  build their context controls through one `ContextControls.from_config()` factory
+  — a single source for the config→controls mapping that strengthens the
+  all-engines rule (a backend that diverges is now a test failure).
+
 ## [1.18.0] - 2026-06-18
 
 ### Added

@@ -320,25 +320,10 @@ class VllmOpenAIEngine(Engine):
             # Context-window management (windowing + reactive auto-split #151),
             # forwarded identically by every backend (all-engines rule); dormant
             # unless a trigger fires.
-            context=ContextControls(
-                budget=config.context_budget_tokens,
-                count_tokens=self._make_count_tokens(config),
-                autosplit_target=config.autosplit_target_tokens,
-                fillline_threshold=config.fillline_threshold,
-                fanout_files=config.fanout_files,
-                plan_offer_tokens=config.plan_offer_tokens,
-                max_continue_nudges=config.max_continue_nudges,
-                synthesis_reserve=config.synthesis_reserve_steps,
-                lint=config.lint,
-                lint_fix_retries=config.lint_fix_retries,
-                testintegrity=config.testintegrity,
-                testintegrity_fix_retries=config.testintegrity_fix_retries,
-                testintegrity_reviewer_model=config.testintegrity_reviewer_model,
-                role=config.role,
-                affectedtests=config.affected_tests,
-                affectedtests_fix_retries=config.affected_tests_fix_retries,
-                affectedtests_depth=config.affected_tests_depth,
-                affectedtests_max_files=config.affected_tests_max_files,
-                affectedtests_override=config.affected_tests_override,
+            # ``from_config`` is the single source for the config→controls forwarding
+            # both backends share (all-engines rule); the vLLM backend's one
+            # per-backend variation is its exact ``/tokenize`` counter.
+            context=ContextControls.from_config(
+                config, count_tokens=self._make_count_tokens(config)
             ),
         )
