@@ -71,6 +71,10 @@ def test_to_dict_has_expected_keys() -> None:
         "testintegrity",
         "testintegrity_fix_retries",
         "testintegrity_reviewer_model",
+        "affected_tests",
+        "affected_tests_fix_retries",
+        "affected_tests_depth",
+        "affected_tests_max_files",
     }
     assert set(snapshot.keys()) == expected_keys
 

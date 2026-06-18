@@ -232,6 +232,7 @@ class TestNoFinishResultFidelity:
             "capacity_warning",
             "lint_report",
             "test_integrity_report",
+            "affected_tests_report",
             "not_finished",
             "stopped_without_finish",
             "role",

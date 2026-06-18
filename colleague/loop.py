@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import shlex
 import sys
 import time
 from collections import Counter
@@ -40,6 +41,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from colleague import affectedtests as _affectedtests
 from colleague import autosplit as _autosplit
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
@@ -488,6 +490,19 @@ class _Work:
     # The DIFFERENT model id for the diverse reviewer subagent; "" degrades to
     # record-only. Forwarded from ``_context.testintegrity_reviewer_model``.
     testintegrity_reviewer_model: str = ""
+    # Affected-tests gate (#213): when ``affectedtests_enabled`` the runtime selects the
+    # test files whose bounded-depth transitive import closure reaches a changed module
+    # (or the explicit ``--test`` override), runs pytest on them, and records the
+    # AffectedTestsReport on ``result.affected_tests_report``. Defaults OFF so a direct
+    # ``run`` caller (no ContextControls) is byte-identical; the backends forward
+    # ``config.affected_tests`` (all-engines rule). ``affectedtests_fix_retries`` caps the
+    # bounded model fix-turn on failures (0 = detect-and-record only); depth/max_files
+    # tune the scan; ``override`` is the explicit ``--test`` pytest-args selection.
+    affectedtests_enabled: bool = False
+    affectedtests_fix_retries: int = 0
+    affectedtests_depth: int = 3
+    affectedtests_max_files: int = 20
+    affectedtests_override: "str | None" = None
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1503,6 +1518,17 @@ class ContextControls:
     # tool schema + role prompt + role-aware executor are built by the engine from
     # ``config.role``). ``None`` (the default) records nothing — byte-identical.
     role: str | None = None
+    # Affected-tests gate (#213): when truthy the runtime selects + runs the tests whose
+    # bounded-depth transitive import closure reaches a changed module and records an
+    # AffectedTestsReport on ``result.affected_tests_report``. Advisory + non-blocking.
+    # Defaults None (off) for a direct caller — byte-identical; the backends forward
+    # ``config.affected_tests`` (all-engines rule). ``_override`` is the explicit
+    # ``--test`` pytest selection; depth/max_files tune the scan.
+    affectedtests: bool | None = None
+    affectedtests_fix_retries: int | None = None
+    affectedtests_depth: int | None = None
+    affectedtests_max_files: int | None = None
+    affectedtests_override: str | None = None
 
 
 def resolve_role(config, repo_path: str):
@@ -1793,6 +1819,113 @@ def _run_test_integrity_fix_turn(
     ) = saved
 
 
+# A failed-affected-tests fix-turn re-enters the loop for at most this many model turns.
+_AFFECTEDTESTS_FIX_STEPS = 8
+
+_AFFECTEDTESTS_FIX_PROMPT = (
+    "The pre-finish affected-tests gate ran the tests that (transitively) import your "
+    "changed module(s) and some FAILED — these tests live in files you did not run, but "
+    "your change affects them. Investigate and fix the regression in the IMPLEMENTATION "
+    "(do not weaken or delete the tests), using read_file/edit_file/write_file, then "
+    "call finish. Failing selection:\n"
+)
+
+
+def _maybe_run_affected_tests_gate(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
+    """Run the pre-finish affected-tests gate (#213): run the tests that (transitively)
+    import the changed module(s), so a scoped edit can't hide a regression in another
+    file the model never ran.
+
+    Advisory + non-blocking: selects the test files whose bounded-depth transitive
+    import closure reaches a changed module (or uses the explicit ``--test`` override),
+    runs pytest on them, and records an
+    :class:`~colleague.affectedtests.AffectedTestsReport` on
+    ``result.affected_tests_report``. On a FAILED status after a clean finish with a
+    fix-turn budget left (``ctx.affectedtests_fix_retries``), ONE bounded model fix-turn
+    is injected per remaining retry, re-running the gate after each. The handoff ALWAYS
+    proceeds (never blocks). A strict no-op when the loop aborted, the gate is disabled,
+    no files changed, nothing is affected, or pytest is unavailable (the report stays
+    None / is omitted, keeping the result byte-identical).
+
+    Best-effort + fail-safe (mirrors the lint / test-integrity gates): the body is
+    wrapped in ``suppress`` so a hung/erroring pytest can NEVER abort ``run()``.
+    """
+    if aborted is not None or not ctx.affectedtests_enabled:
+        return
+    with suppress(Exception):
+        override = shlex.split(ctx.affectedtests_override) if ctx.affectedtests_override else None
+        changed = sorted(ctx.executor.changed)
+        if not changed and override is None:
+            return
+        report = _affectedtests.run_affected_tests(
+            ctx.task.repo_path,
+            changed,
+            depth=ctx.affectedtests_depth,
+            max_files=ctx.affectedtests_max_files,
+            pytest_args=override,
+        )
+        if report is None:
+            return
+        ctx.result.affected_tests_report = report
+        _surface_affected_tests(report)
+        retries = ctx.affectedtests_fix_retries if outcome == _EXIT_FINISHED else 0
+        while report.status == "failed" and retries > 0:
+            _run_affected_tests_fix_turn(ctx, complete, report)
+            retries -= 1
+            next_report = _affectedtests.run_affected_tests(
+                ctx.task.repo_path,
+                sorted(ctx.executor.changed),
+                depth=ctx.affectedtests_depth,
+                max_files=ctx.affectedtests_max_files,
+                pytest_args=override,
+            )
+            if next_report is None:
+                break
+            report = next_report
+            ctx.result.affected_tests_report = report
+            _surface_affected_tests(report)
+
+
+def _run_affected_tests_fix_turn(
+    ctx: _Work, complete: CompleteFn, report: "_affectedtests.AffectedTestsReport"
+) -> None:
+    """Inject ONE bounded model turn to fix a failing affected test, preserving state.
+
+    Mirrors the lint / test-integrity fix-turn: saves & restores the work item's
+    terminal fields so a fix-turn ``finish`` cannot clobber the real result; any failure
+    is suppressed (the gate is best-effort and must never abort the work item).
+    """
+    saved = (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    )
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": _AFFECTEDTESTS_FIX_PROMPT + "\n".join(report.selected[:50]),
+        }
+    )
+    budget = ctx.result.stats.model_turns + _AFFECTEDTESTS_FIX_STEPS
+    with suppress(Exception):
+        _work_loop(ctx, complete, budget)
+    (
+        ctx.result.summary,
+        ctx.result.status,
+        ctx.result.not_finished,
+        ctx.result.stopped_without_finish,
+    ) = saved
+
+
+def _surface_affected_tests(report: "_affectedtests.AffectedTestsReport") -> None:
+    """Write the affected-tests summary to stderr (advisory; never raises)."""
+    with suppress(OSError):
+        sys.stderr.write(report.summary_line() + "\n")
+
+
 def _surface_test_integrity(report: "_testintegrity.TestIntegrityReport") -> None:
     """Write the mirror-signature findings to stderr (advisory; never raises)."""
     detail = "; ".join(
@@ -1874,6 +2007,19 @@ def _maybe_spawn_test_integrity_reviewer(
                     "contract — tracked in changed_files (not silent): "
                     f"{', '.join(sorted(sub.changed_files)[:20])}\n"
                 )
+
+
+def _affectedtests_controls(controls: "ContextControls") -> dict[str, Any]:
+    """The affected-tests gate kwargs for ``_Work``, defaulting each unset
+    (``None``) ContextControls field. Kept out of ``run()`` so the per-field
+    ``or``-defaults don't inflate its cognitive complexity (all-engines rule)."""
+    return {
+        "affectedtests_enabled": bool(controls.affectedtests),
+        "affectedtests_fix_retries": controls.affectedtests_fix_retries or 0,
+        "affectedtests_depth": controls.affectedtests_depth or 3,
+        "affectedtests_max_files": controls.affectedtests_max_files or 20,
+        "affectedtests_override": controls.affectedtests_override,
+    }
 
 
 def run(
@@ -2021,6 +2167,7 @@ def run(
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
+        **_affectedtests_controls(_context),
     )
 
     # Up-front advisory split hint (#151) — extracted to keep run()'s cognitive
@@ -2089,6 +2236,13 @@ def run(
     # guard + best-effort wrapping live in the helper so it can never abort run().
     # Runs after the lint gate so it sees the lint-fixed changed set.
     _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
+
+    # Pre-finish affected-tests gate (#213): on a NON-aborted exit, run the tests that
+    # (transitively) import the changed module(s) and record the outcome on
+    # result.affected_tests_report. Advisory + non-blocking; runs after lint +
+    # test-integrity so it sees their fixed changed set. The aborted guard + best-effort
+    # wrapping live in the helper so it can never abort run().
+    _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Record the typed-subagent role this work item ran as (#t4), on every exit

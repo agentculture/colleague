@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from colleague.affectedtests import AffectedTestsReport
     from colleague.testintegrity import TestIntegrityReport
 
 # TaskResult.status values.
@@ -530,6 +531,11 @@ class TaskResult:
     produced no findings. Like lint_report, the serialized key is OMITTED
     (not null) when ``None``, so a work item with no mirror findings is
     byte-identical to pre-t1 artifacts."""
+    affected_tests_report: Optional["AffectedTestsReport"] = None
+    """The affected-tests pre-handoff gate report, or ``None`` when the gate
+    produced no findings. Like lint_report, the serialized key is OMITTED
+    (not null) when ``None``, so a work item with no affected-tests findings is
+    byte-identical to pre-artifacts."""
     not_finished: bool = False
     """True iff the work item exhausted the step budget without calling ``finish`` AND
     without raising :class:`WorkAborted` (i.e. the model ran out of turns but the
@@ -594,6 +600,8 @@ class TaskResult:
         # serializes byte-identically to the pre-role artifact (no extra key).
         if self.role is not None:
             d["role"] = self.role
+        if self.affected_tests_report is not None:
+            d["affected_tests_report"] = self.affected_tests_report.to_dict()
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -635,6 +643,11 @@ class TaskResult:
                 if data.get("test_integrity_report")
                 else None
             ),
+            affected_tests_report=(
+                _get_affected_tests_report_class().from_dict(data["affected_tests_report"])
+                if data.get("affected_tests_report")
+                else None
+            ),
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
             role=data.get("role"),
@@ -655,3 +668,16 @@ def _get_test_integrity_report_class():
     from colleague.testintegrity import TestIntegrityReport
 
     return TestIntegrityReport
+
+
+def _get_affected_tests_report_class():
+    """Return the AffectedTestsReport class via a lazy import.
+
+    ``colleague.affectedtests`` imports ``colleague.contract`` (for the
+    type annotation on ``TaskResult.affected_tests_report``), so we cannot
+    import it at the top of this module.  This helper defers the import to
+    the point where it is actually needed (``from_dict``).
+    """
+    from colleague.affectedtests import AffectedTestsReport
+
+    return AffectedTestsReport
