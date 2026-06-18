@@ -14,8 +14,8 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
     # The six base tools (read_file, write_file, edit_file, list_dir,
     # run_command, finish), plus the curated shared culture tool (t3), the
     # curated shared devague tool (t2), the subagent delegation tool (t4), the
-    # parallel batch subagents tool (t4), and the test-integrity self-check
-    # tool (t5).
+    # parallel batch subagents tool (t4), the test-integrity self-check tool
+    # (t5), and the read-only run_tests tool (typed-subagent roles, t7).
     assert set(TOOL_NAMES) == {
         "read_file",
         "write_file",
@@ -28,6 +28,7 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
         "subagent",
         "subagents",
         "check_test_integrity",
+        "run_tests",
     }
     for schema in SCHEMAS:
         assert schema["type"] == "function"

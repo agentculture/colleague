@@ -26,19 +26,19 @@ class TestCurateSchemas:
         assert names == set(explorer.tool_allowlist)
 
     def test_unknown_allowlist_name_is_skipped(self) -> None:
-        # A role whose allow-list contains a name not in SCHEMAS (e.g. "run_tests")
-        # must not raise — it is simply skipped.
+        # A role whose allow-list contains a name not in SCHEMAS (e.g. a tool a
+        # later task will add, or a typo) must not raise — it is simply skipped.
         role = Role(
             name="custom",
             prompt_fragment="",
-            tool_allowlist=("read_file", "run_tests", "list_dir"),
+            tool_allowlist=("read_file", "not_a_real_tool", "list_dir"),
             skill_subset=None,
             read_only=True,
         )
         curated = curate_schemas(role)
         names = {s["function"]["name"] for s in curated}
         assert names == {"read_file", "list_dir"}
-        assert "run_tests" not in names
+        assert "not_a_real_tool" not in names
 
     def test_empty_allowlist_returns_empty(self) -> None:
         role = Role(
