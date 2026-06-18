@@ -506,6 +506,8 @@ def cmd_work(args: argparse.Namespace) -> int:
         repo_path=repo,
     )
 
+    config.role = getattr(args, "role", None)
+
     _apply_lint_optout(args, config)
 
     command_name: str | None = getattr(args, "command_name", None)
@@ -624,6 +626,11 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
     p.add_argument("--model", default=None, help="Override the engine model name.")
+    p.add_argument(
+        "--role",
+        default=None,
+        help="Run the work item as a typed subagent role (e.g. explorer, reviewer, writer).",
+    )
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
     p.add_argument(

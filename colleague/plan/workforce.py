@@ -23,6 +23,7 @@ def build_workforce_items(
     *,
     engine: str,
     model: str,
+    role: str | None = None,
 ) -> list[dict]:
     """Map each PlanItem to a batch-spawn item dict.
 
@@ -33,13 +34,14 @@ def build_workforce_items(
     for item in items:
         lines = ["- " + c for c in item.acceptance]
         instruction = f"{item.summary}\n\nAcceptance criteria:\n" + "\n".join(lines)
-        result.append(
-            {
-                "instruction": instruction,
-                "engine": engine,
-                "model": model,
-            }
-        )
+        entry: dict = {
+            "instruction": instruction,
+            "engine": engine,
+            "model": model,
+        }
+        if role is not None:
+            entry["role"] = role
+        result.append(entry)
     return result
 
 
@@ -54,6 +56,7 @@ def run_wave(
     *,
     engine: str,
     model: str,
+    role: str | None = None,
 ) -> list[SubResult]:
     """Run *wave_items* through the injected *batch_spawn* in sized batches.
 
@@ -65,7 +68,7 @@ def run_wave(
     chunks_list = chunk(wave_items, batch_size)
     results: list[SubResult] = []
     for items_chunk in chunks_list:
-        workforce_items = build_workforce_items(items_chunk, engine=engine, model=model)
+        workforce_items = build_workforce_items(items_chunk, engine=engine, model=model, role=role)
         results.extend(batch_spawn(workforce_items))
     return results
 
