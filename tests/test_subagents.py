@@ -159,14 +159,16 @@ def test_inheritance_preserves_base_fields(tmp_path) -> None:
     assert parent.subagent_spawn is None
 
 
-def test_child_config_forbids_nested_batches(tmp_path, monkeypatch) -> None:
-    """A child drive's config has ``subagent_batch_spawn = None`` (Qodo #5).
+def test_child_config_permits_nested_batches(tmp_path, monkeypatch) -> None:
+    """A child drive's config now has a FRESH ``subagent_batch_spawn`` (#t4).
 
-    Nested batches are forbidden in v0 (parked risk r2): the parent's batch-spawn
-    closure is bound to the PARENT's repo_path/depth, so inheriting it would let a
-    child run a batch against the wrong worktree without incrementing depth. The
-    single-child ``subagent_spawn`` IS still rebound (depth-bounded delegation
-    survives). The parent config object is left untouched.
+    Nested batches are now PERMITTED (agents of agents of agents): the child is
+    given its OWN batch-spawn closure bound to the CHILD's repo_path and
+    ``depth + 1`` (and the shared global budget), not the parent's. This resolves
+    the original wrong-worktree concern (Qodo #5) by CORRECT binding rather than
+    prohibition — a nested batch runs against the child's own worktree, increments
+    depth, and counts against the one global agent budget. The single-child
+    ``subagent_spawn`` is rebound too, and the parent config object is untouched.
     """
     from colleague import registry as _registry
 
@@ -181,8 +183,8 @@ def test_child_config_forbids_nested_batches(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("colleague.subagents.registry.load", lambda name: _CapturingEngine())
 
     parent = EngineConfig()
-    # Simulate the top-level drive having a batch-spawn closure set.
-    parent.subagent_batch_spawn = lambda items: []
+    parent_batch = lambda items, role=None: []  # noqa: E731 - test stub
+    parent.subagent_batch_spawn = parent_batch
 
     run_subagent(
         "task",
@@ -193,10 +195,13 @@ def test_child_config_forbids_nested_batches(tmp_path, monkeypatch) -> None:
     )
 
     child_cfg = captured["config"]
-    assert child_cfg.subagent_batch_spawn is None, "child must NOT inherit the parent's batch spawn"
+    # Nested batches permitted: child has its OWN batch spawn (not None, and not
+    # the parent's identical object — a fresh closure bound to the child's depth+1).
+    assert child_cfg.subagent_batch_spawn is not None, "child must be able to nest batches"
+    assert child_cfg.subagent_batch_spawn is not parent_batch, "child gets a FRESH batch closure"
     assert child_cfg.subagent_spawn is not None, "single-child delegation must still be wired"
     # Parent object is not mutated by the launch.
-    assert parent.subagent_batch_spawn is not None
+    assert parent.subagent_batch_spawn is parent_batch
 
 
 # ---------------------------------------------------------------------------

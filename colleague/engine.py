@@ -108,7 +108,18 @@ class Engine(abc.ABC):
         """
         # Imported lazily to keep this module's import surface minimal and avoid
         # pulling the whole loop in at engine import time.
-        from colleague.layers import system_prompt_for
+        from colleague.layers import compose_role_prompt, system_prompt_for
         from colleague.loop import _DEFAULT_SYSTEM
 
+        # Typed-subagent role (#t4): when this work item runs as a role, compose the
+        # base + AGENTS + the role's prompt_fragment + the role's curated skill subset
+        # (one assembly path — compose_role_prompt reuses system_prompt_for's pieces).
+        # An unknown/absent role falls back to the role-less prompt → byte-identical.
+        role_name = getattr(config, "role", None)
+        if role_name:
+            from colleague.roles import load_role
+
+            role = load_role(role_name, task.repo_path, config.model)
+            if role is not None:
+                return compose_role_prompt(role, task.repo_path, config.model, base=_DEFAULT_SYSTEM)
         return system_prompt_for(task.repo_path, config.model, base=_DEFAULT_SYSTEM)

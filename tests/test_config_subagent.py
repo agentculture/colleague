@@ -64,6 +64,8 @@ def test_to_dict_has_expected_keys() -> None:
         "max_continue_nudges",
         "synthesis_reserve_steps",
         "max_output_chars",
+        "subagent_depth",
+        "subagent_total",
         "lint",
         "lint_fix_retries",
         "testintegrity",
@@ -78,8 +80,8 @@ def test_to_dict_has_expected_keys() -> None:
 
 
 def test_max_subagent_depth_constant() -> None:
-    """MAX_SUBAGENT_DEPTH is defined and equals 2."""
-    assert MAX_SUBAGENT_DEPTH == 2
+    """MAX_SUBAGENT_DEPTH was deepened from 2 to 4 for typed-subagent roles (#t4)."""
+    assert MAX_SUBAGENT_DEPTH == 4
 
 
 def test_max_subagent_fanout_constant() -> None:

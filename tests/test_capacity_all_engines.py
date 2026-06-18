@@ -21,6 +21,7 @@ import colleague.engines.vllm_openai as vllm_eng
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
     MAX_SUBAGENT_FANOUT,
+    MAX_SUBAGENT_TOTAL,
     EngineConfig,
 )
 from colleague.contract import OK, Task, TaskResult
@@ -81,6 +82,61 @@ def test_vllm_engine_forwards_max_continue_nudges(monkeypatch, tmp_path: Path) -
 
 
 # ---------------------------------------------------------------------------
+# Single source for config→ContextControls forwarding (de-dup, #221)
+# ---------------------------------------------------------------------------
+
+
+def test_from_config_forwards_fields() -> None:
+    """``ContextControls.from_config`` is the one place the config→controls mapping
+    lives; pin a representative spread so a dropped field is caught."""
+    import dataclasses
+
+    cfg = EngineConfig.resolve(
+        context_budget_tokens=12345,
+        max_continue_nudges=4,
+        fillline_threshold=0.55,
+    )
+    cfg = dataclasses.replace(cfg, role="reviewer", affected_tests=False)
+    ctx = ContextControls.from_config(cfg)
+    assert ctx.budget == 12345
+    assert ctx.max_continue_nudges == 4
+    assert ctx.fillline_threshold == 0.55
+    assert ctx.role == "reviewer"
+    assert ctx.affectedtests is False
+    assert ctx.autosplit_target == cfg.autosplit_target_tokens
+    assert ctx.testintegrity == cfg.testintegrity
+
+
+def test_from_config_count_tokens_optional() -> None:
+    cfg = EngineConfig.resolve()
+    assert ContextControls.from_config(cfg).count_tokens is None
+    sentinel = lambda msgs: 7  # noqa: E731
+    assert ContextControls.from_config(cfg, count_tokens=sentinel).count_tokens is sentinel
+
+
+def test_both_engines_build_identical_controls(monkeypatch, tmp_path: Path) -> None:
+    """The all-engines rule: both backends forward config through the SAME factory,
+    so their ContextControls are identical apart from the vLLM ``count_tokens``
+    counter. This is the guard the de-dup must keep true."""
+    import dataclasses
+
+    cfg = EngineConfig.resolve(fillline_threshold=0.55, max_continue_nudges=4)
+
+    cap_mock = _capture_context(monkeypatch, mock_eng)
+    mock_eng.MockEngine().work(Task.new(str(tmp_path), "do", engine="mock"), cfg)
+
+    cap_vllm = _capture_context(monkeypatch, vllm_eng)
+    vllm_eng.VllmOpenAIEngine().work(Task.new(str(tmp_path), "do", engine="vllm-openai"), cfg)
+
+    mock_ctx = dataclasses.replace(cap_mock["context"], count_tokens=None)
+    vllm_ctx = dataclasses.replace(cap_vllm["context"], count_tokens=None)
+    assert mock_ctx == vllm_ctx
+    # The mock leaves count_tokens None; the vLLM backend supplies its counter.
+    assert cap_mock["context"].count_tokens is None
+    assert cap_vllm["context"].count_tokens is not None
+
+
+# ---------------------------------------------------------------------------
 # Strict no-op: no fill-line event → no extra turn, byte-identical shape
 # ---------------------------------------------------------------------------
 
@@ -117,8 +173,11 @@ def test_no_fillline_event_makes_no_extra_turn(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_structural_caps_unchanged() -> None:
+def test_structural_caps() -> None:
+    # Typed-subagent roles (#t4) deepened recursion (2 -> 4) and added a single
+    # global per-top-level agent budget (24); the fan-out cap is unchanged.
     assert MAX_SUBAGENT_FANOUT == 4
-    assert MAX_SUBAGENT_DEPTH == 2
+    assert MAX_SUBAGENT_DEPTH == 4
+    assert MAX_SUBAGENT_TOTAL == 24
     assert _MAX_OVERFLOW_RETRIES == 3
     assert _MAX_TIMEOUT_RETRIES == 1

@@ -115,6 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import plan as _plan_cmd
     from colleague.cli._commands import promote as _promote_cmd
     from colleague.cli._commands import quickstart as _quickstart_cmd
+    from colleague.cli._commands import roles as _roles_group
     from colleague.cli._commands import session as _session_cmd
     from colleague.cli._commands import skills as _skills_group
     from colleague.cli._commands import telemetry as _telemetry_group
@@ -166,6 +167,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # Layered per-model config: AGENTS instructions + skills.
     _agents_group.register(sub)
     _skills_group.register(sub)
+    # Typed subagent roles: prompt + curated tools + skills per role (read-only roles).
+    _roles_group.register(sub)
     # Telemetry: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
     _telemetry_group.register(sub)
     # Provider config: resolved engine/provider settings (api_key redacted).

@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-06-18
+
+### Added
+
+- **Subagent roles — a typed workforce, with read-only roles that cannot write.**
+  A delegated subagent can be a typed *role*: a tailored system prompt, a curated
+  subset of the tool surface, and a curated skill subset. Built-in roles
+  (`colleague/roles.py`): `explorer`/`planner`/`reviewer` (read-only), `validator`
+  (read + a dedicated read-only `run_tests` tool, no write), `writer` (full
+  surface). A read-only role withholds `write_file`/`edit_file`/`run_command` and
+  the role-aware `ToolExecutor` refuses any withheld tool, so it provably cannot
+  mutate the tree. The engine resolves `config.role` once (`mock`==`vllm-openai`):
+  curated `SCHEMAS` (`curate_schemas`), a role-composed prompt (`compose_role_prompt`
+  via the one layered-config path), and the role-aware executor; the applied role
+  is recorded on `TaskResult.role`/`SubResult.role` (omit-when-None → a role-less
+  run is byte-identical).
+- **Deeper recursion + a global agent budget.** `MAX_SUBAGENT_DEPTH` raised from 2
+  to 4; a single `MAX_SUBAGENT_TOTAL=24` global budget (a thread-safe counter)
+  bounds the TOTAL agents spawned under one top-level work item regardless of
+  nesting shape, charged before any child work so every shape terminates; nested
+  batches are now permitted. Env-tunable via `COLLEAGUE_SUBAGENT_DEPTH` /
+  `COLLEAGUE_SUBAGENT_TOTAL`.
+- **Surfaces for selecting + inspecting roles:** a `role` parameter on the
+  `subagent`/`subagents` loop tools, `colleague work --role`, `ask-colleague …
+  --role`, the plan workforce's per-child role, and a new `colleague roles`
+  inspection noun (distinct from `agents`, which inspects AGENTS instruction files).
+  Operator prompt overlays at `.colleague/agents/<name>.md` (+ per-model overlay).
+- Selection is backend-judged and optional; omitting a role is byte-identical to
+  the pre-role full-surface delegation. Runtime-owned (all-engines rule), zero new
+  runtime deps. Spec/plan under `docs/specs|plans/2026-06-17-…typed-subage.md`;
+  feature doc `docs/features/subagent-roles.md`.
+
+### Fixed
+
+- **`run_tests` read-only guarantee is now literal (PR #221 review).** The
+  validator role's curated pytest runner already rejected option-like args and
+  confined paths; it now also disables pytest's cache plugin
+  (`-p no:cacheprovider`) and bytecode caching (`PYTHONDONTWRITEBYTECODE=1`), so a
+  read-only validator run leaves no `.pytest_cache`/`__pycache__` behind — the tree
+  stays byte-identical. It additionally strips `PYTEST_ADDOPTS` / `PYTEST_PLUGINS`
+  from the subprocess env, closing the env-injected option/plugin vector the `--`
+  separator does not (surfaced by an `ask-colleague` diverse-mind audit).
+- **`load_role` symlink confinement (PR #221 review).** On top of the strict
+  role-name guard, a resolved role file that escapes `.colleague/` is now refused
+  (mirrors `colleague.layers._within` / `ToolExecutor._safe_path`), so a symlink
+  planted in the config dir can't pull an arbitrary file into the system prompt.
+- **SonarCloud S107 on `EngineConfig.resolve`.** The new `subagent_depth` /
+  `subagent_total` knobs are now resolved env-only (like `temperature`/`timeout`),
+  keeping `resolve` under the 13-parameter ceiling. They remain tunable via
+  `COLLEAGUE_SUBAGENT_DEPTH` / `COLLEAGUE_SUBAGENT_TOTAL`.
+- **De-duplicated the engines' `ContextControls` forwarding.** Both backends now
+  build their context controls through one `ContextControls.from_config()` factory
+  — a single source for the config→controls mapping that strengthens the
+  all-engines rule (a backend that diverges is now a test failure).
+
 ## [1.18.0] - 2026-06-18
 
 ### Added

@@ -163,6 +163,48 @@ The architecture, part by part:
   This is explicitly NOT the out-of-scope multi-backend router / routing policy: there is
   no operator-configured automatic task→backend routing policy. Runtime-owned
   (all-engines rule): the tools fire identically for every backend.
+- **Subagent roles** — a delegated subagent can be a **typed role**: a tailored
+  system prompt + a **curated subset** of the tool surface + a curated skill
+  subset. Built-in defaults (`colleague/roles.py` `BUILTIN_ROLES`): `explorer`/
+  `planner`/`reviewer` (read-only), `validator` (read + a dedicated read-only
+  `run_tests` tool, no write), `writer` (full surface = today's default). A
+  **read-only role provably cannot mutate the tree**: it withholds `write_file`,
+  `edit_file`, AND `run_command` (the read-only built-ins are pure-read — even
+  `culture`/`devague` are excluded as write-capable shell-outs), and the
+  **role-aware `ToolExecutor` refuses any withheld tool** (`allowlist=role`) even
+  if the model hallucinates the call. The engine (`mock`==`vllm-openai`) resolves
+  `config.role` once in `work()` via the runtime seam `colleague/loop.py`
+  `resolve_role`: the offered schema = `colleague/tools.py` `curate_schemas(role)`,
+  the system prompt = `colleague/layers.py` `compose_role_prompt(role,…)` (base +
+  AGENTS + the role's `prompt_fragment` + its curated skills, through the ONE
+  existing layered-config path), and the role-aware executor. `Engine.system_prompt`
+  is itself role-aware, so every backend inherits it. The applied role is recorded
+  on `TaskResult.role`/`SubResult.role` (omit-when-None → a role-less run is
+  byte-identical). Recursion deepened to `MAX_SUBAGENT_DEPTH=4` (was 2) with a
+  single global `MAX_SUBAGENT_TOTAL=24` agent budget (a thread-safe counter in
+  `colleague/subagents.py` charged once **before any child work**, so every nesting
+  shape terminates; nested batches now permitted, each child bound to its own
+  depth+1 batch-spawn sharing the budget; env-tunable
+  `COLLEAGUE_SUBAGENT_DEPTH`/`COLLEAGUE_SUBAGENT_TOTAL`). Selection is
+  **backend-judged + optional** (a `role` param on the `subagent`/`subagents`
+  tools, `colleague work --role`, `ask-colleague … --role`, and the plan workforce's
+  per-child role) — never automatic routing; omitting it is byte-identical. Operator
+  prompt overlays at `.colleague/agents/<name>.md` (+ per-model
+  `.colleague/<model>/agents/<name>.md`, exact path, no sibling globbing) override a
+  built-in role's **prompt**. Surfaced for inspection via the **`roles`** CLI noun
+  (`colleague/cli/_commands/roles.py` — a DISTINCT noun from `agents`, which
+  inspects the AGENTS instruction-file cascade; the plan said "agents noun" but that
+  name was already taken). Runtime-owned, zero-deps (the `_AgentBudget` `threading`
+  use is confined to the sanctioned `subagents.py`). **Honest limits:** writes are
+  confined to the repo + the agent's worktree (`_safe_path` confines `write_file`/
+  `edit_file`; the cross-repo "free-run" write mode is **parked**, out of scope —
+  no code path enables an out-of-repo write); `run_command` (writer only) stays
+  arbitrary shell by design (trusted-operator D2, not a sandbox); v1 operator config
+  overrides the prompt only, not a role's tool-allowlist (custom-allow-list roles +
+  checksum-gating of role files are documented follow-ups). Spec + plan:
+  `docs/specs/2026-06-17-colleague-orchestrates-a-workforce-of-typed-subage.md` and
+  `docs/plans/2026-06-17-colleague-orchestrates-a-workforce-of-typed-subage.md`;
+  feature doc: `docs/features/subagent-roles.md`.
 - **Auto-split** — when an assignment is too large for one context window,
   colleague recommends splitting it into up to ~4 coherent child assignments
   (via the existing `subagents` tool) instead of degrading lossily or failing.

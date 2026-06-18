@@ -59,6 +59,13 @@ _DEFAULT_MAX_OUTPUT_CHARS = 100000
 # Tunable per environment with COLLEAGUE_SUBAGENT_CONCURRENCY.
 _DEFAULT_SUBAGENT_CONCURRENCY = 1
 
+# Subagent recursion depth cap (agents of agents). Tunable per environment
+# with COLLEAGUE_SUBAGENT_DEPTH.
+_DEFAULT_SUBAGENT_DEPTH = 4
+# Global per-top-level total-agent budget for subagent delegation. Tunable per
+# environment with COLLEAGUE_SUBAGENT_TOTAL.
+_DEFAULT_SUBAGENT_TOTAL = 24
+
 # Auto-split capacity target in tokens (issue #151). The operator-tunable
 # "~1M effective capacity" knob: colleague recommends splitting a too-large
 # assignment into children whose count is derived from this target divided by
@@ -148,8 +155,9 @@ _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 _DEFAULT_ENGINE = "vllm-openai"
 
 # Subagent delegation bounds.
-MAX_SUBAGENT_DEPTH = 2
+MAX_SUBAGENT_DEPTH = 4
 MAX_SUBAGENT_FANOUT = 4
+MAX_SUBAGENT_TOTAL = 24
 
 # The persistent per-repo config file, resolved under .colleague/ (configdir).
 _CONFIG_FILENAME = "config.json"
@@ -369,6 +377,8 @@ class EngineConfig:
     context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
     max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
+    subagent_depth: int = _DEFAULT_SUBAGENT_DEPTH
+    subagent_total: int = _DEFAULT_SUBAGENT_TOTAL
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
     fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
     fanout_files: int = _DEFAULT_FANOUT_FILES
@@ -404,6 +414,13 @@ class EngineConfig:
     # behavior, not serializable config).
     subagent_batch_spawn: Optional[Callable] = field(default=None, compare=False, repr=False)
 
+    # Typed-subagent role NAME this work item runs as (#t4). ``None`` = today's
+    # full-surface behavior (byte-identical to pre-role). Set on a *child's* config
+    # by the subagent launcher; the engine builds the child's curated tool schema +
+    # role-composed prompt from it (t8). A runtime field, not env-resolved, so it is
+    # excluded from eq/repr/to_dict like the spawn callbacks above.
+    role: Optional[str] = field(default=None, compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,
@@ -433,13 +450,14 @@ class EngineConfig:
         When *repo_path* is ``None`` or no config file exists, behaviour is
         byte-identical to the prior (no config-file) implementation.
 
-        ``temperature`` and ``timeout`` have no explicit-override keyword (and no
-        CLI flag): no caller in the codebase passes them, so their precedence is
-        simply ``COLLEAGUE_*`` env var > built-in default. Keeping them off the
-        signature holds ``resolve`` under the parameter ceiling (SonarCloud S107);
-        the dataclass still carries the fields, and the ``COLLEAGUE_TEMPERATURE`` /
-        ``COLLEAGUE_TIMEOUT`` env vars (with ``CONVERTIBLE_*`` fallbacks) override
-        them as before.
+        ``temperature``, ``timeout``, ``subagent_depth`` and ``subagent_total``
+        have no explicit-override keyword (and no CLI flag): no production caller
+        passes them, so their precedence is simply ``COLLEAGUE_*`` env var >
+        built-in default. Keeping them off the signature holds ``resolve`` under
+        the parameter ceiling (SonarCloud S107); the dataclass still carries the
+        fields, and the ``COLLEAGUE_TEMPERATURE`` / ``COLLEAGUE_TIMEOUT`` /
+        ``COLLEAGUE_SUBAGENT_DEPTH`` / ``COLLEAGUE_SUBAGENT_TOTAL`` env vars (with
+        ``CONVERTIBLE_*`` fallbacks) override them as before.
         """
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
@@ -533,6 +551,24 @@ class EngineConfig:
                     default=str(_DEFAULT_SUBAGENT_CONCURRENCY),
                 ),
                 default=_DEFAULT_SUBAGENT_CONCURRENCY,
+            ),
+            subagent_depth=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_SUBAGENT_DEPTH",
+                    "CONVERTIBLE_SUBAGENT_DEPTH",
+                    default=str(_DEFAULT_SUBAGENT_DEPTH),
+                ),
+                default=_DEFAULT_SUBAGENT_DEPTH,
+            ),
+            subagent_total=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_SUBAGENT_TOTAL",
+                    "CONVERTIBLE_SUBAGENT_TOTAL",
+                    default=str(_DEFAULT_SUBAGENT_TOTAL),
+                ),
+                default=_DEFAULT_SUBAGENT_TOTAL,
             ),
             autosplit_target_tokens=int(
                 _pick(
@@ -687,6 +723,8 @@ class EngineConfig:
             "max_continue_nudges": self.max_continue_nudges,
             "synthesis_reserve_steps": self.synthesis_reserve_steps,
             "max_output_chars": self.max_output_chars,
+            "subagent_depth": self.subagent_depth,
+            "subagent_total": self.subagent_total,
             "lint": self.lint,
             "lint_fix_retries": self.lint_fix_retries,
             "testintegrity": self.testintegrity,

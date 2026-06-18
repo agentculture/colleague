@@ -235,6 +235,7 @@ class TestNoFinishResultFidelity:
             "affected_tests_report",
             "not_finished",
             "stopped_without_finish",
+            "role",
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields

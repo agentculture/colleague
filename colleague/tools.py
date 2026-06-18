@@ -18,11 +18,16 @@ sandboxing is a later wheel.
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from colleague.roles import Role
 
 from colleague import culture, devague, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
@@ -37,6 +42,9 @@ _PATH_DESC = "Path relative to the repo root."
 #: Bound a runaway model-issued command so it cannot stall the loop indefinitely
 #: (mirrors culture/devague ``_TIMEOUT_SECONDS`` and neighbours ``_GIT_TIMEOUT_SECONDS``).
 _COMMAND_TIMEOUT_SECONDS = 300
+
+#: Timeout for the curated pytest runner (mirrors lint.py's _LINT_TIMEOUT).
+_TESTS_TIMEOUT_SECONDS = 300
 
 
 class ToolError(Exception):
@@ -250,6 +258,10 @@ SCHEMAS: list[dict[str, Any]] = [
                         "type": "string",
                         "description": "Model override for the subagent (omit to inherit parent).",
                     },
+                    "role": {
+                        "type": "string",
+                        "description": "Role name for the subagent (e.g. 'explorer', 'writer').",
+                    },
                 },
                 "required": ["instruction"],
             },
@@ -303,6 +315,10 @@ SCHEMAS: list[dict[str, Any]] = [
                             "required": ["instruction"],
                         },
                     },
+                    "role": {
+                        "type": "string",
+                        "description": "Role name for the subagents (e.g. 'explorer', 'writer').",
+                    },
                 },
                 "required": ["instructions"],
             },
@@ -320,6 +336,31 @@ SCHEMAS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": (
+                "Run the repository's test suite via pytest. Optionally supply "
+                "specific test paths to narrow the run. Read-only: this tool "
+                "never writes files."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional list of test file/module paths to pass to "
+                            "pytest (e.g. ['tests/test_foo.py']). Omit to run "
+                            "the full suite."
+                        ),
+                    }
+                },
             },
         },
     },
@@ -357,6 +398,54 @@ SCHEMAS: list[dict[str, Any]] = [
 TOOL_NAMES: list[str] = [s["function"]["name"] for s in SCHEMAS]
 
 
+def curate_schemas(role: "Role | str") -> list[dict[str, Any]]:
+    """Return only the schemas whose tool name is in *role*'s allow-list.
+
+    Accepts either a :class:`Role` instance or a role name string (looked up in
+    :data:`colleague.roles.BUILTIN_ROLES`).  Names in the allow-list that are
+    not present in :data:`SCHEMAS` are silently skipped.
+    """
+    from colleague.roles import BUILTIN_ROLES, Role
+
+    if isinstance(role, str):
+        role_obj = BUILTIN_ROLES.get(role)
+        if role_obj is None:
+            raise ValueError(f"unknown role '{role}'")
+    elif isinstance(role, Role):
+        role_obj = role
+    else:
+        raise TypeError(f"curate_schemas expects a Role or role name, got {type(role).__name__}")
+
+    allow = set(role_obj.tool_allowlist)
+    return [s for s in SCHEMAS if s["function"]["name"] in allow]
+
+
+def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
+    """Validate + normalize the ``subagents`` tool's instruction items.
+
+    Each item must be an object carrying a non-empty ``instruction`` string;
+    ``engine``/``model``/``role`` are optional. Extracted from
+    :meth:`ToolExecutor._subagents` to keep that method's cognitive complexity
+    within budget (SonarCloud S3776).
+    """
+    items: list[dict[str, Any]] = []
+    for i, item in enumerate(raw_instructions):
+        if not isinstance(item, dict):
+            raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
+        instruction = item.get("instruction")
+        if not instruction or not isinstance(instruction, str):
+            raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
+        items.append(
+            {
+                "instruction": instruction,
+                "engine": item.get("engine") or None,
+                "model": item.get("model") or None,
+                "role": item.get("role") or None,
+            }
+        )
+    return items
+
+
 class ToolExecutor:
     """Executes tool calls against a single repo root, confining file access to it."""
 
@@ -367,6 +456,7 @@ class ToolExecutor:
         spawn=None,
         batch_spawn=None,
         max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
+        allowlist: "Role | tuple[str, ...] | None" = None,
     ) -> None:
         self.root = Path(root).resolve()
         self.changed: set[str] = set()
@@ -385,6 +475,15 @@ class ToolExecutor:
         # COLLEAGUE_MAX_OUTPUT_CHARS); sized for the served model's window.
         self._max_output_chars = max_output_chars
         self.sub_results: list[SubResult] = []
+        # Optional role-aware allow-list: when set, only listed tools may be
+        # dispatched; everything else raises ToolError.  Accepts a Role object
+        # (uses role.tool_allowlist) or a plain tuple of tool-name strings.
+        if allowlist is None:
+            self._allowlist: set[str] | None = None
+        elif hasattr(allowlist, "tool_allowlist"):
+            self._allowlist = set(allowlist.tool_allowlist)
+        else:
+            self._allowlist = set(allowlist)
 
     def _truncate(self, text: str) -> str:
         limit = self._max_output_chars
@@ -418,37 +517,42 @@ class ToolExecutor:
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch a single tool call by name to its handler.
 
-        Returns the matching handler's ToolOutcome.
+        Returns the matching handler's ToolOutcome.  When an allow-list is active
+        (set via ``allowlist`` on construction), tools not in the list raise
+        :class:`ToolError` instead of being executed.
         """
-        if name == "read_file":
-            return self._read_file(arguments)
-        if name == "write_file":
-            return self._write_file(arguments)
-        if name == "edit_file":
-            return self._edit_file(arguments)
-        if name == "list_dir":
-            return self._list_dir(arguments)
-        if name == "run_command":
-            return self._run_command(arguments)
-        if name == "culture":
-            return self._culture(arguments)
-        if name == "devague":
-            return self._devague(arguments)
-        if name == "subagent":
-            return self._subagent(arguments)
-        if name == "subagents":
-            return self._subagents(arguments)
-        if name == "check_test_integrity":
-            return self._check_test_integrity()
-        if name == FINISH:
-            return ToolOutcome(
-                result="finished",
-                finished=True,
-                finish_summary=str(arguments.get("summary", "")),
-                destination=arguments.get("destination") or None,
-                announcement=arguments.get("announcement") or None,
-            )
-        raise ToolError(f"unknown tool '{name}'")
+        if self._allowlist is not None and name not in self._allowlist:
+            raise ToolError(f"tool '{name}' is not allowed for this role")
+        # Table-driven dispatch (was a long if-chain; flattened to keep cognitive
+        # complexity in budget — S3776). check_test_integrity takes no args.
+        dispatch = {
+            "read_file": self._read_file,
+            "write_file": self._write_file,
+            "edit_file": self._edit_file,
+            "list_dir": self._list_dir,
+            "run_command": self._run_command,
+            "culture": self._culture,
+            "devague": self._devague,
+            "subagent": self._subagent,
+            "subagents": self._subagents,
+            "run_tests": self._run_tests,
+            "check_test_integrity": lambda _a: self._check_test_integrity(),
+            FINISH: self._finish,
+        }
+        handler = dispatch.get(name)
+        if handler is None:
+            raise ToolError(f"unknown tool '{name}'")
+        return handler(arguments)
+
+    def _finish(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """The ``finish`` tool — record the terminal summary + optional destination."""
+        return ToolOutcome(
+            result="finished",
+            finished=True,
+            finish_summary=str(arguments.get("summary", "")),
+            destination=arguments.get("destination") or None,
+            announcement=arguments.get("announcement") or None,
+        )
 
     def _read_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         path = self._safe_path(str(arguments["path"]))
@@ -700,6 +804,70 @@ class ToolExecutor:
         ]
         return ToolOutcome(result="mirror findings:\n" + "\n".join(lines))
 
+    def _run_tests(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Run the repository's test suite via pytest.
+
+        Curated runner: the command is fixed to ``python -m pytest [paths]`` —
+        never taken from the model, so a read-only validator role can run tests
+        without access to ``run_command``. Mirrors lint.py's ``_run`` pattern
+        (curated program set, per-call timeout, graceful degradation).
+
+        Returns a concise pass/fail summary string.  Never writes files.
+        """
+        raw_paths: list[str] = arguments.get("paths") or []
+        # Confine + de-weaponize the model-supplied paths (#t4 Q2): reject option-like
+        # args and anything escaping the repo root, then pass them AFTER ``--`` so
+        # pytest treats every one as a POSITIONAL test path, never an option — closing
+        # the ``--junitxml=…`` / ``-p plugin`` injection that could write a file or
+        # load arbitrary code despite the validator role being "read-only".
+        safe_paths: list[str] = []
+        for p in raw_paths:
+            if not isinstance(p, str) or p.startswith("-"):
+                return ToolOutcome(result=f"run_tests skipped: invalid test path {p!r}")
+            try:
+                self._safe_path(p)
+            except ToolError:
+                return ToolOutcome(result=f"run_tests skipped: path {p!r} escapes the repo root")
+            safe_paths.append(p)
+        # Keep the validator role's "never writes files" promise literally true
+        # (#221 qodo): pytest/python otherwise drop ``.pytest_cache`` and
+        # ``__pycache__`` into the tree. ``-p no:cacheprovider`` disables pytest's
+        # cache plugin and ``PYTHONDONTWRITEBYTECODE=1`` stops bytecode caches, so a
+        # read-only run leaves the tree byte-identical.
+        cmd = [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "--", *safe_paths]
+        # The ``--`` separator de-weaponizes CLI args but NOT the env: pytest honors
+        # ``PYTEST_ADDOPTS`` (arbitrary options) and ``PYTEST_PLUGINS`` (arbitrary
+        # plugin imports) from the environment regardless. Strip both so an inherited
+        # env can't re-open the option/plugin-injection vector behind the validator's
+        # back, and disable bytecode caches to keep the tree byte-identical.
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        env.pop("PYTEST_ADDOPTS", None)
+        env.pop("PYTEST_PLUGINS", None)
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_TESTS_TIMEOUT_SECONDS,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            return ToolOutcome(
+                result=f"run_tests skipped: timed out after {_TESTS_TIMEOUT_SECONDS}s"
+            )
+        except (OSError, ValueError) as exc:
+            return ToolOutcome(result=f"run_tests skipped: {exc}")
+
+        body = (proc.stdout or "") + (proc.stderr or "")
+        if proc.returncode == 0:
+            return ToolOutcome(result="tests passed")
+        # Non-zero: include last ~20 lines of output for context.
+        last_lines = "\n".join(body.splitlines()[-20:])
+        return ToolOutcome(result=f"tests FAILED (exit={proc.returncode})\n{last_lines}")
+
     def _subagent(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Delegate a scoped sub-task to a nested child work item via the injected spawn.
 
@@ -722,6 +890,7 @@ class ToolExecutor:
 
         engine = arguments.get("engine") or None
         model = arguments.get("model") or None
+        role = arguments.get("role") or None
 
         if len(self.sub_results) >= MAX_SUBAGENT_FANOUT:
             raise ToolError(
@@ -729,7 +898,7 @@ class ToolExecutor:
             )
 
         try:
-            sub = self._spawn(instruction, engine, model)
+            sub = self._spawn(instruction, engine, model, role)
         except ToolError:
             raise
         except Exception as exc:  # launcher/engine errors -> clean string for the model
@@ -766,21 +935,12 @@ class ToolExecutor:
         if not raw_instructions or not isinstance(raw_instructions, list):
             raise ToolError("subagents tool requires a non-empty 'instructions' list")
 
-        # Validate each item has a non-empty 'instruction' string.
-        items = []
-        for i, item in enumerate(raw_instructions):
-            if not isinstance(item, dict):
-                raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
-            instruction = item.get("instruction")
-            if not instruction or not isinstance(instruction, str):
-                raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
-            items.append(
-                {
-                    "instruction": instruction,
-                    "engine": item.get("engine") or None,
-                    "model": item.get("model") or None,
-                }
-            )
+        # Validate + normalize each item (extracted to keep this method's cognitive
+        # complexity in budget — S3776).
+        items = _parse_batch_items(raw_instructions)
+
+        # Batch-level role (#t4): applies to every child unless an item set its own.
+        batch_role = arguments.get("role") or None
 
         # Fan-out cap: reserve one slot for the merge child.  The batch may have
         # at most MAX_SUBAGENT_FANOUT - 1 parallel children.
@@ -792,7 +952,7 @@ class ToolExecutor:
             )
 
         try:
-            batch_results = self._batch_spawn(items)
+            batch_results = self._batch_spawn(items, batch_role)
         except ToolError:
             raise
         except Exception as exc:

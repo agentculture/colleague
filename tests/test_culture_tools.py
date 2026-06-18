@@ -73,6 +73,7 @@ class TestCultureToolExposed:
             "subagent",
             "subagents",
             "check_test_integrity",
+            "run_tests",
         }
 
     def test_tool_names_includes_culture(self) -> None:

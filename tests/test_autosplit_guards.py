@@ -437,7 +437,8 @@ def test_max_subagent_fanout_unchanged():
 
 
 def test_max_subagent_depth_unchanged():
-    """MAX_SUBAGENT_DEPTH must remain 2 — the auto-split feature must not raise it."""
+    """MAX_SUBAGENT_DEPTH is 4 — auto-split never touched it; the typed-subagent
+    roles feature (#t4) deepened it from 2 to 4. Auto-split still must not change it."""
     assert (
-        MAX_SUBAGENT_DEPTH == 2
-    ), f"MAX_SUBAGENT_DEPTH changed: expected 2, got {MAX_SUBAGENT_DEPTH}"
+        MAX_SUBAGENT_DEPTH == 4
+    ), f"MAX_SUBAGENT_DEPTH changed unexpectedly: expected 4, got {MAX_SUBAGENT_DEPTH}"

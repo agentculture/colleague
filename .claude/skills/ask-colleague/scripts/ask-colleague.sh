@@ -103,6 +103,7 @@ Options:
   --base BRANCH      Base for `review` diff (default: main)
   --engine NAME      Backend plugin (default: $COLLEAGUE_ENGINE or vllm-openai)
   --model NAME       Model (default: $COLLEAGUE_MODEL or sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP)
+  --role NAME        Typed subagent role (e.g. explorer, reviewer, writer)
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20; 30 for explore)
   --timeout N        Per-request timeout, seconds (default: $COLLEAGUE_TIMEOUT or 300)
@@ -191,6 +192,7 @@ NOTES=""
 BY=""
 ARG=""
 JSON_OUT=0
+ROLE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -198,6 +200,7 @@ while [[ $# -gt 0 ]]; do
         --base) need_value "$#" "$1"; BASE="$2"; shift 2 ;;
         --engine) need_value "$#" "$1"; ENGINE="$2"; shift 2 ;;
         --model) need_value "$#" "$1"; MODEL="$2"; shift 2 ;;
+        --role) need_value "$#" "$1"; ROLE="$2"; shift 2 ;;
         --base-url) need_value "$#" "$1"; BASE_URL="$2"; shift 2 ;;
         --max-steps) need_value "$#" "$1"; MAX_STEPS="$2"; MAX_STEPS_EXPLICIT=1; shift 2 ;;
         --timeout) need_value "$#" "$1"; TIMEOUT="$2"; shift 2 ;;
@@ -305,6 +308,8 @@ COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-s
 # --watch arms a flight for EVERY drive verb (explore/review/write), so it lives on
 # the shared flag list — not inside one verb's path — so monitor/guide/stop work.
 [[ "${WATCH:-0}" -eq 1 ]] && COMMON_FLAGS+=(--watch)
+# --role forwards a typed-subagent role to the work item.
+[[ -n "${ROLE:-}" ]] && COMMON_FLAGS+=(--role "$ROLE")
 
 # ── render an instruction from a prompt template ────────────────────────────
 render_prompt() {

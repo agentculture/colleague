@@ -58,8 +58,8 @@ def _patch_live_backend(monkeypatch) -> list[list[dict]]:
     calls: list[list[dict]] = []
     monkeypatch.setattr("colleague.registry.load", lambda _name: _FakeEngine())
 
-    def fake_make_batch_spawn(_repo, _config, _engine):
-        def batch_spawn(items):
+    def fake_make_batch_spawn(_repo, _config, _engine, *, counter=None):
+        def batch_spawn(items, role=None):
             calls.append(items)
             return []
 
@@ -126,7 +126,7 @@ def test_plan_run_malformed_proposal_is_clean_error(
     monkeypatch.setattr("colleague.registry.load", lambda _name: _MalformedEngine())
     monkeypatch.setattr(
         "colleague.cli._commands.plan.make_batch_spawn",
-        lambda _r, _c, _e: (lambda _items: []),
+        lambda _r, _c, _e, **_kw: (lambda _items, role=None: []),
     )
     rc = main(["plan", "run", "build a feature", "--yes", "--repo", str(tmp_path)])
     err = capsys.readouterr().err

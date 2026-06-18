@@ -1,0 +1,421 @@
+{
+  "slug": "colleague-orchestrates-a-workforce-of-typed-subage",
+  "title": "Colleague orchestrates a workforce of typed subagents, each a role with its own prompt, curated tools, and skills \u2014 nesting agents of agents, with read-only roles that cannot write",
+  "frame_slug": "colleague-orchestrates-a-workforce-of-typed-subage",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-17T22:30:35Z",
+  "updated": "2026-06-17T23:00:21Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague orchestrates a workforce of typed subagents, each a role with its own prompt, curated tools, and skills \u2014 nesting agents of agents, with read-only roles that cannot write"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "The orchestration is real and bounded: a read-only role cannot write by any offered tool, recursion terminates under an explicit global cap, and the whole feature is additive \u2014 absent role config means todays behavior, byte-for-byte."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "A backend (any engine) orchestrating a multi-step repo task, plus the operator who declares which roles exist and what each role may touch."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The feature serves BOTH the orchestrating backend (which picks a role) and the operator (who declares roles): each has a concrete surface \u2014 the role parameter vs the .colleague/agents config \u2014 neither is an afterthought."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "A parent work item delegates each scoped sub-task to a TYPED subagent (a role): the child gets a role-specific system prompt, a curated subset of the tool surface, and a curated skill subset, and roles nest recursively to a bounded depth."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "After shipping, a delegated sub-task given a role demonstrably changes the childs prompt, offered tool schema, and skills \u2014 all observable in the run artifact/trace."
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today every subagent inherits the SAME full ten-tool surface and the SAME system prompt; only engine and model can switch. Depth is capped at 2, nested batches are forbidden, and a read-only explorer can still write_file and run_command."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The stated before-state is accurate against current code: subagent/subagents expose only instruction/engine/model, MAX_SUBAGENT_DEPTH is 2, nested batches are nulled, and read-only is unenforced."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Smaller, role-scoped contexts ship faster and safer: delegating more work in narrower scopes beats one large context, and a reviewer that cannot write cannot accidentally mutate the tree."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The safety/speed claims are demonstrable not aspirational: a read-only role provably cannot mutate the tree, and a smaller curated surface does not regress the role."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "In scope: typed roles (prompt plus curated tools plus curated skills), read-only enforcement by tool withholding, bounded deeper recursion, and a role parameter on the existing subagent tools. Roles are stdlib config plus the existing in-process loop."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Everything in scope reuses existing seams (layered config, in-process loop, subagent launcher); nothing in scope needs a new runtime dep, socket, or daemon."
+    },
+    {
+      "id": "c10",
+      "kind": "success_signal",
+      "text": "A read-only role child has provably no write_file/edit_file/run_command in its offered tool schema (visible in the trace/artifact), a role prompt-plus-skills composes deterministically and per-model, recursion is bounded by an explicit global cap, and the same role fires identically on mock and vllm-openai."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Each named success signal is mechanically checkable in tests: the read-only schema, the deterministic prompt+skills compose, the global-cap termination bound, and the mock==vllm result shape."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Roles are operator-authored config with a small set of built-in defaults; absent config falls back to built-in defaults, and absent entirely is byte-identical to todays single full-surface role (purely additive)."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "With no .colleague/agents config present, a work item runs byte-identically to today (one full-surface role) \u2014 verified by the e2e mock shape test."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A role declares a curated tool allow-list; the loop builds the childs offered tool schema from it (a subset of the base and curated tools) and the executor refuses any withheld tool; a read-only role withholds write_file, edit_file, AND the run_command write vector."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A role declared read-only cannot mutate the tree by ANY offered tool: write_file, edit_file, and run_command are all withheld from its schema and refused by the executor if hallucinated \u2014 closing the out-of-the-box-writing hole."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Each role carries a tailored system-prompt fragment and a curated skill subset, composed through the existing layered-config seam (colleague/layers.py) with per-model override and exact-path isolation, reusing the skills/hooks overlay convention."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A role prompt fragment and its curated skills compose deterministically and per-model through the existing layered-config path, adding no second prompt-assembly code path."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "The subagent and subagents tools gain a role parameter; selection is backend-judged and optional, and omitting role is byte-identical to todays full-surface delegation."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Omitting the role parameter is byte-identical to todays delegation; passing a role is the only behavior change and it is the models choice, never automatic routing."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Recursion goes deeper than today (agents of agents of agents) but stays structurally terminating: a single explicit global cap bounds the TOTAL agents spawned per top-level work item regardless of nesting shape, checked before any child work."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The total number of agents spawned under one top-level work item is provably bounded by an explicit cap for every nesting shape; a refused level does zero work and the recursion always terminates."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The same role machinery serves every task type (explore, plan, write, review, validate), and the ask-colleague verbs and the colleague plan workforce stage can request a role per child."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "One role-curation mechanism is exercised by explore, plan, write, review, and validate flows \u2014 not five parallel implementations."
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Roles are runtime-owned and obey the all-engines rule: a role-typed child yields the same TaskResult/SubResult shape on mock and vllm-openai, with zero new runtime deps and no socket or daemon; the e2e, boundary, and zero-deps guards still pass."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "A role-typed childs result shape is identical on mock and vllm-openai, and dependencies stay empty (zero-deps guard green)."
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "A dedicated read-only test-runner loop tool (e.g. run_tests) lets a read-only role such as validator execute the repos tests and report pass/fail WITHOUT run_command or any file-write tool, reusing the affected-tests/pytest machinery and writing nothing."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The validator role can run the test suite and report pass/fail while its offered tool schema contains NO write_file, edit_file, or run_command \u2014 test execution is a separate read-only capability, not a write vector."
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "Writes are confined to the repo and the agents own throwaway worktree (the existing write-isolation plus path confinement); an agent never writes outside its repo box. Writing BEYOND a single repo is a separate gated free-run mode, not part of typed-subagent orchestration."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "By default no offered tool can write outside the repo/worktree box; the free-run cross-repo mode is explicitly absent from this spec \u2014 there is no code path that enables an out-of-repo write here."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Role model + built-in defaults + per-model loader (colleague/roles.py, new)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A Role dataclass carries name, prompt_fragment, tool_allowlist, skill_subset, and a read_only flag; a built-in registry defines explorer/planner/reviewer (read-only), validator (read + run_tests, no write), and writer (full surface).",
+        "load_role(name, repo_path, model) reads .colleague/agents/<name>.md then composes the per-model overlay .colleague/<model>/agents/<name>.md by exact path with no sibling globbing; an absent file falls back to the built-in default.",
+        "With no .colleague/agents config and no role requested, role resolution yields the full-surface role so behavior is byte-identical to today (additive); a test asserts the default allow-list equals the full base+curated tool set."
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h2",
+        "c2",
+        "h10"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Curate the offered tool schema per role + executor refuses withheld tools + add role param to subagent/subagents schemas (colleague/tools.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "curate_schemas(role) returns only the tool schemas whose names are in the roles allow-list (a subset of base+curated tools); a writer role yields todays full SCHEMAS unchanged.",
+        "ToolExecutor is role-aware and raises ToolError when asked to execute a tool absent from the active roles allow-list, so a hallucinated withheld call is refused, not run.",
+        "A read-only roles curated schema contains NO write_file, edit_file, or run_command, and the executor refuses all three (closing the out-of-the-box-writing hole).",
+        "The subagent and subagents tool schemas gain an optional role parameter; omitting it is byte-identical to todays delegation."
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c12",
+        "h3",
+        "c5",
+        "h13",
+        "c14",
+        "h5"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Raise recursion caps + add global agent-budget config fields (colleague/config.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "MAX_SUBAGENT_DEPTH is raised from 2 to 4 and a constant MAX_SUBAGENT_TOTAL (global per-top-level agent budget) is set to 24.",
+        "EngineConfig gains resolvable fields for the depth cap and the total-agent budget (env COLLEAGUE_SUBAGENT_DEPTH / COLLEAGUE_SUBAGENT_TOTAL), defaulting to 4 and 24 through the existing resolve precedence."
+      ],
+      "deps": [],
+      "covers": [
+        "c15"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Thread the role through spawn + enforce the global agent budget + lift the nested-batch ban (colleague/subagents.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "make_spawn/make_batch_spawn and run_subagent accept an optional role and a shared global agent counter; the child is launched with the resolved role at depth+1 and the counter increments per spawned agent.",
+        "A spawn is refused (SubagentError, zero work, no worktree) when depth exceeds MAX_SUBAGENT_DEPTH OR the global agent count would exceed MAX_SUBAGENT_TOTAL, checked before any child work so every nesting shape terminates.",
+        "Nested batches are permitted (a depth>1 child may call subagents) but every child counts against the single global budget; a test drives a 4-level nesting and asserts total spawned agents never exceed the cap."
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "h6"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Compose a roles tailored prompt fragment + curated skill subset via the layered-config seam (colleague/layers.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Given a role, the layered-config path composes base prompt + the roles prompt_fragment + only the roles curated skill subset, deterministically and in fixed order, adding no second prompt-assembly code path.",
+        "A per-model role prompt overlay (.colleague/<model>/agents/<name>.md) composes ahead of the base by exact path with no sibling globbing, matching the skills/hooks overlay convention."
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c13",
+        "h4"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Wire role-curated tools + role prompt + global budget into the child work item (colleague/loop.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "When a child is launched with a role, the loop builds its offered tool schema from curate_schemas(role) and its system prompt from the role-composed layers, instead of the global SCHEMAS / default prompt.",
+        "The role applied to each child is recorded on its SubResult/TaskResult (or step trace) so the run artifact shows which role ran (the prompt/tools/skills change is observable).",
+        "A run with no role requested produces a TaskResult byte-identical in shape to today."
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c3",
+        "h11",
+        "c16"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Add a dedicated read-only run_tests loop tool reusing the affected-tests/pytest machinery (colleague/tools.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A run_tests tool runs the repos tests (reusing the affected-tests pytest invocation) and returns a pass/fail summary; it writes no file and shells no arbitrary command.",
+        "run_tests is in the validator roles allow-list, yet the validator curated schema still has no write_file, edit_file, or run_command, so it tests without any write or arbitrary-exec surface.",
+        "A missing/unrunnable pytest degrades to a recorded skipped message, never a traceback that aborts the work item."
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c21",
+        "h9"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Both backends forward role config and build child tools from the role; all-engines shape parity (colleague/engines/vllm_openai.py, mock.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "vllm-openai and mock both forward the role via ContextControls/EngineConfig so a role-typed child yields the same TaskResult/SubResult shape on both; the e2e mock shape contract is unchanged for a default no-role run.",
+        "A back-compat characterization test asserts that with no role requested the subagent/subagents tools and child work behave byte-identically to the pre-role contract (instruction/engine/model only), proving the change is purely additive."
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c17",
+        "h8",
+        "c4",
+        "h12"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Surface roles for inspection via an agents CLI noun (colleague/cli/_commands/agents.py, new; wired in cli/__init__.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague agents list shows every resolved role (built-in + operator-declared) with its read_only flag, tool allow-list, and skill subset; agents overview prints the surface description; both support --json.",
+        "An agents explain catalog entry exists; results go to stdout and diagnostics to stderr per the agent-first CLI convention."
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h10"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "Let ask-colleague verbs and the colleague plan workforce request a role per child (.claude/skills/ask-colleague + colleague/plan/workforce.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The ask-colleague explore/review/write verbs accept an optional role and pass it to colleague work, so the same role machinery serves read-only explore/review and the write path (one mechanism, not five).",
+        "The colleague plan workforce stage can assign a role per child task when fanning out via make_batch_spawn, with no new fan-out/merge code."
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c16",
+        "h7"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Integration proof: e2e mock==vllm role shape, additive back-compat, zero-deps/boundary guards (tests)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "An e2e test drives a role-typed child on mock and asserts a read-only role child has no write_file/edit_file/run_command in its offered schema, the role prompt+skills compose deterministically, and the global cap bounds total agents (each success signal is a concrete assertion).",
+        "The zero-deps guard (tests/test_zero_deps.py) and the boundary test still pass: roles add no runtime dependency, open no socket/daemon, and keep threads/subprocess confined to the sanctioned modules.",
+        "A test asserts that with no .colleague/agents config the whole pipeline is byte-identical to today (the additive invariant)."
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c6",
+        "h14",
+        "c10",
+        "h15"
+      ]
+    },
+    {
+      "id": "t12",
+      "summary": "Write-confinement test + feature doc + CLAUDE.md bullet + version bump (tests/docs)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A test asserts no offered tool (for any role) can write outside the repo/worktree box and there is NO code path enabling a cross-repo out-of-repo write (free-run mode absent), confirming writes stay repo-confined.",
+        "docs/features/subagent-roles.md documents roles, the read-only guarantee, the depth-4/cap-24 recursion bound, and the parked free-run mode; CLAUDE.md gains a Subagent roles bullet; the version is bumped via the version-bump convention."
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c22",
+        "h16"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Role-definition files are NOT approval-gated by checksum in v1 (unlike hooks/commands); agent-type files are a new trust surface \u2014 deferred follow-up.",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "Depth-4 nested orchestration buys real wall-clock speedup only on a concurrent-serving model; on a serializing server (the reference 27B) gain is bounded by overlapped I/O, not model compute.",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r3",
+      "text": "Orchestrator meta-role (a role that dynamically plans a chain of differently-typed children) is out of scope \u2014 v2.",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r4",
+      "text": "Cross-repo free-run write mode (requires an issue + deliberate thinking) is out of scope \u2014 v2.",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

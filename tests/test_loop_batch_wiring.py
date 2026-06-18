@@ -75,10 +75,8 @@ def test_run_injects_batch_spawn_into_executor(tmp_path: Path) -> None:
 
     original_init = ToolExecutor.__init__
 
-    def patched_init(self, root, *, spawn=None, batch_spawn=None, max_output_chars=100000):
-        original_init(
-            self, root, spawn=spawn, batch_spawn=batch_spawn, max_output_chars=max_output_chars
-        )
+    def patched_init(self, root, **kwargs):
+        original_init(self, root, **kwargs)
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):
@@ -135,10 +133,8 @@ def test_mock_engine_batch_spawn_reaches_executor(tmp_path: Path) -> None:
     captured_executors = []
     original_init = ToolExecutor.__init__
 
-    def patched_init(self, root, *, spawn=None, batch_spawn=None, max_output_chars=100000):
-        original_init(
-            self, root, spawn=spawn, batch_spawn=batch_spawn, max_output_chars=max_output_chars
-        )
+    def patched_init(self, root, **kwargs):
+        original_init(self, root, **kwargs)
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):
@@ -182,10 +178,8 @@ def test_single_spawn_wiring_unchanged(tmp_path: Path) -> None:
     captured_executors = []
     original_init = ToolExecutor.__init__
 
-    def patched_init(self, root, *, spawn=None, batch_spawn=None, max_output_chars=100000):
-        original_init(
-            self, root, spawn=spawn, batch_spawn=batch_spawn, max_output_chars=max_output_chars
-        )
+    def patched_init(self, root, **kwargs):
+        original_init(self, root, **kwargs)
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):
@@ -210,10 +204,8 @@ def test_both_spawn_and_batch_spawn_injected_together(tmp_path: Path) -> None:
     captured_executors = []
     original_init = ToolExecutor.__init__
 
-    def patched_init(self, root, *, spawn=None, batch_spawn=None, max_output_chars=100000):
-        original_init(
-            self, root, spawn=spawn, batch_spawn=batch_spawn, max_output_chars=max_output_chars
-        )
+    def patched_init(self, root, **kwargs):
+        original_init(self, root, **kwargs)
         captured_executors.append(self)
 
     with umock.patch.object(ToolExecutor, "__init__", patched_init):

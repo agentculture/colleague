@@ -528,6 +528,43 @@ scope); invokable skills are a tracked follow-up.
 """
 
 
+_ROLES = """\
+# colleague roles
+
+Inspect the **typed subagent roles**. A *role* types a delegated subagent: it
+gives the child a tailored prompt fragment, a *curated subset* of the tool
+surface, and a curated skill subset. Built-in roles:
+
+    explorer / planner / reviewer   read-only (read_file, list_dir,
+                                    check_test_integrity, finish)
+    validator                       read-only + a read-only `run_tests` capability
+    writer                          the full tool surface (today's default)
+
+Read-only roles withhold `write_file`, `edit_file`, AND `run_command`, so a
+read-only role *provably cannot mutate the tree* — the executor refuses any
+withheld tool even if the model hallucinates the call. Selecting a role on the
+`subagent` / `subagents` tools is backend-judged and optional; omitting it is
+byte-identical to today's full-surface delegation.
+
+Operator prompt overlays at `.colleague/agents/<name>.md` (and the per-model
+`.colleague/<model>/agents/<name>.md`, exact path, no sibling globbing) override
+a built-in role's prompt. This noun is distinct from the sibling `agents` noun,
+which inspects the AGENTS *instruction-file* cascade.
+
+## Usage
+
+    colleague roles list
+    colleague roles list --model Qwen/Qwen3-32B --repo PATH
+    colleague roles list --json
+    colleague roles overview
+
+## See also
+
+- `colleague explain agents`
+- `colleague explain subagents`
+"""
+
+
 _APPROVE = """\
 # colleague approve
 
@@ -1054,6 +1091,9 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("skills",): _SKILLS,
     ("skills", "list"): _SKILLS,
     ("skills", "overview"): _SKILLS,
+    ("roles",): _ROLES,
+    ("roles", "list"): _ROLES,
+    ("roles", "overview"): _ROLES,
     ("approve",): _APPROVE,
     ("feedback",): _FEEDBACK,
     ("feedback", "record"): _FEEDBACK,
