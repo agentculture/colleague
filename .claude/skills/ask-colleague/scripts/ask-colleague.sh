@@ -93,7 +93,7 @@ Usage:
   ask-colleague feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
   ask-colleague feedback list                    List every recorded drive by request + grade (find one by its request)
   ask-colleague clean [--dry-run]                Reap stale/corrupt colleague/* branches + orphaned .colleague/ artifacts (#162)
-  ask-colleague monitor <task-id>                Watch a running flight's live feed
+  ask-colleague monitor <task-id>                Stream a running flight's live feed (--follow)
   ask-colleague guide   <task-id> "<msg>"         Send mid-flight guidance to a running flight
   ask-colleague stop    <task-id>                Ask a running flight to stop (cooperative)
 
@@ -631,7 +631,7 @@ run_write() {
         return
     fi
     if [[ "$ALLOW_DIRTY" -eq 0 ]] \
-        && [[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]]; then
+        && [[ -n "$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
         echo "error: working tree is dirty — commit/stash first, or pass --allow-dirty" >&2
         echo "hint: 'colleague drive --no-pr' commits uncommitted edits onto the drive branch" >&2
         # User-fixable state guard -> exit 1, matching the runtime's own
@@ -704,13 +704,32 @@ run_clean() {
     "${cmd[@]}"
 }
 
+# ── front-load a filtered, capped diff into the review instruction ──────────
+# Issue #220a: print a diffstat + filtered diff body so the model does not waste
+# turns running `git diff` itself. Lockfile/vendored noise is excluded; the body
+# is capped at ${COLLEAGUE_MAX_OUTPUT_CHARS:-100000} characters.
+front_load_review_diff() {
+    local cap="${COLLEAGUE_MAX_OUTPUT_CHARS:-100000}"
+    printf '%s\n' "--- DIFF UNDER REVIEW (filtered + capped; read specific files for more) ---"
+    git -C "$REPO" diff "$BASE"...HEAD --stat
+    printf '\n'
+    local diff_body
+    diff_body="$(git -C "$REPO" diff "$BASE"...HEAD -- . ':(exclude)*.lock' ':(exclude)**/*.lock' ':(exclude)package-lock.json' ':(exclude)**/package-lock.json' ':(exclude)*.min.js' ':(exclude)**/*.min.js' 2>/dev/null || true)"
+    if [[ "${#diff_body}" -gt "$cap" ]]; then
+        printf '%s\n' "${diff_body:0:$cap}"
+        printf '%s\n' "[... diff body truncated at ${cap} chars; read specific files for the rest ...]"
+    else
+        printf '%s\n' "$diff_body"
+    fi
+}
+
 # ── piloting verbs: thin passthroughs to the `colleague flight` noun ─────────
 _flight_json_flag() { [[ "$JSON_OUT" -eq 1 ]] && printf -- '--json'; }
 
 run_monitor() {
     local fid="${ARG%% *}"
     [[ -z "$fid" ]] && { echo "error: monitor needs a flight task-id" >&2; exit 1; }
-    "${COLLEAGUE[@]}" flight status "$fid" --repo "$REPO" $(_flight_json_flag)
+    "${COLLEAGUE[@]}" flight status "$fid" --repo "$REPO" --follow $(_flight_json_flag)
 }
 
 run_stop() {
@@ -728,7 +747,7 @@ run_guide() {
 
 case "$VERB" in
     explore) run_readonly "$(render_prompt explore)" ;;
-    review) run_readonly "$(render_prompt review)" ;;
+    review) run_readonly "$(render_prompt review)"$'\n\n'"$(front_load_review_diff)" ;;
     write) run_write "$(render_prompt write)" ;;
     feedback) run_feedback "$ARG" ;;
     clean) run_clean ;;

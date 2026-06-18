@@ -5,13 +5,8 @@ Focus the review on:
 
 $ARGUMENTS
 
-The change under review is the committed diff on this branch versus its base
-(`$BASE`). Start by running, read-only:
-
-    git diff $BASE...HEAD --stat
-    git diff $BASE...HEAD
-
-then read the touched files for the context you need.
+The diff for this change is ALREADY PROVIDED below the instructions (filtered +
+capped). Read specific files only if you need more context.
 
 Rules:
 - READ-ONLY. Do NOT modify, create, or delete any file. Only read and run

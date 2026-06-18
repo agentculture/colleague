@@ -1,0 +1,267 @@
+{
+  "slug": "ask-colleague-is-now-a-trustworthy-standing-pre-pr",
+  "title": "ask-colleague is now a trustworthy standing pre-PR reflex: review front-loads a filtered diff and fans out parallel reviewers so it finishes fast on a real diff and always returns findings; monitor truly streams a running flight's live feed; write --apply no longer trips on a read-only probe's own .colleague/ artifacts; and the SKILL.md provenance reads honestly in any consumer regardless of how it vendors its other skills.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-18T15:59:27Z",
+  "updated": "2026-06-18T16:03:55Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "ask-colleague is now a trustworthy standing pre-PR reflex: review front-loads a filtered diff and fans out parallel reviewers so it finishes fast on a real diff and always returns findings; monitor truly streams a running flight's live feed; write --apply no longer trips on a read-only probe's own .colleague/ artifacts; and the SKILL.md provenance reads honestly in any consumer regardless of how it vendors its other skills.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "All four fixes ship upstream in colleague and re-vendor unchanged; none adds a runtime dependency, daemon, or socket (the zero-deps / no-daemon conventions hold).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Agents (Claude and other minds) that delegate to colleague via the ask-colleague skill before opening a PR, plus the operators who vendor that skill verbatim into sibling repos.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The fixes are usable by both the delegating agent (ask-colleague verbs) and an operator running colleague directly, and the wrapper changes re-vendor cleanly to sibling repos.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "ask-colleague review front-loads a filtered diff and fans out parallel read-only reviewers, so a real (multi-file, ~KLOC) diff is reviewed quickly and always yields findings; ask-colleague monitor streams a running flight's live feed; write --apply runs after a read-only probe on a clean tracked tree without --allow-dirty; and the SKILL.md provenance paragraph is accurate in any consumer.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Each after-state is independently verifiable against the filed acceptance criteria (#220 findings-on-real-diff, #219 streams, #217 apply-after-probe, #218 provenance-accurate).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "review is turn-bound \u2014 ~8 sequential slow model round-trips just to load context, and a manual kill (no --watch flight) returns nothing; monitor is a one-shot 'flight status' read mislabeled a 'live feed'; write --apply refuses because a prior explore/review left untracked .colleague/ artifacts the coarse porcelain guard counts as dirty; the SKILL.md provenance line asserts the consumer's other skills are vendored from guildmaster, false in non-guildmaster consumers.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "Each before-state is reproduced from filed evidence (discord-bot-cli PR #7 for #220; wrapper L96/L713 for #219; L633-634 for #217; SKILL.md L211-213 for #218).",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The 'run review before every PR' reflex only pays off if it is fast, honest, and side-effect-safe. Today it breaks on first real use \u2014 too slow to finish, docs that over-promise, and a guard that blocks the documented probe-then-apply workflow \u2014 so the diverse-second-opinion value is lost exactly when it matters.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "The success bar is 'findings returned in usable time', not a fixed second-count \u2014 a partial/fast review beats the nothing operators get today.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Out of scope: a wall-clock --deadline flag, GPU/contention auto-detection or automatic model fallback, a multi-backend router, and any daemon/socket. It does not replace the already-shipped forced-synthesis-on-exhaustion (#191/#197) \u2014 it complements it by reducing turns and (for monitor) streaming.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "Deferred items (deadline flag, contention detection) are parked as first-class follow-ups, not silently dropped; the shipped forced-synthesis (#191/#197) behavior is unchanged.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A review of a ~32-file / ~1.3-KLOC diff returns findings in a usable time (vs the #220 baseline of zero findings at step 8 / ~8 min); colleague flight status --follow prints feed records as they are appended and exits cleanly on flight-finish or Ctrl-C; ask-colleague explore && ask-colleague write --apply succeeds on a clean tracked tree without --allow-dirty; the SKILL.md provenance paragraph makes no claim about sibling-skill provenance.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "Every success signal is verifiable without an idle reference GPU \u2014 correctness checks run on mock/any backend; the wall-clock claim is honestly bounded by backend concurrency.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "#217: narrow the ask-colleague.sh write --apply dirty guard to tracked changes only (git status --porcelain --untracked-files=no), matching the runtime working_tree_dirty (handoff.py), so the skill's own untracked .colleague/ artifacts never block an apply.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Narrowing must NOT reintroduce the #149 hazard: tracked uncommitted edits are still refused without --allow-dirty; runtime working_tree_dirty (tracked-only) stays the authoritative backstop; untracked WIP stays protected by the handoff baseline snapshot.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "#218: soften the SKILL.md provenance paragraph to state only that ask-colleague is first-party from colleague and vendored cite-don't-import, deferring any claim about the consumer's OTHER skills (guildmaster or otherwise) to the consumer's own ledger.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The rewritten paragraph reads accurately in a fresh consumer whose sibling skills are NOT guildmaster-vendored, and points to (not asserts) docs/skill-sources.md as the per-repo ledger.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "#219: add a follow mode to colleague flight \u2014 flight status --follow (a stdlib poll loop over the .colleague/flight/<id> feed file) that prints feed records as they are appended and exits on flight-finish/EOF or Ctrl-C \u2014 point ask-colleague monitor at it, and update wrapper help + SKILL.md.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Follow mode adds NO runtime dependency, daemon, or socket (stdlib poll only); it streams real appended records (not a re-print of the latest), terminates cleanly on finish/EOF/Ctrl-C, and --json emits JSONL; one-shot flight status (no --follow) stays byte-identical.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "#220a: front-load the review's context \u2014 compute git diff --stat (always) plus the git diff body with lockfile/vendored noise excluded and capped to the output budget, seeded into the review so the model gets the whole change in ~1 turn instead of ~8 sequential read turns; the model may still read specific files beyond the cap.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The seeded diff is filtered (uv.lock/package-lock.json/etc. excluded) and capped to COLLEAGUE_MAX_OUTPUT_CHARS so it never blows the context budget; when capped, the diffstat is retained and body truncation is explicit (a visible note), never silent; fires identically for mock and vllm-openai.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "#220b: let review partition a multi-folder diff and fan out concurrent read-only reviewer subagents (one per folder/file-group), each reviewing its slice, then fold the findings \u2014 reusing the existing subagents + #188 advisory fan-out + #221 reviewer role + batch_spawn merge, with NO new worktree/merge code.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Parallel review is ADVISORY/backend-judged (the #188 mechanism), never a forced split; omitting it leaves review byte-identical; it fires identically for mock and vllm-openai; reviewer children are read-only and cannot mutate the tree.",
+          "status": "confirmed"
+        },
+        {
+          "id": "h13",
+          "text": "On a single serializing GPU (vLLM --max-num-seqs=2, the reference rig) parallel fan-out gives little-to-no wall-clock speedup (bounded by overlapped I/O, not model compute); the real concurrency win needs a concurrent-capable backend. Front-loading the diff (#220a) is the speedup that holds on the reference rig; this limit is documented, not hidden.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "Front-load (#220a) is wrapper-first: the wrapper computes the filtered diff and inlines it into the review instruction, re-vendoring cleanly with zero runtime change; a runtime context-primer is the fallback only if the wrapper approach proves insufficient.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "decision",
+      "text": "Parallel review (#220b) reuses the advisory #188 fan-out, fired EARLY from the front-loaded diffstat (folder count known up front) rather than after reading COLLEAGUE_FANOUT_FILES files, so the partition happens before the sequential reads begin.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "non_goal",
+      "text": "Not building a wall-clock --deadline flag or GPU-contention auto-detection/model-fallback in this spec; both are deferred follow-ups, parked as first-class items.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "assumption",
+      "text": "All four changes are upstream-in-colleague and re-vendor to consumers: the wrapper (ask-colleague.sh) and SKILL.md are vendored verbatim, so fixes propagate via the rollout-cli re-vendor recipe (rollout-cli#11).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Exact filtered-diff byte cap and the lockfile/vendored-noise exclusion glob list (uv.lock, package-lock.json, *.min.js, etc.) \u2014 defaults need a live-diff calibration pass.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Follow-mode poll interval default (proposed ~2s) and --json streaming shape (proposed: JSONL stream of feed records) \u2014 confirm during build.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Whether front-load should also seed touched-file FULL contents beyond the diff body \u2014 risks blowing the budget; default is diff-only, model reads further on demand.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}

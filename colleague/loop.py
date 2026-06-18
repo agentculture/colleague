@@ -452,6 +452,13 @@ class _Work:
     # ``_fillline_offered`` pattern) so the advisory fires at most once per work item.
     mapping_fanout_files: int | None = None
     _mapping_fanout_offered: list[bool] = field(default_factory=list)
+    # Review fan-out advisory (#220b): the distinct-folders-read count at which a
+    # review run is nudged ONCE to fan out per-folder read-only ``reviewer`` subagents
+    # via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict no-op, so
+    # a normal run is byte-identical. ``_review_fanout_offered`` mirrors
+    # ``_mapping_fanout_offered`` so the advisory fires at most once per work item.
+    review_fanout_folders: int | None = None
+    _review_fanout_offered: list[bool] = field(default_factory=list)
     # Plan-mode auto-trigger (#t8): the instruction-token threshold at/above which
     # the runtime injects ONE advisory recommendation to enter plan mode. ``None``/
     # <= 0 is dormant. ``_plan_offered`` is the single-element fired-once cell (the
@@ -892,6 +899,54 @@ def _maybe_offer_mapping_fanout(ctx: _Work) -> None:
         }
     )
     ctx._mapping_fanout_offered.append(True)
+
+
+def _distinct_folders_read(ctx: _Work) -> int:
+    """Count distinct parent folders among the ``read_file`` steps so far.
+
+    The folder is the repo-relative posix dirname of each read path; a path with
+    no ``/`` (a repo-root file) folds to the same ``""`` bucket. Used by the review
+    fan-out advisory (#220b) to gauge how many folders the review has spread across.
+    """
+    folders: set[str] = set()
+    for step in ctx.result.steps:
+        if step.tool != "read_file":
+            continue
+        path = step.arguments.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        folders.add(path.rsplit("/", 1)[0] if "/" in path else "")
+    return len(folders)
+
+
+def _maybe_offer_review_fanout(ctx: _Work) -> None:
+    """Offer the per-folder review fan-out advisory once a review spans many folders (#220b).
+
+    A strict no-op when dormant (``review_fanout_folders`` unset / <= 0), already
+    offered, or the review has not yet read across more than the threshold of folders
+    — so a normal run is byte-identical. Backend-judged + advisory: the loop injects
+    ONE recommendation pointing at the existing ``subagents`` tool with the read-only
+    ``reviewer`` role (no new fan-out/merge code) and the model decides whether to act.
+    Offered at most once per work item via ``_review_fanout_offered``. Runtime-owned,
+    so it fires identically for every backend (the all-engines rule).
+    """
+    threshold = ctx.review_fanout_folders
+    if not isinstance(threshold, int) or threshold <= 0:
+        return
+    if ctx._review_fanout_offered:
+        return
+    folders = _distinct_folders_read(ctx)
+    if folders <= threshold:
+        return
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": _autosplit.build_review_fanout_recommendation(
+                folders=folders, max_children=MAX_SUBAGENT_FANOUT - 1
+            ),
+        }
+    )
+    ctx._review_fanout_offered.append(True)
 
 
 def _maybe_offer_plan_mode(ctx: _Work) -> None:
@@ -1389,6 +1444,11 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # rather than spend the rest of its step budget reading. No-op when dormant /
         # already offered / under the files-read threshold.
         _maybe_offer_mapping_fanout(ctx)
+        # Review fan-out advisory (#220b): once a review has read across many folders,
+        # nudge the model ONCE to fan out per-folder read-only `reviewer` subagents
+        # rather than keep reading serially. No-op when dormant / already offered /
+        # under the distinct-folders threshold.
+        _maybe_offer_review_fanout(ctx)
         try:
             resp = _complete_with_degradation(ctx, complete)
         except Exception as exc:  # noqa: BLE001
@@ -1472,6 +1532,11 @@ class ContextControls:
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
     # no-op. Forwarded by every backend from ``config.fanout_files`` (all-engines rule).
     fanout_files: int | None = None
+    # Review fan-out advisory (#220b): the distinct-folders-read count at which a review
+    # run is nudged to fan out per-folder read-only ``reviewer`` subagents. ``None`` =
+    # dormant (strict no-op). Forwarded by every backend from
+    # ``config.review_fanout_folders`` (all-engines rule).
+    review_fanout_folders: int | None = None
     # Plan-mode auto-trigger (#t8): the instruction-token threshold at/above which a
     # normal work item injects ONE advisory recommendation to enter plan mode
     # (``colleague plan``). ``None``/<= 0 leaves it dormant — a strict no-op (opt-in).
@@ -1549,6 +1614,7 @@ class ContextControls:
             autosplit_target=config.autosplit_target_tokens,
             fillline_threshold=config.fillline_threshold,
             fanout_files=config.fanout_files,
+            review_fanout_folders=config.review_fanout_folders,
             plan_offer_tokens=config.plan_offer_tokens,
             max_continue_nudges=config.max_continue_nudges,
             synthesis_reserve=config.synthesis_reserve_steps,
@@ -2194,6 +2260,7 @@ def run(
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
+        review_fanout_folders=_context.review_fanout_folders,
         plan_offer_tokens=_context.plan_offer_tokens,
         max_continue_nudges=_resolve_nudge_cap(_context),
         flight=flight_session,

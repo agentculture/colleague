@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-06-18
+
+### Added
+
+- `colleague flight status --follow` — stream a flight's live feed via a stdlib poll loop (no daemon, socket, or new dependency); `ask-colleague monitor` now invokes it, so its documented "live feed" is accurate (#219).
+- `ask-colleague review` front-loads a filtered, capped diff (`git diff --stat` + the diff body with lockfile/vendored noise excluded, capped to `COLLEAGUE_MAX_OUTPUT_CHARS`) into the review instruction, so the model gets the whole change in ~1 turn instead of ~8 sequential read turns (#220a).
+- Advisory review fan-out: a review reading across more than `COLLEAGUE_REVIEW_FANOUT_FOLDERS` folders is nudged once to delegate per-folder read-only `reviewer` subagents via the existing `subagents` tool (no new worktree/merge code). Dormant by default — byte-identical when off (#220b).
+
+### Fixed
+
+- `ask-colleague write --apply` dirty guard narrowed to tracked files (`git status --porcelain --untracked-files=no`), so a prior `explore`/`review` probe's untracked `.colleague/` artifacts no longer block an apply; matches the runtime `working_tree_dirty` guard (#217).
+- `SKILL.md` provenance paragraph no longer asserts the consumer's sibling skills are vendored from guildmaster — it reads accurately in any consumer and defers sibling-skill provenance to the consumer's own `docs/skill-sources.md` ledger (#218).
+
 ## [1.19.0] - 2026-06-18
 
 ### Added
