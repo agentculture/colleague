@@ -1,4 +1,4 @@
-"""Layered, per-model config: AGENTS instructions + skills.
+"""Layered, per-model config: AGENTS instructions + skills + typed roles.
 
 This module resolves operator-authored config *relative to the model currently
 driving*, with strict per-model isolation: when driving model X, the loader
@@ -27,6 +27,21 @@ Two families ship here:
        .colleague/skills/*.md           (base)
        .colleague/<model>/skills/*.md   (model overlay, shadows base by stem)
 
+3. **Typed roles** — :func:`compose_role_prompt` extends the existing
+   prompt-assembly path with an optional role: the role's ``prompt_fragment``
+   composes after AGENTS layers, and the role's ``skill_subset`` filters the
+   skills catalog.  Composition order (fixed, documented)::
+
+       base (engine default)
+       AGENTS layers (general -> specific)
+       role prompt_fragment (when non-empty)
+       skills catalog (filtered by role.skill_subset)
+
+   Per-model role-prompt overlays live at
+   ``.colleague/<model>/agents/<name>.md`` (exact path via :func:`sanitize_model`,
+   no sibling globbing) — matching the established skills/hooks overlay
+   convention.  :func:`colleague.roles.load_role` reads these overlays.
+
 MCP layering is intentionally **not** built here — a live MCP client (transport,
 tool discovery, tool-call routing) needs its own spec (see ``CLAUDE.md`` scope
 notes); colleague does not read ``mcp.json`` today. Only stdlib is used.
@@ -37,8 +52,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from colleague.configdir import collect_files, config_roots
+
+if TYPE_CHECKING:
+    from colleague.roles import Role
 
 #: Repo-root-resolved config (AGENTS) falls back to this user-level home subdir.
 _USER_CONFIG_SUBDIR = ".colleague"
@@ -293,3 +312,74 @@ def system_prompt_for(
     if not agents_text and not skills_text:
         return None
     return "\n\n".join(part for part in (base, agents_text, skills_text) if part)
+
+
+# --- Role-aware composition -------------------------------------------------
+
+
+def _filter_skills(skills: dict[str, Skill], subset: tuple[str, ...] | None) -> dict[str, Skill]:
+    """Filter *skills* to *subset* names.
+
+    When *subset* is ``None``, all skills pass through (byte-identical to the
+    unfiltered dict).  When *subset* is an empty tuple, no skills pass.
+    Names not present in *skills* are silently ignored.
+    """
+    if subset is None:
+        return skills
+    return {name: skill for name, skill in skills.items() if name in subset}
+
+
+def compose_role_prompt(
+    role: "Role | str",
+    repo_path: str | Path,
+    model: str,
+    *,
+    user_home: str | Path | None = None,
+    base: str,
+) -> str | None:
+    """Compose the system prompt for *model* with an optional *role*.
+
+    Reuses the existing prompt-assembly path (resolve_agents → compose_agents,
+    resolve_skills → compose_skills).  The role's ``prompt_fragment`` composes
+    after AGENTS layers, and the role's ``skill_subset`` filters the skills
+    catalog.  Composition order (fixed, documented)::
+
+        base (engine default)
+        AGENTS layers (general -> specific)
+        role prompt_fragment (when non-empty)
+        skills catalog (filtered by role.skill_subset)
+
+    When *role* is a string, it is treated as a role name and resolved via
+    :func:`colleague.roles.load_role`.  When *role* is a :class:`Role` instance,
+    it is used directly.
+
+    Returns ``None`` when there is nothing to add beyond the engine's ``base``
+    (no AGENTS layers, no skills, and an empty role fragment), so behaviour is
+    byte-identical to a layer-free run.
+    """
+    from colleague.roles import load_role as _load_role
+
+    if isinstance(role, str):
+        role = _load_role(role, repo_path, model)
+        if role is None:
+            # Unknown role name → fall back to no-role composition.
+            return system_prompt_for(repo_path, model, user_home=user_home, base=base)
+
+    agents_text = compose_agents(resolve_agents(repo_path, model, user_home=user_home))
+    all_skills = resolve_skills(repo_path, model, user_home=user_home)
+    filtered = _filter_skills(all_skills, role.skill_subset)
+    skills_text = compose_skills(filtered)
+    role_fragment = role.prompt_fragment
+
+    parts = [base]
+    if agents_text:
+        parts.append(agents_text)
+    if role_fragment:
+        parts.append(role_fragment)
+    if skills_text:
+        parts.append(skills_text)
+
+    # If only the base remains, return None (caller keeps its own default).
+    if len(parts) == 1:
+        return None
+    return "\n\n".join(parts)
