@@ -80,3 +80,59 @@ def test_tool_executor_confines_to_one_root(git_repo):
     out = ex.execute("write_file", {"path": "inside.txt", "content": "ok"})
     assert (git_repo / "inside.txt").read_text() == "ok"
     assert out is not None
+
+
+# --- Q1: a role name is a simple identifier, never a path (no traversal read) ---
+
+
+@pytest.mark.parametrize(
+    "evil", ["../../etc/passwd", "../secret", "a/b", "..", "x.y", "/abs", "", "a b"]
+)
+def test_load_role_rejects_non_identifier_names(tmp_path, evil):
+    from colleague.roles import load_role
+
+    # A traversal / path-bearing name must resolve to None — never used to build a
+    # path or read a file off disk (#t4 Q1).
+    assert load_role(evil, str(tmp_path), "some-model") is None
+
+
+def test_load_role_still_accepts_builtin_names(tmp_path):
+    from colleague.roles import load_role
+
+    role = load_role("explorer", str(tmp_path), "some-model")
+    assert role is not None and role.name == "explorer"
+
+
+# --- Q2: run_tests confines + de-weaponizes its model-supplied paths ---
+
+
+@pytest.mark.parametrize(
+    "evil", ["--junitxml=/tmp/x.xml", "-p", "--rootdir=/", "/etc", "../../other"]
+)
+def test_run_tests_rejects_option_like_and_escaping_paths(git_repo, evil):
+    ex = ToolExecutor(str(git_repo), allowlist=BUILTIN_ROLES["validator"])
+    out = ex.execute("run_tests", {"paths": [evil]})
+    assert "skipped" in out.result.lower(), out.result
+
+
+def test_run_tests_passes_paths_after_double_dash(git_repo, monkeypatch):
+    import colleague.tools as tools_mod
+
+    captured: dict = {}
+
+    class _Proc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def _fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _Proc()
+
+    monkeypatch.setattr(tools_mod.subprocess, "run", _fake_run)
+    ex = ToolExecutor(str(git_repo), allowlist=BUILTIN_ROLES["validator"])
+    ex.execute("run_tests", {"paths": ["tests/test_x.py"]})
+    cmd = captured["cmd"]
+    # The path is passed AFTER `--`, so pytest can never read it as an option.
+    assert "--" in cmd
+    assert cmd.index("--") < cmd.index("tests/test_x.py")

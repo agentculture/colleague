@@ -35,7 +35,7 @@ from colleague.plan.cli_driver import (
     robust_simple_complete,
 )
 from colleague.plan.orchestrator import run_plan_mode
-from colleague.subagents import make_batch_spawn
+from colleague.subagents import make_batch_spawn, new_agent_budget
 
 _PLAN_ID = "plan"
 
@@ -160,7 +160,9 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
 
     simple = robust_simple_complete(complete)
     decide = _resolve_decide(args)
-    batch_spawn = make_batch_spawn(str(repo), config, engine_name)
+    # ONE shared agent budget so the global MAX_SUBAGENT_TOTAL cap is enforced for
+    # the plan workforce fan-out too (#t4 Q3 wiring fix).
+    batch_spawn = make_batch_spawn(str(repo), config, engine_name, counter=new_agent_budget(config))
 
     try:
         result = run_plan_mode(

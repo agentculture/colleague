@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 from colleague.config import MAX_SUBAGENT_DEPTH, MAX_SUBAGENT_TOTAL, EngineConfig
-from colleague.contract import OK, Usage
+from colleague.contract import OK, Task, Usage
 from colleague.subagents import (
     SubagentError,
     _AgentBudget,
@@ -178,3 +178,58 @@ def test_batch_budget_precheck_refuses_oversized_batch(tmp_path, patch_engine):
         batch(items)
     assert recorder == []  # refused before any child work / worktree
     assert budget.count == 0
+
+
+def test_execute_work_wires_a_shared_agent_budget(tmp_path, monkeypatch):
+    """Regression (#t4 Q3): the production wiring (execute_work) must create ONE
+    _AgentBudget and pass it as ``counter=`` to BOTH make_spawn AND make_batch_spawn,
+    so the global MAX_SUBAGENT_TOTAL cap is actually enforced — not a silent no-op.
+    (t11 tested the counter directly; nothing tested the production wiring.)"""
+    import subprocess as _sp
+
+    from colleague.cli._commands import work as work_mod
+    from colleague.subagents import _AgentBudget
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def _git(*a):
+        _sp.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+
+    _git("init", "-q")
+    _git("config", "user.email", "t@t.test")
+    _git("config", "user.name", "T")
+    (repo / "README.md").write_text("seed\n")
+    _git("add", "-A")
+    _git("commit", "-q", "-m", "init")
+
+    captured: dict = {}
+    real_spawn, real_batch = work_mod.make_spawn, work_mod.make_batch_spawn
+
+    def cap_spawn(*a, **kw):
+        captured["spawn_counter"] = kw.get("counter")
+        return real_spawn(*a, **kw)
+
+    def cap_batch(*a, **kw):
+        captured["batch_counter"] = kw.get("counter")
+        return real_batch(*a, **kw)
+
+    monkeypatch.setattr(work_mod, "make_spawn", cap_spawn)
+    monkeypatch.setattr(work_mod, "make_batch_spawn", cap_batch)
+
+    task = Task.new(str(repo), "do the mock task", engine="mock")
+    work_mod.execute_work(
+        repo=repo,
+        engine_name="mock",
+        task=task,
+        open_pr=False,
+        base="main",
+        config=EngineConfig.resolve(),
+    )
+
+    sc, bc = captured.get("spawn_counter"), captured.get("batch_counter")
+    assert sc is not None, "make_spawn got no agent budget — the global cap is a no-op"
+    assert bc is not None, "make_batch_spawn got no agent budget"
+    assert sc is bc, "single + batch delegation must SHARE one budget"
+    assert isinstance(sc, _AgentBudget)
+    assert sc.limit == EngineConfig.resolve().subagent_total

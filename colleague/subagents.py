@@ -94,6 +94,7 @@ __all__ = [
     "make_spawn",
     "run_subagent",
     "make_batch_spawn",
+    "new_agent_budget",
 ]
 
 
@@ -142,6 +143,20 @@ class _AgentBudget:
         """A snapshot of how many more agents may be spawned (best-effort, for pre-checks)."""
         with self._lock:
             return max(0, self.limit - self.count)
+
+
+def new_agent_budget(config: Optional[EngineConfig] = None) -> "_AgentBudget":
+    """Create ONE shared global agent budget for a top-level work item (#t4).
+
+    The wiring that builds the top-level spawn callbacks (``execute_work``, the
+    plan workforce) MUST create one budget here and pass it as ``counter=`` to BOTH
+    :func:`make_spawn` and :func:`make_batch_spawn`, so every spawned child — single
+    or batch, at any nesting depth — charges the SAME counter and the global
+    ``MAX_SUBAGENT_TOTAL`` cap is actually enforced in production. Honors the
+    env-tunable ``config.subagent_total`` when a config is given.
+    """
+    limit = getattr(config, "subagent_total", MAX_SUBAGENT_TOTAL) if config else MAX_SUBAGENT_TOTAL
+    return _AgentBudget(limit)
 
 
 def make_spawn(
@@ -476,6 +491,58 @@ def make_batch_spawn(
     return batch_spawn
 
 
+def _spawn_children(
+    items: List[dict],
+    child_ids: List[str],
+    width: int,
+    *,
+    repo_path: str,
+    parent_config: EngineConfig,
+    parent_engine: str,
+    depth: int,
+    role: Optional[str],
+    counter: Optional["_AgentBudget"],
+) -> List[Optional[SubResult]]:
+    """Run every batch child and return the results in INPUT ORDER.
+
+    Sequential when ``width <= 1`` (no ``ThreadPoolExecutor`` ever — byte-identical
+    to the pre-concurrency path); concurrent when ``width > 1`` via a
+    module-confined ``ThreadPoolExecutor`` whose results are collected after the
+    join. Extracted from :func:`_run_batch` to keep that function's cognitive
+    complexity within budget (SonarCloud S3776) and to DRY the per-child args.
+    """
+    results: List[Optional[SubResult]] = [None] * len(items)
+
+    def _run_one(i: int) -> SubResult:
+        item = items[i]
+        return _run_child_in_worktree(
+            repo_path,
+            child_ids[i],
+            str(item.get("instruction", "")),
+            parent_config=parent_config,
+            parent_engine=parent_engine,
+            depth=depth,
+            engine=(item.get("engine") or None),
+            model=(item.get("model") or None),
+            role=(item.get("role") or role),
+            counter=counter,
+        )
+
+    if width <= 1:
+        for i in range(len(items)):
+            results[i] = _run_one(i)
+        return results
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=width) as pool:
+        future_index = {pool.submit(_run_one, i): i for i in range(len(items))}
+        # Join: collect every result AFTER the threads finish. future.result()
+        # re-raises a worker exception in the main thread, where _run_batch's
+        # finally still tears worktrees down.
+        for fut in concurrent.futures.as_completed(future_index):
+            results[future_index[fut]] = fut.result()
+    return results
+
+
 def _run_batch(
     items: List[dict],
     *,
@@ -530,7 +597,6 @@ def _run_batch(
     batch_token = Task.new(repo_path, "batch").id  # a fresh short id seeds the batch
     child_ids = [_child_id(batch_token, i) for i in range(len(items))]
 
-    child_results: List[Optional[SubResult]] = [None] * len(items)
     # Children whose merge CONFLICTED — their sub/<id> branch must survive
     # teardown so the work can be integrated manually. Empty unless _merge_children
     # runs and reports conflicts; on an exceptional exit (a worker raised before
@@ -538,50 +604,20 @@ def _run_batch(
     conflicted_ids: set[str] = set()
 
     try:
-        if width <= 1:
-            # SEQUENTIAL path — no executor, no thread. Each child runs to
-            # completion in order; results are collected directly.
-            for i, item in enumerate(items):
-                child_results[i] = _run_child_in_worktree(
-                    repo_path,
-                    child_ids[i],
-                    str(item.get("instruction", "")),
-                    parent_config=parent_config,
-                    parent_engine=parent_engine,
-                    depth=depth,
-                    engine=(item.get("engine") or None),
-                    model=(item.get("model") or None),
-                    role=(item.get("role") or role),
-                    counter=counter,
-                )
-        else:
-            # CONCURRENT path — ThreadPoolExecutor confined to this module. Each
-            # worker returns its own SubResult; we COLLECT after the join in the
-            # main thread (no shared mutable accumulation during the parallel
-            # phase). future_index maps each future back to its input position so
-            # the final list stays in INPUT ORDER regardless of completion order.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=width) as pool:
-                future_index = {}
-                for i, item in enumerate(items):
-                    fut = pool.submit(
-                        _run_child_in_worktree,
-                        repo_path,
-                        child_ids[i],
-                        str(item.get("instruction", "")),
-                        parent_config=parent_config,
-                        parent_engine=parent_engine,
-                        depth=depth,
-                        engine=(item.get("engine") or None),
-                        model=(item.get("model") or None),
-                        role=(item.get("role") or role),
-                        counter=counter,
-                    )
-                    future_index[fut] = i
-                # Join: collect every result AFTER the threads finish. future.result()
-                # re-raises a worker exception here, in the main thread, where the
-                # finally below still tears worktrees down.
-                for fut in concurrent.futures.as_completed(future_index):
-                    child_results[future_index[fut]] = fut.result()
+        # (c2) Run all children (sequential or concurrent) — the dispatch + the
+        # ThreadPoolExecutor live in _spawn_children to keep this function's
+        # cognitive complexity in budget (S3776).
+        child_results = _spawn_children(
+            items,
+            child_ids,
+            width,
+            repo_path=repo_path,
+            parent_config=parent_config,
+            parent_engine=parent_engine,
+            depth=depth,
+            role=role,
+            counter=counter,
+        )
 
         # (d) SEQUENTIAL merge child, AFTER the join — never races child writes.
         merge_child, conflicted = _merge_children(

@@ -45,7 +45,7 @@ from colleague.handoff import (
     untracked_snapshot,
     working_tree_dirty,
 )
-from colleague.subagents import make_batch_spawn, make_spawn
+from colleague.subagents import make_batch_spawn, make_spawn, new_agent_budget
 from colleague.telemetry import Telemetry, load_telemetry
 
 
@@ -368,9 +368,14 @@ def execute_work(
             # so both `work` and `session`, and every backend (which forwards
             # `config.subagent_spawn`), can delegate identically. depth defaults to
             # 1; the launcher binds each child to depth+1, so recursion is bounded
-            # by MAX_SUBAGENT_DEPTH.
-            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine)
-            config.subagent_batch_spawn = make_batch_spawn(task.repo_path, config, task.engine)
+            # by MAX_SUBAGENT_DEPTH. ONE shared agent budget is threaded into BOTH
+            # callbacks so the global MAX_SUBAGENT_TOTAL cap is actually enforced
+            # across single + batch + nested delegation (#t4 Q3 wiring fix).
+            budget = new_agent_budget(config)
+            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine, counter=budget)
+            config.subagent_batch_spawn = make_batch_spawn(
+                task.repo_path, config, task.engine, counter=budget
+            )
             try:
                 result = engine.work(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)

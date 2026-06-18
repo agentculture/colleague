@@ -419,6 +419,32 @@ def curate_schemas(role: "Role | str") -> list[dict[str, Any]]:
     return [s for s in SCHEMAS if s["function"]["name"] in allow]
 
 
+def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
+    """Validate + normalize the ``subagents`` tool's instruction items.
+
+    Each item must be an object carrying a non-empty ``instruction`` string;
+    ``engine``/``model``/``role`` are optional. Extracted from
+    :meth:`ToolExecutor._subagents` to keep that method's cognitive complexity
+    within budget (SonarCloud S3776).
+    """
+    items: list[dict[str, Any]] = []
+    for i, item in enumerate(raw_instructions):
+        if not isinstance(item, dict):
+            raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
+        instruction = item.get("instruction")
+        if not instruction or not isinstance(instruction, str):
+            raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
+        items.append(
+            {
+                "instruction": instruction,
+                "engine": item.get("engine") or None,
+                "model": item.get("model") or None,
+                "role": item.get("role") or None,
+            }
+        )
+    return items
+
+
 class ToolExecutor:
     """Executes tool calls against a single repo root, confining file access to it."""
 
@@ -496,37 +522,36 @@ class ToolExecutor:
         """
         if self._allowlist is not None and name not in self._allowlist:
             raise ToolError(f"tool '{name}' is not allowed for this role")
-        if name == "read_file":
-            return self._read_file(arguments)
-        if name == "write_file":
-            return self._write_file(arguments)
-        if name == "edit_file":
-            return self._edit_file(arguments)
-        if name == "list_dir":
-            return self._list_dir(arguments)
-        if name == "run_command":
-            return self._run_command(arguments)
-        if name == "culture":
-            return self._culture(arguments)
-        if name == "devague":
-            return self._devague(arguments)
-        if name == "subagent":
-            return self._subagent(arguments)
-        if name == "subagents":
-            return self._subagents(arguments)
-        if name == "check_test_integrity":
-            return self._check_test_integrity()
-        if name == "run_tests":
-            return self._run_tests(arguments)
-        if name == FINISH:
-            return ToolOutcome(
-                result="finished",
-                finished=True,
-                finish_summary=str(arguments.get("summary", "")),
-                destination=arguments.get("destination") or None,
-                announcement=arguments.get("announcement") or None,
-            )
-        raise ToolError(f"unknown tool '{name}'")
+        # Table-driven dispatch (was a long if-chain; flattened to keep cognitive
+        # complexity in budget — S3776). check_test_integrity takes no args.
+        dispatch = {
+            "read_file": self._read_file,
+            "write_file": self._write_file,
+            "edit_file": self._edit_file,
+            "list_dir": self._list_dir,
+            "run_command": self._run_command,
+            "culture": self._culture,
+            "devague": self._devague,
+            "subagent": self._subagent,
+            "subagents": self._subagents,
+            "run_tests": self._run_tests,
+            "check_test_integrity": lambda _a: self._check_test_integrity(),
+            FINISH: self._finish,
+        }
+        handler = dispatch.get(name)
+        if handler is None:
+            raise ToolError(f"unknown tool '{name}'")
+        return handler(arguments)
+
+    def _finish(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """The ``finish`` tool — record the terminal summary + optional destination."""
+        return ToolOutcome(
+            result="finished",
+            finished=True,
+            finish_summary=str(arguments.get("summary", "")),
+            destination=arguments.get("destination") or None,
+            announcement=arguments.get("announcement") or None,
+        )
 
     def _read_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         path = self._safe_path(str(arguments["path"]))
@@ -788,8 +813,22 @@ class ToolExecutor:
 
         Returns a concise pass/fail summary string.  Never writes files.
         """
-        paths: list[str] = arguments.get("paths") or []
-        cmd = [sys.executable, "-m", "pytest", *paths]
+        raw_paths: list[str] = arguments.get("paths") or []
+        # Confine + de-weaponize the model-supplied paths (#t4 Q2): reject option-like
+        # args and anything escaping the repo root, then pass them AFTER ``--`` so
+        # pytest treats every one as a POSITIONAL test path, never an option — closing
+        # the ``--junitxml=…`` / ``-p plugin`` injection that could write a file or
+        # load arbitrary code despite the validator role being "read-only".
+        safe_paths: list[str] = []
+        for p in raw_paths:
+            if not isinstance(p, str) or p.startswith("-"):
+                return ToolOutcome(result=f"run_tests skipped: invalid test path {p!r}")
+            try:
+                self._safe_path(p)
+            except ToolError:
+                return ToolOutcome(result=f"run_tests skipped: path {p!r} escapes the repo root")
+            safe_paths.append(p)
+        cmd = [sys.executable, "-m", "pytest", "--", *safe_paths]
 
         try:
             proc = subprocess.run(
@@ -881,22 +920,9 @@ class ToolExecutor:
         if not raw_instructions or not isinstance(raw_instructions, list):
             raise ToolError("subagents tool requires a non-empty 'instructions' list")
 
-        # Validate each item has a non-empty 'instruction' string.
-        items = []
-        for i, item in enumerate(raw_instructions):
-            if not isinstance(item, dict):
-                raise ToolError(f"subagents: item {i} must be an object with 'instruction'")
-            instruction = item.get("instruction")
-            if not instruction or not isinstance(instruction, str):
-                raise ToolError(f"subagents: item {i} is missing a required 'instruction' string")
-            items.append(
-                {
-                    "instruction": instruction,
-                    "engine": item.get("engine") or None,
-                    "model": item.get("model") or None,
-                    "role": item.get("role") or None,
-                }
-            )
+        # Validate + normalize each item (extracted to keep this method's cognitive
+        # complexity in budget — S3776).
+        items = _parse_batch_items(raw_instructions)
 
         # Batch-level role (#t4): applies to every child unless an item set its own.
         batch_role = arguments.get("role") or None

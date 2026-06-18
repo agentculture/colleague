@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from colleague import layers
 
@@ -183,7 +183,16 @@ def load_role(
 
     The overlay is composed by exact path — no sibling globbing — matching the
     established pattern in :mod:`colleague.layers`.
+
+    The *name* is validated as a simple identifier before it is interpolated into
+    a path (#t4 Q1): a role name is never a path, so a name carrying a separator,
+    dot, or ``..`` traversal is rejected (returns ``None``) — it can never be used
+    to read an arbitrary file off disk.
     """
+    # Reject anything that is not a bare identifier (letters/digits/_/-). This stops
+    # ``../../etc/passwd``-style traversal (and symlink-bait) before any path build.
+    if not name or not name.replace("_", "").replace("-", "").isalnum():
+        return None
     repo = Path(repo_path)
     safe_model = layers.sanitize_model(model)
 
@@ -217,4 +226,7 @@ def load_role(
 
     # Compose the final role: file prompt overrides built-in prompt.
     final_prompt = prompt if prompt is not None else builtin.prompt_fragment
-    return replace(builtin, prompt_fragment=final_prompt)
+    # The cast is for the static analyser: Sonar models dataclasses.replace()'s
+    # return as a generic DataclassInstance, not Role, which trips S5886 (mirrors
+    # the same cast in colleague/subagents.py for EngineConfig).
+    return cast(Role, replace(builtin, prompt_fragment=final_prompt))
