@@ -29,6 +29,7 @@ __all__ = [
     "build_split_recommendation",
     "build_upfront_hint",
     "build_mapping_fanout_recommendation",
+    "build_review_fanout_recommendation",
 ]
 
 
@@ -153,6 +154,47 @@ def build_mapping_fanout_recommendation(*, files_read: int, max_children: int) -
         f"answer. Each child should map ONE folder/subtree and return its findings — "
         f"read-only, nothing to write. This is an optional suggestion; if the remaining "
         f"surface is small you may keep reading directly."
+    )
+
+
+def build_review_fanout_recommendation(*, folders: int, max_children: int) -> str:
+    """Render the ONE structured ADVISORY message body for a review spread across
+    many folders (issue #220b).
+
+    A review that reads a multi-folder diff one file at a time is turn-bound. This
+    nudges the model to partition the diff per-folder and delegate concurrent
+    READ-ONLY ``reviewer`` subagents (the #221 typed role) via the existing
+    ``subagents`` tool, then synthesize their findings — reusing the fan-out/merge
+    machinery, adding no new worktree/merge code. Advisory, not a hard block.
+
+    Honesty (h12/h13): names the literal ``subagents`` tool and the read-only
+    ``reviewer`` role, includes the concrete ``folders`` and ``max_children``
+    numbers, frames children as per-folder diff reviews, and states the honest
+    limit that on a single serializing backend (one GPU) this does NOT reduce
+    wall-clock time — the win needs a concurrent-capable backend; front-loading the
+    diff is the speedup that holds on a serializing rig.
+
+    Args:
+        folders: How many distinct folders the review has read across (the trigger).
+        max_children: Maximum number of children to delegate (fanout cap - 1).
+
+    Returns:
+        A deterministic, non-empty string (no randomness, no timestamps).
+    """
+    return (
+        f"This review spans {folders} folders and you are reading them one file at a "
+        f"time, which is slow and may run out of steps before you can write the "
+        f"review.\n\n"
+        f"Consider fanning the review out: partition the diff into at most "
+        f"{max_children} coherent per-folder slices and delegate them with the "
+        f"`subagents` tool using the read-only `reviewer` role. Each child reviews ONE "
+        f"folder's diff (read-only, nothing to write) and returns its findings, which "
+        f"you then synthesize into one review.\n\n"
+        f"This is an optional suggestion. Honest limit: on a single serializing "
+        f"backend (one GPU) the children run effectively one at a time, so fanning out "
+        f"will NOT reduce wall-clock time — the parallelism win needs a "
+        f"concurrent-capable backend. If the diff is small, just keep reviewing "
+        f"directly."
     )
 
 

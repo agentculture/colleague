@@ -382,6 +382,12 @@ class EngineConfig:
     autosplit_target_tokens: int = _DEFAULT_AUTOSPLIT_TARGET_TOKENS
     fillline_threshold: float = _DEFAULT_FILLLINE_THRESHOLD
     fanout_files: int = _DEFAULT_FANOUT_FILES
+    # Review fan-out advisory (#220b): the distinct-folders-read count at which a
+    # review run is nudged ONCE to fan out per-folder read-only `reviewer` subagents.
+    # ``None`` = dormant (the default) — a strict no-op, so a normal run is
+    # byte-identical. Enabled per-run via ``COLLEAGUE_REVIEW_FANOUT_FOLDERS`` (the
+    # ask-colleague ``review`` wrapper sets it).
+    review_fanout_folders: int | None = None
     plan_offer_tokens: int = _DEFAULT_PLAN_OFFER_TOKENS
     max_continue_nudges: int = _DEFAULT_MAX_CONTINUE_NUDGES
     synthesis_reserve_steps: int = _DEFAULT_SYNTHESIS_RESERVE
@@ -435,6 +441,7 @@ class EngineConfig:
         autosplit_target_tokens: int | None = None,
         fillline_threshold: float | None = None,
         fanout_files: int | None = None,
+        review_fanout_folders: int | None = None,
         plan_offer_tokens: int | None = None,
         max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
@@ -596,6 +603,14 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_FANOUT_FILES,
             ),
+            review_fanout_folders=_try_int_or_none(
+                _pick(
+                    _str(review_fanout_folders),
+                    "COLLEAGUE_REVIEW_FANOUT_FOLDERS",
+                    "CONVERTIBLE_REVIEW_FANOUT_FOLDERS",
+                    default="",
+                )
+            ),
             plan_offer_tokens=_try_int(
                 _pick(
                     _str(plan_offer_tokens),
@@ -719,6 +734,7 @@ class EngineConfig:
             "autosplit_target_tokens": self.autosplit_target_tokens,
             "fillline_threshold": self.fillline_threshold,
             "fanout_files": self.fanout_files,
+            "review_fanout_folders": self.review_fanout_folders,
             "plan_offer_tokens": self.plan_offer_tokens,
             "max_continue_nudges": self.max_continue_nudges,
             "synthesis_reserve_steps": self.synthesis_reserve_steps,
@@ -750,6 +766,20 @@ def _try_int(value: str | None, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def _try_int_or_none(value: str | None) -> int | None:
+    """Parse an int, or ``None`` when unset/empty/non-numeric.
+
+    For a dormant-by-default knob (e.g. ``review_fanout_folders``) where the
+    absence of a value must stay ``None`` (a strict no-op), not coerce to 0.
+    """
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _try_float(value: str | None, default: float) -> float:
