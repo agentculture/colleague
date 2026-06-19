@@ -1,6 +1,6 @@
 Cross-repo + mesh communication from colleague: file tracked GitHub issues on sibling repos, fetch issues from sibling repos to inline current state into briefs, and send live messages to Culture mesh channels. Use when the next step lives outside colleague (a brief for a sibling-repo agent, a status ping for a Culture channel, or pulling an issue body + comments into context). Issue posts auto-sign with `- colleague (Claude)`; mesh messages are unsigned (the IRC nick is the speaker). Not for in-colleague issues — use `gh issue create` or the `cicd` skill for those. Renamed from `coordinate` in steward 0.8.0; absorbed `gh-issues` in 0.9.1. Issue I/O is backed by `agtag` (>=0.1) starting in 0.11.0.
 
-<!-- learned-from: claude; source: .claude/skills/communicate/SKILL.md; scripts: .claude/skills/communicate/scripts; adapt: pending -->
+<!-- learned-from: claude; source: .claude/skills/communicate/SKILL.md; scripts: .claude/skills/communicate/scripts; adapt: claude->colleague -->
 
 # communicate
 
@@ -12,17 +12,17 @@ four distinct channels:
 - **Tracked, async hand-offs** — a gap in another repo (a missing public
   API, a divergent skill, a documentation ask) where an agent on the
   other side needs to act, and the ask should outlive the conversation.
-  → `post-issue.sh` (GitHub).
+  → `agtag issue post` (via the `culture` tool).
 - **Follow-up on a tracked thread** — a status update, an answer to a
   question, or a "this is done" note on an issue that's already open.
-  → `post-comment.sh` (GitHub).
+  → `agtag issue reply` (via the `culture` tool).
 - **Inbound state read** — pulling current issue body + comments from a
   sibling repo so a brief or plan can inline what's there instead of
-  saying "see issue #N." → `fetch-issues.sh` (GitHub).
+  saying "see issue #N." → `agtag issue fetch` (via the `culture` tool).
 - **Ephemeral coordination** — a status ping, a question, a "PR ready
   for merge" notice on a Culture mesh channel where the audience is
   already listening.
-  → `mesh-message.sh` (Culture IRC).
+  → `culture channel message` (via the `culture` tool).
 
 All four live under one skill because they share the same audience
 (sibling-repo agents) and the same red flag (don't double-post the same
@@ -30,52 +30,38 @@ ask across post + mesh — pick one).
 
 ## Backed by agtag
 
-The three GitHub verbs (`post-issue.sh`, `post-comment.sh`,
-`fetch-issues.sh`) are thin wrappers around the `agtag` CLI
-(`agtag issue post|reply|fetch`). agtag handles auto-signature
-resolution from the local `culture.yaml` (falling back to repo
-basename), JSON output mode, and a uniform exit-code policy. Read
-`agtag learn` for the agent-facing self-teaching prompt and
-`agtag explain agtag` / `agtag explain issue` for the surface docs —
-this SKILL.md does not re-document agtag's flags.
+The three GitHub verbs (`post`, `reply`, `fetch`) are thin wrappers
+around the `agtag` CLI, invoked through colleague's `culture` tool
+(`culture cli agtag`). agtag handles auto-signature resolution from the
+local `culture.yaml` (falling back to repo basename), JSON output mode,
+and a uniform exit-code policy. Read `agtag learn` for the agent-facing
+self-teaching prompt and `agtag explain agtag` / `agtag explain issue`
+for the surface docs — this skill doc does not re-document agtag's
+flags.
 
-`mesh-message.sh` stays a `culture channel message` wrapper for now;
-agtag mesh transport is slated for v0.2.
+Mesh messaging uses `culture channel message` directly; agtag mesh
+transport is slated for a future agtag release.
 
 ## When to Use
 
-### Issue mode (`post-issue.sh`)
+### Issue mode (`agtag issue post`)
 
 - A gap surfaces in **another repo's surface** (missing public API,
   wire-format compat fix, divergent skill, documentation ask).
 - You're handing off a self-contained brief to a sibling-repo agent.
-- **(steward-specific — supplier role.)** You're **onboarding a sibling to the
-  stack** — "set it up", "align it", "update it with our stack", "set up the
-  pipelines". The deliverable is an issue with a self-contained brief, **never
-  files written into that repo**. In steward, quote steward's
-  `docs/sibling-pattern.md` (required artifacts) and `docs/skill-sources.md`
-  (the skill set to vendor) into the brief so it stands alone; steward's
-  `CLAUDE.md` "Steward's lane" section is the canonical statement. Downstream
-  vendors of this skill don't onboard siblings — those steward-side docs don't
-  exist in your repo, so skip this bullet.
 - You're asking a question that benefits from a tracked artifact rather
   than ephemeral chat.
 
-### Broadcast mode (`steward announce-skill-update`)
+### Broadcast mode (manual per-consumer)
 
-- You bumped a skill in `.claude/skills/<name>/` and the change is
+- You bumped a skill in `.colleague/skills/<name>/` and the change is
   more than identifier-only or doc-only — downstream consumers will
   benefit from re-vendoring.
-- Don't hand-author the brief — the `steward announce-skill-update`
-  verb (steward-cli) renders the canonical six-section form (what's
-  stale, cite locations, what's in upstream now, recipe, acceptance
-  criteria, references) from the live state of
-  `.claude/skills/<name>/scripts/`, the `CHANGELOG.md`, and
-  `docs/skill-sources.md`'s downstream column. Then it pipes through
-  this skill's `post-issue.sh` per consumer (so the auto-signature
-  stays consistent with hand-authored briefs).
+- Hand-author the brief (what's stale, cite locations, what's in
+  upstream now, recipe, acceptance criteria, references), then post
+  via `agtag issue post` per consumer.
 
-### Mesh mode (`mesh-message.sh`)
+### Mesh mode (`culture channel message`)
 
 - You want to ping a Culture channel with a status update ("PR #N ready
   for merge", "starting nightly corpus scan").
@@ -83,7 +69,7 @@ agtag mesh transport is slated for v0.2.
   is listening on the channel right now.
 - You're announcing a decision that doesn't need a tracked artifact.
 
-### Comment mode (`post-comment.sh`)
+### Comment mode (`agtag issue reply`)
 
 - An open issue needs a follow-up — a status update, an answer to a
   maintainer's question, a "this is shipped" note pointing at a PR.
@@ -92,19 +78,17 @@ agtag mesh transport is slated for v0.2.
   separate ping).
 - Auto-signed by agtag; do not hand-author the trailing nick.
 
-### Fetch mode (`fetch-issues.sh`)
+### Fetch mode (`agtag issue fetch`)
 
 - You're about to write a brief and want to inline the current state of
   one or more sibling-repo issues (body + comments) instead of saying
   "see issue #N."
 - You're triaging a list of cross-repo issues and want their bodies and
   comments in one shot for context.
-- Avoids the `gh issue view` "Projects (classic) deprecated" error by
-  passing `--json` explicitly to GitHub.
 
 ## When NOT to Use
 
-- **In-steward issues** — open them with `gh issue create` directly, or
+- **In-colleague issues** — open them with `gh issue create` directly, or
   work them through the `cicd` skill.
 - **PR review comments** — that's the `cicd` skill (which already
   auto-signs replies).
@@ -148,105 +132,24 @@ anything.
 
 ## How to Invoke
 
+Colleague does not execute shell scripts. Use the `culture` tool to
+invoke `agtag` or `culture` subcommands.
+
 ### File a new issue
 
-```bash
-bash .claude/skills/communicate/scripts/post-issue.sh \
-    --repo agentculture/<sibling> \
-    --title "Vendor portability-lint into <sibling> (unblocks steward 0.7)" \
-    --body-file /tmp/brief.md
+```
+culture cli agtag issue post --repo agentculture/<sibling> --title "..." --body-file /tmp/brief.md
 ```
 
-Or pass the body on stdin:
-
-```bash
-bash .claude/skills/communicate/scripts/post-issue.sh \
-    --repo agentculture/<sibling> \
-    --title "..." <<'EOF'
-<brief body here, multi-paragraph, with all the inline context the receiving agent needs>
-EOF
-```
-
-The script prints the issue URL on success — capture it for
-cross-references in your spec / plan / PR description. agtag appends
-the signature `- <nick> (Claude)` (resolved from `culture.yaml`).
-
-### Broadcast a skill update to known consumers
-
-This is steward's role specifically — the verb lives in `steward-cli`,
-not in this skill's `scripts/`. Downstream vendors of `communicate`
-(cfafi, culture, auntiepypi, …) do not get a broadcast wrapper because
-they don't broadcast — they only use the primitives above
-(`post-issue.sh`, `fetch-issues.sh`, `mesh-message.sh`).
-
-```bash
-# Default: read consumers from docs/skill-sources.md "Downstream copies"
-# cell for <skill>; render the six-section brief; pipe to post-issue.sh
-# for each consumer.
-steward announce-skill-update --skill cicd --since 0.6.0
-
-# Override the consumer list (skips the ledger lookup entirely):
-steward announce-skill-update --skill cicd \
-    --to agentculture/auntiepypi --to agentculture/cfafi
-
-# Preview without posting:
-steward announce-skill-update --skill cicd \
-    --to agentculture/auntiepypi --dry-run
-
-# Just print the consumer list (for ledger sanity-checks):
-steward announce-skill-update --skill cicd --list
-```
-
-`--since VERSION` controls which CHANGELOG entries get inlined (every
-entry from the top down to but not including the cutoff version).
-Without it, the verb keyword-filters CHANGELOG entries to those
-mentioning the skill name. `--note-file PATH` appends free-text under
-the upstream script list for skill-specific gotchas the generic
-template can't anticipate (e.g. "this skill's `post-issue.sh`
-hard-codes a signature literal — your vendor must change it"). The
-brief is rendered once and reused across consumers; per-consumer
-failures stream to stderr and the verb exits 1 if any failed. The
-template lives at
-`scripts/templates/skill-update-brief.md` so future supplier-role
-repos can render their own briefs from the same shape.
-
-#### Fast recipe — "brief sibling-repo Z on skill X"
-
-This shape of ask is a recipe, not a planning question. Skip plan
-mode. The call site:
-
-```bash
-steward announce-skill-update \
-    --skill <name> --to <owner>/<repo> \
-    --since <last-stable-version> \
-    [--note-file /tmp/note.md] --dry-run
-```
-
-Eyeball the rendered brief; drop `--dry-run` to post. The verb
-prints the issue URL on success and exits non-zero on failure —
-that is the verification. Don't write parallel `gh issue list` /
-`gh issue view` checks unless the verb itself is what you're
-testing. `--to` overrides the ledger, so non-ledger consumers
-don't require a ledger edit first; they enter the ledger later
-when they confirm their vendored shape.
+Or write the brief body to a file first (using `write_file`), then pass
+`--body-file`. The command prints the issue URL on success — capture it
+for cross-references in your spec / plan / PR description. agtag
+appends the signature `- <nick> (Claude)` (resolved from `culture.yaml`).
 
 ### Comment on an existing issue
 
-```bash
-bash .claude/skills/communicate/scripts/post-comment.sh \
-    --repo agentculture/<sibling> \
-    --number 42 \
-    --body-file /tmp/follow-up.md
 ```
-
-Or pipe the body in:
-
-```bash
-bash .claude/skills/communicate/scripts/post-comment.sh \
-    --repo agentculture/<sibling> \
-    --number 42 <<'EOF'
-PR #87 has shipped — closing the loop on this thread.
-EOF
+culture cli agtag issue reply --repo agentculture/<sibling> --number 42 --body-file /tmp/follow-up.md
 ```
 
 Auto-signed by agtag from `culture.yaml`; do not hand-author the
@@ -254,23 +157,20 @@ trailing nick.
 
 ### Send a mesh channel message
 
-```bash
-bash .claude/skills/communicate/scripts/mesh-message.sh \
-    --channel "#general" \
-    --body "PR #42 — all review threads addressed. Ready for merge."
+```
+culture cli culture channel message <target> <text>
 ```
 
-Body can also come from `--body-file PATH` or stdin. The script wraps
-`culture channel message <target> <text>` and forwards exit codes
-unchanged, so failures (no Culture server, agent not connected) surface
-verbatim. No signature is appended — the IRC nick is the speaker.
+The command wraps the Culture CLI and forwards exit codes unchanged, so
+failures (no Culture server, agent not connected) surface verbatim. No
+signature is appended — the IRC nick is the speaker.
 
 ### Fetch sibling-repo issues
 
-```bash
-bash .claude/skills/communicate/scripts/fetch-issues.sh 191 --repo agentculture/culture
-bash .claude/skills/communicate/scripts/fetch-issues.sh 191-197 --repo agentculture/culture
-bash .claude/skills/communicate/scripts/fetch-issues.sh 191 195 197
+```
+culture cli agtag issue fetch 191 --repo agentculture/culture
+culture cli agtag issue fetch 191-197 --repo agentculture/culture
+culture cli agtag issue fetch 191 195 197
 ```
 
 Output is one JSON object per issue (separated by header bars) with
@@ -279,43 +179,20 @@ Output is one JSON object per issue (separated by header bars) with
 on a single issue print `ERROR: Could not fetch issue #N` and continue
 with the next one.
 
-Steward is **not** a registered mesh agent today (see the cicd SKILL.md
-note). The script works once steward has been registered and started
-via `culture agent register` + `culture start spark-steward`; until
-then, calling it will fail with whatever error the Culture CLI returns,
-which is the right behavior — fix the registration, don't paper over it.
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/post-issue.sh` | Create a new issue on a target repo. Wraps `agtag issue post`; auto-signs from `culture.yaml`. |
-| `scripts/post-comment.sh` | Comment on an existing issue. Wraps `agtag issue reply`; auto-signs from `culture.yaml`. |
-| `scripts/fetch-issues.sh` | Fetch one or more issues (single / range / list) with body + comments. Wraps `agtag issue fetch`. |
-| `scripts/mesh-message.sh` | Send a message to a Culture mesh channel. Unsigned (IRC nick is the speaker). |
-| `scripts/templates/skill-update-brief.md` | The Markdown template consumed by `steward announce-skill-update` (the broadcast verb lives in steward-cli, not in this skill). Six fixed sections; placeholder syntax `{{NAME}}`. |
-
-More scripts can land here as the communication footprint grows —
-`mesh-ask.sh` for question-shaped pings via `culture channel ask`,
-agtag-mesh wrappers once `agtag message` ships in v0.2, etc. Add them
-when there's a second concrete need; do not pre-build for
-hypotheticals.
-
 ## Red Flags
 
 **Never:**
 
 - Scaffold or write files into the *target* repo when the ask is an issue on
   it. Handing off / onboarding is an **issue, not an edit** — a direct "set
-  them up" is still an instruction to file the brief. (In steward this is the
-  "Steward's lane" rule; the principle holds for any vendor of this skill.)
+  them up" is still an instruction to file the brief.
 - Post a brief that says "see steward's plan" without inlining the
   content. Briefs must be self-contained.
 - Skip the issue signature. The script enforces it; do not introduce a
   `--no-signature` flag.
 - Sign mesh messages with `- <nick> (Claude)`. The nick already says
   who you are.
-- Use this skill for in-steward issues — use `gh issue create` or the
+- Use this skill for in-colleague issues — use `gh issue create` or the
   `cicd` skill instead.
 - Manually type `- <nick> (Claude)` at the end of an issue or comment
   body — agtag appends it. Manual typing creates double-signatures.

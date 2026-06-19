@@ -1,6 +1,6 @@
-Think a vague feature idea into a buildable spec by working backwards (the idea→spec leg; drives the `devague` CLI). Start from the announcement ("pretend it shipped"), capture and classify claims, interrogate them with honesty conditions and hard questions, park open vagueness as a first-class object, and export a spec only once the frame *converges*. Use when the user says "think this through", "spec this", "work backwards", "turn this idea into a spec", "announcement frame", or "devague", or when a feature request is too vague to build yet. Once a spec exports, hand off to the sibling /spec-to-plan skill to turn it into a plan. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
+Think a vague feature idea into a buildable spec by working backwards (the idea→spec leg; drives the `devague` CLI). Start from the announcement ("pretend it shipped"), capture and classify claims, interrogate them with honesty conditions and hard questions, park open vagueness as a first-class object, and export a spec only once the frame *converges*. Use when the user says "think this through", "spec this", "work backwards", "turn this idea into a spec", "announcement frame", or "devague", or when a feature request is too vague to build yet. Once a spec exports, hand off to the sibling `spec-to-plan` skill to turn it into a plan. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
 
-<!-- learned-from: claude; source: .claude/skills/think/SKILL.md; scripts: .claude/skills/think/scripts; adapt: pending -->
+<!-- learned-from: claude; source: .claude/skills/think/SKILL.md; scripts: .claude/skills/think/scripts; adapt: claude->colleague -->
 
 # think
 
@@ -8,7 +8,7 @@ Think a vague feature idea into a buildable spec by working backwards (the idea�
 
 The skill is named **`think`**; the product/CLI it drives is **`devague`**. (The
 forward leg — turning a converged spec into a plan — is the sibling
-**`/spec-to-plan`** skill, which drives `devague plan`.)
+**`spec-to-plan`** skill, which drives `devague plan`.)
 
 `think` turns a vague feature idea into a buildable spec by **working
 backwards**: you start from the announcement you'd make if it had already
@@ -18,29 +18,33 @@ the frame converges.
 
 The CLI is **deterministic and move-driven** — it is *not* a wizard. There is no
 fixed sequence of prompts. **You (the agent) choose the next move; the CLI just
-tracks state and tells you what's still missing.** Run `devague learn` for the
-canonical ten-stage arc and `devague explain <move>` for any single move.
+tracks state and tells you what's still missing.** Use the `devague` tool for
+every move: `devague learn` for the canonical ten-stage arc, `devague explain
+<move>` for any single move.
 
-This skill is the operator: a portable wrapper that resolves the CLI and
-forwards every move verbatim — including `status`, the read-only verb that reads
-the convergence gate and tells you the recommended next move.
+In colleague, invoke moves through the **`devague` tool** (e.g.
+`devague new "..."`, `devague capture ...`, `devague status`). The `devague`
+tool is the agent's direct interface to the devague CLI — no shell wrapper is
+needed.
 
 ## How to run
 
-The entry point is `scripts/think.sh`. Invoke it from the repository you are
-speccing (frames persist under `.devague/` in the current directory):
+Use the **`devague` tool** from your agent loop. Frames persist under
+`.devague/` in the current directory:
 
-```bash
-bash .claude/skills/think/scripts/think.sh <move> [args...]
-bash .claude/skills/think/scripts/think.sh status
+```text
+devague new "<announcement>"
+devague status
 ```
 
-It resolves the CLI portably — an installed `devague` on `PATH` (the normal
-case), falling back to `uv run devague` when you are inside the devague checkout.
-If neither resolves it prints an install hint (`uv tool install devague`). Every
-move — including `status` — is forwarded verbatim, so you can equally call the
-CLI directly (`devague <move> …`) when it is installed; the wrapper exists only
-for portable resolution.
+When the `devague` tool is not available, fall back to the CLI directly:
+
+```bash
+devague <move> [args...]
+```
+
+If `devague` is not on `PATH`, install it with `uv tool install devague`. Every
+move — including `status` — is forwarded verbatim.
 
 ### Moves
 
@@ -134,26 +138,24 @@ on the same stream. Exit code `0` on success, non-zero on user error (with a
 A short end-to-end session (the kind you'd run to spec a feature like
 [devague#5](https://github.com/agentculture/devague/issues/5)):
 
-```bash
-d() { bash .claude/skills/think/scripts/think.sh "$@"; }
-
-d new "Devague ships a documented spec contract"
-d capture --kind audience "devague + the assisting LLM"
-d capture --kind after_state "a vague idea becomes a buildable, pressure-tested spec"
-d capture --kind why_it_matters "specs converge on evidence, not vibes"
-d capture --kind boundary "not a full PRD generator; no fixed wizard"
-d capture --kind success_signal "a frame exports only after the gate passes"
+```text
+devague new "Devague ships a documented spec contract"
+devague capture --kind audience "devague + the assisting LLM"
+devague capture --kind after_state "a vague idea becomes a buildable, pressure-tested spec"
+devague capture --kind why_it_matters "specs converge on evidence, not vibes"
+devague capture --kind boundary "not a full PRD generator; no fixed wizard"
+devague capture --kind success_signal "a frame exports only after the gate passes"
 
 # Pressure-test a claim, then let the USER confirm the condition:
-d interrogate c1 --honesty "the contract round-trips: save -> load -> identical frame"
-# ...user reviews and runs: d confirm h1
+devague interrogate c1 --honesty "the contract round-trips: save -> load -> identical frame"
+# ...user reviews and runs: devague confirm h1
 
 # Park a genuine unknown instead of guessing:
-d park "exact JSON schema versioning policy" --kind unknown_nonblocking
+devague park "exact JSON schema versioning policy" --kind unknown_nonblocking
 
-d status        # what's left + the next move
-d converge      # gate; resolve any listed gaps
-d export        # writes docs/specs/<slug>.md once converged
+devague status        # what's left + the next move
+devague converge      # gate; resolve any listed gaps
+devague export        # writes docs/specs/<slug>.md once converged
 ```
 
 The exported spec-md is a buildable artifact.
@@ -167,23 +169,23 @@ idea→spec leg cleanly before moving on:
    the `.devague/<slug>.json` frame state and any review artifact under
    `docs/reviews/`) so the converged frame is durable in history, not just on
    disk. Use a focused message, e.g. `git commit -m "spec: <slug> (devague
-   /think)"`. The frame and the spec are the evidence trail for every confirmed
+   think)"`. The frame and the spec are the evidence trail for every confirmed
    claim — keep them together. (Per the repo's standing convention this normally
    becomes a branch + PR via the `cicd` skill; commit-only is fine when the user
    asks for it.)
-2. **Hand off to `/spec-to-plan`.** The forward leg is the sibling skill:
+2. **Hand off to `spec-to-plan`.** The forward leg is the sibling skill:
    `devague plan new --frame <slug>` seeds a plan from the converged frame and
    works it forward into a buildable plan (it can equally feed
    `superpowers:writing-plans` or a normal implementation PR).
 
 Don't pause for a "what next?" menu after a reviewed export — the standing flow
-is **commit, then `/spec-to-plan`**.
+is **commit, then `spec-to-plan`**.
 
 ## Provenance
 
 This is a **first-party** skill — its origin is `agentculture/devague`, where the
 devague agent maintains it alongside the tool it operates (dogfooding). It is the
-*inverse* of the other skills under `.claude/skills/`, which devague vendors
+*inverse* of the other skills under `.colleague/skills/`, which devague vendors
 **from** steward. When this skill is ready, steward pulls it **from** devague and
 broadcasts it to the rest of the AgentCulture mesh. The `cite, don't import`
 policy still holds: downstream repos copy it, they don't symlink or depend on it.

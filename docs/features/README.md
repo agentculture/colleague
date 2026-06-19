@@ -38,6 +38,8 @@ colleague's skills from a peer, [learn-from.md](learn-from.md).
 | Backends & plugins | [engines.md](engines.md) | Backend + adapter + plugin discovery | `backends list`, `--engine` |
 | Model & endpoint selection | [model-selection.md](model-selection.md) | Backend config (model + endpoint) | `--model`, `--base-url`, env |
 | Git/PR handoff | [handoff.md](handoff.md) | Branch/commit/push/PR, gated for offline/CI | `work` (`--no-pr`, `--base`) |
+| Write isolation | [write-isolation.md](write-isolation.md) | A work item runs in a throwaway worktree; never touches your working tree | runtime (no verb) |
+| Cleanup / reap | [cleanup-reap.md](cleanup-reap.md) | Self-heal a repo a crashed run left wedged | `clean` |
 | Result artifact | [artifact.md](artifact.md) | The JSON run report + step trace | written by `work` |
 
 ### Front-ends: how you drive it
@@ -54,25 +56,22 @@ colleague's skills from a peer, [learn-from.md](learn-from.md).
 | Feature | Doc | What it is | CLI surface |
 |---------|-----|------------|-------------|
 | Context budget / graceful degradation | [graceful-degradation.md](graceful-degradation.md) | Window history; degrade on overflow/timeout instead of hard-failing | runtime (no verb) |
+| Capacity standard / fill-line | [capacity-standard.md](capacity-standard.md) | Proactive compact \| split \| finish-with-handoff decision before the window fills | runtime (no verb) |
 | Auto-split (too-large assignment) | [auto-split.md](auto-split.md) | Recommend splitting an over-large task into child work items | `subagents` loop tool |
+| Continue-working / finish | [continue-working.md](continue-working.md) | Resume past a stall; a clean summary survives to the exit | runtime (no verb) |
+| Explore never wastes a run | [explore-never-wastes.md](explore-never-wastes.md) | Forced synthesis + honest `incomplete` status on an out-of-steps explore | runtime (no verb) |
 | Escalation (agtag continuation) | [escalation.md](escalation.md) | File one tracked agtag issue on abort / step-budget exhaustion | opt-in via `COLLEAGUE_ESCALATE` |
-
-> The proactive **Capacity standard / fill-line decision** (v1, compact \| split \|
-> finish-with-handoff) is documented in its spec/plan
-> ([spec](../specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md)).
 
 ### Configuration & policy
 
 | Feature | Doc | What it is | CLI surface |
 |---------|-----|------------|-------------|
+| Config resolution | [config-resolution.md](config-resolution.md) | Endpoint/model/config-dir precedence; `.colleague/config.json` | `config show` |
 | Layered per-model config | [layered-config.md](layered-config.md) | AGENTS + skills compose into a per-model system prompt | `agents`, `skills` |
 | Per-model configuration | [per-model-configuration.md](per-model-configuration.md) | Per-model hooks overlay (`.colleague/<model>/hooks.json`) | `hooks list --model` |
 | Lifecycle hooks | [hooks.md](hooks.md) | Operator shell commands at task/tool lifecycle events | `hooks` |
+| Approval gate | [approval-gate.md](approval-gate.md) | Allow-list what the harness executes (`run_command` token, hook/command checksum) | `hooks approve`, `commands approve` |
 | Learn skills from a peer | [learn-from.md](learn-from.md) | Absorb another agent's skills into `.colleague/skills/` | `learn-from <source>` |
-
-> The **approval gate** (`.colleague/approvals.json` — gates what the harness
-> *executes*) is documented in the top-level
-> [README · Approval gate](../../README.md#approval-gate).
 
 ### Observability & ROI
 

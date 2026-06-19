@@ -11,6 +11,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - AGENTS.colleague.md worker base layer — distilled load-bearing conventions from CLAUDE.md, injected by layers.py whenever colleague drives a work item in its own repo (it previously ran the generic default prompt, since layers.py reads the AGENTS cascade, not CLAUDE.md) (#225).
 - tests/test_doc_config_drift.py — a doc-to-config drift guard that reads the live colleague/config.py constants and asserts the feature docs quote them, so the budget/depth drift cannot silently recur (#225).
+- Seven backfilled `docs/features/` docs for shipped-but-undocumented features (#225, gap 3): write-isolation, approval-gate, capacity-standard, cleanup-reap, config-resolution, continue-working, explore-never-wastes — each distilled from CLAUDE.md + its spec/plan and wired into `docs/features/README.md` (the approval-gate + capacity entries were previously README-blockquote stubs pointing elsewhere).
+- Adapted 10 of the 12 vendored `.colleague/skills/*.md` from `adapt: pending` to `adapt: claude->colleague` (#225, gap 4) via the `learn-from claude` stage-2 pass — colleague (the 27B, now reading the new AGENTS.colleague.md base layer) remapped Claude script invocations to colleague's real `culture`/`run_command`/`subagent`/`run_tests` tool surface. `ask-colleague` (colleague's own first-party skill) and `sonarclaude` (the adapt only shallowly prefixed a non-existent script path — reverted to honest `pending`) are intentionally left unadapted.
 
 ### Fixed
 
