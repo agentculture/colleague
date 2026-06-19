@@ -279,6 +279,29 @@ def parse_claims(text: str) -> tuple[list[Claim], list[HonestyCondition]]:
     return claims, honesty
 
 
+def parse_honesty(text: str) -> list[HonestyCondition]:
+    """Parse a honesty-ONLY proposal blob, keyed on the ``honesty`` array.
+
+    Unlike :func:`parse_claims` (which extracts the object carrying ``claims``),
+    this selects the object carrying ``honesty`` — so a weak model that prepends
+    an extra ``{"claims": ...}`` object before the requested ``{"honesty": [...]}``
+    payload cannot shadow it (Qodo #230 F2). Selecting on ``claim_id`` (not
+    ``id``) because :meth:`_ClaimAcc.absorb_honesty` mints its own ids; an entry
+    without a ``claim_id`` is useless to the convergence rule and is skipped.
+    """
+    data = _extract_json_object(text, required_key="honesty")
+    return [
+        HonestyCondition(
+            id=str(h.get("id", "")),
+            claim_id=str(h["claim_id"]),
+            text=str(h.get("text", "")),
+            state="proposed",
+        )
+        for h in data.get("honesty", [])
+        if isinstance(h, dict) and h.get("claim_id")
+    ]
+
+
 def _coerce_str_list(value: object) -> list[str]:
     """Coerce *value* to a list of strings.
 
@@ -493,8 +516,10 @@ class _ClaimAcc:
         Unlike :meth:`absorb` this keys on ``claim_id`` and mints a fresh unique
         id for each accepted condition — the dedicated/per-claim honesty calls
         often reuse ``"h1"``, which :meth:`absorb`'s id-dedup would silently drop.
+        Parses via :func:`parse_honesty` (keyed on ``honesty``) so an extra
+        ``{"claims": ...}`` object in the response can't shadow it (Qodo #230 F2).
         """
-        _, honesty = parse_claims(text)
+        honesty = parse_honesty(text)
         covered = {h.claim_id for h in self.honesty}
         for h in honesty:
             if not h.claim_id or h.claim_id in covered:

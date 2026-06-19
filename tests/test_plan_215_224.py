@@ -231,6 +231,50 @@ def test_no_workforce_skips_fanout() -> None:
     assert result.converged is True
 
 
+def test_no_workforce_still_detects_cycles() -> None:
+    """--no-workforce must NOT report a cyclic plan as converged (Qodo #230 F1).
+
+    validate_items does not detect cycles — only compute_waves does — so the
+    plan-only return now happens AFTER compute_waves, which raises on a cycle.
+    """
+    import pytest
+
+    def batch_spawn(items: list[dict]) -> list[SubResult]:
+        return []
+
+    with pytest.raises(ValueError, match="cycle"):
+        run_plan_mode(
+            "plan this",
+            propose_claims=lambda r: ([], []),
+            decide=lambda item, critique: "confirm",
+            propose_plan_items=lambda frame: [
+                PlanItem(id="a", summary="A", acceptance=["x"], deps=["b"]),
+                PlanItem(id="b", summary="B", acceptance=["x"], deps=["a"]),
+            ],
+            batch_spawn=batch_spawn,
+            engine="mock",
+            model="test-model",
+            quick=True,
+            workforce=False,
+        )
+
+
+def test_absorb_honesty_not_shadowed_by_claims_object() -> None:
+    """absorb_honesty must extract the honesty payload even when the model
+    prepends an extra {"claims":...} object before {"honesty":...} (Qodo #230 F2).
+    """
+    from colleague.plan.cli_driver import _ClaimAcc
+
+    acc = _ClaimAcc()
+    acc.absorb('{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}]}')
+    # A honesty response that (mis)prepends a claims object before the honesty one.
+    acc.absorb_honesty(
+        '{"claims": [{"id": "cX", "kind": "requirement", "text": "noise"}]} '
+        '{"honesty": [{"id": "h1", "claim_id": "c1", "text": "c1 is true"}]}'
+    )
+    assert any(h.claim_id == "c1" for h in acc.honesty)
+
+
 # ── (4) _render_run and _run_payload name honesty gaps (#224) ───────────────
 
 

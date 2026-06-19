@@ -313,9 +313,11 @@ if [[ "$VERB" == "plan" ]]; then
     [[ "${JSON_OUT:-0}" -eq 1 ]] && plan_flags+=(--json)
     plan_rc=0
     "${COLLEAGUE[@]}" plan run "$ARG" "${plan_flags[@]}" || plan_rc=$?
-    if [[ "$plan_rc" -ne 0 ]]; then
-        # No silent auto-degrade: name the recovery levers (those not already set)
-        # and let the caller choose. Diagnostics -> stderr; stdout stays clean.
+    # No silent auto-degrade: name the recovery levers (those not already set) and
+    # let the caller choose. Human hints are TEXT-mode only — in --json mode the
+    # consumer is a machine and colleague's own structured {code,message,remediation}
+    # error already went to stderr, so suppress the prose there (Qodo #230 F4).
+    if [[ "$plan_rc" -ne 0 && "${JSON_OUT:-0}" -ne 1 ]]; then
         echo "hint: plan mode did not complete on this backend. Recovery options (no auto-degrade):" >&2
         [[ "$NO_WORKFORCE" -eq 0 ]] && echo "hint:   --no-workforce  deliver the spec+plan only, skip the timeout-prone workforce fan-out (#215)" >&2
         [[ "$QUICK" -eq 0 ]] && echo "hint:   --quick         skip the spec stage, plan directly from the request (#199)" >&2
