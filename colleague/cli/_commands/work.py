@@ -295,6 +295,23 @@ def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
     return _restore
 
 
+def _baseline_untracked_for(work_repo: Path, repo: Path, tui_events: str | None) -> list[str]:
+    """Untracked-file baseline for the handoff, registering a ``--tui-events`` stream.
+
+    Snapshots untracked files before the loop so the handoff stages only what the work
+    item produces, never pre-existing operator WIP (#39); a live ``--tui-events`` path
+    written into the repo is harness telemetry, registered as baseline so the handoff
+    never sweeps it into the work branch (#74 A3). Extracted from :func:`execute_work`
+    to keep its cognitive complexity under the S3776 threshold (review of #228).
+    """
+    baseline = untracked_snapshot(work_repo)
+    if tui_events:
+        ev_rel = _repo_relative(repo, tui_events)
+        if ev_rel is not None:
+            baseline.append(ev_rel)
+    return baseline
+
+
 def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
     """Commit a non-OK isolated run's WIP to its ``colleague/<id>`` branch (#222).
 
@@ -412,17 +429,9 @@ def execute_work(
 
             # Snapshot untracked files BEFORE the work item so the handoff stages only
             # the files the work item itself produces — never pre-existing operator
-            # work-in-progress (#39).
-            baseline_untracked = untracked_snapshot(work_repo)
-            # A live `--tui-events` stream written into the repo is harness
-            # telemetry, not drive output: register it as baseline so the handoff
-            # never sweeps it into the work branch (after which the branch-restore
-            # would delete it). Paths outside the repo / under .colleague/ are
-            # already excluded by the handoff (#74 A3).
-            if tui_events:
-                ev_rel = _repo_relative(repo, tui_events)
-                if ev_rel is not None:
-                    baseline_untracked.append(ev_rel)
+            # work-in-progress (#39), with a live --tui-events stream registered as
+            # baseline (#74 A3). Extracted to a helper (review of #228, S3776).
+            baseline_untracked = _baseline_untracked_for(work_repo, repo, tui_events)
 
             # Per-step progress (#38) — wired here so both `work` and `session`,
             # and every backend (which forwards `config.progress`), report
