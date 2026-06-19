@@ -146,7 +146,11 @@ def test_make_propose_claims_tolerates_bad_second_chunk() -> None:
     propose = make_propose_claims(simple)
     claims, honesty = propose("build a thing")
     assert [c.id for c in claims] == ["c1"]
-    assert call_count == 2  # both calls attempted
+    # Both claim calls are attempted, then the #215 honesty-fill pass runs (a
+    # dedicated batch call + a bounded per-claim fallback). Every chunk here is
+    # bad JSON, so it is tolerated (no crash) and no honesty is recovered.
+    assert call_count >= 2
+    assert honesty == []
 
 
 def test_parse_plan_items_acceptance_string_not_split_into_chars() -> None:

@@ -16,6 +16,7 @@ import json
 from typing import Any, Callable
 
 from colleague.context import classify_degradable
+from colleague.plan.convergence import SPEC_AFFECTING_KINDS
 from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
 from colleague.plan.plan_stage import PlanItem
 
@@ -39,6 +40,29 @@ CLAIMS_REQUIREMENTS_SYSTEM_PROMPT = (
     '"honesty": [{"id": "h1", "claim_id": "c1", "text": "..."}]}. '
     "Use these claim kinds: requirement, assumption, decision, non_goal. "
     "Attach an honesty condition to each spec-affecting claim. "
+    "No prose outside the JSON."
+)
+
+# A DEDICATED honesty-only call. Splitting honesty out of the combined
+# requirements+honesty call above is the #215 fix: the served reference 27B
+# reliably returns claims from the combined call but ZERO honesty conditions, so
+# every confirmed spec-affecting claim fails convergence. A focused single-array
+# ask — and a per-claim fallback (ONE_HONESTY_SYSTEM_PROMPT) — gets the weak model
+# to produce them. Smaller jumps, one output shape.
+CLAIMS_HONESTY_SYSTEM_PROMPT = (
+    "You are the planning mind for colleague's plan mode. For EACH claim listed "
+    "below, propose ONE honesty condition: a concrete, checkable statement of what "
+    "must be true for that claim to hold. Reply with ONLY a JSON object of the form: "
+    '{"honesty": [{"id": "h1", "claim_id": "c1", "text": "..."}]}. '
+    "Produce exactly one honesty entry per claim, reusing the claim's id as "
+    "claim_id. No prose outside the JSON."
+)
+
+ONE_HONESTY_SYSTEM_PROMPT = (
+    "You are the planning mind for colleague's plan mode. Propose ONE honesty "
+    "condition for the single claim below: a concrete, checkable statement of what "
+    "must be true for that claim to hold. Reply with ONLY a JSON object of the form: "
+    '{"honesty": [{"id": "h1", "claim_id": "CLAIM_ID", "text": "..."}]}. '
     "No prose outside the JSON."
 )
 
@@ -444,6 +468,49 @@ class _ClaimAcc:
                 self._honesty_ids.add(h.id)
                 self.honesty.append(h)
 
+    def _mint_honesty_id(self) -> str:
+        """A fresh ``h<n>`` id not yet used (the model may reuse ``h1``)."""
+        n = len(self.honesty) + 1
+        new_id = f"h{n}"
+        while new_id in self._honesty_ids:
+            n += 1
+            new_id = f"h{n}"
+        return new_id
+
+    def claims_missing_honesty(self) -> list[Claim]:
+        """Spec-affecting claims that have no honesty condition yet.
+
+        Keyed on ``claim_id`` (the convergence rule binds honesty to a *claim*,
+        not to a honesty-condition id), so a claim is "covered" once any honesty
+        condition references it.
+        """
+        covered = {h.claim_id for h in self.honesty}
+        return [c for c in self.claims if c.kind in SPEC_AFFECTING_KINDS and c.id not in covered]
+
+    def absorb_honesty(self, text: str) -> None:
+        """Absorb a honesty-only proposal, one condition per not-yet-covered claim.
+
+        Unlike :meth:`absorb` this keys on ``claim_id`` and mints a fresh unique
+        id for each accepted condition — the dedicated/per-claim honesty calls
+        often reuse ``"h1"``, which :meth:`absorb`'s id-dedup would silently drop.
+        """
+        _, honesty = parse_claims(text)
+        covered = {h.claim_id for h in self.honesty}
+        for h in honesty:
+            if not h.claim_id or h.claim_id in covered:
+                continue
+            covered.add(h.claim_id)
+            new_id = self._mint_honesty_id()
+            self._honesty_ids.add(new_id)
+            self.honesty.append(
+                HonestyCondition(
+                    id=new_id,
+                    claim_id=h.claim_id,
+                    text=h.text,
+                    state="proposed",
+                )
+            )
+
 
 def _try_absorb(acc: _ClaimAcc, simple: SimpleComplete, system: str, user: str) -> None:
     """Run one proposal call and absorb its claims; tolerate unparseable JSON."""
@@ -451,6 +518,51 @@ def _try_absorb(acc: _ClaimAcc, simple: SimpleComplete, system: str, user: str) 
         acc.absorb(simple(system, user))
     except ValueError:
         pass  # partial chunk failure is non-fatal
+
+
+#: Max per-claim honesty fallback calls (bounds the total honesty call count).
+_MAX_HONESTY_FALLBACK = 8
+
+
+def _try_fill_honesty(acc: _ClaimAcc, simple: SimpleComplete, system: str, user: str) -> None:
+    """Run one honesty-only call and absorb its conditions; tolerate bad JSON."""
+    try:
+        acc.absorb_honesty(simple(system, user))
+    except ValueError:
+        pass  # an empty/unparseable honesty chunk is non-fatal, never a crash
+
+
+def _fill_honesty(acc: _ClaimAcc, simple: SimpleComplete) -> None:
+    """Ensure spec-affecting claims carry an honesty condition (#215).
+
+    The combined requirements+honesty call (call 2) reliably yields claims but no
+    honesty on a weak served model. This recovers honesty in two bounded steps:
+
+    1. ONE dedicated honesty-only call listing every spec-affecting claim still
+       missing a condition (a single ``{"honesty": [...]}`` ask — the shape a
+       weak model handles best).
+    2. A bounded per-claim fallback (at most :data:`_MAX_HONESTY_FALLBACK` calls)
+       for any claim the batch call still left uncovered.
+
+    All calls route through ``simple`` (``robust_simple_complete`` in production),
+    so reasoning-channel recovery and degradation retries apply. Honesty
+    conditions land ``state="proposed"`` — the operator/gate still confirms them.
+    """
+    missing = acc.claims_missing_honesty()
+    if not missing:
+        return
+
+    # 1. Dedicated batch honesty call.
+    listing = "Claims needing an honesty condition:\n" + "\n".join(
+        f"- [{c.id}] ({c.kind}) {c.text}" for c in missing
+    )
+    _try_fill_honesty(acc, simple, CLAIMS_HONESTY_SYSTEM_PROMPT, listing)
+
+    # 2. Bounded per-claim fallback for any claim still uncovered.
+    for claim in acc.claims_missing_honesty()[:_MAX_HONESTY_FALLBACK]:
+        system = ONE_HONESTY_SYSTEM_PROMPT.replace("CLAIM_ID", claim.id)
+        user = f"Claim {claim.id} ({claim.kind}): {claim.text}"
+        _try_fill_honesty(acc, simple, system, user)
 
 
 def make_propose_claims(
@@ -484,6 +596,12 @@ def make_propose_claims(
         # "unusable plan proposal" error, never a silent empty frame.
         if not acc.claims:
             raise ValueError("no claims could be parsed from the model output")
+
+        # --- Call 3+: dedicated honesty pass (the #215 fix) ---
+        # The combined call above reliably drops honesty on a weak model; recover
+        # it with a focused single-shape call + bounded per-claim fallback so the
+        # spec stage can actually converge.
+        _fill_honesty(acc, simple)
 
         return acc.claims, acc.honesty
 

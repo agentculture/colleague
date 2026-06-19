@@ -76,6 +76,7 @@ def run_plan_mode(
     repo_path: str | None = None,
     plan_id: str = "plan",
     quick: bool = False,
+    workforce: bool = True,
 ) -> OrchestratorResult:
     """Drive the full plan-mode lifecycle end to end.
 
@@ -131,6 +132,13 @@ def run_plan_mode(
         frame from the request text, proceeding straight to plan-item
         proposal.  The plan-level gate (``decide``) is invoked on the
         proposed plan items before any workforce execution.
+    workforce:
+        When ``True`` (default), fan the plan out to the subagent workforce.
+        When ``False`` (plan-only / ``--no-workforce``, #215), return right
+        after the plan items are proposed (and gated, in ``quick`` mode):
+        no wave is computed, ``batch_spawn`` is never called, and no subagent
+        worktree is created.  ``OrchestratorResult`` keeps its shape (empty
+        ``waves``/``sub_results``/``conflicts``).
 
     Returns
     -------
@@ -206,6 +214,18 @@ def run_plan_mode(
                 converged=True,
                 plan_items=plan_items,
             )
+
+    # ── e2. Plan-only mode: stop before the workforce fan-out (#215) ──
+    # A caller who said "plan this" wants the spec+plan, not the long,
+    # side-effecting implementation fan-out (which times out at 120s on the
+    # served 27B). Return the gated plan with no wave computed and no subagent
+    # worktree created.
+    if not workforce:
+        return OrchestratorResult(
+            spec_result=spec_result,
+            converged=True,
+            plan_items=plan_items,
+        )
 
     # ── f. Compute waves ──────────────────────────────────────────────
     waves = compute_waves(plan_items)
