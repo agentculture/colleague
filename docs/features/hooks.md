@@ -91,11 +91,18 @@ execute automatically** with your OS privileges — no confirmation prompt, no
 sandbox. This is intentional under colleague's **trusted-operator-env model
 (D2)**, the same tradeoff Claude Code and Codex make for their hook configs.
 
-There is **no `--no-hooks` flag and no per-repo trust gate today** — that
-hardening is a tracked follow-up, not yet built. Until it ships: only run colleague on
-repos you own or have audited, review `.colleague/hooks.json` before driving an
-unfamiliar repo, and prefer user-level (`~/.colleague/hooks.json`) hooks if you
-want hooks without trusting any repo's config.
+There is still **no `--no-hooks` flag**. A per-repo trust gate has **partially
+landed**: the **approval gate** (`colleague/policy.py`, via
+`.colleague/approvals.json`) gates hook **script files by content checksum**
+(`sha256`/`md5`) and `run_command` CLIs by program token — an unlisted hook
+script under an allow-list section is denied, and a content change voids a prior
+approval. **But it is a policy gate, not a sandbox**: it is bypassable by
+`sh -c`, pipelines, and shell expansion, and `version` pinning is not yet built.
+So until the hardening is complete: only run colleague on repos you own or have
+audited, review `.colleague/hooks.json` before driving an unfamiliar repo, and
+prefer user-level (`~/.colleague/hooks.json`) hooks if you want hooks without
+trusting any repo's config. Approve a hook script with
+`colleague hooks approve <script> --repo .`.
 
 ## Key files
 

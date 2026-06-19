@@ -49,7 +49,7 @@ execute each requested tool against the repo, feed the result back, repeat. The
 mock engine supplies a scripted `complete`; the vLLM engine supplies one that
 POSTs to an OpenAI-compatible endpoint. The loop never knows the difference.
 
-The model is offered **seven tools** (`colleague/tools.py`), handed to it as
+The model is offered **seven base tools** (`colleague/tools.py`), handed to it as
 OpenAI function schemas — six base tools plus one curated `culture` tool added
 via the mesh-member re-spec:
 
@@ -62,6 +62,24 @@ via the mesh-member re-spec:
 | `run_command` | Run a shell command with `cwd` pinned to the repo root. |
 | `culture` | Run an allow-listed AgentCulture CLI (`agtag` / `devex`) with the agent's identity injected. See [mesh-member.md](mesh-member.md). |
 | `finish` | Signal completion with a short summary. |
+
+Later features add more **curated, backend-judged, optional** tools to the same
+surface (each documented in its own feature doc). These are not always offered —
+some are role-gated or feature-gated — so the full schema list a given run sees
+depends on its config:
+
+| Tool | Added by | What it does |
+|------|----------|--------------|
+| `devague` | [destination](destination.md) | Open/converge a `devague` goal-frame and declare arrival (allow-list excludes `confirm`/`reject`/`export`). |
+| `subagent` | [subagents](subagents.md) | Delegate one scoped child work item in an isolated worktree. |
+| `subagents` | [parallel subagents](parallel-subagents.md) | Delegate a concurrent batch of children + a sequential merge child. |
+| `check_test_integrity` | [test integrity](test-integrity.md) | Self-check the changed files for the mirror signature mid-work (the harness gate runs regardless). |
+| `run_tests` | [subagent roles](subagent-roles.md) | Read-only test runner offered only to the `validator` role. |
+
+A [typed subagent **role**](subagent-roles.md) can also *withhold* tools: a
+read-only role (`explorer`/`planner`/`reviewer`) is offered neither `write_file`,
+`edit_file`, nor `run_command`, and the role-aware executor refuses any withheld
+tool even if the model hallucinates the call.
 
 ### Confinement
 
