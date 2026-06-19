@@ -23,10 +23,12 @@ it.
   run on a different backend or model. Resolution goes through
   `registry.load` + `EngineConfig` inheritance (`dataclasses.replace` with only
   the model overridden) — a config-level switch, never a backend code change.
-- **Bounded.** `MAX_SUBAGENT_DEPTH=2` (recursion cap, checked *before* any child
-  work starts) and `MAX_SUBAGENT_FANOUT=4` (per-work-item fan-out cap). A child
-  refused at the depth cap does zero work and returns an error immediately, so
-  there is no unbounded recursion and no growing call stack.
+- **Bounded.** `MAX_SUBAGENT_DEPTH=4` (recursion cap, checked *before* any child
+  work starts) and `MAX_SUBAGENT_FANOUT=4` (per-work-item fan-out cap), with a
+  single global `MAX_SUBAGENT_TOTAL=24` agent budget across the whole work item.
+  A child refused at a cap does zero work and returns an error immediately, so
+  there is no unbounded recursion and no growing call stack. (Depth was deepened
+  from 2 to 4 and the global total added by the typed-subagent-roles feature.)
 - **Engine-judged, optional.** The model decides whether to delegate per call,
   exactly like the [`devague` destination tool](destination.md). It is never a
   forced gate.

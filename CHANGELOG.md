@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-06-19
+
+### Added
+
+- AGENTS.colleague.md worker base layer — distilled load-bearing conventions from CLAUDE.md, injected by layers.py whenever colleague drives a work item in its own repo (it previously ran the generic default prompt, since layers.py reads the AGENTS cascade, not CLAUDE.md) (#225).
+- tests/test_doc_config_drift.py — a doc-to-config drift guard that reads the live colleague/config.py constants and asserts the feature docs quote them, so the budget/depth drift cannot silently recur (#225).
+- Seven backfilled `docs/features/` docs for shipped-but-undocumented features (#225, gap 3): write-isolation, approval-gate, capacity-standard, cleanup-reap, config-resolution, continue-working, explore-never-wastes — each distilled from CLAUDE.md + its spec/plan and wired into `docs/features/README.md` (the approval-gate + capacity entries were previously README-blockquote stubs pointing elsewhere).
+- Adapted 10 of the 12 vendored `.colleague/skills/*.md` from `adapt: pending` to `adapt: claude->colleague` (#225, gap 4) via the `learn-from claude` stage-2 pass — colleague (the 27B, now reading the new AGENTS.colleague.md base layer) remapped Claude script invocations to colleague's real `culture`/`run_command`/`subagent`/`run_tests` tool surface. `ask-colleague` (colleague's own first-party skill) and `sonarclaude` (the adapt only shallowly prefixed a non-existent script path — reverted to honest `pending`) are intentionally left unadapted.
+
+### Fixed
+
+- Stale feature-doc values corrected against colleague/config.py (#225): MAX_SUBAGENT_DEPTH 2 -> 4 (+ the global MAX_SUBAGENT_TOTAL=24 budget) in subagents.md/parallel-subagents.md; default context budget 24,000 -> 192,000 tokens in graceful-degradation.md; hooks.md trust-gate line updated (the approval gate shipped, the --no-hooks flag is still absent); work-and-loop.md tool table now lists the curated/optional tools (devague/subagent/subagents/check_test_integrity/run_tests) instead of reading as the complete surface.
+
 ## [1.20.0] - 2026-06-18
 
 ### Added

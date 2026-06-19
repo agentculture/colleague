@@ -1,6 +1,6 @@
-Turn a converged devague spec into a buildable plan by working forwards (the spec→plan leg; drives the `devague plan` CLI group). Seed a plan from a converged frame, add tasks that collectively cover every coverage target (the frame's confirmed claims + honesty conditions), give each task acceptance criteria and an honest dependency order, park genuine unknowns as first-class risks, and export a plan only once it *converges*. Use when the user says "spec to plan", "stp", "turn this spec into a plan", "plan this spec", "make a build plan", or after the /think skill exports a spec. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
+Turn a converged devague spec into a buildable plan by working forwards (the spec→plan leg; drives the `devague plan` CLI group). Seed a plan from a converged frame, add tasks that collectively cover every coverage target (the frame's confirmed claims + honesty conditions), give each task acceptance criteria and an honest dependency order, park genuine unknowns as first-class risks, and export a plan only once it *converges*. Use when the user says "spec to plan", "stp", "turn this spec into a plan", "plan this spec", "make a build plan", or after the `think` skill exports a spec. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
 
-<!-- learned-from: claude; source: .claude/skills/spec-to-plan/SKILL.md; scripts: .claude/skills/spec-to-plan/scripts; adapt: pending -->
+<!-- learned-from: claude; source: .claude/skills/spec-to-plan/SKILL.md; scripts: .claude/skills/spec-to-plan/scripts; adapt: claude->colleague -->
 
 # spec-to-plan
 
@@ -8,9 +8,9 @@ Turn a converged devague spec into a buildable plan by working forwards (the spe
 
 The skill is named **`spec-to-plan`**; the product/CLI it drives is the
 **`devague plan`** command group. (The prior leg — turning a vague idea into a
-spec — is the sibling **`/think`** skill.) It is the **forward** peer of the
-working-backwards spec engine: where `/think` converges on *what* to build,
-`/spec-to-plan` converges on *how* to build it.
+spec — is the sibling **`think`** skill.) It is the **forward** peer of the
+working-backwards spec engine: where `think` converges on *what* to build,
+`spec-to-plan` converges on *how* to build it.
 
 A plan is seeded from a **converged frame** and tracks **tasks** against the
 spec's **coverage targets**. The CLI is **deterministic and move-driven** — you
@@ -20,20 +20,17 @@ missing. Run `devague plan learn` for the method and `devague plan explain
 
 ## How to run
 
-The entry point is `scripts/spec-to-plan.sh`. Invoke it from the repository you
-are speccing (plans persist under `.devague/` in the current directory, alongside
-the frames they derive from):
+Use `run_command` to invoke the `devague` CLI directly (the operator has it
+installed on PATH). Plans persist under `.devague/` in the current directory,
+alongside the frames they derive from:
 
 ```bash
-bash .claude/skills/spec-to-plan/scripts/spec-to-plan.sh <move> [args...]
-bash .claude/skills/spec-to-plan/scripts/spec-to-plan.sh status
+devague plan <move> [args...]
+devague plan status
 ```
 
-It resolves the CLI portably — an installed `devague` on `PATH` (the normal
-case), falling back to `uv run devague` inside the devague checkout, else an
-install hint. Every move — including `status` — is forwarded verbatim as
-`devague plan <move>`, so you can equally call the CLI directly
-(`devague plan <move> …`).
+Every move — including `status` — is `devague plan <move>`, so you can call the
+CLI directly.
 
 ### Moves
 
@@ -100,12 +97,12 @@ These are the point of the method — convergence must mean something.
   decision is an `unknown_blocking` risk — it holds back convergence, by design.
 - **Converge against the live frame.** `converge`/`export` re-load the source
   frame every time. If the frame was deleted or has regressed below convergence,
-  they refuse — re-converge the spec (in `/think`) first.
+  they refuse — re-converge the spec (in `think`) first.
 
 ## Coaching toward small, file-disjoint, TDD-gated tasks
 
 When authoring a plan that will be built via parallel execution (fanned out to
-multiple agents via the downstream `/assign-to-workforce` skill), prefer the
+multiple agents via the downstream `assign-to-workforce` skill), prefer the
 following discipline to maximize parallelism and minimize merge friction:
 
 ### Small and crisply scoped
@@ -160,7 +157,7 @@ proof that parallelism didn't break correctness.
 
 Once your plan converges, `devague plan waves` emits the dependency-graph as
 **scheduling metadata** (ordered batches of task IDs). This feeds directly into
-the `/assign-to-workforce` skill, which:
+the `assign-to-workforce` skill, which:
 
 1. Displays the plan, waves, and suggested per-task subagent/model pairing.
 2. Waits for the human to approve the implementation split plan (or edit
@@ -183,37 +180,35 @@ in `docs/plans/`.
 
 ## Worked example
 
-Picking up after `/think` exported a spec for the frame `my-feature`:
+Picking up after `think` exported a spec for the frame `my-feature`:
 
 ```bash
-p() { bash .claude/skills/spec-to-plan/scripts/spec-to-plan.sh "$@"; }
+devague plan new --frame my-feature   # seeds the plan + its coverage targets
+devague plan show                     # see the c*/h* targets you must cover
 
-p new --frame my-feature        # seeds the plan + its coverage targets
-p show                          # see the c*/h* targets you must cover
-
-p task "Build the core engine" --accept "engine has a convergence gate" \
+devague plan task "Build the core engine" --accept "engine has a convergence gate" \
     --covers c1 --covers c3
-p task "Pressure-test honesty conditions" --dep t1 --covers h1 --covers h2 \
+devague plan task "Pressure-test honesty conditions" --dep t1 --covers h1 --covers h2 \
     --accept "every honesty condition maps to a test"
 
 # Park a genuine unknown instead of guessing:
-p risk "exact rollout sequencing" --kind unknown_nonblocking
+devague plan risk "exact rollout sequencing" --kind unknown_nonblocking
 
-p status        # what's left + the next move
-p converge      # gate; resolve any listed gaps
-p export        # writes docs/plans/my-feature.md once converged
+devague plan status                   # what's left + the next move
+devague plan converge                 # gate; resolve any listed gaps
+devague plan export                   # writes docs/plans/my-feature.md once converged
 ```
 
 The exported plan-md is a buildable artifact: topologically ordered tasks, each
 with acceptance criteria and the spec targets it covers. It feeds directly into
-implementation (or `superpowers:writing-plans`).
+implementation.
 
 ## Provenance
 
 This is a **first-party** skill — its origin is `agentculture/devague`, where the
 devague agent maintains it alongside the tool it operates (dogfooding), next to
-its sibling `/think`. It is the *inverse* of the other skills under
-`.claude/skills/`, which devague vendors **from** steward. When ready, steward
+its sibling `think`. It is the *inverse* of the other skills under
+`.colleague/skills/`, which devague vendors **from** steward. When ready, steward
 pulls it **from** devague and broadcasts it to the rest of the AgentCulture mesh.
 The `cite, don't import` policy still holds: downstream repos copy it, they don't
 symlink or depend on it. See `docs/skill-sources.md`.

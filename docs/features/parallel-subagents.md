@@ -109,8 +109,9 @@ means:
 
 | Parameter | Value | Note |
 |-----------|-------|------|
-| `MAX_SUBAGENT_DEPTH` | 2 | Recursion cap (unchanged). A subagent cannot spawn its own subagents beyond depth 2. |
-| `MAX_SUBAGENT_FANOUT` | 4 | Fan-out cap (unchanged). A batch + merge = at most 4 children per parent. |
+| `MAX_SUBAGENT_DEPTH` | 4 | Recursion cap. A subagent cannot spawn its own subagents beyond depth 4. (Deepened from 2 by the typed-subagent-roles feature.) |
+| `MAX_SUBAGENT_FANOUT` | 4 | Fan-out cap. A batch + merge = at most 4 children per parent. |
+| `MAX_SUBAGENT_TOTAL` | 24 | Global agent budget across the whole work item (charged once before any child work). |
 | Parallel workers | ≤ 3 | Reserved slot for the merge child (4 - 1). |
 | Concurrency width | opt-in, default 1 | `COLLEAGUE_SUBAGENT_CONCURRENCY`. |
 

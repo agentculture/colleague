@@ -1,6 +1,6 @@
 Bump the semver version in pyproject.toml (major, minor, or patch) and prepend a Keep-a-Changelog entry to CHANGELOG.md. Use when preparing a release, before creating a PR (the version-check CI job blocks merge if you don't), or when the user says "bump version", "release", or "increment version".
 
-<!-- learned-from: claude; source: .claude/skills/version-bump/SKILL.md; scripts: .claude/skills/version-bump/scripts; adapt: pending -->
+<!-- learned-from: claude; source: .claude/skills/version-bump/SKILL.md; scripts: .claude/skills/version-bump/scripts; adapt: claude->colleague -->
 
 # version-bump
 
@@ -13,19 +13,23 @@ self-contained.
 
 ## Usage
 
-Run from the repo root.
+Run from the repo root using colleague's tools.
 
-```bash
-# With changelog content (pipe JSON via stdin):
-echo '{"added":["New X"],"changed":["Refactored Y"],"fixed":["Bug in Z"]}' \
-  | python3 .claude/skills/version-bump/scripts/bump.py minor
+1. **Read the current version** — use `read_file` on `pyproject.toml` to
+   locate the `version = "x.y.z"` field under `[project]`.
 
-# Without changelog content (inserts empty ### Added/Changed/Fixed stubs):
-python3 .claude/skills/version-bump/scripts/bump.py patch
+2. **Compute the new version** — apply the appropriate bump (see Bump Types
+   below).
 
-# Check current version without bumping:
-python3 .claude/skills/version-bump/scripts/bump.py show
-```
+3. **Bump `pyproject.toml`** — use `edit_file` to replace the old
+   `version = "x.y.z"` with the new value.
+
+4. **Update `CHANGELOG.md`** — use `read_file` on `CHANGELOG.md`, then
+   `edit_file` to prepend a new `## [x.y.z] - YYYY-MM-DD` entry with the
+   appropriate `### Added` / `### Changed` / `### Fixed` sections.
+
+5. **Verify** — use `run_command` with `git diff` to review the changes
+   before committing.
 
 ## Bump Types
 
@@ -34,29 +38,34 @@ python3 .claude/skills/version-bump/scripts/bump.py show
 | `major` | 0.1.0 → 1.0.0  | Breaking changes, namespace restructures, CLI surface breaks      |
 | `minor` | 0.1.0 → 0.2.0  | New features, new commands, new modules                           |
 | `patch` | 0.1.0 → 0.1.1  | Bug fixes, doc updates, dependency bumps, CI-only changes         |
-| `show`  | prints `0.1.0` | Read-only — no files changed                                      |
 
-## Changelog JSON Format
+## Changelog Entry Format
 
-Pass via stdin. All fields are optional — only non-empty sections are rendered.
+Prepend a new section at the top of `CHANGELOG.md`, directly after the
+title line. All subsections are optional — only include non-empty ones.
 
-```json
-{
-  "added":   ["List of new features"],
-  "changed": ["List of changes to existing functionality"],
-  "fixed":   ["List of bug fixes"]
-}
+```markdown
+## [x.y.z] - YYYY-MM-DD
+
+### Added
+- New feature description
+
+### Changed
+- Change to existing functionality
+
+### Fixed
+- Bug fix description
 ```
 
 ## What it touches
 
-- `pyproject.toml` — the `version = "x.y.z"` field (single source of truth;
-  `steward/__init__.py` reads it via `importlib.metadata`, so there's no
-  separate `__version__` literal to keep in sync).
+- `pyproject.toml` — the `version = "x.y.z"` field under `[project]` (single
+  source of truth; `colleague/__init__.py` reads it via `importlib.metadata`,
+  so there is no separate `__version__` literal to keep in sync).
 - `CHANGELOG.md` — inserts a new `## [x.y.z] - YYYY-MM-DD` entry at the top.
 
-The script does the rest. Pick a bump type from the diff (patch for fixes,
-minor for new features, major for breaking changes), summarize the diff into
-`added` / `changed` / `fixed` lists, pipe as JSON, and commit the resulting
-`pyproject.toml` + `CHANGELOG.md` alongside the code change so the
-`version-check` CI job sees a consistent bump.
+Pick a bump type from the diff (patch for fixes, minor for new features,
+major for breaking changes), summarise the diff into `added` / `changed` /
+`fixed` items, and commit the resulting `pyproject.toml` + `CHANGELOG.md`
+alongside the code change so the `version-check` CI job sees a consistent
+bump.

@@ -1,6 +1,6 @@
-Fan out a converged devague plan's dependency waves to parallel agents in isolated git worktrees, one agent per task per wave, with TDD-gated merges by the main agent. Human gates: the exported spec, the implementation split plan (task map + per-task agent/model proposal + go/no-go), and the final PR. The devague CLI stays deterministic and non-orchestrating (#20) — it only *describes* the graph via `devague plan waves`; the operator (main agent) performs the fan-out. Use when the user says "assign to workforce", "fan out the plan", "parallel subagents", or after /spec-to-plan exports a plan. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
+Fan out a converged devague plan's dependency waves to parallel agents in isolated git worktrees, one agent per task per wave, with TDD-gated merges by the main agent. Human gates: the exported spec, the implementation split plan (task map + per-task agent/model proposal + go/no-go), and the final PR. The devague CLI stays deterministic and non-orchestrating (#20) — it only *describes* the graph via `devague plan waves`; the operator (main agent) performs the fan-out. Use when the user says "assign to workforce", "fan out the plan", "parallel subagents", or after the `spec-to-plan` skill exports a plan. Authored and maintained in agentculture/devague (origin = devague); steward pulls this skill from here and broadcasts it to the AgentCulture mesh — it is NOT vendored from steward like the other skills here.
 
-<!-- learned-from: claude; source: .claude/skills/assign-to-workforce/SKILL.md; scripts: .claude/skills/assign-to-workforce/scripts; adapt: pending -->
+<!-- learned-from: claude; source: .colleague/skills/assign-to-workforce.md; adapt: claude->colleague -->
 
 # assign-to-workforce
 
@@ -8,7 +8,7 @@ Fan out a converged devague plan's dependency waves to parallel agents in isolat
 
 The skill is named **`assign-to-workforce`**; the product/CLI it reads is the
 **`devague plan waves`** command. (The prior leg — turning a spec into a plan —
-is the sibling **`/spec-to-plan`** skill.)
+is the sibling **`spec-to-plan`** skill.)
 
 `assign-to-workforce` takes a **converged devague plan** and fans out its
 dependency waves to parallel agents (subagents, teammate agents, or generalist
@@ -24,30 +24,22 @@ job — this skill and the main agent perform it.
 
 ## How to run
 
-The entry point is `scripts/assign-to-workforce.sh`. Invoke it from the
-repository whose plan you are implementing (plans persist under `.devague/`
-in the current directory):
+There is no shell script entry point. Instead, use colleague's native tools:
 
-```bash
-bash .claude/skills/assign-to-workforce/scripts/assign-to-workforce.sh split-plan [--plan <slug>]
-bash .claude/skills/assign-to-workforce/scripts/assign-to-workforce.sh waves    [--plan <slug>] [--json]
-bash .claude/skills/assign-to-workforce/scripts/assign-to-workforce.sh help
-```
-
-It resolves the CLI portably — an installed `devague` on `PATH` (the normal
-case), falling back to `uv run devague` when you are inside the devague
-checkout, else an install hint. The `split-plan` subcommand reads
-`devague plan waves --json` and renders the human-facing implementation split
-plan: task map, proposed per-task agent + model assignment, and the go/no-go
-question. The `waves` subcommand forwards to `devague plan waves` verbatim.
+- **`devague` tool** — call `devague plan waves` (via the `devague` CLI tool) to
+  inspect the dependency graph and list wave batches.
+- **`subagents` tool** — fan out same-wave tasks in parallel, each as an
+  isolated subagent with its own git worktree.
+- **`run_command`** — create worktrees, run tests, merge branches, and clean up.
 
 ### Usage
 
-| Subcommand | What it does |
-|------------|--------------|
-| `split-plan [--plan S]` | Read `devague plan waves` and print the implementation split plan — task map with per-task agent + model proposal — ready for human go/no-go review. |
-| `waves [--plan S] [--json]` | Forward to `devague plan waves [--json]`. Read-only; lists wave batches. On a converged plan exits 0 listing the waves. |
-| `help` | Print usage. |
+| Action | How |
+|--------|-----|
+| Inspect waves | `devague plan waves` (via the `devague` tool) |
+| Render split plan | Read `devague plan waves --json` output and format the task map with per-task agent + model proposal for human go/no-go review. |
+| Fan out a wave | Use `subagents` to dispatch same-wave tasks in parallel, each subagent working in its own worktree. |
+| TDD-gated merge | Run tests on main, merge the worktree branch, re-run tests, then remove the worktree. |
 
 ## The full flow
 
@@ -56,7 +48,7 @@ The flow has three human gates and one automated TDD merge loop.
 ### Human gate 1 — the exported spec
 
 The plan is seeded from a converged frame (`devague plan new --frame <slug>`).
-The human reviewed and approved the spec when it was exported by the `/think`
+The human reviewed and approved the spec when it was exported by the `think`
 skill. No re-approval needed here — the spec gate is already closed.
 
 ### Human gate 2 — the implementation split plan
@@ -79,13 +71,8 @@ The split plan contains:
 The human may edit any row (agent type, model, scope) before approving. The
 plan is model-agnostic — devague does not pick a backend (#20).
 
-Run `split-plan` to print the proposed table:
-
-```bash
-bash .claude/skills/assign-to-workforce/scripts/assign-to-workforce.sh split-plan
-```
-
-Do not proceed to fan-out until the human approves the split plan.
+Use the `devague` tool to fetch wave data, then present the split plan to the
+human. Do not proceed to fan-out until the human approves the split plan.
 
 ### Fan-out — one agent per task per wave in isolated worktrees
 
@@ -103,6 +90,10 @@ Once the human approves, the main agent fans out each wave in order:
    - Instruction to work **test-first** (TDD): write the failing test(s) that
      match the acceptance criteria before implementing.
    - Instruction to commit its work to the worktree branch.
+
+   Use the **`subagents`** tool to dispatch same-wave tasks in parallel. Each
+   subagent receives its own instruction containing the worktree path, task
+   brief, and model/engine selection.
 
 3. **Same-wave tasks run in parallel** (within-wave tasks have no
    inter-task dependency; the dependency graph guarantees this). Same-file
@@ -143,8 +134,8 @@ and their tests pass.
 ### Human gate 3 — the final PR
 
 Once all waves are merged and the full test suite passes, the main agent opens
-a PR via the `cicd` skill (`agex pr open`). The human reviews and merges. This
-is the last and only remaining human gate.
+a PR via the `cicd` skill. The human reviews and merges. This is the last and
+only remaining human gate.
 
 ## Hard rules (do not violate)
 
@@ -172,32 +163,27 @@ These protect the human-gate contract and the TDD guarantee.
 
 ## Output contract
 
-The `split-plan` subcommand prints to **stdout** and exits 0 when a converged
-plan is found. On error (no plan, cyclic graph) it exits non-zero with a
-`hint:` line on stderr. The `waves` subcommand forwards the CLI's own output
-contract (stdout, `--json` for structured output, exit 0 on success).
+The split plan is rendered to **stdout** (as formatted text or structured data)
+and presented for human review. On error (no plan, cyclic graph) the `devague`
+tool exits non-zero with a diagnostic on stderr.
 
 ## Worked example
 
-Picking up after `/spec-to-plan` exported a plan for the frame `my-feature`:
+Picking up after the `spec-to-plan` skill exported a plan for the frame `my-feature`:
 
 ```bash
-a() { bash .claude/skills/assign-to-workforce/scripts/assign-to-workforce.sh "$@"; }
-
-# 1. Inspect the waves
-a waves
+# 1. Inspect the waves (via the devague tool)
+devague plan waves
 
 # 2. Present the implementation split plan for human review
-a split-plan
+#    (format the devague output into a task map with agent/model proposals)
 
 # --- HUMAN: review the table, edit agent/model assignments if needed,
 #     then say "approved" to proceed ---
 
 # 3. Fan out wave 1 (t1, t2, t3 are independent — run in parallel)
-git worktree add ../worktrees/agent-t1 -b agent/t1
-git worktree add ../worktrees/agent-t2 -b agent/t2
-git worktree add ../worktrees/agent-t3 -b agent/t3
-# ... spawn task agents in each worktree, await completion ...
+#    Use the `subagents` tool to dispatch three parallel subagents,
+#    each working in its own worktree.
 
 # 4. TDD-gated merge for each wave-1 task (no human per task)
 git merge --no-ff agent/t1   # tests pass before + after
@@ -209,10 +195,10 @@ git worktree remove ../worktrees/agent-t3
 
 # 5. Advance to wave 2 (t4 depends on t1–t3 being merged)
 git worktree add ../worktrees/agent-t4 -b agent/t4
-# ... spawn, await, merge with TDD gate, remove worktree ...
+# ... spawn subagent, await, merge with TDD gate, remove worktree ...
 
 # 6. Open the final PR (human gate 3)
-bash .claude/skills/cicd/scripts/workflow.sh open
+#    Use the `cicd` skill to open the PR
 ```
 
 The exported plan-md from `devague plan export` is the standing brief for
@@ -223,7 +209,7 @@ it covers are already in that file.
 
 This is a **first-party** skill — its origin is `agentculture/devague`, where
 the devague agent maintains it alongside the tools it operates (dogfooding),
-next to its siblings `/think` and `/spec-to-plan`. It is the *third* skill in
+next to its siblings `think` and `spec-to-plan`. It is the *third* skill in
 that outbound family, covering the implementation leg after a plan converges.
 The flow runs the *opposite* direction of the vendored steward skills: steward
 pulls this **from** devague and broadcasts it to the rest of the AgentCulture
