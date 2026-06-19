@@ -90,6 +90,17 @@ def test_reap_dry_run_reports_without_removing(git_repo: Path) -> None:
     assert Path(iso).exists()  # dry-run changed nothing
 
 
+def test_reap_spares_active_task_ids(git_repo: Path) -> None:
+    """A still-running work item (active flight id) is never reaped (review of #228)."""
+    live = worktrees.isolation_worktree_add(str(git_repo), "live1", "colleague/live1")
+    dead = worktrees.isolation_worktree_add(str(git_repo), "dead1", "colleague/dead1")
+
+    reaped = worktrees.reap_orphaned_iso_worktrees(str(git_repo), active_task_ids={"live1"})
+    assert reaped == [dead]  # only the non-active one
+    assert Path(live).exists()  # the active run's worktree is spared
+    assert not Path(dead).exists()
+
+
 # ---------------------------------------------------------------------------
 # t2 — interrupt-commit handler
 # ---------------------------------------------------------------------------
@@ -104,11 +115,14 @@ def test_arm_interrupt_commit_commits_and_restores(git_repo: Path) -> None:
     try:
         handler = signal.getsignal(signal.SIGTERM)
         assert callable(handler) and handler is not prior
-        # Simulate the SIGTERM: the handler commits WIP, restores, and re-raises.
-        with pytest.raises(KeyboardInterrupt):
+        # Simulate the SIGTERM: the handler commits WIP, restores, and raises
+        # SystemExit(128+signum) — NOT KeyboardInterrupt — so the CLI exits cleanly
+        # with the conventional signal code and no traceback (review of #228).
+        with pytest.raises(SystemExit) as exc_info:
             handler(signal.SIGTERM, None)
+        assert exc_info.value.code == 128 + signal.SIGTERM  # 143 for SIGTERM
         assert "WIP committed on SIGTERM" in _branch_log(git_repo, "colleague/sig")
-        # the handler restored the prior disposition before re-raising
+        # the handler restored the prior disposition before exiting
         assert signal.getsignal(signal.SIGTERM) is prior
     finally:
         restore()

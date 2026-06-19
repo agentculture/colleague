@@ -244,7 +244,7 @@ def _setup_isolation(
     return work_repo, base_sha, worktree_path, replace(task, repo_path=str(work_repo))
 
 
-def _arm_interrupt_commit(worktree_path: str) -> Callable[[], None]:
+def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
     """Install SIGTERM+SIGINT handlers that commit the iso worktree's WIP before exit (#222).
 
     The isolated work path's success teardown lives in a ``finally`` that a SIGTERM
@@ -252,29 +252,34 @@ def _arm_interrupt_commit(worktree_path: str) -> Callable[[], None]:
     uncommitted files in an orphan worktree. This arms a handler that, on
     SIGTERM/SIGINT, commits whatever the model wrote onto its ``colleague/<id>``
     branch (best-effort, empty diff = no-op), restores the prior disposition, and
-    re-raises as ``KeyboardInterrupt`` so the normal ``finally`` teardown still runs
-    — the worktree is removed but the branch keeps the WIP commit, so a 90%-done run
-    is inspectable and mergeable instead of lost.
+    raises ``SystemExit(128 + signum)`` — which unwinds through the normal ``finally``
+    teardown (the branch keeps the WIP commit) and exits the CLI **cleanly** with the
+    conventional signal exit code (143 for SIGTERM, 130 for SIGINT) and **no
+    traceback**. Raising ``SystemExit`` rather than ``KeyboardInterrupt`` matters: the
+    CLI dispatcher catches only ``Exception``, so a bare ``KeyboardInterrupt`` would
+    print a Python traceback on a caller's ``timeout`` (review of #228, Qodo).
 
-    Armed ONLY on the isolated path (a non-None worktree); the returned callable
-    restores the previous handlers and MUST be invoked on every exit so the
-    in-place ``session`` path and any later call keep their own signal disposition.
-    A non-main-thread / unsupported platform degrades gracefully (handlers simply
-    not installed) — never breaking a work item. Signals are stdlib: no new
-    dependency, daemon, or thread (#222 boundary).
+    A ``None`` worktree (the in-place ``session`` path) installs nothing and returns a
+    no-op restore, so only the isolated path is armed. The returned callable restores
+    the previous handlers and MUST be invoked on every exit. A non-main-thread /
+    unsupported platform degrades gracefully (handlers simply not installed) — never
+    breaking a work item. Signals are stdlib: no new dependency, daemon, or thread.
     """
+    if worktree_path is None:
+        return lambda: None
+
     previous: dict[int, object] = {}
 
     def _handler(signum: int, _frame: object) -> None:
         with suppress(Exception):
             worktrees.commit_iso_worktree_wip(worktree_path, reason=signal.Signals(signum).name)
-        # Restore prior handlers before re-raising so a second signal can't re-enter
-        # this handler mid-commit; the KeyboardInterrupt unwinds through the normal
-        # finally blocks (cockpit close, telemetry flush, worktree remove).
+        # Restore prior handlers before exiting so a second signal can't re-enter this
+        # handler mid-commit; SystemExit unwinds through the normal finally blocks
+        # (cockpit close, telemetry flush, worktree remove) and exits without a traceback.
         for sig, prev in previous.items():
             with suppress(Exception):
                 signal.signal(sig, prev)  # type: ignore[arg-type]
-        raise KeyboardInterrupt
+        raise SystemExit(128 + signum)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -288,6 +293,23 @@ def _arm_interrupt_commit(worktree_path: str) -> Callable[[], None]:
                 signal.signal(sig, prev)  # type: ignore[arg-type]
 
     return _restore
+
+
+def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
+    """Commit a non-OK isolated run's WIP to its ``colleague/<id>`` branch (#222).
+
+    The git handoff only runs on an ``OK`` result, so a cooperative ``flight stop`` or
+    a budget/incomplete exit would otherwise lose the model's WIP when the worktree is
+    torn down. This commits it first so a stopped run stays inspectable and mergeable.
+    A no-op when not isolated (``worktree_path is None`` — the in-place session path)
+    and best-effort (empty diff = no-op; a commit failure never masks the result).
+    Extracted from :func:`execute_work` to keep its cognitive complexity under the
+    S3776 threshold (review of #228, SonarCloud).
+    """
+    if worktree_path is None:
+        return
+    with suppress(Exception):
+        worktrees.commit_iso_worktree_wip(worktree_path, reason=f"stop ({status})")
 
 
 def execute_work(
@@ -369,10 +391,9 @@ def execute_work(
     # Interruption safety (#222): on the isolated path, a SIGTERM (a caller's
     # `timeout`) / Ctrl-C now commits the model's WIP to colleague/<id> before the
     # process exits, instead of stranding it as uncommitted files in an orphan
-    # worktree. Restored in the finally so the in-place session path is unaffected.
-    _restore_signals: Callable[[], None] = (
-        _arm_interrupt_commit(worktree_path) if worktree_path is not None else (lambda: None)
-    )
+    # worktree. A None worktree (the in-place session path) arms nothing. Restored
+    # in the finally.
+    _restore_signals: Callable[[], None] = _arm_interrupt_commit(worktree_path)
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
@@ -486,16 +507,11 @@ def execute_work(
                     telemetry=telemetry,
                     base_sha=base_sha,
                 )
-            elif worktree_path is not None:
-                # Cooperative stop / non-OK isolated exit (#222): the handoff only
-                # runs on OK, so a piloted `flight stop` or a budget/incomplete exit
-                # would otherwise lose the model's WIP when the worktree is torn down.
-                # Commit it to colleague/<id> first so a stopped run stays inspectable
-                # and mergeable (best-effort, empty diff = no-op).
-                with suppress(Exception):
-                    worktrees.commit_iso_worktree_wip(
-                        worktree_path, reason=f"stop ({result.status})"
-                    )
+            else:
+                # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
+                # on OK, so preserve the model's WIP on colleague/<id> before teardown.
+                # A no-op when not isolated (worktree_path is None).
+                _preserve_isolated_wip(worktree_path, result.status)
 
             work_span.set(
                 status=result.status,

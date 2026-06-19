@@ -44,6 +44,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 _WORKTREES_SUBDIR = ".colleague/worktrees"
+#: Line prefix git emits for each entry of ``git worktree list --porcelain``.
+_WORKTREE_LIST_PREFIX = "worktree "
 
 
 def _git(
@@ -286,15 +288,20 @@ def list_iso_worktrees(repo_path: str) -> list[str]:
         return []
     found: list[str] = []
     for line in proc.stdout.splitlines():
-        if not line.startswith("worktree "):
+        if not line.startswith(_WORKTREE_LIST_PREFIX):
             continue
-        wt = Path(line[len("worktree ") :].strip())
+        wt = Path(line[len(_WORKTREE_LIST_PREFIX) :].strip())
         if str(wt.parent) == wt_root_str and wt.name.startswith("iso-"):
             found.append(str(wt))
     return found
 
 
-def reap_orphaned_iso_worktrees(repo_path: str, *, dry_run: bool = False) -> list[str]:
+def reap_orphaned_iso_worktrees(
+    repo_path: str,
+    *,
+    active_task_ids: "frozenset[str] | set[str] | tuple[str, ...]" = (),
+    dry_run: bool = False,
+) -> list[str]:
     """Remove orphaned isolation worktrees (``.colleague/worktrees/iso-*``); return their paths.
 
     Recovers the residue a SIGKILL/OOM/power-loss leaves behind when
@@ -305,16 +312,23 @@ def reap_orphaned_iso_worktrees(repo_path: str, *, dry_run: bool = False) -> lis
     removed via ``git worktree remove --force`` followed by a single ``prune`` (the
     :func:`isolation_worktree_remove` mechanism). Scoped STRICTLY to ``iso-*`` under
     this repo's worktrees root via :func:`list_iso_worktrees`; a ``sub/*`` child or an
-    unrelated worktree is never touched (#222 h3). ``dry_run=True`` reports the paths
-    it would reap without changing anything.
+    unrelated worktree is never touched (#222 h3).
+
+    ``active_task_ids`` SPARES a still-running work item: any ``iso-<task_id>`` whose
+    ``<task_id>`` is in the set is left untouched (the caller passes the currently
+    recent/active flight ids, mirroring how the flight reap spares active flights),
+    so ``colleague clean`` cannot delete an in-flight isolated worktree out from
+    under a concurrent piloted run (review of #228, Qodo). A genuinely orphaned
+    (non-active) ``iso-*`` worktree is still reaped, so the recovery contract holds.
+    ``dry_run=True`` reports the paths it would reap without changing anything.
     """
-    paths = list_iso_worktrees(repo_path)
-    if dry_run or not paths:
-        return paths
-    repo = Path(repo_path).resolve()
-    for wt in paths:
-        _git(repo, "worktree", "remove", "--force", wt, check=False)
-    _git(repo, "worktree", "prune", check=False)
+    active = set(active_task_ids)
+    paths = [p for p in list_iso_worktrees(repo_path) if Path(p).name[len("iso-") :] not in active]
+    if paths and not dry_run:
+        repo = Path(repo_path).resolve()
+        for wt in paths:
+            _git(repo, "worktree", "remove", "--force", wt, check=False)
+        _git(repo, "worktree", "prune", check=False)
     return paths
 
 
@@ -480,9 +494,9 @@ def _registered_child_ids(repo: Path, wt_root: Path) -> set[str]:
     wt_root_str = str(wt_root)
     found: set[str] = set()
     for line in proc.stdout.splitlines():
-        if not line.startswith("worktree "):
+        if not line.startswith(_WORKTREE_LIST_PREFIX):
             continue
-        wt = line[len("worktree ") :].strip()
+        wt = line[len(_WORKTREE_LIST_PREFIX) :].strip()
         if wt.startswith(wt_root_str):
             found.add(Path(wt).name)
     return found

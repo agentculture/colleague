@@ -52,13 +52,22 @@ def cmd_clean(args: argparse.Namespace) -> int:
             "pass a positive DAYS value (e.g. --older-than 14)",
         )
 
+    # A flight whose feed/control was written recently is a likely-active run (no
+    # daemon, so mtime is the liveness signal). Computed up front so BOTH the iso
+    # worktree reap and the flight reap can spare an in-flight run.
+    active_flights = flight.recent_flight_task_ids(repo)
     # Reap orphaned isolation worktrees (#222) BEFORE the branch reap: a crashed /
     # SIGKILLed isolated run leaves a .colleague/worktrees/iso-<id> worktree with its
     # colleague/<id> branch checked out, which blocks the branch reap until the
     # worktree is gone. Scoped strictly to iso-* (never a sub/* child or an unrelated
-    # worktree); --dry-run reports without removing. The git-touching reap lives in
-    # worktrees.py (the sanctioned subprocess consumer), so clean.py stays subprocess-free.
-    iso_worktrees = worktrees.reap_orphaned_iso_worktrees(str(repo), dry_run=dry_run)
+    # worktree) and SPARING an iso worktree whose work item is a currently-active
+    # flight (so clean never deletes an in-flight piloted run out from under it —
+    # review of #228); --dry-run reports without removing. The git-touching reap lives
+    # in worktrees.py (the sanctioned subprocess consumer), so clean.py stays
+    # subprocess-free.
+    iso_worktrees = worktrees.reap_orphaned_iso_worktrees(
+        str(repo), active_task_ids=active_flights, dry_run=dry_run
+    )
     branches = handoff.reap_colleague_branches(
         repo,
         dry_run=dry_run,
@@ -67,10 +76,8 @@ def cmd_clean(args: argparse.Namespace) -> int:
         base_branch=args.base,
     )
     artifacts = artifact.reap_artifacts(repo, dry_run=dry_run)
-    # Reap stale flight residue but SPARE a flight that is still running — a
-    # recently-written feed/control marks a likely-active flight (no daemon, so
-    # mtime is the signal). reap_orphans treats the recent ids as "active".
-    active_flights = flight.recent_flight_task_ids(repo)
+    # Reap stale flight residue but SPARE a flight that is still running (same
+    # active-id set used above). reap_orphans treats the recent ids as "active".
     flights = [str(p) for p in flight.reap_orphans(repo, active_flights, dry_run=dry_run)]
     empty_objects = handoff.empty_loose_objects(repo)
 

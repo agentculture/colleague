@@ -194,6 +194,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     except CliError as err:
         emit_error(err, json_mode=json_mode)
         return err.code
+    except KeyboardInterrupt:
+        # A Ctrl-C that wasn't converted to SystemExit by the isolated-work signal
+        # handler (#222) — exit cleanly with the conventional 130, never a traceback.
+        return 130
     except Exception as err:  # noqa: BLE001 - last-resort; wrap and route cleanly
         wrapped = CliError(
             code=EXIT_USER_ERROR,
