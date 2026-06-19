@@ -39,10 +39,11 @@ Plan proposals now route through `robust_simple_complete` instead of the thin
 
 ### Smaller "jumps"
 
-- **Claims** are proposed in **two calls**: the mandatory kinds first
+- **Claims** are proposed in **focused calls**: the mandatory kinds first
   (announcement / audience / after_state / boundary / success_signal +
-  before_state | why_it_matters), then requirements + honesty conditions
-  conditioned on the first set.
+  before_state | why_it_matters), then requirement claims, then a **dedicated
+  honesty-only pass** (#215, see below) — splitting honesty out of the combined
+  call the weak model was dropping.
 - **Plan items** are proposed in **bounded batches** (≤5 items, ≤4 batches),
   each conditioned on the prior set. The loop stops when a batch adds nothing
   new — and **dedups by id**, so a model that re-proposes prior items cannot
@@ -64,6 +65,64 @@ failure modes:
   mid-token cut it retreats to the last complete element and retries once.
 
 A well-formed, balanced response is **byte-identical** through all of the above.
+
+## Honesty conditions: a dedicated pass (#215)
+
+The single biggest wall on the reference 27B (v1.20.0) was *not* unparseable
+JSON — the mandatory-kinds call now gets through. It was the **combined
+requirements+honesty call returning claims but zero honesty conditions**, so
+every confirmed spec-affecting claim failed the convergence rule and the spec
+could never converge (filed as the new wall in #215).
+
+`make_propose_claims` now recovers honesty in two bounded steps **after** the
+claim calls, all routed through `robust_simple_complete`:
+
+1. **A dedicated honesty-only call** (`CLAIMS_HONESTY_SYSTEM_PROMPT`) — lists
+   every spec-affecting claim still missing a condition and asks for a single
+   `{"honesty": [...]}` array. One output shape, one focused ask — the kind a
+   weak model handles best.
+2. **A bounded per-claim fallback** (`ONE_HONESTY_SYSTEM_PROMPT`, cap
+   `_MAX_HONESTY_FALLBACK = 8`) — for any claim the batch call still left
+   uncovered, one tiny focused call each.
+
+The fill keys on **`claim_id`** (the convergence rule binds honesty to a
+*claim*) and **mints a fresh unique id** for each accepted condition — the
+dedicated/per-claim calls often reuse `"h1"`, which the id-dedup of the normal
+claims path would have silently dropped. A strong model that already returned
+honesty in the combined call skips the whole pass (no claims missing → no
+extra call); an empty/unparseable honesty chunk is tolerated, never a crash.
+Honesty conditions still land `state="proposed"` — the operator/gate confirms
+them; the convergence rule is **unchanged** (honesty stays mandatory).
+
+> **A deliberate non-choice:** a deterministic *synthetic* honesty condition
+> (auto-generating "verify X is achievable" per claim) would *guarantee*
+> convergence but make it vacuous — a rubber-stamp passing a gate whose entire
+> purpose is genuine pressure-testing. Plan mode instead gives the model
+> multiple focused shots and, if it still cannot produce honesty, **fails
+> honestly** with the #224 reason — never a synthetic pass.
+
+## Plan-only mode: `--no-workforce` (#215)
+
+A caller who says "plan this" usually wants the **spec + plan**, not the long,
+side-effecting implementation fan-out (Wall 2: the workforce's big-context
+implementation turns time out at the 120s default on the 27B). `colleague plan
+run --no-workforce` stops right after the plan items are proposed (and gated, in
+`--quick` mode): **no wave is computed, `batch_spawn` is never called, and no
+subagent worktree is created.** `OrchestratorResult` keeps its shape (empty
+`waves`/`sub_results`/`conflicts`), so the default (workforce on) is
+byte-identical. Surfaced through `ask-colleague plan --no-workforce` too.
+
+## Honest non-convergence reporting (#224)
+
+When the spec gate fails, the CLI now names the **real** gap. The convergence
+result carries two failure lists — `missing_kinds` and `claims_missing_honesty`
+— but the CLI surfaced only the first, so a run that failed *solely* on missing
+honesty reported `missing: (none)` (human) or `{"missing_kinds": []}` (`--json`):
+the gate knew the answer and dropped it. Both `_render_run` and `_run_payload`
+now surface `claims_missing_honesty`, and a non-converged result **never**
+renders a silent `(none)` (a defensive line covers the unreachable both-empty
+case). A drift test pins the invariant: `converged is False` ⇒ at least one
+failure list is non-empty on each surface.
 
 ## Spec-less `--quick` path (#199)
 
@@ -99,6 +158,12 @@ claims path closed cleanly; the plan-items path needed the truncation repair
 - **JSON repair is best-effort** — it recovers a structurally-truncated object,
   not arbitrary malformed JSON; an unrecoverable fragment still degrades to the
   clean `"unusable plan proposal"` error.
+- **No convergence guarantee on a weak model (#215)** — the dedicated honesty
+  pass gets the 27B *further* (focused single-claim asks are what it handles
+  best) but cannot *guarantee* it produces honesty. If it doesn't, the spec
+  **fails honestly** with the #224 reason — honesty is never synthesized to
+  force a pass. `--no-workforce` only sidesteps Wall 2 (the workforce timeout),
+  not a genuine spec non-convergence.
 - **Cross-invocation `plan continue` resume** remains a documented follow-up.
 
 ## Conventions
@@ -109,3 +174,7 @@ unchanged — the operator still gates; LLM proposals stay proposed.
 
 Spec + plan: `docs/specs/2026-06-17-colleague-plan-mode-now-drives-smaller-degradation.md`,
 `docs/plans/2026-06-17-colleague-plan-mode-now-drives-smaller-degradation.md`.
+
+The honesty-pass + `--no-workforce` + honest-reporting layer (#215 / #224 / #226):
+`docs/specs/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`,
+`docs/plans/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`.

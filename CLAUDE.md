@@ -749,6 +749,28 @@ The architecture, part by part:
   JSON repair is best-effort (structural truncation, not arbitrary malformed
   JSON); the interactive cross-invocation `plan continue` resume remains a
   documented follow-up.
+  **27B-further + honest failure (#215/#224/#226):** the v1.20.0 wall moved off
+  "no JSON" onto honesty — the combined requirements+honesty call returned
+  claims but **zero honesty conditions**, so every confirmed spec-affecting
+  claim failed the gate. `make_propose_claims` now runs a **dedicated
+  honesty-only pass** after the claim calls (a single `{honesty:[...]}` batch
+  call + a bounded per-claim fallback, cap `_MAX_HONESTY_FALLBACK=8`, all via
+  `robust_simple_complete`; keyed on `claim_id` with freshly-minted unique ids
+  so a model reusing `"h1"` isn't dropped). A new **`--no-workforce`** plan-only
+  mode (`run_plan_mode(workforce=False)`) stops after gating plan items —
+  delivering the spec+plan with no wave, no `batch_spawn`, no subagent worktree
+  (sidesteps the Wall-2 120s workforce timeout) — default byte-identical. The
+  spec gate now **names the real gap**: both `_render_run` and `_run_payload`
+  surface `claims_missing_honesty`, never a silent `missing: (none)` (#224);
+  `ask-colleague plan` forwards `--quick`/`--no-workforce`/`--timeout` with an
+  honest remediation hint on failure (no auto-degrade), and `ask-colleague.sh`
+  follows its own `error:`/`hint:` + structured-`--json` contract (#226).
+  **Honest limit:** the honesty pass gets a weak model *further*, it does not
+  *guarantee* convergence — honesty is never synthesized to force a pass; a
+  model that still produces none fails honestly with the #224 reason. The
+  convergence rule (honesty mandatory) is unchanged. Spec + plan:
+  `docs/specs/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`
+  and `docs/plans/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
