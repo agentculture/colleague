@@ -171,7 +171,6 @@ def test_per_claim_honesty_fallback_bounded() -> None:
         # The system prompt has CLAIM_ID replaced with the actual claim id,
         # so we check for the distinctive "Propose ONE honesty" prefix.
         if "Propose ONE honesty" in system:
-            nonlocal per_claim_count
             per_claim_count += 1
             # Extract claim id from user prompt: "Claim <id> (<kind>): <text>"
             claim_id = user.split(" ")[1]  # "Claim c1 ..."

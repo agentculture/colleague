@@ -115,9 +115,11 @@ def _render_run(result: Any) -> str:
                 "claims missing a confirmed honesty condition: " + ", ".join(missing_honesty)
             )
         if not missing and not missing_honesty:
-            # Defensive: never report a silent "(none)". converged is False, so
-            # some gate failed — say so honestly even if the reason is unnamed.
-            lines.append("spec gate not passed; reason unavailable (see 'plan status')")
+            # Defensive + unreachable: converge() only fails with a non-empty
+            # missing_kinds or claims_missing_honesty, so this never fires in
+            # practice. Still, never report a silent "(none)" — if it ever does,
+            # it is a gate bug worth surfacing, not a clean result.
+            lines.append("spec gate not passed; no reason recorded (unexpected gate bug)")
         return "\n".join(lines)
     lines.append(f"plan items: {len(result.plan_items)}")
     lines.append(f"waves: {result.waves}")
