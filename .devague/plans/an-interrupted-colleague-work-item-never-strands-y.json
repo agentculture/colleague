@@ -1,0 +1,231 @@
+{
+  "slug": "an-interrupted-colleague-work-item-never-strands-y",
+  "title": "An interrupted colleague work item never strands your work: a SIGTERM (a caller's timeout), Ctrl-C, or a cooperative stop commits the model's WIP to the colleague/<id> branch before exiting, and colleague clean reaps the orphaned iso-* worktree a hard kill leaves behind \u2014 recovery is one command, never a manual worktree-remove dance.",
+  "frame_slug": "an-interrupted-colleague-work-item-never-strands-y",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-19T04:00:27Z",
+  "updated": "2026-06-19T04:05:15Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "An interrupted colleague work item never strands your work: a SIGTERM (a caller's timeout), Ctrl-C, or a cooperative stop commits the model's WIP to the colleague/<id> branch before exiting, and colleague clean reaps the orphaned iso-* worktree a hard kill leaves behind \u2014 recovery is one command, never a manual worktree-remove dance."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The announcement is the literal verifiable outcome: an interrupted run's work lands on colleague/<id> and clean reaps the orphan worktree \u2014 both checkable via the success_signal."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "An agent or human delegating field-work to colleague via ask-colleague write --apply or colleague work (often a fan-out workforce wrapping each run in a caller-side timeout), plus anyone recovering a repo after a run was interrupted."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "The audience is real: #222 was filed by a fan-out-workforce caller (ec2bedrock-cli) that wrapped each write --apply in a caller-side timeout."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "A SIGTERM mid-loop bypasses the Python finally teardown in execute_work, so the .colleague/worktrees/iso-<id> worktree, the colleague/<id> branch (at base commit), and the model's uncommitted files are all orphaned. clean does not reap iso-* worktrees, and the branch is checked out in the orphan worktree so git branch -D fails until git worktree remove --force runs first. A near-complete interrupted run loses everything that was not committed."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The before_state is reproducible: a timeout (SIGTERM) on colleague work leaves .colleague/worktrees/iso-<id> + a colleague/<id> branch at base + untracked files, because execute_work's finally-based teardown does not run on SIGTERM."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "On SIGTERM/SIGINT and the cooperative stop path, colleague commits whatever is in the iso worktree to colleague/<id> before exiting, so a 90%-done run is inspectable and mergeable. colleague clean reaps orphaned iso-* worktrees (the thing that blocks git branch -D), so a hard-killed leftover is recovered by a single clean."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The after_state is checkable by the success_signal: a committed branch and no orphan worktree after an interrupt, and a single clean after a hard kill."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Delegation must never silently betray the caller (the #196/#201 promise) \u2014 and the interruption path was the gap: a hard timeout, the natural way a workforce bounds a run, was the exact wrong tool because it stranded complete work as uncommitted files in an orphan worktree."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The gap is specifically the interruption path; #196/#201 isolation already protects the operator's working tree on the success path."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a sandbox and not a durability guarantee: a SIGKILL/OOM/power-loss inside the commit itself is uncatchable (git/filesystem durability, matching #162's honest limit) \u2014 that residual wedge is exactly what clean now recovers by also reaping iso-* worktrees. No daemon, no heartbeat thread, no new runtime dep; signal handling is stdlib, the git commit stays inside the worktrees.py subprocess boundary."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The boundary is honest: a SIGKILL inside the commit stays uncatchable (the same residual #162 documents), and no new runtime dep/daemon/thread is added \u2014 signals are stdlib, git stays in the worktrees.py subprocess boundary."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A wrapped 'timeout 5 colleague work <task>' leaves a committed colleague/<id> branch whose diff carries the partial work (inspectable, mergeable) and NO orphan worktree; a SIGKILLed run's leftover .colleague/worktrees/iso-* worktree plus its branch are reaped by a single 'colleague clean', with git worktree list clean afterward."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The success_signal is observable with git worktree list + git log colleague/<id> after a wrapped 'timeout' run and after 'colleague clean'."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "On the isolated work path, execute_work installs a SIGTERM+SIGINT handler that commits the iso worktree to colleague/<id> (reusing the worktrees commit primitive) before re-raising/exiting; runtime-owned in the shared work path so every backend inherits it (all-engines rule), restored on exit, never armed on the in-place session path."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "The SIGTERM/SIGINT handler is installed only for the isolated work path and removed (restored to the prior disposition) on every exit; the commit is best-effort and idempotent (an empty diff is a no-op, never an error), and a failure to commit never masks the interruption \u2014 it still exits."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The cooperative stop path (flight stop) commits the iso worktree's WIP to colleague/<id> the same way before the work item finishes, so a piloted stop is non-destructive \u2014 hooking the existing stop exit, not adding a new control surface."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The cooperative stop already exists (flight stop sets a stop flag the loop reads at a turn boundary); the WIP commit hooks that existing stop exit, so no new daemon/socket/flag is added and the in-place session path is unaffected."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "colleague clean reaps orphaned .colleague/worktrees/iso-* worktrees (git worktree remove --force + prune via worktrees.py) BEFORE the colleague/* branch reap, so a branch checked out in an orphan worktree becomes deletable; scoped strictly to iso-* under .colleague/worktrees, never an unrelated worktree, with --dry-run honored."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The iso-* worktree reap is scoped strictly to .colleague/worktrees/iso-* paths git reports under this repo (never a sub/* child or an unrelated worktree), reuses the worktrees.py subprocess boundary (no new subprocess consumer), and --dry-run reports without changing anything \u2014 matching clean's existing contract."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Add worktrees.py primitives: commit_iso_worktree_wip (stage+commit an iso worktree's WIP to its colleague/<id> branch, empty diff is a no-op) and reap_orphaned_iso_worktrees/list (enumerate+remove .colleague/worktrees/iso-* via git worktree remove --force + prune)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "commit_iso_worktree_wip stages and commits all changes in an iso worktree to its colleague/<id> branch; a clean worktree (empty diff) returns without creating a commit and never raises (idempotent, best-effort)",
+        "reap_orphaned_iso_worktrees enumerates only .colleague/worktrees/iso-* worktrees git reports under the repo and removes each via git worktree remove --force + prune; a sub/* child or unrelated worktree is never selected; a list/dry-run mode returns paths without removing",
+        "tests/test_boundary.py still passes: the new git calls live in worktrees.py (the sanctioned subprocess boundary), no new subprocess consumer is introduced"
+      ],
+      "deps": [],
+      "covers": [
+        "h1",
+        "h3",
+        "h9"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "execute_work installs SIGTERM+SIGINT handlers on the ISOLATED work path that commit the iso worktree to colleague/<id> via the worktrees primitive before re-raising/exiting (restored on every exit, never armed on the in-place session path); and the cooperative flight-stop exit commits the iso worktree WIP the same way",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "On the isolated work path, execute_work installs SIGTERM and SIGINT handlers that commit the iso worktree to colleague/<id> via the worktrees primitive before re-raising/exiting; handlers are restored to their prior disposition on every exit path (success, error, interrupt)",
+        "Handlers are NOT installed on the in-place session path (execute_work called without isolate); a session run's signal disposition is byte-identical to before",
+        "A simulated SIGTERM/SIGINT mid-loop leaves the partial work committed on colleague/<id> (git log shows the WIP commit) instead of orphaned uncommitted files; a commit failure does not mask the interrupt (the process still exits)",
+        "The cooperative flight-stop exit commits the iso worktree WIP to colleague/<id> the same way before the work item finishes; no new control surface/flag/daemon is added",
+        "Runtime-owned/all-engines: behaviour fires identically for mock and vllm-openai; tests/test_e2e_mock.py TaskResult shape is unchanged"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c4",
+        "c5",
+        "c6",
+        "c8",
+        "c9",
+        "h1",
+        "h2",
+        "h6",
+        "h7",
+        "h8"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "colleague clean reaps orphaned .colleague/worktrees/iso-* worktrees (via the worktrees reap helper) BEFORE the colleague/* branch reap, so a branch checked out in an orphan iso worktree becomes deletable; scoped strictly, --dry-run honored",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "clean reaps orphaned iso-* worktrees BEFORE the colleague/* branch reap, so a branch checked out in an orphan iso worktree is deletable in the same clean run; git worktree list is clean afterward",
+        "clean --dry-run reports the iso-* worktrees it would remove without removing them or deleting any branch (matches clean's existing contract)",
+        "The reap is scoped strictly to .colleague/worktrees/iso-* under the repo; a decoy unrelated/sub worktree survives a clean (test asserts it)",
+        "clean.py imports the worktrees reap helper and never touches subprocess itself (boundary test holds)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "c4",
+        "c7",
+        "c10",
+        "h3",
+        "h4",
+        "h10"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Docs fix (the in-scope decision): state that a hard external timeout (SIGTERM) is the wrong tool to bound a run because it strands WIP, and that colleague work --watch + a cooperative flight stop is the documented graceful way to bound a run; note the heartbeat/--deadline surface as a parked follow-up",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A docs section (write-isolation / ask-colleague feature doc) states a hard external timeout (SIGTERM) is the wrong tool to bound a run (it strands WIP) and that --watch + cooperative flight stop is the graceful path; the parked heartbeat/--deadline follow-up is noted as not-yet-built",
+        "markdownlint-cli2 passes on the changed docs file; no false claim of a non-existent flag (no --deadline, no --no-hooks)"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "c5",
+        "c6",
+        "h5"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Post-implementation validation (wave 2): after t2/t3 land, verify the success_signal end-to-end and confirm the t4 docs accurately describe the shipped behaviour (no drift, no claim of a non-existent flag)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "End-to-end: a wrapped 'timeout 5 colleague work <task>' leaves a committed colleague/<id> branch carrying the partial work and NO orphan worktree; a SIGKILLed run's leftover iso-* worktree + branch are reaped by a single 'colleague clean', git worktree list clean afterward",
+        "The t4 docs are verified against the shipped behaviour: every described command/flag exists (no --deadline / --no-hooks claimed as built) and the graceful-stop path (--watch + flight stop) works as documented",
+        "Full suite green (uv run pytest -n auto), boundary + zero-deps + e2e-mock-shape tests all pass after the feature lands"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c1",
+        "c7",
+        "h4",
+        "h10"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Heartbeat/elapsed progress signal + a soft --deadline flag (graceful commit at the deadline instead of a hard external SIGTERM) \u2014 a larger time-budgeting surface deferred so this plan stays the two interruption-safety asks plus the clean reap",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

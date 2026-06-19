@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
+from typing import Callable
 
 from colleague import flight, registry, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
@@ -242,6 +244,91 @@ def _setup_isolation(
     return work_repo, base_sha, worktree_path, replace(task, repo_path=str(work_repo))
 
 
+def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:
+    """Install SIGTERM+SIGINT handlers that commit the iso worktree's WIP before exit (#222).
+
+    The isolated work path's success teardown lives in a ``finally`` that a SIGTERM
+    (a caller's ``timeout``) bypasses entirely, stranding the model's WIP as
+    uncommitted files in an orphan worktree. This arms a handler that, on
+    SIGTERM/SIGINT, commits whatever the model wrote onto its ``colleague/<id>``
+    branch (best-effort, empty diff = no-op), restores the prior disposition, and
+    raises ``SystemExit(128 + signum)`` — which unwinds through the normal ``finally``
+    teardown (the branch keeps the WIP commit) and exits the CLI **cleanly** with the
+    conventional signal exit code (143 for SIGTERM, 130 for SIGINT) and **no
+    traceback**. Raising ``SystemExit`` rather than ``KeyboardInterrupt`` matters: the
+    CLI dispatcher catches only ``Exception``, so a bare ``KeyboardInterrupt`` would
+    print a Python traceback on a caller's ``timeout`` (review of #228, Qodo).
+
+    A ``None`` worktree (the in-place ``session`` path) installs nothing and returns a
+    no-op restore, so only the isolated path is armed. The returned callable restores
+    the previous handlers and MUST be invoked on every exit. A non-main-thread /
+    unsupported platform degrades gracefully (handlers simply not installed) — never
+    breaking a work item. Signals are stdlib: no new dependency, daemon, or thread.
+    """
+    if worktree_path is None:
+        return lambda: None
+
+    previous: dict[int, object] = {}
+
+    def _handler(signum: int, _frame: object) -> None:
+        with suppress(Exception):
+            worktrees.commit_iso_worktree_wip(worktree_path, reason=signal.Signals(signum).name)
+        # Restore prior handlers before exiting so a second signal can't re-enter this
+        # handler mid-commit; SystemExit unwinds through the normal finally blocks
+        # (cockpit close, telemetry flush, worktree remove) and exits without a traceback.
+        for sig, prev in previous.items():
+            with suppress(Exception):
+                signal.signal(sig, prev)  # type: ignore[arg-type]
+        raise SystemExit(128 + signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous[sig] = signal.signal(sig, _handler)
+        except (ValueError, OSError):  # not the main thread / unsupported — skip
+            pass
+
+    def _restore() -> None:
+        for sig, prev in previous.items():
+            with suppress(Exception):
+                signal.signal(sig, prev)  # type: ignore[arg-type]
+
+    return _restore
+
+
+def _baseline_untracked_for(work_repo: Path, repo: Path, tui_events: str | None) -> list[str]:
+    """Untracked-file baseline for the handoff, registering a ``--tui-events`` stream.
+
+    Snapshots untracked files before the loop so the handoff stages only what the work
+    item produces, never pre-existing operator WIP (#39); a live ``--tui-events`` path
+    written into the repo is harness telemetry, registered as baseline so the handoff
+    never sweeps it into the work branch (#74 A3). Extracted from :func:`execute_work`
+    to keep its cognitive complexity under the S3776 threshold (review of #228).
+    """
+    baseline = untracked_snapshot(work_repo)
+    if tui_events:
+        ev_rel = _repo_relative(repo, tui_events)
+        if ev_rel is not None:
+            baseline.append(ev_rel)
+    return baseline
+
+
+def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
+    """Commit a non-OK isolated run's WIP to its ``colleague/<id>`` branch (#222).
+
+    The git handoff only runs on an ``OK`` result, so a cooperative ``flight stop`` or
+    a budget/incomplete exit would otherwise lose the model's WIP when the worktree is
+    torn down. This commits it first so a stopped run stays inspectable and mergeable.
+    A no-op when not isolated (``worktree_path is None`` — the in-place session path)
+    and best-effort (empty diff = no-op; a commit failure never masks the result).
+    Extracted from :func:`execute_work` to keep its cognitive complexity under the
+    S3776 threshold (review of #228, SonarCloud).
+    """
+    if worktree_path is None:
+        return
+    with suppress(Exception):
+        worktrees.commit_iso_worktree_wip(worktree_path, reason=f"stop ({status})")
+
+
 def execute_work(
     *,
     repo: Path,
@@ -318,6 +405,12 @@ def execute_work(
 
     _guard_clean_tree(repo, allow_dirty=allow_dirty)
     work_repo, base_sha, worktree_path, task = _setup_isolation(repo, task, isolate)
+    # Interruption safety (#222): on the isolated path, a SIGTERM (a caller's
+    # `timeout`) / Ctrl-C now commits the model's WIP to colleague/<id> before the
+    # process exits, instead of stranding it as uncommitted files in an orphan
+    # worktree. A None worktree (the in-place session path) arms nothing. Restored
+    # in the finally.
+    _restore_signals: Callable[[], None] = _arm_interrupt_commit(worktree_path)
 
     # Telemetry: the root span wraps engine.work() + handoff() + the artifact write, so
     # the loop's tool spans nest under it. A no-op unless telemetry is enabled.
@@ -336,17 +429,9 @@ def execute_work(
 
             # Snapshot untracked files BEFORE the work item so the handoff stages only
             # the files the work item itself produces — never pre-existing operator
-            # work-in-progress (#39).
-            baseline_untracked = untracked_snapshot(work_repo)
-            # A live `--tui-events` stream written into the repo is harness
-            # telemetry, not drive output: register it as baseline so the handoff
-            # never sweeps it into the work branch (after which the branch-restore
-            # would delete it). Paths outside the repo / under .colleague/ are
-            # already excluded by the handoff (#74 A3).
-            if tui_events:
-                ev_rel = _repo_relative(repo, tui_events)
-                if ev_rel is not None:
-                    baseline_untracked.append(ev_rel)
+            # work-in-progress (#39), with a live --tui-events stream registered as
+            # baseline (#74 A3). Extracted to a helper (review of #228, S3776).
+            baseline_untracked = _baseline_untracked_for(work_repo, repo, tui_events)
 
             # Per-step progress (#38) — wired here so both `work` and `session`,
             # and every backend (which forwards `config.progress`), report
@@ -431,6 +516,11 @@ def execute_work(
                     telemetry=telemetry,
                     base_sha=base_sha,
                 )
+            else:
+                # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
+                # on OK, so preserve the model's WIP on colleague/<id> before teardown.
+                # A no-op when not isolated (worktree_path is None).
+                _preserve_isolated_wip(worktree_path, result.status)
 
             work_span.set(
                 status=result.status,
@@ -446,10 +536,15 @@ def execute_work(
                 set_last_work(repo, result.task_id)
             return result, artifact_path
     finally:
+        # Restore the operator's prior signal disposition (#222) before teardown, so
+        # the interrupt-commit handler is never left armed past this work item.
+        _restore_signals()
         telemetry.flush()
         # Tear down the isolation worktree on every exit path (success, engine
         # failure, handoff error), KEEPING its colleague/<id> branch — the branch
         # is the deliverable the operator merges; only the working dir is disposable.
+        # On an interrupt the WIP is already committed to that branch (the handler /
+        # the cooperative-stop path above), so removing the working dir loses nothing.
         if worktree_path is not None:
             with suppress(Exception):
                 worktrees.isolation_worktree_remove(str(repo), worktree_path)
