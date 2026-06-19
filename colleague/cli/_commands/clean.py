@@ -23,7 +23,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague import artifact, flight, handoff
+from colleague import artifact, flight, handoff, worktrees
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
 
@@ -52,6 +52,13 @@ def cmd_clean(args: argparse.Namespace) -> int:
             "pass a positive DAYS value (e.g. --older-than 14)",
         )
 
+    # Reap orphaned isolation worktrees (#222) BEFORE the branch reap: a crashed /
+    # SIGKILLed isolated run leaves a .colleague/worktrees/iso-<id> worktree with its
+    # colleague/<id> branch checked out, which blocks the branch reap until the
+    # worktree is gone. Scoped strictly to iso-* (never a sub/* child or an unrelated
+    # worktree); --dry-run reports without removing. The git-touching reap lives in
+    # worktrees.py (the sanctioned subprocess consumer), so clean.py stays subprocess-free.
+    iso_worktrees = worktrees.reap_orphaned_iso_worktrees(str(repo), dry_run=dry_run)
     branches = handoff.reap_colleague_branches(
         repo,
         dry_run=dry_run,
@@ -70,6 +77,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
     report = {
         "repo": str(repo),
         "dry_run": dry_run,
+        "iso_worktrees": iso_worktrees,
         "branches": branches,
         "artifacts": artifacts,
         "flights": flights,
@@ -89,6 +97,10 @@ def _render(report: dict) -> str:
     header = "colleague clean (dry-run)" if dry else "colleague clean"
     lines = [f"{header} — {report['repo']}"]
 
+    iso_worktrees = report.get("iso_worktrees", [])
+    if iso_worktrees:
+        lines.append(f"isolation worktrees ({verb}):")
+        lines += [f"  - {w}" for w in iso_worktrees]
     if reaped_branches:
         lines.append(f"branches ({verb}):")
         lines += [f"  - {b['ref']} [{b['classification']}]" for b in reaped_branches]
@@ -99,9 +111,10 @@ def _render(report: dict) -> str:
     if reaped_flights:
         lines.append(f"flight files ({verb}):")
         lines += [f"  - {f}" for f in reaped_flights]
-    if not reaped_branches and not reaped_arts and not reaped_flights:
+    if not reaped_branches and not reaped_arts and not reaped_flights and not iso_worktrees:
         lines.append(
-            "nothing to reap — no stale colleague/* branches or orphaned .colleague/ artifacts"
+            "nothing to reap — no stale colleague/* branches, orphaned .colleague/ "
+            "artifacts, or isolation worktrees"
         )
     if kept:
         lines.append(

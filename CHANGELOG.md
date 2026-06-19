@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-06-19
+
+### Added
+
+- Interrupt safety for delegated work items (#222): an interrupted `colleague work` / `ask-colleague write --apply` no longer strands your work. On the isolated work path, a SIGTERM (a caller's `timeout`), a Ctrl-C, or a cooperative `flight stop` now commits the model's WIP to the `colleague/<id>` branch before exiting, instead of orphaning it as uncommitted files in an `iso-*` worktree (`colleague/cli/_commands/work.py` `_arm_interrupt_commit` + `worktrees.py` `commit_iso_worktree_wip`, reusing the existing commit primitive). Runtime-owned (all-engines); armed only on the isolated path, never the in-place session path.
+- `colleague clean` reaps orphaned `.colleague/worktrees/iso-*` worktrees (#222) BEFORE the `colleague/*` branch reap, so a SIGKILL/OOM leftover (where the branch is still checked out in the orphan worktree) is recovered in one command (`worktrees.py` `reap_orphaned_iso_worktrees` / `list_iso_worktrees`, scoped strictly to `iso-*` — never a `sub/*` child or an unrelated worktree; it spares an iso worktree whose `colleague/<id>` work item is a currently-active flight, and `--dry-run` is honored).
+
 ## [1.20.1] - 2026-06-19
 
 ### Added

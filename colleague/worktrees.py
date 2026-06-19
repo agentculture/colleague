@@ -255,6 +255,69 @@ def commit_all(worktree_path: str, message: str) -> bool:
     return True
 
 
+def commit_iso_worktree_wip(worktree_path: str, *, reason: str = "interrupt") -> bool:
+    """Commit an isolated work item's in-progress changes onto its ``colleague/<id>`` branch.
+
+    Used on an ABNORMAL exit — a SIGTERM (a caller's ``timeout``), a Ctrl-C, or a
+    cooperative stop — to preserve the model's work-in-progress that the success-path
+    handoff would otherwise have committed (#222). A thin wrapper over
+    :func:`commit_all`: it stages and commits everything in the worktree onto its
+    checked-out branch (``colleague/<id>`` for an isolation worktree), returning
+    ``True`` when a commit was made and ``False`` on an empty diff. Best-effort and
+    idempotent — an empty diff is a no-op, never an error — so a handler can call it
+    unconditionally on the way out.
+    """
+    return commit_all(worktree_path, f"colleague: WIP committed on {reason}")
+
+
+def list_iso_worktrees(repo_path: str) -> list[str]:
+    """Absolute paths of git-registered isolation worktrees (``.colleague/worktrees/iso-*``).
+
+    Scoped STRICTLY to the ``iso-`` prefix DIRECTLY under this repo's worktrees root,
+    so a parallel-subagent ``<child_id>`` worktree (no ``iso-`` prefix) or any
+    unrelated worktree (a different parent directory) is never listed (#222 h3).
+    Returns an empty list if ``git worktree list`` fails (tolerated, like every
+    other git call here).
+    """
+    repo = Path(repo_path).resolve()
+    wt_root_str = str(repo / _WORKTREES_SUBDIR)
+    proc = _git(repo, "worktree", "list", "--porcelain", check=False)
+    if proc.returncode != 0:
+        return []
+    found: list[str] = []
+    for line in proc.stdout.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        wt = Path(line[len("worktree ") :].strip())
+        if str(wt.parent) == wt_root_str and wt.name.startswith("iso-"):
+            found.append(str(wt))
+    return found
+
+
+def reap_orphaned_iso_worktrees(repo_path: str, *, dry_run: bool = False) -> list[str]:
+    """Remove orphaned isolation worktrees (``.colleague/worktrees/iso-*``); return their paths.
+
+    Recovers the residue a SIGKILL/OOM/power-loss leaves behind when
+    :func:`isolation_worktree_remove` could not run (#222): the ``iso-<id>`` worktree
+    keeps its ``colleague/<id>`` branch checked out, which blocks ``git branch -D``
+    until the worktree is removed — so ``colleague clean`` reaps these BEFORE the
+    ``colleague/*`` branch reap, making the branch deletable in the same run. Each is
+    removed via ``git worktree remove --force`` followed by a single ``prune`` (the
+    :func:`isolation_worktree_remove` mechanism). Scoped STRICTLY to ``iso-*`` under
+    this repo's worktrees root via :func:`list_iso_worktrees`; a ``sub/*`` child or an
+    unrelated worktree is never touched (#222 h3). ``dry_run=True`` reports the paths
+    it would reap without changing anything.
+    """
+    paths = list_iso_worktrees(repo_path)
+    if dry_run or not paths:
+        return paths
+    repo = Path(repo_path).resolve()
+    for wt in paths:
+        _git(repo, "worktree", "remove", "--force", wt, check=False)
+    _git(repo, "worktree", "prune", check=False)
+    return paths
+
+
 def merge_branch(repo_path: str, child_id: str) -> MergeOutcome:
     """Merge a child's ``sub/<child_id>`` branch into the working branch of *repo_path*.
 
