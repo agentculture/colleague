@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-06-19
+
+### Added
+
+- plan mode: a dedicated honesty-only proposal pass (a focused {honesty:[...]} batch call + a bounded per-claim fallback, cap 8, all via robust_simple_complete) so the spec stage gathers honesty conditions reliably on a weak served model — the v1.20.0 wall where the combined requirements+honesty call returned claims but zero honesty (#215)
+- plan mode: a --no-workforce plan-only mode (run_plan_mode(workforce=False)) that delivers the spec+plan and skips the timeout-prone workforce fan-out — no wave, no batch_spawn, no subagent worktree; default unchanged (#215)
+- ask-colleague plan: forwards --quick/--no-workforce and --timeout, with an honest remediation hint on failure (no silent auto-degrade) (#215)
+
+### Changed
+
+- plan mode honesty conditions are minted with fresh unique ids during the dedicated pass so a model reusing "h1" across focused calls is no longer silently dropped
+
+### Fixed
+
+- plan mode reporting: the spec gate now names the real gap — _render_run and _run_payload surface claims_missing_honesty instead of a silent "missing: (none)" when honesty is the only failure (#224)
+- ask-colleague.sh: _preserve_artifact diagnostics use the error:/hint: contract, and print_result emits a structured {code,message,remediation} object in --json mode instead of plain text (#226)
+
 ## [1.21.0] - 2026-06-19
 
 ### Added

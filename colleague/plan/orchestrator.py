@@ -76,6 +76,7 @@ def run_plan_mode(
     repo_path: str | None = None,
     plan_id: str = "plan",
     quick: bool = False,
+    workforce: bool = True,
 ) -> OrchestratorResult:
     """Drive the full plan-mode lifecycle end to end.
 
@@ -131,6 +132,13 @@ def run_plan_mode(
         frame from the request text, proceeding straight to plan-item
         proposal.  The plan-level gate (``decide``) is invoked on the
         proposed plan items before any workforce execution.
+    workforce:
+        When ``True`` (default), fan the plan out to the subagent workforce.
+        When ``False`` (plan-only / ``--no-workforce``, #215), return right
+        after the plan items are proposed (and gated, in ``quick`` mode):
+        no wave is computed, ``batch_spawn`` is never called, and no subagent
+        worktree is created.  ``OrchestratorResult`` keeps its shape (empty
+        ``waves``/``sub_results``/``conflicts``).
 
     Returns
     -------
@@ -207,8 +215,24 @@ def run_plan_mode(
                 plan_items=plan_items,
             )
 
-    # ── f. Compute waves ──────────────────────────────────────────────
+    # ── f. Compute waves — also VALIDATES the dependency graph: it raises
+    # ValueError on a cycle or a dangling dep. Run this BEFORE the plan-only
+    # return so --no-workforce cannot report a cyclic plan as converged
+    # (Qodo #230 F1): validate_items above checks dup ids / acceptance /
+    # dangling deps but does NOT detect cycles — only compute_waves does.
     waves = compute_waves(plan_items)
+
+    # ── e2. Plan-only mode: stop before the workforce fan-out (#215) ──
+    # A caller who said "plan this" wants the spec+plan, not the long,
+    # side-effecting implementation fan-out (which times out at 120s on the
+    # served 27B). The graph is validated above; keep waves empty in the result
+    # per the spec (h9: no fan-out, no waves executed, no subagent worktree).
+    if not workforce:
+        return OrchestratorResult(
+            spec_result=spec_result,
+            converged=True,
+            plan_items=plan_items,
+        )
 
     # ── g. Run workforce waves ───────────────────────────────────────
     item_map = {item.id: item for item in plan_items}

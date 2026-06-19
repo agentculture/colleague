@@ -1,0 +1,187 @@
+{
+  "slug": "colleague-plan-mode-gets-the-served-27b-further-an",
+  "title": "Colleague plan mode gets the served 27B further and fails honestly when it can't converge",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-19T07:05:17Z",
+  "updated": "2026-06-19T07:46:15Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague plan mode gets the served 27B further and fails honestly when it can't converge",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "On the served 27B an end-to-end 'plan run --no-workforce' actually returns a spec+plan at exit 0 in a live test, not just on mock",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "An agent (Claude or another) delegating a planning task to colleague via 'colleague plan' / 'ask-colleague plan' against the served reference 27B backend",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The audience is the delegating agent \u2014 verified by 'ask-colleague plan' being the documented entry the division-of-labor docs point callers to",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "On the served 27B the spec stage reliably gathers honesty conditions and the convergence gate names the exact gap; a caller can obtain a spec+plan without triggering the side-effecting workforce fan-out",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Honesty conditions are gathered by a dedicated call whose effect is observable (claims gain honesty in the frame/checkpoint), and --no-workforce returns before any subagent worktree is created",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "On the served 27B plan mode walls: the combined requirements+honesty call returns no honesty conditions so the spec never converges, the gate reports 'missing: (none)', and the only path past spec (--quick) times out in the workforce at 120s",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The before_state reproduces on the served 27B today (documented in #215/#224): the combined requirements+honesty call yields zero honesty conditions",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "plan mode is the advertised 'colleague is the planning mind' surface; a caller leaning on it today gets an error, not a plan, and cannot even tell why it failed",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "The current failure is unactionable to a caller \u2014 verified by #224's 'missing: (none)' reproduction",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "NOT a guarantee a weak model converges, NOT a multi-model router, NOT a change to the convergence rule (honesty conditions stay mandatory), NOT a change to work-mode's default timeout",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "No code path adds a multi-model router, weakens the convergence rule, or changes EngineConfig's work-mode timeout default; the all-engines rule holds (mock and vllm-openai identical TaskResult/Orchestrator shape)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "On the served 27B, 'colleague plan run --no-workforce' returns a spec+plan at exit 0; and every non-converged run names a non-empty failure reason on BOTH the human and --json surfaces",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "A test asserts a non-converged ConvergenceResult always renders AND serializes a non-empty failure reason; the --no-workforce exit-0 path is live-validated on the 27B",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "The spec stage proposes honesty conditions in a dedicated focused call (single {honesty:[...]} array), with a bounded per-claim fallback for any spec-affecting claim still missing one, all routed through robust_simple_complete",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The dedicated honesty call and per-claim fallback are BOUNDED (capped call count) and route through robust_simple_complete; a partial/empty honesty response is tolerated (never a crash); honesty conditions still land proposed (operator/gate confirms)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "colleague plan run gains a --no-workforce (plan-only) mode that stops after proposing and gating plan items, skipping the workforce waves entirely",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "--no-workforce stops after gating plan items and creates no subagent worktree; the default (workforce on) stays byte-identical; OrchestratorResult shape is unchanged when workforce is skipped (empty waves/sub_results)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The convergence gate surfaces claims_missing_honesty on both the human (_render_run) and --json (_run_payload) surfaces; a drift test asserts a non-converged result always names at least one non-empty failure list",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The claims_missing_honesty surface is additive (empty/omitted when converged); a drift test pins: non-converged result => at least one non-empty failure list on each surface",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The ask-colleague plan skill verb exposes --no-workforce and --quick and forwards a --timeout (COLLEAGUE_TIMEOUT), with a clear remediation hint on an unusable-proposal or timeout failure (no silent auto-degrade)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The skill changes are flag pass-throughs only (no new colleague runtime behavior), the --json contract is unchanged, and there is no silent semantic auto-degrade",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": []
+}

@@ -89,7 +89,7 @@ Usage:
   ask-colleague explore "<question or area>"     Read-only investigation -> findings (no side effects)
   ask-colleague review  "<what to focus on>"     Diverse second-opinion on the committed diff (no side effects)
   ask-colleague write   "<task>" [--apply|--pr]  Implement a change (preview by default; --apply lands it)
-  ask-colleague plan    "<task>"                 Colleague PLANS a complex task (spec -> plan -> subagent workforce)
+  ask-colleague plan    "<task>" [--no-workforce] Colleague PLANS a complex task (spec -> plan -> subagent workforce)
   ask-colleague feedback <id|last> [--rating N]  Grade a past drive (ROI loop); with --rating records, without shows
   ask-colleague feedback list                    List every recorded drive by request + grade (find one by its request)
   ask-colleague clean [--dry-run]                Reap stale/corrupt colleague/* branches + orphaned .colleague/ artifacts (#162)
@@ -107,6 +107,8 @@ Options:
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
   --max-steps N      Loop step budget (default: 20; 30 for explore)
   --timeout N        Per-request timeout, seconds (default: $COLLEAGUE_TIMEOUT or 300)
+  --no-workforce     (plan) deliver the spec+plan only, skip the workforce fan-out (#215)
+  --quick / --no-spec (plan) skip the spec stage, plan directly from the request (#199)
   --apply            (write) apply the change in place (drive branch) instead of previewing
   --allow-dirty      (write) allow running on a dirty tree (only with --apply/--pr)
   --pr               (write) push + open a PR instead of a local drive branch (implies --apply)
@@ -193,6 +195,8 @@ BY=""
 ARG=""
 JSON_OUT=0
 ROLE=""
+QUICK=0
+NO_WORKFORCE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -209,6 +213,8 @@ while [[ $# -gt 0 ]]; do
         --allow-dirty) ALLOW_DIRTY=1; shift ;;
         --pr) OPEN_PR=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --quick | --no-spec) QUICK=1; shift ;;       # plan: skip the spec stage (#199)
+        --no-workforce) NO_WORKFORCE=1; shift ;;     # plan: deliver spec+plan only (#215)
         --rating) need_value "$#" "$1"; RATING="$2"; shift 2 ;;
         --notes) need_value "$#" "$1"; NOTES="$2"; shift 2 ;;
         --by) need_value "$#" "$1"; BY="$2"; shift 2 ;;
@@ -299,9 +305,25 @@ export COLLEAGUE_TIMEOUT="$TIMEOUT"
 # Claude as the planner (same arc, a different mind).
 if [[ "$VERB" == "plan" ]]; then
     plan_flags=(--repo "$REPO" --engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --yes)
+    # --quick skips the spec stage (#199); --no-workforce delivers spec+plan only,
+    # skipping the timeout-prone fan-out (#215). --timeout already applies via the
+    # COLLEAGUE_TIMEOUT export above. These are forwarded, never auto-applied.
+    [[ "$QUICK" -eq 1 ]] && plan_flags+=(--quick)
+    [[ "$NO_WORKFORCE" -eq 1 ]] && plan_flags+=(--no-workforce)
     [[ "${JSON_OUT:-0}" -eq 1 ]] && plan_flags+=(--json)
-    "${COLLEAGUE[@]}" plan run "$ARG" "${plan_flags[@]}"
-    exit $?
+    plan_rc=0
+    "${COLLEAGUE[@]}" plan run "$ARG" "${plan_flags[@]}" || plan_rc=$?
+    # No silent auto-degrade: name the recovery levers (those not already set) and
+    # let the caller choose. Human hints are TEXT-mode only — in --json mode the
+    # consumer is a machine and colleague's own structured {code,message,remediation}
+    # error already went to stderr, so suppress the prose there (Qodo #230 F4).
+    if [[ "$plan_rc" -ne 0 && "${JSON_OUT:-0}" -ne 1 ]]; then
+        echo "hint: plan mode did not complete on this backend. Recovery options (no auto-degrade):" >&2
+        [[ "$NO_WORKFORCE" -eq 0 ]] && echo "hint:   --no-workforce  deliver the spec+plan only, skip the timeout-prone workforce fan-out (#215)" >&2
+        [[ "$QUICK" -eq 0 ]] && echo "hint:   --quick         skip the spec stage, plan directly from the request (#199)" >&2
+        echo "hint:   --timeout N     widen the per-request window (currently ${TIMEOUT}s)" >&2
+    fi
+    exit "$plan_rc"
 fi
 
 COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
@@ -350,15 +372,32 @@ print_result() {
 import sys, json, os
 raw = sys.stdin.read().strip()
 json_mode = os.environ.get("ASK_COLLEAGUE_JSON") == "1"
+def _fail(code, message, remediation, detail=None):
+    # #226: in --json mode emit a structured {code, message, remediation} object
+    # on stderr (matching colleague CliError shape) so a machine consumer parses
+    # a failure the same way it parses success; in text mode keep the standard
+    # error:/hint: contract. stdout stays clean (no result) on every path.
+    if json_mode:
+        obj = {"code": code, "message": message, "remediation": remediation}
+        if detail is not None:
+            obj["detail"] = detail
+        sys.stderr.write(json.dumps(obj) + "\n")
+    else:
+        sys.stderr.write("error: " + message + "\n")
+        if detail is not None:
+            sys.stderr.write(detail + "\n")
+        if remediation:
+            sys.stderr.write("hint: " + remediation + "\n")
+    sys.exit(code)
 if not raw:
-    sys.stderr.write("error: colleague produced no result on stdout (see diagnostics above)\n")
-    sys.exit(2)
+    _fail(2, "colleague produced no result on stdout (see diagnostics above)",
+          "re-run; if it persists, check the backend with colleague doctor --probe")
 try:
     d = json.loads(raw)
 except Exception:
-    sys.stderr.write("error: could not parse colleague --json output:\n")
-    sys.stderr.write(raw[:2000] + "\n")
-    sys.exit(2)
+    _fail(2, "could not parse colleague --json output",
+          "the backend may have emitted non-JSON; see the raw output and diagnostics above",
+          detail=raw[:2000])
 ok = d.get("status") == "ok"
 tid = d.get("task_id") or ""
 # Resolve the artifact path to the preserved copy when the drive ran in a
@@ -537,7 +576,7 @@ _preserve_artifact() {
     local art_name="$1"
     [[ -n "$art_name" && -n "$_WT" ]] || return 1
     if ! _valid_segment "$art_name"; then
-        printf 'ask-colleague: refusing to preserve unsafe artifact name %q\n' "$art_name" >&2
+        printf 'error: refusing to preserve unsafe artifact name %q\n' "$art_name" >&2
         return 1
     fi
     local src="$_WT/.colleague"
@@ -547,7 +586,7 @@ _preserve_artifact() {
     # The JSON artifact is the record of the drive — surface a copy failure rather
     # than swallow it, so the caller can fall back to honest path reporting.
     if ! cp -f "$src/$art_name" "$dst/$art_name"; then
-        printf 'ask-colleague: could not preserve artifact %s\n' "$art_name" >&2
+        printf 'error: could not preserve artifact %s\n' "$art_name" >&2
         return 1
     fi
     # The trace shares the artifact stem (.json -> .trace.jsonl); a best-effort

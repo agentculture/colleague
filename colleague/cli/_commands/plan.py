@@ -55,6 +55,7 @@ def _plan_sections() -> list[dict[str, object]]:
             "title": "Verbs",
             "items": [
                 'plan "<request>" [--repo P] [--engine E] [--yes] [--review] [--json]',
+                "  [--quick/--no-spec] skip the spec stage; [--no-workforce] plan only",
                 "plan status [--repo P] [--json] — read the last plan checkpoint",
                 "plan overview — describe the plan surface (this command)",
             ],
@@ -101,8 +102,24 @@ def _resolve_decide(args: argparse.Namespace):
 def _render_run(result: Any) -> str:
     lines = [f"converged: {result.converged}"]
     if not result.converged:
-        missing = result.spec_result.result.missing_kinds
-        lines.append(f"spec gate not passed; missing: {', '.join(missing) or '(none)'}")
+        conv = result.spec_result.result
+        missing = conv.missing_kinds
+        # #224: the gate also fails on spec-affecting claims that lack a confirmed
+        # honesty condition. Surfacing only missing_kinds rendered "missing: (none)"
+        # when honesty was the sole gap — a non-actionable dead end. Name both.
+        missing_honesty = getattr(conv, "claims_missing_honesty", [])
+        if missing:
+            lines.append(f"spec gate not passed; missing: {', '.join(missing)}")
+        if missing_honesty:
+            lines.append(
+                "claims missing a confirmed honesty condition: " + ", ".join(missing_honesty)
+            )
+        if not missing and not missing_honesty:
+            # Defensive + unreachable: converge() only fails with a non-empty
+            # missing_kinds or claims_missing_honesty, so this never fires in
+            # practice. Still, never report a silent "(none)" — if it ever does,
+            # it is a gate bug worth surfacing, not a clean result.
+            lines.append("spec gate not passed; no reason recorded (unexpected gate bug)")
         return "\n".join(lines)
     lines.append(f"plan items: {len(result.plan_items)}")
     lines.append(f"waves: {result.waves}")
@@ -116,9 +133,13 @@ def _render_run(result: Any) -> str:
 
 
 def _run_payload(result: Any) -> dict[str, Any]:
+    conv = result.spec_result.result
     return {
         "converged": result.converged,
-        "missing_kinds": result.spec_result.result.missing_kinds,
+        "missing_kinds": conv.missing_kinds,
+        # #224: a machine consumer needs the honesty-gap reason too, else a
+        # non-converged run serialized {converged: false, missing_kinds: []}.
+        "claims_missing_honesty": getattr(conv, "claims_missing_honesty", []),
         "plan_items": [i.id for i in result.plan_items],
         "waves": result.waves,
         "sub_results": len(result.sub_results),
@@ -178,6 +199,7 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
             repo_path=str(repo),
             plan_id=_PLAN_ID,
             quick=bool(getattr(args, "quick", False)),
+            workforce=not bool(getattr(args, "no_workforce", False)),
         )
     except ValueError as exc:
         # The model returned a malformed proposal (unparseable JSON, an invalid
@@ -260,5 +282,11 @@ def _add_run_args(run: argparse.ArgumentParser) -> None:
         dest="quick",
         action="store_true",
         help="Skip the spec stage; plan directly from the request (#199).",
+    )
+    run.add_argument(
+        "--no-workforce",
+        dest="no_workforce",
+        action="store_true",
+        help="Plan only: deliver the spec+plan, skip the workforce fan-out (#215).",
     )
     run.add_argument("--json", action="store_true", help=JSON_HELP)
