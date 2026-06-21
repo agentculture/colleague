@@ -1,15 +1,15 @@
 [project]
 name = "colleague"
-version = "1.22.0"
+version = "1.22.1"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 authors = [{name = "AgentCulture"}]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Topic :: Software Development",
     "Intended Audience :: Developers",
 ]

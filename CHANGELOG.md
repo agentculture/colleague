@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.1] - 2026-06-21
+
+### Changed
+
+- Relicensed the project from MIT to Apache 2.0 — full Apache 2.0 LICENSE text, pyproject `license`/classifier metadata, and the README License section. Aligns with sibling AgentCulture repos (e.g. data-refinery-cli).
+
 ## [1.22.0] - 2026-06-19
 
 ### Added
