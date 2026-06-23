@@ -8,7 +8,7 @@ the cockpit relies on.
 
 from __future__ import annotations
 
-from colleague.tui.events import WorkStep
+from colleague.tui.events import UserInput, WorkStep
 from colleague.tui.reducer import reduce
 from colleague.tui.state import CockpitState, Panel
 
@@ -65,6 +65,17 @@ def test_run_of_three_increments_existing_count() -> None:
     for _ in range(3):
         state = reduce(state, _step("run_command", "pytest -q"))
     assert _conversation(state) == "[run_command] pytest -q ×3"
+
+
+def test_operator_input_lines_are_not_grouped() -> None:
+    """Grouping is opt-in for the tool-step feed only (#233). Consecutive identical
+    operator input / log lines (UserInput) must be appended verbatim, never collapsed
+    to ×N — collapsing them would silently rewrite the human's transcript.
+    (Regression guard for the over-broad-grouping bug caught in PR #242 review.)"""
+    state = _blank()
+    state = reduce(state, UserInput(text="retry"))
+    state = reduce(state, UserInput(text="retry"))
+    assert _conversation(state) == "retry\nretry", _conversation(state)
 
 
 def test_step_count_still_counts_every_step() -> None:

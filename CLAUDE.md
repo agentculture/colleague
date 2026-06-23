@@ -446,8 +446,13 @@ The architecture, part by part:
   `re` only, zero deps) and routed to the right verb without the operator typing a
   subcommand. A `→ work:` / `→ plan:` routing line is logged so the dispatch is
   always visible. Bare numbers and known template names are never reclassified (a
-  palette selection is always `work`). The default is `work`, so a misclassification
-  can only ever down-route to the safe default, never silently invoke plan. The plan
+  palette selection is always `work`). The classifier is **high-precision for
+  `plan`** — `plan` fires only on an explicit planning trigger, with negative guards
+  against the common false positives (e.g. `work on the plan mode feature` stays
+  `work`); unmatched or ambiguous input falls through to the `work` default. A
+  false-positive *can* still route to `plan`, but never *silently* — the `→ plan:`
+  line shows it before the plan path runs, so a misroute is always visible and
+  correctable, not hidden. The plan
   branch runs a quick non-interactive spec→plan (`quick=True, workforce=False`) and
   degrades cleanly on a non-live backend (e.g. `mock`) — a `CliError` is surfaced,
   never a crash. **Non-goals:** `colleague work` / `colleague plan` still work for
