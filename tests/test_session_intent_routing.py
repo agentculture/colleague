@@ -283,3 +283,27 @@ def test_feed_shows_routed_verb(tmp_path: Path) -> None:
     assert (
         "→ plan:" in rendered
     ), f"Expected '→ plan:' routing marker in feed output, got:\n{rendered}"
+
+
+# ---------------------------------------------------------------------------
+# Test 7: a bare number (palette selection) is never classified as a plan
+# ---------------------------------------------------------------------------
+
+
+def test_number_selection_never_routes_to_plan(tmp_path: Path) -> None:
+    """A bare number is a palette selection, not free text — it must skip plan
+    classification entirely (the ``_work_line`` is_free_text guard, suggested by an
+    ask-colleague review)."""
+    work_capture: dict = {}
+    plan_capture: dict = {}
+
+    # "1" against an empty palette resolves to nothing (out-of-range) — neither verb
+    # fires, but crucially the plan path is never even considered for a digit.
+    _run_one(
+        tmp_path,
+        "1",
+        work_capture=work_capture,
+        plan_capture=plan_capture,
+    )
+
+    assert not plan_capture.get("fired"), "a bare number must never route to plan"

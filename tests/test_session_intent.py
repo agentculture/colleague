@@ -18,6 +18,11 @@ PLAN_CASES = [
     "what's the best way to structure the cache",
     "design the new caching layer",
     "PLAN THIS",  # case-insensitivity
+    # Edge cases surfaced by an ask-colleague review (all already correct — pinned
+    # so a future regex change can't silently regress them):
+    "roadmap the migration",  # \\broadmap\\b matches (the review's claimed "typo" is a non-bug)
+    "plan the migration",  # matches the primary `plan the` trigger, not just the fallback
+    "architect the system",  # \\barchitect\\b matches
 ]
 
 # ── WORK cases ───────────────────────────────────────────────────────────
@@ -31,6 +36,11 @@ WORK_CASES = [
     "update plan.py docstring",  # negative guard: plan.py
     "refactor the planning module",  # planning != \\bplan\\b
     "work on the plan mode feature",  # negative guard: concrete work *on* plan-mode code
+    # Edge cases surfaced by an ask-colleague review — precision boundaries that must
+    # stay WORK (word-boundary anchors mean a substring of a trigger is not a trigger):
+    "architecture review",  # \\barchitect\\b must NOT match inside "architecture"
+    "breakdown the task",  # one word, no space — \\bbreak\\s+…down\\b must NOT match
+    "plan",  # the bare word alone is no planning *request*
     "",  # empty
     "   ",  # whitespace
 ]
