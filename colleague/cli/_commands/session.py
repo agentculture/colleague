@@ -1,4 +1,4 @@
-"""``colleague session`` — the interactive cockpit over the work path.
+"""``colleague session`` — the agent-native interactive cockpit over the work path.
 
 Opens a foreground interactive **cockpit**: it renders one
 :class:`~colleague.tui.state.CockpitState` (a command palette + a running
@@ -18,8 +18,15 @@ Three render tiers of the one state (#74 A2), chosen automatically:
   as chrome. (The TAUI JSON mirror lives under ``colleague tui state``.)
 
 Input is **line-based**. Plain text (a number / template name / free-text task)
-runs a work item; a line starting with ``/`` is a **slash command** — the meta/system
+runs a work item.  Free text is **intent-routed**: :func:`classify_intent` maps it
+to ``work`` (the default) or ``plan`` without the operator typing a subcommand, and
+a ``→ work:`` / ``→ plan:`` routing line is logged so the dispatch is always
+visible.  A line starting with ``/`` is a **slash command** — the meta/system
 namespace (introspection of existing nouns + live config actions).
+
+The backend for the session resolves via :func:`~colleague.config.resolve_session_engine`:
+explicit ``--engine`` flag > ``COLLEAGUE_SESSION_ENGINE`` env (a session-only
+override) > ``COLLEAGUE_ENGINE`` env > built-in default (``vllm-openai``).
 
 The session is entirely foreground (no sockets, no daemons) and stdlib-only.
 
@@ -47,9 +54,10 @@ from colleague.cli._banner import emit_banner
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
-from colleague.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import Task, TaskResult
 from colleague.policy import load_policy
+from colleague.session_intent import PLAN, classify_intent
 from colleague.telemetry import TelemetryConfig
 from colleague.tui.colors import should_color
 from colleague.tui.events import UserInput
@@ -67,6 +75,9 @@ from colleague.tui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, f
 # ---------------------------------------------------------------------------
 
 _WorkFn = Callable[..., tuple[TaskResult, Path]]
+#: A session "plan" runner: takes a free-text request and returns a summary
+#: string to fold into the feed. Injectable as a test seam (mirrors ``_WorkFn``).
+_PlanFn = Callable[..., str]
 
 _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
 _CONVERSATION_PANEL_ID = "panel.conversation"
@@ -173,6 +184,30 @@ class _WorkSink:
         return None
 
 
+def _default_plan(*, repo: Path, engine_name: str, request: str, config: EngineConfig) -> str:
+    """Default session ``plan`` runner: a quick, non-interactive spec→plan.
+
+    Runs colleague plan mode in *quick* + *no-workforce* + auto-confirm mode so a
+    conversational session yields a plan without an interactive per-item gate or a
+    subagent fan-out (use ``colleague plan run`` for the full gated arc). Reuses the
+    engine seams via :func:`~colleague.cli._commands.plan.run_plan_request`; raises
+    :class:`CliError` (handled by the caller) on a non-live backend such as ``mock``.
+    Imported lazily so a session that never plans doesn't load the plan package.
+    """
+    from colleague.cli._commands.plan import _auto_decide, _render_run, run_plan_request
+
+    result = run_plan_request(
+        repo=repo,
+        request=request,
+        engine_name=engine_name,
+        config=config,
+        decide=_auto_decide,
+        quick=True,
+        workforce=False,
+    )
+    return _render_run(result)
+
+
 class _Session:
     """Holds the interactive session's mutable state and renders one cockpit."""
 
@@ -190,6 +225,7 @@ class _Session:
         out: Callable[..., None],
         err: Callable[..., None],
         work_fn: _WorkFn,
+        plan_fn: _PlanFn = _default_plan,
         user_home: Optional[Path] = None,
     ) -> None:
         self.repo = repo
@@ -206,6 +242,7 @@ class _Session:
         # in --json mode so stdout carries only the work TaskResult(s).
         self.chrome = err if json_mode else out
         self.work_fn = work_fn
+        self.plan_fn = plan_fn
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -609,6 +646,17 @@ class _Session:
     # ── work ────────────────────────────────────────────────────────────────
 
     def _work_line(self, line: str) -> None:
+        # Agent-native intent routing (#234): a free-text goal reaches colleague's
+        # own verb (work | plan) WITHOUT the user typing the subcommand. A bare
+        # number / known template name is always a work-template selection, never a
+        # plan — only genuinely free text is classified. The default is ``work`` (the
+        # prior behaviour), so a misclassification can only ever down-route to work.
+        stripped = line.strip()
+        is_free_text = bool(stripped) and not stripped.isdigit() and stripped not in self.discovered
+        if is_free_text and classify_intent(stripped) == PLAN:
+            self._log(f"→ plan: {stripped}")
+            self._run_plan(stripped)
+            return
         resolved = _resolve_selection(
             line,
             self.palette,
@@ -621,7 +669,41 @@ class _Session:
         if resolved is None:
             return
         task, command_name = resolved
+        if is_free_text:
+            self._log(f"→ work: {stripped}")
         self._run_work(task, command_name)
+
+    def _run_plan(self, request: str) -> None:
+        """Route a planning-intent free-text goal to colleague's ``plan`` verb.
+
+        Runs the injected ``plan_fn`` (default: a quick non-interactive spec→plan)
+        and folds its summary into the feed. A non-live backend (e.g. ``mock``)
+        raises :class:`CliError`, surfaced cleanly — never a crash, never a handoff.
+        """
+        # A synthetic work item keeps the cockpit "running" glyph alive; ``Task.new``
+        # only mints an id here (the plan path does not run the work loop).
+        self.state.work_item = WorkItem(
+            task_id=Task.new(str(self.repo), request).id, engine=self.engine_name, running=True
+        )
+        try:
+            summary = self.plan_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                request=request,
+                config=self.config,
+            )
+        except CliError as exc:
+            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
+            self._error(f"error: {exc.message}{hint}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._error(f"error: {type(exc).__name__}: {exc}")
+            return
+        finally:
+            if self.state.work_item is not None:
+                self.state.work_item.running = False
+        self._log(summary)
+        self._refresh_context()
 
     def _run_work(self, task: Task, command_name: Optional[str]) -> None:
         # Mark a work item active so the cockpit's state glyph animates per step
@@ -770,7 +852,10 @@ def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
             left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
             rows.append(f"  {left:<18} {format_tags(s.tags, style)}".rstrip())
     rows.append("")
-    rows.append("plain text (a number / template name / free-text task) runs a work item.")
+    rows.append(
+        "plain text (a number / template name / free-text task) runs a work item; "
+        "free text is intent-routed to work or plan automatically."
+    )
     return "\n".join(rows)
 
 
@@ -792,6 +877,9 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
             rows.append(f"  {left:<18} {s.description}{suffix}")
     rows.append("")
     rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
+    rows.append(
+        "      Free text is intent-routed: 'work' (default) or 'plan' — no subcommand needed."
+    )
     rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
     return "\n".join(rows)
 
@@ -943,6 +1031,7 @@ def run_session(
     out: Callable[..., None] = print,
     err: Optional[Callable[..., None]] = None,
     _work_fn: _WorkFn = _default_work,
+    _plan_fn: _PlanFn = _default_plan,
     _color: Optional[bool] = None,
 ) -> int:
     """Run the interactive cockpit session loop.
@@ -959,8 +1048,10 @@ def run_session(
     ``_color`` overrides the colour-TTY detection that picks ANSI vs. Markdown.
     """
     repo = Path(args.repo).expanduser()
-    # Resolve the engine like ``work`` (explicit > COLLEAGUE_ENGINE > vllm-openai).
-    engine_name = resolve_engine(args.engine)
+    # Agent-native default (#234): the session runs on colleague's OWN served
+    # backend by default (explicit --engine > COLLEAGUE_SESSION_ENGINE >
+    # COLLEAGUE_ENGINE > vllm-openai) — the prior backend stays selectable.
+    engine_name = resolve_session_engine(args.engine)
     open_pr = bool(getattr(args, "pr", False))
     allow_dirty = bool(getattr(args, "allow_dirty", False))
     base = args.base
@@ -991,6 +1082,7 @@ def run_session(
         out=out,
         err=err,
         work_fn=_work_fn,
+        plan_fn=_plan_fn,
     )
     return session.run(input_fn)
 
@@ -1004,15 +1096,29 @@ def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "session",
         help=(
-            "Open the interactive cockpit: a command palette + slash commands over "
-            "the work path; run templates or ad-hoc tasks, loop until quit."
+            "Agent-native interactive cockpit: type a free-text goal and it routes "
+            "to work or plan on colleague's own backend — no subcommand needed."
+        ),
+        description=(
+            "Open the interactive cockpit — the conversational, agent-native entry "
+            "point to colleague.  Type a free-text goal and intent routing maps it "
+            "to 'work' (the default) or 'plan' automatically; a '→ work:' / '→ plan:' "
+            "line confirms the dispatch.  A number or template name runs a work template "
+            "directly (never re-classified).  A line starting with '/' is a slash command "
+            "(introspection + live config).  The session runs on colleague's OWN served "
+            "backend by default (--engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > "
+            "vllm-openai).  Commit-local by default; /pr or --pr opts into push+PR."
         ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--engine",
         default=None,
-        help="Backend plugin to use (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help=(
+            "Backend plugin to use.  Precedence: explicit --engine > "
+            "COLLEAGUE_SESSION_ENGINE (session-only override) > COLLEAGUE_ENGINE > "
+            "vllm-openai (colleague's own served backend)."
+        ),
     )
     p.add_argument(
         "--pr",

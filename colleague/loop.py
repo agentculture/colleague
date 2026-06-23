@@ -121,6 +121,14 @@ _DEFAULT_SYSTEM = (
     "when both are wrong. You MAY call check_test_integrity to self-check for that "
     "mirror signature. (This is only a hint: a code-locked harness gate runs the same "
     "check after you finish regardless, so ignoring this line changes nothing.)"
+    "\n\n"
+    "AgentFront surface (reflex). Before the FIRST real use of a CLI or tool you "
+    "have not used before in this run, check its agent-facing surface first — run "
+    "its learn / explain / --help / --json affordance (or an overview / usage verb) "
+    "and read what it reports, THEN act on what you found instead of guessing its "
+    "flags or output shape. A tool you have already used needs no re-probe. This is "
+    "advisory and your own judgement; reading a surface is read-only — it never "
+    "installs, approves, or trusts the tool."
 )
 
 

@@ -439,6 +439,50 @@ The architecture, part by part:
   steps, no clock/thread) and a steady severity glyph at idle. `/help` is grouped
   by intent (Controls / Inspect / Session) and stays compact; `/help verbose`
   expands every command. The boxed `tui render` ANSI view is unchanged.
+  **Agent-native default (#234/#233/#235):** three co-shipped improvements make
+  `colleague session` the natural agent-native entry point —
+  (1) **Intent routing (#234)** — free-text input is classified by
+  `colleague/session_intent.py` `classify_intent(text) -> "work"|"plan"` (stdlib
+  `re` only, zero deps) and routed to the right verb without the operator typing a
+  subcommand. A `→ work:` / `→ plan:` routing line is logged so the dispatch is
+  always visible. Bare numbers and known template names are never reclassified (a
+  palette selection is always `work`). The classifier is **high-precision for
+  `plan`** — `plan` fires only on an explicit planning trigger, with negative guards
+  against the common false positives (e.g. `work on the plan mode feature` stays
+  `work`); unmatched or ambiguous input falls through to the `work` default. A
+  false-positive *can* still route to `plan`, but never *silently* — the `→ plan:`
+  line shows it before the plan path runs, so a misroute is always visible and
+  correctable, not hidden. The plan
+  branch runs a quick non-interactive spec→plan (`quick=True, workforce=False`) and
+  degrades cleanly on a non-live backend (e.g. `mock`) — a `CliError` is surfaced,
+  never a crash. **Non-goals:** `colleague work` / `colleague plan` still work for
+  scripting and agents that name a subcommand explicitly; intent routing fires ONLY
+  on genuine free text in `colleague session`. No new GUI.
+  (2) **Session backend override (#234)** — the session resolves its own backend via
+  `colleague/config.py` `resolve_session_engine()`: precedence is explicit `--engine`
+  flag > `COLLEAGUE_SESSION_ENGINE` env (a session-only override, new) > `COLLEAGUE_ENGINE`
+  env > built-in default (`vllm-openai`). There is NO `--session-engine` flag — only the
+  env var. `COLLEAGUE_SESSION_ENGINE` lets an operator point the conversational session
+  at a different backend than a bare `colleague work` without changing the global default;
+  the existing `--engine` flag still overrides everything.
+  (3) **Legible action feed (#233)** — the live cockpit feed is now legible at a glance:
+  consecutive identical feed lines collapse into a single `<line> ×N` entry instead of
+  stacking (e.g. four back-to-back `[culture]` calls become `[culture] agtag issues ×4`);
+  the `culture` and `devague` loop tools now surface as `<cli> <args>` / `<move> <args>` in
+  the feed target (e.g. `[culture] agtag issues fetch`) instead of a bare `[culture]`
+  sentinel; and the per-step hint cap is raised from 48 to 120 characters
+  (`_MAX_TARGET = 120` in `colleague/tui/from_work.py`) so long commands are no longer
+  cut. The grouping reducer lives in `colleague/tui/reducer.py` `_collapse_repeat`. This
+  is a pure display change — the underlying `TaskResult` and step trace are unchanged.
+  (4) **AgentFront probe reflex (#235)** — `_DEFAULT_SYSTEM` in `colleague/loop.py`
+  instructs the backend: before the **first** real use of an unfamiliar CLI or tool in a
+  run, read its `learn` / `explain` / `--help` / `--json` affordance first, then act on
+  what you found instead of guessing flags or output shape. A tool already used in the
+  run needs no re-probe. **Non-goals:** this is advisory and read-only — the reflex
+  instructs the model to read a surface, never to install, approve, or trust the tool.
+  An enforced harness-level probe is a named follow-up, NOT shipped. Spec + plan:
+  `docs/specs/` and `docs/plans/` entries prefixed `2026-06-23-*` (committed on branch
+  `spec/agent-native-default`).
 - **Cockpit views (tui)** — `colleague tui` provides three headless, pure-stdlib
   views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
   `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**
