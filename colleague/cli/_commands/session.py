@@ -45,12 +45,13 @@ import io
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
-from colleague import cockpit, feedback, layers, registry
+from colleague import cockpit, feedback, handoff, layers, registry
 from colleague.cli._banner import emit_banner
+from colleague.cli._commands._session_input import CYCLE_MODE
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
@@ -58,6 +59,13 @@ from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import Task, TaskResult
 from colleague.policy import load_policy
 from colleague.session_intent import PLAN, classify_intent
+from colleague.session_modes import (
+    DEFAULT_MODE,
+    mode_affordance_line,
+    next_mode,
+    resolve_mode,
+    route_for,
+)
 from colleague.telemetry import TelemetryConfig
 from colleague.tui.colors import should_color
 from colleague.tui.events import UserInput
@@ -234,6 +242,11 @@ class _Session:
         self.allow_dirty = allow_dirty  # dirty-tree guard opt-out (#149)
         self.base = base  # mutable via /base
         self.config = config  # .model mutable via /model
+        # Session mode — auto|work|plan|explore|review — cycled by shift-tab (live
+        # ANSI) or the keyboard-free /mode slash. 'auto' is byte-identical to the
+        # pre-mode behaviour (free text is classified per input); a pinned mode
+        # overrides the classifier. Mutated only via _cycle_mode / _act_mode.
+        self.mode = DEFAULT_MODE
         self.json_mode = json_mode
         self.view = view  # "ansi" (dynamic) | "markdown" (static)
         self.out = out
@@ -268,6 +281,7 @@ class _Session:
             for name, desc in self.palette
         ]
         return CockpitState(
+            mode=self.mode,
             panels=[
                 self._policy_panel(facts),
                 self._context_panel(facts),
@@ -285,7 +299,10 @@ class _Session:
 
     def _status(self) -> Status:
         pr = "push+PR" if self.open_pr else "local"
-        message = f"colleague session · {self.engine_name} · {pr}"
+        message = (
+            f"colleague session · {self.engine_name} · {pr}  ·  "
+            f"{mode_affordance_line(self.mode)}"
+        )
         return Status(severity="info", message=message)
 
     # ── cockpit facts (resolved once at startup / on a config change) ────────
@@ -502,6 +519,7 @@ class _Session:
             self._log(text)
 
     def _refresh_status(self) -> None:
+        self.state.mode = self.mode
         self.state.status = self._status()
 
     # ── rendering (one path; three views) ────────────────────────────────────
@@ -567,6 +585,12 @@ class _Session:
             else:
                 self.emit()
                 raw = _read_line(input_fn)
+            if raw is CYCLE_MODE:
+                # Shift-tab at the prompt: cycle the mode and re-prompt — never a
+                # submitted line, never a quit (the sentinel is distinct from a
+                # string / None / EOF).
+                self._cycle_mode()
+                continue
             if raw is None:
                 break
             line = raw.strip()
@@ -584,6 +608,14 @@ class _Session:
             return self._slash(line)
         self._work_line(line)
         return True
+
+    def _cycle_mode(self) -> None:
+        """Advance the session mode (shift-tab, or a bare ``/mode``): sync the
+        cockpit chrome and echo the new mode into the feed so the change is
+        visible. The next free-text input routes under the new mode."""
+        self.mode = next_mode(self.mode)
+        self._refresh_status()
+        self._log(f"mode → {self.mode}")
 
     # ── slash commands ───────────────────────────────────────────────────────
 
@@ -646,17 +678,31 @@ class _Session:
     # ── work ────────────────────────────────────────────────────────────────
 
     def _work_line(self, line: str) -> None:
-        # Agent-native intent routing (#234): a free-text goal reaches colleague's
-        # own verb (work | plan) WITHOUT the user typing the subcommand. A bare
-        # number / known template name is always a work-template selection, never a
-        # plan — only genuinely free text is classified. The default is ``work`` (the
-        # prior behaviour), so a misclassification can only ever down-route to work.
+        # Agent-native intent routing (#234), now mode-aware: a free-text goal
+        # reaches colleague's own verb WITHOUT the user typing the subcommand. The
+        # active mode decides the verb via ``route_for`` — ``auto`` classifies each
+        # input (byte-identical to the pre-mode behaviour: same classify_intent call,
+        # same ``→ work:``/``→ plan:`` log), while ``work``/``plan``/``explore``/
+        # ``review`` pin the route. A bare number / known template name is always a
+        # work-template selection regardless of mode (a palette pick is never
+        # reclassified) — only genuinely free text is routed.
         stripped = line.strip()
         is_free_text = bool(stripped) and not stripped.isdigit() and stripped not in self.discovered
-        if is_free_text and classify_intent(stripped) == PLAN:
-            self._log(f"→ plan: {stripped}")
-            self._run_plan(stripped)
-            return
+        if is_free_text:
+            verb = route_for(self.mode, stripped, classify_intent)
+            if verb == PLAN:
+                self._log(f"→ plan: {stripped}")
+                self._run_plan(stripped)
+                return
+            if verb == "explore":
+                self._log(f"→ explore: {stripped}")
+                self._run_explore(stripped)
+                return
+            if verb == "review":
+                self._log(f"→ review: {stripped}")
+                self._run_review(stripped)
+                return
+            # verb == "work" → fall through to the work-template / ad-hoc path.
         resolved = _resolve_selection(
             line,
             self.palette,
@@ -740,6 +786,72 @@ class _Session:
         # A completed work item can change branch / dirty / last-feedback state.
         self._refresh_context()
 
+    def _run_explore(self, request: str) -> None:
+        """Read-only investigation (explorer role): inspect the repo to answer a
+        free-text question. Never writes, never pushes/PRs — the read-only role
+        structurally withholds write_file/edit_file/run_command, so it cannot
+        touch the operator's tree even if the model attempts a write."""
+        self._run_readonly(request, role="explorer")
+
+    def _run_review(self, request: str) -> None:
+        """Read-only diverse second opinion on the committed ``<base>...HEAD`` diff
+        (reviewer role). The diff is sourced operator-side and injected because the
+        read-only reviewer role withholds ``run_command`` and so cannot run git
+        itself; the reviewer critiques the provided diff and reads files as needed."""
+        diff = handoff.diff_range(self.repo, self.base)
+        focus = request.strip()
+        task_text = (
+            f"Give a candid, specific second opinion on the committed changes on "
+            f"this branch versus '{self.base}' (the diff below is `git diff "
+            f"{self.base}...HEAD`). "
+            + (f"Focus on: {focus}. " if focus else "")
+            + "Call out correctness bugs, risks, and concrete improvements, citing "
+            "file:line. Do not modify any files.\n\n"
+            f"--- diff {self.base}...HEAD ---\n" + (diff or "(no committed changes vs base)")
+        )
+        self._run_readonly(request, role="reviewer", task_text=task_text)
+
+    def _run_readonly(self, request: str, *, role: str, task_text: str | None = None) -> None:
+        """Shared read-only dispatch for explore/review: run the work loop under a
+        read-only *role* with NO push/PR handoff (``open_pr=False``), so the
+        operator's tree + branch are never touched. ``task_text`` overrides the
+        model-facing instruction (review injects the diff); explore uses *request*
+        verbatim. The role is set on a COPY of the config so ``self.config`` (the
+        session's writer-surface default) is left untouched."""
+        config = replace(self.config, role=role)
+        task = Task.new(
+            str(self.repo),
+            task_text if task_text is not None else request,
+            engine=self.engine_name,
+        )
+        self.state.work_item = WorkItem(task_id=task.id, engine=self.engine_name, running=True)
+        try:
+            result, _artifact = self.work_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                task=task,
+                open_pr=False,  # read-only: never push/PR
+                allow_dirty=self.allow_dirty,
+                base=self.base,
+                config=config,
+                command_name=None,
+                progress_sink=_WorkSink(self),
+            )
+        except CliError as exc:
+            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
+            self._error(f"error: {exc.message}{hint}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._error(f"error: {type(exc).__name__}: {exc}")
+            return
+        finally:
+            if self.state.work_item is not None:
+                self.state.work_item.running = False
+        if self.json_mode:
+            self.out(json.dumps(result.to_dict(), ensure_ascii=False))
+        self._log(f"{result.status}: {result.summary}")
+        self._refresh_context()
+
 
 # ---------------------------------------------------------------------------
 # Slash-command tables
@@ -796,6 +908,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         ("model", "config"),
     ),
     SlashSpec("model", "<name>", "switch the model", "controls", ("model", "config")),
+    SlashSpec(
+        "mode",
+        "[name]",
+        "show/cycle the session mode (auto|work|plan|explore|review) — shift-tab equivalent",
+        "controls",
+        ("interactive",),
+    ),
     SlashSpec("base", "<branch>", "set the PR base branch", "controls", ("git", "config")),
     SlashSpec(
         "pr",
@@ -854,7 +973,8 @@ def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
     rows.append("")
     rows.append(
         "plain text (a number / template name / free-text task) runs a work item; "
-        "free text is intent-routed to work or plan automatically."
+        "free text routes by the active mode (auto classifies each input; shift-tab "
+        "or /mode pins work|plan|explore|review)."
     )
     return "\n".join(rows)
 
@@ -878,8 +998,10 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
     rows.append("")
     rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
     rows.append(
-        "      Free text is intent-routed: 'work' (default) or 'plan' — no subcommand needed."
+        "      Free text routes by the active mode — auto (classify each input), or a "
+        "pinned work | plan | explore | review."
     )
+    rows.append("      shift-tab cycles the mode (or /mode [name]); explore/review are read-only.")
     rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
     return "\n".join(rows)
 
@@ -971,6 +1093,18 @@ def _act_model(s: "_Session", rest: list[str]) -> str:
     return f"model → {rest[0]}"
 
 
+def _act_mode(s: "_Session", rest: list[str]) -> str:
+    """``/mode`` — the keyboard-free shift-tab. No arg cycles to the next mode;
+    ``/mode <name>`` sets it explicitly; an unknown name raises ``ValueError``
+    (surfaced by the slash dispatcher as an error + the valid-modes hint), leaving
+    the mode unchanged (``resolve_mode`` raises before the assignment)."""
+    if not rest:
+        s.mode = next_mode(s.mode)
+        return f"mode → {s.mode}"
+    s.mode = resolve_mode(rest[0])
+    return f"mode → {s.mode}"
+
+
 def _act_base(s: "_Session", rest: list[str]) -> str:
     if not rest:
         raise ValueError("usage: /base <branch>")
@@ -1001,6 +1135,7 @@ def _act_learn_from(s: "_Session", rest: list[str]) -> str:
 _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "engine": _act_engine,
     "model": _act_model,
+    "mode": _act_mode,
     "base": _act_base,
     "pr": _act_pr,
     "learn-from": _act_learn_from,
