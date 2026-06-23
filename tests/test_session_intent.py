@@ -16,6 +16,7 @@ PLAN_CASES = [
     "decompose the auth rewrite",
     "plan out the rollout",
     "what's the best way to structure the cache",
+    "what’s the best approach for the cache",  # smart-quote ’ apostrophe (Sonar S5869 fix)
     "design the new caching layer",
     "PLAN THIS",  # case-insensitivity
     # Edge cases surfaced by an ask-colleague review (all already correct — pinned

@@ -70,8 +70,10 @@ _PLAN_TRIGGERS: tuple[re.Pattern, ...] = (
     re.compile(r"\bdesign\s+(a|an|the|this|our|new|how)\b", re.I),
     # "how should/do/would/can/might I/we/you"
     re.compile(r"\bhow\s+(should|do|would|can|might)\s+(I|we|you)\b", re.I),
-    # "what's/what is the best way/approach"
-    re.compile(r"\bwhat['']s\s+the\s+best\s+(way|approach)\b", re.I),
+    # "what's/what is the best way/approach" (straight ' or smart ’ apostrophe;
+    # the ’ escape keeps the class ASCII so a quote-normaliser can't silently
+    # collapse it back into the duplicate Sonar S5869 flagged)
+    re.compile(r"\bwhat['\u2019]s\s+the\s+best\s+(way|approach)\b", re.I),
     re.compile(r"\bwhat\s+is\s+the\s+best\s+(way|approach)\b", re.I),
 )
 
