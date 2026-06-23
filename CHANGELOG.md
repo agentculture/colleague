@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-06-23
+
+### Added
+
+- colleague session: visible, operator-controllable mode cycled with shift-tab (live ANSI) or the keyboard-free /mode slash — auto/work/plan/explore/review; new single-source colleague/session_modes.py catalog
+- colleague session explore/review modes: read-only investigation/diff-review reachable from the interactive session for the first time (in-place under the explorer/reviewer role, no commit/branch/PR)
+- handoff.diff_range: operator-side <base>...HEAD diff source for the read-only reviewer
+
+### Changed
+
+- colleague session free-text routing is now mode-aware: auto is byte-identical to the prior classify_intent behaviour; work/plan/explore/review pin the verb; a number/template pick is never reclassified
+- CockpitState.mode (previously a dead field) now carries the live session mode across the TAUI JSON, Markdown, and flat-ANSI tiers, with a shift-tab affordance on the status line
+- raw-mode reader decodes shift-tab (ESC[Z) into a SHIFT_TAB token / CYCLE_MODE sentinel; every other key path byte-identical
+
 ## [1.23.0] - 2026-06-23
 
 ### Added
