@@ -137,7 +137,9 @@ def _read_escape(fd: int) -> str:
         return "ESC"
     if _getch(fd) != "[":
         return "ESC"
-    return {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT"}.get(_getch(fd), "ESC")
+    return {"A": "UP", "B": "DOWN", "C": "RIGHT", "D": "LEFT", "Z": "SHIFT_TAB"}.get(
+        _getch(fd), "ESC"
+    )
 
 
 def _classify_key(ch: str, fd: int) -> Optional[str]:
@@ -202,6 +204,14 @@ def _key_backspace(buffer: str, _selected: int, _matches: list) -> tuple[str, in
     return buffer[:-1], 0, "redraw"
 
 
+#: Sentinel returned by _raw_loop when the user presses Shift-Tab to cycle mode.
+CYCLE_MODE = object()
+
+
+def _key_shift_tab(buffer: str, selected: int, _matches: list) -> tuple[str, int, str]:
+    return buffer, selected, "cycle_mode"
+
+
 #: Named-key → transition. Printable chars and unknowns are handled in reduce_key.
 _KEY_HANDLERS: dict[str, Callable[[str, int, list], tuple[str, int, str]]] = {
     "EOF": _key_quit,
@@ -213,6 +223,7 @@ _KEY_HANDLERS: dict[str, Callable[[str, int, list], tuple[str, int, str]]] = {
     "DOWN": _key_down,
     "ESC": _key_esc,
     "BACKSPACE": _key_backspace,
+    "SHIFT_TAB": _key_shift_tab,
 }
 
 
@@ -255,6 +266,8 @@ def _raw_loop(
             buffer, selected, action = reduce_key(key, buffer, selected, matches)
             if action == "quit":
                 return None
+            if action == "cycle_mode":
+                return CYCLE_MODE  # type: ignore[return-value]
             if action == "submit":
                 out.write("\r\n")  # type: ignore[attr-defined]
                 out.flush()  # type: ignore[attr-defined]
