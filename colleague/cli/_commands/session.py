@@ -877,7 +877,9 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
             rows.append(f"  {left:<18} {s.description}{suffix}")
     rows.append("")
     rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
-    rows.append("      Free text is intent-routed: 'work' (default) or 'plan' — no subcommand needed.")
+    rows.append(
+        "      Free text is intent-routed: 'work' (default) or 'plan' — no subcommand needed."
+    )
     rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
     return "\n".join(rows)
 
