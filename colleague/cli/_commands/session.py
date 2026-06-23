@@ -1,4 +1,4 @@
-"""``colleague session`` — the interactive cockpit over the work path.
+"""``colleague session`` — the agent-native interactive cockpit over the work path.
 
 Opens a foreground interactive **cockpit**: it renders one
 :class:`~colleague.tui.state.CockpitState` (a command palette + a running
@@ -18,8 +18,15 @@ Three render tiers of the one state (#74 A2), chosen automatically:
   as chrome. (The TAUI JSON mirror lives under ``colleague tui state``.)
 
 Input is **line-based**. Plain text (a number / template name / free-text task)
-runs a work item; a line starting with ``/`` is a **slash command** — the meta/system
+runs a work item.  Free text is **intent-routed**: :func:`classify_intent` maps it
+to ``work`` (the default) or ``plan`` without the operator typing a subcommand, and
+a ``→ work:`` / ``→ plan:`` routing line is logged so the dispatch is always
+visible.  A line starting with ``/`` is a **slash command** — the meta/system
 namespace (introspection of existing nouns + live config actions).
+
+The backend for the session resolves via :func:`~colleague.config.resolve_session_engine`:
+explicit ``--engine`` flag > ``COLLEAGUE_SESSION_ENGINE`` env (a session-only
+override) > ``COLLEAGUE_ENGINE`` env > built-in default (``vllm-openai``).
 
 The session is entirely foreground (no sockets, no daemons) and stdlib-only.
 
@@ -845,7 +852,10 @@ def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
             left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
             rows.append(f"  {left:<18} {format_tags(s.tags, style)}".rstrip())
     rows.append("")
-    rows.append("plain text (a number / template name / free-text task) runs a work item.")
+    rows.append(
+        "plain text (a number / template name / free-text task) runs a work item; "
+        "free text is intent-routed to work or plan automatically."
+    )
     return "\n".join(rows)
 
 
@@ -867,6 +877,7 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
             rows.append(f"  {left:<18} {s.description}{suffix}")
     rows.append("")
     rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
+    rows.append("      Free text is intent-routed: 'work' (default) or 'plan' — no subcommand needed.")
     rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
     return "\n".join(rows)
 
@@ -1083,15 +1094,29 @@ def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "session",
         help=(
-            "Open the interactive cockpit: a command palette + slash commands over "
-            "the work path; run templates or ad-hoc tasks, loop until quit."
+            "Agent-native interactive cockpit: type a free-text goal and it routes "
+            "to work or plan on colleague's own backend — no subcommand needed."
+        ),
+        description=(
+            "Open the interactive cockpit — the conversational, agent-native entry "
+            "point to colleague.  Type a free-text goal and intent routing maps it "
+            "to 'work' (the default) or 'plan' automatically; a '→ work:' / '→ plan:' "
+            "line confirms the dispatch.  A number or template name runs a work template "
+            "directly (never re-classified).  A line starting with '/' is a slash command "
+            "(introspection + live config).  The session runs on colleague's OWN served "
+            "backend by default (--engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > "
+            "vllm-openai).  Commit-local by default; /pr or --pr opts into push+PR."
         ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--engine",
         default=None,
-        help="Backend plugin to use (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help=(
+            "Backend plugin to use.  Precedence: explicit --engine > "
+            "COLLEAGUE_SESSION_ENGINE (session-only override) > COLLEAGUE_ENGINE > "
+            "vllm-openai (colleague's own served backend)."
+        ),
     )
     p.add_argument(
         "--pr",

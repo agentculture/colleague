@@ -153,3 +153,21 @@ def test_success_signals_observable_from_feed_alone(
     assert "[culture] agtag issues fetch ×4" in rendered
     assert "[run_command] grep -ri" in rendered
     assert "..." not in rendered.split("[run_command]")[-1], "the command tail must be intact"
+
+
+def test_session_help_documents_the_agent_native_default(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """t5 validation / doc-drift guard: `colleague session --help` must surface the
+    agent-native default (routing + the session backend override) so the shipped help
+    can't silently regress below the spec's before→after."""
+    from colleague.cli import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["session", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out.lower()
+    assert "agent-native" in out, "help must name the agent-native entry point"
+    assert "work" in out and "plan" in out, "help must mention work/plan routing"
+    assert "rout" in out, "help must describe intent routing of a free-text goal"
+    assert "colleague_session_engine" in out, "help must document the session backend override"
