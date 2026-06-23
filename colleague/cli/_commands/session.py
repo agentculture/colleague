@@ -817,7 +817,15 @@ class _Session:
         operator's tree + branch are never touched. ``task_text`` overrides the
         model-facing instruction (review injects the diff); explore uses *request*
         verbatim. The role is set on a COPY of the config so ``self.config`` (the
-        session's writer-surface default) is left untouched."""
+        session's writer-surface default) is left untouched.
+
+        DECISION (resolves the parked frame unknown): session explore/review run
+        **in-place** under the read-only role, NOT in a throwaway worktree like the
+        ask-colleague verbs. The explorer/reviewer role structurally withholds
+        write_file/edit_file/run_command (``roles._WRITE_TOOLS``), so the run
+        provably cannot mutate the tree even if the model attempts a write — making
+        worktree isolation unnecessary here. (A future read role that needs a
+        write-capable tool would revisit this; tracked as a follow-up risk.)"""
         config = replace(self.config, role=role)
         task = Task.new(
             str(self.repo),
