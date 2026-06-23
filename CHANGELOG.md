@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-06-23
+
+### Added
+
+- Agent-native default session (#234): a free-text goal typed into `colleague session` is intent-routed to `work` or `plan` without naming a subcommand, on colleague's own served backend by default. New `COLLEAGUE_SESSION_ENGINE` env var overrides the session backend (precedence: --engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > vllm-openai).
+- AgentFront-surface probe reflex (#235): the default system prompt instructs colleague to check an unfamiliar tool's learn/explain/--help/--json surface before first real use (read-only; enforced harness probe is a tracked follow-up, #241).
+- `colleague.session_intent.classify_intent` — a deterministic, stdlib-only work/plan keyword classifier.
+- `colleague.config.resolve_session_engine` — session-scoped backend resolution.
+
+### Changed
+
+- Legible session action feed (#233): consecutive identical feed lines group into `<line> ×N`; the culture/devague tools render as `<cli/move> <args>` (what ran + on what) instead of a bare `[culture]`; the per-step hint cap is raised from 48 to 120 characters so long commands are not cut.
+
 ## [1.22.1] - 2026-06-21
 
 ### Changed
