@@ -1,0 +1,256 @@
+{
+  "slug": "colleague-is-agent-native-by-default-launch-it-and",
+  "title": "Colleague is agent-native by default: launch it and you are talking to the colleague agent, which drives colleague under the hood, shows every action it takes in a readable feed, and checks a tool's AgentFront surface before reaching for it",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-22T21:40:42Z",
+  "updated": "2026-06-23T02:11:22Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague is agent-native by default: launch it and you are talking to the colleague agent, which drives colleague under the hood, shows every action it takes in a readable feed, and checks a tool's AgentFront surface before reaching for it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The three facets actually ship as one default experience: a fresh colleague session is conversational (not verb-first), its action feed is legible, and it probes a new tool's AgentFront surface first -- demonstrable in a single end-to-end session, not three disconnected features.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Anyone who operates colleague -- a human at the keyboard and a calling agent alike. Per #234 the conversational default is 'true for humans and agents'.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "One default serves both: an agent that invokes colleague conversationally reaches the same agent-native session a human does at a TTY -- no human-only path and no separate agent-only path.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "Launching colleague drops you into a conversation with the colleague agent. You state intent in natural language; the agent invokes colleague's own verbs (work, review, explore, plan ...) under the hood. You no longer need to know or type a subcommand to get value.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Today colleague is verb-first: the operator must know and type `colleague work/review/...`. When the agent does run, its activity scrolls past as a raw feed -- repeated [culture] lines and '...'-truncated commands (issue #233's paste) -- so you cannot reconstruct what it did. And colleague reaches for unfamiliar tools by guessing, with no habit of reading their agent-facing surface first.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Colleague is best operated by an agent (its whole design), so the default experience should BE the agent -- not a subcommand cheat-sheet. For that to be trustworthy you must be able to follow every action it takes, and trust how it picks up tools it has not used.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "The agent-native default is only worth shipping if it is trustworthy -- so this rationale holds only when #233 (followable actions) and #235 (principled tool pickup) ship alongside #234, not #234 alone.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Scope is the default conversational session and the agent running under it: the default entry behavior (#234), the action feed's legibility (#233), and the pre-use AgentFront probe reflex (#235). Nothing else about colleague's internals.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Exactly the interactive default-session surface changes (#234 driver, #233 feed, #235 probe-reflex); the explicit verbs' own behavior and backend internals are untouched -- a diff reaching outside the session layer is out of bounds.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "non_goal",
+      "text": "Not removing the explicit `colleague work/review/...` verbs -- they stay for scripting and for agents that call colleague directly. Not a new GUI or web TUI. Not changing the served model or backend selection. The AgentFront reflex is about READING a tool's surface, not auto-installing, auto-approving, or trusting it.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "(1) A user who knows no subcommands types a free-text goal and colleague completes it. (2) From the action feed alone a human can say exactly which tools ran and why -- no dedupe noise, no hidden truncation. (3) Facing an unfamiliar CLI, colleague's trace shows it probed that CLI's agent surface (learn/explain/--help/--json) before its first real call.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "All three signals are checkable from a recorded session with no insider knowledge: a subcommand-naive goal completes; the feed alone reconstructs what ran; the trace shows the AgentFront probe before first use.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "[#234] The default colleague invocation is conversational: talking to colleague runs the colleague agent, which manages colleague's subcommands under the hood -- the same path for a human operator and for a calling agent.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Running bare/conversational colleague reaches `work`/`review` without the user typing those verbs, and a calling agent gets the same conversational entry -- verifiable by a scenario that issues a free-text goal and observes the underlying verb fire.",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "[#233] The action feed is legible: repeated mesh events are grouped not spammed, tool commands are not silently truncated past the point of understanding, and each action reads as 'what ran + on what'.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The #233 failure modes are reproducibly gone: no Nx duplicated [culture] lines, no command shown only as 'grep ... ...' with the operative part cut -- checked against a replay of that exact session.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "[#235] Before its first real use of an unfamiliar tool, colleague checks that tool's AgentFront surface (its learn/explain/--help/--json affordances) and uses what it finds, rather than guessing the interface.",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Given a tool colleague has not used before, its event trace shows an AgentFront-surface probe (e.g. `<tool> learn` / `--help`) occurring before the first substantive invocation.",
+          "status": "rejected"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "after_state",
+      "text": "Launching colleague drops you into a conversation with the colleague agent, running on colleague's OWN backend (its served model). You state intent in natural language and it fulfills it by invoking colleague's own verbs (work, review, explore, plan ...) under the hood -- you get value without naming a subcommand, and the same conversational entry serves a human and a calling agent.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Reachable end-to-end on real infra (not a mock): a fresh session defaults to colleague's own backend AND routes a natural-language goal to the correct verb.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "before_state",
+      "text": "Today bare colleague already opens an interactive session and already prints help when piped (scripts/agents are safe). But that session is not yet colleague-driving-colleague: it does not default to colleague's own backend orchestrating colleague's own verbs. Its action feed is also noisy -- repeated [culture] lines and '...'-truncated commands (issue #233's paste) -- so you cannot reconstruct what ran. And it has no habit of reading an unfamiliar tool's agent-facing surface before using it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Accurate against today's main: bare colleague opens an interactive session and prints help when piped; the session does not yet default to colleague's own backend driving its own verbs; the feed shows the #233 noise; there is no AgentFront-probe habit.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "non_goal",
+      "text": "Not removing the explicit colleague work/review/... verbs -- they stay for scripting and for agents that call colleague directly. Not removing backend choice: colleague's own backend becomes the DEFAULT session driver, but an operator can still override it (flag/env). Not a new GUI or web TUI. The AgentFront reflex is about READING a tool's surface, not auto-installing, auto-approving, or trusting it.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "[#234] The default interactive session is driven by colleague's OWN backend (its served model) and fulfills intent by invoking colleague's own verbs (work/review/plan/...) under the hood -- 'colleague manages colleague'. Same conversational entry for a human operator and a calling agent; the prior backend remains selectable via flag/env.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A fresh `colleague` session, given a free-text goal, (a) runs on colleague's own backend by default and (b) reaches the underlying verb (e.g. work/review) without the user typing it -- both verifiable by a headless tui scenario asserting the backend + the fired verb.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "[#235] colleague's runtime prompt/policy instructs it to check an unfamiliar tool's AgentFront surface (its learn/explain/--help/--json affordances) before its first real use, and to act on what it finds. This spec ships the prompt reflex; an enforced harness-level probe is a named follow-up, not in scope here.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "Given a tool colleague has not used before, a session trace shows an AgentFront-surface probe (e.g. `<tool> learn` / `--help`) before the first substantive invocation -- the prompt reflex is observable even though it is not yet machine-enforced.",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Exact canonical definition of 'the AgentFront surface' colleague should probe -- the agentfront contract / 7-bundle rubric from tools.culture.dev -- and the concrete probe sequence per tool. Resolvable by reference; left to the plan.",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Enforced harness-level AgentFront probe: the harness intercepts first-use of an unknown tool and runs/records the probe before the real call (the 'enforce later' half of #235). Needs the parked AgentFront-surface definition resolved first.",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
