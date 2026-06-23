@@ -25,8 +25,8 @@ The cycle wraps: `review` → `auto`.
 | `auto`  | Delegate to `classify_intent(text)` verbatim (pre-mode behaviour)     |
 | `work`  | Pin every free-text input to the `work` verb                         |
 | `plan`  | Pin every free-text input to the `plan` verb                         |
-| `explore` | Pin to `work` under the `explorer` read-only role                  |
-| `review`  | Pin to `work` under the `reviewer` read-only role                   |
+| `explore` | Pin to a read-only investigation under the `explorer` role (no handoff) |
+| `review`  | Pin to a read-only diff review under the `reviewer` role (no handoff)    |
 
 ## Cycling: shift-tab and `/mode`
 
@@ -67,9 +67,11 @@ The active mode is visible across all three render tiers:
   the same value.
 - **Flat ANSI** — the status line carries the affordance from
   `mode_affordance_line(mode)`, e.g.:
-  ```
+
+  ```text
   mode: [auto] work plan explore review  ·  shift-tab to cycle
   ```
+
   The active mode is bracketed (`[auto]`), others are plain text.
 
 ## Mode-aware routing

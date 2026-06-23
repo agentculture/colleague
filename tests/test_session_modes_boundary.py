@@ -1,4 +1,4 @@
-"""Boundary + audience guards for session modes (t4).
+"""Boundary + audience guards for session modes (t5).
 
 These tests prove the session-mode feature does not alter the classifier,
 auto delegates verbatim, the TAUI mirror carries the mode for agent readers,

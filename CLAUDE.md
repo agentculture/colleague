@@ -483,6 +483,37 @@ The architecture, part by part:
   An enforced harness-level probe is a named follow-up, NOT shipped. Spec + plan:
   `docs/specs/` and `docs/plans/` entries prefixed `2026-06-23-*` (committed on branch
   `spec/agent-native-default`).
+  (5) **Mode selection (TUI/TAUI)** — `colleague session` exposes a visible,
+  operator-controllable **mode** cycled with **shift-tab** (live ANSI) or the
+  keyboard-free **`/mode`** slash: `auto → work → plan → explore → review → auto`
+  (`colleague/session_modes.py` is the single-source catalog — `MODES` / `next_mode`
+  / `resolve_mode` / `route_for` / `mode_affordance_line`, drift-tested). The active
+  mode is written onto `CockpitState.mode` (previously a **dead field** always
+  serializing `"planning"`, never set) so every tier shows it — the TAUI JSON mirror
+  + Markdown render it directly, and the flat-ANSI status line carries the affordance
+  (`mode: [auto] work plan explore review · shift-tab to cycle`). Free-text routing is
+  now **mode-aware** (`_work_line` → `route_for`): **`auto` is byte-identical to the
+  prior behaviour** (same `classify_intent` call, same `→ work:` / `→ plan:` log);
+  `work` / `plan` pin the verb; `explore` / `review` take a **read-only** path; a bare
+  number / known template name is still never reclassified (a palette pick is always
+  `work`). Shift-tab is decoded in the raw reader as a new `SHIFT_TAB` token → a
+  `CYCLE_MODE` sentinel from `_raw_loop` (`colleague/cli/_commands/_session_input.py`),
+  every other key path byte-identical. **`/mode`** (in the drift-tested `SlashSpec`
+  catalog + `/help`) cycles with no arg, sets by name, and errors with the valid-mode
+  hint on a bad name. **explore/review run IN-PLACE under the read-only
+  explorer/reviewer role** (`colleague/roles.py`, which withholds `write_file` /
+  `edit_file` / `run_command`), so the run provably cannot mutate the tree — no
+  commit/branch/PR handoff (`open_pr=False`); review sources its `<base>...HEAD` diff
+  operator-side via `handoff.diff_range` because the read-only reviewer cannot run git
+  itself. This brings explore/review (previously only `ask-colleague` verbs) to the
+  interactive surface for the first time; the parked frame unknown is resolved here
+  (in-place under the read-only role, not a throwaway worktree). **Non-goals:** modes
+  don't change the `colleague work` / `colleague plan` subcommands; no new
+  dep/socket/daemon; the classifier code is unchanged; the shift-tab KEY works only on
+  the live-ANSI path (non-TTY uses `/mode`). Spec + plan:
+  `docs/specs/2026-06-23-colleague-session-shows-the-mode-you-re-driving-in.md` and
+  `docs/plans/2026-06-23-colleague-session-shows-the-mode-you-re-driving-in.md`;
+  feature doc: `docs/features/session-modes.md`.
 - **Cockpit views (tui)** — `colleague tui` provides three headless, pure-stdlib
   views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
   `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**
