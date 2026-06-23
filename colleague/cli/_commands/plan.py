@@ -152,19 +152,28 @@ def cmd_plan_overview(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_plan_run(args: argparse.Namespace) -> int:
-    json_mode = bool(getattr(args, "json", False))
-    repo = Path(args.repo).expanduser()
-    if not repo.is_dir():
-        raise CliError(EXIT_USER_ERROR, f"repo path is not a directory: {args.repo}", "pass --repo")
+def run_plan_request(
+    *,
+    repo: Path,
+    request: str,
+    engine_name: str,
+    config: EngineConfig,
+    decide,
+    quick: bool,
+    workforce: bool,
+    review: bool = False,
+):
+    """Run colleague plan mode for a single *request* and return the result.
 
-    engine_name = resolve_engine(args.engine)
-    config = EngineConfig.resolve(
-        base_url=args.base_url,
-        model=args.model,
-        api_key=args.api_key,
-        repo_path=repo,
-    )
+    Factored out of :func:`cmd_plan_run` so other surfaces (the interactive
+    session's intent router, #234) can drive plan mode without rebuilding the
+    engine seams. The caller resolves ``engine_name`` + ``config`` and chooses
+    the ``decide`` gate (:func:`_auto_decide` for non-interactive callers).
+
+    Raises :class:`CliError` (never a traceback) on an unknown engine, a
+    non-live backend (``make_complete`` not implemented, e.g. ``mock``), or an
+    unusable model proposal.
+    """
     try:
         engine = registry.load(engine_name)
     except registry.UnknownEngine as exc:
@@ -180,14 +189,13 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
         ) from exc
 
     simple = robust_simple_complete(complete)
-    decide = _resolve_decide(args)
     # ONE shared agent budget so the global MAX_SUBAGENT_TOTAL cap is enforced for
     # the plan workforce fan-out too (#t4 Q3 wiring fix).
     batch_spawn = make_batch_spawn(str(repo), config, engine_name, counter=new_agent_budget(config))
 
     try:
-        result = run_plan_mode(
-            args.request,
+        return run_plan_mode(
+            request,
             propose_claims=make_propose_claims(simple),
             decide=decide,
             propose_plan_items=make_propose_plan_items(simple),
@@ -195,11 +203,11 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
             engine=engine_name,
             model=config.model,
             complete=simple,
-            reviewer_enabled=bool(getattr(args, "review", False)),
+            reviewer_enabled=review,
             repo_path=str(repo),
             plan_id=_PLAN_ID,
-            quick=bool(getattr(args, "quick", False)),
-            workforce=not bool(getattr(args, "no_workforce", False)),
+            quick=quick,
+            workforce=workforce,
         )
     except ValueError as exc:
         # The model returned a malformed proposal (unparseable JSON, an invalid
@@ -210,6 +218,31 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
             f"the backend returned an unusable plan proposal: {exc}",
             "retry, or use a stronger backend/model",
         ) from exc
+
+
+def cmd_plan_run(args: argparse.Namespace) -> int:
+    json_mode = bool(getattr(args, "json", False))
+    repo = Path(args.repo).expanduser()
+    if not repo.is_dir():
+        raise CliError(EXIT_USER_ERROR, f"repo path is not a directory: {args.repo}", "pass --repo")
+
+    engine_name = resolve_engine(args.engine)
+    config = EngineConfig.resolve(
+        base_url=args.base_url,
+        model=args.model,
+        api_key=args.api_key,
+        repo_path=repo,
+    )
+    result = run_plan_request(
+        repo=repo,
+        request=args.request,
+        engine_name=engine_name,
+        config=config,
+        decide=_resolve_decide(args),
+        quick=bool(getattr(args, "quick", False)),
+        workforce=not bool(getattr(args, "no_workforce", False)),
+        review=bool(getattr(args, "review", False)),
+    )
 
     emit_result(_run_payload(result) if json_mode else _render_run(result), json_mode=json_mode)
     return 0 if result.converged else EXIT_USER_ERROR

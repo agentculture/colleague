@@ -364,6 +364,28 @@ def resolve_engine(explicit: str | None) -> str:
     return _DEFAULT_ENGINE
 
 
+def resolve_session_engine(explicit: str | None) -> str:
+    """Resolve the backend for the *interactive session* (``colleague session``).
+
+    The session is colleague-driving-colleague, so it defaults to colleague's own
+    served backend exactly like :func:`resolve_engine`. This adds ONE session-scoped
+    override slotted ahead of the global default: an explicit ``--engine`` flag wins,
+    then ``COLLEAGUE_SESSION_ENGINE`` (a session-only override, so an operator can
+    point the conversational session at a different backend than a bare
+    ``colleague work`` without changing the global default), then the normal
+    :func:`resolve_engine` chain (``COLLEAGUE_ENGINE`` → built-in default).
+
+    An empty or whitespace-only candidate is treated as *absent* (not a valid
+    override), matching :func:`resolve_engine`.
+    """
+    if explicit and explicit.strip():
+        return explicit.strip()
+    session_env = os.environ.get("COLLEAGUE_SESSION_ENGINE")
+    if session_env and session_env.strip():
+        return session_env.strip()
+    return resolve_engine(None)
+
+
 @dataclass
 class EngineConfig:
     """Settings for an OpenAI-compatible engine driver."""
