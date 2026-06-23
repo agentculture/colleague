@@ -375,7 +375,10 @@ class CockpitState:
     screen:
         Active screen name; defaults to ``"main"``.
     mode:
-        Current interaction mode; defaults to ``"planning"``.
+        Current interaction mode. ``colleague session`` sets this to the active
+        session mode (``auto`` | ``work`` | ``plan`` | ``explore`` | ``review``),
+        so every render tier surfaces it; a non-session cockpit keeps the
+        ``"planning"`` default.
     focused:
         Selector string of the focused element; defaults to ``"input.prompt"``.
     zones:
