@@ -22,15 +22,22 @@ def test_progress_target_prefers_path_then_command_then_name() -> None:
 
 def test_progress_target_first_line_and_truncation() -> None:
     assert progress_target({"command": "echo hi\nrm -rf /"}) == "echo hi"
-    long = "a" * 60
+    long = "a" * 130
     out = progress_target({"path": long})
-    assert len(out) == 48 and out.endswith("...")
+    assert len(out) == 120 and out.endswith("...")
 
 
 def test_progress_target_empty_for_non_dict_or_unknown_keys() -> None:
     assert progress_target(None) == ""
     assert progress_target("nope") == ""
     assert progress_target({"unrelated": "value"}) == ""
+
+
+def test_progress_target_culture_and_devague() -> None:
+    assert progress_target({"cli": "agtag", "args": ["issues", "fetch"]}) == "agtag issues fetch"
+    assert progress_target({"cli": "devex"}) == "devex"
+    assert progress_target({"move": "status", "args": []}) == "status"
+    assert progress_target({"move": "capture", "args": ["c1"]}) == "capture c1"
 
 
 def test_drive_step_constructs_event() -> None:

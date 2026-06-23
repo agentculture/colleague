@@ -25,16 +25,17 @@ from colleague.tui.events import WorkStep
 #: Argument keys, in priority order, that name a tool call's subject.
 _TARGET_KEYS = ("path", "command", "name", "summary", "subcommand")
 #: Maximum length of a step hint; longer values are truncated with an ellipsis.
-_MAX_TARGET = 48
+_MAX_TARGET = 120
 
 
 def progress_target(arguments: Any) -> str:
-    """A short (``<= 48`` char) human hint for a tool call's subject.
+    """A short (``<= 120`` char) human hint for a tool call's subject.
 
     Looks for the first of ``path`` / ``command`` / ``name`` / ``summary`` /
-    ``subcommand`` in *arguments*, takes its first line, and truncates to 48
-    characters.  Returns ``""`` when *arguments* is not a dict or carries none of
-    those keys.
+    ``subcommand`` in *arguments*, takes its first line, and truncates to 120
+    characters.  Falls back to ``cli`` (culture tool) or ``move`` (devague tool)
+    when none of those keys are present.  Returns ``""`` when *arguments* is not
+    a dict or carries none of those keys.
 
     This is the value the loop passes as the ``target`` of its progress callback;
     :func:`trace_to_work_steps` reuses it so a replayed step reads identically.
@@ -45,6 +46,19 @@ def progress_target(arguments: Any) -> str:
         value = arguments.get(key)
         if value:
             return _clip(str(value).splitlines()[0].strip())
+    # Fallback for culture / devague loop tools.
+    if "cli" in arguments and isinstance(arguments["cli"], str) and arguments["cli"]:
+        parts: list[str] = [arguments["cli"]]
+        args = arguments.get("args")
+        if isinstance(args, list) and args:
+            parts.extend(str(a) for a in args)
+        return _clip(" ".join(parts))
+    if "move" in arguments and isinstance(arguments["move"], str) and arguments["move"]:
+        parts = [arguments["move"]]
+        args = arguments.get("args")
+        if isinstance(args, list) and args:
+            parts.extend(str(a) for a in args)
+        return _clip(" ".join(parts))
     return ""
 
 
@@ -77,5 +91,5 @@ def trace_to_work_steps(trace_lines: list[dict[str, Any]]) -> list[WorkStep]:
 
 
 def _clip(text: str) -> str:
-    """Return *text* unchanged if short, else truncated to 48 chars with ``...``."""
+    """Return *text* unchanged if short, else truncated to 120 chars with ``...``."""
     return text if len(text) <= _MAX_TARGET else text[: _MAX_TARGET - 3] + "..."

@@ -11,6 +11,7 @@ and never mutates its argument.
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -175,11 +176,36 @@ def _open_error_popup(popups: list[Popup], event: WorkStep) -> list[Popup]:
 _CONVERSATION_PANEL_ID = "panel.conversation"
 
 
+#: Group-count suffix appended to a collapsed run of identical feed lines, e.g.
+#: ``[culture] agtag issues ×4``. Matched/parsed so a repeat bumps the count
+#: instead of stacking duplicate lines (issue #233: "no Nx duplicated [culture]").
+_GROUP_RE = re.compile(r"^(?P<base>.*) ×(?P<count>\d+)$")
+
+
+def _collapse_repeat(summary: str, line: str) -> str | None:
+    """If *line* repeats the LAST line of *summary*, return *summary* with that line
+    bumped to ``<line> ×N`` (incrementing an existing count); else ``None``.
+
+    Only *consecutive* identical lines collapse — an intervening different line
+    starts a fresh run. This is what turns the #233 spam (four bare ``[culture]``
+    lines) into a single ``[culture] … ×4`` once a feed line repeats.
+    """
+    if not summary:
+        return None
+    before, sep, last = summary.rpartition("\n")
+    match = _GROUP_RE.match(last)
+    base, count = (match.group("base"), int(match.group("count"))) if match else (last, 1)
+    if base != line:
+        return None
+    return f"{before}{sep}{line} ×{count + 1}"
+
+
 def _append_conversation_line(panels: list[Panel], line: str) -> list[Panel]:
     """Return a new panels list with *line* appended to the conversation panel.
 
-    If no panel with id ``panel.conversation`` exists, one is created and
-    appended to the list.
+    Consecutive identical lines are *grouped* into ``<line> ×N`` rather than stacked
+    (issue #233), so a tool firing repeatedly reads as one legible, counted entry.
+    If no panel with id ``panel.conversation`` exists, one is created and appended.
     """
     existing = next((p for p in panels if p.id == _CONVERSATION_PANEL_ID), None)
 
@@ -192,7 +218,12 @@ def _append_conversation_line(panels: list[Panel], line: str) -> list[Panel]:
         )
         return list(panels) + [new_panel]
 
-    # Append to existing summary using newline as separator.
-    sep = "\n" if existing.content_summary else ""
-    updated = replace(existing, content_summary=f"{existing.content_summary}{sep}{line}")
+    collapsed = _collapse_repeat(existing.content_summary, line)
+    if collapsed is not None:
+        content = collapsed
+    else:
+        # Append to existing summary using newline as separator.
+        sep = "\n" if existing.content_summary else ""
+        content = f"{existing.content_summary}{sep}{line}"
+    updated = replace(existing, content_summary=content)
     return [updated if p.id == _CONVERSATION_PANEL_ID else p for p in panels]
