@@ -825,7 +825,15 @@ class _Session:
         write_file/edit_file/run_command (``roles._WRITE_TOOLS``), so the run
         provably cannot mutate the tree even if the model attempts a write — making
         worktree isolation unnecessary here. (A future read role that needs a
-        write-capable tool would revisit this; tracked as a follow-up risk.)"""
+        write-capable tool would revisit this; tracked as a follow-up risk.)
+
+        Dirty-tree safety is owned by the runtime, not here: ``execute_work``
+        detects the read-only role and both bypasses the dirty-tree guard (#149)
+        AND skips the write handoff, so an explore/review runs even with operator
+        WIP present and never sweeps it (the handoff's ``git add -u`` would
+        otherwise commit the WIP onto ``colleague/<id>`` and restore HEAD over it —
+        silent data loss; Qodo, PR #245). So we forward ``self.allow_dirty``
+        unchanged — the read-only role is what makes it moot."""
         config = replace(self.config, role=role)
         task = Task.new(
             str(self.repo),
@@ -838,7 +846,7 @@ class _Session:
                 repo=self.repo,
                 engine_name=self.engine_name,
                 task=task,
-                open_pr=False,  # read-only: never push/PR
+                open_pr=False,  # read-only: never push/PR (runtime also skips handoff)
                 allow_dirty=self.allow_dirty,
                 base=self.base,
                 config=config,
@@ -1106,10 +1114,11 @@ def _act_mode(s: "_Session", rest: list[str]) -> str:
     ``/mode <name>`` sets it explicitly; an unknown name raises ``ValueError``
     (surfaced by the slash dispatcher as an error + the valid-modes hint), leaving
     the mode unchanged (``resolve_mode`` raises before the assignment)."""
-    if not rest:
-        s.mode = next_mode(s.mode)
-        return f"mode → {s.mode}"
-    s.mode = resolve_mode(rest[0])
+    # Single return (resolve_mode still raises before the assignment on a bad
+    # name, so the mode is left unchanged): the prior two-branch form returned the
+    # syntactically identical f-string from both arms, which Sonar reads as S3516
+    # "always returns the same value".
+    s.mode = next_mode(s.mode) if not rest else resolve_mode(rest[0])
     return f"mode → {s.mode}"
 
 

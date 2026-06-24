@@ -145,3 +145,38 @@ def test_diff_range_returns_committed_changes(tmp_path: Path) -> None:
 def test_diff_range_invalid_base_returns_empty_not_crash(tmp_path: Path) -> None:
     _init_git_repo(tmp_path)
     assert handoff.diff_range(tmp_path, "no-such-ref") == ""
+
+
+# ---------------------------------------------------------------------------
+# 4. Read-only modes work on a DIRTY tree without sweeping the operator's WIP
+# ---------------------------------------------------------------------------
+#
+# explore/review run under a read-only role with open_pr=False. The runtime
+# (execute_work) detects the read-only role and both bypasses the dirty-tree
+# guard (#149) AND skips the write handoff — so a read-only run starts even with
+# operator WIP present and the handoff's `git add -u` never sweeps that WIP onto
+# colleague/<id> (which would then restore HEAD over it = silent data loss).
+# Regression for the Qodo finding on PR #245.
+
+
+def test_session_explore_runs_on_dirty_tree_no_guard_error(tmp_path: Path) -> None:
+    """End-to-end on the no-op ``mock`` engine: with an uncommitted *tracked* edit
+    present, an explore must actually run (no dirty-tree CliError) and must leave
+    the operator's WIP untouched (read-only — never swept onto a work branch)."""
+    _init_git_repo(tmp_path)
+    (tmp_path / "README.md").write_text("# test\nuncommitted WIP edit\n")  # dirty tracked file
+    before = _git_head_branch(tmp_path)
+    errors: list[str] = []
+    run_session(
+        _make_args(tmp_path),
+        input_fn=iter(["/mode explore", "what lives in this repo", "q"]),
+        out=lambda *a, **k: None,
+        err=lambda *a, **k: errors.append(" ".join(str(x) for x in a)),
+        _color=False,
+    )
+    assert not any("uncommitted changes" in e for e in errors), errors
+    # The WIP edit survives (read-only never reverted or swept it) and no commit/
+    # branch handoff happened.
+    assert "uncommitted WIP edit" in (tmp_path / "README.md").read_text()
+    assert _git(tmp_path, "rev-parse", "HEAD").strip() == before[1]
+    assert "colleague/" not in _git(tmp_path, "branch", "--list")

@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CockpitState.mode (previously a dead field) now carries the live session mode across the TAUI JSON, Markdown, and flat-ANSI tiers, with a shift-tab affordance on the status line
 - raw-mode reader decodes shift-tab (ESC[Z) into a SHIFT_TAB token / CYCLE_MODE sentinel; every other key path byte-identical
 
+### Fixed
+
+- read-only roles (explorer/reviewer/planner/validator) now bypass the dirty-tree guard AND skip the write handoff in `execute_work`: a read-only run (session explore/review, ask-colleague) starts even with operator WIP present and the handoff's `git add -u` never sweeps that WIP onto `colleague/<id>` and reverts it (silent data loss). New `roles.is_read_only` predicate; runtime-owned so every read-only caller inherits it. (Qodo, PR #245)
+
 ## [1.23.0] - 2026-06-23
 
 ### Added

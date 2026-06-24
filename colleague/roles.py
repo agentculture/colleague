@@ -160,6 +160,22 @@ def default_role() -> Role:
     return BUILTIN_ROLES["writer"]
 
 
+def is_read_only(name: Optional[str]) -> bool:
+    """True iff *name* is a built-in **read-only** role (explorer/reviewer/planner/
+    validator) — one whose curated tool surface withholds every write tool.
+
+    Keyed on the built-in's ``read_only`` flag, which an operator overlay can never
+    flip (v1 overlays change only the prompt, not the allowlist), so this is the
+    authoritative read-only test for a role *name*. ``None`` (no role) and the
+    full-surface ``writer`` are not read-only. Used by the runtime to skip the
+    write handoff + the dirty-tree guard for a read-only run (there is nothing the
+    model wrote to hand off, and the handoff's ``git add -u`` must never sweep the
+    operator's uncommitted WIP — Qodo, PR #245).
+    """
+    role = BUILTIN_ROLES.get(name) if name else None
+    return bool(role and role.read_only)
+
+
 # ---------------------------------------------------------------------------
 # Per-model loader
 # ---------------------------------------------------------------------------

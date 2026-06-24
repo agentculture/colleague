@@ -4,7 +4,31 @@ from __future__ import annotations
 
 import pytest
 
-from colleague.roles import BUILTIN_ROLES, Role, default_role, load_role
+from colleague.roles import BUILTIN_ROLES, Role, default_role, is_read_only, load_role
+
+
+class TestIsReadOnly:
+    """``is_read_only`` is the runtime's authoritative read-only-role test — it
+    gates the dirty-tree guard bypass + handoff skip in ``execute_work`` (#245)."""
+
+    @pytest.mark.parametrize("name", ("explorer", "planner", "reviewer", "validator"))
+    def test_readonly_builtins_are_read_only(self, name: str) -> None:
+        assert is_read_only(name) is True
+
+    def test_writer_is_not_read_only(self) -> None:
+        assert is_read_only("writer") is False
+
+    def test_none_is_not_read_only(self) -> None:
+        # No role (the default `colleague work`) must hand off as before.
+        assert is_read_only(None) is False
+
+    def test_unknown_name_is_not_read_only(self) -> None:
+        assert is_read_only("no-such-role") is False
+
+    def test_matches_the_builtin_read_only_flag(self) -> None:
+        for name, role in BUILTIN_ROLES.items():
+            assert is_read_only(name) is role.read_only
+
 
 # ---------------------------------------------------------------------------
 # AC1: Role dataclass fields + five built-in roles
