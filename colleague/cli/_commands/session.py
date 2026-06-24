@@ -47,7 +47,7 @@ import os
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterator, Optional, Sequence
+from typing import Callable, Iterator, Optional, Sequence, TypeVar
 
 from colleague import cockpit, feedback, handoff, layers, registry
 from colleague.cli._banner import emit_banner
@@ -86,6 +86,9 @@ _WorkFn = Callable[..., tuple[TaskResult, Path]]
 #: A session "plan" runner: takes a free-text request and returns a summary
 #: string to fold into the feed. Injectable as a test seam (mirrors ``_WorkFn``).
 _PlanFn = Callable[..., str]
+
+#: Return type of a tracked dispatch thunk (a work-fn pair or a plan summary).
+_T = TypeVar("_T")
 
 _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
 _CONVERSATION_PANEL_ID = "panel.conversation"
@@ -719,6 +722,56 @@ class _Session:
             self._log(f"→ work: {stripped}")
         self._run_work(task, command_name)
 
+    def _run_tracked(self, task_id: str, thunk: Callable[[], _T]) -> Optional[_T]:
+        """Run *thunk* with the cockpit work-item marked running, uniform error
+        handling, and a guaranteed running-flag reset; return its value, or ``None``
+        if it raised. A :class:`CliError` (with its remediation hint) or any
+        unexpected exception is surfaced via ``_error`` and swallowed, so one failed
+        dispatch never tears down the session. The single home for the running-state
+        + error scaffold shared by ``_run_plan`` and ``_dispatch_work``."""
+        self.state.work_item = WorkItem(task_id=task_id, engine=self.engine_name, running=True)
+        try:
+            return thunk()
+        except CliError as exc:
+            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
+            self._error(f"error: {exc.message}{hint}")
+            return None
+        except Exception as exc:  # noqa: BLE001
+            self._error(f"error: {type(exc).__name__}: {exc}")
+            return None
+        finally:
+            if self.state.work_item is not None:
+                self.state.work_item.running = False
+
+    def _dispatch_work(
+        self, task: Task, *, open_pr: bool, config: EngineConfig, command_name: Optional[str]
+    ) -> Optional[TaskResult]:
+        """Run one work item through the shared work path (cockpit running-state +
+        error handling via ``_run_tracked``, then the json-mode result echo); return
+        the :class:`TaskResult`, or ``None`` if the dispatch surfaced an error. The
+        single home for the ``work_fn`` call shared by ``_run_work`` and
+        ``_run_readonly`` — the caller owns the feed rendering of the result."""
+        pair = self._run_tracked(
+            task.id,
+            lambda: self.work_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                task=task,
+                open_pr=open_pr,
+                allow_dirty=self.allow_dirty,
+                base=self.base,
+                config=config,
+                command_name=command_name,
+                progress_sink=_WorkSink(self),
+            ),
+        )
+        if pair is None:
+            return None
+        result, _artifact = pair
+        if self.json_mode:
+            self.out(json.dumps(result.to_dict(), ensure_ascii=False))
+        return result
+
     def _run_plan(self, request: str) -> None:
         """Route a planning-intent free-text goal to colleague's ``plan`` verb.
 
@@ -728,58 +781,28 @@ class _Session:
         """
         # A synthetic work item keeps the cockpit "running" glyph alive; ``Task.new``
         # only mints an id here (the plan path does not run the work loop).
-        self.state.work_item = WorkItem(
-            task_id=Task.new(str(self.repo), request).id, engine=self.engine_name, running=True
-        )
-        try:
-            summary = self.plan_fn(
+        summary = self._run_tracked(
+            Task.new(str(self.repo), request).id,
+            lambda: self.plan_fn(
                 repo=self.repo,
                 engine_name=self.engine_name,
                 request=request,
                 config=self.config,
-            )
-        except CliError as exc:
-            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
-            self._error(f"error: {exc.message}{hint}")
+            ),
+        )
+        if summary is None:
             return
-        except Exception as exc:  # noqa: BLE001
-            self._error(f"error: {type(exc).__name__}: {exc}")
-            return
-        finally:
-            if self.state.work_item is not None:
-                self.state.work_item.running = False
         self._log(summary)
         self._refresh_context()
 
     def _run_work(self, task: Task, command_name: Optional[str]) -> None:
-        # Mark a work item active so the cockpit's state glyph animates per step
+        # The cockpit's state glyph animates per step while the work item runs
         # (the sink's WorkStep reductions advance ``work_item.step_count``).
-        self.state.work_item = WorkItem(task_id=task.id, engine=self.engine_name, running=True)
-        try:
-            result, _artifact = self.work_fn(
-                repo=self.repo,
-                engine_name=self.engine_name,
-                task=task,
-                open_pr=self.open_pr,
-                allow_dirty=self.allow_dirty,
-                base=self.base,
-                config=self.config,
-                command_name=command_name,
-                progress_sink=_WorkSink(self),
-            )
-        except CliError as exc:
-            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
-            self._error(f"error: {exc.message}{hint}")
+        result = self._dispatch_work(
+            task, open_pr=self.open_pr, config=self.config, command_name=command_name
+        )
+        if result is None:
             return
-        except Exception as exc:  # noqa: BLE001
-            self._error(f"error: {type(exc).__name__}: {exc}")
-            return
-        finally:
-            if self.state.work_item is not None:
-                self.state.work_item.running = False
-
-        if self.json_mode:
-            self.out(json.dumps(result.to_dict(), ensure_ascii=False))
         changed = ", ".join(result.changed_files) or "(none)"
         branch = f" → {result.branch}" if result.branch else ""
         self._log(f"{result.status}: {result.summary} [{changed}]{branch}")
@@ -833,38 +856,17 @@ class _Session:
         WIP present and never sweeps it (the handoff's ``git add -u`` would
         otherwise commit the WIP onto ``colleague/<id>`` and restore HEAD over it —
         silent data loss; Qodo, PR #245). So we forward ``self.allow_dirty``
-        unchanged — the read-only role is what makes it moot."""
+        unchanged (via ``_dispatch_work``) — the read-only role is what makes it
+        moot. ``open_pr=False`` keeps the push/PR off regardless."""
         config = replace(self.config, role=role)
         task = Task.new(
             str(self.repo),
             task_text if task_text is not None else request,
             engine=self.engine_name,
         )
-        self.state.work_item = WorkItem(task_id=task.id, engine=self.engine_name, running=True)
-        try:
-            result, _artifact = self.work_fn(
-                repo=self.repo,
-                engine_name=self.engine_name,
-                task=task,
-                open_pr=False,  # read-only: never push/PR (runtime also skips handoff)
-                allow_dirty=self.allow_dirty,
-                base=self.base,
-                config=config,
-                command_name=None,
-                progress_sink=_WorkSink(self),
-            )
-        except CliError as exc:
-            hint = f" (hint: {exc.remediation})" if exc.remediation else ""
-            self._error(f"error: {exc.message}{hint}")
+        result = self._dispatch_work(task, open_pr=False, config=config, command_name=None)
+        if result is None:
             return
-        except Exception as exc:  # noqa: BLE001
-            self._error(f"error: {type(exc).__name__}: {exc}")
-            return
-        finally:
-            if self.state.work_item is not None:
-                self.state.work_item.running = False
-        if self.json_mode:
-            self.out(json.dumps(result.to_dict(), ensure_ascii=False))
         self._log(f"{result.status}: {result.summary}")
         self._refresh_context()
 
