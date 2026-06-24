@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-06-23
+
+### Added
+
+- colleague session: visible, operator-controllable mode cycled with shift-tab (live ANSI) or the keyboard-free /mode slash — auto/work/plan/explore/review; new single-source colleague/session_modes.py catalog
+- colleague session explore/review modes: read-only investigation/diff-review reachable from the interactive session for the first time (in-place under the explorer/reviewer role, no commit/branch/PR)
+- handoff.diff_range: operator-side `<base>...HEAD` diff source for the read-only reviewer
+
+### Changed
+
+- colleague session free-text routing is now mode-aware: auto is byte-identical to the prior classify_intent behaviour; work/plan/explore/review pin the verb; a number/template pick is never reclassified
+- CockpitState.mode (previously a dead field) now carries the live session mode across the TAUI JSON, Markdown, and flat-ANSI tiers, with a shift-tab affordance on the status line
+- raw-mode reader decodes shift-tab (ESC[Z) into a SHIFT_TAB token / CYCLE_MODE sentinel; every other key path byte-identical
+
+### Fixed
+
+- read-only roles (explorer/reviewer/planner/validator) now bypass the dirty-tree guard AND skip the write handoff in `execute_work`: a read-only run (session explore/review, ask-colleague) starts even with operator WIP present and the handoff's `git add -u` never sweeps that WIP onto `colleague/<id>` and reverts it (silent data loss). New `roles.is_read_only` predicate; runtime-owned so every read-only caller inherits it. (Qodo, PR #245)
+
 ## [1.23.0] - 2026-06-23
 
 ### Added

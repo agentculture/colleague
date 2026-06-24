@@ -55,6 +55,19 @@ def has_remote(repo: Path) -> bool:
     return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
+def diff_range(repo_path: str | Path, base: str) -> str:
+    """Return ``git diff <base>...HEAD`` for *repo_path* (read-only).
+
+    Used by the session's read-only ``review`` mode to source the committed diff
+    operator-side and inject it into the reviewer's task — the read-only reviewer
+    role withholds ``run_command``, so it cannot run git itself. Returns an empty
+    string when the range can't be computed (e.g. an invalid base), never raising,
+    so a review on a fresh repo degrades to "no committed changes" rather than a
+    crash."""
+    proc = _git(Path(repo_path), "diff", f"{base}...HEAD", check=False)
+    return proc.stdout if proc.returncode == 0 else ""
+
+
 def gh_available() -> bool:
     """True when the ``gh`` CLI is on PATH."""
     return shutil.which("gh") is not None

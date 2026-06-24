@@ -47,6 +47,7 @@ from colleague.handoff import (
     untracked_snapshot,
     working_tree_dirty,
 )
+from colleague.roles import is_read_only
 from colleague.subagents import make_batch_spawn, make_spawn, new_agent_budget
 from colleague.telemetry import Telemetry, load_telemetry
 
@@ -403,7 +404,15 @@ def execute_work(
             EXIT_USER_ERROR, str(exc), "list engines with: colleague backends list"
         ) from exc
 
-    _guard_clean_tree(repo, allow_dirty=allow_dirty)
+    # A read-only role (explorer/reviewer/planner/validator) provably writes
+    # nothing, so it (a) bypasses the dirty-tree guard — there is no handoff sweep
+    # to protect against — and (b) skips the write handoff entirely below. Without
+    # the handoff skip the handoff's `git add -u` would sweep the operator's
+    # uncommitted WIP onto colleague/<id> and then restore HEAD over it, silently
+    # reverting in-progress work (Qodo, PR #245). Runtime-owned so every read-only
+    # caller (session explore/review, ask-colleague) inherits it identically.
+    read_only_role = is_read_only(getattr(config, "role", None))
+    _guard_clean_tree(repo, allow_dirty=allow_dirty or read_only_role)
     work_repo, base_sha, worktree_path, task = _setup_isolation(repo, task, isolate)
     # Interruption safety (#222): on the isolated path, a SIGTERM (a caller's
     # `timeout`) / Ctrl-C now commits the model's WIP to colleague/<id> before the
@@ -505,7 +514,7 @@ def execute_work(
                     with suppress(Exception):
                         cockpit_sink.close()
 
-            if result.status == OK:
+            if result.status == OK and not read_only_role:
                 _handoff_result(
                     repo=work_repo,
                     task=task,
@@ -516,7 +525,7 @@ def execute_work(
                     telemetry=telemetry,
                     base_sha=base_sha,
                 )
-            else:
+            elif result.status != OK:
                 # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
                 # on OK, so preserve the model's WIP on colleague/<id> before teardown.
                 # A no-op when not isolated (worktree_path is None).
