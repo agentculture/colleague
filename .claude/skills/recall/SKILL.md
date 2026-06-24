@@ -15,11 +15,12 @@ description: >
   record outside a git repo, go to $HOME/.eidetic/memory (never committed). An
   explicit EIDETIC_DATA_DIR wins and short-circuits to that single dir. Recall
   reads both stores and merges. The wrapper defaults queries to this agent's
-  PERSONAL, PRIVATE scope (`--scope colleague --visibility private`, suffix
+  PERSONAL, PUBLIC scope (`--scope colleague --visibility public`, suffix
   read from culture.yaml) — matching where /remember writes — so a no-flag
-  recall returns this agent's own private records plus the shared public pool,
-  and Claude and the colleague backend recall each other's memories because both
-  resolve the same suffix via this skill. Use
+  recall queries the in-repo public pool (<repo-root>/.eidetic/memory) and
+  merges with $HOME/.eidetic/memory private notes; Claude and the colleague
+  backend recall each other's memories because both resolve the same suffix
+  via this skill. Use
   when the user says "recall", "what do we know about X", "search memory",
   "have we seen X before", "look it up in memory", "eidetic recall", or before
   answering from scratch when prior context may already be stored. Pairs with
@@ -35,7 +36,9 @@ surface; the write half is the sibling **/remember** skill.
 
 The point of a *shared* store is that memory is a **team faculty**, not a
 per-agent silo: a record Claude wrote is recallable by the colleague backend
-(and vice versa), because both resolve the same `$HOME/.eidetic/memory` path.
+(and vice versa), because both resolve the same `<repo-root>/.eidetic/memory`
+path (committed, team-shared) and merge with `$HOME/.eidetic/memory` for
+private notes.
 
 ## How to run
 
@@ -123,13 +126,13 @@ compete on score/signal just like active ones when included.
 - `--case-sensitive` — for `--mode exact`.
 - `--filter KEY=VALUE` — metadata facet filter (repeatable): e.g. `--filter source=docs`.
 - `--scope NAME` / `--visibility public|private` — scope isolation (no private
-  leak). **The wrapper defaults this to the agent's PERSONAL, PRIVATE scope**
-  (`--scope colleague --visibility private`, suffix read from `culture.yaml`),
-  matching where `/remember` writes — so a no-flag recall returns this agent's
-  own private records **plus** the shared public pool, while those private records
-  stay invisible to a `default`/other-scope recall. Pass `--scope`/`--visibility`
-  to query elsewhere; a wheel install with no `culture.yaml` falls back to the
-  CLI default `default`/`public`.
+  leak). **The wrapper defaults this to the agent's PERSONAL, PUBLIC scope**
+  (`--scope colleague --visibility public`, suffix read from `culture.yaml`),
+  matching where `/remember` writes — so a no-flag recall queries the in-repo
+  public pool (<repo-root>/.eidetic/memory) and merges with private notes from
+  $HOME/.eidetic/memory. Pass `--scope`/`--visibility` to query elsewhere; a
+  wheel install with no `culture.yaml` falls back to the CLI default
+  `default`/`public`.
 - `--backend files|mongo|neo4j` — default `files` (the shared home-dir store).
 - `--include-shadowed` — include shadowed records in results (excluded by default).
 - `--include-archived` — include archived records in results (excluded by default).

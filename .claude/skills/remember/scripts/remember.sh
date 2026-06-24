@@ -59,9 +59,10 @@ Usage:
 
 A record needs `id`, `text`, and `type`; `hash` and `metadata` are recommended
 (hash is derived from text when omitted). Upsert is idempotent by id.
-Records default to this agent's PRIVATE personal scope (--scope from the
-culture.yaml suffix); pass --visibility public to contribute to the shared
-public pool. Every flag is forwarded verbatim to `eidetic remember`.
+Records default to PUBLIC scope (--scope from the culture.yaml suffix,
+--visibility public), landing in <repo-root>/.eidetic/memory (committed,
+team-shared). Pass --visibility private to keep a record in $HOME
+(uncommitted). Every flag is forwarded verbatim to `eidetic remember`.
 See `eidetic explain remember`.
 EOF
 }
@@ -85,7 +86,7 @@ fi
 
 resolve_eidetic || exit 2
 
-# ── default to this agent's PERSONAL, PRIVATE scope (culture.yaml `suffix`) ──
+# ── default to this agent's PERSONAL, PUBLIC scope (culture.yaml `suffix`) ──
 # A record this agent remembers should land in its OWN personal scope, not the
 # global `default` scope shared by every project on this host. We read the
 # `suffix` from the nearest culture.yaml (walking up from this script), so the
@@ -94,14 +95,14 @@ resolve_eidetic || exit 2
 # (running in a worktree of this same repo) resolves the same suffix, keeping
 # the Claude↔colleague shared-memory story intact.
 #
-# The personal scope is PRIVATE by default: in eidetic's model only a private
-# record is isolated to its scope (`can_serve`), so private is what actually
-# keeps these records from leaking to a default/other-scope recall. Scope and
-# visibility are paired — the private default applies only when we inject the
-# resolved scope, and only if the caller didn't pass --visibility (so an
-# explicit `--visibility public` still wins). An explicit --scope on the command
-# line takes over steering entirely; a wheel install with no culture.yaml falls
-# back to the plain CLI default (`default`/`public`).
+# The personal scope is PUBLIC by default (recipe policy override): a plain
+# /remember commits the note to <repo-root>/.eidetic/memory (in-repo,
+# team-shared). Pass --visibility private to opt-in to $HOME (uncommitted).
+# Scope and visibility are paired — the public default applies only when we
+# inject the resolved scope, and only if the caller didn't pass --visibility
+# (so an explicit `--visibility private` still wins). An explicit --scope on
+# the command line takes over steering entirely; a wheel install with no
+# culture.yaml falls back to the plain CLI default (`default`/`public`).
 resolve_scope() {
     local dir suffix=""
     dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -140,12 +141,19 @@ SCOPE_ARGS=()
 if ! has_flag --scope "$@"; then
     EIDETIC_SCOPE=$(resolve_scope)
     if [ -n "$EIDETIC_SCOPE" ]; then
-        SCOPE_ARGS+=(--scope "$EIDETIC_SCOPE")
-        # rollout-cli eidetic-memory recipe POLICY OVERRIDE (not eidetic's
-        # upstream private default): default to PUBLIC so a plain remember lands
-        # in <repo>/.eidetic/memory — committed, team- and mesh-shared. Pass
-        # --visibility private to keep a record in $HOME (uncommitted).
-        has_flag --visibility "$@" || SCOPE_ARGS+=(--visibility public)
+        # Validate the resolved suffix: must match ^[A-Za-z0-9][A-Za-z0-9._-]*$
+        # so it is a safe scope identifier. Reject empty or malformed values.
+        if [[ "$EIDETIC_SCOPE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            SCOPE_ARGS+=(--scope "$EIDETIC_SCOPE")
+            # rollout-cli eidetic-memory recipe POLICY OVERRIDE (not eidetic's
+            # upstream private default): default to PUBLIC so a plain remember lands
+            # in <repo>/.eidetic/memory — committed, team- and mesh-shared. Pass
+            # --visibility private to keep a record in $HOME (uncommitted).
+            has_flag --visibility "$@" || SCOPE_ARGS+=(--visibility public)
+        else
+            # Suffix resolved but failed validation — treat as unresolved.
+            printf 'warning: culture.yaml suffix "%s" could not be validated; falling back to the public default scope. Pass --scope or --visibility to place this record deliberately.\n' "$EIDETIC_SCOPE" >&2
+        fi
     elif ! has_flag --visibility "$@"; then
         # No suffix AND no explicit --visibility: the record falls back to
         # eidetic's own default (scope=default, visibility=public). Don't let an
