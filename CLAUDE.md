@@ -490,7 +490,7 @@ The architecture, part by part:
   / `resolve_mode` / `route_for` / `mode_affordance_line`, drift-tested). The active
   mode is written onto `CockpitState.mode` (previously a **dead field** always
   serializing `"planning"`, never set) so every tier shows it — the TAUI JSON mirror
-  + Markdown render it directly, and the flat-ANSI status line carries the affordance
+  and Markdown render it directly, and the flat-ANSI status line carries the affordance
   (`mode: [auto] work plan explore review · shift-tab to cycle`). Free-text routing is
   now **mode-aware** (`_work_line` → `route_for`): **`auto` is byte-identical to the
   prior behaviour** (same `classify_intent` call, same `→ work:` / `→ plan:` log);

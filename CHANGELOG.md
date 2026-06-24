@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - colleague session: visible, operator-controllable mode cycled with shift-tab (live ANSI) or the keyboard-free /mode slash — auto/work/plan/explore/review; new single-source colleague/session_modes.py catalog
 - colleague session explore/review modes: read-only investigation/diff-review reachable from the interactive session for the first time (in-place under the explorer/reviewer role, no commit/branch/PR)
-- handoff.diff_range: operator-side <base>...HEAD diff source for the read-only reviewer
+- handoff.diff_range: operator-side `<base>...HEAD` diff source for the read-only reviewer
 
 ### Changed
 
