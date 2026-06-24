@@ -133,7 +133,7 @@ compete on score/signal just like active ones when included.
   $HOME/.eidetic/memory. Pass `--scope`/`--visibility` to query elsewhere; a
   wheel install with no `culture.yaml` falls back to the CLI default
   `default`/`public`.
-- `--backend files|mongo|neo4j` — default `files` (the shared home-dir store).
+- `--backend files|mongo|neo4j` — default `files` (the visibility-routed store: public → `<repo-root>/.eidetic/memory`, private → `$HOME/.eidetic/memory`; recall reads both and merges).
 - `--include-shadowed` — include shadowed records in results (excluded by default).
 - `--include-archived` — include archived records in results (excluded by default).
 - `--json` — structured list to stdout (use this when an agent parses the result).
@@ -175,11 +175,15 @@ bash .claude/skills/recall/scripts/recall.sh "power" --include-archived --includ
   matches. `approximate` keeps every candidate ranked by raw cosine, so it can
   return low/near-zero scores when the store is small — lower `--top-k` to trim.
   A `--min-score` threshold is a tracked follow-up.
-- **Sharing scope = one OS user.** The default store is `$HOME/.eidetic/memory`, so
-  every agent/process running as the *same* OS user shares it (that is the point —
-  Claude + colleague). It is not isolated between OS users by anything but file
-  permissions; keep genuinely private data in a `--visibility private` scope and
-  treat the host as the trust boundary.
+- **Two stores, two sharing models.** The public default store is
+  `<repo-root>/.eidetic/memory` — committed, so it travels with the repo and is
+  shared with everyone who clones it (team + mesh peers). The private store is
+  `$HOME/.eidetic/memory` — shared only between agents/processes running as the
+  *same* OS user (Claude + colleague), never committed; it is not isolated
+  between OS users by anything but file permissions. Keep genuinely private data
+  in a `--visibility private` scope, and remember that a `--visibility public`
+  record is committed to the repo — treat the repo (for public) and the host
+  (for private) as the respective trust boundaries.
 
 ## Provenance
 

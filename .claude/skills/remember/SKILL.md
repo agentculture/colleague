@@ -100,7 +100,8 @@ eidetic sweep             # apply transitions
   (committed, team-shared). Pass `--scope` to steer to a different scope, or
   `--visibility private` to keep a record in $HOME (uncommitted). A wheel
   install with no `culture.yaml` falls back to the CLI default `default`/`public`.
-- `--backend files|mongo|neo4j` — default `files` (the shared home-dir store);
+- `--backend files|mongo|neo4j` — default `files` (the visibility-routed store:
+  public → `<repo-root>/.eidetic/memory`, private → `$HOME/.eidetic/memory`);
   use `mongo`/`neo4j` (with `EIDETIC_MONGO_URI` / `NEO4J_URI`) for a server store.
 
 ## Notes
