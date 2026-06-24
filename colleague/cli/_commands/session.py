@@ -1,4 +1,4 @@
-"""``colleague session`` — the interactive cockpit over the work path.
+"""``colleague session`` — the agent-native interactive cockpit over the work path.
 
 Opens a foreground interactive **cockpit**: it renders one
 :class:`~colleague.tui.state.CockpitState` (a command palette + a running
@@ -18,8 +18,15 @@ Three render tiers of the one state (#74 A2), chosen automatically:
   as chrome. (The TAUI JSON mirror lives under ``colleague tui state``.)
 
 Input is **line-based**. Plain text (a number / template name / free-text task)
-runs a work item; a line starting with ``/`` is a **slash command** — the meta/system
+runs a work item.  Free text is **intent-routed**: :func:`classify_intent` maps it
+to ``work`` (the default) or ``plan`` without the operator typing a subcommand, and
+a ``→ work:`` / ``→ plan:`` routing line is logged so the dispatch is always
+visible.  A line starting with ``/`` is a **slash command** — the meta/system
 namespace (introspection of existing nouns + live config actions).
+
+The backend for the session resolves via :func:`~colleague.config.resolve_session_engine`:
+explicit ``--engine`` flag > ``COLLEAGUE_SESSION_ENGINE`` env (a session-only
+override) > ``COLLEAGUE_ENGINE`` env > built-in default (``vllm-openai``).
 
 The session is entirely foreground (no sockets, no daemons) and stdlib-only.
 
@@ -38,18 +45,27 @@ import io
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterator, Optional, Sequence
+from typing import Callable, Iterator, Optional, Sequence, TypeVar, cast
 
-from colleague import cockpit, feedback, layers, registry
+from colleague import cockpit, feedback, handoff, layers, registry
 from colleague.cli._banner import emit_banner
+from colleague.cli._commands._session_input import CYCLE_MODE
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
-from colleague.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import Task, TaskResult
 from colleague.policy import load_policy
+from colleague.session_intent import PLAN, classify_intent
+from colleague.session_modes import (
+    DEFAULT_MODE,
+    mode_affordance_line,
+    next_mode,
+    resolve_mode,
+    route_for,
+)
 from colleague.telemetry import TelemetryConfig
 from colleague.tui.colors import should_color
 from colleague.tui.events import UserInput
@@ -67,6 +83,12 @@ from colleague.tui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, f
 # ---------------------------------------------------------------------------
 
 _WorkFn = Callable[..., tuple[TaskResult, Path]]
+#: A session "plan" runner: takes a free-text request and returns a summary
+#: string to fold into the feed. Injectable as a test seam (mirrors ``_WorkFn``).
+_PlanFn = Callable[..., str]
+
+#: Return type of a tracked dispatch thunk (a work-fn pair or a plan summary).
+_T = TypeVar("_T")
 
 _QUIT_TOKENS = frozenset({"q", "quit", "exit", "bye"})
 _CONVERSATION_PANEL_ID = "panel.conversation"
@@ -173,6 +195,30 @@ class _WorkSink:
         return None
 
 
+def _default_plan(*, repo: Path, engine_name: str, request: str, config: EngineConfig) -> str:
+    """Default session ``plan`` runner: a quick, non-interactive spec→plan.
+
+    Runs colleague plan mode in *quick* + *no-workforce* + auto-confirm mode so a
+    conversational session yields a plan without an interactive per-item gate or a
+    subagent fan-out (use ``colleague plan run`` for the full gated arc). Reuses the
+    engine seams via :func:`~colleague.cli._commands.plan.run_plan_request`; raises
+    :class:`CliError` (handled by the caller) on a non-live backend such as ``mock``.
+    Imported lazily so a session that never plans doesn't load the plan package.
+    """
+    from colleague.cli._commands.plan import _auto_decide, _render_run, run_plan_request
+
+    result = run_plan_request(
+        repo=repo,
+        request=request,
+        engine_name=engine_name,
+        config=config,
+        decide=_auto_decide,
+        quick=True,
+        workforce=False,
+    )
+    return _render_run(result)
+
+
 class _Session:
     """Holds the interactive session's mutable state and renders one cockpit."""
 
@@ -190,6 +236,7 @@ class _Session:
         out: Callable[..., None],
         err: Callable[..., None],
         work_fn: _WorkFn,
+        plan_fn: _PlanFn = _default_plan,
         user_home: Optional[Path] = None,
     ) -> None:
         self.repo = repo
@@ -198,6 +245,11 @@ class _Session:
         self.allow_dirty = allow_dirty  # dirty-tree guard opt-out (#149)
         self.base = base  # mutable via /base
         self.config = config  # .model mutable via /model
+        # Session mode — auto|work|plan|explore|review — cycled by shift-tab (live
+        # ANSI) or the keyboard-free /mode slash. 'auto' is byte-identical to the
+        # pre-mode behaviour (free text is classified per input); a pinned mode
+        # overrides the classifier. Mutated only via _cycle_mode / _act_mode.
+        self.mode = DEFAULT_MODE
         self.json_mode = json_mode
         self.view = view  # "ansi" (dynamic) | "markdown" (static)
         self.out = out
@@ -206,6 +258,7 @@ class _Session:
         # in --json mode so stdout carries only the work TaskResult(s).
         self.chrome = err if json_mode else out
         self.work_fn = work_fn
+        self.plan_fn = plan_fn
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -231,6 +284,7 @@ class _Session:
             for name, desc in self.palette
         ]
         return CockpitState(
+            mode=self.mode,
             panels=[
                 self._policy_panel(facts),
                 self._context_panel(facts),
@@ -248,7 +302,10 @@ class _Session:
 
     def _status(self) -> Status:
         pr = "push+PR" if self.open_pr else "local"
-        message = f"colleague session · {self.engine_name} · {pr}"
+        message = (
+            f"colleague session · {self.engine_name} · {pr}  ·  "
+            f"{mode_affordance_line(self.mode)}"
+        )
         return Status(severity="info", message=message)
 
     # ── cockpit facts (resolved once at startup / on a config change) ────────
@@ -465,6 +522,7 @@ class _Session:
             self._log(text)
 
     def _refresh_status(self) -> None:
+        self.state.mode = self.mode
         self.state.status = self._status()
 
     # ── rendering (one path; three views) ────────────────────────────────────
@@ -530,6 +588,12 @@ class _Session:
             else:
                 self.emit()
                 raw = _read_line(input_fn)
+            if raw is CYCLE_MODE:
+                # Shift-tab at the prompt: cycle the mode and re-prompt — never a
+                # submitted line, never a quit (the sentinel is distinct from a
+                # string / None / EOF).
+                self._cycle_mode()
+                continue
             if raw is None:
                 break
             line = raw.strip()
@@ -547,6 +611,14 @@ class _Session:
             return self._slash(line)
         self._work_line(line)
         return True
+
+    def _cycle_mode(self) -> None:
+        """Advance the session mode (shift-tab, or a bare ``/mode``): sync the
+        cockpit chrome and echo the new mode into the feed so the change is
+        visible. The next free-text input routes under the new mode."""
+        self.mode = next_mode(self.mode)
+        self._refresh_status()
+        self._log(f"mode → {self.mode}")
 
     # ── slash commands ───────────────────────────────────────────────────────
 
@@ -609,6 +681,31 @@ class _Session:
     # ── work ────────────────────────────────────────────────────────────────
 
     def _work_line(self, line: str) -> None:
+        # Agent-native intent routing (#234), now mode-aware: a free-text goal
+        # reaches colleague's own verb WITHOUT the user typing the subcommand. The
+        # active mode decides the verb via ``route_for`` — ``auto`` classifies each
+        # input (byte-identical to the pre-mode behaviour: same classify_intent call,
+        # same ``→ work:``/``→ plan:`` log), while ``work``/``plan``/``explore``/
+        # ``review`` pin the route. A bare number / known template name is always a
+        # work-template selection regardless of mode (a palette pick is never
+        # reclassified) — only genuinely free text is routed.
+        stripped = line.strip()
+        is_free_text = bool(stripped) and not stripped.isdigit() and stripped not in self.discovered
+        if is_free_text:
+            verb = route_for(self.mode, stripped, classify_intent)
+            if verb == PLAN:
+                self._log(f"→ plan: {stripped}")
+                self._run_plan(stripped)
+                return
+            if verb == "explore":
+                self._log(f"→ explore: {stripped}")
+                self._run_explore(stripped)
+                return
+            if verb == "review":
+                self._log(f"→ review: {stripped}")
+                self._run_review(stripped)
+                return
+            # verb == "work" → fall through to the work-template / ad-hoc path.
         resolved = _resolve_selection(
             line,
             self.palette,
@@ -621,41 +718,159 @@ class _Session:
         if resolved is None:
             return
         task, command_name = resolved
+        if is_free_text:
+            self._log(f"→ work: {stripped}")
         self._run_work(task, command_name)
 
-    def _run_work(self, task: Task, command_name: Optional[str]) -> None:
-        # Mark a work item active so the cockpit's state glyph animates per step
-        # (the sink's WorkStep reductions advance ``work_item.step_count``).
-        self.state.work_item = WorkItem(task_id=task.id, engine=self.engine_name, running=True)
+    def _run_tracked(self, task_id: str, thunk: Callable[[], _T]) -> Optional[_T]:
+        """Run *thunk* with the cockpit work-item marked running, uniform error
+        handling, and a guaranteed running-flag reset; return its value, or ``None``
+        if it raised. A :class:`CliError` (with its remediation hint) or any
+        unexpected exception is surfaced via ``_error`` and swallowed, so one failed
+        dispatch never tears down the session. The single home for the running-state
+        + error scaffold shared by ``_run_plan`` and ``_dispatch_work``."""
+        self.state.work_item = WorkItem(task_id=task_id, engine=self.engine_name, running=True)
         try:
-            result, _artifact = self.work_fn(
-                repo=self.repo,
-                engine_name=self.engine_name,
-                task=task,
-                open_pr=self.open_pr,
-                allow_dirty=self.allow_dirty,
-                base=self.base,
-                config=self.config,
-                command_name=command_name,
-                progress_sink=_WorkSink(self),
-            )
+            return thunk()
         except CliError as exc:
             hint = f" (hint: {exc.remediation})" if exc.remediation else ""
             self._error(f"error: {exc.message}{hint}")
-            return
+            return None
         except Exception as exc:  # noqa: BLE001
             self._error(f"error: {type(exc).__name__}: {exc}")
-            return
+            return None
         finally:
             if self.state.work_item is not None:
                 self.state.work_item.running = False
 
+    def _dispatch_work(
+        self, task: Task, *, open_pr: bool, config: EngineConfig, command_name: Optional[str]
+    ) -> Optional[TaskResult]:
+        """Run one work item through the shared work path (cockpit running-state +
+        error handling via ``_run_tracked``, then the json-mode result echo); return
+        the :class:`TaskResult`, or ``None`` if the dispatch surfaced an error. The
+        single home for the ``work_fn`` call shared by ``_run_work`` and
+        ``_run_readonly`` — the caller owns the feed rendering of the result."""
+        pair = self._run_tracked(
+            task.id,
+            lambda: self.work_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                task=task,
+                open_pr=open_pr,
+                allow_dirty=self.allow_dirty,
+                base=self.base,
+                config=config,
+                command_name=command_name,
+                progress_sink=_WorkSink(self),
+            ),
+        )
+        if pair is None:
+            return None
+        result, _artifact = pair
         if self.json_mode:
             self.out(json.dumps(result.to_dict(), ensure_ascii=False))
+        return result
+
+    def _run_plan(self, request: str) -> None:
+        """Route a planning-intent free-text goal to colleague's ``plan`` verb.
+
+        Runs the injected ``plan_fn`` (default: a quick non-interactive spec→plan)
+        and folds its summary into the feed. A non-live backend (e.g. ``mock``)
+        raises :class:`CliError`, surfaced cleanly — never a crash, never a handoff.
+        """
+        # A synthetic work item keeps the cockpit "running" glyph alive; ``Task.new``
+        # only mints an id here (the plan path does not run the work loop).
+        summary = self._run_tracked(
+            Task.new(str(self.repo), request).id,
+            lambda: self.plan_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                request=request,
+                config=self.config,
+            ),
+        )
+        if summary is None:
+            return
+        self._log(summary)
+        self._refresh_context()
+
+    def _run_work(self, task: Task, command_name: Optional[str]) -> None:
+        # The cockpit's state glyph animates per step while the work item runs
+        # (the sink's WorkStep reductions advance ``work_item.step_count``).
+        result = self._dispatch_work(
+            task, open_pr=self.open_pr, config=self.config, command_name=command_name
+        )
+        if result is None:
+            return
         changed = ", ".join(result.changed_files) or "(none)"
         branch = f" → {result.branch}" if result.branch else ""
         self._log(f"{result.status}: {result.summary} [{changed}]{branch}")
         # A completed work item can change branch / dirty / last-feedback state.
+        self._refresh_context()
+
+    def _run_explore(self, request: str) -> None:
+        """Read-only investigation (explorer role): inspect the repo to answer a
+        free-text question. Never writes, never pushes/PRs — the read-only role
+        structurally withholds write_file/edit_file/run_command, so it cannot
+        touch the operator's tree even if the model attempts a write."""
+        self._run_readonly(request, role="explorer")
+
+    def _run_review(self, request: str) -> None:
+        """Read-only diverse second opinion on the committed ``<base>...HEAD`` diff
+        (reviewer role). The diff is sourced operator-side and injected because the
+        read-only reviewer role withholds ``run_command`` and so cannot run git
+        itself; the reviewer critiques the provided diff and reads files as needed."""
+        diff = handoff.diff_range(self.repo, self.base)
+        focus = request.strip()
+        task_text = (
+            f"Give a candid, specific second opinion on the committed changes on "
+            f"this branch versus '{self.base}' (the diff below is `git diff "
+            f"{self.base}...HEAD`). "
+            + (f"Focus on: {focus}. " if focus else "")
+            + "Call out correctness bugs, risks, and concrete improvements, citing "
+            "file:line. Do not modify any files.\n\n"
+            f"--- diff {self.base}...HEAD ---\n" + (diff or "(no committed changes vs base)")
+        )
+        self._run_readonly(request, role="reviewer", task_text=task_text)
+
+    def _run_readonly(self, request: str, *, role: str, task_text: str | None = None) -> None:
+        """Shared read-only dispatch for explore/review: run the work loop under a
+        read-only *role* with NO push/PR handoff (``open_pr=False``), so the
+        operator's tree + branch are never touched. ``task_text`` overrides the
+        model-facing instruction (review injects the diff); explore uses *request*
+        verbatim. The role is set on a COPY of the config so ``self.config`` (the
+        session's writer-surface default) is left untouched.
+
+        DECISION (resolves the parked frame unknown): session explore/review run
+        **in-place** under the read-only role, NOT in a throwaway worktree like the
+        ask-colleague verbs. The explorer/reviewer role structurally withholds
+        write_file/edit_file/run_command (``roles._WRITE_TOOLS``), so the run
+        provably cannot mutate the tree even if the model attempts a write — making
+        worktree isolation unnecessary here. (A future read role that needs a
+        write-capable tool would revisit this; tracked as a follow-up risk.)
+
+        Dirty-tree safety is owned by the runtime, not here: ``execute_work``
+        detects the read-only role and both bypasses the dirty-tree guard (#149)
+        AND skips the write handoff, so an explore/review runs even with operator
+        WIP present and never sweeps it (the handoff's ``git add -u`` would
+        otherwise commit the WIP onto ``colleague/<id>`` and restore HEAD over it —
+        silent data loss; Qodo, PR #245). So we forward ``self.allow_dirty``
+        unchanged (via ``_dispatch_work``) — the read-only role is what makes it
+        moot. ``open_pr=False`` keeps the push/PR off regardless."""
+        # The cast is purely for the static analyser: Sonar models replace()'s
+        # return as a generic DataclassInstance, not EngineConfig, which trips S5655
+        # at the _dispatch_work call below (same cast in colleague/subagents.py).
+        config = cast(EngineConfig, replace(self.config, role=role))
+        task = Task.new(
+            str(self.repo),
+            task_text if task_text is not None else request,
+            engine=self.engine_name,
+        )
+        result = self._dispatch_work(task, open_pr=False, config=config, command_name=None)
+        if result is None:
+            return
+        self._log(f"{result.status}: {result.summary}")
         self._refresh_context()
 
 
@@ -714,6 +929,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         ("model", "config"),
     ),
     SlashSpec("model", "<name>", "switch the model", "controls", ("model", "config")),
+    SlashSpec(
+        "mode",
+        "[name]",
+        "show/cycle the session mode (auto|work|plan|explore|review) — shift-tab equivalent",
+        "controls",
+        ("interactive",),
+    ),
     SlashSpec("base", "<branch>", "set the PR base branch", "controls", ("git", "config")),
     SlashSpec(
         "pr",
@@ -770,7 +992,11 @@ def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
             left = f"/{s.name}" + (f" {s.arg_hint}" if s.arg_hint else "")
             rows.append(f"  {left:<18} {format_tags(s.tags, style)}".rstrip())
     rows.append("")
-    rows.append("plain text (a number / template name / free-text task) runs a work item.")
+    rows.append(
+        "plain text (a number / template name / free-text task) runs a work item; "
+        "free text routes by the active mode (auto classifies each input; shift-tab "
+        "or /mode pins work|plan|explore|review)."
+    )
     return "\n".join(rows)
 
 
@@ -792,6 +1018,11 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
             rows.append(f"  {left:<18} {s.description}{suffix}")
     rows.append("")
     rows.append("Work: type a number to run a template, or free text for an ad-hoc task.")
+    rows.append(
+        "      Free text routes by the active mode — auto (classify each input), or a "
+        "pinned work | plan | explore | review."
+    )
+    rows.append("      shift-tab cycles the mode (or /mode [name]); explore/review are read-only.")
     rows.append("      /pr before a task to push + open a PR; /base sets the PR base branch.")
     return "\n".join(rows)
 
@@ -883,6 +1114,19 @@ def _act_model(s: "_Session", rest: list[str]) -> str:
     return f"model → {rest[0]}"
 
 
+def _act_mode(s: "_Session", rest: list[str]) -> str:
+    """``/mode`` — the keyboard-free shift-tab. No arg cycles to the next mode;
+    ``/mode <name>`` sets it explicitly; an unknown name raises ``ValueError``
+    (surfaced by the slash dispatcher as an error + the valid-modes hint), leaving
+    the mode unchanged (``resolve_mode`` raises before the assignment)."""
+    # Single return (resolve_mode still raises before the assignment on a bad
+    # name, so the mode is left unchanged): the prior two-branch form returned the
+    # syntactically identical f-string from both arms, which Sonar reads as S3516
+    # "always returns the same value".
+    s.mode = next_mode(s.mode) if not rest else resolve_mode(rest[0])
+    return f"mode → {s.mode}"
+
+
 def _act_base(s: "_Session", rest: list[str]) -> str:
     if not rest:
         raise ValueError("usage: /base <branch>")
@@ -913,6 +1157,7 @@ def _act_learn_from(s: "_Session", rest: list[str]) -> str:
 _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "engine": _act_engine,
     "model": _act_model,
+    "mode": _act_mode,
     "base": _act_base,
     "pr": _act_pr,
     "learn-from": _act_learn_from,
@@ -943,6 +1188,7 @@ def run_session(
     out: Callable[..., None] = print,
     err: Optional[Callable[..., None]] = None,
     _work_fn: _WorkFn = _default_work,
+    _plan_fn: _PlanFn = _default_plan,
     _color: Optional[bool] = None,
 ) -> int:
     """Run the interactive cockpit session loop.
@@ -959,8 +1205,10 @@ def run_session(
     ``_color`` overrides the colour-TTY detection that picks ANSI vs. Markdown.
     """
     repo = Path(args.repo).expanduser()
-    # Resolve the engine like ``work`` (explicit > COLLEAGUE_ENGINE > vllm-openai).
-    engine_name = resolve_engine(args.engine)
+    # Agent-native default (#234): the session runs on colleague's OWN served
+    # backend by default (explicit --engine > COLLEAGUE_SESSION_ENGINE >
+    # COLLEAGUE_ENGINE > vllm-openai) — the prior backend stays selectable.
+    engine_name = resolve_session_engine(args.engine)
     open_pr = bool(getattr(args, "pr", False))
     allow_dirty = bool(getattr(args, "allow_dirty", False))
     base = args.base
@@ -991,6 +1239,7 @@ def run_session(
         out=out,
         err=err,
         work_fn=_work_fn,
+        plan_fn=_plan_fn,
     )
     return session.run(input_fn)
 
@@ -1004,15 +1253,29 @@ def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser(
         "session",
         help=(
-            "Open the interactive cockpit: a command palette + slash commands over "
-            "the work path; run templates or ad-hoc tasks, loop until quit."
+            "Agent-native interactive cockpit: type a free-text goal and it routes "
+            "to work or plan on colleague's own backend — no subcommand needed."
+        ),
+        description=(
+            "Open the interactive cockpit — the conversational, agent-native entry "
+            "point to colleague.  Type a free-text goal and intent routing maps it "
+            "to 'work' (the default) or 'plan' automatically; a '→ work:' / '→ plan:' "
+            "line confirms the dispatch.  A number or template name runs a work template "
+            "directly (never re-classified).  A line starting with '/' is a slash command "
+            "(introspection + live config).  The session runs on colleague's OWN served "
+            "backend by default (--engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > "
+            "vllm-openai).  Commit-local by default; /pr or --pr opts into push+PR."
         ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--engine",
         default=None,
-        help="Backend plugin to use (default: COLLEAGUE_ENGINE or vllm-openai).",
+        help=(
+            "Backend plugin to use.  Precedence: explicit --engine > "
+            "COLLEAGUE_SESSION_ENGINE (session-only override) > COLLEAGUE_ENGINE > "
+            "vllm-openai (colleague's own served backend)."
+        ),
     )
     p.add_argument(
         "--pr",

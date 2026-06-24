@@ -119,9 +119,11 @@ release). The runtime ships:
   model-specific fixes **ahead of** the base hooks, giving the operator a
   precision tool for recurring model biases — applied only for the targeted
   model, a strict no-op for all others; no new runtime dep, socket, or daemon.
-- **Interactive palette** — `colleague session` opens a foreground command
-  browser so operators can select templates and run ad-hoc instructions without
-  leaving the shell.
+- **Interactive palette** — `colleague session` is the agent-native entry
+  point: type a free-text goal and it routes to `work` or `plan` on colleague's
+  own backend automatically — no subcommand needed. Template numbers and names run
+  directly; `/` opens slash commands. Override the session backend via
+  `COLLEAGUE_SESSION_ENGINE` without touching the global `COLLEAGUE_ENGINE`.
 - **Layered per-model config** — AGENTS instructions
   (`AGENTS.md` → `AGENTS.colleague.md` → `AGENTS.colleague.<model>.md`) and
   skills (`.colleague/skills/*.md` → `.colleague/<model>/skills/*.md`)
@@ -421,19 +423,40 @@ uv run colleague hooks overview
 
 ## Interactive cockpit (session)
 
-`colleague session` opens a foreground interactive **cockpit** (#74 A2): it
-renders one `CockpitState` — a command palette + a running conversation + popups —
-and runs each selection through the same `work` path (same `Task`, loop, hooks,
-and artifact — no parallel code path):
+`colleague session` is the **agent-native entry point** to colleague: type a
+free-text goal and it routes automatically to `work` or `plan` on colleague's
+own backend — no subcommand needed.
 
 ```bash
-uv run colleague session --repo /path/to/repo --engine vllm-openai
+uv run colleague session --repo /path/to/repo
+# or, relying on COLLEAGUE_SESSION_ENGINE / COLLEAGUE_ENGINE:
+colleague session --repo /path/to/repo
 ```
 
-**Input is line-based.** At the prompt, plain text runs a work item — a **number**
-(palette entry), a **template name**, or a **free-text instruction** (ad-hoc
-task). A line starting with `/` is a **slash command** — the meta/system
-namespace, akin to Claude Code / Codex:
+**Agent-native by default (#234).** Free-text input is classified by
+`colleague/session_intent.py` (`classify_intent`) and routed to `work` (the
+default) or `plan` without naming a subcommand. A `→ work:` / `→ plan:` line
+confirms the dispatch. Numbers and template names run a work template directly
+and are never reclassified. The session runs on colleague's **own** served backend:
+precedence is `--engine` > `COLLEAGUE_SESSION_ENGINE` (a session-only env-var
+override, new) > `COLLEAGUE_ENGINE` > `vllm-openai`. To point the conversational
+session at a different backend than bare `colleague work`, set
+`COLLEAGUE_SESSION_ENGINE` — without touching `COLLEAGUE_ENGINE`.
+
+**Legible action feed (#233).** Consecutive identical feed entries collapse into
+`<entry> ×N` instead of stacking (e.g. four back-to-back culture calls become
+`[culture] agtag issues ×4`); the `culture`/`devague` tools now surface as
+`<cli> <args>` rather than a bare `[culture]` sentinel; and step hints are capped
+at 120 characters (up from 48).
+
+**AgentFront probe reflex (#235).** Before the first real use of an unfamiliar
+CLI in a run, the backend is instructed to check its `learn`/`explain`/`--help`
+surface first. This is advisory and read-only — it never installs or approves
+anything.
+
+**Input is line-based.** Plain text runs a work item — a **number** (palette
+entry), a **template name**, or a **free-text instruction** (intent-routed to
+`work` or `plan`). A line starting with `/` is a **slash command**:
 
 - Introspection (surface an existing noun in the cockpit): `/help`, `/commands`,
   `/skills`, `/agents`, `/config` (the `doctor` readiness view), `/engines`,
@@ -452,9 +475,10 @@ namespace, akin to Claude Code / Codex:
   preserving the machine contract); the cockpit renders to stderr as chrome.
 
 Running `colleague` with no arguments **at a terminal** opens this same cockpit
-(backend resolved like `work`: `--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`,
-never a silent `mock`). By default it is a "talk + iterate" loop — each work item
-commits locally but does **not** push or open a PR; `/pr` or `--pr` opts in.
+(backend resolved as above: `--engine` > `COLLEAGUE_SESSION_ENGINE` >
+`COLLEAGUE_ENGINE` > `vllm-openai`, never a silent `mock`). By default it is a
+"talk + iterate" loop — each work item commits locally but does **not** push or
+open a PR; `/pr` or `--pr` opts in.
 
 ## Cockpit views (tui)
 

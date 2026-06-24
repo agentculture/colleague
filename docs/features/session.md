@@ -17,7 +17,8 @@ Input is **line-based**. Plain text runs a work item:
 
 - A **number** (e.g. `1`) — selects that template from the palette.
 - A **template name** (e.g. `lint`) — runs that template directly.
-- A **free-text instruction** — treated as an ad-hoc task (like `work "<text>"`).
+- A **free-text instruction** — intent-routed by `classify_intent` to `work`
+  (the default) or `plan`; a `→ work:` / `→ plan:` line confirms the dispatch.
 - `q`, `quit`, `exit`, or an **empty line** — ends the session.
 
 A line starting with `/` is a **slash command** — the meta/system namespace (akin
@@ -60,15 +61,88 @@ Errors (a bad selection, an unknown engine, a work item failure) go to **stderr*
 (agent-first); in the dynamic ANSI tier they are also folded into the conversation
 so a redraw never hides them.
 
+## Agent-native default (#233/#234/#235)
+
+Three co-shipped improvements make `colleague session` the natural agent-native
+entry point:
+
+### Intent routing (#234)
+
+Free-text input is classified by `colleague/session_intent.py`
+`classify_intent(text) -> "work"|"plan"` (stdlib `re` only, zero deps) and
+routed to the right verb without the operator typing a subcommand.
+
+- A **`→ work:`** / **`→ plan:`** line is logged so the dispatch is always
+  visible.
+- Numbers and known template names are always work-template selections, never
+  reclassified.
+- The default is `work`, so a misclassification can only ever down-route to
+  the safe default, never silently invoke plan.
+- The plan branch runs a quick, non-interactive spec→plan (`quick=True,
+  workforce=False`). On a non-live backend (e.g. `mock`) a `CliError` is
+  surfaced cleanly — never a crash.
+
+**Non-goals:** `colleague work` / `colleague plan` still work for scripting
+and agents that name a subcommand explicitly. Intent routing fires ONLY on
+genuine free text inside `colleague session`. No new GUI.
+
+### Session backend override (#234)
+
+The session resolves its backend via `colleague/config.py`
+`resolve_session_engine()`:
+
+```text
+explicit --engine flag
+  > COLLEAGUE_SESSION_ENGINE  (session-only env-var override, new)
+  > COLLEAGUE_ENGINE          (global default)
+  > vllm-openai               (built-in default)
+```
+
+There is **no `--session-engine` flag** — only the `COLLEAGUE_SESSION_ENGINE`
+env var. This lets an operator point the conversational session at a different
+backend than a bare `colleague work` without touching `COLLEAGUE_ENGINE`. The
+existing `--engine` flag still overrides everything.
+
+### Legible action feed (#233)
+
+The live cockpit feed is now legible at a glance:
+
+- **Grouping** — consecutive identical feed lines collapse into a single
+  `<line> ×N` entry (e.g. four back-to-back `[culture]` calls become
+  `[culture] agtag issues ×4`). Logic lives in
+  `colleague/tui/reducer.py` `_collapse_repeat`.
+- **Tool targets** — the `culture` and `devague` loop tools now surface as
+  `<cli> <args>` / `<move> <args>` in the feed hint (e.g.
+  `[culture] agtag issues fetch`) instead of a bare `[culture]` sentinel.
+  Logic lives in `colleague/tui/from_work.py` `progress_target`.
+- **Longer hints** — the per-step hint cap is raised from 48 to 120 characters
+  (`_MAX_TARGET = 120` in `colleague/tui/from_work.py`) so long commands are
+  no longer truncated mid-word.
+
+This is a pure display change — the underlying `TaskResult` and step trace are
+unchanged.
+
+### AgentFront probe reflex (#235)
+
+`_DEFAULT_SYSTEM` in `colleague/loop.py` now instructs the backend: before the
+**first** real use of a CLI or tool it has not used in this run, read its
+`learn` / `explain` / `--help` / `--json` affordance first, then act on what
+you found instead of guessing flags or output shape. A tool already used in the
+run needs no re-probe.
+
+**Non-goals:** this is advisory and **read-only** — the reflex instructs the
+model to read a surface, never to install, approve, or trust the tool. An
+enforced harness-level probe is a named follow-up, **not shipped**.
+
 ## Bare `colleague` opens it
 
 Running `colleague` with no arguments **at a terminal** opens this same palette
-— the natural "get in and work" gesture. The engine is resolved like `work`
-(`--engine` > `COLLEAGUE_ENGINE` > `vllm-openai`); it never silently falls back
-to the no-op `mock`. Piped, redirected, or otherwise non-interactive, bare
-`colleague` prints usage instead, so scripts and agents keep a discoverable
-surface. Both stdin and stdout must be a TTY for the palette to open (`-h/--help`
-is unaffected either way).
+— the natural "get in and work" gesture. The engine is resolved via
+`resolve_session_engine` (`--engine` > `COLLEAGUE_SESSION_ENGINE` >
+`COLLEAGUE_ENGINE` > `vllm-openai`); it never silently falls back to the no-op
+`mock`. Piped, redirected, or otherwise non-interactive, bare `colleague` prints
+usage instead, so scripts and agents keep a discoverable surface. Both stdin and
+stdout must be a TTY for the palette to open (`-h/--help` is unaffected either way).
 
 ## Handoff: commit-local by default
 

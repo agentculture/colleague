@@ -5,25 +5,84 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.23.0] - 2026-06-23
+## [1.25.0] - 2026-06-24
 
 ### Added
 
 - **Vendored the `remember` + `recall` memory skills from eidetic-cli**
-  (cite-don't-import) — the write/read halves of eidetic's shared
-  `~/.eidetic/memory` surface, so this agent (Claude and its colleague backend)
-  can persist facts across sessions and recall them later, sharing one store.
-  `remember` drives `eidetic remember` (idempotent upsert of one JSON record or
-  an NDJSON batch on stdin, dedup by id + content hash); `recall` drives
-  `eidetic recall` with four search modes — exact / approximate / keyword /
-  hybrid — each hit carrying text, full provenance metadata, a relevance score,
-  and a freshness signal. The `.sh` wrappers are byte-verbatim from eidetic-cli
-  (their first-party origin); each `SKILL.md` is localized only in the
-  illustrative `--scope <nick>` examples (Provenance keeps "First-party to
-  eidetic-cli"). Both default to this agent's PRIVATE scope, reading the suffix
-  from `culture.yaml`. Runtime dep: the `eidetic` CLI on PATH (else a local
-  eidetic-cli checkout with `uv`). Propagated by rollout-cli's `eidetic-memory`
-  recipe.
+  (cite-don't-import) — the write/read halves of eidetic's shared memory
+  surface, so this agent (Claude and its colleague backend) can persist facts
+  across sessions and recall them later from one store. `remember` drives
+  `eidetic remember` (idempotent upsert of one JSON record or an NDJSON batch on
+  stdin, dedup by id + content hash); `recall` drives `eidetic recall` with four
+  search modes — exact / approximate / keyword / hybrid — each hit carrying text,
+  full provenance metadata, a relevance score, and a freshness signal. Folds in
+  PR #244 (closed in favour of this combined PR). Propagated by rollout-cli's
+  `eidetic-memory` recipe.
+- **Memory-discipline "Conventions and workflow" section in `CLAUDE.md`** — a
+  per-task *recall-before / remember-after* convention so the vendored skills are
+  actually used: `/recall` before non-trivial work to build on prior decisions,
+  `/remember` when a non-obvious decision, constraint, fix-and-why, or gotcha
+  surfaces. Documents this repo's memory as **in-repo and public** (records
+  resolve to `<repo-root>/.eidetic/memory`, committed + team/mesh-shared).
+
+### Changed
+
+- **Refreshed the `remember` + `recall` wrappers to eidetic-cli 0.10.0**
+  (cite-don't-import) — picks up eidetic's **project-local store routing**: PUBLIC
+  records inside a git repo go to `<repo-root>/.eidetic/memory` (committed,
+  team-shared), PRIVATE records (or any record outside a repo) go to
+  `$HOME/.eidetic/memory` (never committed), an explicit `EIDETIC_DATA_DIR` still
+  wins, and recall reads both stores and merges. Carries the 0.9.3 hardening
+  (interactive-stdin guard, `help` as a search term, SIGPIPE-safe suffix parsing).
+- **Recipe policy override: default visibility is `public`** (not eidetic's
+  upstream `private`) — a plain `/remember` lands the note in `./.eidetic/memory`
+  in this repo, kept as part of the repo; pass `--visibility private` to route a
+  record to `$HOME` instead. Wrapper `usage()` text, the per-wrapper scope
+  comments, and both `SKILL.md` files (frontmatter + body) now describe this
+  public-by-default behaviour consistently (resolves the PR #244 doc/code
+  mismatch). Runtime dep: the `eidetic` CLI on PATH (else a local eidetic-cli
+  checkout with `uv`) — **`eidetic >= 0.10.0`** for the in-repo routing.
+
+### Fixed
+
+- **Scope-resolution no longer fails open silently.** When a `culture.yaml` is
+  found but its `suffix` cannot be parsed (or parses to an invalid token), the
+  wrappers no longer fall back to eidetic's broad `default`/`public` scope
+  without warning; the empty-suffix path emits an explicit stderr warning and the
+  resolved suffix is validated before use (resolves the PR #243 "silent scope
+  fallback leak" finding). `stdout` stays clean for `--json` consumers.
+
+## [1.24.0] - 2026-06-23
+
+### Added
+
+- colleague session: visible, operator-controllable mode cycled with shift-tab (live ANSI) or the keyboard-free /mode slash — auto/work/plan/explore/review; new single-source colleague/session_modes.py catalog
+- colleague session explore/review modes: read-only investigation/diff-review reachable from the interactive session for the first time (in-place under the explorer/reviewer role, no commit/branch/PR)
+- handoff.diff_range: operator-side `<base>...HEAD` diff source for the read-only reviewer
+
+### Changed
+
+- colleague session free-text routing is now mode-aware: auto is byte-identical to the prior classify_intent behaviour; work/plan/explore/review pin the verb; a number/template pick is never reclassified
+- CockpitState.mode (previously a dead field) now carries the live session mode across the TAUI JSON, Markdown, and flat-ANSI tiers, with a shift-tab affordance on the status line
+- raw-mode reader decodes shift-tab (ESC[Z) into a SHIFT_TAB token / CYCLE_MODE sentinel; every other key path byte-identical
+
+### Fixed
+
+- read-only roles (explorer/reviewer/planner/validator) now bypass the dirty-tree guard AND skip the write handoff in `execute_work`: a read-only run (session explore/review, ask-colleague) starts even with operator WIP present and the handoff's `git add -u` never sweeps that WIP onto `colleague/<id>` and reverts it (silent data loss). New `roles.is_read_only` predicate; runtime-owned so every read-only caller inherits it. (Qodo, PR #245)
+
+## [1.23.0] - 2026-06-23
+
+### Added
+
+- Agent-native default session (#234): a free-text goal typed into `colleague session` is intent-routed to `work` or `plan` without naming a subcommand, on colleague's own served backend by default. New `COLLEAGUE_SESSION_ENGINE` env var overrides the session backend (precedence: --engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > vllm-openai).
+- AgentFront-surface probe reflex (#235): the default system prompt instructs colleague to check an unfamiliar tool's learn/explain/--help/--json surface before first real use (read-only; enforced harness probe is a tracked follow-up, #241).
+- `colleague.session_intent.classify_intent` — a deterministic, stdlib-only work/plan keyword classifier.
+- `colleague.config.resolve_session_engine` — session-scoped backend resolution.
+
+### Changed
+
+- Legible session action feed (#233): consecutive identical feed lines group into `<line> ×N`; the culture/devague tools render as `<cli/move> <args>` (what ran + on what) instead of a bare `[culture]`; the per-step hint cap is raised from 48 to 120 characters so long commands are not cut.
 
 ## [1.22.1] - 2026-06-21
 

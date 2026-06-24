@@ -439,6 +439,81 @@ The architecture, part by part:
   steps, no clock/thread) and a steady severity glyph at idle. `/help` is grouped
   by intent (Controls / Inspect / Session) and stays compact; `/help verbose`
   expands every command. The boxed `tui render` ANSI view is unchanged.
+  **Agent-native default (#234/#233/#235):** three co-shipped improvements make
+  `colleague session` the natural agent-native entry point —
+  (1) **Intent routing (#234)** — free-text input is classified by
+  `colleague/session_intent.py` `classify_intent(text) -> "work"|"plan"` (stdlib
+  `re` only, zero deps) and routed to the right verb without the operator typing a
+  subcommand. A `→ work:` / `→ plan:` routing line is logged so the dispatch is
+  always visible. Bare numbers and known template names are never reclassified (a
+  palette selection is always `work`). The classifier is **high-precision for
+  `plan`** — `plan` fires only on an explicit planning trigger, with negative guards
+  against the common false positives (e.g. `work on the plan mode feature` stays
+  `work`); unmatched or ambiguous input falls through to the `work` default. A
+  false-positive *can* still route to `plan`, but never *silently* — the `→ plan:`
+  line shows it before the plan path runs, so a misroute is always visible and
+  correctable, not hidden. The plan
+  branch runs a quick non-interactive spec→plan (`quick=True, workforce=False`) and
+  degrades cleanly on a non-live backend (e.g. `mock`) — a `CliError` is surfaced,
+  never a crash. **Non-goals:** `colleague work` / `colleague plan` still work for
+  scripting and agents that name a subcommand explicitly; intent routing fires ONLY
+  on genuine free text in `colleague session`. No new GUI.
+  (2) **Session backend override (#234)** — the session resolves its own backend via
+  `colleague/config.py` `resolve_session_engine()`: precedence is explicit `--engine`
+  flag > `COLLEAGUE_SESSION_ENGINE` env (a session-only override, new) > `COLLEAGUE_ENGINE`
+  env > built-in default (`vllm-openai`). There is NO `--session-engine` flag — only the
+  env var. `COLLEAGUE_SESSION_ENGINE` lets an operator point the conversational session
+  at a different backend than a bare `colleague work` without changing the global default;
+  the existing `--engine` flag still overrides everything.
+  (3) **Legible action feed (#233)** — the live cockpit feed is now legible at a glance:
+  consecutive identical feed lines collapse into a single `<line> ×N` entry instead of
+  stacking (e.g. four back-to-back `[culture]` calls become `[culture] agtag issues ×4`);
+  the `culture` and `devague` loop tools now surface as `<cli> <args>` / `<move> <args>` in
+  the feed target (e.g. `[culture] agtag issues fetch`) instead of a bare `[culture]`
+  sentinel; and the per-step hint cap is raised from 48 to 120 characters
+  (`_MAX_TARGET = 120` in `colleague/tui/from_work.py`) so long commands are no longer
+  cut. The grouping reducer lives in `colleague/tui/reducer.py` `_collapse_repeat`. This
+  is a pure display change — the underlying `TaskResult` and step trace are unchanged.
+  (4) **AgentFront probe reflex (#235)** — `_DEFAULT_SYSTEM` in `colleague/loop.py`
+  instructs the backend: before the **first** real use of an unfamiliar CLI or tool in a
+  run, read its `learn` / `explain` / `--help` / `--json` affordance first, then act on
+  what you found instead of guessing flags or output shape. A tool already used in the
+  run needs no re-probe. **Non-goals:** this is advisory and read-only — the reflex
+  instructs the model to read a surface, never to install, approve, or trust the tool.
+  An enforced harness-level probe is a named follow-up, NOT shipped. Spec + plan:
+  `docs/specs/` and `docs/plans/` entries prefixed `2026-06-23-*` (committed on branch
+  `spec/agent-native-default`).
+  (5) **Mode selection (TUI/TAUI)** — `colleague session` exposes a visible,
+  operator-controllable **mode** cycled with **shift-tab** (live ANSI) or the
+  keyboard-free **`/mode`** slash: `auto → work → plan → explore → review → auto`
+  (`colleague/session_modes.py` is the single-source catalog — `MODES` / `next_mode`
+  / `resolve_mode` / `route_for` / `mode_affordance_line`, drift-tested). The active
+  mode is written onto `CockpitState.mode` (previously a **dead field** always
+  serializing `"planning"`, never set) so every tier shows it — the TAUI JSON mirror
+  and Markdown render it directly, and the flat-ANSI status line carries the affordance
+  (`mode: [auto] work plan explore review · shift-tab to cycle`). Free-text routing is
+  now **mode-aware** (`_work_line` → `route_for`): **`auto` is byte-identical to the
+  prior behaviour** (same `classify_intent` call, same `→ work:` / `→ plan:` log);
+  `work` / `plan` pin the verb; `explore` / `review` take a **read-only** path; a bare
+  number / known template name is still never reclassified (a palette pick is always
+  `work`). Shift-tab is decoded in the raw reader as a new `SHIFT_TAB` token → a
+  `CYCLE_MODE` sentinel from `_raw_loop` (`colleague/cli/_commands/_session_input.py`),
+  every other key path byte-identical. **`/mode`** (in the drift-tested `SlashSpec`
+  catalog + `/help`) cycles with no arg, sets by name, and errors with the valid-mode
+  hint on a bad name. **explore/review run IN-PLACE under the read-only
+  explorer/reviewer role** (`colleague/roles.py`, which withholds `write_file` /
+  `edit_file` / `run_command`), so the run provably cannot mutate the tree — no
+  commit/branch/PR handoff (`open_pr=False`); review sources its `<base>...HEAD` diff
+  operator-side via `handoff.diff_range` because the read-only reviewer cannot run git
+  itself. This brings explore/review (previously only `ask-colleague` verbs) to the
+  interactive surface for the first time; the parked frame unknown is resolved here
+  (in-place under the read-only role, not a throwaway worktree). **Non-goals:** modes
+  don't change the `colleague work` / `colleague plan` subcommands; no new
+  dep/socket/daemon; the classifier code is unchanged; the shift-tab KEY works only on
+  the live-ANSI path (non-TTY uses `/mode`). Spec + plan:
+  `docs/specs/2026-06-23-colleague-session-shows-the-mode-you-re-driving-in.md` and
+  `docs/plans/2026-06-23-colleague-session-shows-the-mode-you-re-driving-in.md`;
+  feature doc: `docs/features/session-modes.md`.
 - **Cockpit views (tui)** — `colleague tui` provides three headless, pure-stdlib
   views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
   `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**
@@ -1078,3 +1153,31 @@ blocks merge otherwise — use the `version-bump` skill), create the PR via the
 `cicd` skill, address review, merge. Distribution is `colleague`; the
 command and import package are `colleague`. PyPI publish is via Trusted
 Publishing on merge to `main`.
+
+## Conventions and workflow
+
+**Memory discipline — recall before, remember after.** This repo keeps its
+eidetic memory **in-repo and public**: records resolve to
+`<repo-root>/.eidetic/memory` — committed, and shared with the team and mesh
+peers (the `claude` and `colleague` backends both read the same
+`colleague` scope), so memory travels with the repo, not a private
+home-dir store. Make it a per-task habit:
+
+- **`/recall` before you start.** Search the store for the area you're about
+  to touch — prior decisions, gotchas, "have we done this before?" — so you
+  build on what's already known instead of re-deriving it. Do this before
+  non-trivial tasks, not just when asked.
+- **`/remember` when something worth keeping surfaces.** A non-obvious
+  decision and its rationale, a constraint, a fix and *why* it was needed, a
+  gotcha that cost time, a fact the next session would otherwise re-learn.
+  Capture it as it happens, not at the end when it's faded.
+
+A plain `/remember` lands the note in `./.eidetic/memory` in this repo — no
+flag needed (the wrappers here default to `--visibility public`; in-repo
+routing needs `eidetic >= 0.10.0`, older CLIs keep records in `$HOME`). Keep
+something out of the committed store only by passing `--visibility private`
+(routes to `$HOME/.eidetic/memory`, never committed); `/recall` reads both
+stores and merges. Don't store what the repo already records (code structure,
+git history, what's already in this file or `CHANGELOG.md`) — store what you'd
+have to re-derive. These are the `recall`/`remember` skills (`.claude/skills/`),
+backed by the `eidetic` store.

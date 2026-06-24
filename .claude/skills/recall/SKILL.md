@@ -9,13 +9,17 @@ description: >
   text, full metadata, a relevance `score`, and a freshness `signal`. Recall
   passively reinforces matched records (bumps last_recall + recall_count).
   Shadowed and archived records are excluded by default; use
-  --include-shadowed / --include-archived to retrieve them. The store lives at
-  ~/.eidetic/memory (a home-dir path outside any git worktree); the wrapper
-  defaults queries to this agent's PERSONAL, PRIVATE scope (`--scope colleague
-  --visibility private`, suffix read from culture.yaml) — matching where
-  /remember writes — so a no-flag recall returns this agent's own private records
-  plus the shared public pool, and Claude and the colleague backend recall each
-  other's memories because both resolve the same suffix via this skill. Use
+  --include-shadowed / --include-archived to retrieve them. The store uses
+  visibility-aware routing: PUBLIC records inside a git repo go to
+  <repo-root>/.eidetic/memory (committed, team-shared); PRIVATE records, or any
+  record outside a git repo, go to $HOME/.eidetic/memory (never committed). An
+  explicit EIDETIC_DATA_DIR wins and short-circuits to that single dir. Recall
+  reads both stores and merges. The wrapper defaults queries to this agent's
+  PERSONAL, PRIVATE scope (`--scope colleague --visibility private`, suffix
+  read from culture.yaml) — matching where /remember writes — so a no-flag
+  recall returns this agent's own private records plus the shared public pool,
+  and Claude and the colleague backend recall each other's memories because both
+  resolve the same suffix via this skill. Use
   when the user says "recall", "what do we know about X", "search memory",
   "have we seen X before", "look it up in memory", "eidetic recall", or before
   answering from scratch when prior context may already be stored. Pairs with
@@ -31,7 +35,7 @@ surface; the write half is the sibling **/remember** skill.
 
 The point of a *shared* store is that memory is a **team faculty**, not a
 per-agent silo: a record Claude wrote is recallable by the colleague backend
-(and vice versa), because both resolve the same `~/.eidetic/memory` path.
+(and vice versa), because both resolve the same `$HOME/.eidetic/memory` path.
 
 ## How to run
 
@@ -168,7 +172,7 @@ bash .claude/skills/recall/scripts/recall.sh "power" --include-archived --includ
   matches. `approximate` keeps every candidate ranked by raw cosine, so it can
   return low/near-zero scores when the store is small — lower `--top-k` to trim.
   A `--min-score` threshold is a tracked follow-up.
-- **Sharing scope = one OS user.** The default store is `~/.eidetic/memory`, so
+- **Sharing scope = one OS user.** The default store is `$HOME/.eidetic/memory`, so
   every agent/process running as the *same* OS user shares it (that is the point —
   Claude + colleague). It is not isolated between OS users by anything but file
   permissions; keep genuinely private data in a `--visibility private` scope and
