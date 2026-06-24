@@ -47,7 +47,7 @@ import os
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterator, Optional, Sequence, TypeVar
+from typing import Callable, Iterator, Optional, Sequence, TypeVar, cast
 
 from colleague import cockpit, feedback, handoff, layers, registry
 from colleague.cli._banner import emit_banner
@@ -858,7 +858,10 @@ class _Session:
         silent data loss; Qodo, PR #245). So we forward ``self.allow_dirty``
         unchanged (via ``_dispatch_work``) — the read-only role is what makes it
         moot. ``open_pr=False`` keeps the push/PR off regardless."""
-        config = replace(self.config, role=role)
+        # The cast is purely for the static analyser: Sonar models replace()'s
+        # return as a generic DataclassInstance, not EngineConfig, which trips S5655
+        # at the _dispatch_work call below (same cast in colleague/subagents.py).
+        config = cast(EngineConfig, replace(self.config, role=role))
         task = Task.new(
             str(self.repo),
             task_text if task_text is not None else request,
