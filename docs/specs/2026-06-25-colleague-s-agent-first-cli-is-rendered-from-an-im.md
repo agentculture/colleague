@@ -60,3 +60,11 @@
 - agentfront is the one base runtime dep; the MCP server + the mcp SDK + the daemon live behind a colleague[mcp] extra (matching colleague's otel/tui/culture extras pattern)
 - MCP and HTTP are BONUSES derived from the same registry, not the headline; the CLI is the primary surface
 - Version-pin agentfront's consumer CLI API with a tested floor and pin the mcp SDK in the extra; a major agentfront/mcp bump is a deliberate, tested colleague update, never an automatic float
+
+## Tracking
+
+- **Phase 1 precondition (external):** the agentfront consumer CLI API is filed as
+  [agentculture/agentfront#35](https://github.com/agentculture/agentfront/issues/35).
+  Colleague's Phase 2 (this spec) is gated on it; do not start colleague-side
+  implementation until that API ships and a spike confirms it renders colleague's
+  full nested-verb surface (assumption c21 / honesty on requirement c6).
