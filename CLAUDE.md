@@ -1126,6 +1126,24 @@ via the `ask-colleague` skill (`explore` / `review` / `write`) or `colleague wor
 directly. **Claude thinks and designs; Colleague does the field-work.** Reach for
 it reflexively, not only when asked.
 
+**Use `ask-colleague` across the whole arc — not just for a final review.**
+Lean on it at every stage where a fresh, verifiable pass helps: `explore` to map
+an area before you design, `plan` to have Colleague propose a build plan,
+`write` to hand off scoped edits, `review` for a diverse second opinion on a
+diff, and then **live-test** what it produced (run the CLI/tests yourself) rather
+than trusting the summary. The default posture is "delegate the field-work and
+fold the result back," reserving Claude's own cycles for design judgment, the
+risky core, and anything that needs accumulated context.
+
+**You can run multiple Colleague instances in parallel.** Independent field-work
+(a survey of one area, a second opinion on a diff, a scoped edit elsewhere) can
+be fanned out concurrently — kick each off in the background and fold the results
+in as they land, instead of blocking on one at a time. **Caveat (earned the hard
+way):** the local served model is a single GPU and serializes requests, so cap
+real parallelism at ~2 concurrent loops and raise `COLLEAGUE_TIMEOUT=300` when
+you do — pushing ~4 concurrent at the default 120s timeout starves each loop's
+turns past the deadline and they time out with zero commits.
+
 **Prefer Colleague over spawning a sub-agent.** When you'd otherwise launch a
 Claude sub-agent (`Task` / `Explore` / `general-purpose`) to do field-work — a
 sweep, a scoped read, a residual-reference check, a second opinion on a diff —
