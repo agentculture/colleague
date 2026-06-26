@@ -22,8 +22,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague.cli._commands.overview import emit_overview
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._commands.overview import render_text
+from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import EngineConfig
 from colleague.roles import BUILTIN_ROLES, Role, load_role
 
@@ -76,33 +76,68 @@ def _resolve_roles(repo: Path, model: str) -> list[Role]:
     return resolved
 
 
-def cmd_roles_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague roles",
-        _roles_sections(),
-        json_mode=bool(getattr(args, "json", False)),
+# --- registry tool functions (rendered) + thin legacy adapters --------------
+
+
+def _roles_overview() -> object:
+    sections = _roles_sections()
+    return rendered(
+        {"subject": "colleague roles", "sections": sections},
+        render_text("colleague roles", sections),
     )
+
+
+def _roles_list(repo: str = ".", model: str = "") -> object:
+    """Registry tool: the resolved typed subagent roles as ``rendered(dict, text)``.
+
+    ``repo`` / ``model`` are derived by agentfront into ``--repo`` / ``--model``
+    from this signature; an empty ``model`` resolves to the engine's model exactly
+    as the legacy ``--model`` default (``None``) did.
+    """
+    repo_path = Path(repo).expanduser()
+    resolved_model = model or EngineConfig.resolve().model
+    roles = _resolve_roles(repo_path, resolved_model)
+    lines = []
+    for r in roles:
+        flag = "read-only" if r.read_only else "full"
+        skills = "all" if r.skill_subset is None else (",".join(r.skill_subset) or "none")
+        lines.append(f"{r.name}\t[{flag}]\ttools: {','.join(r.tool_allowlist)}\tskills: {skills}")
+    return rendered(
+        {"model": resolved_model, "roles": [_role_to_dict(r) for r in roles]},
+        "\n".join(lines),
+    )
+
+
+def register_into(app) -> None:
+    """Register the typed-subagent-role inspection verbs on the App registry."""
+    g = app.group("roles")
+    g.tool(
+        _roles_list,
+        name="list",
+        description="List the resolved typed subagent roles.",
+        doc="# roles list [--model M] [--repo PATH]\nList every built-in subagent "
+        "role resolved for a model: its read-only flag, curated tool allow-list, "
+        "and skill subset (with any operator prompt overlay applied).",
+    )
+    g.tool(
+        _roles_overview,
+        name="overview",
+        description="Describe the roles surface.",
+        doc="# roles overview\nDescribe the typed-subagent-role surface: what a role "
+        "is, roles vs the AGENTS-instruction `agents` noun, and the verbs.",
+    )
+
+
+def cmd_roles_overview(args: argparse.Namespace) -> int:
+    emit_result(_roles_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
 def cmd_roles_list(args: argparse.Namespace) -> int:
-    repo = Path(getattr(args, "repo", ".")).expanduser()
-    model = getattr(args, "model", None) or EngineConfig.resolve().model
-    json_mode = bool(getattr(args, "json", False))
-
-    roles = _resolve_roles(repo, model)
-
-    if json_mode:
-        emit_result({"model": model, "roles": [_role_to_dict(r) for r in roles]}, json_mode=True)
-    else:
-        lines = []
-        for r in roles:
-            flag = "read-only" if r.read_only else "full"
-            skills = "all" if r.skill_subset is None else (",".join(r.skill_subset) or "none")
-            lines.append(
-                f"{r.name}\t[{flag}]\ttools: {','.join(r.tool_allowlist)}\tskills: {skills}"
-            )
-        emit_result("\n".join(lines), json_mode=False)
+    emit_result(
+        _roles_list(getattr(args, "repo", "."), getattr(args, "model", None) or ""),
+        json_mode=bool(getattr(args, "json", False)),
+    )
     return 0
 
 

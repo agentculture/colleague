@@ -18,8 +18,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague.cli._commands.overview import emit_overview
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._commands.overview import render_text
+from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import EngineConfig
 from colleague.layers import resolve_agents
 
@@ -54,30 +54,74 @@ def _agents_sections() -> list[dict[str, object]]:
     ]
 
 
-def cmd_agents_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague agents",
-        _agents_sections(),
-        json_mode=bool(getattr(args, "json", False)),
+# --- registry tool functions ------------------------------------------------
+# Named params (no argparse Namespace), return rendered(structured, text). The
+# agentfront-rendered CLI derives the args from the signature and emits the
+# return value (--json -> the dict, else the pretty text). The legacy cmd_*
+# handlers below are thin adapters over these, so both doors share one
+# rendering and the pre-flip --json/text output stays byte-identical.
+
+
+def _agents_overview() -> object:
+    sections = _agents_sections()
+    return rendered(
+        {"subject": "colleague agents", "sections": sections},
+        render_text("colleague agents", sections),
     )
+
+
+def _agents_list(model: str | None = None, repo: str = ".") -> object:
+    repo_path = Path(repo).expanduser()
+    resolved_model = model or EngineConfig.resolve().model
+    layers = resolve_agents(repo_path, resolved_model)
+
+    if not layers:
+        text = "(no AGENTS layers found)"
+        items: list[dict[str, str]] = []
+    else:
+        lines = [f"{layer.scope}\t{layer.path}" for layer in layers]
+        text = "\n".join(lines)
+        items = [{"scope": layer.scope, "path": str(layer.path)} for layer in layers]
+
+    return rendered({"model": resolved_model, "agents": items}, text)
+
+
+def register_into(app) -> None:
+    """Register the agents verbs on the agentfront App registry."""
+    g = app.group("agents")
+    g.tool(
+        _agents_list,
+        name="list",
+        description="List resolved AGENTS instruction layers.",
+        doc="# agents list\nList the AGENTS instruction layers resolved for a model "
+        "(AGENTS.md -> AGENTS.colleague.md -> AGENTS.colleague.<model>.md).",
+    )
+    g.tool(
+        _agents_overview,
+        name="overview",
+        description="Describe the agents surface.",
+        doc="# agents overview\nDescribe the layered AGENTS instruction file surface.",
+    )
+
+
+# --- legacy argparse path (pre-flip) ----------------------------------------
+# Thin adapters delegating to the registry tool functions so the live argparse
+# CLI stays byte-identical until the entry is flipped to the rendered CLI.
+
+
+def cmd_agents_overview(args: argparse.Namespace) -> int:
+    emit_result(_agents_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
 def cmd_agents_list(args: argparse.Namespace) -> int:
-    repo = Path(getattr(args, "repo", ".")).expanduser()
-    model = getattr(args, "model", None) or EngineConfig.resolve().model
-    json_mode = bool(getattr(args, "json", False))
-
-    layers = resolve_agents(repo, model)
-
-    if json_mode:
-        items = [{"scope": layer.scope, "path": str(layer.path)} for layer in layers]
-        emit_result({"model": model, "agents": items}, json_mode=True)
-    elif not layers:
-        emit_result("(no AGENTS layers found)", json_mode=False)
-    else:
-        lines = [f"{layer.scope}\t{layer.path}" for layer in layers]
-        emit_result("\n".join(lines), json_mode=False)
+    emit_result(
+        _agents_list(
+            model=getattr(args, "model", None),
+            repo=getattr(args, "repo", "."),
+        ),
+        json_mode=bool(getattr(args, "json", False)),
+    )
     return 0
 
 

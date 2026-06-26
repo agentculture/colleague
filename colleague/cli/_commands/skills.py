@@ -16,8 +16,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague.cli._commands.overview import emit_overview
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._commands.overview import render_text
+from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import EngineConfig
 from colleague.layers import resolve_skills
 
@@ -53,31 +53,68 @@ def _skills_sections() -> list[dict[str, object]]:
     ]
 
 
-def cmd_skills_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague skills",
-        _skills_sections(),
-        json_mode=bool(getattr(args, "json", False)),
+# --- registry tool functions (rendered) + thin legacy adapters --------------
+
+
+def _skills_overview() -> object:
+    sections = _skills_sections()
+    return rendered(
+        {"subject": "colleague skills", "sections": sections},
+        render_text("colleague skills", sections),
     )
+
+
+def _skills_list(model: str | None = None, repo: str = ".") -> object:
+    """Registry tool: resolved skill docs as ``rendered(dict, text)``.
+
+    ``model`` / ``repo`` derive into ``--model`` / ``--repo``; an empty ``model``
+    resolves to the engine's model exactly as the legacy ``--model`` default did.
+    Mirrors the sibling ``agents list`` so the two layered-config nouns stay
+    parallel, including the empty-state dual rendering.
+    """
+    repo_path = Path(repo).expanduser()
+    resolved_model = model or EngineConfig.resolve().model
+    skills = resolve_skills(repo_path, resolved_model)
+    ordered = [skills[name] for name in sorted(skills)]
+    if not ordered:
+        text = "(no skills found)"
+        items: list[dict[str, str]] = []
+    else:
+        text = "\n".join(f"{s.scope}\t{s.name}\t[accessible]" for s in ordered)
+        items = [{"name": s.name, "scope": s.scope, "status": "accessible"} for s in ordered]
+    return rendered({"model": resolved_model, "skills": items}, text)
+
+
+def register_into(app) -> None:
+    """Register the layered-skill inspection verbs on the agentfront App registry."""
+    g = app.group("skills")
+    g.tool(
+        _skills_list,
+        name="list",
+        description="List resolved skill docs.",
+        doc="# skills list [--model M] [--repo PATH]\nList the skill docs resolved "
+        "for a model: base .colleague/skills/*.md overlaid by the per-model overlay, "
+        "each with its winning scope (all accessible — skills are never gated).",
+    )
+    g.tool(
+        _skills_overview,
+        name="overview",
+        description="Describe the skills surface.",
+        doc="# skills overview\nDescribe the layered-skill surface: resolution, the "
+        "instructional-only scope, and the verbs.",
+    )
+
+
+def cmd_skills_overview(args: argparse.Namespace) -> int:
+    emit_result(_skills_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
 def cmd_skills_list(args: argparse.Namespace) -> int:
-    repo = Path(getattr(args, "repo", ".")).expanduser()
-    model = getattr(args, "model", None) or EngineConfig.resolve().model
-    json_mode = bool(getattr(args, "json", False))
-
-    skills = resolve_skills(repo, model)
-    ordered = [skills[name] for name in sorted(skills)]
-
-    if json_mode:
-        items = [{"name": s.name, "scope": s.scope, "status": "accessible"} for s in ordered]
-        emit_result({"model": model, "skills": items}, json_mode=True)
-    elif not ordered:
-        emit_result("(no skills found)", json_mode=False)
-    else:
-        lines = [f"{s.scope}\t{s.name}\t[accessible]" for s in ordered]
-        emit_result("\n".join(lines), json_mode=False)
+    emit_result(
+        _skills_list(model=getattr(args, "model", None), repo=getattr(args, "repo", ".")),
+        json_mode=bool(getattr(args, "json", False)),
+    )
     return 0
 
 

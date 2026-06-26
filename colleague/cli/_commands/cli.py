@@ -10,15 +10,32 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._commands.overview import cli_sections, emit_overview
+from colleague.cli._commands.overview import cli_sections, render_text
+from colleague.cli._output import emit_result, rendered
+
+
+def _cli_overview() -> object:
+    sections = cli_sections()
+    return rendered(
+        {"subject": "colleague cli", "sections": sections},
+        render_text("colleague cli", sections),
+    )
+
+
+def register_into(app) -> None:
+    """Register the ``cli`` introspection noun on the agentfront App registry."""
+    g = app.group("cli")
+    g.tool(
+        _cli_overview,
+        name="overview",
+        description="Describe the colleague CLI surface.",
+        doc="# cli overview\nDescribe the colleague CLI surface (the verbs and "
+        "conventions) — distinct from the global `overview`, which describes the agent.",
+    )
 
 
 def cmd_cli_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague cli",
-        cli_sections(),
-        json_mode=bool(getattr(args, "json", False)),
-    )
+    emit_result(_cli_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
