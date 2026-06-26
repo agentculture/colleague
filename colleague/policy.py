@@ -58,8 +58,14 @@ POLICY_FILENAME = "approvals.json"
 #: Default checksum algorithm when none is specified.
 DEFAULT_ALGO = "sha256"
 
-#: Checksum algorithms colleague knows how to compute / verify.
-_SUPPORTED_ALGOS = frozenset({"sha256", "md5"})
+#: Checksum algorithms colleague knows how to compute / verify, in a stable
+#: order so a CLI ``--algo`` validation error can list them deterministically.
+#: Public so the ``commands``/``hooks`` ``approve`` verbs validate ``--algo``
+#: against the same set this module enforces (single source of truth).
+SUPPORTED_CHECKSUM_ALGOS = ("sha256", "md5")
+
+#: Membership set derived from the ordered tuple above.
+_SUPPORTED_ALGOS = frozenset(SUPPORTED_CHECKSUM_ALGOS)
 
 #: The file categories ``check_file`` gates.
 _FILE_CATEGORIES = frozenset({"hooks", "commands"})

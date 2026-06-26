@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-06-27
+
+### Added
+
+- **Early, choices-shaped `--algo` validation** on `colleague commands approve` and `colleague hooks approve`. A bad `--algo` (e.g. `crc32`) now fails immediately with a clean `error: invalid --algo 'crc32'` / `hint: choose one of: sha256, md5` (structured under `--json`) *before* any file/name lookup, instead of the previous late, file-existence-masked `could not checksum …` message. Validated against the new public `colleague.policy.SUPPORTED_CHECKSUM_ALGOS` tuple (single source of truth).
+
+### Changed
+
+- **Raised the agentfront floor to `>=0.15.0`** to adopt the two consumer-API gaps the CLI migration surfaced and which agentfront#38 closed: `Flag(choices=)` + a public single-dispatch MCP `run_tool` accessor.
+- **The MCP round-trip test now uses the public `app.mcp_server().run_tool` accessor** (agentfront 0.15.0, #38 Ask 2) instead of reaching into the private `agentfront.mcp_surface._build_run_tool`.
+- Recorded the honest limit of agentfront#38 Ask 1 for colleague: `--algo` is a *value-carrying* flag (its value is consumed via the function signature), so it cannot take an explicit `Flag(choices=)` without colliding with its signature-derived `--algo` at build time — hence the explicit early validation above rather than a parse-time choices flag (the two `approve` docstrings now state this accurately, replacing the stale "agentfront's Flag carries no choices" note).
+
 ## [1.26.0] - 2026-06-26
 
 ### Added

@@ -26,7 +26,7 @@ from colleague.cli import _approvals
 from colleague.cli._commands.overview import render_text
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result, rendered
-from colleague.policy import file_checksum, load_policy, verify_checksum
+from colleague.policy import SUPPORTED_CHECKSUM_ALGOS, file_checksum, load_policy, verify_checksum
 
 
 def _hooks_sections() -> list[dict[str, object]]:
@@ -224,12 +224,20 @@ def _hooks_list(repo: str = ".", model: str = "") -> object:
 def _hooks_approve(name: str, repo: str = ".", algo: str = "sha256") -> object:
     """Registry tool: record a checksum approval for a hook script file.
 
-    ``name`` (no default) derives into a positional arg. As with ``commands
-    approve``, an invalid ``--algo`` is caught by ``file_checksum`` rather than
-    parse-time choices (agentfront's Flag carries no ``choices``).
+    ``name`` (no default) derives into a positional arg. ``--algo`` is a
+    value-carrying flag (consumed via the ``algo`` signature param), so it
+    cannot take an explicit ``Flag(choices=…)`` without colliding with its
+    signature-derived ``--algo``; it is therefore validated explicitly and
+    early below, raising a clean choices-shaped ``CliError``.
     """
     repo_path = Path(repo).expanduser()
     algo = algo or "sha256"
+    if algo not in SUPPORTED_CHECKSUM_ALGOS:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"invalid --algo {algo!r}",
+            remediation=f"choose one of: {', '.join(SUPPORTED_CHECKSUM_ALGOS)}",
+        )
     # Normalize to the canonical repo-relative key — the SAME key hook
     # enforcement derives from a command referencing this file (so
     # 'hooks approve ./x.sh' and a hook running 'bash ./x.sh' agree on 'x.sh').

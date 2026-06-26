@@ -18,7 +18,7 @@ from colleague.cli._commands.overview import render_text
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.configdir import CONFIG_DIR_NAME
-from colleague.policy import file_checksum, load_policy, verify_checksum
+from colleague.policy import SUPPORTED_CHECKSUM_ALGOS, file_checksum, load_policy, verify_checksum
 
 
 def _commands_sections() -> list[dict[str, object]]:
@@ -101,13 +101,20 @@ def _commands_list(repo: str = ".", model: str = "") -> object:
 def _commands_approve(name: str, repo: str = ".", algo: str = "sha256") -> object:
     """Registry tool: record a checksum approval for a command template.
 
-    ``name`` (no default) derives into a positional argument. ``algo`` derives
-    into ``--algo``; agentfront's Flag carries no ``choices``, so an invalid algo
-    is caught by ``file_checksum`` (``ValueError`` → CliError) rather than at
-    parse time — a clean error either way.
+    ``name`` (no default) derives into a positional argument. ``--algo`` is a
+    value-carrying flag (consumed via the ``algo`` signature param), so it
+    cannot take an explicit ``Flag(choices=…)`` without colliding with its
+    signature-derived ``--algo``; it is therefore validated explicitly and
+    early below, raising a clean choices-shaped ``CliError``.
     """
     repo_path = Path(repo).expanduser()
     algo = algo or "sha256"
+    if algo not in SUPPORTED_CHECKSUM_ALGOS:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"invalid --algo {algo!r}",
+            remediation=f"choose one of: {', '.join(SUPPORTED_CHECKSUM_ALGOS)}",
+        )
     discovered = _cmds.discover_commands(repo_path)
     if name not in discovered:
         raise CliError(

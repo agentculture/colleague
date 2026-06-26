@@ -984,10 +984,21 @@ test (`tests/test_e2e_mock.py`) is the guard.
 ## Conventions
 
 - **One sanctioned base dependency: agentfront.** `pyproject.toml` declares
-  `dependencies = ["agentfront>=0.14.0"]` — the **first and only** sanctioned
+  `dependencies = ["agentfront>=0.15.0"]` — the **first and only** sanctioned
   base runtime dep, a deliberate, recorded break from the historical
   `dependencies = []` convention (see the **CLI surface (cli-on-agentfront)**
-  architecture part above). It
+  architecture part above). The floor moved from `0.14.0` (the consumer CLI API,
+  agentfront#35) to `0.15.0` to adopt the two consumer-API gaps the migration
+  surfaced and which agentfront#38 closed — `Flag(choices=)` and a **public
+  single-dispatch MCP `run_tool` accessor** (`app.mcp_server().run_tool`, used by
+  the MCP round-trip test instead of the private `_build_run_tool`). Honest
+  nuance on `Flag(choices=)`: colleague's `--algo` (on `commands`/`hooks`
+  `approve`) is a **value-carrying** flag — its value is consumed via the
+  rendered tool's signature param — so it cannot take an explicit `Flag(choices=)`
+  without colliding with its signature-derived `--algo` at build time; `--algo`
+  is therefore validated **explicitly and early** in the verb (a clean
+  choices-shaped `CliError` against `colleague.policy.SUPPORTED_CHECKSUM_ALGOS`),
+  not via a parse-time choices flag. It
   is justified because agentfront's own core is **pure-stdlib** (zero
   third-party transitive deps), it is an AgentCulture sibling, and it is
   foundational to the org's shared agent-first CLI standard. So a base

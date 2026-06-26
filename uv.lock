@@ -18,11 +18,11 @@ wheels = [
 
 [[package]]
 name = "agentfront"
-version = "0.14.0"
+version = "0.15.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7c/5a/0aac83fa63d58e51dab8a5e2f551885710439f402293828ae4eca9d27f18/agentfront-0.14.0.tar.gz", hash = "sha256:9e27e6a173de722c18b397ac87428a6faeb04b92c29874d14cbce69b6327b367", size = 306474, upload-time = "2026-06-26T10:02:17.576Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c4/fc/a9e21a80a2cd72baf27334ef234111869b8bca47ebfad57a09b82ae80816/agentfront-0.15.0.tar.gz", hash = "sha256:721eb3dfc5dcf549cfeaa0a94826d1024a1161ad9728c354825400519323b7ac", size = 315816, upload-time = "2026-06-26T21:29:49.893Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/67/803b3befda74cf84375e1983acff6aba2a86be3db530e1d961fcf274c03e/agentfront-0.14.0-py3-none-any.whl", hash = "sha256:bfd4ff3f86d7c0e36d01e5eedabafdc9340ca401868efb7b9857c50fa5f7738e", size = 79289, upload-time = "2026-06-26T10:02:16.338Z" },
+    { url = "https://files.pythonhosted.org/packages/51/b0/b78752fd24b48ca3e38ec1a3db49643caae73ba36d673f55e5a179675bf7/agentfront-0.15.0-py3-none-any.whl", hash = "sha256:0ddb54959c6127500a5159e167790c530fe88c851fd696fc9e5e4946c4de5b65", size = 80393, upload-time = "2026-06-26T21:29:48.663Z" },
 ]
 
 [[package]]
@@ -271,7 +271,7 @@ wheels = [
 
 [[package]]
 name = "colleague"
-version = "1.26.0"
+version = "1.27.0"
 source = { editable = "." }
 dependencies = [
     { name = "agentfront" },
@@ -316,7 +316,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "agent-lifecycle", marker = "extra == 'culture'", specifier = ">=0.7" },
-    { name = "agentfront", specifier = ">=0.14.0" },
+    { name = "agentfront", specifier = ">=0.15.0" },
     { name = "agentirc-cli", marker = "extra == 'culture'", specifier = ">=9.6,<10" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28.0" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.25" },

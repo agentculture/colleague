@@ -188,11 +188,29 @@ legacy-parser-retirement follow-up.
 - **MCP is server-only and opt-in.** No `mcp.json` is read; no live MCP client
   exists; the server runs only when the operator installs `colleague[mcp]` and
   explicitly runs `mcp serve`.
-- **agentfront is now a base dep.** This is the one deliberate, recorded break
-  from `dependencies = []`. agentfront's core is pure-stdlib, so a base install
-  still pulls zero third-party transitive deps; `tests/test_zero_deps.py` is an
-  allow-list of exactly agentfront and asserts the MCP SDK is absent without the
-  extra.
+- **agentfront is now a base dep (floor `>=0.15.0`).** This is the one
+  deliberate, recorded break from `dependencies = []`. agentfront's core is
+  pure-stdlib, so a base install still pulls zero third-party transitive deps;
+  `tests/test_zero_deps.py` is an allow-list of exactly agentfront and asserts
+  the MCP SDK is absent without the extra. The floor moved from `0.14.0` (the
+  consumer CLI API, agentfront#35) to `0.15.0` to adopt the two consumer-API
+  gaps this migration surfaced and which **agentfront#38** closed: `Flag(choices=)`
+  and a **public single-dispatch MCP `run_tool` accessor**
+  (`app.mcp_server().run_tool`) — the MCP round-trip test now uses the public
+  accessor instead of the private `_build_run_tool`.
+- **`--algo` is validated early, not via a parse-time choices flag.** agentfront
+  0.15.0's `Flag(choices=)` enforces a choice set at parse time, but only for a
+  flag whose value the rendered tool does *not* consume from its signature.
+  colleague's `--algo` (on `commands`/`hooks` `approve`) **is** value-carrying:
+  its value reaches the function via the signature param, so an explicit
+  `Flag(["--algo"], choices=…)` collides at build time with the
+  signature-derived `--algo` (and a Flag-only `--algo` would parse but silently
+  drop the chosen value). So `--algo` is validated **explicitly and early** in
+  the verb — a clean choices-shaped `CliError` against
+  `colleague.policy.SUPPORTED_CHECKSUM_ALGOS`, raised before any file/name
+  lookup — rather than through `Flag(choices=)`. A fully general fix (letting an
+  explicit `Flag` *replace* a signature-derived arg of the same dest) would be a
+  further agentfront ask.
 - **Domain runtime untouched.** The loop, contract, engines, and gates are
   unchanged — operations are *registered* as tools, not reimplemented (the
   all-engines rule is preserved).

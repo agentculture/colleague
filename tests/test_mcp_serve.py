@@ -60,13 +60,14 @@ def test_mcp_server_builds_and_round_trips():
     """With [mcp] installed, the server builds; a command from the catalog
     dispatches through the run-tool logic to the SAME registry op the CLI runs."""
     pytest.importorskip("mcp", reason="the MCP bonus needs the optional [mcp] extra")
-    from agentfront.mcp_surface import _build_run_tool
 
     app = build_app()
     server = app.mcp_server()  # builds without raising → the extra is present
     assert server is not None
 
-    run_tool = _build_run_tool(app)
+    # Public run-tool accessor (agentfront 0.15.0, issue #38 Ask 2) — no longer
+    # reaching into the private ``_build_run_tool``.
+    run_tool = server.run_tool
     assert run_tool.name == "run"
     assert set(run_tool.inputSchema["required"]) == {"command", "args"}
 
