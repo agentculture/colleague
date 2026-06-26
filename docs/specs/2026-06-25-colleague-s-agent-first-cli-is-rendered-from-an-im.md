@@ -30,18 +30,18 @@
 - The maintainer win is measurable (net agent-first scaffolding LOC removed from colleague/cli/) and the org-consistency win is real (colleague + agentfront render their CLIs from the same published API), while the Cowork bonus is genuinely free (no colleague code beyond registering operations enables it)
 - Verified against agentfront 0.11.1: App.cli() registers only learn/doctor (cli_surface.make_cli), @app.tool is MCP/HTTP-only and never CLI-dispatched, and the rich CLI machinery is internal to agentfront.cli with no consumer extension hook
 - Colleague's nested noun/verb groups, per-verb flags, --json, and the explain/overview catalog are all produced by agentfront's published API (not re-hand-rolled in colleague), proven by the CLI tests passing against the imported surface
-- A test asserts the CLI command set, the MCP tool list, and the learn catalog all enumerate the SAME registry entries, so an operation added once appears on every surface — no drift, no per-surface duplication
+- A test asserts the CLI verb set, the single MCP dispatch tool's command catalog, and the learn catalog all enumerate the SAME registry operations — catalog-level set-equality (the MCP surface is one dispatching tool, not one tool per op), so an operation added once appears on every surface — no drift, no per-surface duplication
 - The affordance checklist shows every interactive affordance either expressed via agentfront or explicitly kept colleague-owned behind a launcher — none silently dropped; session/tui tests stay green
 - With no [mcp] extra installed, colleague imports no mcp SDK, binds no socket, and starts no daemon — asserted by a test; the MCP server runs only when the operator installs the extra and explicitly starts it
 - Grepping colleague/cli/ post-migration shows the CLI built from the agentfront import (registry-driven), not hand-rolled argparse; the full CLI/e2e suite plus doctor are green
 - An end-to-end MCP round-trip test (with the extra) connects, lists, and invokes at least one colleague operation and gets its result; without the extra the same import path raises a clean 'install colleague[mcp]' error, not a crash
-- The test enumerating CLI commands vs MCP tools vs learn entries asserts set-equality over the registry, so adding/removing an operation updates all three surfaces at once
+- The test enumerating CLI verbs vs the single MCP dispatch tool's command catalog vs learn entries asserts catalog-level set-equality over the registry (NOT len(mcp_tools)==len(cli_verbs); the MCP surface is a single dispatch tool whose command catalog lists the ops), so adding/removing an operation updates all three surfaces at once
 
 ## Success signals
 
 - Colleague's CLI is rendered from the imported agentfront API (no hand-rolled argparse dispatch remains except the launcher) and behaves byte-compatibly; the e2e suite and 'agentfront cli doctor . --strict' are green
 - With the [mcp] extra installed, an MCP client lists + invokes colleague's operations over the served MCP server (the Cowork bonus works); the base install is byte-identical and binds no socket
-- One agentfront registry feeds the CLI command set, the MCP tool list, and the learn catalog — a test asserts they enumerate the same operation set (no drift)
+- One agentfront registry feeds the CLI verb set, the single MCP dispatch tool's command catalog, and the learn catalog — a test asserts they enumerate the same operation set at the catalog level (no drift; the MCP surface is one dispatching tool, not N)
 
 ## Scope / boundaries
 
@@ -63,8 +63,46 @@
 
 ## Tracking
 
-- **Phase 1 precondition (external):** the agentfront consumer CLI API is filed as
-  [agentculture/agentfront#35](https://github.com/agentculture/agentfront/issues/35).
-  Colleague's Phase 2 (this spec) is gated on it; do not start colleague-side
-  implementation until that API ships and a spike confirms it renders colleague's
-  full nested-verb surface (assumption c21 / honesty on requirement c6).
+**Phase 1 precondition — SHIPPED (gate lifted).** The agentfront consumer CLI
+API was filed as
+[agentculture/agentfront#35](https://github.com/agentculture/agentfront/issues/35)
+and is now merged on agentfront `main` (commit `fb16272`, "feat: public consumer
+CLI API implementation (closes #35)", released in **agentfront 0.14.0**). It
+ships exactly the host-facing surface this spec assumed: tool→CLI dispatch from
+the registry, nested noun/verb groups to arbitrary depth (`App.tool(group=…)` /
+`App.group(*prefix)`), per-verb signature-derived args plus rich explicit
+`Flag(...)` declarations, per-verb `--json`, structured
+`{code,message,remediation}` errors to stderr with non-zero exit, `explain` /
+`overview` from the registry, a host extension hook for hand-written subcommands
+(`App.add_command`) and a no-command handler (`App.set_no_command_handler`).
+
+**#246 applied — single-dispatch MCP reword.** agentfront chose to expose the
+MCP surface as a **single-dispatch "CLI on MCP" tool** (one `run` tool whose
+`inputSchema`/description embeds the command catalog), not one MCP tool per
+operation. Per
+[agentculture/colleague#246](https://github.com/agentculture/colleague/issues/246)
+the cross-surface parity honesty conditions (h5, h13) and the success-signal
+claim (c16) were reworded from MCP-tool-**count** equality
+(`N CLI == N MCP == N learn`) to **catalog-level** set-equality: the CLI verb
+set == the single MCP dispatch tool's command catalog == the `learn` catalog,
+all enumerated from the one registry.
+
+**Coverage spike — PASSED (discharges assumption c21 / honesty c6).** A spike
+registered a representative-hardest slice of colleague's CLI (the ~18-flag
+`work` verb — positional + typed + bool on/off + default-ON opt-out + flag alias
++ dest-rename + hyphenated flag name + `nargs`; a nested `feedback
+record|show|list` group; an arbitrary-depth `a b deep` path; per-verb `--json`;
+a forced structured error; bare-noun→overview; `explain`/`overview`; a
+host-owned `session` launcher via the extension hook; a bare-invocation
+no-command handler) into an agentfront `App` and rendered it via the shipped
+`run_cli`/`App.cli()`. **All 12 checks pass against agentfront 0.14.0**,
+including the reworded #246 catalog-parity invariant
+(`registry == single MCP-tool catalog == learn catalog`). agentfront expresses
+colleague's full nested-verb surface; the migration is unblocked. The spike is
+the seed of the cross-surface parity + coverage test that the implementation
+must port into `tests/`.
+
+**Next:** `/spec-to-plan` against this (revised, converged) frame to produce the
+buildable Phase-2 plan, then implement colleague's side (packaging:
+`agentfront` as the one base dep + a `colleague[mcp]` extra; render every verb
+from the registry; keep `session`/`tui` as host-owned launcher verbs).

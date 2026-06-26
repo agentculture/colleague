@@ -4,7 +4,7 @@
   "schema_version": 1,
   "status": "exported",
   "created": "2026-06-25T22:42:55Z",
-  "updated": "2026-06-25T22:46:58Z",
+  "updated": "2026-06-26T10:23:10Z",
   "claims": [
     {
       "id": "c1",
@@ -79,7 +79,7 @@
       "honesty_conditions": [
         {
           "id": "h5",
-          "text": "A test asserts the CLI command set, the MCP tool list, and the learn catalog all enumerate the SAME registry entries, so an operation added once appears on every surface \u2014 no drift, no per-surface duplication",
+          "text": "A test asserts the CLI verb set, the single MCP dispatch tool's command catalog, and the learn catalog all enumerate the SAME registry operations \u2014 catalog-level set-equality (the MCP surface is one dispatching tool, not one tool per op), so an operation added once appears on every surface \u2014 no drift, no per-surface duplication",
           "status": "confirmed"
         }
       ],
@@ -231,13 +231,13 @@
     {
       "id": "c16",
       "kind": "success_signal",
-      "text": "One agentfront registry feeds the CLI command set, the MCP tool list, and the learn catalog \u2014 a test asserts they enumerate the same operation set (no drift)",
+      "text": "One agentfront registry feeds the CLI verb set, the single MCP dispatch tool's command catalog, and the learn catalog \u2014 a test asserts they enumerate the same operation set at the catalog level (no drift; the MCP surface is one dispatching tool, not N)",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h13",
-          "text": "The test enumerating CLI commands vs MCP tools vs learn entries asserts set-equality over the registry, so adding/removing an operation updates all three surfaces at once",
+          "text": "The test enumerating CLI verbs vs the single MCP dispatch tool's command catalog vs learn entries asserts catalog-level set-equality over the registry (NOT len(mcp_tools)==len(cli_verbs); the MCP surface is a single dispatch tool whose command catalog lists the ops), so adding/removing an operation updates all three surfaces at once",
           "status": "confirmed"
         }
       ],
