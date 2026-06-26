@@ -19,6 +19,47 @@ from colleague.cli._errors import CliError
 JSON_HELP = "Emit structured JSON."
 
 
+class _RenderedDict(dict):
+    """A dict result that renders as ``text`` in CLI text mode, JSON under ``--json``."""
+
+    def __init__(self, data: Any, text: str) -> None:
+        super().__init__(data)
+        self._text = text
+
+    def __str__(self) -> str:  # text mode goes through str(); --json json.dump()s the dict
+        return self._text
+
+
+class _RenderedList(list):
+    """A list result that renders as ``text`` in CLI text mode, JSON under ``--json``."""
+
+    def __init__(self, data: Any, text: str) -> None:
+        super().__init__(data)
+        self._text = text
+
+    def __str__(self) -> str:
+        return self._text
+
+
+def rendered(data: Any, text: str) -> Any:
+    """Wrap a command result for dual rendering by the agentfront-rendered CLI.
+
+    A registry tool function returns ``rendered(structured_data, pretty_text)``
+    and agentfront's :func:`emit_result` does the right thing from ONE return
+    value: ``--json`` dumps ``structured_data`` (a dict or list), text mode emits
+    ``pretty_text`` via ``str()``. This lets a migrated verb keep colleague's
+    exact dual output without a per-handler ``--json`` branch (a tool func cannot
+    receive ``json_mode`` — the ``--json`` flag is owned by agentfront's dispatch).
+
+    Use with :func:`emit_result` directly too: ``emit_result(rendered(d, t),
+    json_mode=...)`` emits ``t`` or ``json.dumps(d)`` — so the old ``(args)``
+    handler adapters and the new registry tool funcs share one rendering.
+    """
+    if isinstance(data, list):
+        return _RenderedList(data, text)
+    return _RenderedDict(data, text)
+
+
 def emit_result(data: Any, *, json_mode: bool, stream: TextIO | None = None) -> None:
     """Write a command result to stdout (or ``stream``)."""
     s = stream if stream is not None else sys.stdout

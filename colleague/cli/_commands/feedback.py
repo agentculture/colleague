@@ -10,6 +10,18 @@ Results go to stdout, diagnostics to stderr; every verb supports ``--json``.
 Storage is a stdlib JSON file beside the work-item artifact — see
 :mod:`colleague.feedback`. An ungraded work item is reported as a clean
 "no feedback yet" state, never an error.
+
+**This is the reference verb for the "CLI rendered from imported agentfront"
+migration.** The verb logic lives in named-parameter functions (``_overview`` /
+``_record`` / ``_show`` / ``_list_items``) that return a
+:func:`~colleague.cli._output.rendered` value — a dict/list that the
+agentfront-rendered CLI emits as JSON under ``--json`` and as pretty text
+otherwise, from one return value (a tool function cannot receive ``json_mode``).
+``register_into(app)`` registers them as a nested ``feedback`` group on the App
+registry (so they appear on the CLI, the MCP catalog, and ``learn`` alike). The
+old ``cmd_feedback_*(args)`` handlers are kept as thin adapters that delegate to
+the same functions (so the pre-flip argparse path stays byte-identical) until
+the live entry is flipped to the rendered CLI; ``register(sub)`` stays until then.
 """
 
 from __future__ import annotations
@@ -19,9 +31,9 @@ from pathlib import Path
 
 from colleague import feedback as fb
 from colleague.artifact import read_request
-from colleague.cli._commands.overview import emit_overview
+from colleague.cli._commands.overview import render_text
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
-from colleague.cli._output import JSON_HELP, emit_diagnostic, emit_result
+from colleague.cli._output import JSON_HELP, emit_diagnostic, emit_result, rendered
 from colleague.feedback import Feedback, FeedbackError
 from colleague.identity import resolve_identity
 
@@ -86,68 +98,6 @@ def _resolve(repo: Path, ref: str) -> str:
     return task_id
 
 
-def cmd_feedback_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague feedback",
-        _feedback_sections(),
-        json_mode=bool(getattr(args, "json", False)),
-    )
-    return 0
-
-
-def cmd_feedback_record(args: argparse.Namespace) -> int:
-    json_mode = bool(getattr(args, "json", False))
-    repo = Path(args.repo).expanduser()
-    task_id = _resolve(repo, args.ref)
-    resolved = resolve_identity(repo)
-    by = args.by or resolved or ""
-    # Don't attribute a grade to a silent anonymous author: when neither an
-    # explicit ``--by`` nor a repo identity resolves, say so (stderr, never the
-    # result) and point at the two fixes. ``by`` is stored as ``""`` (text mode
-    # renders that as ``(unknown)``) — so the advisory says "empty", not the
-    # misleading "recording (unknown)" (#147 qodo). Contextual ``feedback:``
-    # prefix — ``hint:`` is reserved for the ``error:``/``hint:`` rubric pair.
-    if not args.by and resolved is None:
-        emit_diagnostic(
-            "feedback: no identity resolved for this repo; the grade's 'by' will "
-            "be empty. Pass --by NAME, or add a culture.yaml nick or "
-            '.colleague/identity.json "as".'
-        )
-    try:
-        record = fb.write_feedback(repo, task_id, rating=args.rating, notes=args.notes or "", by=by)
-    except FeedbackError as exc:
-        raise CliError(
-            EXIT_USER_ERROR, str(exc), f"--rating must be {fb.MIN_RATING}-{fb.MAX_RATING}"
-        ) from exc
-
-    if json_mode:
-        emit_result(record.to_dict(), json_mode=True)
-    else:
-        emit_result(_render(record), json_mode=False)
-    return 0
-
-
-def cmd_feedback_show(args: argparse.Namespace) -> int:
-    json_mode = bool(getattr(args, "json", False))
-    repo = Path(args.repo).expanduser()
-    task_id = _resolve(repo, args.ref)
-    try:
-        record = fb.read_feedback(repo, task_id)
-    except FeedbackError as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "the feedback file may be corrupt") from exc
-
-    # Ungraded is a clean state, not an error — both paths exit 0 via a single
-    # return (a lone invariant return keeps the handler off SonarCloud S3516).
-    if record is None:
-        payload: dict = {"task_id": task_id, "feedback": None}
-        text = f"no feedback yet for {task_id}"
-    else:
-        payload = record.to_dict()
-        text = _render(record)
-    emit_result(payload if json_mode else text, json_mode=json_mode)
-    return 0
-
-
 def _truncate(text: str, width: int) -> str:
     text = (text or "").replace("\n", " ").strip()
     return text if len(text) <= width else text[: max(0, width - 1)] + "…"
@@ -168,14 +118,132 @@ def _render_listing(rows: list[fb.WorkSummary]) -> str:
     return "\n".join(lines)
 
 
+# --- registry tool functions ------------------------------------------------
+# Named params (no argparse Namespace), return rendered(structured, text), raise
+# CliError on failure. agentfront's dispatch derives the CLI args from the
+# signature and emits the return value (--json -> JSON, else the pretty text).
+
+
+def _overview() -> object:
+    sections = _feedback_sections()
+    return rendered(
+        {"subject": "colleague feedback", "sections": sections},
+        render_text("colleague feedback", sections),
+    )
+
+
+def _record(
+    ref: str,
+    rating: int = 0,
+    notes: str = "",
+    by: str = "",
+    repo: str = ".",
+) -> object:
+    # `rating` defaults to 0 (out of the valid 1-5 range), so omitting --rating
+    # surfaces the same "rating must be 1-5" FeedbackError as an explicit 0 —
+    # the argparse `required=True` of the legacy path becomes a value check here.
+    repo_path = Path(repo).expanduser()
+    task_id = _resolve(repo_path, ref)
+    resolved = resolve_identity(repo_path)
+    by_val = by or resolved or ""
+    # Don't attribute a grade to a silent anonymous author: when neither an
+    # explicit ``--by`` nor a repo identity resolves, say so (stderr, never the
+    # result) and point at the two fixes. ``by`` is stored as ``""`` (text mode
+    # renders that as ``(unknown)``).
+    if not by and resolved is None:
+        emit_diagnostic(
+            "feedback: no identity resolved for this repo; the grade's 'by' will "
+            "be empty. Pass --by NAME, or add a culture.yaml nick or "
+            '.colleague/identity.json "as".'
+        )
+    try:
+        record = fb.write_feedback(repo_path, task_id, rating=rating, notes=notes or "", by=by_val)
+    except FeedbackError as exc:
+        raise CliError(
+            EXIT_USER_ERROR, str(exc), f"--rating must be {fb.MIN_RATING}-{fb.MAX_RATING}"
+        ) from exc
+    return rendered(record.to_dict(), _render(record))
+
+
+def _show(ref: str, repo: str = ".") -> object:
+    repo_path = Path(repo).expanduser()
+    task_id = _resolve(repo_path, ref)
+    try:
+        record = fb.read_feedback(repo_path, task_id)
+    except FeedbackError as exc:
+        raise CliError(EXIT_USER_ERROR, str(exc), "the feedback file may be corrupt") from exc
+    # Ungraded is a clean state, not an error — both paths exit 0.
+    if record is None:
+        return rendered({"task_id": task_id, "feedback": None}, f"no feedback yet for {task_id}")
+    return rendered(record.to_dict(), _render(record))
+
+
+def _list_items(repo: str = ".") -> object:
+    repo_path = Path(repo).expanduser()
+    rows = fb.list_work_items(repo_path)
+    return rendered([r.to_dict() for r in rows], _render_listing(rows))
+
+
+def register_into(app) -> None:
+    """Register the feedback noun group onto the agentfront App registry."""
+    g = app.group("feedback")
+    g.tool(
+        _overview,
+        name="overview",
+        description="Describe the feedback surface.",
+        doc="# feedback overview\nDescribe the feedback surface (the ROI loop): "
+        "what it does, the verbs, and where records are stored.",
+    )
+    g.tool(
+        _record,
+        name="record",
+        description="Record a 1-5 rating + notes for a work item.",
+        doc="# feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]\n"
+        "Record a single 1-5 quality rating (+ notes) for a finished work item. "
+        "Re-grading overwrites. Reference by task-id or 'last'.",
+    )
+    g.tool(
+        _show,
+        name="show",
+        description="Show a work item's feedback record.",
+        doc="# feedback show <id|last> [--repo P] [--json]\n"
+        "Read back a work item's feedback. An ungraded work item reads as "
+        "'no feedback yet' (not an error).",
+    )
+    g.tool(
+        _list_items,
+        name="list",
+        description="List recorded work items by request + grade.",
+        doc="# feedback list [--repo P] [--json]\n"
+        "List every recorded work item, newest first, by request + status + grade.",
+    )
+
+
+# --- legacy argparse path (pre-flip) ----------------------------------------
+# Thin adapters delegating to the registry tool functions so the live argparse
+# CLI stays byte-identical until the entry is flipped to the rendered CLI (t8).
+
+
+def cmd_feedback_overview(args: argparse.Namespace) -> int:
+    emit_result(_overview(), json_mode=bool(getattr(args, "json", False)))
+    return 0
+
+
+def cmd_feedback_record(args: argparse.Namespace) -> int:
+    emit_result(
+        _record(args.ref, args.rating, args.notes, args.by, args.repo),
+        json_mode=bool(getattr(args, "json", False)),
+    )
+    return 0
+
+
+def cmd_feedback_show(args: argparse.Namespace) -> int:
+    emit_result(_show(args.ref, args.repo), json_mode=bool(getattr(args, "json", False)))
+    return 0
+
+
 def cmd_feedback_list(args: argparse.Namespace) -> int:
-    json_mode = bool(getattr(args, "json", False))
-    repo = Path(args.repo).expanduser()
-    rows = fb.list_work_items(repo)
-    if json_mode:
-        emit_result([r.to_dict() for r in rows], json_mode=True)
-    else:
-        emit_result(_render_listing(rows), json_mode=False)
+    emit_result(_list_items(args.repo), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
