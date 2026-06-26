@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] - 2026-06-24
+
+### Added
+
+- **Vendored the `remember` + `recall` memory skills from eidetic-cli**
+  (cite-don't-import) — the write/read halves of eidetic's shared memory
+  surface, so this agent (Claude and its colleague backend) can persist facts
+  across sessions and recall them later from one store. `remember` drives
+  `eidetic remember` (idempotent upsert of one JSON record or an NDJSON batch on
+  stdin, dedup by id + content hash); `recall` drives `eidetic recall` with four
+  search modes — exact / approximate / keyword / hybrid — each hit carrying text,
+  full provenance metadata, a relevance score, and a freshness signal. Folds in
+  PR #244 (closed in favour of this combined PR). Propagated by rollout-cli's
+  `eidetic-memory` recipe.
+- **Memory-discipline "Conventions and workflow" section in `CLAUDE.md`** — a
+  per-task *recall-before / remember-after* convention so the vendored skills are
+  actually used: `/recall` before non-trivial work to build on prior decisions,
+  `/remember` when a non-obvious decision, constraint, fix-and-why, or gotcha
+  surfaces. Documents this repo's memory as **in-repo and public** (records
+  resolve to `<repo-root>/.eidetic/memory`, committed + team/mesh-shared).
+
+### Changed
+
+- **Refreshed the `remember` + `recall` wrappers to eidetic-cli 0.10.0**
+  (cite-don't-import) — picks up eidetic's **project-local store routing**: PUBLIC
+  records inside a git repo go to `<repo-root>/.eidetic/memory` (committed,
+  team-shared), PRIVATE records (or any record outside a repo) go to
+  `$HOME/.eidetic/memory` (never committed), an explicit `EIDETIC_DATA_DIR` still
+  wins, and recall reads both stores and merges. Carries the 0.9.3 hardening
+  (interactive-stdin guard, `help` as a search term, SIGPIPE-safe suffix parsing).
+- **Recipe policy override: default visibility is `public`** (not eidetic's
+  upstream `private`) — a plain `/remember` lands the note in `./.eidetic/memory`
+  in this repo, kept as part of the repo; pass `--visibility private` to route a
+  record to `$HOME` instead. Wrapper `usage()` text, the per-wrapper scope
+  comments, and both `SKILL.md` files (frontmatter + body) now describe this
+  public-by-default behaviour consistently (resolves the PR #244 doc/code
+  mismatch). Runtime dep: the `eidetic` CLI on PATH (else a local eidetic-cli
+  checkout with `uv`) — **`eidetic >= 0.10.0`** for the in-repo routing.
+
+### Fixed
+
+- **Scope-resolution no longer fails open silently.** When a `culture.yaml` is
+  found but its `suffix` cannot be parsed (or parses to an invalid token), the
+  wrappers no longer fall back to eidetic's broad `default`/`public` scope
+  without warning; the empty-suffix path emits an explicit stderr warning and the
+  resolved suffix is validated before use (resolves the PR #243 "silent scope
+  fallback leak" finding). `stdout` stays clean for `--json` consumers.
+
 ## [1.24.0] - 2026-06-23
 
 ### Added
