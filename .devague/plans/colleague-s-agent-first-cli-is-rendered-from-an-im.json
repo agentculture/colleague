@@ -1,0 +1,391 @@
+{
+  "slug": "colleague-s-agent-first-cli-is-rendered-from-an-im",
+  "title": "Colleague's agent-first CLI is rendered from an imported agentfront App registry instead of hand-maintained scaffolding \u2014 and because the operations live in that one registry, colleague also gets an MCP server (a bonus for platforms like Cowork) for free",
+  "frame_slug": "colleague-s-agent-first-cli-is-rendered-from-an-im",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-26T10:30:18Z",
+  "updated": "2026-06-26T10:40:14Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague's agent-first CLI is rendered from an imported agentfront App registry instead of hand-maintained scaffolding \u2014 and because the operations live in that one registry, colleague also gets an MCP server (a bonus for platforms like Cowork) for free"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "After the migration, colleague's CLI is built by importing agentfront's consumer CLI API (no hand-rolled argparse dispatch remains except the documented interactive launcher) AND every verb keeps its observable contract \u2014 verified by the existing CLI/e2e suite staying green against the agentfront-rendered CLI"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Colleague maintainers (less scaffolding to maintain), the AgentCulture org (one shared agent-first CLI standard across tools), and \u2014 as a bonus \u2014 MCP platforms like Cowork that can then drive colleague"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The maintainer win is measurable (net agent-first scaffolding LOC removed from colleague/cli/) and the org-consistency win is real (colleague + agentfront render their CLIs from the same published API), while the Cowork bonus is genuinely free (no colleague code beyond registering operations enables it)"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Colleague hand-maintains its entire agent-first CLI in colleague/cli/ (dispatch, CliError->stderr, --json, exit codes, explain/overview/doctor); agentfront is used only as a dev-time 'cli doctor --strict' gate; and agentfront's App today CANNOT build a consumer CLI (App.cli() yields only learn/doctor), so there is nothing yet to import to replace the scaffolding"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Verified against agentfront 0.11.1: App.cli() registers only learn/doctor (cli_surface.make_cli), @app.tool is MCP/HTTP-only and never CLI-dispatched, and the rich CLI machinery is internal to agentfront.cli with no consumer extension hook"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Colleague's CLI is rendered from an imported agentfront App registry \u2014 nested verbs, custom flags, --json, structured errors, explain/overview all come from agentfront's published consumer CLI API; colleague keeps no hand-maintained agent-first scaffolding (only interactive surfaces App cannot express stay colleague-owned behind a launcher). The same registry yields app.mcp_server() (MCP for Cowork) and app.http_app() as free bonuses"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Colleague's nested noun/verb groups, per-verb flags, --json, and the explain/overview catalog are all produced by agentfront's published API (not re-hand-rolled in colleague), proven by the CLI tests passing against the imported surface"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "One source of the agent-first standard across the org (no drift, far less scaffolding for colleague to maintain), AND colleague becomes MCP-accessible for free \u2014 a platform like Cowork can discover and drive it without the bespoke ask-colleague wrapper"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A test asserts the CLI verb set, the single MCP dispatch tool's command catalog, and the learn catalog all enumerate the SAME registry operations \u2014 catalog-level set-equality (the MCP surface is one dispatching tool, not one tool per op), so an operation added once appears on every surface \u2014 no drift, no per-surface duplication"
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "PRECONDITION: agentfront must FIRST publish a public, importable consumer CLI API (promoting its internal nested-noun/structured-error/explain/overview/--json machinery to a host-facing surface) that colleague's CLI is rendered from; colleague's migration is GATED on this precondition existing and being versioned. This agentfront work is done separately in the agentfront repo, not in colleague"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Once agentfront publishes the consumer CLI API, a spike proves it renders colleague's full nested-verb surface (groups, flags, --json, explain/overview); colleague pins a tested agentfront version floor and the migration proceeds only against that published API"
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Zero-deps reconciliation: agentfront (pure-stdlib) becomes the one base runtime dependency; the mcp SDK is an opt-in colleague[mcp] extra; tests/test_zero_deps.py is updated to allow exactly agentfront at base and assert mcp is absent without the extra"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "A base 'uv pip install colleague' pulls exactly agentfront (zero third-party transitively) and the mcp SDK appears only under [mcp]; test_zero_deps asserts that allow-list and still fails on any stray dep"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Behavior-compat: every existing colleague CLI verb keeps its observable contract (stdout result, stderr diagnostics, --json shape, exit codes, hint line) after being rendered from agentfront \u2014 verified by the existing CLI/e2e suite staying green"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The CLI/e2e suite (stdout/stderr split, --json shape, exit codes, hint line, explain/overview catalog) passes unchanged against the agentfront-rendered CLI; any contract that must change is called out explicitly"
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "Interactive surfaces agentfront's API cannot structurally express (the raw-mode session palette, the live TUI cockpit) stay colleague-owned behind an agentfront-registered launcher verb \u2014 preserved, never dropped"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The affordance checklist shows every interactive affordance either expressed via agentfront or explicitly kept colleague-owned behind a launcher \u2014 none silently dropped; session/tui tests stay green"
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "The MCP-server bonus is OPT-IN: the mcp SDK and the daemon ship behind the colleague[mcp] extra; a base install runs no daemon, binds no socket, and is byte-identical to today"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "With no [mcp] extra installed, colleague imports no mcp SDK, binds no socket, and starts no daemon \u2014 asserted by a test; the MCP server runs only when the operator installs the extra and explicitly starts it"
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "Colleague's CLI is rendered from the imported agentfront API (no hand-rolled argparse dispatch remains except the launcher) and behaves byte-compatibly; the e2e suite and 'agentfront cli doctor . --strict' are green"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Grepping colleague/cli/ post-migration shows the CLI built from the agentfront import (registry-driven), not hand-rolled argparse; the full CLI/e2e suite plus doctor are green"
+    },
+    {
+      "id": "c15",
+      "kind": "success_signal",
+      "text": "With the [mcp] extra installed, an MCP client lists + invokes colleague's operations over the served MCP server (the Cowork bonus works); the base install is byte-identical and binds no socket"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "An end-to-end MCP round-trip test (with the extra) connects, lists, and invokes at least one colleague operation and gets its result; without the extra the same import path raises a clean 'install colleague[mcp]' error, not a crash"
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "One agentfront registry feeds the CLI verb set, the single MCP dispatch tool's command catalog, and the learn catalog \u2014 a test asserts they enumerate the same operation set at the catalog level (no drift; the MCP surface is one dispatching tool, not N)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The test enumerating CLI verbs vs the single MCP dispatch tool's command catalog vs learn entries asserts catalog-level set-equality over the registry (NOT len(mcp_tools)==len(cli_verbs); the MCP surface is a single dispatch tool whose command catalog lists the ops), so adding/removing an operation updates all three surfaces at once"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Packaging: agentfront>=0.14.0 as the one base runtime dep + a colleague[mcp] extra + zero-deps guard update",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml declares agentfront>=0.14.0 as the sole base runtime dependency and a [mcp] extra pinning mcp>=1.28.0; a base 'uv pip install colleague' resolves exactly agentfront with zero third-party transitive deps",
+        "tests/test_zero_deps.py allow-lists exactly agentfront on the base import path and asserts the mcp SDK is absent unless the [mcp] extra is installed (still fails on any stray third-party dep)"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h6",
+        "c7",
+        "h7",
+        "c10",
+        "h10"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "App assembly: build_app() renders colleague's CLI from one agentfront App via auto-discovered register_into(app) hooks; bridge CliError<->AgentfrontError and the stdout/stderr output split; wire the no-command handler (TTY->session vs help)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/cli/_app.py exposes build_app() that iterates the colleague/cli/_commands package and calls each module's register_into(app) (auto-discovery, no per-verb edit to _app.py); main() dispatches via agentfront's run_cli with no hand-rolled argparse dispatch on the core path",
+        "a handler raising colleague's CliError surfaces as a structured {code,message,remediation} on stderr with non-zero exit and clean stdout via agentfront's dispatch; a bare 'colleague' invocation routes through the App no-command handler (session at a TTY, help otherwise), matching pre-migration behavior"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c3",
+        "h3"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Migration pattern: convert the feedback verb-group to register_into(app) as the worked reference for every other verb",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "feedback record|show|list register into the App as a nested group; 'colleague feedback record ... --json' dispatches behavior-identically to the pre-migration verb and bare 'colleague feedback' renders the group overview",
+        "explain feedback record and overview feedback are derived from the registry (no hand-written per-command catalog); the existing feedback CLI tests pass unchanged"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c4",
+        "h4"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Migrate the flag-heavy core verbs work + plan to register_into(app)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "work registers with ALL its flags via signature-derivation + explicit agentfront Flag(): positional goal, typed options, bool on/off incl. default-ON --lint/--no-lint, alias/dest-rename (--repo/-r -> repo_path), hyphenated names (--max-steps -> max_steps), nargs (--test); 'colleague work --help' lists every flag and dispatch is behavior-identical",
+        "plan run|status|overview register as a nested group; existing work/plan CLI tests pass unchanged; neither module edits colleague/cli/_app.py"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "h4"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Host launcher carve-out: register session + tui via app.add_command (host-owned interactive surfaces, not generated)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "session and tui register via app.add_command with their own configure() flags; 'colleague session'/'colleague tui' launch the existing raw-mode palette / live cockpit unchanged and coexist with generated verbs in one CLI",
+        "session/tui tests stay green; the modules touch only session.py/tui.py (no edit to _app.py)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c9",
+        "h9"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Migrate the inspect/identity verbs: backends, config, doctor, whoami, quickstart, telemetry",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "each of backends/config/doctor/whoami/quickstart/telemetry registers into the App via register_into and keeps its stdout/stderr split, --json shape, exit codes, and overview; their existing CLI tests pass unchanged",
+        "the six modules are file-disjoint from every other fan-out task and never edit _app.py"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c8"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Migrate the extensibility/mesh verbs: hooks, commands, roles, agents, skills, flight, clean, learn-from, promote",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "these verbs register via register_into; nested groups (flight status|guide|stop|list|overview, hooks list|approve, commands list|approve) render from the registry with --json + bare-noun overview preserved; existing tests pass unchanged",
+        "the nine modules are file-disjoint from every other fan-out task and never edit _app.py"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c8"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Retire hand-rolled scaffolding: learn/explain/overview become agentfront registry-derived meta-verbs; remove colleague's hand-rolled argparse dispatch",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "learn/explain/overview are served by agentfront's registry-derived meta-verbs (colleague's hand-rolled versions removed); a grep of colleague/cli/ shows the CLI is built from the agentfront import with no hand-rolled argparse subparser dispatch except the session/tui launchers"
+      ],
+      "deps": [
+        "t4",
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c14",
+        "h11"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Cross-surface parity test: port the coverage spike into tests/ asserting catalog-level CLI==MCP-catalog==learn set-equality (the reworded #246 invariant)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_cross_surface_parity.py asserts, on colleague's one App, catalog-level set-equality: the CLI verb path set == the single MCP dispatch tool's command catalog (agentfront _build_catalog) == the learn catalog; it does NOT assert len(mcp_tools)==len(cli_verbs); adding/removing an op updates all three together"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c5",
+        "h5",
+        "c16",
+        "h13"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "MCP server verb + round-trip test, behind the [mcp] extra (server-only, opt-in)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'colleague mcp serve' exposes app.mcp_server() (the single run dispatch tool) only when [mcp] is installed; an end-to-end round-trip test (with the extra) lists the run tool and invokes a colleague op via {command:[path], args:{...}} and gets its result; a bad path yields a structured {code,message,remediation}",
+        "without the [mcp] extra, the serve path raises a clean 'install colleague[mcp]' error (not a bare ImportError), binds no socket, and starts no daemon; a test asserts the base install imports no mcp SDK"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c15",
+        "h12"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Behavior-compat e2e: the full existing CLI/e2e suite stays green against the agentfront-rendered CLI",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the existing CLI/e2e suite (stdout/stderr split, --json shapes, exit codes, hint lines, explain/overview catalog, the test_e2e_mock shape test) passes against the rendered CLI; any deliberately-changed observable contract is called out explicitly in the PR"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c8",
+        "h8"
+      ]
+    },
+    {
+      "id": "t12",
+      "summary": "Affordance checklist: prove no interactive affordance is silently dropped; session/tui green",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a checklist (in the feature doc) enumerates every interactive affordance (raw-mode session palette, slash autocomplete, shift-tab modes, live TUI cockpit) and marks each as expressed-via-agentfront or kept host-owned-behind-a-launcher \u2014 none silently dropped; session/tui tests stay green"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c9",
+        "h9"
+      ]
+    },
+    {
+      "id": "t13",
+      "summary": "Maintainer-win measurement + docs + version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "net agent-first scaffolding LOC removed from colleague/cli/ is measured and recorded (the maintainer win); CLAUDE.md + docs/features/cli-on-agentfront.md describe the agentfront-rendered CLI and the colleague[mcp] MCP bonus; CHANGELOG updated and the version bumped per the repo version-bump rule"
+      ],
+      "deps": [
+        "t9",
+        "t10",
+        "t11",
+        "t12"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c3",
+        "h3"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "agentfront's registry-derived explain/overview may not reproduce colleague's richer hand-authored explain catalog verbatim; each migrated op must carry doc= metadata ported from the current explain entries",
+      "kind": "unknown_nonblocking",
+      "task_id": "t8"
+    },
+    {
+      "id": "r2",
+      "text": "behavior-compat across ~26 verbs is the main risk; a subtle --json shape or exit-code drift could slip past a per-verb test \u2014 the full e2e suite (t11) is the backstop",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11"
+    },
+    {
+      "id": "r3",
+      "text": "the served 27B workforce has large-file + concurrency limits; the risky core (t2 assembly, t9 parity, t11 e2e) should be built by Claude, with only mechanical per-verb conversions delegated to colleague",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
