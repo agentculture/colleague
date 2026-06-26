@@ -1249,24 +1249,34 @@ def cmd_session(args: argparse.Namespace) -> int:
     return run_session(args)
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "session",
-        help=(
-            "Agent-native interactive cockpit: type a free-text goal and it routes "
-            "to work or plan on colleague's own backend — no subcommand needed."
-        ),
-        description=(
-            "Open the interactive cockpit — the conversational, agent-native entry "
-            "point to colleague.  Type a free-text goal and intent routing maps it "
-            "to 'work' (the default) or 'plan' automatically; a '→ work:' / '→ plan:' "
-            "line confirms the dispatch.  A number or template name runs a work template "
-            "directly (never re-classified).  A line starting with '/' is a slash command "
-            "(introspection + live config).  The session runs on colleague's OWN served "
-            "backend by default (--engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > "
-            "vllm-openai).  Commit-local by default; /pr or --pr opts into push+PR."
-        ),
-    )
+_SESSION_HELP = (
+    "Agent-native interactive cockpit: type a free-text goal and it routes "
+    "to work or plan on colleague's own backend — no subcommand needed."
+)
+_SESSION_DESCRIPTION = (
+    "Open the interactive cockpit — the conversational, agent-native entry "
+    "point to colleague.  Type a free-text goal and intent routing maps it "
+    "to 'work' (the default) or 'plan' automatically; a '→ work:' / '→ plan:' "
+    "line confirms the dispatch.  A number or template name runs a work template "
+    "directly (never re-classified).  A line starting with '/' is a slash command "
+    "(introspection + live config).  The session runs on colleague's OWN served "
+    "backend by default (--engine > COLLEAGUE_SESSION_ENGINE > COLLEAGUE_ENGINE > "
+    "vllm-openai).  Commit-local by default; /pr or --pr opts into push+PR."
+)
+
+
+def _configure_session_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``session``'s flags to an already-created parser.
+
+    Shared by the legacy :func:`register` and the agentfront host-command
+    ``configure`` hook (:func:`register_into`). ``session`` is a host command
+    (an interactive raw-mode cockpit agentfront's rendered tools can't express);
+    this builds an identical flag surface for both doors. The long ``--help``
+    description is set on *p* directly so the host-command path (whose
+    ``add_parser`` takes only ``help=``) keeps it too. ``func`` is left for the
+    caller / agentfront to set to :func:`cmd_session`.
+    """
+    p.description = _SESSION_DESCRIPTION
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--engine",
@@ -1313,4 +1323,22 @@ def register(sub: argparse._SubParsersAction) -> None:
             "chrome to stderr. (The TAUI JSON mirror lives under 'tui state'.)"
         ),
     )
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("session", help=_SESSION_HELP)
+    _configure_session_parser(p)
     p.set_defaults(func=cmd_session)
+
+
+def register_into(app) -> None:
+    """Register ``session`` as an agentfront host command.
+
+    The interactive cockpit is a raw-mode TTY loop (per-keystroke reader, live
+    ANSI redraw, a slash-autocomplete popup) — a surface agentfront's rendered
+    tools (a single return value emitted once) structurally cannot express. It is
+    the spec's intended carve-out: a host-owned launcher registered on the App so
+    it appears in the one CLI alongside the rendered verbs, reusing
+    :func:`cmd_session`'s ``(args) -> int`` handler verbatim.
+    """
+    app.add_command("session", cmd_session, help=_SESSION_HELP, configure=_configure_session_parser)

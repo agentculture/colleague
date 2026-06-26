@@ -701,8 +701,16 @@ def cmd_work(args: argparse.Namespace) -> int:
     return 1
 
 
-def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: str) -> None:
-    p = sub.add_parser(name, help=help_text)
+def _configure_work_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``work``'s positional + flags to an already-created parser.
+
+    Shared by the legacy :func:`_add_work_parser` (the pre-flip argparse path)
+    and the agentfront host-command ``configure`` hook (:func:`register_into`),
+    so the two registration doors build a byte-identical surface. It does NOT
+    call ``set_defaults(func=...)``: the legacy path sets ``func=cmd_work`` after
+    calling this; the host-command path lets agentfront set ``func=`` to the
+    handler it was registered with (also ``cmd_work``).
+    """
     # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
     # ``--command`` can be the sole input without argparse raising an error.
     p.add_argument(
@@ -800,18 +808,52 @@ def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: s
             "this work item (see 'colleague flight')."
         ),
     )
+
+
+_WORK_HELP = (
+    "Work toward a goal: act autonomously on a request or instruction "
+    "through a coder backend, then hand off the result."
+)
+
+
+def _add_work_parser(sub: argparse._SubParsersAction, name: str, *, help_text: str) -> None:
+    p = sub.add_parser(name, help=help_text)
+    _configure_work_parser(p)
     p.set_defaults(func=cmd_work)
 
 
 def register(sub: argparse._SubParsersAction) -> None:
-    _add_work_parser(
-        sub,
-        "work",
-        help_text=(
-            "Work toward a goal: act autonomously on a request or instruction "
-            "through a coder backend, then hand off the result."
-        ),
-    )
+    _add_work_parser(sub, "work", help_text=_WORK_HELP)
     # Deprecated alias of `work` (the old car-themed verb), kept for
     # back-compatibility. Labelled in --help so the surface nudges toward `work`.
     _add_work_parser(sub, "drive", help_text="Deprecated alias of 'colleague work'.")
+
+
+def register_into(app) -> None:
+    """Register ``work`` (deprecated alias ``drive``) as an agentfront host command.
+
+    ``work`` is deliberately NOT a rendered registry tool. It owns CLI-specific
+    semantics the agentfront tool dispatch (return-value → ``emit_result``, exit
+    always 0; raise → structured error) cannot express:
+
+    * **custom exit codes with the result still on stdout** — ``0`` on ``OK``,
+      ``2`` on ``INCOMPLETE`` (#192, a load-bearing contract a caller branches
+      on), ``1`` on a soft error — none of which a "return a value, exit 0" tool
+      can produce;
+    * a streamed per-step progress feed + an interactive banner;
+    * its own ``--json`` ``TaskResult`` emission (a tool func never receives
+      ``json_mode``).
+
+    So it is registered as a **host command**, reusing :func:`cmd_work`'s
+    ``(args) -> int`` handler verbatim (agentfront's ``_dispatch`` still gives it
+    the ``AgentfrontError`` → structured-stderr + no-traceback wrapper, and a
+    :class:`~colleague.cli._errors.CliError` is an ``AgentfrontError`` subclass).
+    The ``drive`` alias rides along on the same handler + configure.
+    """
+    app.add_command(
+        "work",
+        cmd_work,
+        help=_WORK_HELP,
+        configure=_configure_work_parser,
+        aliases=("drive",),
+    )
