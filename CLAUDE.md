@@ -649,8 +649,11 @@ The architecture, part by part:
   it (all-engines rule). Surfaced via the `agents` / `skills` introspection
   nouns. The companion **per-model hooks overlay** (`.colleague/<model>/hooks.json`)
   extends this isolation to the hooks layer — see the Hooks bullet above.
-  **MCP layering is not built** — colleague reads no `mcp.json` and has
-  no `mcp` verb; a live MCP client is a re-spec (see scope below).
+  **MCP layering is not built** — colleague reads no `mcp.json` and registers
+  no external MCP tools; a live MCP *client* is a re-spec (see scope below). The
+  `colleague mcp serve` verb is the unrelated MCP **server** bonus (a
+  single-dispatch surface rendered from the same App registry — see the **CLI
+  surface (cli-on-agentfront)** part above), not MCP-client layering.
 - **Learn-from** — colleague grows its skill set by **learning from a peer
   agent** (`colleague/learn_from.py` + `colleague/cli/_commands/learn_from.py`).
   `colleague learn-from <source>` reads an external agent's skills and adapts
@@ -846,6 +849,37 @@ The architecture, part by part:
   convergence rule (honesty mandatory) is unchanged. Spec + plan:
   `docs/specs/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`
   and `docs/plans/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`.
+- **CLI surface (cli-on-agentfront)** — colleague's agent-first CLI is
+  **rendered from one imported agentfront `App` registry** instead of
+  hand-maintained argparse scaffolding ("import, don't duplicate").
+  `colleague/cli/_app.py` `build_app()` auto-discovers every verb module's
+  `register_into(app)` hook; `colleague/cli/__init__.py` `main()` dispatches argv
+  against that App via agentfront's `run_cli`. The generic agent-first machinery
+  — nested noun/verb dispatch, structured `{code, message, remediation}` errors,
+  per-verb `--json`, the bare-invocation no-command handler, `KeyboardInterrupt`
+  → 130 — now comes from agentfront's one published consumer-CLI API (agentfront
+  is the one sanctioned base dep; see the conventions below). Each verb is a
+  **rendered tool** (`app.tool`, exit-0/raise, read-only inspection) or a **host
+  command** (`app.add_command`, custom exit codes / streaming / blocking
+  server-TTY — `work`/`drive`/`plan`/`session`/`tui`/`flight`/`clean`/
+  `learn-from`/`promote`/`mcp`). The four reserved meta-verbs (`doctor`/
+  `overview`/`learn`/`explain`) stay colleague-owned via a retained-legacy-parser
+  shim in `main()`. Because every operation lives in that one registry, colleague
+  also gets a **single-dispatch MCP server** (one `run` tool whose description
+  embeds the command catalog, per #246 — `colleague mcp serve`, behind the
+  opt-in `colleague[mcp]` extra; no socket/daemon code in colleague, the stdio
+  loop is agentfront's `serve_stdio`) and an HTTP app **for free** from the same
+  registry — the Cowork bonus. `tests/test_cross_surface_parity.py` proves
+  catalog-level set-equality (registry tools == MCP catalog == `learn` catalog;
+  host commands absent from all three). **Honest limit:** the migration carries
+  *both* paths during transition — net `colleague/cli/` LOC is up (+1468/−445),
+  the legacy `_build_parser` (~154 lines) survives only as the meta-verb/session/
+  doctor backend, and the raw-LOC maintainer win is deferred to the follow-up
+  that fully retires it; the win *today* is structural (one org-wide agent-first
+  source + the free MCP/HTTP bonus). Spec + plan:
+  `docs/specs/2026-06-25-colleague-s-agent-first-cli-is-rendered-from-an-im.md`
+  and `docs/plans/2026-06-26-colleague-s-agent-first-cli-is-rendered-from-an-im.md`;
+  feature doc: `docs/features/cli-on-agentfront.md`.
 
 The buildable spec and plan this implementation converged from live in
 [`docs/specs/`](docs/specs/) and [`docs/plans/`](docs/plans/) (authored via the
@@ -854,13 +888,20 @@ The buildable spec and plan this implementation converged from live in
 ## v1 scope (hold this line)
 
 **v0 → v1 graduation (#156).** colleague has graduated from v0 to v1: it now holds
-an opinion about its own context capacity (the **Capacity standard** above). The one
-deliberate convention change is that the v0 rule *"no LLM-generated summary"* is
-**intentionally superseded** by the fill-line `compact` move (a model-authored
-self-summary), with lossy windowing retained as the documented fallback floor — an
-additive, recorded change, never a silent breach. Everything else below still holds:
-the zero-deps / no-socket / no-daemon conventions, the all-engines rule, and the
-out-of-scope list (a self-summary is NOT a multi-model router, sandbox, or daemon).
+an opinion about its own context capacity (the **Capacity standard** above). Two
+deliberate, recorded convention changes have landed since v0 — never silent
+breaches: (1) the v0 rule *"no LLM-generated summary"* is **intentionally
+superseded** by the fill-line `compact` move (a model-authored self-summary), with
+lossy windowing retained as the documented fallback floor; and (2) the
+*"zero base dependencies"* rule is **intentionally superseded** by **one**
+sanctioned base dep, `agentfront` (the **CLI surface (cli-on-agentfront)** part
+above) — justified because agentfront's core is pure-stdlib (a base install still
+pulls zero third-party transitive deps) and it is the org's shared agent-first CLI
+standard; the MCP SDK stays an opt-in `[mcp]` extra and `test_zero_deps.py` becomes
+an allow-list of exactly agentfront. Everything else below still holds: the
+**no-second-base-dep** / no-socket / no-daemon conventions, the all-engines rule,
+and the out-of-scope list (a self-summary is NOT a multi-model router, sandbox, or
+daemon; the MCP *server* bonus runs no colleague-owned daemon).
 
 In scope: the runtime, the entry-point plugin contract, exactly two backends
 (`mock`, `vllm-openai`), the git/PR handoff, command templates, lifecycle
@@ -914,17 +955,23 @@ under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-de
 no-socket / no-daemon conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
-router / routing policy, an execution sandbox, a daemon/server mode,
-Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch (there is still no
-such flag — the approval gate's checksum-based trust model is the landed
+router / routing policy, an execution sandbox, a colleague-owned daemon/server
+mode, Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch (there is still
+no such flag — the approval gate's checksum-based trust model is the landed
 increment of the planned hook trust gate, but it is a policy gate, not a
-sandbox; document this gap honestly, never invent a `--no-hooks` flag), and an **MCP execution runtime**
-(a live MCP client — stdio/socket transport, tool discovery, dynamic tool
-registration). The layered config ships AGENTS + skills only; `mcp.json` is
-**not** read and there is no `mcp` verb. A live MCP client would breach the
-no-deps / no-socket / no-daemon conventions and needs its own spec — document
-this gap honestly, never invent an `mcp` surface. Adding an excluded feature
-means scope crept.
+sandbox; document this gap honestly, never invent a `--no-hooks` flag), and a
+**live MCP *client*** (colleague consuming other MCP servers — stdio/socket
+transport, tool discovery, dynamic tool registration; the layered config ships
+AGENTS + skills only, reads no `mcp.json`, and registers no external MCP tools).
+A live MCP client would breach the conventions and needs its own spec — document
+this gap honestly, never invent an MCP-client surface. **Re-spec'd IN scope (the
+distinction matters):** the **MCP *server* bonus** — `colleague mcp serve`, a
+single-dispatch surface rendered from the same imported-agentfront App registry
+(the **CLI surface (cli-on-agentfront)** part above), behind the opt-in
+`colleague[mcp]` extra. It is **not** a colleague-owned daemon: the blocking
+stdio loop is agentfront's `serve_stdio`, colleague writes no socket/daemon
+code, and a base install is byte-identical (no server, no socket). Adding an
+excluded feature means scope crept.
 
 ## The all-engines rule
 
@@ -936,24 +983,54 @@ test (`tests/test_e2e_mock.py`) is the guard.
 
 ## Conventions
 
-- **No runtime dependencies.** `pyproject.toml` keeps `dependencies = []`; the
-  vLLM adapter speaks the OpenAI wire format over stdlib `urllib`; commands and
-  hooks use only stdlib (`json`, `subprocess`, `pathlib`). Don't add a runtime
-  dep without a strong reason — dev-only deps go in the `dev` group. The one
-  documented exception is **telemetry**: the OpenTelemetry SDK ships as an optional
-  `[project.optional-dependencies] otel` extra, never a base dependency. It is
-  imported **lazily** inside `colleague/telemetry/_otel.py` (only when
-  telemetry is enabled), so `dependencies = []` and the zero-deps guard
-  (`tests/test_zero_deps.py`) still hold — the guard imports `colleague.loop`
-  / `colleague.telemetry` / `colleague.cli` / `colleague.culture` /
-  `colleague.neighbours` and asserts no third-party leak even with the extra
-  installed. Keep the SDK confined to `_otel.py`; never import `opentelemetry`
-  from any other colleague module.
-- **Agent-first CLI.** New verbs are `colleague/cli/_commands/` modules with a
-  `register(sub)`, wired in `colleague/cli/__init__.py`. Results to stdout,
-  diagnostics/errors to stderr (never mixed); every command supports `--json`;
-  failures raise `CliError` (no tracebacks leak). A noun with action-verbs must
-  expose `overview`. Add an `explain` catalog entry for each new verb.
+- **One sanctioned base dependency: agentfront.** `pyproject.toml` declares
+  `dependencies = ["agentfront>=0.14.0"]` — the **first and only** sanctioned
+  base runtime dep, a deliberate, recorded break from the historical
+  `dependencies = []` convention (see the **CLI surface (cli-on-agentfront)**
+  architecture part above). It
+  is justified because agentfront's own core is **pure-stdlib** (zero
+  third-party transitive deps), it is an AgentCulture sibling, and it is
+  foundational to the org's shared agent-first CLI standard. So a base
+  `pip install colleague` still pulls **zero third-party** packages beyond
+  agentfront itself. Everything else stays stdlib: the vLLM adapter speaks the
+  OpenAI wire format over `urllib`; commands and hooks use only `json`,
+  `subprocess`, `pathlib`. Don't add a *second* base dep without a re-spec —
+  dev-only deps go in the `dev` group. Two documented opt-in extras, never base
+  deps: **telemetry** (the OpenTelemetry SDK behind the `[otel]` extra, imported
+  **lazily** inside `colleague/telemetry/_otel.py` only when telemetry is
+  enabled; keep the SDK confined there, never import `opentelemetry` elsewhere)
+  and the **MCP server** (the MCP SDK behind the `[mcp]` extra — no socket/daemon
+  ships at base). `tests/test_zero_deps.py` is now an **allow-list of exactly
+  agentfront**: it imports `colleague.loop` / `colleague.telemetry` /
+  `colleague.cli` / `colleague.culture` / `colleague.neighbours` / `colleague.cli._app`
+  and asserts no third-party leak beyond agentfront — and that the MCP SDK is
+  **absent** without the `[mcp]` extra.
+- **Agent-first CLI — rendered from an imported agentfront `App` registry.**
+  The live CLI is **rendered from one agentfront `App`** assembled by
+  `colleague/cli/_app.py` `build_app()` (the "import, don't duplicate"
+  migration — see the **CLI surface (cli-on-agentfront)** architecture part
+  above + `docs/features/cli-on-agentfront.md`), not from hand-maintained
+  argparse dispatch. A new verb
+  is a `colleague/cli/_commands/` module exposing a **`register_into(app)`** hook
+  (auto-discovered by `build_app`; it also keeps a `register(sub)` for the
+  retained legacy parser). Register it as one of **two classes**: a **rendered
+  tool** (`app.tool(...)`) for a read-only inspection verb — a plain function
+  whose return value dual-renders via the `rendered(data, text)` helper,
+  **always exits 0**, signals failure only by `raise` — or a **host command**
+  (`app.add_command(name, handler, configure=...)`) for any verb needing a
+  custom exit code (`work`/`drive` exit 2 on INCOMPLETE; `plan`/`tui` exit 1),
+  streaming (`flight --follow`), or a blocking server/TTY (`session`, `tui`,
+  `mcp serve`). Results to stdout, diagnostics/errors to stderr (never mixed);
+  every command supports `--json`; failures raise `CliError` (it subclasses
+  agentfront's `AgentfrontError`, so it renders natively — no tracebacks leak).
+  A noun with action-verbs must expose `overview`. Add an `explain` catalog
+  entry for each new verb. The four **reserved meta-verbs** (`doctor`,
+  `overview`, `learn`, `explain`) stay colleague-owned via the retained legacy
+  parser shim in `main()` (agentfront reserves them and renders thinner generic
+  versions; colleague's are richer). Fully retiring the legacy `_build_parser`
+  is a documented follow-up — until then the net `colleague/cli/` LOC is *up*
+  (both paths coexist), and the raw-LOC maintainer win is *deferred* to that
+  retirement.
 - **The vLLM adapter only touches the OpenAI surface** — `base_url`/`api_key`/
   `model` config, `/v1/chat/completions` with tools. Retargeting any
   OpenAI-compatible server must stay a config change, never a code change. ONE
