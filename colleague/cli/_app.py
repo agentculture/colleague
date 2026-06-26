@@ -23,7 +23,7 @@ test suite stays green through the per-verb fan-out).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from colleague import __version__
 
@@ -115,11 +115,14 @@ def build_app() -> "App":
         register_into = getattr(mod, "register_into", None)
         if register_into is not None:
             register_into(app)
-    app.set_no_command_handler(lambda args: _no_command(app, args))
+    # agentfront invokes the no-command handler as ``handler(args)``; ``_no_command``
+    # doesn't need the parsed namespace (it only consults the App + TTY state), so the
+    # lambda accepts and discards it (``_args``).
+    app.set_no_command_handler(lambda _args: _no_command(app))
     return app
 
 
-def _no_command(app: "App", args: Any) -> int:
+def _no_command(app: "App") -> int:
     """Handle a bare ``colleague`` invocation (no sub-command).
 
     At an interactive terminal, open the interactive session palette (matching

@@ -83,11 +83,11 @@ def cmd_mcp_serve(args: argparse.Namespace) -> int:
         raise CliError(
             EXIT_ENV_ERROR,
             str(exc),
-            "install the optional extra: pip install 'colleague[mcp]' " "(or: uv sync --extra mcp)",
+            "install the optional extra: pip install 'colleague[mcp]' (or: uv sync --extra mcp)",
         ) from exc
 
     emit_diagnostic(
-        "colleague MCP: serving over stdio — a single 'run' dispatch tool " "(Ctrl-C to stop)."
+        "colleague MCP: serving over stdio — a single 'run' dispatch tool (Ctrl-C to stop)."
     )
     # The blocking stdio loop lives in agentfront (no socket/daemon code in
     # colleague); colleague only assembles the App and hands it over.

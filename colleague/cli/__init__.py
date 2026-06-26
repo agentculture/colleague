@@ -259,9 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         _build_parser().print_help()
         return 0
 
-    first = tokens[0] if tokens and not tokens[0].startswith("-") else None
-
-    if first is None:
+    if not tokens:
         # Bare `colleague`: open the interactive cockpit at a real terminal, else
         # print usage (with the epilog) so scripts/agents keep a discoverable menu.
         if _stdio_is_interactive():
@@ -269,11 +267,17 @@ def main(argv: list[str] | None = None) -> int:
         _build_parser().print_help()
         return 0
 
-    if first in _META_VERBS:
+    if tokens[0] in _META_VERBS:
         # Pre-parse peek so the legacy parser's argparse-level errors honour --json.
+        # (A meta-verb never starts with ``-``, so a leading flag never lands here.)
         _CliArgumentParser._json_hint = _argv_has_json(argv)
         return _dispatch(_build_parser().parse_args(tokens))
 
+    # Everything else — including a leading unknown ``-``/``--flag`` token — goes to
+    # the rendered App. agentfront's parser produces the structured
+    # ``{code, message, remediation}`` error + nonzero exit for an unrecognized flag
+    # (honouring ``--json``), rather than the old behaviour where a ``-``-prefixed
+    # first token collapsed into the no-command path and silently exited 0.
     return run_cli(build_app(), argv)
 
 

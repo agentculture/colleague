@@ -60,6 +60,31 @@ def test_unknown_command_errors(capsys: pytest.CaptureFixture[str]) -> None:
     assert "hint:" in err
 
 
+def test_unknown_leading_flag_errors_not_swallowed(capsys: pytest.CaptureFixture[str]) -> None:
+    # Regression (PR #247 review): a leading ``-``/``--flag`` token must NOT
+    # collapse into the bare-invocation no-command path (which used to print help
+    # and exit 0). An unrecognized flag goes to the rendered App, which produces
+    # the structured ``error:`` / ``hint:`` + nonzero exit — the same contract as
+    # an unknown subcommand, not a silent success.
+    rc = main(["--bogus"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "unrecognized arguments: --bogus" in err
+    assert "hint:" in err
+
+
+def test_unknown_leading_flag_errors_under_json(capsys: pytest.CaptureFixture[str]) -> None:
+    # The same rejection renders as the structured JSON error under ``--json``,
+    # even though the flag precedes any command (the old path swallowed it to a
+    # help+exit-0).
+    rc = main(["--json"])
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["code"] == 1
+    assert "message" in payload and "remediation" in payload
+
+
 # --- whoami ---------------------------------------------------------------
 
 

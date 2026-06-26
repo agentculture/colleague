@@ -90,7 +90,7 @@ def test_no_command_routes_to_session_at_a_tty(monkeypatch):
         return 0
 
     app.add_command("session", session_handler, help="interactive palette")
-    code = _no_command(app, object())
+    code = _no_command(app)
     assert code == 0
     assert seen.get("ran") is True
 
@@ -101,7 +101,7 @@ def test_no_command_falls_back_to_help_without_session(capsys, monkeypatch):
 
     monkeypatch.setattr(cli_pkg, "_stdio_is_interactive", lambda: True)
     app = App(name="colleague", version="0")
-    code = _no_command(app, object())
+    code = _no_command(app)
     out = capsys.readouterr()
     assert code == 0
     assert "colleague" in out.out
