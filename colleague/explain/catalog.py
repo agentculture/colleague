@@ -1054,6 +1054,35 @@ converges. The cross-invocation `plan continue` resume is a documented follow-up
     colleague plan overview
 """
 
+_MCP = """\
+# colleague mcp
+
+Serve colleague's operations as an **MCP server** — the bonus surface that falls
+out of the same imported agentfront `App` that renders the CLI. The MCP surface is
+**single-dispatch**: ONE `run` tool whose description embeds the command catalog
+(the same registry operations the CLI verbs and `learn` enumerate — catalog-level
+parity). A platform (e.g. Cowork) drives colleague by calling `run` with a command
+path + named args, e.g. `{"command": ["feedback", "record"], "args": {...}}`.
+
+Needs the optional `[mcp]` extra (`pip install 'colleague[mcp]'` /
+`uv sync --extra mcp`); without it, `mcp serve` fails with a clean error naming the
+install. No socket/daemon code lives in colleague — the blocking stdio loop is
+agentfront's `serve_stdio`; colleague only assembles the App and hands it over.
+The host-command launchers (`work` / `plan` / `session` / `tui` / `flight` /
+`clean` / `learn-from` / `promote` / `mcp`) carry CLI-only semantics and are NOT in
+the single `run` tool's catalog (the rendered tool verbs are).
+
+## Verbs
+
+- `mcp serve` — serve colleague over stdio (blocking; Ctrl-C to stop)
+- `mcp overview` — describe the MCP surface
+
+## Usage
+
+    colleague mcp serve            # blocks, speaking MCP over stdio
+    colleague mcp overview
+"""
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     ("colleague",): _ROOT,
@@ -1130,4 +1159,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("plan", "run"): _PLAN,
     ("plan", "status"): _PLAN,
     ("plan", "overview"): _PLAN,
+    ("mcp",): _MCP,
+    ("mcp", "serve"): _MCP,
+    ("mcp", "overview"): _MCP,
 }

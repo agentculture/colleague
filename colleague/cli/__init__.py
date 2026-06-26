@@ -111,6 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import hooks as _hooks_group
     from colleague.cli._commands import learn as _learn_cmd
     from colleague.cli._commands import learn_from as _learn_from_cmd
+    from colleague.cli._commands import mcp as _mcp_group
     from colleague.cli._commands import overview as _overview_cmd
     from colleague.cli._commands import plan as _plan_cmd
     from colleague.cli._commands import promote as _promote_cmd
@@ -177,6 +178,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _session_cmd.register(sub)
     # Headless TUI inspection + JSON scenario runner (TAUI).
     _tui_cmd.register(sub)
+    # MCP server bonus: serve colleague's operations over stdio ([mcp] extra).
+    _mcp_group.register(sub)
 
     return parser
 

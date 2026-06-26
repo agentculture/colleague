@@ -56,6 +56,7 @@ def _iter_command_modules():
         hooks,
         learn,
         learn_from,
+        mcp,
         overview,
         plan,
         promote,
@@ -96,6 +97,7 @@ def _iter_command_modules():
         config,
         session,
         tui,
+        mcp,
     )
 
 
