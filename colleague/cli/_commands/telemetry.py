@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._commands.overview import emit_overview
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._commands.overview import render_text
+from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.telemetry import TelemetryConfig, sdk_available
 
 
@@ -59,37 +59,63 @@ def _telemetry_sections() -> list[dict[str, object]]:
     ]
 
 
-def cmd_telemetry_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague telemetry",
-        _telemetry_sections(),
-        json_mode=bool(getattr(args, "json", False)),
+# --- registry tool functions (rendered) + thin legacy adapters --------------
+
+
+def _telemetry_overview() -> object:
+    sections = _telemetry_sections()
+    return rendered(
+        {"subject": "colleague telemetry", "sections": sections},
+        render_text("colleague telemetry", sections),
     )
+
+
+def _telemetry_status() -> object:
+    cfg = TelemetryConfig.resolve()
+    installed = sdk_available()
+    payload = cfg.to_dict()
+    payload["sdk_installed"] = installed
+    lines = [
+        f"enabled:        {cfg.enabled}",
+        f"sdk_installed:  {installed}",
+        f"service_name:   {cfg.service_name}",
+        f"otlp_endpoint:  {cfg.otlp_endpoint}",
+        f"otlp_protocol:  {cfg.otlp_protocol}",
+        f"traces_enabled: {cfg.traces_enabled}",
+        f"metrics_enabled:{cfg.metrics_enabled}",
+    ]
+    if cfg.enabled and not installed:
+        lines.append("note:           enabled but the [otel] extra is not installed (no-op)")
+    return rendered(payload, "\n".join(lines))
+
+
+def register_into(app) -> None:
+    """Register the telemetry inspection verbs on the agentfront App registry."""
+    g = app.group("telemetry")
+    g.tool(
+        _telemetry_status,
+        name="status",
+        description="Show the resolved telemetry configuration.",
+        doc="# telemetry status\nShow the resolved OpenTelemetry config (enabled, "
+        "endpoint, protocol, service name, traces/metrics) + whether the [otel] "
+        "extra is installed.",
+    )
+    g.tool(
+        _telemetry_overview,
+        name="overview",
+        description="Describe the telemetry surface.",
+        doc="# telemetry overview\nDescribe the telemetry surface: the signals, the "
+        "configuration precedence, and the verbs.",
+    )
+
+
+def cmd_telemetry_overview(args: argparse.Namespace) -> int:
+    emit_result(_telemetry_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
 def cmd_telemetry_status(args: argparse.Namespace) -> int:
-    json_mode = bool(getattr(args, "json", False))
-    cfg = TelemetryConfig.resolve()
-    installed = sdk_available()
-
-    if json_mode:
-        payload = cfg.to_dict()
-        payload["sdk_installed"] = installed
-        emit_result(payload, json_mode=True)
-    else:
-        lines = [
-            f"enabled:        {cfg.enabled}",
-            f"sdk_installed:  {installed}",
-            f"service_name:   {cfg.service_name}",
-            f"otlp_endpoint:  {cfg.otlp_endpoint}",
-            f"otlp_protocol:  {cfg.otlp_protocol}",
-            f"traces_enabled: {cfg.traces_enabled}",
-            f"metrics_enabled:{cfg.metrics_enabled}",
-        ]
-        if cfg.enabled and not installed:
-            lines.append("note:           enabled but the [otel] extra is not installed (no-op)")
-        emit_result("\n".join(lines), json_mode=False)
+    emit_result(_telemetry_status(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 

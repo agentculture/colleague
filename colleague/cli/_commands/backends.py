@@ -15,8 +15,8 @@ from __future__ import annotations
 import argparse
 
 from colleague import registry
-from colleague.cli._commands.overview import emit_overview
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._commands.overview import render_text
+from colleague.cli._output import JSON_HELP, emit_result, rendered
 
 
 def backends_sections() -> list[dict[str, object]]:
@@ -34,30 +34,73 @@ def backends_sections() -> list[dict[str, object]]:
     ]
 
 
-def cmd_backends_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague backends",
-        backends_sections(),
-        json_mode=bool(getattr(args, "json", False)),
+# --- registry tool functions ------------------------------------------------
+# Named params (no argparse Namespace), return rendered(structured, text). The
+# agentfront-rendered CLI derives the args from the signature (none here) and
+# emits the return value (--json -> the dict, else the pretty text). The legacy
+# cmd_* handlers below are thin adapters over these, so both doors share one
+# rendering and the pre-flip --json/text output stays byte-identical.
+
+
+def _backends_overview() -> object:
+    sections = backends_sections()
+    return rendered(
+        {"subject": "colleague backends", "sections": sections},
+        render_text("colleague backends", sections),
     )
+
+
+def _backends_list() -> object:
+    catalog = registry.catalog()
+    engines = [{"name": b.name, "target": b.target} for b in catalog]
+    if not catalog:
+        text = "(no backend plugins installed)"
+    else:
+        # Header row so a reader knows what the two tab-separated columns mean
+        # (the backend name vs. its target class path).
+        rows = [f"{b.name}\t{b.target}" for b in catalog]
+        text = "\n".join(["NAME\tTARGET", *rows])
+    return rendered({"engines": engines}, text)
+
+
+def register_into(app) -> None:
+    """Register the backend-discovery verbs on the agentfront App registry.
+
+    Registered under BOTH the ``backends`` group and the deprecated ``wheels``
+    alias group — the registry keys tools by full ``group + (name,)`` path, so
+    the two prefixes are distinct entries and the old ``colleague wheels list``
+    keeps working on the rendered CLI (and in the MCP/learn catalog).
+    """
+    for prefix in ("backends", "wheels"):
+        g = app.group(prefix)
+        g.tool(
+            _backends_list,
+            name="list",
+            description="List discovered backend plugins.",
+            doc="# backends list\nList the model backends discovered via the "
+            "`colleague.engines` entry-point group (the minds colleague can drive).",
+        )
+        g.tool(
+            _backends_overview,
+            name="overview",
+            description="Describe the installed-plugins registry.",
+            doc="# backends overview\nDescribe the registry of installed backend "
+            "plugins: the discovered minds and the noun's verbs.",
+        )
+
+
+# --- legacy argparse path (pre-flip) ----------------------------------------
+# Thin adapters delegating to the registry tool functions so the live argparse
+# CLI stays byte-identical until the entry is flipped to the rendered CLI (t8).
+
+
+def cmd_backends_overview(args: argparse.Namespace) -> int:
+    emit_result(_backends_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 
 def cmd_backends_list(args: argparse.Namespace) -> int:
-    catalog = registry.catalog()
-    json_mode = bool(getattr(args, "json", False))
-    if json_mode:
-        emit_result(
-            {"engines": [{"name": b.name, "target": b.target} for b in catalog]},
-            json_mode=True,
-        )
-    elif not catalog:
-        emit_result("(no backend plugins installed)", json_mode=False)
-    else:
-        # Header row so a reader knows what the two tab-separated columns mean
-        # (the backend name vs. its target class path). --json above is unchanged.
-        rows = [f"{b.name}\t{b.target}" for b in catalog]
-        emit_result("\n".join(["NAME\tTARGET", *rows]), json_mode=False)
+    emit_result(_backends_list(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 

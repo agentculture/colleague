@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._commands.overview import emit_overview
-from colleague.cli._output import JSON_HELP, emit_result
+from colleague.cli._commands.overview import render_text
+from colleague.cli._output import JSON_HELP, emit_result, rendered
 from colleague.config import EngineConfig, load_config_file
 
 
@@ -47,38 +47,71 @@ def _config_sections() -> list[dict[str, object]]:
     ]
 
 
-def cmd_config_show(args: argparse.Namespace) -> int:
-    repo = getattr(args, "repo", ".")
-    json_mode = bool(getattr(args, "json", False))
-    cfg = EngineConfig.resolve(repo_path=repo)
+# --- registry tool functions (rendered) + thin legacy adapters --------------
 
-    if json_mode:
-        emit_result(cfg.to_dict(), json_mode=True)
+
+def _config_show(repo: str = ".") -> object:
+    """Registry tool: the resolved provider config as ``rendered(dict, text)``.
+
+    ``repo`` (default ``"."``) is derived by agentfront into ``--repo`` from this
+    signature, matching the legacy ``config show --repo PATH``. ``api_key`` is
+    redacted by :meth:`EngineConfig.to_dict`, never printed.
+    """
+    cfg = EngineConfig.resolve(repo_path=repo)
+    lines = [
+        f"base_url:               {cfg.base_url}",
+        f"model:                  {cfg.model}",
+        f"max_steps:              {cfg.max_steps}",
+        f"temperature:            {cfg.temperature}",
+        f"timeout:                {cfg.timeout}",
+        f"context_budget_tokens:  {cfg.context_budget_tokens}",
+    ]
+    file_cfg = load_config_file(repo)
+    if file_cfg:
+        keys = ", ".join(sorted(file_cfg.keys()))
+        lines.append(f"config_file: .colleague/config.json sets [{keys}]")
     else:
-        lines = [
-            f"base_url:               {cfg.base_url}",
-            f"model:                  {cfg.model}",
-            f"max_steps:              {cfg.max_steps}",
-            f"temperature:            {cfg.temperature}",
-            f"timeout:                {cfg.timeout}",
-            f"context_budget_tokens:  {cfg.context_budget_tokens}",
-        ]
-        file_cfg = load_config_file(repo)
-        if file_cfg:
-            keys = ", ".join(sorted(file_cfg.keys()))
-            lines.append(f"config_file: .colleague/config.json sets [{keys}]")
-        else:
-            lines.append("config_file: (none — using env vars + built-in defaults)")
-        emit_result("\n".join(lines), json_mode=False)
+        lines.append("config_file: (none — using env vars + built-in defaults)")
+    return rendered(cfg.to_dict(), "\n".join(lines))
+
+
+def _config_overview() -> object:
+    sections = _config_sections()
+    return rendered(
+        {"subject": "colleague config", "sections": sections},
+        render_text("colleague config", sections),
+    )
+
+
+def register_into(app) -> None:
+    """Register the provider-config inspection verbs on the agentfront App registry."""
+    g = app.group("config")
+    g.tool(
+        _config_show,
+        name="show",
+        description="Show the resolved provider configuration.",
+        doc="# config show [--repo PATH]\nShow the resolved provider config "
+        "(base_url, model, knobs), reflecting .colleague/config.json when --repo "
+        "is given. The api_key is always redacted.",
+    )
+    g.tool(
+        _config_overview,
+        name="overview",
+        description="Describe the config surface.",
+        doc="# config overview\nDescribe the provider-config surface: what it "
+        "shows, the resolution precedence, and the verbs.",
+    )
+
+
+def cmd_config_show(args: argparse.Namespace) -> int:
+    emit_result(
+        _config_show(getattr(args, "repo", ".")), json_mode=bool(getattr(args, "json", False))
+    )
     return 0
 
 
 def cmd_config_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague config",
-        _config_sections(),
-        json_mode=bool(getattr(args, "json", False)),
-    )
+    emit_result(_config_overview(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 

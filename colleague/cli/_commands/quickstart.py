@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 
-from colleague.cli._output import emit_result
+from colleague.cli._output import emit_result, rendered
 
 #: (title, example command, why) — the ordered first-run path. One source of
 #: truth for both the markdown and the --json rendering.
@@ -70,15 +70,35 @@ def _as_markdown() -> str:
     return "\n".join(lines)
 
 
+# --- registry tool function -------------------------------------------------
+# Named params (no argparse Namespace), return rendered(structured, text).
+
+
+def _quickstart() -> object:
+    return rendered(
+        {"steps": [{"title": t, "command": c, "why": w} for t, c, w in _STEPS]},
+        _as_markdown(),
+    )
+
+
+def register_into(app) -> None:
+    """Register the quickstart verb onto the agentfront App registry."""
+    app.tool(
+        _quickstart,
+        name="quickstart",
+        description="Guided first-run walkthrough for new users (start here).",
+        doc="# quickstart\nA guided first-run walkthrough: the shortest path "
+        "from 'is it set up?' to reading a first run report.",
+    )
+
+
+# --- legacy argparse path (pre-flip) ----------------------------------------
+# Thin adapter delegating to the registry tool function so the live argparse
+# CLI stays byte-identical until the entry is flipped to the rendered CLI.
+
+
 def cmd_quickstart(args: argparse.Namespace) -> int:
-    json_mode = bool(getattr(args, "json", False))
-    if json_mode:
-        emit_result(
-            {"steps": [{"title": t, "command": c, "why": w} for t, c, w in _STEPS]},
-            json_mode=True,
-        )
-    else:
-        emit_result(_as_markdown(), json_mode=False)
+    emit_result(_quickstart(), json_mode=bool(getattr(args, "json", False)))
     return 0
 
 

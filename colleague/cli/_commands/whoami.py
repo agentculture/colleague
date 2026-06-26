@@ -21,7 +21,7 @@ import argparse
 from pathlib import Path
 
 from colleague import __version__
-from colleague.cli._output import emit_result
+from colleague.cli._output import emit_result, rendered
 from colleague.config import EngineConfig, resolve_engine
 
 _FALLBACK_NICK = "colleague"
@@ -115,12 +115,14 @@ def format_work_model(work_model: object) -> str:
     return MOCK_WORK_MODEL_LABEL if work_model is None else str(work_model)
 
 
-def cmd_whoami(args: argparse.Namespace) -> None:
+def _whoami() -> object:
+    """Registry tool: the identity probe as ``rendered(identity, text)``.
+
+    Returns the SAME structured dict the legacy ``--json`` path emitted and the
+    SAME multi-line text otherwise, from one value — so the agentfront-rendered
+    CLI and the legacy adapter share one rendering.
+    """
     identity = report()
-    json_mode = bool(getattr(args, "json", False))
-    if json_mode:
-        emit_result(identity, json_mode=True)
-        return
     work_model = format_work_model(identity["work_model"])
     text = (
         f"nick: {identity['nick']}\n"
@@ -129,7 +131,26 @@ def cmd_whoami(args: argparse.Namespace) -> None:
         f"work engine: {identity['work_engine']}\n"
         f"work model: {work_model}"
     )
-    emit_result(text, json_mode=False)
+    return rendered(identity, text)
+
+
+def register_into(app) -> None:
+    """Register ``whoami`` as a top-level (ungrouped) tool on the App registry."""
+    app.tool(
+        _whoami,
+        name="whoami",
+        description="Report nick, version, mesh backend, and the live work engine + model.",
+        doc="# whoami\nThe smallest identity probe: the mesh identity (nick + persona "
+        "backend from culture.yaml) and the live work identity (the engine + model a "
+        "bare `colleague work` would run). Read-only.",
+    )
+
+
+# --- legacy argparse path (pre-flip): a thin adapter over the tool function ---
+
+
+def cmd_whoami(args: argparse.Namespace) -> None:
+    emit_result(_whoami(), json_mode=bool(getattr(args, "json", False)))
 
 
 def register(sub: argparse._SubParsersAction) -> None:
