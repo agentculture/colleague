@@ -163,9 +163,10 @@ def test_session_help_documents_the_agent_native_default(
     can't silently regress below the spec's before→after."""
     from colleague.cli import main
 
-    with pytest.raises(SystemExit) as exc:
-        main(["session", "--help"])
-    assert exc.value.code == 0
+    # The rendered CLI returns 0 for a verb's --help (argparse's internal exit is
+    # caught + translated by agentfront run_cli); exit-code-equivalent via __main__.
+    rc = main(["session", "--help"])
+    assert rc == 0
     out = capsys.readouterr().out.lower()
     assert "agent-native" in out, "help must name the agent-native entry point"
     assert "work" in out and "plan" in out, "help must mention work/plan routing"

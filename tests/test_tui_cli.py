@@ -40,9 +40,10 @@ def _boost_state() -> CockpitState:
 
 
 def test_help_still_builds(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        main(["--help"])
-    assert exc.value.code == 0
+    # `colleague --help` renders through the legacy parser (to keep the grouped
+    # epilog) and returns 0 rather than raising SystemExit; exit-code-equivalent.
+    rc = main(["--help"])
+    assert rc == 0
     out = capsys.readouterr().out
     assert "tui" in out
 
@@ -442,9 +443,10 @@ def test_render_format_ansi_json(tmp_path: Path, capsys: pytest.CaptureFixture[s
 def test_render_invalid_format_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """render --format <unknown> is rejected via CliError with no traceback."""
     sf = _write_state(tmp_path / "s.json", CockpitState())
-    with pytest.raises(SystemExit) as exc:
-        main(["tui", "render", "--state", str(sf), "--format", "invalid"])
-    assert exc.value.code != 0
+    # The rendered CLI returns the non-zero code (agentfront run_cli catches
+    # argparse's internal exit); exit-code-equivalent via __main__.
+    rc = main(["tui", "render", "--state", str(sf), "--format", "invalid"])
+    assert rc != 0
     err = capsys.readouterr().err
     assert "error:" in err
     assert "Traceback" not in err

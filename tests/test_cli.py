@@ -48,9 +48,13 @@ def test_no_args_tty_opens_session(
 
 
 def test_unknown_command_errors(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        main(["bogus"])
-    assert exc.value.code == 1
+    # The rendered CLI (agentfront ``run_cli``) RETURNS the exit code for an
+    # argparse-level parse error rather than raising ``SystemExit`` (the legacy
+    # parser raised it). The shell exit code is identical — ``colleague.__main__``
+    # does ``sys.exit(main())`` — so this is an exit-code-equivalent change, not a
+    # behaviour regression. The structured ``error:`` / ``hint:`` contract holds.
+    rc = main(["bogus"])
+    assert rc == 1
     err = capsys.readouterr().err
     assert err.startswith("error:")
     assert "hint:" in err

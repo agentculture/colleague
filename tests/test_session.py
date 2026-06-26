@@ -290,11 +290,16 @@ def test_execute_work_returns_taskresult_and_path(tmp_path: Path) -> None:
 
 
 def test_session_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
-    """colleague session --help exits 0 and mentions expected flags."""
-    with pytest.raises(SystemExit) as exc_info:
-        main(["session", "--help"])
+    """colleague session --help exits 0 and mentions expected flags.
+
+    The rendered CLI (agentfront ``run_cli``) RETURNS 0 for a verb's ``--help``
+    rather than raising ``SystemExit`` (argparse's internal exit is caught and
+    translated). The shell exit code is identical via ``__main__``'s
+    ``sys.exit(main())`` — exit-code-equivalent, not a regression.
+    """
+    rc = main(["session", "--help"])
     out = capsys.readouterr().out
-    assert exc_info.value.code == 0
+    assert rc == 0
     assert "--engine" in out
     assert "--repo" in out
     # Session no longer auto-PRs per line (#53): handoff is opt-in via --pr.

@@ -83,9 +83,10 @@ def test_cli_overview_unknown_flag_structured_error(
 ) -> None:
     # `cli overview` parse errors must route through the structured error
     # contract (error:/hint: + exit 1), not argparse's default stderr/exit 2.
-    with pytest.raises(SystemExit) as exc:
-        main(["cli", "overview", "--bogus"])
-    assert exc.value.code == 1
+    # The rendered CLI returns the code (agentfront run_cli catches argparse's
+    # internal exit); exit-code-equivalent via __main__'s sys.exit(main()).
+    rc = main(["cli", "overview", "--bogus"])
+    assert rc == 1
     err = capsys.readouterr().err
     assert err.startswith("error:")
     assert "hint:" in err
