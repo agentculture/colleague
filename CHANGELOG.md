@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-06-27
+
+### Added
+
+- **Early, choices-shaped `--algo` validation** on `colleague commands approve` and `colleague hooks approve`. A bad `--algo` (e.g. `crc32`) now fails immediately with a clean `error: invalid --algo 'crc32'` / `hint: choose one of: sha256, md5` (structured under `--json`) *before* any file/name lookup, instead of the previous late, file-existence-masked `could not checksum …` message. Validated against the new public `colleague.policy.SUPPORTED_CHECKSUM_ALGOS` tuple (single source of truth).
+
+### Changed
+
+- **Raised the agentfront floor to `>=0.15.0`** to adopt the two consumer-API gaps the CLI migration surfaced and which agentfront#38 closed: `Flag(choices=)` + a public single-dispatch MCP `run_tool` accessor.
+- **The MCP round-trip test now uses the public `app.mcp_server().run_tool` accessor** (agentfront 0.15.0, #38 Ask 2) instead of reaching into the private `agentfront.mcp_surface._build_run_tool`.
+- Recorded the honest limit of agentfront#38 Ask 1 for colleague: `--algo` is a *value-carrying* flag (its value is consumed via the function signature), so it cannot take an explicit `Flag(choices=)` without colliding with its signature-derived `--algo` at build time — hence the explicit early validation above rather than a parse-time choices flag (the two `approve` docstrings now state this accurately, replacing the stale "agentfront's Flag carries no choices" note).
+
+## [1.26.0] - 2026-06-26
+
+### Added
+
+- **colleague's agent-first CLI is rendered from an imported agentfront `App` registry** instead of hand-maintained argparse scaffolding ("import, don't duplicate"). `colleague/cli/_app.py` `build_app()` auto-discovers every verb module's `register_into(app)` hook and `colleague/cli/__init__.py` `main()` dispatches argv against that App via agentfront's `run_cli` — so nested noun/verb dispatch, structured `{code, message, remediation}` errors, per-verb `--json`, the bare-invocation no-command handler, and `KeyboardInterrupt`→130 now come from agentfront's one published consumer-CLI API. Each verb is a **rendered tool** (`app.tool`, exit-0/raise, read-only inspection) or a **host command** (`app.add_command`, custom exit codes / streaming / blocking server-TTY — `work`/`drive`/`plan`/`session`/`tui`/`flight`/`clean`/`learn-from`/`promote`/`mcp`); the four reserved meta-verbs (`doctor`/`overview`/`learn`/`explain`) stay colleague-owned via a retained-legacy-parser shim. Gated on agentfront#35 (the consumer CLI API, shipped in agentfront 0.14.0). Spec/plan: `docs/specs/2026-06-25-*` / `docs/plans/2026-06-26-*`; feature doc: `docs/features/cli-on-agentfront.md`.
+- **`colleague mcp serve` — a single-dispatch MCP server bonus** (#246), rendered from the same App registry: ONE `run` tool whose description embeds the command catalog (a "CLI on MCP"), so a platform like Cowork can discover and drive colleague. Runs over stdio (blocking); `colleague mcp overview` describes the surface. Behind the opt-in `colleague[mcp]` extra — absent it, `mcp serve` fails with a clean CliError naming the install, binds no socket, starts no daemon; the blocking stdio loop is agentfront's `serve_stdio` (no socket/daemon code in colleague). HTTP (`app.http_app()`) is a further free bonus from the same registry.
+- **Cross-surface parity test** (`tests/test_cross_surface_parity.py`) pinning catalog-level set-equality across the three registry-derived catalogs — the CLI registry tools == the single MCP dispatch tool's command catalog == the `learn` catalog, with host commands consistently absent from all three — so an operation registered once appears on every surface with no drift.
+
+### Changed
+
+- **`agentfront>=0.14.0` is now colleague's one sanctioned base runtime dependency** — a deliberate, recorded break from the historical `dependencies = []` convention, justified because agentfront's core is pure-stdlib (a base `pip install colleague` still pulls zero third-party transitive deps) and it is the AgentCulture org's shared agent-first CLI standard. The MCP SDK ships behind the opt-in `colleague[mcp]` extra, never a base dep. `tests/test_zero_deps.py` becomes an allow-list of exactly agentfront and asserts the MCP SDK is absent without the extra.
+- **`CliError` now subclasses agentfront's `AgentfrontError`** so every colleague error renders natively as structured stderr through the rendered dispatch path.
+
 ## [1.25.0] - 2026-06-24
 
 ### Added

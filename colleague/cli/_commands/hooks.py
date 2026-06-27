@@ -23,10 +23,10 @@ from pathlib import Path
 
 from colleague import hooks as _hooks
 from colleague.cli import _approvals
-from colleague.cli._commands.overview import emit_overview
+from colleague.cli._commands.overview import render_text
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
-from colleague.cli._output import JSON_HELP, emit_result
-from colleague.policy import file_checksum, load_policy, verify_checksum
+from colleague.cli._output import JSON_HELP, emit_result, rendered
+from colleague.policy import SUPPORTED_CHECKSUM_ALGOS, file_checksum, load_policy, verify_checksum
 
 
 def _hooks_sections() -> list[dict[str, object]]:
@@ -73,15 +73,6 @@ def _hooks_sections() -> list[dict[str, object]]:
             ],
         },
     ]
-
-
-def cmd_hooks_overview(args: argparse.Namespace) -> int:
-    emit_overview(
-        "colleague hooks",
-        _hooks_sections(),
-        json_mode=bool(getattr(args, "json", False)),
-    )
-    return 0
 
 
 def _count_by_event(entries: list[_hooks.HookEntry]) -> dict[str, int]:
@@ -190,70 +181,74 @@ def _hook_text_line(
     return f"{prefix}{entry.event}\t{matcher_str}\t{entry.command}\t[{status}]"
 
 
-def _emit_hook_entries(
-    scoped: list[tuple[_hooks.HookEntry, str | None]],
-    *,
-    json_mode: bool,
-    repo: Path,
-    model: str | None = None,
-) -> None:
-    """Render scoped entries; a ``None`` scope is omitted (base-only mode).
+# --- registry tool functions (rendered) + thin legacy adapters --------------
 
-    Adds ``approval_status`` to each entry and includes ``run_command_policy``
-    in the JSON output (or a summary line in text output) when present. The
-    run_command policy and per-file status come from the *merged* policy
-    (repo-over-user + per-model overlay), matching enforcement.
+
+def _hooks_overview() -> object:
+    sections = _hooks_sections()
+    return rendered(
+        {"subject": "colleague hooks", "sections": sections},
+        render_text("colleague hooks", sections),
+    )
+
+
+def _hooks_list(repo: str = ".", model: str = "") -> object:
+    """Registry tool: configured hook entries + approval status + run_command policy.
+
+    Builds the SAME ``{"hooks": [...], "run_command_policy"?: ...}`` payload and
+    the SAME text lines the legacy ``hooks list`` emitted, from one
+    ``rendered(payload, text)`` value. ``repo`` / ``model`` derive into
+    ``--repo`` / ``--model``; an empty ``model`` is the base-only baseline (no
+    ``scope`` key), byte-identical to before.
     """
-    run_cmd_policy = load_policy(repo, model=model).run_command_config()
+    repo_path = Path(repo).expanduser()
+    model_arg = model or None
+    scoped = _resolve_scoped_entries(repo_path, model_arg)
+    run_cmd_policy = load_policy(repo_path, model=model_arg).run_command_config()
 
-    if json_mode:
-        payload: dict = {"hooks": [_hook_json_item(e, s, repo, model) for e, s in scoped]}
-        if run_cmd_policy is not None:
-            payload["run_command_policy"] = run_cmd_policy
-        emit_result(payload, json_mode=True)
-        return
+    payload: dict = {"hooks": [_hook_json_item(e, s, repo_path, model_arg) for e, s in scoped]}
+    if run_cmd_policy is not None:
+        payload["run_command_policy"] = run_cmd_policy
 
     if not scoped:
         lines = ["(no hooks configured)"]
         if run_cmd_policy is not None:
             lines.append(_run_command_line(run_cmd_policy, colon=True))
-        emit_result("\n".join(lines), json_mode=False)
-        return
-
-    lines = [_hook_text_line(e, s, repo, model) for e, s in scoped]
-    if run_cmd_policy is not None:
-        lines.append(_run_command_line(run_cmd_policy, colon=False))
-    emit_result("\n".join(lines), json_mode=False)
+    else:
+        lines = [_hook_text_line(e, s, repo_path, model_arg) for e, s in scoped]
+        if run_cmd_policy is not None:
+            lines.append(_run_command_line(run_cmd_policy, colon=False))
+    return rendered(payload, "\n".join(lines))
 
 
-def cmd_hooks_list(args: argparse.Namespace) -> int:
-    repo = Path(getattr(args, "repo", ".")).expanduser()
-    json_mode = bool(getattr(args, "json", False))
-    model: str | None = getattr(args, "model", None) or None
+def _hooks_approve(name: str, repo: str = ".", algo: str = "sha256") -> object:
+    """Registry tool: record a checksum approval for a hook script file.
 
-    scoped = _resolve_scoped_entries(repo, model)
-    _emit_hook_entries(scoped, json_mode=json_mode, repo=repo, model=model)
-    return 0
-
-
-def cmd_hooks_approve(args: argparse.Namespace) -> int:
-    name: str = args.name  # path to the hook script (repo-relative or otherwise)
-    repo = Path(getattr(args, "repo", ".")).expanduser()
-    algo: str = getattr(args, "algo", "sha256") or "sha256"
-    json_mode = bool(getattr(args, "json", False))
-
+    ``name`` (no default) derives into a positional arg. ``--algo`` is a
+    value-carrying flag (consumed via the ``algo`` signature param), so it
+    cannot take an explicit ``Flag(choices=…)`` without colliding with its
+    signature-derived ``--algo``; it is therefore validated explicitly and
+    early below, raising a clean choices-shaped ``CliError``.
+    """
+    repo_path = Path(repo).expanduser()
+    algo = algo or "sha256"
+    if algo not in SUPPORTED_CHECKSUM_ALGOS:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message=f"invalid --algo {algo!r}",
+            remediation=f"choose one of: {', '.join(SUPPORTED_CHECKSUM_ALGOS)}",
+        )
     # Normalize to the canonical repo-relative key — the SAME key hook
     # enforcement derives from a command referencing this file (so
     # 'hooks approve ./x.sh' and a hook running 'bash ./x.sh' agree on 'x.sh').
-    key = _hooks.canonical_hook_key(repo, name)
+    key = _hooks.canonical_hook_key(repo_path, name)
     if key is None:
         raise CliError(
             code=EXIT_USER_ERROR,
             message=f"hook script path escapes the repo root: {name}",
             remediation="approve a script that lives inside the repository tree",
         )
-
-    script_path = repo.resolve() / key
+    script_path = repo_path.resolve() / key
     if not script_path.is_file():
         raise CliError(
             code=EXIT_USER_ERROR,
@@ -263,7 +258,6 @@ def cmd_hooks_approve(args: argparse.Namespace) -> int:
                 "hooks are keyed by the repo-relative path of their script file"
             ),
         )
-
     try:
         checksum = file_checksum(script_path, algo)
     except (OSError, ValueError) as exc:
@@ -272,13 +266,56 @@ def cmd_hooks_approve(args: argparse.Namespace) -> int:
             message=f"could not checksum {script_path}: {exc}",
             remediation="ensure the file exists and is readable",
         ) from exc
-
-    _approvals.write_approval(repo, "hooks", key, checksum)
-
+    _approvals.write_approval(repo_path, "hooks", key, checksum)
     result = {"name": key, "category": "hooks", "checksum": checksum, "path": str(script_path)}
+    return rendered(result, f"approved hooks/{key}  {checksum}")
+
+
+def register_into(app) -> None:
+    """Register the lifecycle-hook inspection + approval verbs on the App registry."""
+    g = app.group("hooks")
+    g.tool(
+        _hooks_list,
+        name="list",
+        description="List configured hook entries.",
+        doc="# hooks list [--repo PATH] [--model NAME]\nList the lifecycle hook "
+        "entries from .colleague/hooks.json (with per-model overlay when --model is "
+        "given), each with its approval status, plus the run_command policy.",
+    )
+    g.tool(
+        _hooks_approve,
+        name="approve",
+        description="Record a checksum approval for a hook script file.",
+        doc="# hooks approve <name> [--repo PATH] [--algo sha256|md5]\nRecord a "
+        "checksum approval for a hook script file (keyed by its repo-relative path) "
+        "into .colleague/approvals.json.",
+    )
+    g.tool(
+        _hooks_overview,
+        name="overview",
+        description="Describe the hooks surface.",
+        doc="# hooks overview\nDescribe the lifecycle-hook surface: events, the "
+        "per-model overlay, hook decisions, the approval gate, and the verbs.",
+    )
+
+
+def cmd_hooks_overview(args: argparse.Namespace) -> int:
+    emit_result(_hooks_overview(), json_mode=bool(getattr(args, "json", False)))
+    return 0
+
+
+def cmd_hooks_list(args: argparse.Namespace) -> int:
     emit_result(
-        result if json_mode else f"approved hooks/{key}  {checksum}",
-        json_mode=json_mode,
+        _hooks_list(getattr(args, "repo", "."), getattr(args, "model", None) or ""),
+        json_mode=bool(getattr(args, "json", False)),
+    )
+    return 0
+
+
+def cmd_hooks_approve(args: argparse.Namespace) -> int:
+    emit_result(
+        _hooks_approve(args.name, getattr(args, "repo", "."), getattr(args, "algo", "sha256")),
+        json_mode=bool(getattr(args, "json", False)),
     )
     return 0
 

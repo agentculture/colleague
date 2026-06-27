@@ -211,14 +211,22 @@ def _render(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "learn-from",
-        help=(
-            "Learn skills from a peer agent (e.g. claude) into .colleague/skills/ "
-            "(see 'colleague explain learn-from')."
-        ),
-    )
+_LEARN_FROM_HELP = (
+    "Learn skills from a peer agent (e.g. claude) into .colleague/skills/ "
+    "(see 'colleague explain learn-from')."
+)
+
+
+def _configure_learn_from_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``learn-from``'s positional + flags to an already-created parser.
+
+    Shared by the legacy :func:`register` and the host-command ``configure`` hook.
+    ``learn-from`` is a host command: it drives the engine for the stage-2 adapt
+    pass and carries hyphenated flags (``--dry-run`` / ``--copy-only`` /
+    ``--base-url`` / ``--max-steps``) that don't map cleanly to signature-derived
+    flags. ``func`` is left for the caller / agentfront to set to
+    :func:`cmd_learn_from`.
+    """
     p.add_argument("source", help="Skill source to learn from (currently: claude).")
     p.add_argument(
         "names",
@@ -255,4 +263,24 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--max-steps", type=int, default=None, help="Max tool-loop steps per stage-2 skill."
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("learn-from", help=_LEARN_FROM_HELP)
+    _configure_learn_from_parser(p)
     p.set_defaults(func=cmd_learn_from)
+
+
+def register_into(app) -> None:
+    """Register ``learn-from`` as an agentfront host command.
+
+    See :func:`_configure_learn_from_parser` for why it is a host command (engine-
+    driving + hyphenated flags). Reuses :func:`cmd_learn_from`'s ``(args) -> int``
+    handler verbatim.
+    """
+    app.add_command(
+        "learn-from",
+        cmd_learn_from,
+        help=_LEARN_FROM_HELP,
+        configure=_configure_learn_from_parser,
+    )

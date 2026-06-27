@@ -132,15 +132,23 @@ def cmd_promote(args: argparse.Namespace) -> int:
     return 0
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "promote",
-        help=(
-            "Graduate colleague into a resident Culture member: mint identity, "
-            "select channels, register, and (with --serve) go live "
-            "(see 'colleague explain promote')."
-        ),
-    )
+_PROMOTE_HELP = (
+    "Graduate colleague into a resident Culture member: mint identity, "
+    "select channels, register, and (with --serve) go live "
+    "(see 'colleague explain promote')."
+)
+
+
+def _configure_promote_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``promote``'s flags to an already-created parser.
+
+    Shared by the legacy :func:`register` and the host-command ``configure`` hook.
+    ``promote`` is a host command: it drives the engine (the resident's brain),
+    can ``--serve`` a long-running IRC loop, and carries hyphenated flags
+    (``--base-url`` / ``--roster-cli`` with choices / ``--no-signal`` / ``--irc-host``
+    / ``--irc-port``) that don't map cleanly to signature-derived flags. ``func``
+    is left for the caller / agentfront to set to :func:`cmd_promote`.
+    """
     p.add_argument("--repo", default=".", help="Path to the repository (default: cwd).")
     p.add_argument(
         "--suffix",
@@ -179,4 +187,19 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--irc-port", type=int, default=6667, help="IRC port for --serve (default: 6667)."
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("promote", help=_PROMOTE_HELP)
+    _configure_promote_parser(p)
     p.set_defaults(func=cmd_promote)
+
+
+def register_into(app) -> None:
+    """Register ``promote`` as an agentfront host command.
+
+    See :func:`_configure_promote_parser` for why it is a host command (engine-
+    driving + ``--serve`` long-run + hyphenated flags). Reuses
+    :func:`cmd_promote`'s ``(args) -> int`` handler verbatim.
+    """
+    app.add_command("promote", cmd_promote, help=_PROMOTE_HELP, configure=_configure_promote_parser)

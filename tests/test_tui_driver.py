@@ -224,7 +224,8 @@ def test_tui_live_main_exits_nonzero_when_not_tty(
 
 def test_tui_live_registered_in_parser(capsys: pytest.CaptureFixture[str]) -> None:
     """'tui live' must appear in the tui help text."""
-    with pytest.raises(SystemExit):
-        main(["tui", "--help"])
+    # The rendered CLI returns 0 for a verb's --help rather than raising SystemExit
+    # (agentfront run_cli translates argparse's internal exit); content unchanged.
+    main(["tui", "--help"])
     out = capsys.readouterr().out
     assert "live" in out

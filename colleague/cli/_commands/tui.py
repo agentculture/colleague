@@ -560,13 +560,23 @@ def _add_repo(p: argparse.ArgumentParser) -> None:
     )
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "tui",
-        help="Headless TUI inspection + JSON scenario runner (see 'colleague tui overview').",
-    )
+_TUI_HELP = "Headless TUI inspection + JSON scenario runner (see 'colleague tui overview')."
+
+
+def _configure_tui_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``tui``'s ``--json`` + subcommands to an already-created parser.
+
+    Shared by the legacy :func:`register` (pre-flip argparse path) and the
+    agentfront host-command ``configure`` hook (:func:`register_into`). ``tui``
+    is a host command, not a rendered tool group: ``tui test`` exits ``1`` on a
+    scenario FAIL — a custom exit code the rendered tool dispatch (return → emit,
+    exit 0) cannot produce — and a noun is *either* a tool-group *or* a host
+    command, never both, so the whole group is one host command. ``func`` on *p*
+    is left for the caller / agentfront to set to :func:`_no_verb` (bare ``tui``
+    → overview); each subcommand sets its own ``func``.
+    """
     _add_json(p)
-    p.set_defaults(func=_no_verb, json=False)
+    p.set_defaults(json=False)
     noun_sub = p.add_subparsers(dest="tui_command", parser_class=type(p))
 
     rnd = noun_sub.add_parser("render", help="Render the ANSI frame for a state.")
@@ -654,3 +664,20 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     _add_json(liv)
     liv.set_defaults(func=cmd_tui_live)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("tui", help=_TUI_HELP)
+    _configure_tui_parser(p)
+    p.set_defaults(func=_no_verb)
+
+
+def register_into(app) -> None:
+    """Register the ``tui`` noun-group as an agentfront host command.
+
+    See :func:`_configure_tui_parser` for why ``tui`` is a host command (the
+    ``tui test`` exit-1-on-FAIL contract + the one-noun-one-door rule). Reuses
+    the existing ``cmd_tui_*`` handlers verbatim; bare ``tui`` falls through to
+    :func:`_no_verb` (overview).
+    """
+    app.add_command("tui", _no_verb, help=_TUI_HELP, configure=_configure_tui_parser)

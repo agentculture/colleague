@@ -143,14 +143,23 @@ def _render(report: dict) -> str:
     return "\n".join(lines)
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "clean",
-        help=(
-            "Reap stale/corrupt colleague/* branches + orphaned .colleague/ "
-            "artifacts left by a crashed work item (see 'colleague explain clean')."
-        ),
-    )
+_CLEAN_HELP = (
+    "Reap stale/corrupt colleague/* branches + orphaned .colleague/ "
+    "artifacts left by a crashed work item (see 'colleague explain clean')."
+)
+
+
+def _configure_clean_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``clean``'s flags to an already-created parser.
+
+    Shared by the legacy :func:`register` and the host-command ``configure`` hook.
+    ``clean`` is a host command, not a rendered tool: its flag surface
+    (``--dry-run`` / ``--older-than DAYS`` with ``None`` = "no age filter") does
+    not map cleanly to signature-derived flags — agentfront would render
+    ``--dry_run`` / ``--older_than`` and could not express the ``None`` default.
+    Reusing the argparse surface verbatim keeps the flags byte-identical.
+    ``func`` is left for the caller / agentfront to set to :func:`cmd_clean`.
+    """
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(
         "--dry-run",
@@ -175,4 +184,20 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="Base branch for the merged check (default: main).",
     )
     p.add_argument("--json", action="store_true", help=JSON_HELP)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("clean", help=_CLEAN_HELP)
+    _configure_clean_parser(p)
     p.set_defaults(func=cmd_clean)
+
+
+def register_into(app) -> None:
+    """Register ``clean`` as an agentfront host command.
+
+    See :func:`_configure_clean_parser` for why ``clean`` is a host command (its
+    ``--dry-run`` / ``--older-than`` flag surface doesn't map cleanly to
+    signature-derived flags). Reuses :func:`cmd_clean`'s ``(args) -> int`` handler
+    verbatim.
+    """
+    app.add_command("clean", cmd_clean, help=_CLEAN_HELP, configure=_configure_clean_parser)

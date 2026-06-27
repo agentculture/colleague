@@ -111,6 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import hooks as _hooks_group
     from colleague.cli._commands import learn as _learn_cmd
     from colleague.cli._commands import learn_from as _learn_from_cmd
+    from colleague.cli._commands import mcp as _mcp_group
     from colleague.cli._commands import overview as _overview_cmd
     from colleague.cli._commands import plan as _plan_cmd
     from colleague.cli._commands import promote as _promote_cmd
@@ -177,6 +178,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _session_cmd.register(sub)
     # Headless TUI inspection + JSON scenario runner (TAUI).
     _tui_cmd.register(sub)
+    # MCP server bonus: serve colleague's operations over stdio ([mcp] extra).
+    _mcp_group.register(sub)
 
     return parser
 
@@ -209,25 +212,73 @@ def _dispatch(args: argparse.Namespace) -> int:
     return rc if rc is not None else 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    # Pre-parse peek so argparse-level errors honour --json.
-    _CliArgumentParser._json_hint = _argv_has_json(argv)
-    parser = _build_parser()
-    args = parser.parse_args(argv)
+# agentfront RESERVES these four meta-verbs (``App._RESERVED_META_VERBS``) and
+# renders trivial, generic versions from the registry. colleague's own versions
+# are materially richer — ``doctor`` is a real configuration-readiness health
+# check, ``overview`` a descriptive agent snapshot, ``learn`` the curated
+# self-teaching prompt, ``explain`` the per-verb markdown catalog (which also
+# covers the host-command launchers agentfront's registry-driven ``explain``
+# cannot) — so the live entry keeps them colleague-owned via the legacy parser.
+_META_VERBS = frozenset({"doctor", "overview", "learn", "explain"})
 
-    if args.command is None:
-        # Bare `colleague` opens the interactive harness at a terminal; piped /
-        # redirected / non-interactive it prints usage so scripts and agents keep
-        # a discoverable surface. `-h/--help` is handled by argparse before here,
-        # so the help surface (and the teken rubric, which probes --help) stay
-        # available either way. Re-parsing ["session"] reuses the session
-        # subparser's defaults and func wiring — no parallel code path.
-        if _stdio_is_interactive():
-            return _dispatch(parser.parse_args(["session"]))
-        parser.print_help()
+
+def main(argv: list[str] | None = None) -> int:
+    """colleague's CLI entry point — the imported-agentfront rendered surface.
+
+    Every sub-command is dispatched from the agentfront :class:`App` assembled by
+    :func:`colleague.cli._app.build_app` (the "CLI rendered from agentfront"
+    migration), EXCEPT:
+
+    * ``--version`` — agentfront's rendered parser carries no version action, so
+      colleague owns it (matching argparse's print-and-exit-0).
+    * ``--help`` / bare non-interactive — rendered through the legacy parser so
+      the grouped ``getting started / working / inspecting`` epilog survives.
+    * the four reserved meta-verbs (:data:`_META_VERBS`) — routed to colleague's
+      richer handlers through the legacy parser (the rendered App never registers
+      them, so agentfront's generic versions are simply never reached).
+
+    The legacy argparse parser (:func:`_build_parser`) is no longer the live
+    dispatch path; it survives as the backend for these carve-outs, the
+    interactive session's in-process noun introspection, and the ``doctor``
+    parser self-check. Fully retiring it is a documented follow-up.
+    """
+    from agentfront.cli_surface import run_cli
+
+    from colleague.cli._app import build_app
+
+    tokens = list(argv) if argv is not None else sys.argv[1:]
+
+    # `--version` is colleague-owned (the rendered parser has no version action);
+    # match argparse's behaviour — print and raise SystemExit(0).
+    if tokens and tokens[0] in ("--version", "-V"):
+        print(f"colleague {__version__}")
+        raise SystemExit(0)
+
+    # `--help` / `-h` through the legacy parser preserves the grouped epilog.
+    if tokens and tokens[0] in ("--help", "-h"):
+        _build_parser().print_help()
         return 0
 
-    return _dispatch(args)
+    if not tokens:
+        # Bare `colleague`: open the interactive cockpit at a real terminal, else
+        # print usage (with the epilog) so scripts/agents keep a discoverable menu.
+        if _stdio_is_interactive():
+            return run_cli(build_app(), ["session"])
+        _build_parser().print_help()
+        return 0
+
+    if tokens[0] in _META_VERBS:
+        # Pre-parse peek so the legacy parser's argparse-level errors honour --json.
+        # (A meta-verb never starts with ``-``, so a leading flag never lands here.)
+        _CliArgumentParser._json_hint = _argv_has_json(argv)
+        return _dispatch(_build_parser().parse_args(tokens))
+
+    # Everything else — including a leading unknown ``-``/``--flag`` token — goes to
+    # the rendered App. agentfront's parser produces the structured
+    # ``{code, message, remediation}`` error + nonzero exit for an unrecognized flag
+    # (honouring ``--json``), rather than the old behaviour where a ``-``-prefixed
+    # first token collapsed into the no-command path and silently exited 0.
+    return run_cli(build_app(), argv)
 
 
 if __name__ == "__main__":

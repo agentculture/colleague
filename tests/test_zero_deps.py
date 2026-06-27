@@ -1,10 +1,19 @@
 """
-Guard test enforcing zero runtime dependencies (R7).
+Guard test enforcing the single-base-dependency posture (R7, post-agentfront).
+
+Colleague's agent-first CLI is rendered from an imported agentfront App registry
+(the "import, don't duplicate" migration). agentfront is the ONE sanctioned base
+runtime dependency — its core is pure-stdlib (zero third-party transitively), so
+the zero-deps posture holds: this guard allow-lists exactly ``agentfront`` and
+fails on any other third-party leak.
 
 Asserts:
-1. pyproject.toml's [project].dependencies is empty.
-2. Importing colleague modules introduces no third-party top-level imports.
-3. The per-model hooks resolution path stays import-clean and is a strict no-op
+1. pyproject.toml's [project].dependencies is exactly ["agentfront>=…"].
+2. Importing colleague modules introduces no third-party top-level imports
+   other than the sanctioned ``agentfront``.
+3. The [mcp] extra is declared and opt-in; the base import path loads no ``mcp``
+   SDK (the MCP server runs only when the extra is installed and started).
+4. The per-model hooks resolution path stays import-clean and is a strict no-op
    without an overlay; the package opens no socket / daemon / mcp.json surface.
 """
 
@@ -47,13 +56,24 @@ def _third_party_modules_introduced(action):
         is_stdlib = name in sys.stdlib_module_names
         is_colleague = name.startswith("colleague")
         is_builtin = name in _KNOWN_IMPORT_BUILTINS or name.startswith("_")
-        if not (is_stdlib or is_colleague or is_builtin):
+        # agentfront is the ONE sanctioned base runtime dependency: colleague's
+        # CLI is rendered from its App registry, so importing it anywhere in
+        # colleague is legitimate, not a leak. Its own core is pure-stdlib, so
+        # allowing it does not admit any transitive third-party.
+        is_sanctioned_base = name == "agentfront"
+        if not (is_stdlib or is_colleague or is_builtin or is_sanctioned_base):
             third_party.append(name)
     return third_party
 
 
-def test_pyproject_dependencies_empty():
-    """Assert [project].dependencies == [] in pyproject.toml."""
+def test_base_dependency_is_exactly_agentfront():
+    """Assert [project].dependencies is exactly the one sanctioned base dep.
+
+    The "import, don't duplicate" migration takes agentfront as colleague's ONE
+    base runtime dependency (its core is pure-stdlib, so zero third-party flows
+    transitively). The base install must pull exactly ``agentfront`` and nothing
+    else — any second base dependency is a zero-deps-posture breach.
+    """
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
     assert pyproject_path.exists(), f"pyproject.toml not found at {pyproject_path}"
 
@@ -61,7 +81,62 @@ def test_pyproject_dependencies_empty():
         data = tomllib.load(f)
 
     dependencies = data.get("project", {}).get("dependencies", [])
-    assert dependencies == [], f"Expected [project].dependencies == [], got {dependencies}"
+    assert (
+        len(dependencies) == 1
+    ), f"Expected exactly one base dependency (agentfront), got {dependencies}"
+    dep = dependencies[0]
+    assert dep.startswith("agentfront"), f"The sole base dependency must be agentfront, got {dep!r}"
+    # Pin a tested floor (the consumer CLI API landed in 0.14.0).
+    assert ">=" in dep, f"agentfront must pin a version floor (>=), got {dep!r}"
+
+
+def test_mcp_extra_declared_and_opt_in():
+    """The [mcp] extra pins the mcp SDK and is NOT a base dependency.
+
+    The MCP server bonus ships behind an opt-in extra so a base install binds no
+    socket and runs no daemon. The mcp SDK must appear ONLY under
+    [project.optional-dependencies].mcp — never in [project].dependencies.
+    """
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    project = data.get("project", {})
+    extras = project.get("optional-dependencies", {})
+    mcp_extra = extras.get("mcp")
+    assert mcp_extra is not None, "Expected a [project.optional-dependencies].mcp extra"
+    assert any(
+        "mcp" in pin for pin in mcp_extra
+    ), f"[mcp] extra must pin the mcp SDK, got {mcp_extra}"
+
+    # mcp must never be a base dependency.
+    base = project.get("dependencies", [])
+    assert not any(
+        pin.startswith("mcp") for pin in base
+    ), f"the mcp SDK must be an opt-in extra, never a base dependency; base={base}"
+
+
+def test_base_import_does_not_load_mcp():
+    """Importing colleague's CLI path loads no ``mcp`` SDK (opt-in server only).
+
+    agentfront imports the mcp SDK lazily, only inside ``App.mcp_server()``. The
+    base colleague import path (CLI build + dispatch) must therefore never pull
+    ``mcp`` into ``sys.modules`` — the server runs only when the [mcp] extra is
+    installed and ``colleague mcp serve`` is explicitly invoked. This guard is
+    meaningful because the dev env DOES install mcp (dev group), so it proves
+    laziness, not mere absence of the package.
+    """
+
+    def _import_cli_path():
+        import colleague.cli  # noqa: F401
+
+    before = set(sys.modules.keys())
+    _import_cli_path()
+    newly = {n.split(".")[0] for n in (set(sys.modules.keys()) - before)}
+    assert "mcp" not in newly, (
+        "Importing colleague.cli pulled the mcp SDK — it must stay lazy "
+        "(only App.mcp_server() / `colleague mcp serve` may import mcp)."
+    )
 
 
 def test_culture_extra_declared():
@@ -69,8 +144,8 @@ def test_culture_extra_declared():
 
     The resident runtime needs the agent-lifecycle seam and the agentirc-cli wire,
     but they must ship ONLY as the opt-in [culture] extra — never as base
-    dependencies (test_pyproject_dependencies_empty guards the base). This asserts
-    the extra exists and names both packages, so the install path
+    dependencies (test_base_dependency_is_exactly_agentfront guards the base).
+    This asserts the extra exists and names both packages, so the install path
     `pip install colleague[culture]` resolves them.
     """
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"

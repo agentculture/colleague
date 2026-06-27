@@ -273,13 +273,23 @@ def _no_verb(args: argparse.Namespace) -> int:
     return cmd_plan_overview(args)
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "plan",
-        help="Colleague plans a complex task (see 'colleague plan overview').",
-    )
+_PLAN_HELP = "Colleague plans a complex task (see 'colleague plan overview')."
+
+
+def _configure_plan_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``plan``'s ``--json`` + run/status/overview subcommands to an
+    already-created parser.
+
+    Shared by the legacy :func:`register` (pre-flip argparse path) and the
+    agentfront host-command ``configure`` hook (:func:`register_into`) so both
+    doors build a byte-identical surface. It does NOT set ``func`` on *p* itself:
+    the legacy path sets ``func=_no_verb`` after calling this, and the
+    host-command path lets agentfront set ``func=`` to the handler it was
+    registered with (``_no_verb`` — bare ``plan`` → overview). Each subcommand
+    parser sets its own ``func``, which wins when that subcommand is chosen.
+    """
     p.add_argument("--json", action="store_true", help=JSON_HELP)
-    p.set_defaults(func=_no_verb, json=False)
+    p.set_defaults(json=False)
     noun_sub = p.add_subparsers(dest="plan_command", parser_class=type(p))
 
     run = noun_sub.add_parser("run", help="Plan a task end to end (spec -> plan -> workforce).")
@@ -294,6 +304,26 @@ def register(sub: argparse._SubParsersAction) -> None:
     ov = noun_sub.add_parser("overview", help="Describe the plan surface.")
     ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_plan_overview)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("plan", help=_PLAN_HELP)
+    _configure_plan_parser(p)
+    p.set_defaults(func=_no_verb)
+
+
+def register_into(app) -> None:
+    """Register the ``plan`` noun-group as an agentfront host command.
+
+    ``plan run`` returns a custom exit code (``0`` when the spec converges, else
+    ``EXIT_USER_ERROR``) with the result still on stdout — the same "print a
+    result AND exit non-zero" semantic ``work`` has, which agentfront's rendered
+    tool dispatch (return → emit, exit 0) cannot express. A noun is moreover
+    *either* a tool-group *or* a host command, never both, so the whole ``plan``
+    group (run/status/overview) is registered as one host command reusing the
+    existing handlers verbatim via :func:`_configure_plan_parser`.
+    """
+    app.add_command("plan", _no_verb, help=_PLAN_HELP, configure=_configure_plan_parser)
 
 
 def _add_run_args(run: argparse.ArgumentParser) -> None:

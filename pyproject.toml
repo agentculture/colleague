@@ -1,6 +1,6 @@
 [project]
 name = "colleague"
-version = "1.25.0"
+version = "1.27.0"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,14 @@ classifiers = [
     "Topic :: Software Development",
     "Intended Audience :: Developers",
 ]
-dependencies = []
+# Colleague's agent-first CLI is rendered from an imported agentfront App
+# registry (the "import, don't duplicate" migration). agentfront is the ONE
+# base runtime dependency: its core is pure-stdlib (zero third-party
+# transitively), so the zero-deps posture holds — tests/test_zero_deps.py
+# allow-lists exactly `agentfront` and asserts no other third-party leaks. The
+# MCP server bonus and its `mcp` SDK ship behind the opt-in [mcp] extra below,
+# never on the base path (no socket/daemon at base).
+dependencies = ["agentfront>=0.15.0"]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/colleague"
@@ -33,6 +40,15 @@ otel = [
     "opentelemetry-sdk>=1.25",
     "opentelemetry-exporter-otlp-proto-http>=1.25",
     "opentelemetry-semantic-conventions>=0.46b0",
+]
+# The MCP server bonus: colleague registers its operations into one agentfront
+# App, so `app.mcp_server()` exposes them over MCP for free (e.g. for Cowork).
+# The official `mcp` SDK is opt-in — a base install binds no socket and runs no
+# daemon; only `colleague mcp serve` (with this extra installed) starts the
+# single-dispatch server. Pin in lockstep with the dev group below.
+# Install with: pip install "colleague[mcp]"  (or: uv sync --extra mcp).
+mcp = [
+    "mcp>=1.28.0",
 ]
 tui = [
     "rich>=13",
@@ -87,6 +103,10 @@ dev = [
     "isort>=5.12.0",
     "black>=23.7.0",
     "teken>=0.8",
+    # The [mcp] extra, installed in dev/CI so the MCP round-trip + lazy-import
+    # guard run. The base package never imports mcp on its own path; this only
+    # affects the dev environment. Keep the pin in lockstep with the [mcp] extra.
+    "mcp>=1.28.0",
     # The [otel] extra, installed in dev/CI so the telemetry tests run. The base
     # package keeps zero runtime deps; this only affects the dev environment.
     "opentelemetry-api>=1.25",

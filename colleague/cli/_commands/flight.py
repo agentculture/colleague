@@ -207,13 +207,21 @@ def _add_repo(p: argparse.ArgumentParser) -> None:
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
 
 
-def register(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser(
-        "flight",
-        help="Pilot a running work item (see 'colleague flight overview').",
-    )
+_FLIGHT_HELP = "Pilot a running work item (see 'colleague flight overview')."
+
+
+def _configure_flight_parser(p: argparse.ArgumentParser) -> None:
+    """Add ``flight``'s ``--json`` + sub-verbs to an already-created parser.
+
+    Shared by the legacy :func:`register` and the host-command ``configure`` hook.
+    ``flight`` is a host command, NOT a rendered tool group: ``flight status
+    --follow`` STREAMS feed records in an unbounded poll loop (``time.sleep``),
+    which a single-return ``rendered`` tool cannot express — and a noun is either
+    a tool-group or a host command, never both. ``func`` on *p* is left for the
+    caller / agentfront to set to :func:`_no_verb` (bare ``flight`` → overview).
+    """
     p.add_argument("--json", action="store_true", help=JSON_HELP)
-    p.set_defaults(func=_no_verb, json=False)
+    p.set_defaults(json=False)
     noun_sub = p.add_subparsers(dest="flight_command", parser_class=type(p))
 
     st = noun_sub.add_parser("status", help="Read the latest feed record for a flight.")
@@ -244,3 +252,20 @@ def register(sub: argparse._SubParsersAction) -> None:
     ov = noun_sub.add_parser("overview", help="Describe the flight surface.")
     ov.add_argument("--json", action="store_true", help=JSON_HELP)
     ov.set_defaults(func=cmd_flight_overview)
+
+
+def register(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("flight", help=_FLIGHT_HELP)
+    _configure_flight_parser(p)
+    p.set_defaults(func=_no_verb)
+
+
+def register_into(app) -> None:
+    """Register the ``flight`` noun-group as an agentfront host command.
+
+    See :func:`_configure_flight_parser` for why ``flight`` is a host command
+    (the ``status --follow`` streaming poll loop + the one-noun-one-door rule).
+    Reuses the existing ``cmd_flight_*`` handlers verbatim; bare ``flight`` falls
+    through to :func:`_no_verb` (overview).
+    """
+    app.add_command("flight", _no_verb, help=_FLIGHT_HELP, configure=_configure_flight_parser)

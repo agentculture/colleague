@@ -30,9 +30,15 @@ def test_backends_list_json_shape(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_backends_no_verb_prints_overview(capsys: pytest.CaptureFixture[str]) -> None:
+    # In the rendered CLI, bare `colleague backends` falls through to agentfront's
+    # group overview, which lists the noun's child verbs (the rich descriptive
+    # overview is one step away at `colleague backends overview`). This is the
+    # uniform bare-noun behaviour across every rendered noun group (see the
+    # feedback equivalent in test_cli_feedback_rendered.py).
     rc = main(["backends"])
     assert rc == 0
-    assert "colleague backends" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "list" in out and "overview" in out
 
 
 def test_backends_list_empty_catalog_message(
