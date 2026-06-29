@@ -124,6 +124,24 @@ def test_cycle_mode_advances_and_wraps(tmp_path: Path) -> None:
     assert sess.state.mode == "auto"
 
 
+def test_cycle_mode_does_not_stack_feed_lines(tmp_path: Path) -> None:
+    """Shift-tab cycling must NOT append a ``mode → …`` line per press (issue #251).
+
+    The active mode is shown in place by the status-line affordance, so a feed
+    log would only stack one line per shift-tab and leave every prior mode on
+    screen. The conversation feed therefore gains nothing from cycling; the
+    affordance carries the change instead.
+    """
+    sess = _make_session(tmp_path)
+    before = list(sess.state.conversation)
+    for _ in range(5):  # a full wrap: auto → … → review → auto
+        sess._cycle_mode()
+    assert sess.state.conversation == before  # no feed lines added by cycling
+    assert not any("mode →" in line.text for line in sess.state.conversation)
+    # …but the in-place affordance reflects the landed mode (back to auto here).
+    assert "[auto]" in sess.state.status.message
+
+
 def test_run_loop_handles_cycle_mode_sentinel(tmp_path: Path) -> None:
     """A CYCLE_MODE sentinel from the reader advances the mode and re-prompts —
     it is never treated as a submitted line or a quit."""

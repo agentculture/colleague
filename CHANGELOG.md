@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.1] - 2026-06-29
+
+### Fixed
+
+- session: shift-tab no longer stacks a `mode → …` line in the conversation feed on every press (issue #251). The active session mode is already shown in place by the status-line affordance (`mode: … [work] …`), so `_cycle_mode` no longer also appends to the append-only feed — rapid cycling left every prior mode on screen. `/mode` keeps its one-shot confirmation.
+
 ## [1.28.0] - 2026-06-29
 
 ### Added
