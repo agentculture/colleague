@@ -618,12 +618,16 @@ class _Session:
         return True
 
     def _cycle_mode(self) -> None:
-        """Advance the session mode (shift-tab, or a bare ``/mode``): sync the
-        cockpit chrome and echo the new mode into the feed so the change is
-        visible. The next free-text input routes under the new mode."""
+        """Advance the session mode (shift-tab). The active mode is shown **in
+        place** by the status-line affordance (``mode: … [work] …``, refreshed
+        here) — the cockpit's one *changeable* mode line — so we deliberately do
+        NOT also append a ``mode → …`` line to the conversation feed: rapid
+        shift-tab cycling would otherwise stack one feed line per press, leaving
+        every prior mode on screen (issue #251). The next free-text input routes
+        under the new mode. (``/mode`` keeps its one-shot feed confirmation — a
+        deliberate, non-repeated slash command, like ``/engine`` / ``/pr``.)"""
         self.mode = next_mode(self.mode)
         self._refresh_status()
-        self._log(f"mode → {self.mode}")
 
     # ── slash commands ───────────────────────────────────────────────────────
 
