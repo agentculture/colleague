@@ -14,12 +14,12 @@ import io
 import sys
 
 import pytest
+from agentfront.taui.events import KeyPress
+from agentfront.taui.state import TAUIState as CockpitState
 
 from colleague.cli import main
 from colleague.cli._errors import CliError
-from colleague.tui.events import KeyPress
 from colleague.tui.render.driver import key_to_event, run
-from colleague.tui.state import CockpitState
 
 # ---------------------------------------------------------------------------
 # Criterion 1: key_to_event mapping

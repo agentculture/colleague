@@ -47,19 +47,29 @@ def test_legacy_last_drive_pointer_is_read(tmp_path: Path) -> None:
 
 
 def test_legacy_drive_step_event_loads_as_work_step() -> None:
-    """A pre-rename trace line with `"type": "drive_step"` still reconstructs."""
-    from colleague.tui.events import WorkStep, event_from_dict
+    """A ``work_step`` trace event round-trips through ``event_from_dict``.
 
-    evt = event_from_dict({"type": "drive_step", "tool": "read_file", "summary": "x", "ok": True})
+    The pre-rename ``"drive_step"`` type is no longer supported after the
+    agentfront.taui migration (#249); all new trace lines use ``"work_step"``
+    with a ``label`` field (replacing the old ``tool`` + ``summary`` pair).
+    """
+    from agentfront.taui.events import WorkStep, event_from_dict
+
+    evt = event_from_dict({"type": "work_step", "label": "[read_file] x", "ok": True})
     assert isinstance(evt, WorkStep)
-    assert evt.tool == "read_file"
+    assert evt.label == "[read_file] x"
 
 
 def test_legacy_taui_drive_key_loads_as_work_item() -> None:
-    """A pre-rename snapshot carrying the work item under `"drive"` still loads."""
-    from colleague.tui.state import CockpitState, WorkItem
+    """The TAUI snapshot work item round-trips through ``from_dict`` / ``to_dict``.
 
-    state = CockpitState.from_dict({"drive": {"task_id": "t1", "engine": "mock", "step_count": 2}})
+    The pre-rename ``"drive"`` key is no longer supported after the agentfront.taui
+    migration (#249); new snapshots carry the work item under the ``"work"`` key.
+    """
+    from agentfront.taui.state import TAUIState as CockpitState
+    from agentfront.taui.state import WorkItem
+
+    state = CockpitState.from_dict({"work": {"task_id": "t1", "engine": "mock", "step_count": 2}})
     assert isinstance(state.work_item, WorkItem)
     assert state.work_item.task_id == "t1"
     # And the new key round-trips.

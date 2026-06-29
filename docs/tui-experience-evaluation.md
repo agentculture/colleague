@@ -28,7 +28,7 @@ deterministic ANSI frames and the cast pacing, not a pixel screenshot review.
 To *see* the recordings, `asciinema play tools/tui_sim/recordings/full-ride.cast`,
 or turn one into a GIF with `agg full-ride.cast full-ride.gif` (`cargo install agg`).
 
-**Automated cross-check.** `colleague.tui.diagnose` (the 7-class cross-mirror
+**Automated cross-check.** `agentfront.taui.diagnose` (the 7-class cross-mirror
 checker) runs clean on every snapshot — RENDER / LAYOUT / FOCUS / INPUT_ROUTING /
 THEME / POPUP_LIFECYCLE all pass. So the findings below are *interaction /
 affordance* issues, which those 7 classes deliberately don't cover (itself a small

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import sys
 
+from agentfront.taui.widgets.slash_autocomplete import render_slash_autocomplete
+
 from colleague.cli._commands._session_input import (
     read_line_with_popup,
     reduce_key,
@@ -22,7 +24,6 @@ from colleague.cli._commands.session import (
     _SLASH_COMMANDS,
     filter_slash,
 )
-from colleague.tui.widgets.slash_autocomplete import render_slash_autocomplete
 
 # ---------------------------------------------------------------------------
 # filter_slash — the autofilter core
@@ -90,7 +91,7 @@ def test_widget_has_no_termios_import() -> None:
     import inspect
     import re
 
-    import colleague.tui.widgets.slash_autocomplete as mod
+    import agentfront.taui.widgets.slash_autocomplete as mod
 
     src = inspect.getsource(mod)
     assert not re.search(r"^\s*(import|from)\s+termios\b", src, re.MULTILINE)
@@ -665,10 +666,11 @@ def test_render_places_popup_below_input(tmp_path, monkeypatch) -> None:
     """The live _render draws the slash popup AFTER the input line and restores the cursor."""
     import re
 
+    from agentfront.taui.widgets.prompt_input import plain_prompt
+
     import colleague.cli._commands._session_input as si
     from colleague.cli._commands.session import _Session
     from colleague.config import EngineConfig
-    from colleague.tui.widgets.prompt_input import plain_prompt
 
     sess = _Session(
         repo=tmp_path,
@@ -693,7 +695,9 @@ def test_render_places_popup_below_input(tmp_path, monkeypatch) -> None:
     sess._read_live_ansi()
 
     frame = captured["frame"]
-    input_line = plain_prompt() + "/co"
+    # The live session prompts as "colleague ❯" (header-derived); the popup render
+    # path must use the same context so the cursor-restore column lines up (#249).
+    input_line = plain_prompt(context="colleague") + "/co"
     # The input line must appear BEFORE the highlighted popup row (popup is below).
     assert input_line in frame
     assert "\x1b[7m" in frame  # a highlighted popup row was drawn

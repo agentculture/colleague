@@ -14,14 +14,14 @@ and run :func:`colleague.tui.diagnose.diagnose` over it.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import replace
 from typing import List, Tuple
 
-from colleague.tui.events import Event, Tick
-from colleague.tui.reducer import reduce
-from colleague.tui.render.ansi import render
-from colleague.tui.state import CockpitState, WorkItem
+from agentfront.taui.events import Event, Tick
+from agentfront.taui.reducer import reduce
+from agentfront.taui.render.ansi import render_ansi as render
+from agentfront.taui.state import TAUIState as CockpitState
+from agentfront.taui.state import WorkItem
 
 from .filmstrip import DEFAULT_WIDTH, FrameT
 
@@ -38,10 +38,11 @@ def drive_state(
     and switches the background animation on (so the prompt spinner spins as
     ``Tick`` events advance the frame counter).
     """
-    state = copy.deepcopy(base)
-    state.work_item = WorkItem(task_id=task_id, engine=engine, step_count=0, running=True)
-    state.background = replace(state.background, animation="spin", semantic="busy")
-    return state
+    return replace(
+        base,
+        work_item=WorkItem(task_id=task_id, engine=engine, step_count=0, running=True),
+        background=replace(base.background, animation="spin", semantic="busy"),
+    )
 
 
 def ticks(n: int, hold_ms: int) -> List[TimedEvent]:
@@ -64,15 +65,15 @@ def fold(
     ``len(frames) - 1``). ``Tick`` events are kept — they are real reducer events,
     so a snapshot's ``events.jsonl`` stays a faithful, replayable timeline.
     """
-    state = copy.deepcopy(initial)
-    frames: List[FrameT] = [(render(state, width=width), open_hold)]
+    state = initial
+    frames: List[FrameT] = [(render(state), open_hold)]
     states: List[CockpitState] = [state]
     events: List[Event] = []
     for event, hold in timed_events:
         state = reduce(state, event)
         events.append(event)
         states.append(state)
-        frames.append((render(state, width=width), hold))
+        frames.append((render(state), hold))
     return frames, states, events
 
 

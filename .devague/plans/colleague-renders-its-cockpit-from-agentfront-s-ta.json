@@ -1,0 +1,351 @@
+{
+  "slug": "colleague-renders-its-cockpit-from-agentfront-s-ta",
+  "title": "Colleague renders its cockpit from agentfront's TAUI instead of a hand-rolled colleague/tui \u2014 and agentfront's TAUI grew the work-loop richness (animated work-steps, conversation folding, the snapshot/diagnose/replay quad) that made colleague's worth keeping",
+  "frame_slug": "colleague-renders-its-cockpit-from-agentfront-s-ta",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-06-27T17:01:52Z",
+  "updated": "2026-06-27T17:04:19Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague renders its cockpit from agentfront's TAUI instead of a hand-rolled colleague/tui \u2014 and agentfront's TAUI grew the work-loop richness (animated work-steps, conversation folding, the snapshot/diagnose/replay quad) that made colleague's worth keeping"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "after migration colleague cockpit renders from agentfront.taui with no regression a user notices \u2014 the live session cockpit, the ANSI frame, the Markdown view, and the JSON mirror all still work"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "agentfront (the library plus its future TAUI consumers) and colleague as the first consumer; the agents and operators who watch colleague live cockpit"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the new agentfront fields/events are generic and not colleague-named, so a second agentfront app could consume the same TAUI richness \u2014 reuse is real, not aspirational"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "colleague hand-maintains a complete v0.2 colleague/tui (Background animation, WorkStep and SkillSuggested events, a 7-class diagnose, the snapshot quad, replay, the from_work loop bridge); agentfront ships a v0.1 baseline TAUI (registry-derived, frozen, 4-check diagnose, Tick and UserInput as no-ops). The two are parallel implementations that will drift \u2014 the 12 documented parity gaps are the drift surface"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the 12 parity gaps are re-verified against agentfront test_taui_colleague_parity at migration time (agentfront TAUI may evolve), so the divergence inventory is current, not stale"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "colleague cockpit tiers (TAUI JSON, ANSI, Markdown, the snapshot quad, diagnose, replay, the live session cockpit) all render from agentfront.taui; the duplicated generic plumbing is deleted from colleague/tui; colleague keeps only a thin domain adapter (the work-loop bridge plus its repo-context and run-policy panels); agentfront TAUI absorbed the generic work-loop richness it lacked"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "no duplicated generic TAUI plumbing remains in colleague after migration; what stays in colleague/tui is only the domain adapter, proven by a no-duplication check"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "import, do not duplicate \u2014 one TAUI standard across the org instead of a colleague-private fork; colleague pioneering richness becomes a reusable agentfront capability every future consumer gets for free; the 12 parity gaps stop being a drift liability"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the agentfront-side richness is exercised by colleague AND covered by agentfront own tests, so the shared capability cannot silently rot"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a production live-TTY framework (stdlib-only stays \u2014 no curses, textual, rich); not a second base dep; not a change to the agent-facing TAUI JSON contract faithfulness; colleague domain cockpit content (repo-context and run-policy panels) stays colleague-owned; the colleague tui verb surface (state/render/snapshot/diagnose/replay/live) keeps its observable contract"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "the migration adds no third-party dep to either repo and does not change the documented tui verb surface; stdlib-only boundary tests stay green on both sides"
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "colleague existing tui and session test suites stay green against the imported package; a parity test proves colleague cockpit renders identically pre and post migration; the duplicated colleague/tui generic source is deleted (a net-LOC win, unlike cli-on-agentfront transitional plus-LOC); agentfront TAUI schema advances and the 12 parity gaps close (the parity test flips)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "each success signal is measurable and tested \u2014 green suites, a parity-test flip, a deleted-source LOC delta, an aligned schema version \u2014 not asserted by vibe"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "agentfront.taui grows the generic work-loop richness colleague needs: a Background field (theme/animation/frame/semantic), WorkStep and SkillSuggested events, and a reducer that advances animation on Tick and appends to a conversation panel on UserInput (closing parity gaps 1, 3, 4, 10) \u2014 all stdlib-only and frozen-or-pure"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "every new agentfront.taui field/event stays stdlib-only; agentfront test_taui_no_dep stays green; colleague existing reducer behavior (step_count increment on a work step, conversation folding, moon-phase animation) reproduces identically through the imported reducer or the thin adapter"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "frozen-vs-mutable is reconciled (gap 11): agentfront keeps frozen=True dataclasses and colleague rewrites its in-place CockpitState mutations to functional updates (dataclasses.replace), so one immutable state model serves both"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "colleague session cockpit, which mutates CockpitState in place today (self.state.mode assignment, sess.state reduce reassignment, _refresh_status), is rewritten to functional updates with no observable behavior change; the session test suite stays green"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "schema versions align (gap 9): agentfront SCHEMA_VERSION advances to 0.2 as it absorbs the richer fields, so a single TAUI mirror shape serves agentfront and colleague"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a TAUI mirror produced by agentfront round-trips through colleague consumers and back; colleague tui diagnose JSON-to-Markdown faithfulness still passes; no consumer asserts the old 0.2-only or 0.1-only version in a way that breaks"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "colleague imports agentfront.taui and deletes the duplicated generic modules; the colleague tui CLI verbs and the session cockpit re-wire to the imported package; resolve() signature, zone resolution, and available_actions composition are reconciled (gaps 5, 6, 8, 12)"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "after deletion no colleague module imports colleague.tui.* (a boundary/grep test enforces it); the colleague tui state/render/snapshot/diagnose/replay verbs produce byte-identical output to today (a golden-file test pins it); the zero-deps allow-list test still passes (agentfront only, no second base dep)"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "the migration is gated on an agentfront release that closes the gaps (an upstream agentfront issue, the analog of agentfront#38); colleague bumps its agentfront floor and the parity test flips from gaps-documented to gaps-closed and stays green"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "colleague does not migrate before the agentfront release ships; the agentfront floor bump is recorded in pyproject.toml with a comment naming the gap-closing issue; agentfront test_taui_colleague_parity flips to assert gaps closed and stays green in CI"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Under full uplift the colleague adapter shrinks to only the genuinely TaskResult-coupled bits: the from_work tool-loop bridge mapping colleague steps to agentfront WorkStep events, plus the repo-context and run-policy domain panels. Generic concepts (moon-phase work animation, conversation collapse-repeat folding) move UP into agentfront, not the adapter"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the colleague adapter contains no rendering, state, reducer, mirror, diagnose, snapshot, or replay code \u2014 only TaskResult-to-event mapping and domain-panel construction; a boundary test proves the adapter imports agentfront.taui for all generic behavior"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "agentfront upstreams the snapshot quad (taui.json/ansi/events.jsonl/md), replay, and the 7-class structured diagnose as generic agentfront surfaces (closing gap 7 plus adding the quad), so colleague deletes its copies rather than keeping them \u2014 agentfront-side work"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "agentfront snapshot/replay/diagnose are generic (not colleague-named) and stdlib-only; colleague tui snapshot/diagnose/replay verbs produce byte-identical output through the imported surfaces (a golden-file test pins it)"
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Division of labor: the agentfront-side uplift (richer state/events/reducer, schema 0.2, snapshot/replay/7-class diagnose) is delivered BY agentfront, handed over via a /communicate brief filed as a tracked agentfront issue; colleague implements ONLY the consumer side (import, delete duplicated source, re-wire tui verbs and session cockpit, bump the floor, flip the parity test) and its PR touches no agentfront source"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the colleague PR diff contains zero agentfront source changes; the agentfront work is tracked in a separate agentfront issue created via the communicate skill; colleague CI does not depend on unreleased agentfront code (migration waits for the agentfront release that closes the gaps)"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Pin the agentfront floor to the release closing agentfront#43 and verify the uplift landed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject.toml pins agentfront to the release that closes agentfront#43, with a comment naming the issue",
+        "a new test imports agentfront.taui and asserts SCHEMA_VERSION equals 0.2, the Background field and WorkStep and SkillSuggested events are present, and snapshot, replay and the structured diagnose are importable",
+        "test_zero_deps still passes (agentfront is the only base dep) and agentfront's 12 parity smoke tests are re-verified as closed"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "c3",
+        "c8",
+        "c10",
+        "c12",
+        "c15",
+        "h5",
+        "h8",
+        "h9"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Re-point the from_work adapter to agentfront.taui WorkStep events",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/tui/from_work.py imports WorkStep and event types from agentfront.taui and emits agentfront WorkStep events; progress_target and trace_to_work_steps keep identical behavior (existing from_work tests stay green)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c14"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Re-point cockpit.py domain panels to agentfront.taui Panel/PanelItem",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/cockpit.py builds the repo-context and run-policy panels using agentfront.taui Panel and PanelItem; build_repo_context_panel output is unchanged"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c14"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Re-wire the tui CLI verbs to agentfront.taui (verb surface unchanged)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "every colleague tui verb (state, render, inspect, action, replay, snapshot, test, diagnose, overview, live) dispatches to agentfront.taui; verb names, flags and exit codes are unchanged (a CLI surface test pins it)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c6",
+        "c11"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Re-wire the work-loop progress sink to agentfront.taui",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CockpitProgressSink and FrameWriter fold agentfront.taui WorkStep events and render through agentfront renderers; the per-step live rendering is observably unchanged"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Re-wire the session cockpit and rewrite in-place mutations to functional frozen updates",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/cli/_commands/session.py updates state via agentfront frozen dataclasses using dataclasses.replace, with no in-place mutation of state.mode or sess.state",
+        "the session test suite stays green and the cockpit behavior (mode display, work-step feed, slash panels) is observably unchanged"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c9",
+        "h2"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Delete the duplicated generic colleague/tui modules and add the no-import boundary test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the generic colleague/tui modules (state, events, taui, reducer, replay, snapshot, diagnose, selectors, colors, render/*, widgets/*) are deleted; only the from_work adapter remains under colleague/tui",
+        "a boundary test asserts no colleague module imports colleague.tui.* except the adapter, which imports agentfront.taui for all generic behavior"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c4",
+        "h10",
+        "c11",
+        "h4",
+        "h14"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Golden-file, faithfulness, and suite-green proof of identical rendering",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "golden-file tests assert colleague tui state, render, snapshot, diagnose and replay produce byte-identical output to a captured pre-migration baseline",
+        "tui diagnose JSON-to-Markdown faithfulness passes; the full tui and session suites are green; reducer behavior (step_count increment, conversation folding, moon-phase animation) reproduces identically through agentfront"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "c5",
+        "c7",
+        "h1",
+        "h3",
+        "h4",
+        "h7",
+        "h11",
+        "h12",
+        "h13",
+        "h15"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Docs, version bump, and zero-vendored-source check",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md Cockpit views section and a feature doc describe the cockpit rendering from agentfront.taui; a CHANGELOG entry and a version bump are added",
+        "no agentfront TAUI source is vendored into colleague \u2014 the dependency is the released agentfront package only (the PR touches only colleague files)"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c16",
+        "h16"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Execution is gated on agentfront shipping the release that closes agentfront#43 (the 12-gap uplift); build waves must not start until t1 can pin a real release",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "agentfront frozen dataclasses on the hot session render path \u2014 measure dataclasses.replace churn if the session cockpit feels slow",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6"
+    },
+    {
+      "id": "r3",
+      "text": "colleague must verify agentfront's moon-phase animation and conversation collapse-repeat folding reproduce colleague's exact sequences (full uplift moved them up); a golden test pins it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t8"
+    }
+  ]
+}

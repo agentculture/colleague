@@ -2,6 +2,24 @@
 
 > A pure-reducer, stdlib-only cockpit UI whose semantic state is a JSON mirror
 > an agent reads directly — no screen-scraping, no LLM, no network.
+>
+> **Migrated to `agentfront.taui` (#249).** The generic cockpit described below —
+> the state model, events, reducer, TAUI mirror, the ANSI/flat/Markdown renderers,
+> selectors, snapshot/diagnose, and widgets — now lives in **`agentfront.taui`**
+> and is **imported, not duplicated** (the sequel to cli-on-agentfront, unblocked
+> by agentfront#43 + agentfront#45). colleague deleted its own `colleague/tui/*`
+> package and keeps only two colleague-coupled pieces: `colleague/tui/from_work.py`
+> (the loop-step → `agentfront.taui` `WorkStep` adapter) and
+> `colleague/tui/render/driver.py` (the `colleague tui live` raw-terminal loop).
+> The current API lives under `agentfront.taui.*` (e.g. `serialize` is in
+> `agentfront.taui.mirror`; `WorkStep` carries a single `label`; the feed is a
+> top-level `state.conversation`; `resolve(state, …)` takes the state dataclass;
+> the snapshot quad keys are `json/ansi/events/md`; diagnose's `Finding` carries
+> `bug_class` + `message`). The narrative below documents the original colleague
+> design and the concepts (which carried up into agentfront); treat the
+> `colleague.tui.*` import paths in the examples as historical — import the same
+> names from `agentfront.taui.*` today. `colleague tui` and `colleague session`
+> are unchanged on the command line.
 
 TAUI (**Textual Agentic UI**) is the **semantic mirror** of the live cockpit
 state. Where a human reads the rendered screen, an agent reads the TAUI JSON —

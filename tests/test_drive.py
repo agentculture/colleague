@@ -318,7 +318,8 @@ def test_drive_tui_events_inside_repo_survives_handoff(
     """A --tui-events stream written into the driven repo is harness telemetry: the
     handoff must not sweep it into the drive branch (after which branch-restore
     would delete it). It survives and round-trips to the same steps (#74 A3)."""
-    from colleague.tui.events import loads_events
+    from agentfront.taui.events import loads_events
+
     from colleague.tui.from_work import trace_to_work_steps
 
     ev = tmp_path / "run.jsonl"
