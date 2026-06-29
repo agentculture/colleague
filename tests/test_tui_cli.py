@@ -364,6 +364,18 @@ def test_diagnose_snapshot_dir(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert diag["findings"] == []
 
 
+def test_diagnose_bad_name_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """diagnose --dir/--name rejects a path-traversal --name (read-side guard, Qodo #252).
+
+    Same guard as `tui snapshot`: agentfront's ``read_snapshot`` joins the name
+    into the stem with no traversal guard, so ``--name ../escape`` would read a
+    quad from *outside* ``--dir``. The verb rejects a non-plain name cleanly.
+    """
+    rc = main(["tui", "diagnose", "--dir", str(tmp_path), "--name", "../escape", "--json"])
+    assert rc != 0  # rejected, not a traversal read outside --dir
+    assert "invalid --name" in capsys.readouterr().err
+
+
 # ---------------------------------------------------------------------------
 # tui overview
 # ---------------------------------------------------------------------------

@@ -339,7 +339,12 @@ def cmd_tui_snapshot(args: argparse.Namespace) -> int:
     try:
         paths = write_snapshot(stem, state, events)
     except (ValueError, OSError) as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "use a plain filename for --name") from exc
+        # A bad --name is already rejected by _validate_snapshot_name above, so a
+        # failure here is a write error (e.g. --dir missing or unwritable) — point
+        # at that, not at --name.
+        raise CliError(
+            EXIT_USER_ERROR, str(exc), "check that --dir exists and is writable"
+        ) from exc
     str_paths = {key: str(value) for key, value in paths.items()}
     if json_mode:
         emit_result(str_paths, json_mode=True)
@@ -386,6 +391,10 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
                 "snapshot-dir mode needs both --dir and --name",
                 "use '--dir <d> --name <n>' or the explicit '--taui/--ansi' form",
             )
+        # Same traversal guard as `tui snapshot`: agentfront's read_snapshot
+        # joins the name into the stem with no guard of its own, so a
+        # ``--name ../escape`` would read a quad from outside --dir.
+        _validate_snapshot_name(args.name)
         stem = Path(args.dir) / args.name
         try:
             snap = read_snapshot(stem)
@@ -394,7 +403,9 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
                 EXIT_USER_ERROR, f"snapshot not found: {exc}", "check --dir and --name"
             ) from exc
         except (ValueError, OSError) as exc:
-            raise CliError(EXIT_USER_ERROR, str(exc), "use a plain filename for --name") from exc
+            raise CliError(
+                EXIT_USER_ERROR, str(exc), "check --dir/--name and that the snapshot is readable"
+            ) from exc
         return diagnose_structured(
             snap.state, mirror=serialize(snap.state), ansi=snap.ansi, markdown=snap.markdown
         )
