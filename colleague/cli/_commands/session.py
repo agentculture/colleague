@@ -1,8 +1,8 @@
 """``colleague session`` — the agent-native interactive cockpit over the work path.
 
 Opens a foreground interactive **cockpit**: it renders one
-:class:`~colleague.tui.state.CockpitState` (a command palette + a running
-conversation + popups), reads a line of input, and dispatches it through the
+:class:`agentfront.taui.state.TAUIState` (a command palette + a running
+conversation + popups; imported since #249), reads a line of input, and dispatches it through the
 **same** work path used by ``colleague work``
 (:func:`~colleague.cli._commands.work.execute_work`). The loop runs until a
 quit token (``q`` / ``/quit`` / empty line / EOF).
@@ -49,6 +49,18 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence, TypeVar, cast
 
+from agentfront.taui.colors import should_color
+from agentfront.taui.events import UserInput
+from agentfront.taui.reducer import reduce
+from agentfront.taui.render.ansi_flat import render_flat as _render_flat
+from agentfront.taui.render.layout import detect_width
+from agentfront.taui.render.markdown import render_markdown as _render_markdown
+from agentfront.taui.state import Header, Panel, PanelItem, Status
+from agentfront.taui.state import TAUIState as CockpitState
+from agentfront.taui.state import WorkItem
+from agentfront.taui.widgets.prompt_input import plain_prompt
+from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
+
 from colleague import cockpit, feedback, handoff, layers, registry
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._session_input import CYCLE_MODE
@@ -67,16 +79,7 @@ from colleague.session_modes import (
     route_for,
 )
 from colleague.telemetry import TelemetryConfig
-from colleague.tui.colors import should_color
-from colleague.tui.events import UserInput
 from colleague.tui.from_work import work_step
-from colleague.tui.reducer import reduce
-from colleague.tui.render.ansi_flat import render_flat as _render_flat
-from colleague.tui.render.layout import detect_width
-from colleague.tui.render.markdown import render_markdown as _render_markdown
-from colleague.tui.state import CockpitState, Panel, PanelItem, Status, WorkItem
-from colleague.tui.widgets.prompt_input import plain_prompt
-from colleague.tui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
 
 # ---------------------------------------------------------------------------
 # Types for the injectable seams
@@ -285,6 +288,7 @@ class _Session:
         ]
         return CockpitState(
             mode=self.mode,
+            header=Header(title="colleague"),
             panels=[
                 self._policy_panel(facts),
                 self._context_panel(facts),
@@ -294,6 +298,7 @@ class _Session:
                     title="Session",
                     visible=True,
                     content_summary=self._suggested_action(facts),
+                    items=[],
                 ),
                 *build_slash_panels(),
             ],
@@ -480,33 +485,33 @@ class _Session:
         facts = self._facts()
         suggested = self._suggested_action(facts)
         rebuilt = {"policy": self._policy_panel(facts), "context": self._context_panel(facts)}
-        self.state.panels = [
-            (
-                self._with_suggestion(p, suggested)
-                if p.id == _CONVERSATION_PANEL_ID
-                else rebuilt.get(p.id, p)
-            )
-            for p in self.state.panels
-        ]
+        self.state = replace(
+            self.state,
+            panels=[
+                (
+                    self._with_suggestion(p, suggested)
+                    if p.id == _CONVERSATION_PANEL_ID
+                    else rebuilt.get(p.id, p)
+                )
+                for p in self.state.panels
+            ],
+        )
 
     @staticmethod
     def _with_suggestion(panel: Panel, suggested: str) -> Panel:
-        """Return the Session panel with its leading suggested-action line refreshed,
-        preserving the running conversation that follows it. The suggestion is the
-        first line of ``content_summary`` (set in :meth:`_initial_state`); replace it
-        when it still looks like a suggestion, otherwise prepend the fresh one."""
-        lines = panel.content_summary.split("\n") if panel.content_summary else []
-        if lines and lines[0].startswith(_SUGGESTION_PREFIXES):
-            lines[0] = suggested
-        else:
-            lines.insert(0, suggested)
-        # Rebuild the Panel directly (not dataclasses.replace, whose inferred
-        # return type defeats static type checks); copy every field, swap summary.
+        """Return the Session panel with its suggested-action line refreshed.
+
+        In the agentfront TAUI model the running conversation feed lives in
+        ``state.conversation`` (appended by the reducer on every ``UserInput`` /
+        ``WorkStep``); the Session panel now carries ONLY the suggested-action
+        line in ``content_summary``. Rebuild the Panel directly so the type
+        checker infers a concrete ``Panel`` return, not the generic
+        ``DataclassInstance`` that ``dataclasses.replace`` produces."""
         return Panel(
             id=panel.id,
             title=panel.title,
             visible=panel.visible,
-            content_summary="\n".join(lines),
+            content_summary=suggested,
             items=list(panel.items),
         )
 
@@ -522,8 +527,7 @@ class _Session:
             self._log(text)
 
     def _refresh_status(self) -> None:
-        self.state.mode = self.mode
-        self.state.status = self._status()
+        self.state = replace(self.state, mode=self.mode, status=self._status())
 
     # ── rendering (one path; three views) ────────────────────────────────────
 
@@ -548,14 +552,15 @@ class _Session:
         unaffected. Tests and the static Markdown view never reach here; they go
         through :meth:`emit` + :func:`_read_line`.
         """
+        from agentfront.taui.widgets.slash_autocomplete import render_slash_autocomplete
+
         from colleague.cli._commands._session_input import read_line_with_popup
-        from colleague.tui.widgets.slash_autocomplete import render_slash_autocomplete
 
         def _fallback() -> Optional[str]:
             sys.stdout.write(self._frame(include_prompt=False) + "\n")
             sys.stdout.flush()
             try:
-                return input(plain_prompt())
+                return input(plain_prompt(context="colleague"))
             except EOFError:
                 return None
 
@@ -729,7 +734,10 @@ class _Session:
         unexpected exception is surfaced via ``_error`` and swallowed, so one failed
         dispatch never tears down the session. The single home for the running-state
         + error scaffold shared by ``_run_plan`` and ``_dispatch_work``."""
-        self.state.work_item = WorkItem(task_id=task_id, engine=self.engine_name, running=True)
+        self.state = replace(
+            self.state,
+            work_item=WorkItem(task_id=task_id, engine=self.engine_name, running=True),
+        )
         try:
             return thunk()
         except CliError as exc:
@@ -741,7 +749,9 @@ class _Session:
             return None
         finally:
             if self.state.work_item is not None:
-                self.state.work_item.running = False
+                self.state = replace(
+                    self.state, work_item=replace(self.state.work_item, running=False)
+                )
 
     def _dispatch_work(
         self, task: Task, *, open_pr: bool, config: EngineConfig, command_name: Optional[str]

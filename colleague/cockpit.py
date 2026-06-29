@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # annotation-only; the runtime imports are lazy, inside the functions
-    from colleague.tui.state import CockpitState, Panel
+    from agentfront.taui.state import Panel
+    from agentfront.taui.state import TAUIState as CockpitState
 
 
 def resolve_repo_context(repo: Path) -> dict:
@@ -43,7 +44,7 @@ def build_repo_context_panel(repo: Path) -> Panel:
     IDs, labels, and emoji match ``session.py`` ``_context_panel`` so TAUI
     selectors are identical across surfaces.
     """
-    from colleague.tui.state import Panel, PanelItem
+    from agentfront.taui.state import Panel, PanelItem
 
     facts = resolve_repo_context(repo)
     tree_status = "dirty (tracked changes)" if facts["dirty"] else "clean"
@@ -61,6 +62,6 @@ def build_repo_context_panel(repo: Path) -> Panel:
 
 def build_cockpit_state(repo: Path) -> CockpitState:
     """Build a minimal ``CockpitState`` with the repo-context panel."""
-    from colleague.tui.state import CockpitState
+    from agentfront.taui.state import TAUIState as CockpitState
 
     return CockpitState(panels=[build_repo_context_panel(repo)])

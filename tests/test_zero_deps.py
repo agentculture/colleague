@@ -305,33 +305,27 @@ def test_no_socket_daemon_mcp_surface():
 
 
 def test_tui_core_no_third_party_imports():
-    """Importing TUI core modules introduces no third-party top-level imports.
+    """Importing the surviving colleague TUI modules introduces no third-party
+    top-level imports beyond the sanctioned ``agentfront`` base dep.
 
-    The TUI feature ships a stdlib-only ANSI renderer by default. Rich/Textual
-    are opt-in extras ([tui]) loaded lazily by external renderer wheels. This
-    guard asserts the default TUI surface is import-clean even when the [tui]
-    extra IS installed — just as the OTel guard works for telemetry.
+    After issue #249 the generic cockpit modules live in ``agentfront.taui``
+    (imported, not duplicated); colleague keeps only the thin TaskResult-coupled
+    adapter (``from_work``) and the live raw-terminal driver (``render.driver``,
+    which agentfront does not ship). agentfront is the ONE allowed base dep, and
+    its core is pure-stdlib, so this surface stays import-clean even with the
+    [tui] extra installed — the ``_third_party_modules_introduced`` helper
+    allow-lists exactly ``agentfront``.
     """
 
     def _import_tui_core():
-        import colleague.tui.colors  # noqa: F401
-        import colleague.tui.diagnose  # noqa: F401
-        import colleague.tui.events  # noqa: F401
         import colleague.tui.from_work  # noqa: F401
-        import colleague.tui.reducer  # noqa: F401
-        import colleague.tui.render.ansi  # noqa: F401
-        import colleague.tui.replay  # noqa: F401
-        import colleague.tui.selectors  # noqa: F401
-        import colleague.tui.snapshot  # noqa: F401
-        import colleague.tui.state  # noqa: F401
-        import colleague.tui.taui  # noqa: F401
-        import colleague.tui.widgets.command_palette  # noqa: F401
+        import colleague.tui.render.driver  # noqa: F401
 
     third_party = _third_party_modules_introduced(_import_tui_core)
     assert not third_party, (
-        f"TUI core introduced third-party imports: {sorted(third_party)}. "
-        "rich/textual must only be imported inside an opt-in renderer wheel, "
-        "never at TUI core module load."
+        f"TUI surface introduced third-party imports: {sorted(third_party)}. "
+        "Only stdlib + the sanctioned agentfront base dep are allowed; the "
+        "generic cockpit lives in agentfront.taui (imported, not duplicated)."
     )
 
 

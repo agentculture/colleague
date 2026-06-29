@@ -23,11 +23,11 @@ import sys
 from pathlib import Path
 from typing import List
 
-from colleague.tui.diagnose import diagnose
-from colleague.tui.render.ansi import render
-from colleague.tui.render.markdown import render_markdown
-from colleague.tui.snapshot import write_snapshot
-from colleague.tui.taui import serialize
+from agentfront.taui.diagnose import diagnose_structured
+from agentfront.taui.mirror import serialize
+from agentfront.taui.render.ansi import render_ansi as render
+from agentfront.taui.render.markdown import render_markdown
+from agentfront.taui.snapshot import write_snapshot
 
 from .scenarios import Scenario, build_all
 
@@ -51,8 +51,10 @@ def _diagnose_scenario(scenario: Scenario) -> List[str]:
         return []
     state, _events = scenario.snapshot
     taui = serialize(state)
-    diag = diagnose(taui, render(state), events=None, markdown=render_markdown(state))
-    return [f"{f.bug_class}@{f.selector}: {f.message}" for f in diag.findings]
+    diag = diagnose_structured(
+        state, mirror=taui, ansi=render(state), markdown=render_markdown(state)
+    )
+    return [f"{f.bug_class}: {f.message}" for f in diag.findings]
 
 
 def _write_scenario(scenario: Scenario, out: Path) -> dict:
@@ -64,7 +66,7 @@ def _write_scenario(scenario: Scenario, out: Path) -> dict:
     has_quad = False
     if scenario.snapshot is not None:
         state, events = scenario.snapshot
-        write_snapshot(out, scenario.name, state, events)
+        write_snapshot(out / scenario.name, state, events)
         has_quad = True
 
     return {
@@ -121,7 +123,7 @@ def _render_index(summaries: List[dict]) -> str:
                 lines.append("")
     else:
         lines.append(
-            "All snapshots pass `colleague.tui.diagnose` cross-mirror checks (zero findings)."
+            "All snapshots pass `agentfront.taui.diagnose` cross-mirror checks (zero findings)."
         )
     # Trim trailing blanks so the final "\n" yields exactly one EOF newline (MD012).
     while lines and lines[-1] == "":

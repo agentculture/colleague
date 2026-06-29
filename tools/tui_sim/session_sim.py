@@ -17,12 +17,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Tuple
 
+from agentfront.taui.render.ansi_flat import render_flat
+from agentfront.taui.state import TAUIState as CockpitState
+from agentfront.taui.widgets.prompt_input import plain_prompt
+from agentfront.taui.widgets.slash_autocomplete import render_slash_autocomplete
+
 from colleague.cli._commands.session import _SLASH_COMMANDS, _Session, filter_slash
 from colleague.config import EngineConfig
-from colleague.tui.render.ansi import render as render_ansi
-from colleague.tui.state import CockpitState
-from colleague.tui.widgets.prompt_input import plain_prompt
-from colleague.tui.widgets.slash_autocomplete import render_slash_autocomplete
 
 from .filmstrip import DEFAULT_WIDTH, FrameT
 
@@ -72,7 +73,7 @@ def compose_session_frame(
     writer, so this returns the body only. Takes a bare ``CockpitState`` so any
     state (a palette *or* a post-work cockpit) can render a typed buffer.
     """
-    parts: List[str] = [render_ansi(state, width=width, include_prompt=False)]
+    parts: List[str] = [render_flat(state, width=width, include_prompt=False)]
     matches = filter_slash(buffer[1:]) if buffer.startswith("/") else []
     if matches:
         parts.append(render_slash_autocomplete(matches, selected, width=width))

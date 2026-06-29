@@ -78,7 +78,8 @@ def test_action_available_clause(tmp_path: Path, capsys: pytest.CaptureFixture[s
         "name": "accept action available after suggestion",
         "initial": {"screen": "main"},
         "events": [{"type": "skill_suggested", "skill": "boost", "reason": "task_complexity_high"}],
-        "expect": {"action_available": "popup.skill.boost.accept"},
+        # agentfront uses generic popup.skill-suggested (not per-skill popup ids).
+        "expect": {"action_available": "popup.skill-suggested.accept"},
     }
     sf = tmp_path / "ok.scenario.json"
     sf.write_text(json.dumps(scenario), encoding="utf-8")

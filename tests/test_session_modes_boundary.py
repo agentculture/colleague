@@ -12,11 +12,13 @@ import ast
 import sys
 from pathlib import Path
 
+from agentfront.taui.mirror import serialize
+from agentfront.taui.render.markdown import render_markdown
+from agentfront.taui.state import Status
+from agentfront.taui.state import TAUIState as CockpitState
+
 from colleague.session_intent import PLAN, WORK, classify_intent
 from colleague.session_modes import route_for
-from colleague.tui.render.markdown import render_markdown
-from colleague.tui.state import CockpitState
-from colleague.tui.taui import serialize
 
 # ---------------------------------------------------------------------------
 # 1. Classifier unchanged — modes wrap, never modify, classify_intent
@@ -58,14 +60,25 @@ def test_auto_mode_is_classifier_verbatim() -> None:
 def test_taui_json_carries_mode() -> None:
     """Build a CockpitState(mode='plan') and assert the TAUI JSON mirror and
     Markdown render both carry 'plan' — proving an agent/pipeline reads the
-    same mode from the TAUI mirror."""
-    state = CockpitState(mode="plan")
+    same mode from the TAUI mirror.
 
-    # JSON mirror
+    In the agentfront.taui model the mode is an explicit top-level JSON field.
+    In the Markdown tier it is carried via the status.message (the real session
+    sets this via ``_Session._status()`` / ``mode_affordance_line(mode)``).
+    """
+    from colleague.session_modes import mode_affordance_line
+
+    # Build a state that mirrors what _Session._status() produces for mode='plan'.
+    state = CockpitState(
+        mode="plan",
+        status=Status(severity="info", message=mode_affordance_line("plan")),
+    )
+
+    # JSON mirror: mode is an explicit top-level field.
     mirror = serialize(state)
     assert mirror["mode"] == "plan"
 
-    # Markdown render
+    # Markdown render: mode carried via status.message line.
     md = render_markdown(state)
     assert "plan" in md
 

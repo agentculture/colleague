@@ -7,20 +7,28 @@ A work item reports progress two ways that must agree:
 * **post-hoc** — the per-step trace ``<id>.trace.jsonl`` whose lines carry the
   full ``arguments`` dict.
 
-Both are folded into the same cockpit by mapping each step to a
-:class:`~colleague.tui.events.WorkStep`.  This module is the single source of
-that mapping, so a step's ``summary`` is identical whether it was produced live
+Both are folded into the same cockpit by mapping each step to an
+:class:`agentfront.taui.events.WorkStep`.  This module is the single source of
+that mapping, so a step's feed label is identical whether it was produced live
 or reconstructed from a trace — which is what lets ``tui replay`` and
 ``tui replay --trace`` reproduce the live cockpit exactly.
 
-Stdlib only (the zero-deps tui-core guard imports this module).
+This is the thin, TaskResult-coupled adapter that survives the
+``agentfront.taui`` migration (issue #249): the generic cockpit modules now live
+in ``agentfront.taui`` (imported, not duplicated); only the colleague-specific
+step→event bridge lives here.  agentfront's :class:`WorkStep` carries a single
+``label`` (not colleague's old ``tool`` + ``summary`` pair), so the ``[tool]
+summary`` feed convention — the form the #233 ``×N`` collapse groups on — is
+composed here, the one place the mapping lives.
+
+Stdlib only beyond ``agentfront`` (the zero-deps guard imports this module).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from colleague.tui.events import WorkStep
+from agentfront.taui.events import WorkStep
 
 #: Argument keys, in priority order, that name a tool call's subject.
 _TARGET_KEYS = ("path", "command", "name", "summary", "subcommand")
@@ -63,8 +71,15 @@ def progress_target(arguments: Any) -> str:
 
 
 def work_step(tool: str, summary: str, ok: bool = True) -> WorkStep:
-    """Construct a :class:`WorkStep` from a live progress tuple's fields."""
-    return WorkStep(tool=str(tool), summary=str(summary), ok=bool(ok))
+    """Construct a :class:`WorkStep` from a live progress tuple's fields.
+
+    agentfront's :class:`WorkStep` carries a single ``label``; colleague's feed
+    convention is ``[tool] summary`` (so the #233 ``×N`` collapse groups repeated
+    back-to-back tool calls), so the label is composed here — the one place the
+    ``(tool, summary) -> label`` mapping lives.  The format matches the line the
+    pre-migration reducer used verbatim, so ``tui replay`` output is unchanged.
+    """
+    return WorkStep(label=f"[{tool}] {summary}", ok=bool(ok))
 
 
 def trace_to_work_steps(trace_lines: list[dict[str, Any]]) -> list[WorkStep]:

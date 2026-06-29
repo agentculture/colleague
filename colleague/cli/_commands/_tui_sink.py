@@ -25,12 +25,14 @@ from contextlib import suppress
 from dataclasses import replace
 from typing import Callable, Optional, TextIO
 
-from colleague.tui.colors import should_color, strip_ansi
-from colleague.tui.events import dumps_events
+from agentfront.taui.colors import should_color, strip_ansi
+from agentfront.taui.events import dumps_events
+from agentfront.taui.reducer import reduce
+from agentfront.taui.render.ansi import render_ansi as render
+from agentfront.taui.state import TAUIState as CockpitState
+from agentfront.taui.state import WorkItem
+
 from colleague.tui.from_work import work_step
-from colleague.tui.reducer import reduce
-from colleague.tui.render.ansi import render
-from colleague.tui.state import CockpitState, WorkItem
 
 #: A progress callback: ``(step_index, tool, target, ok) -> None``.
 ProgressSink = Callable[[int, str, str, bool], None]
@@ -104,8 +106,9 @@ class CockpitProgressSink:
     """
 
     def __init__(self, task_id: str, engine: str, *, stream: Optional[TextIO] = None) -> None:
-        self._state = CockpitState()
-        self._state.work_item = WorkItem(task_id=task_id, engine=engine, step_count=0, running=True)
+        self._state = CockpitState(
+            work_item=WorkItem(task_id=task_id, engine=engine, step_count=0, running=True)
+        )
         self._writer = FrameWriter(stream)
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
@@ -120,7 +123,9 @@ class CockpitProgressSink:
     def close(self) -> None:
         """Mark the work item finished and render a final frame (with a trailing newline)."""
         if self._state.work_item is not None:
-            self._state.work_item = replace(self._state.work_item, running=False)
+            self._state = replace(
+                self._state, work_item=replace(self._state.work_item, running=False)
+            )
         self._writer.write(self._state, final=True)
 
 

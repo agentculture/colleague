@@ -3,8 +3,8 @@
   "initial": { "screen": "main" },
   "events": [ {"type": "skill_suggested", "skill": "boost", "reason": "task_complexity_high"} ],
   "expect": {
-    "popup": { "id": "popup.skill.boost", "visible": true, "blocking": false },
+    "popup": { "id": "popup.skill-suggested", "visible": true, "blocking": false },
     "focused": "input.prompt",
-    "action_available": "popup.skill.boost.accept"
+    "action_available": "popup.skill-suggested.accept"
   }
 }

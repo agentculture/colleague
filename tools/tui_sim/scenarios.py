@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from colleague.tui.events import Dismiss, Event, SkillSuggested, UserInput
+from agentfront.taui.events import Dismiss, Event, SkillSuggested, UserInput
+from agentfront.taui.state import TAUIState as CockpitState
+
 from colleague.tui.from_work import work_step
-from colleague.tui.state import CockpitState
 
 from . import session_sim as ss
 from .cockpit_sim import drive_state, first_state_with_visible_popup, fold, ticks
@@ -104,7 +105,7 @@ def _skill_suggested(repo: Path) -> Scenario:
         *ticks(2, 150),
         (work_step("read_file", "colleague/engines/vllm_openai.py"), 650),
         *ticks(2, 160),
-        (SkillSuggested("boost", reason="task_complexity_high", confidence=0.9), 2800),
+        (SkillSuggested("boost", reason="task_complexity_high"), 2800),
         (Dismiss("popup.skill.boost"), 800),
         *ticks(2, 150),
         (work_step("write_file", "colleague/engines/vllm_openai.py"), 700),
@@ -159,7 +160,7 @@ def _full_ride(repo: Path) -> Scenario:
         *ticks(2, 140),
         (work_step("read_file", "colleague/tui/widgets/status_bar.py"), 650),
         *ticks(2, 150),
-        (SkillSuggested("boost", reason="task_complexity_high", confidence=0.92), 2600),
+        (SkillSuggested("boost", reason="task_complexity_high"), 2600),
         (Dismiss("popup.skill.boost"), 800),
         *ticks(1, 150),
         (work_step("write_file", "colleague/tui/widgets/status_bar.py"), 750),

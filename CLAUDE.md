@@ -414,7 +414,8 @@ The architecture, part by part:
   as you type and disappears on no-match (Tab/Enter complete, arrows select, Esc
   dismisses) — a stdlib raw-mode reader (`colleague/cli/_commands/
   _session_input.py`, `termios`/`tty`/`select`, no new dep) with a pure-ANSI
-  widget (`colleague/tui/widgets/slash_autocomplete.py`). Off a colour TTY
+  widget (`agentfront.taui.widgets.slash_autocomplete`, imported since #249;
+  was `colleague/tui/widgets/slash_autocomplete.py`). Off a colour TTY
   (piped/`--json`/`--no-tui`/Windows) it falls back to plain `input()`,
   byte-identical to before, so agents and pipelines are unaffected. Spec + plan:
   `docs/specs/2026-06-03-colleague-session-shows-a-live-autocomplete-popup.md`
@@ -433,9 +434,9 @@ The architecture, part by part:
   '<template>'`). Because the Markdown renderer and the TAUI mirror walk all
   panels generically, the agent-facing tiers carry the new panels for free; the
   interactive ANSI tier uses a **borderless, Markdown-feel** renderer
-  (`colleague/tui/render/ansi_flat.py`, derived from `taui.serialize` so it can't
-  drift from Markdown) with **animated emoji state** — a moon-phase glyph that
-  cycles by `work_item.step_count` while a work item runs (motion from real
+  (`agentfront.taui.render.ansi_flat` since #249, derived from the TAUI mirror so
+  it can't drift from Markdown) with **animated emoji state** — a moon-phase glyph
+  that cycles by `work.step_count` while a work item runs (motion from real
   steps, no clock/thread) and a steady severity glyph at idle. `/help` is grouped
   by intent (Controls / Inspect / Session) and stays compact; `/help verbose`
   expands every command. The boxed `tui render` ANSI view is unchanged.
@@ -472,7 +473,10 @@ The architecture, part by part:
   the feed target (e.g. `[culture] agtag issues fetch`) instead of a bare `[culture]`
   sentinel; and the per-step hint cap is raised from 48 to 120 characters
   (`_MAX_TARGET = 120` in `colleague/tui/from_work.py`) so long commands are no longer
-  cut. The grouping reducer lives in `colleague/tui/reducer.py` `_collapse_repeat`. This
+  cut. The `[tool] summary` feed label is composed in `colleague/tui/from_work.py`
+  `work_step`; the consecutive-repeat `×N` collapse lives in the imported
+  `agentfront.taui.reducer` (`append_conversation` / `ConversationLine.count`,
+  since #249; was `colleague/tui/reducer.py` `_collapse_repeat`). This
   is a pure display change — the underlying `TaskResult` and step trace are unchanged.
   (4) **AgentFront probe reflex (#235)** — `_DEFAULT_SYSTEM` in `colleague/loop.py`
   instructs the backend: before the **first** real use of an unfamiliar CLI or tool in a
@@ -514,16 +518,46 @@ The architecture, part by part:
   `docs/specs/2026-06-23-colleague-session-shows-the-mode-you-re-driving-in.md` and
   `docs/plans/2026-06-23-colleague-session-shows-the-mode-you-re-driving-in.md`;
   feature doc: `docs/features/session-modes.md`.
-- **Cockpit views (tui)** — `colleague tui` provides three headless, pure-stdlib
-  views of one `CockpitState`: **JSON/TAUI** (programmatic contract + source of truth,
-  `tui state`), **ANSI** (visual frame, `tui render` default), and **Markdown**
-  (agent-facing readable view — better than raw JSON for an agent to glance at,
-  `tui render --format markdown`). The snapshot is now a **quad**: `tui snapshot`
-  writes `<name>.taui.json` / `<name>.ansi` / `<name>.events.jsonl` / `<name>.md`.
-  `tui diagnose` on a quad verifies **JSON↔Markdown alignment** — the RENDER
-  faithfulness check runs against both frames; zero findings = faithful. Before this
-  surface was added, no colleague command emitted Markdown and `diagnose` inspected
-  the ANSI frame only. Legacy triples (no `.md`) still read fine.
+- **Cockpit views (tui)** — `colleague tui` provides three headless views of one
+  cockpit state (`TAUIState`): **JSON/TAUI** (programmatic contract + source of
+  truth, `tui state`), **ANSI** (visual frame, `tui render` default), and
+  **Markdown** (agent-facing readable view — better than raw JSON for an agent to
+  glance at, `tui render --format markdown`). The snapshot is a **quad**: `tui
+  snapshot` writes `<name>.taui.json` / `<name>.ansi` / `<name>.events.jsonl` /
+  `<name>.md`. `tui diagnose` on a quad verifies render faithfulness across the
+  captured views; zero findings = faithful. Legacy triples (no `.md`) still read fine.
+- **TAUI imported from agentfront (cockpit-on-agentfront, #249)** — the generic
+  cockpit (state model, events, reducer, TAUI mirror, the ANSI/flat/Markdown
+  renderers, selectors, snapshot/diagnose, widgets, colors, layout) is **imported
+  from `agentfront.taui`**, not duplicated in colleague — the sequel to the
+  cli-on-agentfront "import, don't duplicate" migration, unblocked by agentfront#43
+  (the work-loop cockpit uplift, `SCHEMA_VERSION` `"0.2"`) and agentfront#45 (the
+  live-cockpit UI layer: flat renderer + widgets + colors + layout). The whole
+  duplicated `colleague/tui/*` package was **deleted**; only two genuinely
+  colleague-coupled pieces survive: **`colleague/tui/from_work.py`** (the
+  TaskResult/loop-trace → `agentfront.taui` `WorkStep` adapter — it composes the
+  `[tool] summary` feed label, the form the `×N` collapse groups on, since
+  agentfront's `WorkStep` carries a single `label`) and **`colleague/tui/render/
+  driver.py`** (the live raw-terminal `colleague tui live` loop — agentfront ships
+  no equivalent raw-input driver). The three non-tui callers
+  (`cli/_commands/tui.py`, `_tui_sink.py`, `session.py`) re-point their imports at
+  `agentfront.taui.*` and `cockpit.py`/`loop.py` reach the kept adapter. agentfront's
+  state is `frozen=True`, so the session/sink rewrote in-place mutation to
+  functional `dataclasses.replace` (GAP 11). The conversation feed is now a
+  top-level `state.conversation` list (was a `panel.conversation`), so the mirror
+  gains `conversation` + `header` keys and several `tui` verbs (`inspect`/`action`/
+  `diagnose`/`snapshot`) adopt agentfront's API — the migration is **faithful, not
+  byte-identical** (the agentfront API genuinely diverged from colleague's old
+  v0.2, e.g. `resolve(state)` takes the state dataclass, `tui action` focuses a
+  selector rather than triggering a popup, `Finding` has no `selector`, snapshot
+  keys are `json/ansi/events/md`). `tests/test_taui_floor.py` gates the agentfront
+  surface colleague depends on; a boundary test
+  (`test_colleague_tui_imports_only_the_surviving_adapter_and_driver`) pins that no
+  colleague module imports a `colleague.tui.*` module other than the two survivors.
+  Consumer-side resume brief + decisions: issue #249. **Honest residual:** the
+  `colleague tui live` raw driver and the `from_work` adapter are the one piece the
+  generic uplift did not absorb (a possible future agentfront ask); colleague reads
+  no agentfront source — the PR touches only the consumer side.
 - **Context budget / graceful degradation** — the bounded tool-loop windows its
   running message history to a configurable token budget before each model turn
   (`colleague/context.py` + `colleague/loop.py` `_complete_with_degradation`)

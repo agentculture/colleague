@@ -18,24 +18,26 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
+
+from agentfront.errors import AgentfrontError
+from agentfront.taui.colors import should_color, strip_ansi
+from agentfront.taui.diagnose import diagnose_structured
+from agentfront.taui.events import SelectorAction, event_from_dict, loads_events
+from agentfront.taui.mirror import serialize
+from agentfront.taui.reducer import reduce, replay
+from agentfront.taui.render.ansi import render_ansi as render
+from agentfront.taui.render.markdown import render_markdown
+from agentfront.taui.selectors import advertised_selectors, resolve
+from agentfront.taui.snapshot import read_snapshot, write_snapshot
+from agentfront.taui.state import TAUIState as CockpitState
 
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
-from colleague.tui.colors import should_color, strip_ansi
-from colleague.tui.diagnose import diagnose, diagnose_snapshot
-from colleague.tui.events import event_from_dict, loads_events
-from colleague.tui.from_work import trace_to_work_steps
-from colleague.tui.reducer import reduce
-from colleague.tui.render.ansi import render
-from colleague.tui.render.markdown import render_markdown
-from colleague.tui.replay import replay
-from colleague.tui.selectors import SelectorError, resolve, selector_to_event, selectors
-from colleague.tui.snapshot import write_snapshot
-from colleague.tui.state import CockpitState
-from colleague.tui.taui import serialize
+from colleague.tui.from_work import trace_to_work_steps  # surviving colleague adapter
 
 # Reused argument help (kept as a constant to avoid duplicated literals).
 _STATE_FILE_HELP = "Path to a state JSON file (default: empty)."
@@ -43,6 +45,23 @@ _STATE_FILE_HELP = "Path to a state JSON file (default: empty)."
 # ---------------------------------------------------------------------------
 # Shared loaders (every loader maps failure to a CliError — never a traceback)
 # ---------------------------------------------------------------------------
+
+
+def _validate_snapshot_name(name: str) -> None:
+    """Reject a ``--name`` that is not a plain filename.
+
+    agentfront's ``write_snapshot`` joins the name into the stem path with no
+    traversal guard of its own, so ``--name ../escape`` would write the quad
+    outside ``--dir``.  colleague's pre-migration snapshot rejected this, and the
+    CLI verb owns its own input validation, so the guard is restored here (a thin
+    check, not duplicated cockpit logic).
+    """
+    if not name or name != Path(name).name or name in ("..", "."):
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"invalid --name {name!r}",
+            "use a plain filename (no '/' or '..') — the directory is set by --dir",
+        )
 
 
 def _read_text(path_str: str, *, kind: str) -> str:
@@ -99,7 +118,9 @@ def _load_state(path_str: Optional[str], repo_str: Optional[str] = None) -> Cock
         # takes (e.g. `_read_text` on --state); a bare `~` would otherwise be a
         # literal dir name and silently fall back to the non-git defaults.
         panel = build_repo_context_panel(Path(repo_str).expanduser())
-        state.panels = [panel] + [p for p in state.panels if p.id != "context"]
+        # agentfront's state is frozen=True — rebind functionally rather than
+        # mutating ``state.panels`` in place.
+        state = replace(state, panels=[panel] + [p for p in state.panels if p.id != "context"])
     return state
 
 
@@ -236,31 +257,35 @@ def cmd_tui_state(args: argparse.Namespace) -> int:
 
 def cmd_tui_inspect(args: argparse.Namespace) -> int:
     state = _load_state(args.state, getattr(args, "repo", None))
-    taui = serialize(state)
+    # agentfront's resolve() takes the state dataclass (not the serialized mirror)
+    # and returns a node (a Panel/PanelItem/Popup/Action with ``to_dict``, or a
+    # plain sentinel dict for the input/zone pseudo-nodes).
     try:
-        node = resolve(taui, args.select)
-    except SelectorError as exc:
+        node = resolve(state, args.select)
+    except AgentfrontError as exc:
         raise CliError(
             EXIT_USER_ERROR,
             str(exc),
             "list addressable selectors with 'tui state --json' (every node carries an id)",
         ) from exc
-    emit_result(node, json_mode=True)
+    emit_result(node.to_dict() if hasattr(node, "to_dict") else node, json_mode=True)
     return 0
 
 
 def cmd_tui_action(args: argparse.Namespace) -> int:
     state = _load_state(args.state, getattr(args, "repo", None))
-    taui = serialize(state)
+    # agentfront models "operate the UI by selector" as a SelectorAction event
+    # (the reducer focuses/selects the addressed node). Validate the selector
+    # resolves first so a bad one is a clean CliError, not a silent no-op.
     try:
-        event = selector_to_event(taui, args.select)
-    except SelectorError as exc:
+        resolve(state, args.select)
+    except AgentfrontError as exc:
         raise CliError(
             EXIT_USER_ERROR,
             str(exc),
-            "an actionable selector is a popup action (e.g. 'popup.skill.boost.accept')",
+            "address a node by its id (e.g. a panel item or popup action selector)",
         ) from exc
-    new_state = reduce(state, event)
+    new_state = reduce(state, SelectorAction(selector=args.select))
     emit_result(serialize(new_state), json_mode=True)
     return 0
 
@@ -304,22 +329,24 @@ def _resolve_replay_events(args: argparse.Namespace) -> list:
 
 def cmd_tui_snapshot(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
+    _validate_snapshot_name(args.name)
     state = _load_state(args.state, getattr(args, "repo", None))
     events = _load_events(args.events)
+    # agentfront's write_snapshot takes a single stem (dir + base name) and
+    # writes the quad ``<stem>.taui.json`` / ``.ansi`` / ``.events.jsonl`` /
+    # ``.md``, returning paths keyed ``json``/``ansi``/``events``/``md``.
+    stem = Path(args.dir or ".") / args.name
     try:
-        paths = write_snapshot(args.dir or ".", args.name, state, events)
-    except ValueError as exc:
+        paths = write_snapshot(stem, state, events)
+    except (ValueError, OSError) as exc:
         raise CliError(EXIT_USER_ERROR, str(exc), "use a plain filename for --name") from exc
     str_paths = {key: str(value) for key, value in paths.items()}
     if json_mode:
         emit_result(str_paths, json_mode=True)
     else:
-        # List every file written (the quad), in a stable order — the ``.md``
-        # was added to the snapshot but the text output kept listing only the
-        # original triple, so an agent reading stdout never saw the markdown
-        # frame (``--json`` already carried it). Iterate the written paths,
-        # leading with the known keys, so the text and JSON outputs agree.
-        order = ("taui", "ansi", "events", "markdown")
+        # List every file written (the quad), in a stable order, so the text and
+        # JSON outputs agree.
+        order = ("json", "ansi", "events", "md")
         keys = [k for k in order if k in str_paths]
         keys += [k for k in str_paths if k not in order]
         emit_result("\n".join(str_paths[k] for k in keys), json_mode=False)
@@ -343,7 +370,15 @@ def cmd_tui_diagnose(args: argparse.Namespace) -> int:
 
 
 def _run_diagnose(args: argparse.Namespace) -> Any:
-    """Resolve the two mutually-exclusive diagnose modes into a Diagnosis."""
+    """Resolve the two mutually-exclusive diagnose modes into a Diagnosis.
+
+    agentfront's ``diagnose_structured`` takes the state plus optional captured
+    renders (mirror / ansi / markdown) and classifies cross-view bugs into the
+    seven bug classes.  The snapshot-dir mode reads the captured quad back via
+    ``read_snapshot``; the explicit ``--taui/--ansi`` mode rebuilds the state from
+    the captured mirror (``from_dict`` tolerates the extra mirror keys) and checks
+    it against the captured ansi.
+    """
     if args.dir is not None or args.name is not None:
         if args.dir is None or args.name is None:
             raise CliError(
@@ -351,14 +386,18 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
                 "snapshot-dir mode needs both --dir and --name",
                 "use '--dir <d> --name <n>' or the explicit '--taui/--ansi' form",
             )
+        stem = Path(args.dir) / args.name
         try:
-            return diagnose_snapshot(args.dir, args.name)
+            snap = read_snapshot(stem)
         except FileNotFoundError as exc:
             raise CliError(
                 EXIT_USER_ERROR, f"snapshot not found: {exc}", "check --dir and --name"
             ) from exc
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             raise CliError(EXIT_USER_ERROR, str(exc), "use a plain filename for --name") from exc
+        return diagnose_structured(
+            snap.state, mirror=serialize(snap.state), ansi=snap.ansi, markdown=snap.markdown
+        )
 
     if args.taui is None or args.ansi is None:
         raise CliError(
@@ -371,18 +410,21 @@ def _run_diagnose(args: argparse.Namespace) -> Any:
         taui = json.loads(raw_taui)
     except json.JSONDecodeError as exc:
         raise CliError(EXIT_USER_ERROR, f"--taui is not valid JSON: {exc}") from exc
+    if not isinstance(taui, dict):
+        raise CliError(EXIT_USER_ERROR, "--taui must contain a JSON object")
     ansi = _read_text(args.ansi, kind="ansi")
-    events = _load_events(args.events) if args.events else None
-    return diagnose(taui, ansi, events)
+    state = CockpitState.from_dict(taui)
+    return diagnose_structured(state, mirror=taui, ansi=ansi)
 
 
 def _render_diagnosis(payload: dict[str, Any]) -> str:
     findings = payload.get("findings", [])
     if not findings:
         return "no findings — the captured views agree"
-    lines = [f"{len(findings)} finding(s): {', '.join(payload.get('classes', []))}", ""]
+    classes = sorted({str(f.get("bug_class", "")) for f in findings})
+    lines = [f"{len(findings)} finding(s): {', '.join(classes)}", ""]
     for finding in findings:
-        lines.append(f"[{finding['bug_class']}] {finding['selector']}: {finding['message']}")
+        lines.append(f"[{finding.get('bug_class')}] {finding.get('message')}")
     return "\n".join(lines)
 
 
@@ -417,7 +459,7 @@ def _run_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
 
     checks: list[dict[str, Any]] = []
     for clause, expected in expect.items():
-        checks.append(_check_clause(taui, clause, expected))
+        checks.append(_check_clause(state, taui, clause, expected))
 
     return {
         "name": str(scenario.get("name", "")),
@@ -426,7 +468,9 @@ def _run_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _check_clause(taui: dict[str, Any], clause: str, expected: Any) -> dict[str, Any]:
+def _check_clause(
+    state: CockpitState, taui: dict[str, Any], clause: str, expected: Any
+) -> dict[str, Any]:
     if clause == "popup":
         return _check_popup(taui, expected)
     if clause == "focused":
@@ -437,7 +481,11 @@ def _check_clause(taui: dict[str, Any], clause: str, expected: Any) -> dict[str,
             "detail": f"focused={actual!r} expected={expected!r}",
         }
     if clause == "action_available":
-        available = set(selectors(taui)) | {
+        # agentfront has no ``selectors(mirror)`` helper; ``advertised_selectors``
+        # lists every resolvable selector (panel/item/popup/action ids + the
+        # standing input), and the mirror's ``available_actions`` carries the
+        # actionable selectors — their union is what a scenario asserts against.
+        available = set(advertised_selectors(state)) | {
             a.get("selector") for a in taui.get("available_actions", [])
         }
         ok = expected in available

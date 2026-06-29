@@ -677,3 +677,56 @@ class TestMeshModulesNoDaemonPrimitives:
             "these modules must only shell out via subprocess.run, never spawn "
             "threads or background processes:\n" + "\n".join(violations)
         )
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURAL — the TAUI cockpit is imported from agentfront, not duplicated.
+# After issue #249 the generic cockpit modules live in ``agentfront.taui``;
+# colleague keeps only the thin adapter (``colleague.tui.from_work``) and the
+# live raw-terminal driver (``colleague.tui.render.driver``, which agentfront
+# does not ship). No colleague module may import any *other* ``colleague.tui.*``
+# submodule — they no longer exist, and a stray reference would mean the
+# migration left a duplicated module behind.
+# ---------------------------------------------------------------------------
+
+#: The only ``colleague.tui`` submodules a consumer may import (the survivors).
+_ALLOWED_COLLEAGUE_TUI_IMPORTS = frozenset({"from_work", "render.driver"})
+
+_COLLEAGUE_TUI_IMPORT_RE = re.compile(
+    r"^\s*(?:from|import)\s+colleague\.tui\.([a-zA-Z0-9_.]+)", re.MULTILINE
+)
+
+
+def test_colleague_tui_imports_only_the_surviving_adapter_and_driver() -> None:
+    """No colleague module imports a deleted ``colleague.tui.*`` module.
+
+    Consumers must reach the generic cockpit through ``agentfront.taui.*``; the
+    only colleague-owned cockpit code left is the ``from_work`` adapter and the
+    ``render.driver`` live loop. Files inside ``colleague/tui/`` are exempt (they
+    are the surviving package itself).
+    """
+    tui_dir = _PACKAGE_DIR / "tui"
+    violations: list[str] = []
+    for py_file in _all_py_sources():
+        if tui_dir in py_file.parents:
+            continue  # the surviving package itself
+        source = py_file.read_text(encoding="utf-8")
+        for match in _COLLEAGUE_TUI_IMPORT_RE.finditer(source):
+            submodule = match.group(1)
+            # Normalize e.g. "render.driver" / "from_work" — a deeper path like
+            # "render.driver" must match an allow-listed prefix exactly or as a
+            # dotted child (render.driver.run is imported as render.driver).
+            allowed = any(
+                submodule == ok or submodule.startswith(ok + ".")
+                for ok in _ALLOWED_COLLEAGUE_TUI_IMPORTS
+            )
+            if not allowed:
+                lineno = source[: match.start()].count("\n") + 1
+                rel = py_file.relative_to(_PACKAGE_DIR.parent)
+                violations.append(f"  {rel}:{lineno}: imports colleague.tui.{submodule}")
+
+    assert not violations, (
+        "colleague modules must import the generic cockpit from agentfront.taui, "
+        "not a duplicated colleague.tui.* module (only from_work + render.driver "
+        "survive):\n" + "\n".join(violations)
+    )

@@ -59,9 +59,9 @@ under the `controls` group with the `interactive` tag.
 
 The active mode is visible across all three render tiers:
 
-- **TAUI JSON** — `CockpitState.mode` serialises as `"mode"` in the JSON mirror
-  (`colleague.tui.taui.serialize`), so an agent or pipeline reads the same mode
-  value from the machine-readable surface.
+- **TAUI JSON** — `TAUIState.mode` serialises as `"mode"` in the JSON mirror
+  (`agentfront.taui.mirror.serialize`, imported since #249), so an agent or
+  pipeline reads the same mode value from the machine-readable surface.
 - **Markdown** — `render_markdown(state)` includes the mode in the cockpit
   section (`- **mode**: <mode>`), so an agent reading the Markdown tier sees
   the same value.

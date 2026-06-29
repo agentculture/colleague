@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import io
 
+from agentfront.taui.events import loads_events
+
 from colleague.cli._commands._tui_sink import (
     CockpitProgressSink,
     build_progress,
@@ -17,7 +19,6 @@ from colleague.cli._commands._tui_sink import (
     make_events_sink,
     make_fanout,
 )
-from colleague.tui.events import loads_events
 
 
 class _Stream(io.StringIO):
@@ -54,8 +55,10 @@ def test_cockpit_sink_renders_conversation_and_error_popup() -> None:
     frame = out.getvalue()
     assert "read_file" in frame and "main.py" in frame
     assert "run_command" in frame
-    # The failed step surfaces an error popup in the live frame.
-    assert "popup.error.run_command" in frame
+    # The failed step creates a work-error popup in the state (agentfront uses
+    # "popup.work-error" — one generic popup id, not per-tool). The popup is in
+    # the state; the renderer renders the conversation feed, not popup ids as text.
+    assert any(p.id == "popup.work-error" and p.visible for p in sink._state.popups)
     # Non-TTY stream -> escapes stripped so a captured log stays clean.
     assert "\x1b" not in frame
 
@@ -101,9 +104,10 @@ def test_events_sink_appends_one_jsonl_line_per_step(tmp_path) -> None:
     sink(0, "write_file", "a.py", True)
     sink(1, "finish", "done", False)
     events = loads_events(path.read_text())
-    assert [(e.tool, e.summary, e.ok) for e in events] == [
-        ("write_file", "a.py", True),
-        ("finish", "done", False),
+    # agentfront WorkStep uses label="[tool] summary" (not separate tool+summary fields).
+    assert [(e.label, e.ok) for e in events] == [
+        ("[write_file] a.py", True),
+        ("[finish] done", False),
     ]
 
 
@@ -139,9 +143,10 @@ def test_events_sink_skips_phase_events(tmp_path) -> None:
     sink(1, "", "thinking…", True)  # phase notice — not a step
     sink(2, "finish", "done", True)
     events = loads_events(path.read_text())
-    assert [(e.tool, e.summary, e.ok) for e in events] == [
-        ("write_file", "a.py", True),
-        ("finish", "done", True),
+    # agentfront WorkStep uses label="[tool] summary"; phase notices are skipped.
+    assert [(e.label, e.ok) for e in events] == [
+        ("[write_file] a.py", True),
+        ("[finish] done", True),
     ]
 
 

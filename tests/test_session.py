@@ -345,7 +345,7 @@ def test_session_markdown_tier_is_the_non_tty_default(tmp_path: Path) -> None:
     rc = run_session(_make_args(tmp_path), input_fn=iter(["q"]), out=out, _color=False)
     assert rc == 0
     text = out.text()
-    assert "# Cockpit" in text  # the Markdown view
+    assert "# colleague" in text  # the Markdown view (header title from Header(title="colleague"))
     assert "colleague session" in text  # identity (status bar)
     assert "setup" in text  # the command palette lists templates
     assert "\x1b" not in text  # static Markdown carries no ANSI escapes
@@ -534,20 +534,26 @@ def test_session_failed_step_surfaces_error_popup(tmp_path: Path) -> None:
         _color=True,
     )
     assert rc == 0
-    assert "popup.error.run_command" in out.text()
+    assert "popup.work-error" in out.text()  # agentfront popup id for a failed work step
 
 
 def test_session_work_sink_skips_phase_events() -> None:
     """The in-session progress sink ignores empty-tool phase notices (#206) so the
     session cockpit never folds a phantom step — matching the cockpit + events sinks
     in _tui_sink.py (Qodo: the session sink was the one progress consumer left out)."""
+    import dataclasses
     from types import SimpleNamespace
 
-    from colleague.cli._commands.session import _WorkSink
-    from colleague.tui.state import CockpitState, WorkItem
+    from agentfront.taui.state import TAUIState as CockpitState
+    from agentfront.taui.state import WorkItem
 
+    from colleague.cli._commands.session import _WorkSink
+
+    # TAUIState is frozen=True — use dataclasses.replace to set work_item.
     state = CockpitState()
-    state.work_item = WorkItem(task_id="t", engine="mock", step_count=0, running=True)
+    state = dataclasses.replace(
+        state, work_item=WorkItem(task_id="t", engine="mock", step_count=0, running=True)
+    )
     sess = SimpleNamespace(state=state, view="markdown")  # not "ansi" → no live redraw
     sink = _WorkSink(sess)
 

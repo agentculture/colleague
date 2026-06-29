@@ -29,11 +29,10 @@ import termios
 import tty
 from typing import Iterable, Optional
 
-from colleague.tui.events import Event, KeyPress
-from colleague.tui.reducer import reduce
-from colleague.tui.render.ansi import render
-from colleague.tui.render.layout import detect_width
-from colleague.tui.state import CockpitState
+from agentfront.taui.events import Event, KeyPress
+from agentfront.taui.reducer import reduce
+from agentfront.taui.render.ansi import render_ansi as render
+from agentfront.taui.state import TAUIState as CockpitState
 
 # ---------------------------------------------------------------------------
 # ANSI clear-screen escape — prepended before each frame in live mode
@@ -162,8 +161,9 @@ def _live_loop(state: CockpitState, *, out) -> CockpitState:
     try:
         tty.setraw(fd)
         while True:
-            # Render: clear screen + current frame, sized to the live terminal.
-            out.write(_CLEAR + render(state, width=detect_width()))
+            # Render: clear screen + current frame. agentfront's boxed renderer
+            # (render_ansi) sizes itself; it takes no width argument.
+            out.write(_CLEAR + render(state))
             out.flush()
 
             # Read one byte (raw mode).
@@ -171,7 +171,7 @@ def _live_loop(state: CockpitState, *, out) -> CockpitState:
             ev = key_to_event(ch)
             if ev is None:
                 # Quit: one final render, then return.
-                out.write(_CLEAR + render(state, width=detect_width()))
+                out.write(_CLEAR + render(state))
                 out.flush()
                 return state
             state = reduce(state, ev)

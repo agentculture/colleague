@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.0] - 2026-06-29
+
+### Added
+
+- **TAUI floor surface gate** — `tests/test_taui_floor.py` now gates the full `agentfront.taui` surface colleague depends on (state/events/reducer/mirror/selectors/snapshot/diagnose/colors + the render/widget UI layer), plus a boundary test (`test_colleague_tui_imports_only_the_surviving_adapter_and_driver`) pinning that no colleague module imports a `colleague.tui.*` module other than the two survivors.
+
+### Changed
+
+- **Cockpit rendered from imported `agentfront.taui` (#249).** The whole duplicated `colleague/tui/*` cockpit package (state, events, reducer, TAUI mirror, the ANSI/flat/Markdown renderers, selectors, snapshot/diagnose, widgets, colors, layout) is now **imported from `agentfront.taui`, not duplicated** — the sequel to the cli-on-agentfront migration, unblocked by agentfront#43 (work-loop cockpit, `SCHEMA_VERSION` 0.2) and agentfront#45 (live-cockpit UI layer). The duplicated modules were deleted; only `colleague/tui/from_work.py` (the loop-step -> `agentfront.taui` `WorkStep` label adapter) and `colleague/tui/render/driver.py` (the `colleague tui live` raw-terminal loop, which agentfront does not ship) survive. The three non-tui callers (`cli/_commands/tui.py`, `_tui_sink.py`, `session.py`) re-point at `agentfront.taui.*`.
+- **Raised the agentfront floor to `>=0.19.0`** (was 0.18.0) to adopt agentfront#45's live-cockpit UI layer (flat renderer + widgets + colors + layout).
+- **Session/sink rewritten for `frozen=True` cockpit state (GAP 11).** agentfront's `TAUIState` is immutable, so the session and progress sink replaced in-place mutation with functional `dataclasses.replace`.
+- **`colleague tui` verbs adopt agentfront's diverged cockpit API (faithful, not byte-identical).** The mirror gains top-level `conversation` + `header` keys (the feed is now `state.conversation`, not a `panel.conversation`); `tui inspect`/`action` use `resolve(state, ...)` (state dataclass, not the mirror dict) and `tui action` focuses a selector via `SelectorAction`; `tui snapshot` paths are keyed `json/ansi/events/md`; `tui diagnose` reports `{ok, findings:[{bug_class, message}]}` (Finding has no `selector`); the boxed `tui render` ANSI frame is now a plain-text Markdown-like render (agentfront's `render_ansi` emits no SGR escapes).
+
+### Fixed
+
+- **`tui snapshot --name` path-traversal guard restored.** agentfront's `write_snapshot` joins the name into the stem with no traversal guard, so a `--name ../escape` would write the quad outside `--dir`; the verb now rejects a non-plain `--name` with a clean `CliError` (`_validate_snapshot_name`).
+
 ## [1.27.0] - 2026-06-27
 
 ### Added

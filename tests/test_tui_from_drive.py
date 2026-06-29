@@ -8,7 +8,8 @@ the trace-conversion edge cases.
 
 from __future__ import annotations
 
-from colleague.tui.events import WorkStep
+from agentfront.taui.events import WorkStep
+
 from colleague.tui.from_work import progress_target, trace_to_work_steps, work_step
 
 
@@ -42,7 +43,9 @@ def test_progress_target_culture_and_devague() -> None:
 
 def test_drive_step_constructs_event() -> None:
     evt = work_step("write_file", "x.py", ok=False)
-    assert evt == WorkStep(tool="write_file", summary="x.py", ok=False)
+    # agentfront WorkStep carries a single label (not tool+summary); the adapter
+    # formats it as "[tool] summary" so the ×N collapse in the feed groups correctly.
+    assert evt == WorkStep(label="[write_file] x.py", ok=False)
 
 
 def test_trace_summary_matches_live_target_for_same_step() -> None:
@@ -53,15 +56,17 @@ def test_trace_summary_matches_live_target_for_same_step() -> None:
     (post_hoc,) = trace_to_work_steps(
         [{"index": 0, "tool": "write_file", "arguments": arguments, "result": "wrote", "ok": True}]
     )
-    assert post_hoc == WorkStep(tool="write_file", summary=live_target, ok=True)
+    # agentfront WorkStep uses label="[tool] summary"; the adapter composes it.
+    assert post_hoc == WorkStep(label=f"[write_file] {live_target}", ok=True)
 
 
 def test_trace_falls_back_to_result_when_no_subject_key() -> None:
     (step,) = trace_to_work_steps(
         [{"index": 0, "tool": "finish", "arguments": {}, "result": "all done\nextra", "ok": True}]
     )
-    assert step.tool == "finish"
-    assert step.summary == "all done"  # first line of result, args carry no hint
+    # agentfront WorkStep carries a single label "[tool] summary"; the adapter
+    # falls back to the first line of result when args carry no subject key.
+    assert step.label == "[finish] all done"
 
 
 def test_trace_preserves_ok_and_skips_malformed_lines() -> None:
@@ -78,4 +83,8 @@ def test_trace_preserves_ok_and_skips_malformed_lines() -> None:
             {"tool": "read_file", "arguments": {"path": "y.py"}},  # ok defaults True
         ]
     )
-    assert [(s.tool, s.ok) for s in steps] == [("run_command", False), ("read_file", True)]
+    # agentfront WorkStep uses label="[tool] summary"; check the formatted label + ok.
+    assert [(s.label, s.ok) for s in steps] == [
+        ("[run_command] false", False),
+        ("[read_file] y.py", True),
+    ]

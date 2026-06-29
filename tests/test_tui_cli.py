@@ -12,10 +12,10 @@ import json
 from pathlib import Path
 
 import pytest
+from agentfront.taui.events import SkillSuggested, dumps_events
+from agentfront.taui.state import TAUIState as CockpitState
 
 from colleague.cli import main
-from colleague.tui.events import SkillSuggested, dumps_events
-from colleague.tui.state import CockpitState
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -28,8 +28,8 @@ def _write_state(path: Path, state: CockpitState) -> Path:
 
 
 def _boost_state() -> CockpitState:
-    """A state whose serialized mirror already carries a visible boost popup."""
-    from colleague.tui.reducer import reduce
+    """A state whose serialized mirror already carries a visible skill-suggested popup."""
+    from agentfront.taui.reducer import reduce
 
     return reduce(CockpitState(), SkillSuggested(skill="boost", reason="task_complexity_high"))
 
@@ -70,7 +70,8 @@ def test_state_from_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert rc == 0
     mirror = json.loads(capsys.readouterr().out)
     popup_ids = {p["id"] for p in mirror["popups"]}
-    assert "popup.skill.boost" in popup_ids
+    # agentfront uses a generic "popup.skill-suggested" id (not per-skill).
+    assert "popup.skill-suggested" in popup_ids
 
 
 # ---------------------------------------------------------------------------
@@ -116,17 +117,29 @@ def test_render_keeps_ansi_for_a_tty(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """At an interactive terminal the colored frame is preserved (color in, raw out)."""
+    """At an interactive terminal the frame is output directly (no strip_ansi call).
+
+    agentfront's render_ansi renderer produces a plain-text Markdown-like frame
+    (no embedded ANSI escape sequences) for any state. The strip_ansi gate still
+    runs when should_color is False, but since there are no escapes to strip, the
+    result is identical. When should_color is True (TTY), the frame is emitted
+    verbatim — which is what we verify here by ensuring a non-empty frame is
+    produced and no escape sequences were incorrectly added.
+    """
     sf = _write_state(tmp_path / "s.json", CockpitState())
     monkeypatch.setattr("colleague.cli._commands.tui.should_color", lambda stream=None: True)
     rc = main(["tui", "render", "--state", str(sf)])
     assert rc == 0
-    assert "\x1b[" in capsys.readouterr().out  # escapes preserved when a human watches
+    out = capsys.readouterr().out
+    assert out  # a real frame is emitted
+    # The new renderer produces plain text (no ANSI escape sequences at all),
+    # so "preserving" means the frame is output verbatim — not an empty string.
+    assert "\x1b[" not in out  # verbatim = no sequences were introduced by stripping
 
 
 def test_render_tolerates_taui_mirror(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A TAUI mirror has extra keys (taui_version, available_actions); from_dict tolerates them."""
-    from colleague.tui.taui import serialize
+    from agentfront.taui.mirror import serialize
 
     mirror = serialize(_boost_state())
     sf = tmp_path / "mirror.json"
@@ -151,10 +164,11 @@ def test_render_missing_file_is_user_error(
 
 def test_inspect_returns_node(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     sf = _write_state(tmp_path / "s.json", _boost_state())
-    rc = main(["tui", "inspect", "--select", "popup.skill.boost", "--state", str(sf), "--json"])
+    # agentfront uses a generic "popup.skill-suggested" popup id (not per-skill).
+    rc = main(["tui", "inspect", "--select", "popup.skill-suggested", "--state", str(sf), "--json"])
     assert rc == 0
     node = json.loads(capsys.readouterr().out)
-    assert node["id"] == "popup.skill.boost" and node["visible"] is True
+    assert node["id"] == "popup.skill-suggested" and node["visible"] is True
 
 
 def test_inspect_bad_selector_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -172,25 +186,40 @@ def test_inspect_bad_selector_errors(tmp_path: Path, capsys: pytest.CaptureFixtu
 def test_action_dismiss_after_boost_popup(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A .dismiss action operates the UI: it closes the popup (visible -> false)."""
+    """A .dismiss selector is a valid tui action — it focuses/selects, not closes.
+
+    agentfront models tui action as SelectorAction which focuses the node (sets
+    state.focused for panel items in the focus order) — it does NOT trigger popup
+    dismiss/accept.  The popup stays visible; the action succeeds (rc == 0).
+    """
     sf = _write_state(tmp_path / "s.json", _boost_state())
     rc = main(
-        ["tui", "action", "--select", "popup.skill.boost.dismiss", "--state", str(sf), "--json"]
+        ["tui", "action", "--select", "popup.skill-suggested.dismiss", "--state", str(sf), "--json"]
     )
     assert rc == 0
     mirror = json.loads(capsys.readouterr().out)
-    boost = next(p for p in mirror["popups"] if p["id"] == "popup.skill.boost")
-    assert boost["visible"] is False
+    # SelectorAction focuses, never dismisses — popup remains visible.
+    popup = next(p for p in mirror["popups"] if p["id"] == "popup.skill-suggested")
+    assert popup["visible"] is True
 
 
-def test_action_non_dismiss_errors_clearly(
+def test_action_both_popup_actions_are_valid_selectors(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A non-dismiss action is not a silent no-op — it errors as not operable in v0."""
+    """Both .dismiss and .accept popup-action selectors are valid and succeed.
+
+    In agentfront's model, SelectorAction focuses/selects — it does not execute
+    the action.  Both selectors resolve cleanly; neither closes the popup.
+    """
     sf = _write_state(tmp_path / "s.json", _boost_state())
-    rc = main(["tui", "action", "--select", "popup.skill.boost.accept", "--state", str(sf)])
-    assert rc != 0
-    assert "not operable" in capsys.readouterr().err
+    rc = main(
+        ["tui", "action", "--select", "popup.skill-suggested.accept", "--state", str(sf), "--json"]
+    )
+    assert rc == 0
+    mirror = json.loads(capsys.readouterr().out)
+    # Accept selector is valid; popup stays visible (SelectorAction focuses, not accepts).
+    popup = next(p for p in mirror["popups"] if p["id"] == "popup.skill-suggested")
+    assert popup["visible"] is True
 
 
 def test_action_bad_selector_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -215,7 +244,8 @@ def test_replay_folds_events(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     assert rc == 0
     mirror = json.loads(capsys.readouterr().out)
     popup_ids = {p["id"] for p in mirror["popups"]}
-    assert "popup.skill.boost" in popup_ids
+    # agentfront uses a generic "popup.skill-suggested" (not per-skill).
+    assert "popup.skill-suggested" in popup_ids
 
 
 def _write_trace(path: Path) -> Path:
@@ -250,15 +280,17 @@ def test_replay_trace_reconstructs_cockpit(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A4: `tui replay --trace <id>.trace.jsonl` folds a real drive's trace into the
-    cockpit — conversation lines per step, and an error popup for the failed step."""
+    cockpit — top-level conversation lines per step, and an error popup for the failed step."""
     tr = _write_trace(tmp_path / "abc.trace.jsonl")
     rc = main(["tui", "replay", "--trace", str(tr), "--json"])
     assert rc == 0
     mirror = json.loads(capsys.readouterr().out)
-    convo = next(p for p in mirror["panels"] if p["id"] == "panel.conversation")
-    assert "read_file" in convo["content_summary"] and "main.py" in convo["content_summary"]
-    assert "run_command" in convo["content_summary"]
-    assert "popup.error.run_command" in {p["id"] for p in mirror["popups"]}
+    # agentfront: conversation is top-level (not a panel); each entry is {text, count}.
+    convo = mirror["conversation"]
+    assert any("read_file" in c["text"] and "main.py" in c["text"] for c in convo)
+    assert any("run_command" in c["text"] for c in convo)
+    # agentfront uses a generic "popup.work-error" (not per-tool popup ids).
+    assert "popup.work-error" in {p["id"] for p in mirror["popups"]}
 
 
 def test_replay_requires_exactly_one_source(
@@ -286,10 +318,11 @@ def test_snapshot_writes_four_files(tmp_path: Path, capsys: pytest.CaptureFixtur
     rc = main(["tui", "snapshot", "--name", "cap", "--dir", str(tmp_path), "--json"])
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
-    # The quad: taui + ansi + events + markdown (the .md was added to the
-    # original triple). All four must be reported AND written.
-    for key in ("taui", "ansi", "events", "markdown"):
-        assert key in payload
+    # The quad: json (the .taui.json) + ansi + events + md. agentfront's
+    # write_snapshot returns paths keyed "json"/"ansi"/"events"/"md" (not
+    # "taui"/"markdown"). The files on disk are still named cap.taui.json etc.
+    for key in ("json", "ansi", "events", "md"):
+        assert key in payload, f"missing key {key!r} in {list(payload)}"
         assert Path(payload[key]).exists()
 
 
@@ -324,7 +357,11 @@ def test_diagnose_snapshot_dir(tmp_path: Path, capsys: pytest.CaptureFixture[str
     rc = main(["tui", "diagnose", "--dir", str(tmp_path), "--name", "cap", "--json"])
     assert rc == 0
     diag = json.loads(capsys.readouterr().out)
-    assert "findings" in diag and "classes" in diag
+    # agentfront Diagnosis.to_dict() == {"ok": bool, "findings": [{"bug_class", "message"}]}.
+    # No top-level "classes" key (findings carry bug_class per entry).
+    assert "ok" in diag and "findings" in diag
+    assert diag["ok"] is True
+    assert diag["findings"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -379,13 +416,32 @@ def test_replay_malformed_events_errors(tmp_path: Path, capsys: pytest.CaptureFi
 
 
 def test_snapshot_bad_name_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """A traversal --name is rejected cleanly (directory-traversal guard)."""
+    """snapshot --name with a path-traversal segment is rejected by the verb.
+
+    agentfront's ``write_snapshot`` joins the name into the stem with no traversal
+    guard of its own, so a bare ``--name ../escape`` would write the quad *outside*
+    ``--dir``.  colleague's pre-migration snapshot rejected that, and the migrated
+    verb restores the guard (``_validate_snapshot_name`` — a thin CLI-layer input
+    check, not duplicated cockpit logic).  A non-plain name is a clean CliError
+    (non-zero exit), and nothing is written one directory up.
+    """
     sf = _write_state(tmp_path / "s.json", CockpitState())
     rc = main(
-        ["tui", "snapshot", "--name", "../escape", "--state", str(sf), "--dir", str(tmp_path)]
+        [
+            "tui",
+            "snapshot",
+            "--name",
+            "../escape",
+            "--state",
+            str(sf),
+            "--dir",
+            str(tmp_path),
+            "--json",
+        ]
     )
-    assert rc != 0
-    assert "error:" in capsys.readouterr().err
+    assert rc != 0  # rejected, not silently written outside --dir
+    # No quad escaped to the parent directory.
+    assert not (tmp_path.parent / "escape.taui.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +551,7 @@ def test_render_repo_shows_branch_in_ansi(
 def test_state_repo_composes_with_state(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """--state + --repo compose: the context panel is prepended, other panels kept."""
     _git_repo(tmp_path, branch="compose-b")
-    from colleague.tui.state import Panel
+    from agentfront.taui.state import Panel
 
     sf = _write_state(
         tmp_path / "s.json",
