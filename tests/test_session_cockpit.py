@@ -369,3 +369,31 @@ def test_live_flat_view_skips_the_slash_panels() -> None:
     # The borderless live session view leaves the slash tree to the `/` popup.
     flat = render_flat(CockpitState(panels=build_slash_panels()), include_prompt=False)
     assert "Controls" not in flat and "/pr" not in flat
+
+
+def test_live_ansi_render_uses_colleague_prompt(tmp_path: Path, monkeypatch) -> None:
+    """The live slash-autocomplete render path prompts ``colleague ❯``, not ``agent ❯``.
+
+    Regression guard (#249 review). ``_read_live_ansi``'s ``_render`` closure must
+    pass ``context="colleague"`` to ``plain_prompt`` exactly like the ``_fallback``
+    path; agentfront's ``plain_prompt`` defaults to ``"agent ❯ "``, and
+    ``_cursor_back_to_input`` measures ``len(prompt)`` — so a missing context would
+    show ``agent ❯`` and mis-place the cursor by 4 columns. This path only runs on a
+    real colour TTY, so the ``input_fn`` seam tests never reach it.
+    """
+    sess = _make_session(tmp_path)
+    sess.view = "ansi"
+    captured: dict = {}
+
+    def _fake_read_line_with_popup(commands, render, filt, fallback=None):  # noqa: ANN001
+        captured["render"] = render
+        return "q"  # end the read immediately
+
+    monkeypatch.setattr(
+        "colleague.cli._commands._session_input.read_line_with_popup",
+        _fake_read_line_with_popup,
+    )
+    sess._read_live_ansi()
+    frame = captured["render"]("hi", [], 0)  # buffer "hi", no popup matches
+    assert "colleague ❯" in frame
+    assert "agent ❯" not in frame

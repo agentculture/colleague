@@ -504,16 +504,12 @@ class _Session:
         In the agentfront TAUI model the running conversation feed lives in
         ``state.conversation`` (appended by the reducer on every ``UserInput`` /
         ``WorkStep``); the Session panel now carries ONLY the suggested-action
-        line in ``content_summary``. Rebuild the Panel directly so the type
-        checker infers a concrete ``Panel`` return, not the generic
-        ``DataclassInstance`` that ``dataclasses.replace`` produces."""
-        return Panel(
-            id=panel.id,
-            title=panel.title,
-            visible=panel.visible,
-            content_summary=suggested,
-            items=list(panel.items),
-        )
+        line in ``content_summary``. Use ``dataclasses.replace`` so every other
+        Panel field is preserved verbatim (future-proof against a new agentfront
+        Panel field); the ``cast`` keeps the static type a concrete ``Panel``
+        rather than the generic ``DataclassInstance`` ``replace`` infers (the
+        same S5655 pattern used in ``_run_readonly``)."""
+        return cast(Panel, replace(panel, content_summary=suggested))
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
@@ -570,7 +566,11 @@ class _Session:
             # is restored onto the input line. The whole-screen clear in `_frame`
             # (`_CLEAR_HOME` = ``\x1b[H\x1b[2J``) wipes any longer prior popup each
             # keystroke, so no explicit clear-to-end is needed here.
-            prompt = plain_prompt()
+            # context="colleague" matches the `_fallback` path + render_flat's
+            # header-derived prompt; without it the popup frame would show
+            # "agent ❯" and `_cursor_back_to_input` (which measures len(prompt))
+            # would land the cursor 4 columns left of the typed text.
+            prompt = plain_prompt(context="colleague")
             parts = [self._frame(include_prompt=False), prompt + buffer]
             popup = ""
             if matches:

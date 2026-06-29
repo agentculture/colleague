@@ -53,7 +53,7 @@ _QUIT_KEYS = frozenset(["q", "\x1b"])  # 'q' and ESC
 
 
 def key_to_event(key: str) -> Optional[Event]:
-    """Map *key* to an :class:`~colleague.tui.events.Event`, or ``None`` for quit.
+    """Map *key* to an :class:`agentfront.taui.events.Event`, or ``None`` for quit.
 
     Parameters
     ----------
@@ -65,7 +65,7 @@ def key_to_event(key: str) -> Optional[Event]:
     -------
     Event | None
         ``None`` means quit; any other value is an event to feed to
-        :func:`~colleague.tui.reducer.reduce`.
+        :func:`agentfront.taui.reducer.reduce`.
     """
     if key in _QUIT_KEYS:
         return None

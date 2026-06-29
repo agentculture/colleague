@@ -695,7 +695,9 @@ def test_render_places_popup_below_input(tmp_path, monkeypatch) -> None:
     sess._read_live_ansi()
 
     frame = captured["frame"]
-    input_line = plain_prompt() + "/co"
+    # The live session prompts as "colleague ❯" (header-derived); the popup render
+    # path must use the same context so the cursor-restore column lines up (#249).
+    input_line = plain_prompt(context="colleague") + "/co"
     # The input line must appear BEFORE the highlighted popup row (popup is below).
     assert input_line in frame
     assert "\x1b[7m" in frame  # a highlighted popup row was drawn
