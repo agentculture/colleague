@@ -2,7 +2,7 @@
 
 > A pure-reducer, stdlib-only cockpit UI whose semantic state is a JSON mirror
 > an agent reads directly — no screen-scraping, no LLM, no network.
-
+>
 > **Migrated to `agentfront.taui` (#249).** The generic cockpit described below —
 > the state model, events, reducer, TAUI mirror, the ANSI/flat/Markdown renderers,
 > selectors, snapshot/diagnose, and widgets — now lives in **`agentfront.taui`**
