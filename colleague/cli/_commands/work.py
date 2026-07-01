@@ -488,10 +488,23 @@ def execute_work(
             # by MAX_SUBAGENT_DEPTH. ONE shared agent budget is threaded into BOTH
             # callbacks so the global MAX_SUBAGENT_TOTAL cap is actually enforced
             # across single + batch + nested delegation (#t4 Q3 wiring fix).
+            # `parent_task_id=task.id` (spec R6 / plan t16 / #259) records THIS
+            # work item's id on every direct child's `SubResult.parent`, so a
+            # subagent tree is walkable from artifacts alone.
             budget = new_agent_budget(config)
-            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine, counter=budget)
+            config.subagent_spawn = make_spawn(
+                task.repo_path,
+                config,
+                task.engine,
+                counter=budget,
+                parent_task_id=task.id,
+            )
             config.subagent_batch_spawn = make_batch_spawn(
-                task.repo_path, config, task.engine, counter=budget
+                task.repo_path,
+                config,
+                task.engine,
+                counter=budget,
+                parent_task_id=task.id,
             )
             # Rig-level cooperative concurrency budget (t13 / spec R5 / #258): hold
             # ONE slot for the whole model-driving loop, so concurrent TOP-LEVEL

@@ -233,3 +233,53 @@ def test_execute_work_wires_a_shared_agent_budget(tmp_path, monkeypatch):
     assert sc is bc, "single + batch delegation must SHARE one budget"
     assert isinstance(sc, _AgentBudget)
     assert sc.limit == EngineConfig.resolve().subagent_total
+
+
+def test_execute_work_wires_parent_task_id_for_lineage(tmp_path, monkeypatch):
+    """Regression (spec R6 / plan t16 / #259): the production wiring
+    (execute_work) must pass THIS work item's own task id as ``parent_task_id=``
+    to BOTH make_spawn AND make_batch_spawn, so every direct child's
+    ``SubResult.parent`` names the real top-level work item — not left unset."""
+    import subprocess as _sp
+
+    from colleague.cli._commands import work as work_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def _git(*a):
+        _sp.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
+
+    _git("init", "-q")
+    _git("config", "user.email", "t@t.test")
+    _git("config", "user.name", "T")
+    (repo / "README.md").write_text("seed\n")
+    _git("add", "-A")
+    _git("commit", "-q", "-m", "init")
+
+    captured: dict = {}
+    real_spawn, real_batch = work_mod.make_spawn, work_mod.make_batch_spawn
+
+    def cap_spawn(*a, **kw):
+        captured["spawn_parent"] = kw.get("parent_task_id")
+        return real_spawn(*a, **kw)
+
+    def cap_batch(*a, **kw):
+        captured["batch_parent"] = kw.get("parent_task_id")
+        return real_batch(*a, **kw)
+
+    monkeypatch.setattr(work_mod, "make_spawn", cap_spawn)
+    monkeypatch.setattr(work_mod, "make_batch_spawn", cap_batch)
+
+    task = Task.new(str(repo), "do the mock task", engine="mock")
+    work_mod.execute_work(
+        repo=repo,
+        engine_name="mock",
+        task=task,
+        open_pr=False,
+        base="main",
+        config=EngineConfig.resolve(),
+    )
+
+    assert captured.get("spawn_parent") == task.id
+    assert captured.get("batch_parent") == task.id

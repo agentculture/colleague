@@ -62,9 +62,37 @@ class TestBuildWorkforceItems:
         assert d["engine"] == "mock"
         assert d["model"] == "m"
         assert "Do the thing" in d["instruction"]
-        assert "Acceptance criteria:" in d["instruction"]
-        assert "- it works" in d["instruction"]
-        assert "- it is fast" in d["instruction"]
+
+    def test_acceptance_is_structural_not_prose(self) -> None:
+        """t16: acceptance criteria are carried structurally, not flattened text.
+
+        The instruction keeps only the task description — the "Acceptance
+        criteria:" prose list it used to embed is gone; the criteria live on
+        their own ``"acceptance"`` key instead.
+        """
+        items = [
+            PlanItem(
+                id="a",
+                summary="Do the thing",
+                acceptance=["it works", "it is fast"],
+            )
+        ]
+        result = build_workforce_items(items, engine="mock", model="m")
+        d = result[0]
+        assert "Acceptance criteria:" not in d["instruction"]
+        assert "it works" not in d["instruction"]
+        assert d["acceptance"] == ["it works", "it is fast"]
+
+    def test_goal_key_carries_the_plan_item_summary(self) -> None:
+        items = [
+            PlanItem(
+                id="a",
+                summary="Do the thing",
+                acceptance=["it works"],
+            )
+        ]
+        result = build_workforce_items(items, engine="mock", model="m")
+        assert result[0]["goal"] == "Do the thing"
 
     def test_order_preserved(self) -> None:
         items = _make_items(3)
@@ -88,7 +116,8 @@ class TestBuildWorkforceItems:
             )
         ]
         result = build_workforce_items(items, engine="e", model="m")
-        assert "- only one" in result[0]["instruction"]
+        assert result[0]["acceptance"] == ["only one"]
+        assert "only one" not in result[0]["instruction"]
 
 
 # ── chunk ──────────────────────────────────────────────────────────────────
@@ -180,6 +209,18 @@ class TestRunWave:
         assert len(calls[1]) == 1
         # (3+1) + (1+1) = 6 results
         assert len(results) == 6
+
+    def test_wave_round_trips_goal_and_acceptance_per_item(self) -> None:
+        """t16 integration: run_wave's batch items carry each PlanItem's goal +
+        acceptance structurally — the shape make_batch_spawn's real _spawn_children
+        reads to build each child's Task(goal=..., acceptance=...)."""
+        items = _make_items(2)
+        batch_spawn, calls = self._fake_batch_spawn()
+        run_wave(items, batch_spawn, engine="e", model="m")
+        assert len(calls) == 1
+        for i, item in enumerate(calls[0]):
+            assert item["goal"] == f"Summary for item {i}"
+            assert item["acceptance"] == [f"Acceptance {i}.1", f"Acceptance {i}.2"]
 
 
 # ── surface_conflicts ────────────────────────────────────────────────────
