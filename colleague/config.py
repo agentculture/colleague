@@ -449,6 +449,14 @@ class EngineConfig:
     # excluded from eq/repr/to_dict like the spawn callbacks above.
     role: Optional[str] = field(default=None, compare=False, repr=False)
 
+    # Mode-profile explicit-knob mask (t3 / spec R1): the EngineConfig field names
+    # the caller set from explicit CLI flags (e.g. ``{"max_steps"}`` when
+    # ``--max-steps`` was given), so ``apply_mode_profile`` never overwrites them.
+    # A runtime field set by the CLI layer — the ``role`` precedent (keeps
+    # ``execute_work`` under the S107 parameter ceiling); excluded from
+    # eq/repr/to_dict.
+    explicit_knobs: Collection[str] = field(default=(), compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,
@@ -998,6 +1006,31 @@ def _resolve_builtin_profile(mode: str, resolve: Callable | None) -> object | No
     return resolve(mode)
 
 
+def _profile_updates(
+    config: "EngineConfig",
+    sources: list[dict[str, object]],
+    explicit_fields: set[str],
+) -> dict[str, object]:
+    """The knob updates the profile sources yield for *config* (S3776 extract).
+
+    Per knob: an explicit CLI flag or a set env var means the operator already
+    decided it (skipped); otherwise the FIRST source (per-model overlay > repo
+    overlay > built-in profile) that yields a valid value wins, and a value
+    equal to the resolved one is dropped (no-op replace avoidance).
+    """
+    updates: dict[str, object] = {}
+    for field_name, env_keys in _PROFILE_ENV_KEYS.items():
+        if field_name in explicit_fields or _env_present(env_keys):
+            continue
+        for source in sources:
+            value = _field_from_source(field_name, source, config.context_budget_tokens)
+            if value is not None:
+                if value != getattr(config, field_name):
+                    updates[field_name] = value
+                break
+    return updates
+
+
 def apply_mode_profile(
     config: "EngineConfig",
     mode: str | None,
@@ -1037,17 +1070,7 @@ def apply_mode_profile(
         sources.append(_profile_as_source(profile))
     if not sources:
         return config
-    explicit_fields = set(explicit)
-    updates: dict[str, object] = {}
-    for field_name, env_keys in _PROFILE_ENV_KEYS.items():
-        if field_name in explicit_fields or _env_present(env_keys):
-            continue
-        for source in sources:
-            value = _field_from_source(field_name, source, config.context_budget_tokens)
-            if value is not None:
-                if value != getattr(config, field_name):
-                    updates[field_name] = value
-                break
+    updates = _profile_updates(config, sources, set(explicit))
     if not updates:
         return config
     return replace(config, **updates)

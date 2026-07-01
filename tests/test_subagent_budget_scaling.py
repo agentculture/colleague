@@ -23,6 +23,7 @@ from colleague.contract import OK, SubResult, Usage
 from colleague.subagents import (
     _MIN_CHILD_CONTEXT_BUDGET,
     _MIN_CHILD_MAX_STEPS,
+    ChildSpec,
     _child_budget_share,
     _resolve_batch_width,
     run_subagent,
@@ -91,8 +92,7 @@ def test_run_subagent_applies_budget_overrides(tmp_path, recorded_configs):
         parent_config=parent,
         parent_engine="mock",
         depth=1,
-        max_steps=7,
-        context_budget_tokens=20000,
+        spec=ChildSpec(max_steps=7, context_budget_tokens=20000),
     )
     child_config = recorded_configs[0]
     assert child_config.max_steps == 7

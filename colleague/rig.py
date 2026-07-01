@@ -89,8 +89,9 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except (PermissionError, OSError):
-        # Exists but not ours (or unprobeable) — treat as alive, never steal.
+    except OSError:
+        # Exists but not ours (PermissionError) or unprobeable — treat as
+        # alive, never steal.
         return True
     return True
 
@@ -141,6 +142,34 @@ def _release_slot(slot: Path) -> None:
         pass
 
 
+def _wait_for_slot(
+    slots: Path,
+    width: int,
+    *,
+    on_wait: Optional[Callable[[str], None]],
+    max_wait: float,
+    poll: float,
+) -> Optional[Path]:
+    """Poll for a slot until *max_wait* elapses; ``None`` = degrade open.
+
+    Extracted from :func:`rig_slot` (SonarCloud S3776). ``on_wait`` fires once
+    when waiting starts and once more if the wait degrades open.
+    """
+    if on_wait is not None:
+        on_wait(f"waiting for a rig slot ({width} configured, all busy)")
+    deadline = time.monotonic() + max(0.0, max_wait)
+    slot: Optional[Path] = None
+    while slot is None and time.monotonic() < deadline:
+        time.sleep(max(0.05, poll))
+        slot = _try_take_slot(slots, width)
+    if slot is None and on_wait is not None:
+        on_wait(
+            "rig slot wait exceeded — proceeding without a slot "
+            "(cooperative budget degrades open, never wedges a run)"
+        )
+    return slot
+
+
 @contextmanager
 def rig_slot(
     repo_path: str | Path,
@@ -164,17 +193,7 @@ def rig_slot(
     slots = _slots_dir(repo_path)
     slot = _try_take_slot(slots, width)
     if slot is None:
-        if on_wait is not None:
-            on_wait(f"waiting for a rig slot ({width} configured, all busy)")
-        deadline = time.monotonic() + max(0.0, max_wait)
-        while slot is None and time.monotonic() < deadline:
-            time.sleep(max(0.05, poll))
-            slot = _try_take_slot(slots, width)
-        if slot is None and on_wait is not None:
-            on_wait(
-                "rig slot wait exceeded — proceeding without a slot "
-                "(cooperative budget degrades open, never wedges a run)"
-            )
+        slot = _wait_for_slot(slots, width, on_wait=on_wait, max_wait=max_wait, poll=poll)
     try:
         yield slot is not None
     finally:

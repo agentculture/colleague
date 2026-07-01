@@ -27,7 +27,7 @@ import signal
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Collection
+from typing import Callable
 
 from colleague import flight, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
@@ -330,6 +330,19 @@ def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
         worktrees.commit_iso_worktree_wip(worktree_path, reason=f"stop ({status})")
 
 
+def _moded_config(config: EngineConfig, mode: str | None, repo: Path) -> EngineConfig:
+    """Apply *mode*'s constraint profile to *config* (t3 / spec R1 / #254).
+
+    A strict no-op without a mode (h1). The caller's explicit CLI knobs travel
+    on ``config.explicit_knobs`` (a runtime-only field, the ``role`` precedent
+    — keeps execute_work under the S107 parameter ceiling) and are never
+    overwritten. Extracted from :func:`execute_work` (SonarCloud S3776).
+    """
+    if not mode:
+        return config
+    return apply_mode_profile(config, mode, explicit=config.explicit_knobs, repo_path=repo)
+
+
 def execute_work(
     *,
     repo: Path,
@@ -345,7 +358,6 @@ def execute_work(
     tui_events: str | None = None,
     progress_sink: "CockpitProgressSink | None" = None,
     mode: str | None = None,
-    explicit_knobs: "Collection[str]" = (),
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
 
@@ -397,10 +409,9 @@ def execute_work(
         on ``result.mode`` before *every* artifact write — including the failure
         path — mirroring ``command_name`` above (t7 / spec R3 / #256); omitted
         from the serialized artifact when ``None``.
-    explicit_knobs:
-        EngineConfig field names the caller set from explicit CLI flags (e.g.
-        ``{"max_steps"}`` when ``--max-steps`` was given) — those knobs are
-        never overwritten by the mode profile (precedence h1).
+        The caller's explicit CLI knobs travel on ``config.explicit_knobs``
+        (a runtime-only EngineConfig field, the ``role`` precedent) — those
+        are never overwritten by the mode profile (precedence h1).
 
     Returns
     -------
@@ -414,11 +425,9 @@ def execute_work(
         before the exception is raised — honesty h5).
     """
     # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
-    # operator left untouched, BEFORE anything reads the config. One code path
-    # for every entry door (work CLI --mode, session mode selection); a strict
-    # no-op when no mode is set (h1).
-    if mode:
-        config = apply_mode_profile(config, mode, explicit=explicit_knobs, repo_path=repo)
+    # operator left untouched, BEFORE anything reads the config (extracted to
+    # _moded_config for the S3776 budget). One code path for every entry door.
+    config = _moded_config(config, mode, repo)
 
     try:
         engine = registry.load(engine_name)
@@ -708,8 +717,12 @@ def cmd_work(args: argparse.Namespace) -> int:
     # Mode validation (t3): a typo must fail loudly with the valid choices, not
     # silently no-op. Validated explicitly + early (the --algo idiom — a
     # value-carrying flag cannot take a parse-time choices= without colliding
-    # with its signature-derived flag at App build time).
+    # with its signature-derived flag at App build time). Explicit CLI knobs
+    # ride config.explicit_knobs (runtime-only, the role precedent) so the
+    # profile never overwrites them.
     mode = _validated_mode(getattr(args, "mode", None))
+    if args.max_steps is not None:
+        config.explicit_knobs = frozenset({"max_steps"})
 
     _apply_lint_optout(args, config)
     _apply_affected_tests_optout(args, config)
@@ -753,9 +766,6 @@ def cmd_work(args: argparse.Namespace) -> int:
             tui=getattr(args, "tui", None),
             tui_events=getattr(args, "tui_events", None),
             mode=mode,
-            explicit_knobs=(
-                frozenset({"max_steps"}) if args.max_steps is not None else frozenset()
-            ),
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to

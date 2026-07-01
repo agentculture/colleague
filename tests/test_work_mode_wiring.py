@@ -129,6 +129,9 @@ def test_execute_work_explicit_knobs_win(git_repo, recorded_configs):
     from colleague.contract import Task
 
     config = EngineConfig.resolve(max_steps=50, repo_path=git_repo)
+    # Explicit CLI knobs ride the runtime-only config field (the role
+    # precedent), not an execute_work parameter (S107).
+    config.explicit_knobs = frozenset({"max_steps"})
     task = Task.new(str(git_repo), "map the loop", engine="mock")
     execute_work(
         repo=git_repo,
@@ -139,7 +142,6 @@ def test_execute_work_explicit_knobs_win(git_repo, recorded_configs):
         config=config,
         allow_dirty=True,
         mode="explore",
-        explicit_knobs=frozenset({"max_steps"}),
     )
     seen = recorded_configs[0]
     assert seen.max_steps == 50  # the flag wins

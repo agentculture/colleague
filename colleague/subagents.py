@@ -83,6 +83,25 @@ from colleague.roles import is_read_only
 _MIN_CHILD_MAX_STEPS = 10
 _MIN_CHILD_CONTEXT_BUDGET = 16000
 
+
+@dataclasses.dataclass(frozen=True)
+class ChildSpec:
+    """Per-child delegation extras for ONE nested child work item.
+
+    Bundles the switches that accreted beyond the original engine/model/role
+    trio — the explicit t12 budget, the t16 goal contract, and t16 lineage —
+    so the launcher signatures stay under the S107 parameter ceiling (the
+    ``ContextControls`` precedent). Every field defaults to ``None``: an empty
+    spec is byte-identical to the pre-t12/t16 behavior.
+    """
+
+    max_steps: Optional[int] = None
+    context_budget_tokens: Optional[int] = None
+    goal: Optional[str] = None
+    acceptance: Optional[List[str]] = None
+    parent_task_id: Optional[str] = None
+
+
 #: A spawn callback: ``spawn(instruction, engine=None, model=None, role=None)
 #: -> SubResult``. Bound to a repo/parent-config/parent-engine/depth/budget by
 #: :func:`make_spawn` and assigned to ``EngineConfig.subagent_spawn`` so the loop
@@ -97,6 +116,7 @@ SpawnFn = Callable[..., SubResult]
 BatchSpawnFn = Callable[..., List[SubResult]]
 
 __all__ = [
+    "ChildSpec",
     "SpawnFn",
     "BatchSpawnFn",
     "SubagentError",
@@ -220,7 +240,7 @@ def make_spawn(
             model=model,
             role=role,
             counter=counter,
-            parent_task_id=parent_task_id,
+            spec=ChildSpec(parent_task_id=parent_task_id),
         )
 
     return spawn
@@ -237,26 +257,20 @@ def run_subagent(
     model: Optional[str] = None,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
-    max_steps: Optional[int] = None,
-    context_budget_tokens: Optional[int] = None,
-    goal: Optional[str] = None,
-    acceptance: Optional[List[str]] = None,
-    parent_task_id: Optional[str] = None,
+    spec: Optional[ChildSpec] = None,
 ) -> SubResult:
     """Run one nested child work item and return its :class:`SubResult`.
 
-    ``max_steps`` / ``context_budget_tokens`` (t12) explicitly budget THIS
-    child; ``None`` (the default) inherits the parent's value unchanged —
-    byte-identical to the pre-scaling behavior.
+    ``spec`` (a :class:`ChildSpec`) bundles the per-child extras: the explicit
+    t12 budget (``max_steps`` / ``context_budget_tokens`` — ``None`` inherits
+    the parent's value unchanged, byte-identical to pre-scaling), the t16
 
-    ``goal`` / ``acceptance`` (spec R6 / plan t16 / #259) are threaded onto the
+    ``goal`` / ``acceptance`` (spec R6 / plan t16 / #259), threaded onto the
     child's own ``Task`` unchanged, so the loop's t15 goal/acceptance prompt
     block and the advisory acceptance self-check fire for this child exactly as
-    they would for a top-level work item. Both default to ``None`` — a caller
-    that never sets them (the pre-t16 behavior, and the single-child
-    ``subagent`` tool path) builds a byte-identical goal-less child ``Task``.
-
-    ``parent_task_id`` (spec R6 / plan t16 / #259), when given, is recorded on
+    they would for a top-level work item (``None`` — the pre-t16 behavior and
+    the single-child ``subagent`` tool path — builds a byte-identical goal-less
+    child ``Task``), and ``parent_task_id``, which when given is recorded on
     the returned ``SubResult.parent`` — the IMMEDIATE parent's task id (not
     necessarily the top-level root), so a subagent tree is walkable one hop at
     a time from artifacts alone. ``None`` (the default) omits ``parent`` from
@@ -298,6 +312,8 @@ def run_subagent(
     if counter is not None:
         counter.charge()
 
+    spec = spec or ChildSpec()
+
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
     child_engine = engine or parent_engine
@@ -316,10 +332,10 @@ def run_subagent(
         "model": (model or parent_config.model),
         "role": role,
     }
-    if max_steps is not None:
-        replace_kwargs["max_steps"] = max_steps
-    if context_budget_tokens is not None:
-        replace_kwargs["context_budget_tokens"] = context_budget_tokens
+    if spec.max_steps is not None:
+        replace_kwargs["max_steps"] = spec.max_steps
+    if spec.context_budget_tokens is not None:
+        replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
     child_config = cast(
         EngineConfig,
         dataclasses.replace(parent_config, **replace_kwargs),
@@ -333,8 +349,8 @@ def run_subagent(
         repo_path,
         instruction,
         engine=child_engine,
-        goal=goal,
-        acceptance=list(acceptance) if acceptance is not None else None,
+        goal=spec.goal,
+        acceptance=list(spec.acceptance) if spec.acceptance is not None else None,
     )
 
     # (e) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
@@ -376,7 +392,7 @@ def run_subagent(
         changed_files=list(result.changed_files),
         usage=result.usage,
         role=role,
-        parent=parent_task_id,
+        parent=spec.parent_task_id,
     )
 
 
@@ -472,11 +488,7 @@ def _run_child_in_worktree(
     model: Optional[str] = None,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
-    max_steps: Optional[int] = None,
-    context_budget_tokens: Optional[int] = None,
-    goal: Optional[str] = None,
-    acceptance: Optional[List[str]] = None,
-    parent_task_id: Optional[str] = None,
+    spec: Optional[ChildSpec] = None,
 ) -> SubResult:
     """Drive ONE batch child inside its own git worktree, then commit its branch.
 
@@ -513,11 +525,7 @@ def _run_child_in_worktree(
         model=model,
         role=role,
         counter=counter,
-        max_steps=max_steps,
-        context_budget_tokens=context_budget_tokens,
-        goal=goal,
-        acceptance=acceptance,
-        parent_task_id=parent_task_id,
+        spec=spec,
     )
     # Commit whatever the child wrote onto its sub/<child_id> branch so the
     # post-join merge has something to integrate. An empty diff is fine.
@@ -693,15 +701,17 @@ def _spawn_children(
             model=(item.get("model") or None),
             role=(item.get("role") or role),
             counter=counter,
-            # An explicit per-item budget wins over the width-scaled share.
-            max_steps=(item_steps if item_steps is not None else share_steps),
-            context_budget_tokens=(item_budget if item_budget is not None else share_budget),
-            # Structural goal/acceptance (t16): programmatic-only, e.g. the plan
-            # workforce's build_workforce_items — never model-facing (the
-            # subagents tool's _parse_batch_items strips to its existing keys).
-            goal=(item.get("goal") or None),
-            acceptance=(item.get("acceptance") or None),
-            parent_task_id=parent_task_id,
+            spec=ChildSpec(
+                # An explicit per-item budget wins over the width-scaled share.
+                max_steps=(item_steps if item_steps is not None else share_steps),
+                context_budget_tokens=(item_budget if item_budget is not None else share_budget),
+                # Structural goal/acceptance (t16): programmatic-only, e.g. the
+                # plan workforce's build_workforce_items — never model-facing
+                # (the subagents tool's _parse_batch_items strips to its keys).
+                goal=(item.get("goal") or None),
+                acceptance=(item.get("acceptance") or None),
+                parent_task_id=parent_task_id,
+            ),
         )
 
     if width <= 1:

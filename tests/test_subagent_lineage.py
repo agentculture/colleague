@@ -24,7 +24,7 @@ import pytest
 
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, Usage
-from colleague.subagents import make_batch_spawn, make_spawn, run_subagent
+from colleague.subagents import ChildSpec, make_batch_spawn, make_spawn, run_subagent
 
 
 def _fake_taskresult(task_id: str = "t"):
@@ -81,7 +81,7 @@ def test_run_subagent_parent_task_id_sets_sub_result_parent(tmp_path, patch_engi
         parent_config=EngineConfig(),
         parent_engine="mock",
         depth=1,
-        parent_task_id="p1",
+        spec=ChildSpec(parent_task_id="p1"),
     )
     assert sub.parent == "p1"
 
@@ -137,8 +137,10 @@ def test_run_subagent_builds_child_task_with_goal_and_acceptance(tmp_path, patch
         parent_config=EngineConfig(),
         parent_engine="mock",
         depth=1,
-        goal="ship it",
-        acceptance=["a flaky call retries", "a permanent error does not"],
+        spec=ChildSpec(
+            goal="ship it",
+            acceptance=["a flaky call retries", "a permanent error does not"],
+        ),
     )
     assert len(engine.tasks) == 1
     assert engine.tasks[0].goal == "ship it"
