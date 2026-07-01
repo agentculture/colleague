@@ -1,0 +1,380 @@
+{
+  "slug": "colleague-drives-with-two-minds-a-fast-wide-window",
+  "title": "colleague drives with two minds: a fast wide-window main model does the driving, and a deepthink model is called in for the hard reasoning - dual-model on one rig, or single-model exactly as before",
+  "frame_slug": "colleague-drives-with-two-minds-a-fast-wide-window",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-01T23:34:47Z",
+  "updated": "2026-07-01T23:37:02Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague drives with two minds: a fast wide-window main model does the driving, and a deepthink model is called in for the hard reasoning - dual-model on one rig, or single-model exactly as before"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "both configurations run from one installed colleague, selected purely by operator config (no fork, no code edit); the mock e2e suite proves both artifact shapes without needing the live rig"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators of a rig serving two OpenAI-compatible models (the reference: lobes, with multimodal Gemma 4 - 128K context at 28 tps - and Qwen 3.6 27B - 64K context, stronger reasoning) plus the agents that delegate to colleague via ask-colleague"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "nothing in the design hard-codes lobes or the two model names: any pair of OpenAI-compatible endpoints can play main and deepthink - the reference rig is an example, not a dependency"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "the operator configures either ONE model (Qwen-only, exactly today) or a DUAL-model pair: the main model (Gemma) drives every loop turn fast with the wide window, and the deepthink model (Qwen) is invoked at hard-reasoning moments (planning, verdicts, self-checks, tricky decisions) - runs finish faster AND more accurately, with two diverse minds cross-checking"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "the faster-AND-more-accurate outcome is measured, never assumed: the success-signal benchmark is what declares it, and until that runs the after-state ships as a hypothesis, not a validated result"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "every turn of every run is driven by ONE configured model: the 27B pays its slow reasoning on trivial tool turns, its 64K window forces aggressive context windowing, and within a single run there is zero mind-diversity (only the test-integrity reviewer subagent can be pointed at a different model)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the single-model description matches today's shipped code: one EngineConfig.model drives every turn and only testintegrity_reviewer_model can point elsewhere - verifiable by reading config.py and loop.py"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "speed and accuracy stop being either/or: mechanical driving goes to the fast wide-window mind, hard judgment goes to the strong reasoner, and the diversity between the two is itself a safety net - everyone can miss, and two minds miss differently"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "escalation points are chosen where reasoning quality dominates speed (verdicts, proposals, self-checks), and the deepthink tool description instructs the main model to escalate judgment, not mechanics"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "this is NOT the out-of-scope multi-model router: no automatic task-to-model routing policy, no per-task selection heuristics, no N-model generalization. Deepthink is ONE operator-declared second model, reachable only from a fixed enumerated set of escalation points plus one backend-judged loop tool; with no deepthink config present, colleague is byte-identical to today. The historical out-of-scope line moves exactly this far and no further"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the exported spec's out-of-scope section still names automatic routing policy and N-model generalization as excluded; the no-deepthink-config path is pinned byte-identical by test; and the escalation enumeration guarded by the c10 boundary test is the complete reachable surface"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "dual-model is declared through the existing config precedence: COLLEAGUE_DEEPTHINK_* env vars, then a deepthink section in .colleague/config.json ({model, base_url?, api_key?, context_budget?} - base_url/api_key default to the main endpoint), then absent = single-model; the deepthink endpoint speaks the same OpenAI surface through the same vllm-openai adapter, so retargeting stays a config change, never a code change"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "with no deepthink config present (no env var, no config section) the resolved EngineConfig and the produced TaskResult are byte-identical to today - proven by the existing e2e shape test plus a no-deepthink resolution test"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "a deepthink invocation is ONE bounded tools-off completion against the deepthink model via the existing public Engine.make_complete seam - no second tool loop, no nested agent; its text folds back into the main loop as a message the main model continues from"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the deepthink completion offers NO tool schema, so it structurally cannot call tools or finish - the same invariant class as the acceptance self-check"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "the escalation points are enumerated and runtime-owned, each with a prompt that fits the deepthink model's smaller window: (a) a backend-judged deepthink loop tool the main model MAY call with a question plus a self-composed context digest (optional, never forced - same judgment pattern as the devague and subagent tools); (b) plan-mode proposals via make_complete; (c) the acceptance self-check turn; (d) the default for the test-integrity reviewer model when none is configured. No other code path may reach the deepthink model"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "the escalation-point list in code, docs, and this spec match exactly, and a boundary test asserts no module outside the enumerated points invokes the deepthink completion seam"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "every deepthink call is windowed and validated against the deepthink model's OWN context budget (deepthink context_budget, defaulting to a 64K-sized value), never the main model's; token counting reuses the per-endpoint /tokenize-with-char-fallback seam"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "a deepthink prompt exceeding the deepthink budget is windowed BEFORE the request is sent, and an overflow error from the deepthink endpoint degrades per the degradation requirement - it never crashes the run"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "a dual-config run NEVER fails because deepthink is unreachable, errors, or overflows: every escalation point degrades to the main model (or skips, for advisory turns) with the degradation recorded in the artifact; on mock (no live make_complete) deepthink is a recorded no-op, matching the lint fix-turn precedent"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "killing the deepthink endpoint mid-run still yields a completed work item with the degradation recorded in the artifact (testable against a dead port)"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "runtime-owned per the all-engines rule: the deepthink seam lives in the runtime (loop.py / tools.py plus a new colleague/deepthink.py), fires identically for every backend, and every call is recorded on TaskResult (a deepthink block: per-call {point, tokens, duration}) - omit-when-None so a single-model artifact is byte-identical"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "mock and vllm-openai produce the same TaskResult shape for the same deepthink events, and the deepthink block is absent (not empty) when no call fired"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "zero new deps, no socket, no daemon: both models are reached over the existing urllib OpenAI wire; the sanctioned subprocess/threads module boundary is unchanged and test_zero_deps stays an allow-list of exactly agentfront"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "tests/test_zero_deps.py passes with no new allow-list entry and the boundary tests still pin subprocess/threads to the two sanctioned modules"
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "on the reference rig a benchmark set of work items completes with lower wall-clock than Qwen-only while review and plan verdict quality does not regress (graded via the existing feedback loop); the e2e mock shape test pins byte-identical single-model artifacts; an env-gated live dual-model proof test (like COLLEAGUE_VLLM_E2E) exercises the deepthink tool end-to-end"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the wall-clock plus quality comparison is actually run on the rig and recorded in docs/live-testing.md before the feature is declared validated; if the rig cannot serve tool calling for Gemma, the live proof is recorded as PENDING - never faked"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 Resolve dual-model deepthink config (colleague/config.py): a DeepthinkConfig carried on EngineConfig, precedence COLLEAGUE_DEEPTHINK_* env > .colleague/config.json deepthink section > absent = None",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "resolve() yields deepthink=None with no env var and no config section, and the resolved EngineConfig is field-for-field identical to today (no-deepthink resolution test)",
+        "COLLEAGUE_DEEPTHINK_MODEL/_BASE_URL/_API_KEY/_CONTEXT_BUDGET env vars override the config-file deepthink section which overrides absent; base_url/api_key default to the main endpoint values; to_dict() redacts the deepthink api_key",
+        "nothing in code names lobes, gemma, or qwen: any pair of OpenAI-compatible endpoints resolves (test uses two arbitrary endpoints)"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h1",
+        "c2",
+        "h11"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "t2 New colleague/deepthink.py: the one-shot completion seam - windowing to the deepthink budget, tools-off invariant, degradation, call records",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "run_deepthink() issues exactly ONE tools-off completion via the public Engine.make_complete seam against the deepthink config and returns a call record {point, tokens, duration, degraded}; a test asserts NO tool schema is offered (the acceptance-self-check invariant class)",
+        "the prompt is windowed to the deepthink model's OWN context_budget BEFORE the request (per-endpoint /tokenize with char-heuristic fallback); an over-budget prompt never reaches the wire un-windowed",
+        "a dead port, request error, or overflow from the deepthink endpoint returns a degraded record naming the fallback and never raises out of the seam (dead-port test)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c9",
+        "h2",
+        "c12",
+        "h4",
+        "c13",
+        "h5"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "t3 TaskResult.deepthink block (colleague/contract.py): optional per-run list of deepthink call records, omit-when-None",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult carries an optional deepthink field (list of {point, tokens, duration, degraded}) serialized omit-when-None: a result with zero calls serializes byte-identical to today (shape test on to_dict/from_dict round-trip)"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h6"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "t4 The deepthink loop tool (colleague/tools.py + roles curation): backend-judged escalation the main model MAY call with a question plus self-composed digest",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the deepthink tool schema is offered ONLY when dual config is present; a single-model run offers exactly today's tool list (schema-equality test)",
+        "the tool description instructs the main model to escalate JUDGMENT (verdicts, plans, tricky decisions), not mechanics, and to compose a digest that fits the deepthink budget; the executor dispatches to the deepthink seam",
+        "role curation is pinned by test: the tool is pure computation (no writes, no shell) and is available to read-only roles so a reviewer can escalate a verdict"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c10",
+        "c5",
+        "h14"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "t5 Loop wiring + all-engines forwarding (colleague/loop.py + both engines): offer the tool, escalate the acceptance self-check, record calls, keep synthesis/compaction main-model-only",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "when dual config is present the acceptance self-check runs via the deepthink seam and degrades to the main model on failure; when absent the path is byte-identical (existing e2e mock shape test unchanged)",
+        "every deepthink call fired in a run lands on TaskResult.deepthink with its point label; both backends forward the deepthink config through ContextControls identically (all-engines test)",
+        "forced synthesis (#191) and fill-line compaction (#156) never touch the deepthink seam - a test asserts those paths complete against the main model even with dual config present"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c10",
+        "c14",
+        "h6"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "t6 Plan-mode proposals drive the deepthink model (colleague/plan/cli_driver.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with dual config, plan-mode proposal completions route to the deepthink model via make_complete; without it, today's path is byte-identical (test injects a recording complete-fn and asserts the target model per config)"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c10"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "t7 Test-integrity reviewer defaults to the deepthink model (colleague/config.py resolution)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with dual config and no explicit COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL, the reviewer model resolves to the deepthink model; an explicit value still wins; with no dual config the resolution is unchanged (precedence test)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c10"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "t8 Boundary test: the enumerated escalation surface is the complete reachable surface",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a boundary test enumerates the modules allowed to invoke the deepthink seam (tools executor, acceptance self-check, plan proposals, reviewer default) and fails if any other colleague module imports or calls it",
+        "the feature doc's escalation list and out-of-scope wording (no automatic routing policy, no N-model generalization) are drift-tested against the enumerated surface"
+      ],
+      "deps": [
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c7",
+        "h15",
+        "h3"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "t9 Byte-identical + zero-dep guards (tests only)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_e2e_mock passes unchanged: a single-model run's TaskResult JSON has NO deepthink key; a dual-config run on mock records deepthink as a degraded no-op instead of failing (lint fix-turn precedent)",
+        "tests/test_zero_deps.py passes with no new allow-list entry and the subprocess/threads boundary stays pinned to worktrees.py/subagents.py"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c1",
+        "h10",
+        "h1",
+        "c15",
+        "h7",
+        "c13"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "t10 Env-gated live dual-model proof + benchmark procedure",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a COLLEAGUE_DUAL_E2E=1-gated test drives a real work item on the rig where the main model calls the deepthink tool at least once and the artifact records the call (skipped cleanly when un-gated)",
+        "the wall-clock + quality benchmark (dual vs single, graded via the existing feedback loop) is scripted and documented; until it runs on the rig, docs/live-testing.md records the proof as PENDING - never declared validated"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c16",
+        "h8",
+        "c3",
+        "h12"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "t11 Docs: feature doc + CLAUDE.md bullet + the honest lines",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/deepthink.md and a CLAUDE.md architecture bullet describe the config shape, the enumerated escalation points, the degradation ladder, and the synthesis/compaction-stays-main decision with the window-size reason",
+        "the out-of-scope section still names automatic routing policy and N-model generalization as excluded; the before-state narrative matches shipped code (one model drives every turn today); multimodal input and mode-level model preference are recorded as parked follow-ups"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c4",
+        "h13"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "the served Gemma 4 tool-call parser on lobes is unproven (rig evidence #66: no tool-calling backend today) - blocks the LIVE proof and benchmark, not the build; mock pins the contract",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "deepthink digest composition (how much context the main model hands over, in what form) needs live tuning on the rig",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r3",
+      "text": "per-model overlay semantics in a dual run (.colleague/<model>/ hooks, skills, profiles): working decision is overlays-follow-the-model-being-called; verify against layers.py exact-path isolation during t5",
+      "kind": "unknown_nonblocking",
+      "task_id": "t5"
+    },
+    {
+      "id": "r4",
+      "text": "a single-GPU rig may serialize the two models under load, so deepthink calls add latency exactly when the rig is saturated - the benchmark must measure under realistic load",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
