@@ -45,6 +45,7 @@ class _RecordingWork:
         tui: bool | None = None,
         tui_events: str | None = None,
         progress_sink: object = None,
+        mode: str | None = None,
     ) -> tuple[TaskResult, Path]:
         self.calls.append(
             {
@@ -52,6 +53,7 @@ class _RecordingWork:
                 "open_pr": open_pr,
                 "role": getattr(config, "role", None),
                 "command_name": command_name,
+                "mode": mode,
             }
         )
         return TaskResult(task_id=task.id, status=OK, summary="done"), repo / "art.json"

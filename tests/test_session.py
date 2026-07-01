@@ -206,6 +206,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         tui: bool | None = None,
         tui_events: str | None = None,
         progress_sink: object = None,
+        mode: str | None = None,
     ) -> tuple[TaskResult, Path]:
         result, art_path = execute_work(
             repo=repo,
@@ -219,6 +220,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
             tui=tui,
             tui_events=tui_events,
             progress_sink=progress_sink,
+            mode=mode,
         )
         captured_results.append(result)
         return result, art_path

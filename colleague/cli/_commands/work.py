@@ -27,7 +27,7 @@ import signal
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Collection
 
 from colleague import flight, registry, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
@@ -36,7 +36,7 @@ from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progres
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
-from colleague.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, apply_mode_profile, resolve_engine
 from colleague.contract import INCOMPLETE, OK, Task, TaskResult
 from colleague.feedback import set_last_work
 from colleague.handoff import (
@@ -344,6 +344,8 @@ def execute_work(
     tui: bool | None = None,
     tui_events: str | None = None,
     progress_sink: "CockpitProgressSink | None" = None,
+    mode: str | None = None,
+    explicit_knobs: "Collection[str]" = (),
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
 
@@ -385,6 +387,17 @@ def execute_work(
         passes a sink bound to its own `CockpitState` + frame-writer so a work item
         renders into the session's one shared screen. Replaces the auto-constructed
         cockpit; ``None`` (the default) preserves the byte-identical `work` path.
+    mode:
+        Constraint-profile mode (t3 / spec R1 / #254). When set, the mode's
+        profile (``colleague.profiles`` + operator overlays) fills the
+        constraint knobs the operator left untouched, via
+        :func:`colleague.config.apply_mode_profile` — the ONE code path shared
+        by the ``work --mode`` flag and the session's mode selection. ``None``
+        (the default) is a strict no-op (byte-identical config).
+    explicit_knobs:
+        EngineConfig field names the caller set from explicit CLI flags (e.g.
+        ``{"max_steps"}`` when ``--max-steps`` was given) — those knobs are
+        never overwritten by the mode profile (precedence h1).
 
     Returns
     -------
@@ -397,6 +410,13 @@ def execute_work(
         On unknown engine or engine-level failure (artifact is still written
         before the exception is raised — honesty h5).
     """
+    # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
+    # operator left untouched, BEFORE anything reads the config. One code path
+    # for every entry door (work CLI --mode, session mode selection); a strict
+    # no-op when no mode is set (h1).
+    if mode:
+        config = apply_mode_profile(config, mode, explicit=explicit_knobs, repo_path=repo)
+
     try:
         engine = registry.load(engine_name)
     except registry.UnknownEngine as exc:
@@ -601,6 +621,26 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
     return Task.new(str(repo), " ".join(positional_tokens), engine=engine)
 
 
+def _validated_mode(mode: str | None) -> str | None:
+    """Validate a ``--mode`` value against the session-mode catalog.
+
+    ``None`` passes through (no profile). An unknown name raises a clean,
+    choices-shaped :class:`CliError` — never a silent no-op profile.
+    """
+    if mode is None:
+        return None
+    # Lazy import: session_modes is a leaf catalog; keep work's import graph flat.
+    from colleague.session_modes import MODES
+
+    if mode not in MODES:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"unknown mode: {mode}",
+            f"valid modes: {', '.join(MODES)}",
+        )
+    return mode
+
+
 def cmd_work(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
 
@@ -629,6 +669,12 @@ def cmd_work(args: argparse.Namespace) -> int:
     )
 
     config.role = getattr(args, "role", None)
+
+    # Mode validation (t3): a typo must fail loudly with the valid choices, not
+    # silently no-op. Validated explicitly + early (the --algo idiom — a
+    # value-carrying flag cannot take a parse-time choices= without colliding
+    # with its signature-derived flag at App build time).
+    mode = _validated_mode(getattr(args, "mode", None))
 
     _apply_lint_optout(args, config)
     _apply_affected_tests_optout(args, config)
@@ -671,6 +717,10 @@ def cmd_work(args: argparse.Namespace) -> int:
             command_name=command_name or None,
             tui=getattr(args, "tui", None),
             tui_events=getattr(args, "tui_events", None),
+            mode=mode,
+            explicit_knobs=(
+                frozenset({"max_steps"}) if args.max_steps is not None else frozenset()
+            ),
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to
@@ -783,6 +833,16 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--mode",
+        default=None,
+        help=(
+            "Constraint-profile mode (auto|work|plan|explore|review): applies the "
+            "mode's step/context/reserve/timeout/fill-line profile as DEFAULTS — "
+            "explicit flags and COLLEAGUE_* env vars still win. Profiles only; the "
+            "tool surface is selected by --role."
+        ),
+    )
     p.add_argument(
         "--tui",
         action=argparse.BooleanOptionalAction,

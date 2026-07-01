@@ -758,13 +758,21 @@ class _Session:
                 )
 
     def _dispatch_work(
-        self, task: Task, *, open_pr: bool, config: EngineConfig, command_name: Optional[str]
+        self,
+        task: Task,
+        *,
+        open_pr: bool,
+        config: EngineConfig,
+        command_name: Optional[str],
+        mode: Optional[str] = None,
     ) -> Optional[TaskResult]:
         """Run one work item through the shared work path (cockpit running-state +
         error handling via ``_run_tracked``, then the json-mode result echo); return
         the :class:`TaskResult`, or ``None`` if the dispatch surfaced an error. The
         single home for the ``work_fn`` call shared by ``_run_work`` and
-        ``_run_readonly`` — the caller owns the feed rendering of the result."""
+        ``_run_readonly`` — the caller owns the feed rendering of the result.
+        ``mode`` (t3/R1) names the constraint profile; it resolves inside
+        ``execute_work`` — the same code path the ``work --mode`` flag uses."""
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -777,6 +785,7 @@ class _Session:
                 config=config,
                 command_name=command_name,
                 progress_sink=_WorkSink(self),
+                mode=mode,
             ),
         )
         if pair is None:
@@ -813,7 +822,14 @@ class _Session:
         # The cockpit's state glyph animates per step while the work item runs
         # (the sink's WorkStep reductions advance ``work_item.step_count``).
         result = self._dispatch_work(
-            task, open_pr=self.open_pr, config=self.config, command_name=command_name
+            task,
+            open_pr=self.open_pr,
+            config=self.config,
+            command_name=command_name,
+            # The work verb's profile is behaviour-neutral by construction (it
+            # equals the built-in defaults) but keeps the one-code-path claim
+            # honest and lets an operator overlay tune session work runs.
+            mode="work",
         )
         if result is None:
             return
@@ -828,7 +844,7 @@ class _Session:
         free-text question. Never writes, never pushes/PRs — the read-only role
         structurally withholds write_file/edit_file/run_command, so it cannot
         touch the operator's tree even if the model attempts a write."""
-        self._run_readonly(request, role="explorer")
+        self._run_readonly(request, role="explorer", mode="explore")
 
     def _run_review(self, request: str) -> None:
         """Read-only diverse second opinion on the committed ``<base>...HEAD`` diff
@@ -846,9 +862,16 @@ class _Session:
             "file:line. Do not modify any files.\n\n"
             f"--- diff {self.base}...HEAD ---\n" + (diff or "(no committed changes vs base)")
         )
-        self._run_readonly(request, role="reviewer", task_text=task_text)
+        self._run_readonly(request, role="reviewer", mode="review", task_text=task_text)
 
-    def _run_readonly(self, request: str, *, role: str, task_text: str | None = None) -> None:
+    def _run_readonly(
+        self,
+        request: str,
+        *,
+        role: str,
+        mode: str | None = None,
+        task_text: str | None = None,
+    ) -> None:
         """Shared read-only dispatch for explore/review: run the work loop under a
         read-only *role* with NO push/PR handoff (``open_pr=False``), so the
         operator's tree + branch are never touched. ``task_text`` overrides the
@@ -881,7 +904,9 @@ class _Session:
             task_text if task_text is not None else request,
             engine=self.engine_name,
         )
-        result = self._dispatch_work(task, open_pr=False, config=config, command_name=None)
+        result = self._dispatch_work(
+            task, open_pr=False, config=config, command_name=None, mode=mode
+        )
         if result is None:
             return
         self._log(f"{result.status}: {result.summary}")
