@@ -361,17 +361,19 @@ class TestIntegrationWithLoadRole:
 
     def test_load_and_compose_explorer(self, tmp_path: Path) -> None:
         repo = _repo(tmp_path)
-        _write(repo / ".colleague" / "skills" / "alpha.md", "# alpha\nAlpha skill.")
-        _write(repo / ".colleague" / "skills" / "beta.md", "# beta\nBeta skill.")
+        # explorer's built-in skill_subset is curated (t10) — use investigation-
+        # shaped names ("explore*"/"review*") so they match the curated subset.
+        _write(repo / ".colleague" / "skills" / "explore-alpha.md", "# alpha\nAlpha skill.")
+        _write(repo / ".colleague" / "skills" / "review-beta.md", "# beta\nBeta skill.")
 
         role = load_role("explorer", repo, _MODEL_X)
         assert role is not None
         prompt = layers.compose_role_prompt(role, repo, _MODEL_X, base=_BASE_PROMPT)
         assert prompt is not None
         assert role.prompt_fragment in prompt
-        # explorer has skill_subset=None → all skills
-        assert "alpha" in prompt
-        assert "beta" in prompt
+        # explorer's curated subset matches both investigation-shaped names.
+        assert "explore-alpha" in prompt
+        assert "review-beta" in prompt
 
     def test_load_and_compose_with_custom_skill_subset(self, tmp_path: Path) -> None:
         """A custom role with skill_subset filters skills correctly."""
@@ -394,10 +396,11 @@ class TestIntegrationWithLoadRole:
     def test_compose_role_prompt_with_role_name(self, tmp_path: Path) -> None:
         """compose_role_prompt accepts a role name string and loads it."""
         repo = _repo(tmp_path)
-        _write(repo / ".colleague" / "skills" / "greet.md", "# greet\nSay hi.")
+        # "explore-greet" matches explorer's curated ("explore*") skill subset (t10).
+        _write(repo / ".colleague" / "skills" / "explore-greet.md", "# greet\nSay hi.")
 
         prompt = layers.compose_role_prompt("explorer", repo, _MODEL_X, base=_BASE_PROMPT)
         assert prompt is not None
         # Explorer's built-in prompt fragment
         assert "explorer" in prompt.lower() or "You are an explorer" in prompt
-        assert "greet" in prompt
+        assert "explore-greet" in prompt
