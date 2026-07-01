@@ -1641,7 +1641,10 @@ class ContextControls:
     # is the state-driven concurrency setter from :func:`_make_fanout_throttle`.
     # Both forwarded by every backend via :meth:`from_config` (all-engines rule).
     request_timeout: float | None = None
-    throttle_fanout: Callable[[str], None] | None = None
+    # compare=False: a fresh closure per from_config call — behavior, not
+    # comparable config (the EngineConfig.role/spawn-callback precedent); the
+    # all-engines guarantee comes from from_config being the single source.
+    throttle_fanout: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
     # verdict turn (#191) runs with fresher, less-windowed context instead of being
