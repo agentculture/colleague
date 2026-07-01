@@ -393,7 +393,10 @@ def execute_work(
         constraint knobs the operator left untouched, via
         :func:`colleague.config.apply_mode_profile` — the ONE code path shared
         by the ``work --mode`` flag and the session's mode selection. ``None``
-        (the default) is a strict no-op (byte-identical config).
+        (the default) is a strict no-op (byte-identical config). Also recorded
+        on ``result.mode`` before *every* artifact write — including the failure
+        path — mirroring ``command_name`` above (t7 / spec R3 / #256); omitted
+        from the serialized artifact when ``None``.
     explicit_knobs:
         EngineConfig field names the caller set from explicit CLI flags (e.g.
         ``{"max_steps"}`` when ``--max-steps`` was given) — those knobs are
@@ -514,6 +517,10 @@ def execute_work(
                     # No partial result -> the trace is empty; don't claim otherwise.
                     artifact_note = "a result artifact was still written"
                 result.command = command_name
+                # Mode (t7 / spec R3 / #256): recorded on the failure path too — a
+                # moded run that raises still carries the mode that drove it, before
+                # this artifact write (the mirror of command_name just above).
+                result.mode = mode
                 work_span.set(status=result.status)
                 write(result, artifact_dir(repo))
                 # The work item happened (even if it failed) — record it as 'last' so
@@ -557,6 +564,10 @@ def execute_work(
                 pr_url=result.pr_url,
             )
             result.command = command_name
+            # Mode (t7 / spec R3 / #256): recorded before the artifact write, mirroring
+            # command_name just above. `mode` is None when no mode was selected, and
+            # TaskResult.to_dict() omits the key in that case (byte-identical shape).
+            result.mode = mode
             artifact_path = write(result, artifact_dir(repo))
             # Record this as the repo's most recent work item so `colleague feedback
             # last` resolves to it. Best-effort: a pointer write must never break

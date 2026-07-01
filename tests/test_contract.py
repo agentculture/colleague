@@ -265,3 +265,86 @@ def test_from_dict_reads_destination_and_announcement_when_present() -> None:
     result = TaskResult.from_dict(payload)
     assert result.destination == "frame-42"
     assert result.announcement == "Task complete at frame-42."
+
+
+# ---------------------------------------------------------------------------
+# t7: mode field (omit-when-None, byte-identical guard, spec R3 / #256)
+# ---------------------------------------------------------------------------
+
+
+def test_mode_present_when_set() -> None:
+    """to_dict() carries 'mode' when it was set on the result."""
+    result = TaskResult(task_id="mode1", status=OK, summary="explored", mode="explore")
+    serialized = result.to_dict()
+    assert serialized["mode"] == "explore"
+
+
+def test_mode_omitted_when_none() -> None:
+    """to_dict() OMITS 'mode' when it is None — the byte-identical guard: a run
+    with no mode selected must produce the exact same key set as before this
+    field existed.
+    """
+    result = TaskResult(task_id="nomode1", status=OK, summary="plain drive")
+    serialized = result.to_dict()
+    assert "mode" not in serialized
+    # Strongest form: assert the exact key set matches the pre-mode contract.
+    expected_keys = {
+        "task_id",
+        "status",
+        "summary",
+        "changed_files",
+        "steps",
+        "usage",
+        "stats",
+        "artifacts_path",
+        "error",
+        "branch",
+        "pr_url",
+        "hook_firings",
+        "command",
+        "not_finished",
+        "stopped_without_finish",
+    }
+    assert set(serialized.keys()) == expected_keys
+
+
+def test_mode_round_trips_through_json() -> None:
+    """TaskResult with mode set round-trips through to_dict/json/from_dict unchanged."""
+    result = TaskResult(
+        task_id="mode2",
+        status=OK,
+        summary="reviewed the diff",
+        mode="review",
+    )
+    reloaded = TaskResult.from_dict(json.loads(json.dumps(result.to_dict())))
+    assert reloaded == result
+    assert reloaded.mode == "review"
+
+
+def test_from_dict_tolerates_missing_mode() -> None:
+    """from_dict defaults mode to None when absent (back-compat with today's artifacts)."""
+    old_payload = {
+        "task_id": "back2",
+        "status": OK,
+        "summary": "",
+        "changed_files": [],
+        "steps": [],
+        "usage": {},
+    }
+    result = TaskResult.from_dict(old_payload)
+    assert result.mode is None
+
+
+def test_from_dict_reads_mode_when_present() -> None:
+    """from_dict correctly reads the mode key when it exists in the dict."""
+    payload = {
+        "task_id": "mode3",
+        "status": OK,
+        "summary": "planned",
+        "changed_files": [],
+        "steps": [],
+        "usage": {},
+        "mode": "plan",
+    }
+    result = TaskResult.from_dict(payload)
+    assert result.mode == "plan"
