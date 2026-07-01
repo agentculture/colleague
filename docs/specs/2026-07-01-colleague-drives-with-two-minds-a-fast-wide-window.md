@@ -1,0 +1,72 @@
+# colleague drives with two minds: a fast wide-window main model does the driving, and a deepthink model is called in for the hard reasoning - dual-model on one rig, or single-model exactly as before
+
+> colleague drives with two minds: a fast wide-window main model does the driving, and a deepthink model is called in for the hard reasoning - dual-model on one rig, or single-model exactly as before
+
+## Audience
+
+- operators of a rig serving two OpenAI-compatible models (the reference: lobes, with multimodal Gemma 4 - 128K context at 28 tps - and Qwen 3.6 27B - 64K context, stronger reasoning) plus the agents that delegate to colleague via ask-colleague
+
+## Before → After
+
+- Before: every turn of every run is driven by ONE configured model: the 27B pays its slow reasoning on trivial tool turns, its 64K window forces aggressive context windowing, and within a single run there is zero mind-diversity (only the test-integrity reviewer subagent can be pointed at a different model)
+- After: the operator configures either ONE model (Qwen-only, exactly today) or a DUAL-model pair: the main model (Gemma) drives every loop turn fast with the wide window, and the deepthink model (Qwen) is invoked at hard-reasoning moments (planning, verdicts, self-checks, tricky decisions) - runs finish faster AND more accurately, with two diverse minds cross-checking
+
+## Why it matters
+
+- speed and accuracy stop being either/or: mechanical driving goes to the fast wide-window mind, hard judgment goes to the strong reasoner, and the diversity between the two is itself a safety net - everyone can miss, and two minds miss differently
+
+## Requirements
+
+- dual-model is declared through the existing config precedence: COLLEAGUE_DEEPTHINK_* env vars, then a deepthink section in .colleague/config.json ({model, base_url?, api_key?, context_budget?} - base_url/api_key default to the main endpoint), then absent = single-model; the deepthink endpoint speaks the same OpenAI surface through the same vllm-openai adapter, so retargeting stays a config change, never a code change
+  - honesty: with no deepthink config present (no env var, no config section) the resolved EngineConfig and the produced TaskResult are byte-identical to today - proven by the existing e2e shape test plus a no-deepthink resolution test
+- a deepthink invocation is ONE bounded tools-off completion against the deepthink model via the existing public Engine.make_complete seam - no second tool loop, no nested agent; its text folds back into the main loop as a message the main model continues from
+  - honesty: the deepthink completion offers NO tool schema, so it structurally cannot call tools or finish - the same invariant class as the acceptance self-check
+- the escalation points are enumerated and runtime-owned, each with a prompt that fits the deepthink model's smaller window: (a) a backend-judged deepthink loop tool the main model MAY call with a question plus a self-composed context digest (optional, never forced - same judgment pattern as the devague and subagent tools); (b) plan-mode proposals via make_complete; (c) the acceptance self-check turn; (d) the default for the test-integrity reviewer model when none is configured. No other code path may reach the deepthink model
+  - honesty: the escalation-point list in code, docs, and this spec match exactly, and a boundary test asserts no module outside the enumerated points invokes the deepthink completion seam
+- every deepthink call is windowed and validated against the deepthink model's OWN context budget (deepthink context_budget, defaulting to a 64K-sized value), never the main model's; token counting reuses the per-endpoint /tokenize-with-char-fallback seam
+  - honesty: a deepthink prompt exceeding the deepthink budget is windowed BEFORE the request is sent, and an overflow error from the deepthink endpoint degrades per the degradation requirement - it never crashes the run
+- a dual-config run NEVER fails because deepthink is unreachable, errors, or overflows: every escalation point degrades to the main model (or skips, for advisory turns) with the degradation recorded in the artifact; on mock (no live make_complete) deepthink is a recorded no-op, matching the lint fix-turn precedent
+  - honesty: killing the deepthink endpoint mid-run still yields a completed work item with the degradation recorded in the artifact (testable against a dead port)
+- runtime-owned per the all-engines rule: the deepthink seam lives in the runtime (loop.py / tools.py plus a new colleague/deepthink.py), fires identically for every backend, and every call is recorded on TaskResult (a deepthink block: per-call {point, tokens, duration}) - omit-when-None so a single-model artifact is byte-identical
+  - honesty: mock and vllm-openai produce the same TaskResult shape for the same deepthink events, and the deepthink block is absent (not empty) when no call fired
+- zero new deps, no socket, no daemon: both models are reached over the existing urllib OpenAI wire; the sanctioned subprocess/threads module boundary is unchanged and test_zero_deps stays an allow-list of exactly agentfront
+  - honesty: tests/test_zero_deps.py passes with no new allow-list entry and the boundary tests still pin subprocess/threads to the two sanctioned modules
+
+## Honesty conditions
+
+- both configurations run from one installed colleague, selected purely by operator config (no fork, no code edit); the mock e2e suite proves both artifact shapes without needing the live rig
+- nothing in the design hard-codes lobes or the two model names: any pair of OpenAI-compatible endpoints can play main and deepthink - the reference rig is an example, not a dependency
+- the faster-AND-more-accurate outcome is measured, never assumed: the success-signal benchmark is what declares it, and until that runs the after-state ships as a hypothesis, not a validated result
+- the single-model description matches today's shipped code: one EngineConfig.model drives every turn and only testintegrity_reviewer_model can point elsewhere - verifiable by reading config.py and loop.py
+- escalation points are chosen where reasoning quality dominates speed (verdicts, proposals, self-checks), and the deepthink tool description instructs the main model to escalate judgment, not mechanics
+- the exported spec's out-of-scope section still names automatic routing policy and N-model generalization as excluded; the no-deepthink-config path is pinned byte-identical by test; and the escalation enumeration guarded by the c10 boundary test is the complete reachable surface
+- the wall-clock plus quality comparison is actually run on the rig and recorded in docs/live-testing.md before the feature is declared validated; if the rig cannot serve tool calling for Gemma, the live proof is recorded as PENDING - never faked
+- if the rig cannot hold both models resident, dual-config degrades to main-model-only per the degradation requirement rather than thrashing the server
+
+## Success signals
+
+- on the reference rig a benchmark set of work items completes with lower wall-clock than Qwen-only while review and plan verdict quality does not regress (graded via the existing feedback loop); the e2e mock shape test pins byte-identical single-model artifacts; an env-gated live dual-model proof test (like COLLEAGUE_VLLM_E2E) exercises the deepthink tool end-to-end
+
+## Scope / boundaries
+
+- this is NOT the out-of-scope multi-model router: no automatic task-to-model routing policy, no per-task selection heuristics, no N-model generalization. Deepthink is ONE operator-declared second model, reachable only from a fixed enumerated set of escalation points plus one backend-judged loop tool; with no deepthink config present, colleague is byte-identical to today. The historical out-of-scope line moves exactly this far and no further
+
+## Non-goals
+
+- Gemma's multimodality (image input) is NOT surfaced in v1 - no image tool, no vision surface; parked as a follow-up
+- no mode-level model preference in v1 (e.g. review or plan mode driving WITH the deepthink model as the main driver) - v1 keeps deepthink strictly an escalation action; mode-level preference is a parked follow-up
+
+## Assumptions
+
+- lobes serves both models concurrently as OpenAI-compatible endpoints with both resident (no swap thrashing): Gemma at roughly 28 tps and Qwen at today's throughput
+
+## Decisions
+
+- on the reference rig the assignment is operator-declared: Gemma 4 = main driver, Qwen 3.6 27B = deepthink; colleague never auto-detects or benchmarks which model should play which part
+- forced synthesis (#191) and fill-line compaction (#156) STAY on the main model: their prompt is the main model's own windowed history (up to the wide budget), which structurally cannot fit the deepthink model's smaller window - re-windowing to fit would discard half the context and degrade the result rather than improve it
+
+## Open / follow-up
+
+- multimodal (image) input surface for the main model
+- mode-level model preference (review/plan modes driving with the deepthink model as main)
+- N-greater-than-2 models or any automatic routing policy - explicitly still out of scope
