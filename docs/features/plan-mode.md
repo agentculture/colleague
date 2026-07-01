@@ -133,6 +133,41 @@ request** — the middle ground between the full devague arc and a one-shot
 task split; `--yes` auto-confirms); only the spec stage is skipped. The default
 (non-quick) path is unchanged.
 
+## Cross-invocation resume: `plan continue` (#t17)
+
+`colleague plan continue` resumes an interrupted `plan run` (killed, crashed,
+closed terminal) from its persisted checkpoint
+(`.colleague/plan/<frame>.json`, `--frame <slug>` to target a non-default one)
+— **without re-asking the gates it already resolved**. It is a thin wrapper
+over the same orchestrator entry (`run_plan_mode`): the checkpoint now also
+stores the originating `request` text (`Checkpoint.request`, `checkpoint.py`),
+so `continue` can rebuild the frame without the caller re-typing it. It reads
+back the resolved-gate count and reports `resuming '<frame>': N gate(s)
+already resolved` to stderr, then drives the orchestrator in the
+already-shipped `quick=True` mode — which never calls `decide` for spec
+claims/honesty at all, so those resolved gates are **structurally** never
+re-asked (not merely best-effort id-matching against a freshly re-proposed,
+possibly different, set of claims). `continue` **refuses cleanly** (a
+`CliError` with a remediation hint, never a traceback) when there is no
+checkpoint to resume from, or the checkpoint predates this feature and has no
+stored request — that refusal is exactly what distinguishes it from `run`.
+Accepts the same `--repo`/`--engine`/`--model`/`--yes`/`--review`/
+`--no-workforce`/`--json` flags as `run`; there is no `--quick` on `continue`
+(resuming is always the quick/skip-spec-stage path) and no `--timeout` (`run`
+has none either — the per-request timeout is env-only, `COLLEAGUE_TIMEOUT`).
+
+**Honest limits:** the checkpoint does not persist the full frame (claim/
+honesty text, kind, or per-item confirm/reject decisions) — only gate *ids*
+and the request text — so a genuinely fine-grained "replay exactly what the
+operator confirmed, claim by claim" resume is not what this builds. Instead
+`continue` trusts that a checkpointed spec stage already ran to a decision and
+moves straight to plan-item proposal from the original request (the same
+mechanism `--quick` already uses for a fresh run), which is honest about *what*
+it skips (the whole spec-stage gate cycle) without pretending to reconstruct
+per-claim state it never stored. This never invents a confirm/reject decision
+the operator did not make — no per-item auto-confirmation, no gate-semantics
+change.
+
 ## `Engine.make_complete` (#204)
 
 The public one-shot completion seam (`Engine.make_complete(config) -> CompleteFn`)
@@ -164,7 +199,10 @@ claims path closed cleanly; the plan-items path needed the truncation repair
   **fails honestly** with the #224 reason — honesty is never synthesized to
   force a pass. `--no-workforce` only sidesteps Wall 2 (the workforce timeout),
   not a genuine spec non-convergence.
-- **Cross-invocation `plan continue` resume** remains a documented follow-up.
+- **`plan continue`'s resume is checkpoint-id-level, not full-frame** — it
+  persists gate ids + the request text, not full claim/honesty content or
+  per-item decisions, so it resumes by skipping the whole spec stage (via
+  `quick=True`) rather than precisely replaying each prior confirm/reject.
 
 ## Conventions
 
@@ -178,3 +216,7 @@ Spec + plan: `docs/specs/2026-06-17-colleague-plan-mode-now-drives-smaller-degra
 The honesty-pass + `--no-workforce` + honest-reporting layer (#215 / #224 / #226):
 `docs/specs/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`,
 `docs/plans/2026-06-19-colleague-plan-mode-gets-the-served-27b-further-an.md`.
+
+`plan continue` (R6, task t17):
+`docs/specs/2026-07-01-colleague-s-work-modes-explore-plan-review-work-no.md`,
+`docs/plans/2026-07-01-colleague-s-work-modes-explore-plan-review-work-no.md`.

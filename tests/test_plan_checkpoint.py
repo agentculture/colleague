@@ -7,6 +7,7 @@ Covers:
   (d) checkpoint.py imports only stdlib (no third-party, no devague).
 """
 
+import json
 from importlib import import_module
 from pathlib import Path
 
@@ -127,6 +128,51 @@ def test_checkpoint_path(tmp_path: Path):
     """checkpoint_path returns the expected file path."""
     path = checkpoint_path("my-plan", tmp_path)
     assert path == tmp_path / ".colleague" / "plan" / "my-plan.json"
+
+
+# ── (t17) request field: persisted so `plan continue` can resume ───────────
+
+
+def test_checkpoint_request_roundtrips(tmp_path: Path):
+    """Checkpoint.request round-trips through save -> load (the #t17 resume field)."""
+    cp = Checkpoint(
+        plan_id="plan-4",
+        recommended_move="plan",
+        resolved_gates=["c1", "h1"],
+        request="build a rate limiter",
+    )
+    save(cp, tmp_path)
+    loaded = load("plan-4", tmp_path)
+    assert loaded is not None
+    assert loaded.request == "build a rate limiter"
+    assert loaded == cp
+
+
+def test_checkpoint_request_defaults_empty():
+    """A Checkpoint constructed without `request` defaults to '' (back-compat)."""
+    cp = Checkpoint(plan_id="plan-5")
+    assert cp.request == ""
+
+
+def test_checkpoint_from_dict_missing_request_defaults_empty(tmp_path: Path):
+    """A checkpoint file written before the `request` field existed still loads
+    cleanly, with request defaulting to '' -- never a KeyError."""
+    path = checkpoint_path("plan-6", tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "plan_id": "plan-6",
+                "proposed_item": "",
+                "recommended_move": "plan",
+                "resolved_gates": ["c1"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = load("plan-6", tmp_path)
+    assert loaded is not None
+    assert loaded.request == ""
 
 
 # ── (d) stdlib-only imports ─────────────────────────────────────────────────

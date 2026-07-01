@@ -64,6 +64,9 @@ resolves with:  colleague skills list  and  colleague agents list
 Commands
 --------
   colleague work <task>       Run a repo task through a coder backend.
+  colleague plan "<request>"  Colleague plans a complex task (spec -> plan -> workforce).
+  colleague plan continue     Resume an interrupted plan run without re-asking
+                               gates it already resolved (needs a prior checkpoint).
   colleague backends list      List discovered backend plugins.
   colleague whoami             Mesh identity + the live work engine/model.
   colleague feedback ...       Grade a work item / read its ROI record.
@@ -149,6 +152,14 @@ def _as_json_payload() -> dict[str, object]:
         },
         "commands": [
             {"path": ["work"], "summary": "Run a repo task through a coder backend."},
+            {
+                "path": ["plan"],
+                "summary": (
+                    "Colleague plans a complex task (spec -> plan -> workforce); "
+                    "'plan continue' resumes an interrupted run without re-asking "
+                    "gates it already resolved."
+                ),
+            },
             {"path": ["backends", "list"], "summary": "List discovered backend plugins."},
             {"path": ["whoami"], "summary": "Mesh identity + the live work engine/model."},
             {"path": ["feedback"], "summary": "Grade a work item / read its ROI record."},
