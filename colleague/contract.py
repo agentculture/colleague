@@ -492,6 +492,15 @@ class Task:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Task":
         raw_acceptance = data.get("acceptance")
+        # Only a list-shaped payload is acceptance criteria: a bare string
+        # would explode into per-character "criteria" via list() and corrupt
+        # the loop's acceptance self-check (Qodo PR #260 review). Malformed
+        # shapes degrade to None — the best-effort from_dict stance.
+        acceptance = (
+            [str(criterion) for criterion in raw_acceptance]
+            if isinstance(raw_acceptance, list)
+            else None
+        )
         return cls(
             id=str(data["id"]),
             repo_path=str(data["repo_path"]),
@@ -501,7 +510,7 @@ class Task:
             engine=str(data.get("engine", "mock")),
             watch=bool(data.get("watch", False)),
             goal=data.get("goal"),
-            acceptance=list(raw_acceptance) if raw_acceptance is not None else None,
+            acceptance=acceptance,
         )
 
 

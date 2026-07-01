@@ -980,7 +980,11 @@ def _field_from_source(
             return absolute
         fraction = _coerce_unit_fraction(source.get("context_budget_fraction"))
         if fraction is not None:
-            return int(base_budget_tokens * fraction)
+            # Floor at 1: a tiny base budget must TIGHTEN, never truncate to 0
+            # — a non-positive budget would disable the context-budget path
+            # entirely, the opposite of what a profile fraction means (Qodo
+            # PR #260 review).
+            return max(1, int(base_budget_tokens * fraction))
         return None
     raw = source.get(field_name)
     if field_name == "max_steps":

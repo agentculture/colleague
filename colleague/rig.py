@@ -42,6 +42,11 @@ from colleague import configdir
 RIG_FILENAME = "rig.json"
 #: Slot directory name under the repo's .colleague/ bookkeeping dir.
 _SLOTS_DIRNAME = "rig-slots"
+#: Sanity cap on the declared concurrency: _try_take_slot probes one mkdir per
+#: slot index per poll tick, so an accidental "concurrency": 999999 would turn
+#: every acquisition pass into filesystem churn (Qodo PR #260 review). A rig
+#: is one host driving one endpoint; 64 is far above any real width.
+MAX_RIG_CONCURRENCY = 64
 #: How long acquire polls before degrading open (seconds).
 _DEFAULT_MAX_WAIT = 300.0
 #: Poll interval while waiting for a slot (seconds).
@@ -68,7 +73,9 @@ def load_rig_concurrency(repo_path: str | Path) -> Optional[int]:
     concurrency = data.get("concurrency")
     if isinstance(concurrency, bool) or not isinstance(concurrency, int):
         return None
-    return concurrency if concurrency > 0 else None
+    if concurrency <= 0:
+        return None
+    return min(concurrency, MAX_RIG_CONCURRENCY)
 
 
 def _slots_dir(repo_path: str | Path) -> Path:

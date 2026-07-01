@@ -225,3 +225,11 @@ def test_runtime_only_fields_survive_replace():
     config = EngineConfig(role="explorer")
     applied = apply_mode_profile(config, "explore", resolve=_resolve_stub)
     assert applied.role == "explorer"
+
+
+def test_fraction_of_a_tiny_budget_floors_at_one_never_zero(tmp_path):
+    """A profile fraction TIGHTENS a small budget; it must never truncate to 0
+    and thereby disable the context-budget path outright."""
+    config = EngineConfig(context_budget_tokens=1)
+    applied = apply_mode_profile(config, "explore", resolve=_resolve_stub)
+    assert applied.context_budget_tokens == 1

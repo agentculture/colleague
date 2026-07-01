@@ -151,3 +151,10 @@ def test_execute_work_holds_and_releases_a_rig_slot(tmp_path, monkeypatch):
     )
     assert held_during_work == [True]  # held while the engine drove
     assert not (tmp_path / ".colleague" / "rig-slots" / "slot-0").exists()  # released
+
+
+def test_declared_concurrency_is_clamped_to_the_sanity_cap(tmp_path):
+    from colleague.rig import MAX_RIG_CONCURRENCY
+
+    _declare_rig(tmp_path, 999999)
+    assert load_rig_concurrency(tmp_path) == MAX_RIG_CONCURRENCY

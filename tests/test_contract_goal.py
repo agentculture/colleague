@@ -270,3 +270,20 @@ def test_task_result_from_dict_empty_acceptance_outcomes_list_is_empty_not_none(
 
     assert result.acceptance_outcomes == []
     assert result.acceptance_outcomes is not None
+
+
+def test_from_dict_string_acceptance_degrades_to_none():
+    """A bare-string payload must not explode into per-character criteria."""
+    from colleague.contract import Task
+
+    base = Task.new("/tmp/x", "do x").to_dict()
+    base["acceptance"] = "one criterion as a bare string"
+    assert Task.from_dict(base).acceptance is None
+
+
+def test_from_dict_list_acceptance_coerces_members_to_str():
+    from colleague.contract import Task
+
+    base = Task.new("/tmp/x", "do x").to_dict()
+    base["acceptance"] = ["real", 42]
+    assert Task.from_dict(base).acceptance == ["real", "42"]
