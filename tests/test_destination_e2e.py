@@ -200,22 +200,29 @@ def test_destination_drive_uses_no_real_subprocess(
 # ---------------------------------------------------------------------------
 
 
-def test_task_has_no_destination_or_goal_field() -> None:
-    """The Task contract has NO destination/goal/convergence field.
+def test_task_has_no_destination_field() -> None:
+    """The Task contract has NO destination/convergence/announcement/frame field.
 
-    The instruction is still just a string — colleague had no destination
-    concept; the feature is additive on the *result* side only. This pins the
-    honest before-state: a Task cannot carry a goal-frame.
+    The devague destination concept stays additive on the *result* side only
+    (``TaskResult.destination``/``announcement``) — a ``Task`` still cannot
+    carry a devague goal-frame. This pins the honest before-state for the
+    devague destination feature specifically.
+
+    NOTE (spec R6 / plan t14 / #259): ``Task`` DID later gain a plain, optional
+    ``goal`` field — a one-line pre-execution goal statement, unrelated to the
+    devague destination/goal-frame concept this test guards against. That
+    change is deliberate and documented (see ``test_contract_goal.py``), so
+    ``goal`` is intentionally excluded from the forbidden set below.
     """
     task_fields = set(Task.__dataclass_fields__.keys())
-    forbidden = {"destination", "goal", "convergence", "announcement", "frame"}
+    forbidden = {"destination", "convergence", "announcement", "frame"}
     leaked = task_fields & forbidden
     assert leaked == set(), f"Task gained a goal-ish field: {sorted(leaked)} — must stay additive"
 
     # The instruction is, and remains, a plain string.
     task = Task.new("/repo", "just an instruction")
     assert isinstance(task.instruction, str)
-    # Task.to_dict() likewise carries no destination/goal keys.
+    # Task.to_dict() likewise carries no destination/convergence/etc. keys.
     serialized = task.to_dict()
     assert not (set(serialized.keys()) & forbidden)
 

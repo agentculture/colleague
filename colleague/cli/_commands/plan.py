@@ -6,14 +6,21 @@ one, it proposes a split plan, then it fans the waves out to a subagent-colleagu
 workforce. The orchestration lives in :mod:`colleague.plan.orchestrator` (engine-
 agnostic); this verb wires the live backend and the operator's per-item gate.
 
-Verbs: ``plan "<request>"`` (run), ``plan status`` (read the last checkpoint),
+Verbs: ``plan "<request>"`` (run), ``plan continue`` (resume an interrupted run
+from its checkpoint, #t17), ``plan status`` (read the last checkpoint),
 ``plan overview``. Results to stdout, diagnostics to stderr; every verb supports
 ``--json``. The operator gates each proposed item on stdin (a TTY); ``--yes``
 auto-confirms for non-interactive/agent use.
 
-v1 scope: the cross-invocation ``plan continue`` resume is a documented follow-up
-(the interactive session gates every sub-step within one invocation). Plan mode
-needs a live backend (the ``mock`` engine has no model).
+``plan continue`` is a thin wrapper over the same orchestrator entry
+(:func:`run_plan_mode`): it loads the checkpoint persisted under ``--frame``
+(default the same plan id ``run`` uses), refuses cleanly when there is none to
+resume from (that refusal is what distinguishes it from ``run``), and reports
+how many gates were already resolved. It resumes in the already-shipped
+``quick=True`` mode -- which never calls ``decide`` for spec claims/honesty at
+all -- so the gates recorded in the checkpoint are structurally never re-asked;
+the operator's remaining gates (e.g. the quick-plan confirmation) are
+unaffected. Plan mode needs a live backend (the ``mock`` engine has no model).
 """
 
 from __future__ import annotations
@@ -54,9 +61,12 @@ def _plan_sections() -> list[dict[str, object]]:
         {
             "title": "Verbs",
             "items": [
-                'plan "<request>" [--repo P] [--engine E] [--yes] [--review] [--json]',
+                'plan "<request>" [--repo P] [--engine E] [--frame F] [--yes] [--review] [--json]',
                 "  [--quick/--no-spec] skip the spec stage; [--no-workforce] plan only",
-                "plan status [--repo P] [--json] — read the last plan checkpoint",
+                "plan continue [--repo P] [--frame F] [--yes] [--review] [--no-workforce] [--json]",
+                "  resume an interrupted run from its checkpoint without re-asking",
+                "  resolved gates; refuses cleanly when there is no checkpoint to resume",
+                "plan status [--repo P] [--frame F] [--json] — read the last plan checkpoint",
                 "plan overview — describe the plan surface (this command)",
             ],
         },
@@ -162,13 +172,15 @@ def run_plan_request(
     quick: bool,
     workforce: bool,
     review: bool = False,
+    plan_id: str = _PLAN_ID,
 ):
     """Run colleague plan mode for a single *request* and return the result.
 
     Factored out of :func:`cmd_plan_run` so other surfaces (the interactive
-    session's intent router, #234) can drive plan mode without rebuilding the
-    engine seams. The caller resolves ``engine_name`` + ``config`` and chooses
-    the ``decide`` gate (:func:`_auto_decide` for non-interactive callers).
+    session's intent router, #234, and :func:`cmd_plan_continue`, #t17) can
+    drive plan mode without rebuilding the engine seams. The caller resolves
+    ``engine_name`` + ``config`` and chooses the ``decide`` gate
+    (:func:`_auto_decide` for non-interactive callers).
 
     Raises :class:`CliError` (never a traceback) on an unknown engine, a
     non-live backend (``make_complete`` not implemented, e.g. ``mock``), or an
@@ -205,7 +217,7 @@ def run_plan_request(
             complete=simple,
             reviewer_enabled=review,
             repo_path=str(repo),
-            plan_id=_PLAN_ID,
+            plan_id=plan_id,
             quick=quick,
             workforce=workforce,
         )
@@ -226,6 +238,7 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
     if not repo.is_dir():
         raise CliError(EXIT_USER_ERROR, f"repo path is not a directory: {args.repo}", "pass --repo")
 
+    plan_id = getattr(args, "frame", None) or _PLAN_ID
     engine_name = resolve_engine(args.engine)
     config = EngineConfig.resolve(
         base_url=args.base_url,
@@ -242,6 +255,72 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
         quick=bool(getattr(args, "quick", False)),
         workforce=not bool(getattr(args, "no_workforce", False)),
         review=bool(getattr(args, "review", False)),
+        plan_id=plan_id,
+    )
+
+    emit_result(_run_payload(result) if json_mode else _render_run(result), json_mode=json_mode)
+    return 0 if result.converged else EXIT_USER_ERROR
+
+
+def cmd_plan_continue(args: argparse.Namespace) -> int:
+    """Resume an interrupted ``plan run`` from its last checkpoint (#t17).
+
+    Unlike ``run`` (which always starts a fresh spec-stage gate), ``continue``
+    REFUSES cleanly when there is no checkpoint to resume from — that refusal
+    is exactly what distinguishes it from ``run``. When a checkpoint exists,
+    resuming reuses the SAME orchestrator entry (:func:`run_plan_mode`) via its
+    already-shipped ``quick=True`` mode: quick mode never calls ``decide`` for
+    spec claims/honesty at all, so the gates recorded in the checkpoint are
+    structurally never re-asked, and the ORIGINAL request is read back from the
+    checkpoint rather than re-typed by the caller. The operator's remaining
+    gate (the quick-plan confirmation) still runs as normal — continue never
+    self-confirms anything the operator hasn't (or won't) approve.
+    """
+    json_mode = bool(getattr(args, "json", False))
+    repo = Path(args.repo).expanduser()
+    if not repo.is_dir():
+        raise CliError(EXIT_USER_ERROR, f"repo path is not a directory: {args.repo}", "pass --repo")
+
+    plan_id = getattr(args, "frame", None) or _PLAN_ID
+    checkpoint = ckpt.load(plan_id, str(repo))
+    if checkpoint is None:
+        frame_hint = "" if plan_id == _PLAN_ID else f" --frame {plan_id}"
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"no plan checkpoint found for '{plan_id}' — nothing to continue",
+            f'start one with: colleague plan run "<request>" --repo {args.repo}{frame_hint}',
+        )
+    if not checkpoint.request:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"checkpoint '{plan_id}' has no stored request to resume from",
+            "this checkpoint predates plan continue — "
+            "run 'colleague plan run \"<request>\"' instead",
+        )
+
+    resolved = len(checkpoint.resolved_gates)
+    emit_diagnostic(
+        f"resuming '{plan_id}': {resolved} gate(s) already resolved "
+        f"(last recommended move: {checkpoint.recommended_move or '(none)'})"
+    )
+
+    engine_name = resolve_engine(args.engine)
+    config = EngineConfig.resolve(
+        base_url=args.base_url,
+        model=args.model,
+        api_key=args.api_key,
+        repo_path=repo,
+    )
+    result = run_plan_request(
+        repo=repo,
+        request=checkpoint.request,
+        engine_name=engine_name,
+        config=config,
+        decide=_resolve_decide(args),
+        quick=True,
+        workforce=not bool(getattr(args, "no_workforce", False)),
+        review=bool(getattr(args, "review", False)),
+        plan_id=plan_id,
     )
 
     emit_result(_run_payload(result) if json_mode else _render_run(result), json_mode=json_mode)
@@ -251,10 +330,11 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
 def cmd_plan_status(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
     repo = Path(args.repo).expanduser()
-    checkpoint = ckpt.load(_PLAN_ID, str(repo))
+    plan_id = getattr(args, "frame", None) or _PLAN_ID
+    checkpoint = ckpt.load(plan_id, str(repo))
     if checkpoint is None:
-        payload: dict[str, Any] = {"plan_id": _PLAN_ID, "checkpoint": None}
-        text = f"no plan checkpoint yet for '{_PLAN_ID}'"
+        payload: dict[str, Any] = {"plan_id": plan_id, "checkpoint": None}
+        text = f"no plan checkpoint yet for '{plan_id}'"
     else:
         payload = checkpoint.to_dict()
         text = "\n".join(
@@ -296,8 +376,17 @@ def _configure_plan_parser(p: argparse.ArgumentParser) -> None:
     _add_run_args(run)
     run.set_defaults(func=cmd_plan_run)
 
+    cont = noun_sub.add_parser(
+        "continue", help="Resume an interrupted plan run from its checkpoint (#t17)."
+    )
+    _add_continue_args(cont)
+    cont.set_defaults(func=cmd_plan_continue)
+
     st = noun_sub.add_parser("status", help="Read the last plan checkpoint.")
     st.add_argument("--repo", default=".", help="Target repository (default: cwd).")
+    st.add_argument(
+        "--frame", default=None, help=f"Plan/checkpoint identifier (default: {_PLAN_ID!r})."
+    )
     st.add_argument("--json", action="store_true", help=JSON_HELP)
     st.set_defaults(func=cmd_plan_status)
 
@@ -320,24 +409,43 @@ def register_into(app) -> None:
     result AND exit non-zero" semantic ``work`` has, which agentfront's rendered
     tool dispatch (return → emit, exit 0) cannot express. A noun is moreover
     *either* a tool-group *or* a host command, never both, so the whole ``plan``
-    group (run/status/overview) is registered as one host command reusing the
-    existing handlers verbatim via :func:`_configure_plan_parser`.
+    group (run/continue/status/overview) is registered as one host command
+    reusing the existing handlers verbatim via :func:`_configure_plan_parser`.
     """
     app.add_command("plan", _no_verb, help=_PLAN_HELP, configure=_configure_plan_parser)
 
 
+def _add_common_plan_args(p: argparse.ArgumentParser) -> None:
+    """Flags shared by ``plan run`` and ``plan continue``: repo/engine/model
+    resolution, the operator gate (``--yes``/``--review``), ``--no-workforce``,
+    and ``--json``. Factored out (#t17) so ``continue`` reuses this wiring
+    instead of duplicating each ``add_argument`` call.
+    """
+    p.add_argument("--repo", default=".", help="Target repository (default: cwd).")
+    p.add_argument("--engine", default=None, help="Backend engine (default: COLLEAGUE_ENGINE).")
+    p.add_argument("--model", default=None, help="Model id override.")
+    p.add_argument("--base-url", default=None, help="Provider base URL override.")
+    p.add_argument("--api-key", default=None, help="Provider API key override.")
+    p.add_argument("--yes", action="store_true", help="Auto-confirm every gate (non-interactive).")
+    p.add_argument(
+        "--review", action="store_true", help="Run the same-model critic before each gate."
+    )
+    p.add_argument(
+        "--no-workforce",
+        dest="no_workforce",
+        action="store_true",
+        help="Plan only: deliver the spec+plan, skip the workforce fan-out (#215).",
+    )
+    p.add_argument("--json", action="store_true", help=JSON_HELP)
+
+
 def _add_run_args(run: argparse.ArgumentParser) -> None:
     run.add_argument("request", help="The task to plan.")
-    run.add_argument("--repo", default=".", help="Target repository (default: cwd).")
-    run.add_argument("--engine", default=None, help="Backend engine (default: COLLEAGUE_ENGINE).")
-    run.add_argument("--model", default=None, help="Model id override.")
-    run.add_argument("--base-url", default=None, help="Provider base URL override.")
-    run.add_argument("--api-key", default=None, help="Provider API key override.")
     run.add_argument(
-        "--yes", action="store_true", help="Auto-confirm every gate (non-interactive)."
-    )
-    run.add_argument(
-        "--review", action="store_true", help="Run the same-model critic before each gate."
+        "--frame",
+        default=None,
+        help=f"Plan/checkpoint identifier (default: {_PLAN_ID!r}); "
+        "'plan continue --frame <F>' resumes it.",
     )
     run.add_argument(
         "--quick",
@@ -346,10 +454,19 @@ def _add_run_args(run: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Skip the spec stage; plan directly from the request (#199).",
     )
-    run.add_argument(
-        "--no-workforce",
-        dest="no_workforce",
-        action="store_true",
-        help="Plan only: deliver the spec+plan, skip the workforce fan-out (#215).",
+    _add_common_plan_args(run)
+
+
+def _add_continue_args(cont: argparse.ArgumentParser) -> None:
+    """``plan continue``'s flags: the same repo/engine/gate/json surface as
+    ``run`` (via :func:`_add_common_plan_args`), plus ``--frame`` to target a
+    non-default checkpoint. There is no ``request`` positional (it is read
+    back from the checkpoint) and no ``--quick`` (resuming always skips the
+    already-resolved spec-stage gates, so the flag would be a silent no-op).
+    """
+    cont.add_argument(
+        "--frame",
+        default=None,
+        help=f"Plan/checkpoint identifier to resume (default: {_PLAN_ID!r}).",
     )
-    run.add_argument("--json", action="store_true", help=JSON_HELP)
+    _add_common_plan_args(cont)

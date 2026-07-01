@@ -13,7 +13,22 @@ The architecture, part by part:
 - **Adapter** — the code that invokes one backend, in `colleague/engines/` (an
   `Engine` subclass implementing `work(task, config) -> TaskResult`).
 - **Task runtime** — the shared task contract (`colleague/contract.py`: `Task`,
-  `TaskResult`) and lifecycle.
+  `TaskResult`) and lifecycle. A task MAY carry a pre-execution **goal**: optional
+  `Task.goal` (a one-line statement of intent, distinct from the free-form
+  `instruction`) and `Task.acceptance` (machine-readable criteria) — both
+  omit-when-None (spec R6 / #259, task t14). When set, `colleague/loop.py`
+  appends a distinct Goal/Acceptance-criteria block to the task prompt, and on a
+  CLEAN finish runs ONE bounded, tools-off completion
+  (`_maybe_run_acceptance_selfcheck`) that records per-criterion `{criterion,
+  met, evidence}` outcomes onto `TaskResult.acceptance_outcomes` (task t15) —
+  advisory only: `met=False` never flips the run's status, and an
+  incomplete/aborted run never self-grades (operator confirmation stays the
+  authority, the same convention as the `devague` destination tool). Because
+  the self-check is a single bare completion with no tool schema offered, it
+  structurally cannot call `finish` — a stronger invariant than the lint/
+  test-integrity gates' save/restore pattern, which those need only because
+  their fix-turns re-enter the full tool loop. Feature doc:
+  `docs/features/task-goals.md`.
 - **Tool loop** — the bounded agentic loop (`colleague/loop.py`) the backend
   works the repo through (`read_file`/`write_file`/`edit_file`/`list_dir`/
   `run_command`/`culture`/`finish`, confined to the repo by `colleague/tools.py`).
@@ -31,9 +46,15 @@ The architecture, part by part:
   *working, not stalled* instead of going silent for minutes. A phase notice is
   encoded as a progress event with an EMPTY tool name (a reserved sentinel — a real
   tool always has a name); the plain stderr sink renders it as a standalone line, the
-  structured cockpit/events/session sinks all skip it (so `tui replay`/`snapshot` stay
-  step-only and the interactive session cockpit never folds a phantom step — a live
-  cockpit "synthesizing" status is a documented follow-up). Runtime-owned, so
+  structured **events** sink still skips it (so `tui replay`/`snapshot` stay
+  step-only — `WorkStep` has no phase-only shape). The live cockpit
+  "synthesizing" status follow-up is now **resolved** (spec R3 / #256, task t9):
+  `fold_phase` (`colleague/cli/_commands/_tui_sink.py`) folds a phase notice
+  onto the cockpit's STATUS surface (`state.status.message`) instead of
+  dropping it — shared by both live-cockpit consumers, `CockpitProgressSink`
+  (`work --tui`) and the session's `_WorkSink` — while the #206 invariant still
+  holds: a phase notice never advances `work_item.step_count` or adds a
+  conversation/feed line, so neither cockpit ever folds a phantom step. Runtime-owned, so
   every backend inherits it (all-engines rule); a strict no-op without a progress
   sink, and zero new deps/threads (the flight feed is untouched — the synthesis turn
   runs after the feed is reaped, so a piloting agent already reads it as ended, not
@@ -143,13 +164,29 @@ The architecture, part by part:
   in-process call and is isolated in its own throwaway git worktree on a
   `sub/<id>` branch (`colleague/worktrees.py`). The parent receives each child's
   `SubResult` as the tool result; completed sub-results are folded into
-  `TaskResult.sub_results` (omitted when empty). A SEQUENTIAL merge-subagent
+  `TaskResult.sub_results` (omitted when empty). Each `SubResult` optionally
+  carries `parent` (spec R6 / #259, tasks t14+t16) — the IMMEDIATE parent work
+  item's `task_id`, omit-when-None — so a subagent tree spanning nested
+  delegation (a child that itself spawns grandchildren) is walkable one hop at a
+  time from artifacts alone; the plan workforce's `build_workforce_items` carries
+  each `PlanItem`'s goal/acceptance STRUCTURALLY (dict keys, not flattened prose)
+  so a workforce child's `Task` gets the same `goal`/`acceptance` treatment as
+  any other subagent. A SEQUENTIAL merge-subagent
   integrates the branches afterward, surfacing (never force-merging) unresolvable
   conflicts. Concurrency is opt-in: `COLLEAGUE_SUBAGENT_CONCURRENCY` (default 1 =
   byte-identical sequential behavior); with width > 1, up to `MIN(width,
   MAX_SUBAGENT_FANOUT-1)` children run in parallel via `concurrent.futures`
-  (threads confined to `subagents.py`), reserving one slot for the merge child.
-  Delegation is BACKEND-JUDGED and OPTIONAL (like the `devague` destination tool),
+  (threads confined to `subagents.py`), reserving one slot for the merge child —
+  a batch whose children are ALL read-only roles frees that reservation (its
+  merge is structurally a no-op over an empty diff) and may use the full
+  `MAX_SUBAGENT_FANOUT` (spec R5 / #258, task t12; the same read-only check is
+  duplicated in `tools.py`'s batch-cap so the model-facing limit can't drift from
+  the actual fan-out width). At concurrency width > 1 each child also resolves a
+  CLAMPED SHARE of the parent's context/step budget (`parent // width`, floored
+  at a workable minimum, never above the parent's own value) instead of
+  inheriting the parent's full budget unscaled — width 1 stays byte-identical,
+  and an explicit per-child override still wins over the width-scaled share
+  (task t12). Delegation is BACKEND-JUDGED and OPTIONAL (like the `devague` destination tool),
   never a forced gate. An optional `engine`/`model` switch resolves through the
   existing `registry.load` + `EngineConfig` inheritance — a config-level switch,
   no backend code change. Termination is structural: `MAX_SUBAGENT_DEPTH=2`
@@ -162,7 +199,9 @@ The architecture, part by part:
   and `docs/plans/2026-06-03-colleague-s-convoy-drives-subagents-in-parallel-a.md`.
   This is explicitly NOT the out-of-scope multi-backend router / routing policy: there is
   no operator-configured automatic task→backend routing policy. Runtime-owned
-  (all-engines rule): the tools fire identically for every backend.
+  (all-engines rule): the tools fire identically for every backend. Feature docs:
+  `docs/features/rig-budget.md` (budget scaling + merge-slot skip),
+  `docs/features/task-goals.md` (lineage).
 - **Subagent roles** — a delegated subagent can be a **typed role**: a tailored
   system prompt + a **curated subset** of the tool surface + a curated skill
   subset. Built-in defaults (`colleague/roles.py` `BUILTIN_ROLES`): `explorer`/
@@ -205,6 +244,22 @@ The architecture, part by part:
   `docs/specs/2026-06-17-colleague-orchestrates-a-workforce-of-typed-subage.md` and
   `docs/plans/2026-06-17-colleague-orchestrates-a-workforce-of-typed-subage.md`;
   feature doc: `docs/features/subagent-roles.md`.
+- **Rig budget** — a file-based, cooperative concurrency budget across SEPARATE
+  colleague processes sharing one served endpoint (`colleague/rig.py`,
+  `.colleague/rig.json` `{"concurrency": N}`; spec R5 / #258, task t13). Each
+  top-level work item holds ONE atomic-`mkdir` slot (`.colleague/rig-slots/`)
+  for the duration of its loop (`colleague/cli/_commands/work.py`'s
+  `execute_work`, around `engine.work(task, config)`); a stale slot (holder PID
+  gone) self-heals, a live holder is never stolen, and a caller that can't get a
+  slot within `max_wait` (default 300s) degrades OPEN — proceeds without one —
+  rather than deadlocking the run. Deliberately NOT taken per subagent child
+  (a parent holding a slot while waiting on children who also need one would
+  deadlock by composition); in-run fan-out is governed instead by the child
+  budget scaling + read-only merge-slot skip (above) and the backpressure
+  fan-out throttle. Missing/absent `rig.json` is a strict no-op — no slot files
+  are ever created. No daemon, no socket, no threads (stdlib `os`/`json`/
+  `pathlib`/`time`, atomicity from `mkdir` semantics alone). Feature doc:
+  `docs/features/rig-budget.md`.
 - **Auto-split** — when an assignment is too large for one context window,
   colleague recommends splitting it into up to ~4 coherent child assignments
   (via the existing `subagents` tool) instead of degrading lossily or failing.
@@ -558,6 +613,29 @@ The architecture, part by part:
   `colleague tui live` raw driver and the `from_work` adapter are the one piece the
   generic uplift did not absorb (a possible future agentfront ask); colleague reads
   no agentfront source — the PR touches only the consumer side.
+- **Mode profiles** — each work mode (`work`/`plan`/`explore`/`review`) carries
+  its own compute/context constraint profile instead of sharing one global knob
+  set (`colleague/profiles.py`'s `MODE_PROFILES`: max_steps, context-budget
+  fraction, synthesis reserve steps, timeout, fill-line threshold — one explicit
+  entry per `session_modes.MODES` name, drift-tested, `auto` is `None` since it
+  resolves to a concrete mode first). `colleague/config.py`'s
+  `apply_mode_profile` fills only the knobs the operator left untouched, applied
+  AFTER `EngineConfig.resolve()`: explicit flag > `COLLEAGUE_*` env > per-model
+  overlay (`.colleague/<sanitized-model>/profiles.json`, exact-path) > repo
+  overlay (`.colleague/profiles.json`) > built-in catalog profile > untouched. A
+  strict no-op with no mode selected (byte-identical config). Wired through
+  ONE code path — `colleague/cli/_commands/work.py`'s `execute_work` — shared by
+  `colleague work --mode` (validated against `session_modes.MODES`, a typo raises
+  a clean choices-shaped error) and the interactive session's mode selection, so
+  a session explore/review run gets its profile with zero env vars set.
+  `ask-colleague.sh`'s `explore`/`review` adopted the native profile (dropping
+  its own caller-side `--max-steps 30` + `COLLEAGUE_SYNTHESIS_RESERVE_STEPS=3`
+  overrides in favor of `--mode`), with a stale-CLI fallback (a `--help`
+  substring probe) for a colleague checkout that predates `--mode`. **Honest
+  limits:** the per-mode numbers are conservative defaults pending live tuning,
+  not tuned constants; `colleague plan run` itself is not profiled (it drives
+  the model via `Engine.make_complete`, outside `execute_work`). Feature doc:
+  `docs/features/mode-profiles.md`.
 - **Context budget / graceful degradation** — the bounded tool-loop windows its
   running message history to a configurable token budget before each model turn
   (`colleague/context.py` + `colleague/loop.py` `_complete_with_degradation`)
@@ -599,7 +677,19 @@ The architecture, part by part:
   unreachable/stuck server still wastes up to `_MAX_TIMEOUT_RETRIES` bounded
   retries** (each a full `COLLEAGUE_TIMEOUT` window) before the partial is
   preserved — shrinking only helps a context-bloat timeout, not a dead server,
-  which is why the timeout cap is deliberately low (#154). Runtime-owned
+  which is why the timeout cap is deliberately low (#154). **Adaptive
+  backpressure (#255)** measures per-turn wall-clock latency
+  (`colleague/backpressure.py`'s pure `assess`/`shrink_fraction`/
+  `throttled_concurrency` classifier + `colleague/loop.py`'s `_timed_complete`/
+  `_record_turn_latency`) and, when the rolling mean drifts toward
+  `config.timeout`, proactively shrinks the *next* turn's window and throttles
+  subagent fan-out (composing with, never replacing, the reactive
+  shrink-on-overflow/timeout retry above) — recording ONE
+  `capacity_warning` advisory + a phase-notice line on the first departure from
+  CLEAR, and restoring the operator's configured concurrency automatically once
+  latency clears. Dormant (no clock, no shrink, no throttle) unless
+  `request_timeout` is set; never switches model or backend. Feature doc:
+  `docs/features/backpressure.md`. Runtime-owned
   (all-engines rule): the feature fires identically for every backend.
   Specification + plan:
   `docs/specs/2026-06-02-colleague-drives-degrade-gracefully-when-a-task.md`
@@ -981,10 +1071,31 @@ walk, default depth 3, capped at 20 files) before handoff, with a bounded
 model fix-turn on failure (`COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES`, default 1),
 so a scoped edit cannot hide a regression in a file the model never ran
 (default-ON, advisory/non-blocking, degrade-to-skipped when pytest is
-unavailable).
+unavailable) — and the **work-modes increments** (#254-#259, "colleague's work
+modes now fit the machine they run on"): **mode profiles** (#254) — per-mode
+compute/context profiles (`colleague/profiles.py` + `config.py`
+`apply_mode_profile`) resolved through the existing `EngineConfig` precedence,
+byte-identical with no mode selected; **adaptive backpressure** (#255) — the
+loop classifies per-turn latency (`colleague/backpressure.py`) and proactively
+shrinks the context window + throttles subagent fan-out as turns drift toward
+the request timeout; **tier visibility** (#256) — `TaskResult.mode` in the
+artifact plus a session-cockpit Capacity/phase/goal panel rendered via the
+existing generic panel walk (a genuine `TAUIState` schema addition stays
+gated on the upstream agentfront#48 ask); **budget-aware skill curation**
+(#257) — built-in roles get real glob-pattern `skill_subset`s
+(`colleague/roles.py`) and the composed skills catalog can be token-capped
+with a priority order (`colleague/layers.py`), dropping whole skills rather
+than truncating; **subagent budget scaling + rig-level concurrency** (#258) —
+a fan-out child resolves a clamped share of the parent's context/step budget
+(`colleague/subagents.py`) and a file-based cooperative slot
+(`colleague/rig.py`) coordinates concurrent top-level work items sharing one
+served endpoint; and **task goals** (#259) — optional `Task.goal`/`acceptance`,
+an advisory per-criterion self-check turn, and `SubResult.parent` lineage
+(`colleague/contract.py` + `colleague/loop.py`), all omit-when-None.
 All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
-the capacity standard, the lint gate, the test-integrity gate, and the affected-tests gate) were added via explicit re-specs (spec + plan committed
+the capacity standard, the lint gate, the test-integrity gate, the affected-tests gate,
+and the six work-modes increments) were added via explicit re-specs (spec + plan committed
 under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
 no-socket / no-daemon conventions.
 

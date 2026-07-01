@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.0] - 2026-07-02
+
+### Added
+
+- Per-mode constraint profiles (#254, spec R1): `colleague/profiles.py` catalog (work/plan/explore/review; auto=None, drift-tested) + `apply_mode_profile` in `colleague/config.py` — a new DEFAULT layer under flags/env (explicit flag > env > `.colleague/<model>/profiles.json` > `.colleague/profiles.json` > built-in profile), applied through one `execute_work(mode=...)` code path shared by `colleague work --mode` and the session's mode selection; `ask-colleague` explore/review adopt `--mode` natively (with a stale-CLI fallback).
+- Adaptive compute backpressure (#255, spec R2 — the mechanism for #229): `colleague/backpressure.py` + loop integration — rolling per-turn latency vs the request timeout arms ARMED/ESCALATED, proactively tightening the next window and throttling subagent fan-out (CLEAR restores the configured width), with ONE capacity_warning-style advisory; strict no-op on healthy latency, forwarded to every backend via `ContextControls.from_config`.
+- Rig-level cooperative concurrency budget (#258, spec R5): `colleague/rig.py` — `.colleague/rig.json` declares the endpoint's sustainable width; `execute_work` holds one file-based slot per top-level work item (PID-stamped, stale slots self-heal, degrades OPEN, no daemon/socket/threads).
+- Subagent budget scaling (#258, spec R5): at fan-out width W>1 each child inherits a clamped share (parent//W, floored) of max_steps + context budget instead of the full config; per-item overrides win; all-read-only batches stop reserving the merge slot (items cap + width may use the full MAX_SUBAGENT_FANOUT).
+- Tasks carry their goal (#259, spec R6): `Task.goal`/`Task.acceptance` render as a distinct prompt block; a CLEAN finish of a criteria-bearing task runs ONE advisory acceptance self-check turn recorded on `TaskResult.acceptance_outcomes` (never flips status); `SubResult.parent` records immediate-parent lineage; the plan workforce passes `PlanItem.acceptance` structurally; `colleague plan continue` resumes an interrupted plan run from its checkpoint.
+- Budget-aware skill curation (#257, spec R4): built-in read-only roles get real (glob-aware) skill subsets; `<!-- skill-priority: N -->` marker + token-capped composition (`COLLEAGUE_SKILLS_TOKEN_CAP`, default 0 = uncapped) dropping whole skills with an explicit omitted-N note; `skills list --role/--budget` inspection.
+- Tier visibility, colleague-side half (#256, spec R3): `TaskResult.mode` recorded in the artifact (omit-when-None); the session cockpit gains a Capacity panel, a goal line, and a LIVE phase status (thinking/synthesizing/compacting — the #206 follow-up, resolved for both cockpit consumers via `fold_phase`); the TAUI schema half is the upstream ask agentfront#48.
+
+### Changed
+
+- `ask-colleague.sh` explore/review no longer export caller-side step/reserve defaults — the runtime mode profile owns them (explicit --max-steps still wins in both directions).
+- `ContextControls` gains request_timeout + throttle_fanout (compare-excluded), forwarded once in `from_config` (all-engines rule).
+
+### Fixed
+
+- Session/`work --tui` cockpits no longer drop #206 phase notices — a slow synthesis turn shows as a live status instead of a silent wait (documented follow-up resolved).
+- `_first_summary_line` no longer mistakes a leading HTML comment (priority/provenance markers) for a skill's catalog summary.
+
 ## [1.28.1] - 2026-06-29
 
 ### Fixed

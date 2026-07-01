@@ -279,6 +279,14 @@ class SubResult:
     """The typed-subagent role this child ran as, or ``None`` for the default
     full-surface delegation (#t4). Omitted from ``to_dict`` when None so a
     role-less child serializes byte-identically to the pre-role contract."""
+    parent: Optional[str] = None
+    """The parent work item's ``task_id`` (lineage), or ``None`` when the child
+    was not recorded with a parent link (spec R6 / plan t14 / #259). Lets a
+    subagent tree be walked from artifacts alone — child artifacts name their
+    parent so a tree of delegated work items is reconstructable without external
+    bookkeeping. Populated structurally by the caller that mints the child
+    (plan t16), never inferred. Omitted from ``to_dict`` when ``None`` so a
+    child recorded without lineage serializes byte-identically to today."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -293,6 +301,10 @@ class SubResult:
         # Omit-when-None: a role-less child is byte-identical to the pre-role shape.
         if self.role is not None:
             d["role"] = self.role
+        # Same omit-when-None treatment for lineage (spec R6): a child recorded
+        # without a parent link serializes byte-identically to today.
+        if self.parent is not None:
+            d["parent"] = self.parent
         return d
 
     @classmethod
@@ -306,6 +318,7 @@ class SubResult:
             changed_files=list(data.get("changed_files", [])),
             usage=Usage.from_dict(data.get("usage", {})),
             role=data.get("role"),
+            parent=data.get("parent"),
         )
 
 
@@ -416,6 +429,19 @@ class Task:
     pilot can read the live feed and inject ``stop``/``guidance`` directives
     (see :mod:`colleague.flight`). Default ``False`` is a strict no-op and is
     omitted from ``to_dict`` so an unwatched task serializes byte-identically."""
+    goal: Optional[str] = None
+    """The pre-execution goal for this work item — a one-line, human-readable
+    statement of what "done" looks like, set before the loop runs (spec R6 /
+    plan t14 / #259). ``None`` is the default (a bare ``colleague work
+    "<instruction>"`` carries no separate goal). Omitted from ``to_dict`` when
+    ``None`` so a goal-less task serializes byte-identically to today."""
+    acceptance: Optional[list[str]] = None
+    """Machine-readable acceptance criteria for this work item — one short
+    string per criterion. The loop's bounded pre-finish self-check turn (plan
+    t15) evaluates these into ``TaskResult.acceptance_outcomes``; setting a
+    goal without acceptance criteria is fine (no self-check runs). ``None`` is
+    the default. Omitted from ``to_dict`` when ``None`` so a task without
+    acceptance criteria serializes byte-identically to today."""
 
     @classmethod
     def new(
@@ -427,6 +453,8 @@ class Task:
         context: str = "",
         constraints: list[str] | None = None,
         watch: bool = False,
+        goal: str | None = None,
+        acceptance: list[str] | None = None,
     ) -> "Task":
         """Create a task with a fresh short id."""
         return cls(
@@ -437,6 +465,8 @@ class Task:
             context=context,
             constraints=list(constraints or []),
             watch=watch,
+            goal=goal,
+            acceptance=list(acceptance) if acceptance is not None else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -451,10 +481,26 @@ class Task:
         # Omit when False so an unwatched task serializes byte-identically to pre-flight.
         if self.watch:
             data["watch"] = True
+        # goal/acceptance get the same omit-when-None treatment (spec R6): a task
+        # authored without them serializes byte-identically to today.
+        if self.goal is not None:
+            data["goal"] = self.goal
+        if self.acceptance is not None:
+            data["acceptance"] = list(self.acceptance)
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Task":
+        raw_acceptance = data.get("acceptance")
+        # Only a list-shaped payload is acceptance criteria: a bare string
+        # would explode into per-character "criteria" via list() and corrupt
+        # the loop's acceptance self-check (Qodo PR #260 review). Malformed
+        # shapes degrade to None — the best-effort from_dict stance.
+        acceptance = (
+            [str(criterion) for criterion in raw_acceptance]
+            if isinstance(raw_acceptance, list)
+            else None
+        )
         return cls(
             id=str(data["id"]),
             repo_path=str(data["repo_path"]),
@@ -463,6 +509,8 @@ class Task:
             constraints=list(data.get("constraints", [])),
             engine=str(data.get("engine", "mock")),
             watch=bool(data.get("watch", False)),
+            goal=data.get("goal"),
+            acceptance=acceptance,
         )
 
 
@@ -556,6 +604,29 @@ class TaskResult:
     ``ContextControls.role`` (the engine forwards ``config.role``). Omitted from
     ``to_dict`` when ``None``, so a role-less work item serializes byte-identically
     to the pre-role artifact shape."""
+    mode: Optional[str] = None
+    """The driving mode (auto|work|plan|explore|review) this work item ran under,
+    or ``None`` when no mode was selected (plain ``colleague work`` without
+    ``--mode`` / session mode selection) (spec R3 / plan t7 / #256). Set by
+    :func:`colleague.cli._commands.work.execute_work`, NOT by the engine/loop —
+    the mode concept lives at the CLI/session entry doors, so
+    ``registry.load(...).work(...)`` called directly (as the e2e mock shape
+    test does) never sets it. Like role/destination, the serialized key is
+    OMITTED (not null) when ``None``, so a mode-less work item serializes
+    byte-identically to the pre-mode artifact shape."""
+    acceptance_outcomes: Optional[list[dict[str, Any]]] = None
+    """Per-``Task.acceptance``-criterion self-check outcomes, or ``None`` when the
+    work item carried no acceptance criteria (no self-check ran) (spec R6 / plan
+    t14+t15 / #259). Each entry is a plain
+    ``{"criterion": str, "met": bool, "evidence": str}`` record populated by the
+    loop's bounded pre-finish self-check turn. These are ADVISORY only — they
+    never flip ``status``; operator confirmation stays authoritative (matching
+    the devague-tool convention). Like lint_report/destination, the serialized
+    key is OMITTED (not null) when ``None``, so a work item with no acceptance
+    criteria serializes byte-identically to today's artifact. ``from_dict``
+    tolerates malformed (non-dict) entries by dropping them rather than
+    raising, matching the codebase's best-effort stance on optional structured
+    payloads read back from an artifact."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -600,8 +671,18 @@ class TaskResult:
         # serializes byte-identically to the pre-role artifact (no extra key).
         if self.role is not None:
             d["role"] = self.role
+        # mode gets the same omit-when-None treatment (spec R3 / plan t7): a
+        # mode-less work item serializes byte-identically to the pre-mode artifact
+        # (no extra key).
+        if self.mode is not None:
+            d["mode"] = self.mode
         if self.affected_tests_report is not None:
             d["affected_tests_report"] = self.affected_tests_report.to_dict()
+        # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
+        # work item with no acceptance criteria serializes byte-identically to
+        # today's artifact (no extra key).
+        if self.acceptance_outcomes is not None:
+            d["acceptance_outcomes"] = [dict(entry) for entry in self.acceptance_outcomes]
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -651,7 +732,37 @@ class TaskResult:
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
             role=data.get("role"),
+            mode=data.get("mode"),
+            acceptance_outcomes=_coerce_acceptance_outcomes(data.get("acceptance_outcomes")),
         )
+
+
+def _coerce_acceptance_outcomes(
+    raw: Optional[list[Any]],
+) -> Optional[list[dict[str, Any]]]:
+    """Coerce a raw ``acceptance_outcomes`` payload read back from an artifact.
+
+    ``None`` in, ``None`` out (no acceptance criteria were set — the common
+    case). When a list is present, each entry is expected to be a
+    ``{"criterion": str, "met": bool, "evidence": str}`` mapping; a malformed
+    (non-dict) entry is dropped rather than raising, matching the codebase's
+    best-effort stance elsewhere on optional structured payloads read back
+    from JSON (e.g. :class:`TestIntegrityReport`'s "never raises" contract).
+    """
+    if raw is None:
+        return None
+    outcomes: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        outcomes.append(
+            {
+                "criterion": str(entry.get("criterion", "")),
+                "met": bool(entry.get("met", False)),
+                "evidence": str(entry.get("evidence", "")),
+            }
+        )
+    return outcomes
 
 
 # ── lazy import helper (avoids circular import at module level) ─────────

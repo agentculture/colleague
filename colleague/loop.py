@@ -43,6 +43,7 @@ from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
 from colleague import autosplit as _autosplit
+from colleague import backpressure
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
@@ -478,6 +479,22 @@ class _Work:
     # backend from ``config.max_continue_nudges`` (all-engines rule); falls back to
     # ``_MAX_FINISH_NUDGES`` when a ContextControls omits it (back-compat / no-op).
     max_continue_nudges: int = _MAX_FINISH_NUDGES
+    # Adaptive compute backpressure (t6 / spec R2 / #255): ``request_timeout`` is the
+    # caller's per-completion timeout (``config.timeout``) — the reference the rolling
+    # per-turn wall-clock latency is classified against (``colleague.backpressure``).
+    # ``None``/<= 0 leaves the feature dormant — a strict no-op (no timing, no shrink,
+    # no throttle), so direct ``run`` callers are byte-identical. ``fanout_throttle``
+    # is the state-driven subagent-concurrency setter built by
+    # :func:`_make_fanout_throttle` (CLEAR restores the operator's configured width —
+    # backpressure only ever *tightens*, never re-plans; the no-router scope line).
+    # The trailing cells follow the ``_split_recommended`` mutable-cell pattern:
+    # per-turn latencies, the current CLEAR/ARMED/ESCALATED state, and whether the
+    # once-per-work-item advisory was recorded.
+    request_timeout: float | None = None
+    fanout_throttle: Callable[[str], None] | None = None
+    _turn_latencies: list[float] = field(default_factory=list)
+    _backpressure_state: list[str] = field(default_factory=list)
+    _backpressure_advised: list[bool] = field(default_factory=list)
     # Flight-control plane (the piloting feature): an armed ``FlightSession`` when the
     # task is a watchable flight (``task.watch``), else ``None`` — a strict no-op.
     # When set, the loop appends a live feed record per turn and reads the per-flight
@@ -1114,12 +1131,67 @@ def _final_degraded_attempt(ctx: _Work, complete: CompleteFn, effective: int) ->
     :func:`run` preserves the partial. A non-degradable error just re-raises.
     """
     try:
-        return complete(ctx.messages)
+        return _timed_complete(ctx, complete)
     except Exception as exc:  # noqa: BLE001
         # Carry the floor only on a degradable give-up, then re-raise either way.
         if classify_degradable(str(exc)) is not None:
             _remember_degraded_floor(ctx, effective)
         raise
+
+
+def _current_backpressure(ctx: _Work) -> str:
+    """The loop's current backpressure state (CLEAR when the feature is dormant)."""
+    return ctx._backpressure_state[0] if ctx._backpressure_state else backpressure.CLEAR
+
+
+def _timed_complete(ctx: _Work, complete: CompleteFn) -> ModelResponse:
+    """Call ``complete`` measuring wall-clock latency for backpressure (t6/#255).
+
+    Dormant (a plain call, no clock) unless ``ctx.request_timeout`` is a positive
+    number. The latency is recorded in ``finally`` — a raising completion (above
+    all a request TIMEOUT, which costs the full window) is precisely the slow
+    turn the classifier must see.
+    """
+    if not ctx.request_timeout or ctx.request_timeout <= 0:
+        return complete(ctx.messages)
+    start = time.monotonic()
+    try:
+        return complete(ctx.messages)
+    finally:
+        _record_turn_latency(ctx, time.monotonic() - start)
+
+
+def _record_turn_latency(ctx: _Work, seconds: float) -> None:
+    """Fold one completion latency into the rolling backpressure classification.
+
+    On a state TRANSITION the fan-out throttle (when wired) is retuned —
+    ``throttled_concurrency`` maps CLEAR back to the operator's configured width,
+    so recovery is automatic — and the first departure from CLEAR records a
+    once-per-work-item advisory on ``result.capacity_warning`` (surfaced on
+    stderr by the work CLI) plus a phase-notice line for live visibility.
+    Advisory + tighten-only: never an error, never a different model/backend.
+    """
+    ctx._turn_latencies.append(seconds)
+    previous = _current_backpressure(ctx)
+    state = backpressure.assess(ctx._turn_latencies, float(ctx.request_timeout or 0))
+    ctx._backpressure_state[:] = [state]
+    if state == previous:
+        return
+    if ctx.fanout_throttle is not None:
+        with suppress(Exception):
+            ctx.fanout_throttle(state)
+    if state != backpressure.CLEAR and not ctx._backpressure_advised:
+        ctx._backpressure_advised[:] = [True]
+        note = (
+            f"backpressure {state}: model turns are averaging "
+            f"{sum(ctx._turn_latencies[-3:]) / len(ctx._turn_latencies[-3:]):.0f}s "
+            f"toward the {ctx.request_timeout:.0f}s request timeout — tightening the "
+            f"context window (x{backpressure.shrink_fraction(state)}) and subagent "
+            "fan-out until turns recover"
+        )
+        existing = ctx.result.capacity_warning
+        ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
+        _emit_phase(ctx, note)
 
 
 def _complete_with_degradation(
@@ -1155,8 +1227,17 @@ def _complete_with_degradation(
     _emit_phase(ctx, phase)
     budget = ctx.context_budget
     if not isinstance(budget, int) or budget <= 0:
-        # Feature off: strict pass-through, byte-identical to the pre-feature loop.
-        return complete(ctx.messages)
+        # Feature off: strict pass-through, byte-identical to the pre-feature loop
+        # (latency is still measured when backpressure is armed — the advisory +
+        # fan-out throttle work without windowing; only the shrink needs a budget).
+        return _timed_complete(ctx, complete)
+
+    # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
+    # window is proactively tightened — smaller prompts make faster turns, the
+    # #229 move — composing with (never replacing) the reactive shrink-on-error.
+    state = _current_backpressure(ctx)
+    if state != backpressure.CLEAR:
+        budget = max(1, int(budget * backpressure.shrink_fraction(state)))
 
     effective = _open_degradation_window(ctx, budget)
     # The first attempt plus up to ``cap`` reactive retries. ``cap`` tracks the
@@ -1169,7 +1250,7 @@ def _complete_with_degradation(
     attempt = 0
     while attempt <= cap:
         try:
-            return complete(ctx.messages)
+            return _timed_complete(ctx, complete)
         except Exception as exc:  # noqa: BLE001
             plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
             if plan is None:
@@ -1554,6 +1635,16 @@ class ContextControls:
     # Forwarded by every backend from ``config.max_continue_nudges`` (all-engines
     # rule); ``None`` falls back to ``_MAX_FINISH_NUDGES`` (back-compat / strict no-op).
     max_continue_nudges: int | None = None
+    # Adaptive compute backpressure (t6 / spec R2 / #255): ``request_timeout`` is the
+    # per-completion timeout the rolling turn latency is classified against;
+    # ``None``/<= 0 leaves backpressure dormant — a strict no-op. ``throttle_fanout``
+    # is the state-driven concurrency setter from :func:`_make_fanout_throttle`.
+    # Both forwarded by every backend via :meth:`from_config` (all-engines rule).
+    request_timeout: float | None = None
+    # compare=False: a fresh closure per from_config call — behavior, not
+    # comparable config (the EngineConfig.role/spawn-callback precedent); the
+    # all-engines guarantee comes from from_config being the single source.
+    throttle_fanout: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
     # verdict turn (#191) runs with fresher, less-windowed context instead of being
@@ -1626,6 +1717,8 @@ class ContextControls:
             plan_offer_tokens=config.plan_offer_tokens,
             max_continue_nudges=config.max_continue_nudges,
             synthesis_reserve=config.synthesis_reserve_steps,
+            request_timeout=config.timeout,
+            throttle_fanout=_make_fanout_throttle(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
             testintegrity=config.testintegrity,
@@ -1638,6 +1731,27 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
         )
+
+
+def _make_fanout_throttle(config) -> Callable[[str], None]:
+    """Build the backpressure fan-out throttle bound to *config* (t6/#255).
+
+    The returned setter maps a backpressure state onto
+    ``config.subagent_concurrency`` via
+    :func:`colleague.backpressure.throttled_concurrency`, closing over the
+    operator's ORIGINAL configured width — so CLEAR restores it exactly and
+    the throttle can only ever tighten below it, never exceed it. Mutating the
+    config object retunes the already-bound batch-spawn closures (they read
+    ``subagent_concurrency`` at call time). ``config`` stays untyped to avoid
+    the import cycle with :mod:`colleague.config` (the ``from_config``/
+    ``resolve_role`` precedent).
+    """
+    configured = int(getattr(config, "subagent_concurrency", 1) or 1)
+
+    def throttle(state: str) -> None:
+        config.subagent_concurrency = backpressure.throttled_concurrency(state, configured)
+
+    return throttle
 
 
 def resolve_role(config, repo_path: str):
@@ -1670,6 +1784,16 @@ def _build_user_message(task: Task) -> str:
         user += f"\n\nContext:\n{task.context}"
     if task.constraints:
         user += "\n\nConstraints:\n" + "\n".join(f"- {c}" for c in task.constraints)
+    # Goal block (t15 / spec R6 / #259): a task that declares its goal/acceptance
+    # carries them as a DISTINCT block, so `finish` has a concrete target (#231)
+    # instead of re-deriving intent from prose. Absent fields → byte-identical.
+    if task.goal:
+        user += f"\n\nGoal:\n{task.goal}"
+    if task.acceptance:
+        user += (
+            "\n\nAcceptance criteria (the work is done when each of these holds):\n"
+            + "\n".join(f"- {c}" for c in task.acceptance)
+        )
     return user
 
 
@@ -1819,6 +1943,80 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
         ctx.result.not_finished,
         ctx.result.stopped_without_finish,
     ) = saved
+
+
+_ACCEPTANCE_CHECK_PROMPT = (
+    "Before this work item closes: for EACH acceptance criterion listed below, state "
+    "whether the work you just did meets it. Respond with ONLY a JSON array of "
+    'objects, one per criterion IN ORDER, shaped {"criterion": "...", "met": '
+    'true|false, "evidence": "one concrete sentence"}. No prose outside the JSON, '
+    "no tool calls.\n\nCriteria:\n"
+)
+
+
+def _parse_acceptance_outcomes(text: str, criteria: list[str]) -> list[dict[str, object]]:
+    """Parse the self-check turn's JSON into per-criterion outcome records.
+
+    Tolerant by contract (the check is advisory and must never raise): any
+    parse failure returns ``[]`` (nothing recorded). Entries are matched to the
+    task's criteria BY POSITION and the criterion text is taken from the TASK
+    (authoritative), so a model that paraphrases or hallucinates criteria can
+    only ever grade the real ones; a missing entry reads as ``met=False`` with
+    empty evidence — the conservative default.
+    """
+    try:
+        start = text.index("[")
+        end = text.rindex("]") + 1
+        data = json.loads(text[start:end])
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    outcomes: list[dict[str, object]] = []
+    for index, criterion in enumerate(criteria):
+        entry = data[index] if index < len(data) and isinstance(data[index], dict) else {}
+        outcomes.append(
+            {
+                "criterion": criterion,
+                "met": bool(entry.get("met", False)),
+                "evidence": str(entry.get("evidence") or ""),
+            }
+        )
+    return outcomes
+
+
+def _maybe_run_acceptance_selfcheck(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
+    """ONE bounded self-check turn recording per-criterion outcomes (t15 / R6 / #259).
+
+    Fires only when the task declared ``acceptance`` criteria AND the loop
+    finished cleanly (an incomplete/aborted run should not spend a turn grading
+    itself; its honest status must stand untouched). The check is a SINGLE
+    completion — never a re-entered tool loop — so it structurally cannot call
+    ``finish`` and cannot clobber the work item's terminal summary/status (a
+    stronger invariant than the lint fix-turn's save/restore, by construction).
+    ADVISORY only: outcomes land on ``result.acceptance_outcomes`` for the
+    feedback/ROI loop; ``met=False`` never flips the run status — operator
+    judgment stays the authority (the devague-tool convention: the backend
+    cannot self-confirm). Best-effort + fail-safe like the sibling gates.
+    """
+    if aborted is not None or outcome != _EXIT_FINISHED or not ctx.task.acceptance:
+        return
+    with suppress(Exception):
+        criteria = [str(criterion) for criterion in ctx.task.acceptance]
+        ctx.messages.append(
+            {
+                "role": "user",
+                "content": _ACCEPTANCE_CHECK_PROMPT
+                + "\n".join(f"- {criterion}" for criterion in criteria),
+            }
+        )
+        resp = _complete_with_degradation(ctx, complete)
+        _account_turn(ctx, resp)
+        outcomes = _parse_acceptance_outcomes(resp.content or resp.reasoning or "", criteria)
+        if outcomes:
+            ctx.result.acceptance_outcomes = outcomes
 
 
 def _maybe_run_test_integrity_gate(
@@ -2271,6 +2469,8 @@ def run(
         review_fanout_folders=_context.review_fanout_folders,
         plan_offer_tokens=_context.plan_offer_tokens,
         max_continue_nudges=_resolve_nudge_cap(_context),
+        request_timeout=_context.request_timeout,
+        fanout_throttle=_context.throttle_fanout,
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
@@ -2353,6 +2553,13 @@ def run(
     # test-integrity so it sees their fixed changed set. The aborted guard + best-effort
     # wrapping live in the helper so it can never abort run().
     _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
+
+    # Acceptance self-check (t15 / spec R6 / #259): on a CLEAN finish of a task
+    # that declared acceptance criteria, ONE bounded completion records advisory
+    # per-criterion {criterion, met, evidence} outcomes on
+    # result.acceptance_outcomes. Runs after the gates so it grades the final
+    # (lint-fixed) state; never flips status; strict no-op without criteria.
+    _maybe_run_acceptance_selfcheck(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Record the typed-subagent role this work item ran as (#t4), on every exit

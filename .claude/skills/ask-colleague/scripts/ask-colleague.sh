@@ -105,7 +105,9 @@ Options:
   --model NAME       Model (default: $COLLEAGUE_MODEL or sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP)
   --role NAME        Typed subagent role (e.g. explorer, reviewer, writer)
   --base-url URL     OpenAI base URL (default: $COLLEAGUE_BASE_URL or http://localhost:8001/v1)
-  --max-steps N      Loop step budget (default: 20; 30 for explore)
+  --max-steps N      Loop step budget (default: 20; explore/review default from
+                     colleague's own "explore"/"review" mode profile, today 30 —
+                     an explicit --max-steps always overrides, lower or higher)
   --timeout N        Per-request timeout, seconds (default: $COLLEAGUE_TIMEOUT or 300)
   --no-workforce     (plan) deliver the spec+plan only, skip the workforce fan-out (#215)
   --quick / --no-spec (plan) skip the spec stage, plan directly from the request (#199)
@@ -230,15 +232,15 @@ done
 # Per-verb default: explore and review get a modest higher budget (30) for wider
 # surveys and read-heavy diffs; write keeps the global default (20). Only apply
 # when the user did NOT pass an explicit --max-steps.
+#
+# t4/spec R1: this number now ALSO matches colleague's own native "explore"/
+# "review" mode profile (colleague/profiles.py), which is what actually drives
+# the step budget at runtime once `--mode` is selected below — this wrapper-side
+# value survives only so the "widen --max-steps" re-run hint (print_result)
+# still names the right number; whether --max-steps is actually FORWARDED to
+# colleague is decided later, once mode support is known.
 if [[ ( "$VERB" == "explore" || "$VERB" == "review" ) && "$MAX_STEPS_EXPLICIT" -eq 0 ]]; then
     MAX_STEPS=30
-fi
-
-# Read-heavy verbs reserve a few steps for the final verdict turn so a big-diff
-# review/explore yields findings instead of dying mid-read (#197). Caller env wins.
-if [[ "$VERB" == "explore" || "$VERB" == "review" ]]; then
-    : "${COLLEAGUE_SYNTHESIS_RESERVE_STEPS:=3}"
-    export COLLEAGUE_SYNTHESIS_RESERVE_STEPS
 fi
 
 # Now that the verb and its flags are known, require only the tools THIS path
@@ -326,7 +328,64 @@ if [[ "$VERB" == "plan" ]]; then
     exit "$plan_rc"
 fi
 
-COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --max-steps "$MAX_STEPS" --json)
+# ── explore/review adopt colleague's native mode profile (t4/spec R1) ───────
+# explore/review's step budget + synthesis-reserve tail used to be caller-side
+# overrides baked into this script (a fixed --max-steps 30 plus an exported
+# COLLEAGUE_SYNTHESIS_RESERVE_STEPS=3). Those numbers now live in colleague's
+# own mode-profile catalog (colleague/profiles.py "explore"/"review") and are
+# applied runtime-side by `colleague work --mode explore|review`
+# (colleague/config.py apply_mode_profile) — so this wrapper's job shrinks to
+# "select the mode" instead of re-deriving the profile's numbers itself; a
+# future retune of the profile then reaches this wrapper for free.
+#
+# Honest limit: this wrapper prefers an installed `colleague` on PATH ahead of
+# a local checkout, and an installed CLI can be older than the one this repo
+# ships (it can predate --mode entirely). Detect that cheaply by checking the
+# resolved CLI's OWN --help text for the literal flag with a plain bash
+# substring match (no external text-search tool — the resolver stays as
+# dependency-free as the uv-fallback path above, #190); fall back to the old
+# caller-side defaults when --mode isn't there, so the wrapper keeps working
+# unmodified against a stale CLI.
+#
+# NOTE: the substring must be anchored past the flag name — "--mode" is
+# itself a literal prefix of "--model" (already a flag on every version), so
+# a naive `*--mode*` match false-positives on a stale --help that only has
+# --model. Requiring the next character NOT be a letter (or end-of-string)
+# distinguishes a genuine "--mode ..."/"--mode]" occurrence from "--model".
+MODE_SUPPORTED=0
+if [[ "$VERB" == "explore" || "$VERB" == "review" ]]; then
+    help_out="$("${COLLEAGUE[@]}" work --help 2>/dev/null)" || help_out=""
+    if [[ "$help_out" == *"--mode"[!a-zA-Z]* || "$help_out" == *--mode ]]; then
+        MODE_SUPPORTED=1
+    fi
+fi
+
+if [[ ( "$VERB" == "explore" || "$VERB" == "review" ) && "$MODE_SUPPORTED" -eq 0 ]]; then
+    # Legacy fallback (stale CLI without --mode): reserve a few steps for the
+    # final verdict turn so a big-diff review/explore yields findings instead
+    # of dying mid-read (#197). Caller env wins.
+    : "${COLLEAGUE_SYNTHESIS_RESERVE_STEPS:=3}"
+    export COLLEAGUE_SYNTHESIS_RESERVE_STEPS
+fi
+
+COMMON_FLAGS=(--engine "$ENGINE" --model "$MODEL" --base-url "$BASE_URL" --json)
+# --max-steps: forwarded unless this is a native-mode-capable explore/review run
+# with no explicit --max-steps — then the flag is withheld so colleague's own
+# mode profile supplies the step budget as a DEFAULT at runtime. An explicit
+# --max-steps always wins, in EITHER direction (lower or higher than the
+# profile's own number): it is still forwarded here, and the runtime resolves
+# an explicit flag ahead of any profile default (colleague/config.py
+# apply_mode_profile's explicit-knobs precedence).
+if [[ "$MAX_STEPS_EXPLICIT" -eq 1 || "$MODE_SUPPORTED" -eq 0 || ( "$VERB" != "explore" && "$VERB" != "review" ) ]]; then
+    COMMON_FLAGS+=(--max-steps "$MAX_STEPS")
+fi
+# --mode: select colleague's native explore/review constraint profile when the
+# resolved CLI supports it (detected above). write carries no --mode — its
+# profile is behavior-neutral (identical to no mode at all), so the numbers
+# stay exactly as documented (--max-steps 20 default, no reserve override).
+if [[ "$MODE_SUPPORTED" -eq 1 && ( "$VERB" == "explore" || "$VERB" == "review" ) ]]; then
+    COMMON_FLAGS+=(--mode "$VERB")
+fi
 # --watch arms a flight for EVERY drive verb (explore/review/write), so it lives on
 # the shared flag list — not inside one verb's path — so monitor/guide/stop work.
 [[ "${WATCH:-0}" -eq 1 ]] && COMMON_FLAGS+=(--watch)

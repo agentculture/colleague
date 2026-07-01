@@ -68,11 +68,39 @@ from typing import Callable, List, Optional, cast
 from colleague import registry, worktrees
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
+    MAX_SUBAGENT_FANOUT,
     MAX_SUBAGENT_TOTAL,
     EngineConfig,
     effective_concurrency,
 )
 from colleague.contract import ERROR, OK, SubResult, Task, Usage
+from colleague.roles import is_read_only
+
+# Floors for the width-scaled child budget share (t12 / spec R5): a child's
+# share is clamped so scaling can never hand a child an unworkable budget —
+# and never MORE than the parent's own value (a tiny parent budget stays the
+# ceiling, floors notwithstanding).
+_MIN_CHILD_MAX_STEPS = 10
+_MIN_CHILD_CONTEXT_BUDGET = 16000
+
+
+@dataclasses.dataclass(frozen=True)
+class ChildSpec:
+    """Per-child delegation extras for ONE nested child work item.
+
+    Bundles the switches that accreted beyond the original engine/model/role
+    trio — the explicit t12 budget, the t16 goal contract, and t16 lineage —
+    so the launcher signatures stay under the S107 parameter ceiling (the
+    ``ContextControls`` precedent). Every field defaults to ``None``: an empty
+    spec is byte-identical to the pre-t12/t16 behavior.
+    """
+
+    max_steps: Optional[int] = None
+    context_budget_tokens: Optional[int] = None
+    goal: Optional[str] = None
+    acceptance: Optional[List[str]] = None
+    parent_task_id: Optional[str] = None
+
 
 #: A spawn callback: ``spawn(instruction, engine=None, model=None, role=None)
 #: -> SubResult``. Bound to a repo/parent-config/parent-engine/depth/budget by
@@ -88,6 +116,7 @@ SpawnFn = Callable[..., SubResult]
 BatchSpawnFn = Callable[..., List[SubResult]]
 
 __all__ = [
+    "ChildSpec",
     "SpawnFn",
     "BatchSpawnFn",
     "SubagentError",
@@ -166,20 +195,27 @@ def make_spawn(
     depth: int = 1,
     *,
     counter: Optional["_AgentBudget"] = None,
+    parent_task_id: Optional[str] = None,
 ) -> SpawnFn:
     """Build a depth-bound spawn callback over :func:`run_subagent`.
 
     The returned closure captures ``repo_path``, ``parent_config``,
     ``parent_engine``, this ``depth`` (the nesting level of the child it will
-    launch — top-level children are ``depth=1``), and the shared global
-    ``counter`` (#t4). The loop wiring (t6) calls
-    ``make_spawn(task.repo_path, config, task.engine, counter=budget)`` and
-    assigns the result to ``config.subagent_spawn``; the tool executor then calls
+    launch — top-level children are ``depth=1``), the shared global
+    ``counter`` (#t4), and ``parent_task_id`` (spec R6 / plan t16 / #259) — the
+    task id every child launched through THIS closure records on its
+    ``SubResult.parent``. The loop wiring (t6) calls
+    ``make_spawn(task.repo_path, config, task.engine, counter=budget,
+    parent_task_id=task.id)`` and assigns the result to
+    ``config.subagent_spawn``; the tool executor then calls
     ``spawn(instruction, engine, model, role)`` per delegation.
+    ``parent_task_id=None`` (the default) omits lineage — byte-identical to the
+    pre-t16 behavior.
 
-    Each launched child is itself handed a spawn callback bound to ``depth + 1``
-    and the SAME ``counter`` inside :func:`run_subagent`, so both the depth bound
-    and the global agent budget are carried down every level structurally.
+    Each launched child is itself handed a spawn callback bound to ``depth + 1``,
+    the SAME ``counter``, and ITS OWN task id as ``parent_task_id`` inside
+    :func:`run_subagent`, so the depth bound, the global agent budget, and
+    lineage are all carried down every level structurally.
     """
 
     def spawn(
@@ -204,6 +240,7 @@ def make_spawn(
             model=model,
             role=role,
             counter=counter,
+            spec=ChildSpec(parent_task_id=parent_task_id),
         )
 
     return spawn
@@ -220,8 +257,24 @@ def run_subagent(
     model: Optional[str] = None,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
+    spec: Optional[ChildSpec] = None,
 ) -> SubResult:
     """Run one nested child work item and return its :class:`SubResult`.
+
+    ``spec`` (a :class:`ChildSpec`) bundles the per-child extras: the explicit
+    t12 budget (``max_steps`` / ``context_budget_tokens`` — ``None`` inherits
+    the parent's value unchanged, byte-identical to pre-scaling), the t16
+
+    ``goal`` / ``acceptance`` (spec R6 / plan t16 / #259), threaded onto the
+    child's own ``Task`` unchanged, so the loop's t15 goal/acceptance prompt
+    block and the advisory acceptance self-check fire for this child exactly as
+    they would for a top-level work item (``None`` — the pre-t16 behavior and
+    the single-child ``subagent`` tool path — builds a byte-identical goal-less
+    child ``Task``), and ``parent_task_id``, which when given is recorded on
+    the returned ``SubResult.parent`` — the IMMEDIATE parent's task id (not
+    necessarily the top-level root), so a subagent tree is walkable one hop at
+    a time from artifacts alone. ``None`` (the default) omits ``parent`` from
+    the serialized result, byte-identical to the pre-lineage behavior.
 
     ``depth`` is the nesting level of THIS child (top-level children = 1). Two
     structural caps are enforced *first, before any work* — a refused child does
@@ -239,8 +292,10 @@ def run_subagent(
     (#t4) — both pure config-level switches with no engine code change. The engine
     builds the child's curated tool schema + role-composed prompt from
     ``config.role`` (t8). The child is given its own ``subagent_spawn`` AND
-    ``subagent_batch_spawn`` bound to ``depth + 1`` and the SAME ``counter`` so it
-    can delegate further (nested batches now permitted), still globally bounded.
+    ``subagent_batch_spawn`` bound to ``depth + 1``, the SAME ``counter``, and
+    ``parent_task_id`` set to THIS child's own task id — so a grandchild records
+    ITS immediate parent (this child), not the top-level root — so it can
+    delegate further (nested batches now permitted), still globally bounded.
 
     The work item runs via ``engine.work`` — the bounded loop, **no** git handoff,
     fully synchronous.
@@ -257,6 +312,8 @@ def run_subagent(
     if counter is not None:
         counter.charge()
 
+    spec = spec or ChildSpec()
+
     # (b) Resolve + load the child engine by name. A bad name surfaces as a clean
     # SubagentError (never an unrelated crash upstream).
     child_engine = engine or parent_engine
@@ -265,38 +322,67 @@ def run_subagent(
     except registry.UnknownEngine as exc:
         raise SubagentError(str(exc)) from exc
 
-    # (c) Inherit the parent's config, overriding ONLY the model and the typed role
-    # when provided. dataclasses.replace keeps base_url/api_key/max_steps/... intact
+    # (c) Inherit the parent's config, overriding ONLY the model, the typed role,
+    # and (t12) an explicit child budget when the caller provides one — the batch
+    # path passes the width-scaled share here, and a per-item override wins over
+    # that share upstream. dataclasses.replace keeps base_url/api_key/... intact
     # and leaves the parent object untouched. The cast is purely for the static
     # analyser (Sonar models replace()'s return as a generic DataclassInstance).
+    replace_kwargs: dict = {
+        "model": (model or parent_config.model),
+        "role": role,
+    }
+    if spec.max_steps is not None:
+        replace_kwargs["max_steps"] = spec.max_steps
+    if spec.context_budget_tokens is not None:
+        replace_kwargs["context_budget_tokens"] = spec.context_budget_tokens
     child_config = cast(
         EngineConfig,
-        dataclasses.replace(
-            parent_config,
-            model=(model or parent_config.model),
-            role=role,
-        ),
+        dataclasses.replace(parent_config, **replace_kwargs),
     )
 
-    # (d) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
+    # (d) Build the child's own Task FIRST (goal/acceptance carried structurally,
+    # t16), so its id is known when we build ITS nested spawn/batch-spawn
+    # callbacks below — a grandchild's SubResult.parent must name ITS immediate
+    # parent (this child), never the top-level root.
+    child_task = Task.new(
+        repo_path,
+        instruction,
+        engine=child_engine,
+        goal=spec.goal,
+        acceptance=list(spec.acceptance) if spec.acceptance is not None else None,
+    )
+
+    # (e) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
     # and the SAME global budget, so it can delegate further (single OR batch),
     # still bounded by both the depth cap and the shared agent budget. Nested
     # batches are now PERMITTED (#t4): the child's batch closure is bound to the
     # CHILD's repo_path/depth/counter, so a child batch runs against the correct
     # worktree, increments depth, and counts against the one global budget.
+    # ``parent_task_id=child_task.id`` (t16) so a grandchild's lineage points at
+    # THIS child, not the top-level root.
     child_config.subagent_spawn = make_spawn(
-        repo_path, child_config, child_engine, depth + 1, counter=counter
+        repo_path,
+        child_config,
+        child_engine,
+        depth + 1,
+        counter=counter,
+        parent_task_id=child_task.id,
     )
     child_config.subagent_batch_spawn = make_batch_spawn(
-        repo_path, child_config, child_engine, depth + 1, counter=counter
+        repo_path,
+        child_config,
+        child_engine,
+        depth + 1,
+        counter=counter,
+        parent_task_id=child_task.id,
     )
 
-    # (e) Build + run the nested child work item. engine.work runs the bounded loop
+    # (f) Run the nested child work item. engine.work runs the bounded loop
     # and never hands off; the call is synchronous (no thread/process/socket).
-    child_task = Task.new(repo_path, instruction, engine=child_engine)
     result = eng.work(child_task, child_config)
 
-    # (f) Project the child's TaskResult onto the nested-only SubResult shape.
+    # (g) Project the child's TaskResult onto the nested-only SubResult shape.
     return SubResult(
         task_id=result.task_id,
         engine=child_engine,
@@ -306,12 +392,78 @@ def run_subagent(
         changed_files=list(result.changed_files),
         usage=result.usage,
         role=role,
+        parent=spec.parent_task_id,
     )
 
 
 # ---------------------------------------------------------------------------
 # Parallel batch orchestration: per-worktree children + sequential merge child.
 # ---------------------------------------------------------------------------
+
+
+def _positive_int_or_none(value: object) -> Optional[int]:
+    """A positive int, or None (bools and non-ints are not budgets)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
+
+
+def _child_budget_share(
+    parent_config: EngineConfig, width: int
+) -> tuple[Optional[int], Optional[int]]:
+    """The per-child ``(max_steps, context_budget_tokens)`` share at *width*.
+
+    ``(None, None)`` at width <= 1 — the sequential path inherits the parent's
+    full budget unchanged (byte-identical, h5). At width > 1 each concurrent
+    child gets ``parent // width``, floored at the ``_MIN_CHILD_*`` constants
+    but never above the parent's own value, so W concurrent children stop
+    scheduling W full parent budgets against one served model (spec R5).
+    """
+    if width <= 1:
+        return None, None
+    steps = min(
+        parent_config.max_steps,
+        max(_MIN_CHILD_MAX_STEPS, parent_config.max_steps // width),
+    )
+    budget = min(
+        parent_config.context_budget_tokens,
+        max(
+            _MIN_CHILD_CONTEXT_BUDGET,
+            parent_config.context_budget_tokens // width,
+        ),
+    )
+    return steps, budget
+
+
+def _batch_all_read_only(items: List[dict], batch_role: Optional[str]) -> bool:
+    """True when every child's effective role is a read-only builtin.
+
+    The effective role mirrors ``_spawn_children``: the item's own ``role``,
+    falling back to the batch-level role. Read-only children provably cannot
+    write (role-withheld tools), so the batch's merge child is structurally a
+    no-op over empty diffs.
+    """
+    if not items:
+        return False
+    return all(is_read_only(item.get("role") or batch_role) for item in items)
+
+
+def _resolve_batch_width(
+    parent_config: EngineConfig, items: List[dict], batch_role: Optional[str]
+) -> int:
+    """Effective concurrency width for a batch (t12).
+
+    Normally ``effective_concurrency`` clamps to ``MAX_SUBAGENT_FANOUT - 1`` —
+    one fan-out slot stays reserved for the merge child. A batch whose children
+    are ALL read-only roles frees that reservation (its merge is a no-op), so
+    its width may use the full ``MAX_SUBAGENT_FANOUT``. Always clamped to the
+    item count; width 1 (the default) never touches a thread pool.
+    """
+    if _batch_all_read_only(items, batch_role):
+        width = min(max(1, parent_config.subagent_concurrency), MAX_SUBAGENT_FANOUT)
+    else:
+        width = effective_concurrency(parent_config.subagent_concurrency)
+    return min(width, len(items))
 
 
 def _child_id(batch_token: str, index: int) -> str:
@@ -336,6 +488,7 @@ def _run_child_in_worktree(
     model: Optional[str] = None,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
+    spec: Optional[ChildSpec] = None,
 ) -> SubResult:
     """Drive ONE batch child inside its own git worktree, then commit its branch.
 
@@ -349,6 +502,9 @@ def _run_child_in_worktree(
        :func:`colleague.worktrees.worktree_add`.
     2. Run the nested child work item via :func:`run_subagent`, with its ``repo_path``
        set to the worktree path so all its file writes land on the child branch.
+       ``goal``/``acceptance`` (t16) are forwarded unchanged onto the child's
+       ``Task``; ``parent_task_id`` (t16) is recorded on the returned
+       ``SubResult.parent``.
     3. Commit the child's changes onto its branch via
        :func:`colleague.worktrees.commit_all` (an empty diff is a no-op, not an
        error).
@@ -369,6 +525,7 @@ def _run_child_in_worktree(
         model=model,
         role=role,
         counter=counter,
+        spec=spec,
     )
     # Commit whatever the child wrote onto its sub/<child_id> branch so the
     # post-join merge has something to integrate. An empty diff is fine.
@@ -382,6 +539,7 @@ def _merge_children(
     *,
     merge_engine: str,
     merge_model: str,
+    parent_task_id: Optional[str] = None,
 ) -> tuple[SubResult, List[str]]:
     """Sequentially merge each child branch into the working branch (the merge child).
 
@@ -399,6 +557,10 @@ def _merge_children(
     is the list of children whose merge conflicted; the caller MUST preserve those
     children's ``sub/<id>`` branches during teardown (do not delete them) so the
     "integrate manually" instruction in the summary is honoured.
+
+    ``parent_task_id`` (t16), when given, is recorded on the merge child's
+    ``SubResult.parent`` too, for consistency with its sibling children —
+    ``None`` (the default) omits it, byte-identical to before.
     """
     merged: List[str] = []
     noop: List[str] = []
@@ -440,6 +602,7 @@ def _merge_children(
         summary=summary,
         changed_files=[],
         usage=Usage(),
+        parent=parent_task_id,
     )
     return merge_child, conflicted
 
@@ -451,16 +614,20 @@ def make_batch_spawn(
     depth: int = 1,
     *,
     counter: Optional["_AgentBudget"] = None,
+    parent_task_id: Optional[str] = None,
 ) -> BatchSpawnFn:
     """Build a batch spawn callback that fans children out and merges them back.
 
     Analogous to :func:`make_spawn`, but for a BATCH: the returned closure takes a
-    list of items (``{"instruction", "engine", "model"}``) and returns a FLAT
+    list of items (``{"instruction", "engine", "model"}``, optionally carrying
+    ``"goal"``/``"acceptance"`` per item, t16) and returns a FLAT
     ``list[SubResult]`` — the N child results in INPUT ORDER followed by exactly
     one merge child ("child C"). The loop wiring (t5) calls
-    ``make_batch_spawn(task.repo_path, config, task.engine)`` and the
-    ``subagents`` tool (t4) folds the whole returned list into
-    ``TaskResult.sub_results``.
+    ``make_batch_spawn(task.repo_path, config, task.engine, parent_task_id=task.id)``
+    and the ``subagents`` tool (t4) folds the whole returned list into
+    ``TaskResult.sub_results``. ``parent_task_id`` (t16) is recorded on every
+    child's (and the merge child's) ``SubResult.parent``; ``None`` (the default)
+    omits it, byte-identical to the pre-t16 behavior.
 
     Concurrency is governed by
     ``effective_concurrency(parent_config.subagent_concurrency)``:
@@ -486,6 +653,7 @@ def make_batch_spawn(
             depth=depth,
             role=role,
             counter=counter,
+            parent_task_id=parent_task_id,
         )
 
     return batch_spawn
@@ -502,6 +670,7 @@ def _spawn_children(
     depth: int,
     role: Optional[str],
     counter: Optional["_AgentBudget"],
+    parent_task_id: Optional[str] = None,
 ) -> List[Optional[SubResult]]:
     """Run every batch child and return the results in INPUT ORDER.
 
@@ -513,8 +682,14 @@ def _spawn_children(
     """
     results: List[Optional[SubResult]] = [None] * len(items)
 
+    # Width-scaled default budget share (t12): computed once for the batch;
+    # (None, None) at width <= 1, so the sequential path stays byte-identical.
+    share_steps, share_budget = _child_budget_share(parent_config, width)
+
     def _run_one(i: int) -> SubResult:
         item = items[i]
+        item_steps = _positive_int_or_none(item.get("max_steps"))
+        item_budget = _positive_int_or_none(item.get("context_budget_tokens"))
         return _run_child_in_worktree(
             repo_path,
             child_ids[i],
@@ -526,6 +701,17 @@ def _spawn_children(
             model=(item.get("model") or None),
             role=(item.get("role") or role),
             counter=counter,
+            spec=ChildSpec(
+                # An explicit per-item budget wins over the width-scaled share.
+                max_steps=(item_steps if item_steps is not None else share_steps),
+                context_budget_tokens=(item_budget if item_budget is not None else share_budget),
+                # Structural goal/acceptance (t16): programmatic-only, e.g. the
+                # plan workforce's build_workforce_items — never model-facing
+                # (the subagents tool's _parse_batch_items strips to its keys).
+                goal=(item.get("goal") or None),
+                acceptance=(item.get("acceptance") or None),
+                parent_task_id=parent_task_id,
+            ),
         )
 
     if width <= 1:
@@ -552,6 +738,7 @@ def _run_batch(
     depth: int,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
+    parent_task_id: Optional[str] = None,
 ) -> List[SubResult]:
     """Fan a batch of children out concurrently, then merge their branches.
 
@@ -572,6 +759,7 @@ def _run_batch(
             [],
             merge_engine=parent_engine,
             merge_model=parent_config.model,
+            parent_task_id=parent_task_id,
         )
         return [empty_merge]
 
@@ -586,11 +774,11 @@ def _run_batch(
             f"{len(items)} exceeds {counter.remaining()} remaining"
         )
 
-    # (b) Resolve the effective concurrency width. Width 1 (the default) is the
-    # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to the
-    # pre-concurrency behavior. Also defensively clamp workers to the item count.
-    width = effective_concurrency(parent_config.subagent_concurrency)
-    width = min(width, len(items))
+    # (b) Resolve the effective concurrency width (t12: an all-read-only batch
+    # frees the merge-child reservation). Width 1 (the default) is the
+    # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to
+    # the pre-concurrency behavior.
+    width = _resolve_batch_width(parent_config, items, role)
 
     # (c) Assign a deterministic-within-batch token + per-child ids up front (main
     # thread), so the branch names are stable relative to each other.
@@ -617,6 +805,7 @@ def _run_batch(
             depth=depth,
             role=role,
             counter=counter,
+            parent_task_id=parent_task_id,
         )
 
         # (d) SEQUENTIAL merge child, AFTER the join — never races child writes.
@@ -625,6 +814,7 @@ def _run_batch(
             child_ids,
             merge_engine=parent_engine,
             merge_model=parent_config.model,
+            parent_task_id=parent_task_id,
         )
         conflicted_ids = set(conflicted)
 

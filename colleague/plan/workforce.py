@@ -27,17 +27,23 @@ def build_workforce_items(
 ) -> list[dict]:
     """Map each PlanItem to a batch-spawn item dict.
 
-    The instruction embeds the summary plus acceptance criteria so the child
-    subagent knows what to deliver.  Order is preserved.
+    The acceptance criteria are carried STRUCTURALLY (a ``"acceptance"`` key)
+    rather than flattened into the instruction prose (spec R6 / plan t16 /
+    #259) — the instruction keeps only the task description. A ``"goal"`` key
+    carries the PlanItem's summary too, so the batch path
+    (:func:`colleague.subagents.make_batch_spawn`) can build each child's
+    ``Task`` with ``goal=``/``acceptance=`` set, letting the existing t15 loop
+    machinery (the goal/acceptance prompt block + the advisory self-check)
+    fire for workforce children automatically. Order is preserved.
     """
     result: list[dict] = []
     for item in items:
-        lines = ["- " + c for c in item.acceptance]
-        instruction = f"{item.summary}\n\nAcceptance criteria:\n" + "\n".join(lines)
         entry: dict = {
-            "instruction": instruction,
+            "instruction": item.summary,
             "engine": engine,
             "model": model,
+            "goal": item.summary,
+            "acceptance": list(item.acceptance),
         }
         if role is not None:
             entry["role"] = role

@@ -158,6 +158,7 @@ class TestBatchShape:
             model=None,
             role=None,
             counter=None,
+            spec=None,
         ):
             seen_repo_paths.append(repo_path)
             return real_run(
@@ -170,6 +171,7 @@ class TestBatchShape:
                 model=model,
                 role=role,
                 counter=counter,
+                spec=spec,
             )
 
         sa.run_subagent = _spy_run
@@ -225,6 +227,7 @@ class TestMerge:
             model=None,
             role=None,
             counter=None,
+            spec=None,
         ):
             # Create the isolated worktree (the real runner does this), write a
             # unique file inside it keyed on the instruction, and commit the branch.
@@ -275,6 +278,7 @@ class TestMerge:
             model=None,
             role=None,
             counter=None,
+            spec=None,
         ):
             # Both children write the SAME path with DIFFERENT content -> conflict.
             wt = worktrees.worktree_add(repo_path, child_id)
@@ -332,6 +336,7 @@ class TestMerge:
             model=None,
             role=None,
             counter=None,
+            spec=None,
         ):
             wt = worktrees.worktree_add(repo_path, child_id)
             # Both children write the SAME path with DIFFERENT content -> the
@@ -407,6 +412,7 @@ class TestConcurrency:
             model=None,
             role=None,
             counter=None,
+            spec=None,
         ):
             time.sleep(_DELAY)
             return SubResult(
@@ -477,6 +483,7 @@ class TestConcurrency:
             model=None,
             role=None,
             counter=None,
+            spec=None,
         ):
             order.append(instruction)
             return SubResult(

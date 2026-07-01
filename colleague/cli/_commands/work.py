@@ -29,14 +29,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import flight, registry, worktrees
+from colleague import flight, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
-from colleague.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, apply_mode_profile, resolve_engine
 from colleague.contract import INCOMPLETE, OK, Task, TaskResult
 from colleague.feedback import set_last_work
 from colleague.handoff import (
@@ -330,6 +330,19 @@ def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
         worktrees.commit_iso_worktree_wip(worktree_path, reason=f"stop ({status})")
 
 
+def _moded_config(config: EngineConfig, mode: str | None, repo: Path) -> EngineConfig:
+    """Apply *mode*'s constraint profile to *config* (t3 / spec R1 / #254).
+
+    A strict no-op without a mode (h1). The caller's explicit CLI knobs travel
+    on ``config.explicit_knobs`` (a runtime-only field, the ``role`` precedent
+    — keeps execute_work under the S107 parameter ceiling) and are never
+    overwritten. Extracted from :func:`execute_work` (SonarCloud S3776).
+    """
+    if not mode:
+        return config
+    return apply_mode_profile(config, mode, explicit=config.explicit_knobs, repo_path=repo)
+
+
 def execute_work(
     *,
     repo: Path,
@@ -344,6 +357,7 @@ def execute_work(
     tui: bool | None = None,
     tui_events: str | None = None,
     progress_sink: "CockpitProgressSink | None" = None,
+    mode: str | None = None,
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
 
@@ -385,6 +399,19 @@ def execute_work(
         passes a sink bound to its own `CockpitState` + frame-writer so a work item
         renders into the session's one shared screen. Replaces the auto-constructed
         cockpit; ``None`` (the default) preserves the byte-identical `work` path.
+    mode:
+        Constraint-profile mode (t3 / spec R1 / #254). When set, the mode's
+        profile (``colleague.profiles`` + operator overlays) fills the
+        constraint knobs the operator left untouched, via
+        :func:`colleague.config.apply_mode_profile` — the ONE code path shared
+        by the ``work --mode`` flag and the session's mode selection. ``None``
+        (the default) is a strict no-op (byte-identical config). Also recorded
+        on ``result.mode`` before *every* artifact write — including the failure
+        path — mirroring ``command_name`` above (t7 / spec R3 / #256); omitted
+        from the serialized artifact when ``None``.
+        The caller's explicit CLI knobs travel on ``config.explicit_knobs``
+        (a runtime-only EngineConfig field, the ``role`` precedent) — those
+        are never overwritten by the mode profile (precedence h1).
 
     Returns
     -------
@@ -397,6 +424,11 @@ def execute_work(
         On unknown engine or engine-level failure (artifact is still written
         before the exception is raised — honesty h5).
     """
+    # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
+    # operator left untouched, BEFORE anything reads the config (extracted to
+    # _moded_config for the S3776 budget). One code path for every entry door.
+    config = _moded_config(config, mode, repo)
+
     try:
         engine = registry.load(engine_name)
     except registry.UnknownEngine as exc:
@@ -465,13 +497,37 @@ def execute_work(
             # by MAX_SUBAGENT_DEPTH. ONE shared agent budget is threaded into BOTH
             # callbacks so the global MAX_SUBAGENT_TOTAL cap is actually enforced
             # across single + batch + nested delegation (#t4 Q3 wiring fix).
+            # `parent_task_id=task.id` (spec R6 / plan t16 / #259) records THIS
+            # work item's id on every direct child's `SubResult.parent`, so a
+            # subagent tree is walkable from artifacts alone.
             budget = new_agent_budget(config)
-            config.subagent_spawn = make_spawn(task.repo_path, config, task.engine, counter=budget)
-            config.subagent_batch_spawn = make_batch_spawn(
-                task.repo_path, config, task.engine, counter=budget
+            config.subagent_spawn = make_spawn(
+                task.repo_path,
+                config,
+                task.engine,
+                counter=budget,
+                parent_task_id=task.id,
             )
+            config.subagent_batch_spawn = make_batch_spawn(
+                task.repo_path,
+                config,
+                task.engine,
+                counter=budget,
+                parent_task_id=task.id,
+            )
+            # Rig-level cooperative concurrency budget (t13 / spec R5 / #258): hold
+            # ONE slot for the whole model-driving loop, so concurrent TOP-LEVEL
+            # work items sharing this repo's endpoint serialize to the operator's
+            # declared width instead of starving each other toward the timeout
+            # (#239's interference class). Deliberately NOT taken per subagent
+            # child: a parent holding a slot would starve its own children
+            # (deadlock-by-composition) — in-run fan-out is already budgeted by
+            # width-scaled child budgets (t12) + the backpressure throttle (t6).
+            # Strict no-op without .colleague/rig.json; degrades OPEN after the
+            # wait cap (an advisory backstop, never a wedge).
             try:
-                result = engine.work(task, config)
+                with rig.rig_slot(repo, on_wait=emit_diagnostic):
+                    result = engine.work(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
                 # Prefer the partial result the loop preserved on an engine raise
                 # (#37): its steps / usage / changed_files + trace reflect the work
@@ -494,6 +550,10 @@ def execute_work(
                     # No partial result -> the trace is empty; don't claim otherwise.
                     artifact_note = "a result artifact was still written"
                 result.command = command_name
+                # Mode (t7 / spec R3 / #256): recorded on the failure path too — a
+                # moded run that raises still carries the mode that drove it, before
+                # this artifact write (the mirror of command_name just above).
+                result.mode = mode
                 work_span.set(status=result.status)
                 write(result, artifact_dir(repo))
                 # The work item happened (even if it failed) — record it as 'last' so
@@ -537,6 +597,10 @@ def execute_work(
                 pr_url=result.pr_url,
             )
             result.command = command_name
+            # Mode (t7 / spec R3 / #256): recorded before the artifact write, mirroring
+            # command_name just above. `mode` is None when no mode was selected, and
+            # TaskResult.to_dict() omits the key in that case (byte-identical shape).
+            result.mode = mode
             artifact_path = write(result, artifact_dir(repo))
             # Record this as the repo's most recent work item so `colleague feedback
             # last` resolves to it. Best-effort: a pointer write must never break
@@ -601,6 +665,26 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
     return Task.new(str(repo), " ".join(positional_tokens), engine=engine)
 
 
+def _validated_mode(mode: str | None) -> str | None:
+    """Validate a ``--mode`` value against the session-mode catalog.
+
+    ``None`` passes through (no profile). An unknown name raises a clean,
+    choices-shaped :class:`CliError` — never a silent no-op profile.
+    """
+    if mode is None:
+        return None
+    # Lazy import: session_modes is a leaf catalog; keep work's import graph flat.
+    from colleague.session_modes import MODES
+
+    if mode not in MODES:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"unknown mode: {mode}",
+            f"valid modes: {', '.join(MODES)}",
+        )
+    return mode
+
+
 def cmd_work(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
 
@@ -629,6 +713,16 @@ def cmd_work(args: argparse.Namespace) -> int:
     )
 
     config.role = getattr(args, "role", None)
+
+    # Mode validation (t3): a typo must fail loudly with the valid choices, not
+    # silently no-op. Validated explicitly + early (the --algo idiom — a
+    # value-carrying flag cannot take a parse-time choices= without colliding
+    # with its signature-derived flag at App build time). Explicit CLI knobs
+    # ride config.explicit_knobs (runtime-only, the role precedent) so the
+    # profile never overwrites them.
+    mode = _validated_mode(getattr(args, "mode", None))
+    if args.max_steps is not None:
+        config.explicit_knobs = frozenset({"max_steps"})
 
     _apply_lint_optout(args, config)
     _apply_affected_tests_optout(args, config)
@@ -671,6 +765,7 @@ def cmd_work(args: argparse.Namespace) -> int:
             command_name=command_name or None,
             tui=getattr(args, "tui", None),
             tui_events=getattr(args, "tui_events", None),
+            mode=mode,
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to
@@ -783,6 +878,16 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--mode",
+        default=None,
+        help=(
+            "Constraint-profile mode (auto|work|plan|explore|review): applies the "
+            "mode's step/context/reserve/timeout/fill-line profile as DEFAULTS — "
+            "explicit flags and COLLEAGUE_* env vars still win. Profiles only; the "
+            "tool surface is selected by --role."
+        ),
+    )
     p.add_argument(
         "--tui",
         action=argparse.BooleanOptionalAction,

@@ -1032,6 +1032,7 @@ has no model).
 ## Verbs
 
 - `plan "<request>"` — plan a task end to end (spec -> plan -> workforce)
+- `plan continue` — resume an interrupted plan run from its checkpoint (#t17)
 - `plan status` — read the last plan checkpoint
 - `plan overview` — describe the plan surface
 
@@ -1044,12 +1045,32 @@ You gate each proposed item — colleague proposes, you confirm/reject:
 - `--review`: run the same-model critic before each gate (advisory)
 
 Colleague never self-confirms; planning/implementation never runs before the spec
-converges. The cross-invocation `plan continue` resume is a documented follow-up.
+converges.
+
+## Resuming: `plan continue`
+
+If a `plan run` is interrupted (killed, crashed, closed terminal), `plan
+continue` resumes it from the checkpoint written under `.colleague/plan/<frame>.json`
+(`<frame>` defaults to `plan`; `--frame <slug>` targets a different one) —
+**without re-asking the gates it already resolved.** It is a thin wrapper over
+the same orchestrator entry as `run`: it reads the checkpoint's stored request
+and resolved-gate count, reports `resuming '<frame>': N gate(s) already
+resolved` to stderr, then resumes in the already-shipped `quick=True` mode
+(which never calls `decide` for spec claims/honesty), so those resolved gates
+are structurally never re-asked. It **refuses cleanly** (a `CliError` with a
+remediation hint, never a traceback) when there is no checkpoint to resume
+from, or when the checkpoint predates this feature and has no stored request —
+that refusal is exactly what distinguishes `continue` from `run`. Accepts the
+same `--repo`/`--engine`/`--model`/`--yes`/`--review`/`--no-workforce`/`--json`
+flags as `run` (no `--quick` — resuming is always the quick/skip-spec-stage
+path, so the flag would be a silent no-op).
 
 ## Usage
 
     colleague plan "add a rate limiter to the API" --repo .
     colleague plan "refactor the auth module" --yes --json
+    colleague plan continue --repo .                  # resume after an interruption
+    colleague plan continue --frame my-plan --yes --repo .
     colleague plan status --repo .
     colleague plan overview
 """
@@ -1157,6 +1178,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("flight", "overview"): _FLIGHT,
     ("plan",): _PLAN,
     ("plan", "run"): _PLAN,
+    ("plan", "continue"): _PLAN,
     ("plan", "status"): _PLAN,
     ("plan", "overview"): _PLAN,
     ("mcp",): _MCP,

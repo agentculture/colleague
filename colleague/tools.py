@@ -942,13 +942,25 @@ class ToolExecutor:
         # Batch-level role (#t4): applies to every child unless an item set its own.
         batch_role = arguments.get("role") or None
 
-        # Fan-out cap: reserve one slot for the merge child.  The batch may have
-        # at most MAX_SUBAGENT_FANOUT - 1 parallel children.
-        _batch_cap = MAX_SUBAGENT_FANOUT - 1
+        # Fan-out cap: reserve one slot for the merge child — EXCEPT for a batch
+        # whose children are ALL read-only roles (t12): they provably cannot
+        # write, so the merge child is a structural no-op and the reservation
+        # is freed (the full MAX_SUBAGENT_FANOUT is usable).
+        from colleague.roles import is_read_only
+
+        all_read_only = bool(items) and all(
+            is_read_only(item.get("role") or batch_role) for item in items
+        )
+        _batch_cap = MAX_SUBAGENT_FANOUT if all_read_only else MAX_SUBAGENT_FANOUT - 1
         if len(items) > _batch_cap:
+            reason = (
+                "the read-only batch limit"
+                if all_read_only
+                else "one slot is reserved for the merge child"
+            )
             raise ToolError(
                 f"subagents fan-out limit ({_batch_cap} parallel children) exceeded; "
-                f"got {len(items)} instructions (one slot is reserved for the merge child)"
+                f"got {len(items)} instructions ({reason})"
             )
 
         try:

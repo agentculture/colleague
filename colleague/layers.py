@@ -27,6 +27,16 @@ Two families ship here:
        .colleague/skills/*.md           (base)
        .colleague/<model>/skills/*.md   (model overlay, shadows base by stem)
 
+   The composed catalog can be **token-capped** (:func:`compose_skills`,
+   :func:`resolve_skills_token_cap`, :func:`select_skills_within_budget`): an
+   optional ``<!-- skill-priority: N -->`` marker (lower ``N`` = higher
+   priority, default 100) decides which WHOLE skills survive when a cap
+   would otherwise be exceeded — never a mid-skill truncation, and always an
+   explicit ``omitted N skill(s) over the token cap: ...`` note. A cap of
+   ``0`` (the default, whether from an explicit parameter or the absent
+   ``COLLEAGUE_SKILLS_TOKEN_CAP`` env var) is uncapped: byte-identical to the
+   catalog with no cap awareness at all.
+
 3. **Typed roles** — :func:`compose_role_prompt` extends the existing
    prompt-assembly path with an optional role: the role's ``prompt_fragment``
    composes after AGENTS layers, and the role's ``skill_subset`` filters the
@@ -49,12 +59,15 @@ notes); colleague does not read ``mcp.json`` today. Only stdlib is used.
 
 from __future__ import annotations
 
+import fnmatch
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from colleague.configdir import collect_files, config_roots
+from colleague.context import count_tokens_chars
 
 if TYPE_CHECKING:
     from colleague.roles import Role
@@ -250,18 +263,29 @@ def resolve_skills(
     return skills
 
 
+#: A single-line HTML comment, e.g. ``<!-- learned-from: ... -->`` or
+#: ``<!-- skill-priority: 5 -->`` — a metadata marker, never the summary.
+_HTML_COMMENT_LINE_RE = re.compile(r"^<!--.*-->$")
+
+
 def _first_summary_line(text: str) -> str:
     """First descriptive line of a skill doc, as a one-line summary.
 
-    Prefers the first non-empty, non-heading line — skill bodies usually open
-    with an ``# H1`` title that just repeats the skill name, so the prose line
-    beneath it is the useful summary. Falls back to the first heading's text if
-    the doc is heading-only.
+    Prefers the first non-empty, non-heading, non-comment-marker line — skill
+    bodies usually open with an ``# H1`` title that just repeats the skill
+    name, so the prose line beneath it is the useful summary. A single-line
+    HTML comment (the ``<!-- learned-from: ... -->`` provenance marker or the
+    ``<!-- skill-priority: N -->`` marker) is skipped wherever it appears, so
+    an operator-authored priority marker never leaks into the composed
+    catalog as if it were the summary. Falls back to the first heading's text
+    if the doc is heading-only.
     """
     fallback = ""
     for raw in text.splitlines():
         stripped = raw.strip()
         if not stripped:
+            continue
+        if _HTML_COMMENT_LINE_RE.match(stripped):
             continue
         if stripped.startswith("#"):
             if not fallback:
@@ -271,23 +295,210 @@ def _first_summary_line(text: str) -> str:
     return fallback
 
 
-def compose_skills(skills: dict[str, Skill]) -> str:
+# --- Priority marker + token-capped composition -----------------------------
+
+#: ``<!-- skill-priority: N -->`` — the same HTML-comment-marker idiom as
+#: learn-from's ``<!-- learned-from: ... -->`` provenance marker. Lower ``N``
+#: means higher priority (survives longest when the catalog must be capped).
+_SKILL_PRIORITY_RE = re.compile(r"<!--\s*skill-priority:\s*(-?\d+)\s*-->")
+
+#: Priority assigned to a skill doc that carries no (or a malformed)
+#: ``skill-priority`` marker. A neutral middle value: an explicitly
+#: high-priority skill (``N < 100``) always outranks an unmarked one, and an
+#: explicitly low-priority skill (``N > 100``) is dropped before an unmarked
+#: one.
+SKILL_PRIORITY_DEFAULT = 100
+
+#: Env vars resolving the skills-catalog token cap, highest precedence first.
+#: ``CONVERTIBLE_*`` is the deprecated legacy name honored as a read fallback
+#: (matches every other ``COLLEAGUE_*``/``CONVERTIBLE_*`` pair in the repo).
+_SKILLS_TOKEN_CAP_ENV = ("COLLEAGUE_SKILLS_TOKEN_CAP", "CONVERTIBLE_SKILLS_TOKEN_CAP")
+
+#: 0 = uncapped. This is the honesty-condition-h4 floor: with no explicit cap
+#: (no parameter, no env var) composition is byte-identical to today.
+_DEFAULT_SKILLS_TOKEN_CAP = 0
+
+
+def parse_skill_priority(text: str) -> int:
+    """Parse the optional ``<!-- skill-priority: N -->`` marker from *text*.
+
+    Returns :data:`SKILL_PRIORITY_DEFAULT` (100) when the marker is absent or
+    does not match (e.g. a non-integer value) — never raises.
+    """
+    match = _SKILL_PRIORITY_RE.search(text)
+    if not match:
+        return SKILL_PRIORITY_DEFAULT
+    return int(match.group(1))
+
+
+def skill_priority(skill: Skill) -> int:
+    """Read + parse *skill*'s declared priority (see :func:`parse_skill_priority`).
+
+    Convenience for a caller that only has a :class:`Skill` (e.g. the
+    ``skills`` CLI inspection verb) — degrades to
+    :data:`SKILL_PRIORITY_DEFAULT` on an unreadable doc, same as an absent
+    marker.
+    """
+    return parse_skill_priority(_read_skill_text(skill))
+
+
+def count_skill_tokens_chars(text: str) -> int:
+    """Default token-cap counter for skill-catalog text.
+
+    The skills catalog is composed as flat markdown text, not the OpenAI
+    chat-message-list shape :func:`colleague.context.count_tokens_chars`
+    expects, so this adapts one into the other rather than re-implementing
+    the char-heuristic (chars // 4, minimum 1 for non-empty text) — the two
+    heuristics can never drift apart because this delegates directly.
+    """
+    if not text:
+        return 0
+    return count_tokens_chars([{"content": text}])
+
+
+def resolve_skills_token_cap(explicit: int | None = None) -> int:
+    """Resolve the skills-catalog token cap.
+
+    Precedence: *explicit* parameter wins; else the
+    ``COLLEAGUE_SKILLS_TOKEN_CAP`` env var; else the legacy
+    ``CONVERTIBLE_SKILLS_TOKEN_CAP`` env var; else the built-in default
+    (``0`` = uncapped). A malformed env value is skipped, not raised.
+    """
+    if explicit is not None:
+        return explicit
+    for key in _SKILLS_TOKEN_CAP_ENV:
+        raw = os.environ.get(key)
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                continue
+    return _DEFAULT_SKILLS_TOKEN_CAP
+
+
+def select_skills_within_budget(
+    skills: dict[str, Skill],
+    token_cap: int,
+    *,
+    count_tokens: Callable[[str], int] | None = None,
+) -> tuple[dict[str, Skill], list[str]]:
+    """Select the subset of *skills* whose composed catalog fits *token_cap*.
+
+    ``token_cap <= 0`` is **uncapped**: every skill is kept, nothing omitted
+    (byte-identical to a cap-unaware composition — the h4 floor).
+
+    Otherwise, whole skills are dropped **lowest-priority first** (an
+    optional ``<!-- skill-priority: N -->`` marker in the skill doc, default
+    :data:`SKILL_PRIORITY_DEFAULT`, lower ``N`` = higher priority — see
+    :func:`parse_skill_priority`) until the composed catalog (rendered the
+    same way :func:`compose_skills` renders it, sans any omitted-note) fits
+    within the cap. A skill is **never partially included** — it is either
+    fully present or fully omitted; nothing is truncated mid-text.
+
+    Ties (equal priority) are broken by **reverse name order**: the
+    alphabetically LATER name is dropped first. This is deterministic and
+    documented, not implementation-incidental.
+
+    Returns ``(kept, omitted_names)`` where ``omitted_names`` lists the
+    dropped skills in the order they were dropped (worst-priority-first,
+    ties reverse-name-first) — the same order surfaced in
+    :func:`compose_skills`'s "omitted N skill(s)" note.
+    """
+    if not skills or token_cap <= 0:
+        return dict(skills), []
+
+    count = count_tokens if count_tokens is not None else count_skill_tokens_chars
+    names = sorted(skills)
+    kept = list(names)
+
+    if count(_render_skill_catalog(skills, kept)) <= token_cap:
+        return dict(skills), []
+
+    priorities = {name: skill_priority(skills[name]) for name in names}
+    # Drop order: highest priority NUMBER (lowest priority) first; ties broken
+    # by descending name (the alphabetically later name is dropped first).
+    drop_order = sorted(names, key=lambda n: (priorities[n], n), reverse=True)
+
+    omitted: list[str] = []
+    for victim in drop_order:
+        if count(_render_skill_catalog(skills, kept)) <= token_cap:
+            break
+        kept.remove(victim)
+        omitted.append(victim)
+
+    return {name: skills[name] for name in kept}, omitted
+
+
+def _read_skill_text(skill: Skill) -> str:
+    """Read *skill*'s doc text, degrading to ``""`` on any read error.
+
+    Never raises — mirrors the try/except-OSError degrade every other reader
+    of a skill doc in this module already uses (an unreadable doc degrades to
+    a name-only catalog entry / default priority, not a crash).
+    """
+    try:
+        return skill.path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _render_skill_catalog(skills: dict[str, Skill], names: list[str]) -> str:
+    """Render *names* (already in the desired order) as the compact name +
+    one-line-summary catalog. Returns ``""`` for an empty *names* list (never
+    a header-only catalog) — the shared rendering both :func:`compose_skills`
+    and :func:`select_skills_within_budget`'s internal fit-check use, so the
+    two can never drift apart.
+    """
+    if not names:
+        return ""
+    lines = ["Available skills (operator-authored capability docs):"]
+    for name in names:
+        summary = _first_summary_line(_read_skill_text(skills[name]))
+        lines.append(f"- {name}: {summary}" if summary else f"- {name}")
+    return "\n".join(lines)
+
+
+def compose_skills(
+    skills: dict[str, Skill],
+    *,
+    token_cap: int | None = None,
+    count_tokens: Callable[[str], int] | None = None,
+) -> str:
     """Render resolved skills as a compact name + one-line-summary catalog.
 
     Token-cheap: never inlines full bodies. Returns ``""`` when there are no
     skills. Skill docs are read here for their summary line; an unreadable doc
     degrades to a name-only entry rather than raising.
+
+    ``token_cap`` (optional) caps the composed catalog. Resolution is
+    explicit-parameter-wins; otherwise it falls back to
+    :func:`resolve_skills_token_cap` (the ``COLLEAGUE_SKILLS_TOKEN_CAP``
+    env var, legacy ``CONVERTIBLE_SKILLS_TOKEN_CAP`` fallback, default 0).
+    A cap of ``0`` (or negative) is **uncapped** — byte-identical to a
+    cap-unaware call (the honesty condition h4 floor: no explicit cap means
+    no silent skill loss).
+
+    When the composed catalog would exceed a positive cap,
+    :func:`select_skills_within_budget` drops WHOLE skills, lowest-priority
+    first, never truncating one mid-text, and one explicit note line is
+    appended::
+
+        omitted N skill(s) over the token cap: <name1>, <name2>
+
+    ``count_tokens`` defaults to :func:`count_skill_tokens_chars` (the same
+    zero-dependency char-heuristic as :func:`colleague.context.count_tokens_chars`,
+    adapted for plain text) — pass a different callable to plug in an exact
+    tokenizer.
     """
     if not skills:
         return ""
-    lines = ["Available skills (operator-authored capability docs):"]
-    for name in sorted(skills):
-        try:
-            summary = _first_summary_line(skills[name].path.read_text(encoding="utf-8"))
-        except OSError:
-            summary = ""
-        lines.append(f"- {name}: {summary}" if summary else f"- {name}")
-    return "\n".join(lines)
+    cap = token_cap if token_cap is not None else resolve_skills_token_cap()
+    kept, omitted = select_skills_within_budget(skills, cap, count_tokens=count_tokens)
+    body = _render_skill_catalog(kept, sorted(kept))
+    if not omitted:
+        return body
+    note = f"omitted {len(omitted)} skill(s) over the token cap: {', '.join(omitted)}"
+    return f"{body}\n\n{note}" if body else note
 
 
 # --- Composition ------------------------------------------------------------
@@ -299,6 +510,8 @@ def system_prompt_for(
     *,
     user_home: str | Path | None = None,
     base: str,
+    skills_token_cap: int | None = None,
+    count_tokens: Callable[[str], int] | None = None,
 ) -> str | None:
     """Compose the system prompt for *model*: ``base`` + AGENTS + skills catalog.
 
@@ -306,9 +519,17 @@ def system_prompt_for(
     composed AGENTS layers, then the skills catalog. Returns ``None`` when there
     are no AGENTS layers and no skills, so the caller keeps its own default and
     behavior is byte-identical to a layer-free run.
+
+    ``skills_token_cap`` / ``count_tokens`` pass straight through to
+    :func:`compose_skills` (see its docstring for cap resolution); omitting
+    both is byte-identical to today.
     """
     agents_text = compose_agents(resolve_agents(repo_path, model, user_home=user_home))
-    skills_text = compose_skills(resolve_skills(repo_path, model, user_home=user_home))
+    skills_text = compose_skills(
+        resolve_skills(repo_path, model, user_home=user_home),
+        token_cap=skills_token_cap,
+        count_tokens=count_tokens,
+    )
     if not agents_text and not skills_text:
         return None
     return "\n\n".join(part for part in (base, agents_text, skills_text) if part)
@@ -318,15 +539,31 @@ def system_prompt_for(
 
 
 def _filter_skills(skills: dict[str, Skill], subset: tuple[str, ...] | None) -> dict[str, Skill]:
-    """Filter *skills* to *subset* names.
+    """Filter *skills* to *subset*, where each entry is either an exact skill
+    name or an :mod:`fnmatch`-style glob pattern (e.g. ``"cicd*"``).
 
     When *subset* is ``None``, all skills pass through (byte-identical to the
-    unfiltered dict).  When *subset* is an empty tuple, no skills pass.
-    Names not present in *skills* are silently ignored.
+    unfiltered dict — the "no silent skill loss" invariant a curated role/mode
+    must never breach). When *subset* is an empty tuple, no skills pass.
+
+    Matching uses :func:`fnmatch.fnmatchcase` so behaviour does not vary by
+    platform casing rules; a plain literal name (no wildcard characters) still
+    matches only that exact skill, so this is a strict superset of the old
+    exact-name-only semantics — every existing exact-name subset keeps
+    matching exactly what it matched before. This is what lets a **built-in**
+    role's curated subset (a single module-level constant shared by every repo
+    colleague drives) stay repo-portable: it names a class of skills by
+    pattern (e.g. ``"explore*"``) rather than hardcoding one repo's current
+    skill filenames. A pattern that matches nothing in a given repo's catalog
+    simply composes an empty skills section — never an error.
     """
     if subset is None:
         return skills
-    return {name: skill for name, skill in skills.items() if name in subset}
+    return {
+        name: skill
+        for name, skill in skills.items()
+        if any(fnmatch.fnmatchcase(name, pattern) for pattern in subset)
+    }
 
 
 def compose_role_prompt(
@@ -336,6 +573,8 @@ def compose_role_prompt(
     *,
     user_home: str | Path | None = None,
     base: str,
+    skills_token_cap: int | None = None,
+    count_tokens: Callable[[str], int] | None = None,
 ) -> str | None:
     """Compose the system prompt for *model* with an optional *role*.
 
@@ -347,11 +586,19 @@ def compose_role_prompt(
         base (engine default)
         AGENTS layers (general -> specific)
         role prompt_fragment (when non-empty)
-        skills catalog (filtered by role.skill_subset)
+        skills catalog (filtered by role.skill_subset, then token-capped)
+
+    Skills are filtered to the role's subset FIRST, then the (optional) token
+    cap is applied to that already-filtered catalog — a role's curated subset
+    and a token budget compose together, never independently.
 
     When *role* is a string, it is treated as a role name and resolved via
     :func:`colleague.roles.load_role`.  When *role* is a :class:`Role` instance,
     it is used directly.
+
+    ``skills_token_cap`` / ``count_tokens`` pass straight through to
+    :func:`compose_skills` (see its docstring for cap resolution); omitting
+    both is byte-identical to today.
 
     Returns ``None`` when there is nothing to add beyond the engine's ``base``
     (no AGENTS layers, no skills, and an empty role fragment), so behaviour is
@@ -363,12 +610,19 @@ def compose_role_prompt(
         role = _load_role(role, repo_path, model)
         if role is None:
             # Unknown role name → fall back to no-role composition.
-            return system_prompt_for(repo_path, model, user_home=user_home, base=base)
+            return system_prompt_for(
+                repo_path,
+                model,
+                user_home=user_home,
+                base=base,
+                skills_token_cap=skills_token_cap,
+                count_tokens=count_tokens,
+            )
 
     agents_text = compose_agents(resolve_agents(repo_path, model, user_home=user_home))
     all_skills = resolve_skills(repo_path, model, user_home=user_home)
     filtered = _filter_skills(all_skills, role.skill_subset)
-    skills_text = compose_skills(filtered)
+    skills_text = compose_skills(filtered, token_cap=skills_token_cap, count_tokens=count_tokens)
     role_fragment = role.prompt_fragment
 
     parts = [base]

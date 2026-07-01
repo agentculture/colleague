@@ -491,3 +491,22 @@ reactive one — without leaving the production `execute_drive` path.
 With this row validated, every feature in the [matrix](#validation-matrix) — and
 the tracking epic [#128](https://github.com/agentculture/colleague/issues/128) — is
 now validated live (or live + cited-deterministic where the model adds no signal).
+
+## Mode profiles / backpressure / rig budget (spec 2026-07-01, issues #254–#259)
+
+- **Validated (mock + deterministic).** `tests/test_mode_e2e_validation.py` runs the
+  REAL mock-engine pipeline end-to-end with zero env tuning (`--mode explore` →
+  artifact carries `mode`, run completes inside the profile); the seam-level proofs
+  are `tests/test_work_mode_wiring.py` (profile → resolved config, precedence),
+  `tests/test_loop_backpressure_integration.py` (fake-clock latency → shrink +
+  throttle + advisory), `tests/test_rig.py` (cross-process slot semantics incl. a
+  live `execute_work` hold/release), and `tests/test_loop_acceptance_selfcheck.py`
+  (goal block + advisory self-check).
+- **PENDING live.** `tests/test_vllm_live_mode.py` (gated on `COLLEAGUE_VLLM_E2E=1`)
+  is written but NOT yet run against a live model: as of 2026-07-02 the reference
+  endpoint stale-lists the 27B (completions 404) and the served Qwen3.5-4B rejects
+  tool calls (no `--enable-auto-tool-choice` — evidence on
+  [#66](https://github.com/agentculture/colleague/issues/66)), so colleague's tool
+  loop has no live backend on this rig. Run the gated test once serving is fixed;
+  until then the mock e2e is the validated floor — recorded honestly, never
+  claimed as live (plan risk r3).

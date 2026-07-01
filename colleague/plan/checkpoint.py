@@ -1,8 +1,11 @@
 """Durable file-based gate/checkpoint for colleague's plan mode.
 
-A :class:`Checkpoint` persists, to disk, the current proposed item awaiting
-the operator and the recommended next move, so that killing the process and
-re-running resumes from the last resolved gate.
+A :class:`Checkpoint` persists, to disk, the originating request, the current
+proposed item awaiting the operator, the recommended next move, and the gate
+ids already resolved -- so that killing the process and running
+``colleague plan continue`` (:mod:`colleague.cli._commands.plan`) resumes
+without re-asking those resolved gates. This module only persists state; it
+does not itself decide how a caller resumes (see ``cmd_plan_continue``).
 
 Stdlib only: ``dataclasses``, ``json``, ``pathlib``.  No devague import, no
 threads, no sockets, no daemon.
@@ -31,12 +34,19 @@ class Checkpoint:
         The recommended next move for the operator.
     resolved_gates:
         Gate ids already resolved (append-only).
+    request:
+        The originating task instruction that started this plan run. Persisted
+        so a later ``colleague plan continue`` (#t17) can resume without the
+        caller re-typing the request. Defaults to ``""`` so a checkpoint
+        written before this field existed still loads cleanly (an empty
+        request is later treated as "nothing to resume").
     """
 
     plan_id: str
     proposed_item: str = ""
     recommended_move: str = ""
     resolved_gates: list[str] = field(default_factory=list)
+    request: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,6 +54,7 @@ class Checkpoint:
             "proposed_item": self.proposed_item,
             "recommended_move": self.recommended_move,
             "resolved_gates": list(self.resolved_gates),
+            "request": self.request,
         }
 
     @classmethod
@@ -53,6 +64,7 @@ class Checkpoint:
             proposed_item=str(data.get("proposed_item", "")),
             recommended_move=str(data.get("recommended_move", "")),
             resolved_gates=list(data.get("resolved_gates", [])),
+            request=str(data.get("request", "")),
         )
 
 

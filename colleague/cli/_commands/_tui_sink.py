@@ -29,6 +29,7 @@ from agentfront.taui.colors import should_color, strip_ansi
 from agentfront.taui.events import dumps_events
 from agentfront.taui.reducer import reduce
 from agentfront.taui.render.ansi import render_ansi as render
+from agentfront.taui.state import Status
 from agentfront.taui.state import TAUIState as CockpitState
 from agentfront.taui.state import WorkItem
 
@@ -97,6 +98,25 @@ class FrameWriter:
             self._stream.flush()
 
 
+def fold_phase(state: CockpitState, detail: str) -> CockpitState:
+    """Fold a phase notice (#206 — a progress event with an EMPTY tool name)
+    onto *state*'s STATUS surface (``state.status.message``) instead of
+    dropping it.
+
+    Never creates a work step: ``work_item.step_count`` is left untouched and
+    no conversation/feed line is added — the #206 invariant holds regardless of
+    who calls this. Shared by both live-cockpit consumers
+    (:class:`CockpitProgressSink` below and the interactive session's
+    ``_WorkSink``, ``colleague/cli/_commands/session.py``) so a long single
+    completion (``thinking…`` / ``synthesizing…`` / ``compacting…``, or a t6
+    backpressure advisory — all fired the same way via
+    :func:`colleague.loop._emit_phase`) is visibly *working, not stalled* in
+    EITHER live cockpit, resolving the "live cockpit synthesizing status"
+    follow-up for both at once. Pure: same inputs, same output.
+    """
+    return replace(state, status=Status(severity="info", message=detail))
+
+
 class CockpitProgressSink:
     """A progress sink that renders a live ANSI cockpit frame per work step.
 
@@ -109,15 +129,22 @@ class CockpitProgressSink:
         self._state = CockpitState(
             work_item=WorkItem(task_id=task_id, engine=engine, step_count=0, running=True)
         )
+        # Snapshot the baseline status so a phase notice's temporary message
+        # (folded via `fold_phase`) can be cleared back to it once a real step
+        # resumes — see `fold_phase`'s docstring (#206).
+        self._base_status = self._state.status
         self._writer = FrameWriter(stream)
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
-        # A phase notice (#206) carries an EMPTY tool name and is NOT a step — skip it
-        # so the cockpit never folds a phantom step or bumps the step count (a live
-        # "synthesizing…" status line in the cockpit is a documented follow-up).
         if not tool:
+            # A phase notice (#206) — fold it into the STATUS surface only,
+            # never a step (see `fold_phase`).
+            self._state = fold_phase(self._state, target)
+            self._writer.write(self._state)
             return
         self._state = reduce(self._state, work_step(tool, target, ok))
+        # A real step clears any phase text left showing.
+        self._state = replace(self._state, status=self._base_status)
         self._writer.write(self._state)
 
     def close(self) -> None:

@@ -1,0 +1,476 @@
+{
+  "slug": "colleague-s-work-modes-explore-plan-review-work-no",
+  "title": "colleague's work modes \u2014 explore, plan, review, work \u2014 now fit the machine they run on: each mode carries its own context/compute profile (step budget, context budget, synthesis reserve, timeout) instead of one global knob set; skills are curated to the mode instead of always-all; subagent orchestration respects the served model's real concurrency; every work item carries a visible task+goal; and all of it is legible on all three surfaces \u2014 the human TUI, the agent markdown/TAUI, and the bot/app JSON \u2014 with each improvement area tracked as a concrete GitHub issue.",
+  "frame_slug": "colleague-s-work-modes-explore-plan-review-work-no",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-01T21:19:51Z",
+  "updated": "2026-07-01T21:22:38Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague's work modes \u2014 explore, plan, review, work \u2014 now fit the machine they run on: each mode carries its own context/compute profile (step budget, context budget, synthesis reserve, timeout) instead of one global knob set; skills are curated to the mode instead of always-all; subagent orchestration respects the served model's real concurrency; every work item carries a visible task+goal; and all of it is legible on all three surfaces \u2014 the human TUI, the agent markdown/TAUI, and the bot/app JSON \u2014 with each improvement area tracked as a concrete GitHub issue."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The announcement ships as six re-specced increments inside the v1 conventions, each tracked by its own GitHub issue \u2014 never one big-bang change."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Three audiences, one per surface: human operators at the TTY (live ANSI TUI), agents driving colleague via markdown/TAUI, and bots/apps consuming JSON (artifact, events.jsonl, MCP serve)."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Each tier is exercised by a real consumer in the repo today (session TTY cockpit; markdown/TAUI render + snapshot quad; JSON artifact/events.jsonl + mcp serve) \u2014 no tier is hypothetical."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "Every work mode (explore, plan, review, work) runs inside explicit context + compute constraints: a per-mode profile sets step budget / context budget / synthesis reserve / timeout, skills compose per mode instead of always-all, subagent fan-out respects the served model's real concurrency, each work item carries a visible task+goal, and all three surfaces render that state consistently."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The after-state counts as reached only when a mode run on the reference endpoint completes inside its profile without manual per-run env tuning."
+    },
+    {
+      "id": "c4",
+      "kind": "why_it_matters",
+      "text": "The reference rig is a single serializing 27B GPU with a 256k window \u2014 context and compute constraints are the operating reality, not an edge case; a mode that ignores them times out, overflows, or silently wastes the run."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The constraint reality is live-verified, not assumed: on 2026-07-01 the endpoint stale-lists the 27B (completions 404) and the served Qwen3.5-4B lacks tool-calling \u2014 a bare colleague work currently has NO working backend on this rig (evidence for #66)."
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "The v1 scope line holds: no multi-model router / automatic routing policy, no execution sandbox, no colleague-owned daemon, no second base dependency; every improvement lands as a re-specced increment inside those conventions."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Every filed issue names its scope line explicitly; anything that would breach it (router, sandbox, daemon, second base dep) is parked or re-specced, never slipped in as a side effect."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "Each improvement area has an open GitHub issue with concrete, code-grounded guidance that cross-links (not duplicates) existing issues (#12, #229, #250, #27, #24, #7); and the spec names, per mode, which constraint knobs a profile would set."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Issues are filed only after this frame converges; each issue cites the spec and concrete file:line anchors and cross-links (never duplicates) #12, #229, #250, #27, #24, #7, #66, #239."
+    },
+    {
+      "id": "c8",
+      "kind": "before_state",
+      "text": "Today a mode changes only verb + role + PR flag (session.py route_for); every constraint knob is one global env value and the only per-mode overrides live caller-side in ask-colleague.sh (explore/review: max-steps 30, reserve 3); skills always compose in full (Role.skill_subset exists but every built-in role sets None); a subagent child inherits the parent's full EngineConfig unchanged; capacity/fill-line state and phase notices are invisible in the cockpit tiers and mode is absent from events.jsonl/artifact/MCP; Task carries no goal or acceptance criteria \u2014 destination is recorded only post-execution on TaskResult."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Before-state statements are code-anchored from the exploration (file:line) and re-verifiable; any found stale are corrected in the issue text rather than defended."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "R1 mode profiles: per-mode constraint profiles move into the runtime \u2014 selecting a mode (session mode, role, or ask-colleague verb) resolves a named profile (max_steps, context-budget fraction, synthesis reserve steps, timeout, fillline threshold) through the existing EngineConfig.resolve precedence as a new default layer (explicit flag > env > profile > built-in), replacing the caller-side env overrides in ask-colleague.sh; runtime-owned (all-engines), byte-identical when no mode/profile is selected."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A mode profile changes only DEFAULTS: an explicit flag or env var still wins through the existing EngineConfig.resolve precedence, and a run with no mode/profile selected is byte-identical to today (the e2e mock shape test stays green)."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R2 adaptive backpressure: the loop measures per-turn wall-clock latency and, when turns slow toward the request timeout, proactively tightens \u2014 shrinks the context window it feeds (the #229 move) and throttles effective subagent concurrency/fan-out \u2014 bounded and advisory-first; it only ever tightens toward safety and never switches models or backends (not a router)."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Backpressure only ever tightens toward safety (smaller window, lower concurrency), is bounded (termination preserved), is a strict no-op on an unsaturated server, and never selects a different model or backend \u2014 the no-router scope line holds."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R3 tier visibility parity: capacity/fill-line state, phase (thinking/synthesizing/compacting \u2014 the #206 follow-up), and the task goal become visible across the three tiers, and mode reaches the tiers it is missing from (events.jsonl, artifact, MCP result); fields are added once to the shared cockpit/TAUI state and artifact rather than per-renderer, with TAUIState changes routed upstream to agentfront first (consumer-side-only in colleague, the #249 pattern)."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Tier fields are added once to shared state (TAUI state + artifact) and rendered by each tier from that one source, never recomputed per-renderer; any TAUIState schema change ships upstream in agentfront first and colleague stays consumer-side only."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "R4 budget-aware skill curation: built-in roles get real skill subsets (today every role sets skill_subset=None) and mode-level curation reuses the same mechanism; layers.py composes the skill catalog within an explicit token cap with a priority order, dropping whole skills with a visible omitted-N note instead of composing unconditionally."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A role/mode with no curated subset keeps today's full skill catalog (no silent skill loss); the budget cap drops whole skills by declared priority and says so in the composed prompt (omitted-N note), never truncating a skill mid-text."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "R5 subagent budget scaling + rig-level concurrency: a child inherits a scaled share of the parent's context/step budget (clamped to a workable floor) instead of the full EngineConfig; a rig-level concurrency budget coordinates concurrent work items sharing one served endpoint (file-based, no daemon \u2014 addresses the #239 concurrent-runs class); read-only batches stop reserving the merge slot (the documented FANOUT-slot follow-up)."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Child budget scaling clamps to a workable floor and equals today's behavior at fan-out 1; the rig-level concurrency budget is file-based cooperative coordination (no daemon, no socket) and a missing/absent budget file is a strict no-op."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "R6 tasks carry their goal: Task gains optional structured goal/acceptance fields (pre-execution, machine-readable \u2014 today acceptance lives only as instruction text and destination is post-hoc on TaskResult), SubResult records per-criterion outcomes, task lineage (parent linkage) is recorded across subagent trees, and plan resume (plan continue) becomes a first-class verb; the goal renders in the cockpit feed and artifact."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Goal/acceptance/lineage fields are optional and omit-when-None \u2014 a task authored without them is byte-identical through Task, TaskResult, and the artifact; acceptance outcomes are recorded, never self-graded as authoritative (operator confirmation stays the authority, matching the devague-tool convention)."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "R1: mode-profile catalog module (new colleague/profiles.py): per-mode profiles for work/plan/explore/review + pure resolve_profile()",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "resolve_profile returns a complete profile (max_steps, context_budget_fraction, synthesis_reserve_steps, timeout, fillline_threshold) for each of work/plan/explore/review and None for absent/unknown mode",
+        "a drift test pins exactly one profile per session_modes.MODES entry so a new mode cannot ship without a profile decision"
+      ],
+      "deps": [],
+      "covers": [
+        "c10"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "R1: EngineConfig.resolve gains the profile default layer (config.py) + ContextControls threading (loop.py) + per-model profile overlay via sanitize_model",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with a mode set, unset knobs fill from the profile while an explicit flag or COLLEAGUE_* env still wins (precedence test: flag > env > config.json > profile > built-in)",
+        "a run with no mode resolves byte-identical to today (e2e mock shape test unchanged)",
+        "a per-model profile overlay resolves via the exact sanitize_model path \u2014 model X never loads model Y's overlay"
+      ],
+      "deps": [],
+      "covers": [
+        "h1"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "R1: wire mode->profile at the entry points: colleague work --mode + session mode selection (work.py, session.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague work --mode m and a session mode selection resolve the same profile through one code path (assert on the resulting ContextControls)",
+        "session explore/review runs get profile budgets with zero env vars set"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": []
+    },
+    {
+      "id": "t4",
+      "summary": "R1: ask-colleague.sh adopts native profiles (drop caller-side env overrides)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the wrapper no longer exports max-steps/synthesis-reserve env defaults \u2014 it passes --mode; an explicit --max-steps still overrides in both directions (wrapper test)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c8"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "R2: backpressure helpers (new colleague/backpressure.py): rolling turn-latency classification against timeout fractions",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pure helpers classify a synthetic latency series into armed/escalated/cleared against timeout fractions with no clock and no thread (unit tests)"
+      ],
+      "deps": [],
+      "covers": [
+        "c11"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "R2: loop integration \u2014 armed backpressure shrinks the next window and throttles subsequent fan-out; advisory recorded (loop.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "when rolling latency crosses the arm threshold the next completion gets a smaller history window and subsequent batch_spawn concurrency is reduced; a healthy-latency run is byte-identical (strict no-op test)",
+        "tightening lands in the artifact as an advisory warning, never an error, and never switches model or backend"
+      ],
+      "deps": [
+        "t5",
+        "t2"
+      ],
+      "covers": [
+        "h2",
+        "c4"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "R3: record mode on TaskResult + artifact, omit-when-None (contract.py + work.py wiring)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult.mode round-trips through the artifact when a mode drove the run and is absent otherwise (e2e mock shape unchanged without mode)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c12"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "R3: file the upstream agentfront ask \u2014 TAUIState capacity block, phase, goal + mode/phase event kinds (the #249 upstream-first pattern)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an agentfront issue is filed naming the exact state/event additions and colleague's consumer-side adoption plan; the link is recorded in docs/features"
+      ],
+      "deps": [],
+      "covers": [
+        "h3"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "R3: capacity/phase/goal in the session cockpit via the existing generic panel walk (session.py, _tui_sink.py) \u2014 no schema bump needed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a Capacity panel (budget tokens, last prompt tokens, fill-line armed/crossed, capacity decision), a phase-aware status (thinking/synthesizing/compacting) and the task goal line render in the live cockpit AND carry to markdown + TAUI JSON via the generic panel walk (mirror/snapshot test)",
+        "phase display never creates a phantom work step (the #206 invariant holds in the session sink test)"
+      ],
+      "deps": [
+        "t3",
+        "t7"
+      ],
+      "covers": [
+        "c2",
+        "h9"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "R4: populate built-in role skill subsets (roles.py) \u2014 explorer/planner/reviewer/validator curated, writer keeps all",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "explorer/planner/reviewer/validator get non-None skill_subset; writer keeps the full catalog; a composed explorer prompt omits release/cicd-class skills (composition test)"
+      ],
+      "deps": [],
+      "covers": [
+        "c13"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "R4: token-capped skill composition with priority + omitted-note, and a composed-vs-omitted inspection surface (layers.py + skills verb)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "over-cap catalogs drop whole lowest-priority skills and append an omitted-N-skills note naming them \u2014 never a mid-skill truncation; an uncurated role/mode under cap keeps today's full catalog (unit tests, count via the pluggable count_tokens seam)",
+        "the skills inspection verb shows composed vs omitted for a given role/mode at a given budget"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "h4"
+      ]
+    },
+    {
+      "id": "t12",
+      "summary": "R5: child budget scaling at fan-out + read-only batches skip the merge slot (subagents.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "at width W>1 each child resolves a clamped share of the parent context/step budget; width 1 is byte-identical; an explicit per-child override wins (unit tests)",
+        "a batch whose children are all read-only roles does not reserve the merge slot (effective-width test)"
+      ],
+      "deps": [],
+      "covers": [
+        "c14"
+      ]
+    },
+    {
+      "id": "t13",
+      "summary": "R5: rig-level cooperative concurrency budget (new colleague/rig.py + .colleague/rig.json, file-based slots; wiring in subagents.py + work.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with rig.json declaring concurrency N, spawns beyond N wait on an atomic file-based slot with stale-lock recovery and the wait is visible in the progress feed; absent rig.json is a strict no-op (no lock artifacts created); no daemon, no socket, no threads outside the sanctioned modules"
+      ],
+      "deps": [
+        "t12",
+        "t3",
+        "t7"
+      ],
+      "covers": [
+        "h5"
+      ]
+    },
+    {
+      "id": "t14",
+      "summary": "R6: goal fields on the contract (contract.py): Task.goal + Task.acceptance, TaskResult.acceptance_outcomes, SubResult.parent \u2014 all omit-when-None",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an artifact authored without goal/acceptance/lineage is byte-identical (round-trip + e2e mock shape test)"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c15"
+      ]
+    },
+    {
+      "id": "t15",
+      "summary": "R6: loop injects the goal/acceptance block + ONE bounded pre-finish self-check turn recording per-criterion outcomes (loop.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with Task.acceptance set, the prompt carries a distinct goal block and one bounded self-check turn records per-criterion criterion/met/evidence as ADVISORY (never flips run status, reuses the lint fix-turn save/restore pattern); with none set the loop is byte-identical"
+      ],
+      "deps": [
+        "t14",
+        "t6"
+      ],
+      "covers": [
+        "h6"
+      ]
+    },
+    {
+      "id": "t16",
+      "summary": "R6: plan workforce passes PlanItem.acceptance structurally into Task.acceptance + children record parent task_id lineage (plan/workforce.py, subagents.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "workforce children receive structured acceptance (not only prose) and child artifacts name their parent task_id so a subagent tree is walkable from artifacts alone (integration test)"
+      ],
+      "deps": [
+        "t14",
+        "t13"
+      ],
+      "covers": []
+    },
+    {
+      "id": "t17",
+      "summary": "R6: plan continue \u2014 surface checkpoint resume as a first-class verb (plan/cli_driver.py + checkpoint.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague plan continue resumes an interrupted plan run from the last resolved gate without re-asking resolved gates (integration test on a simulated kill)"
+      ],
+      "deps": [],
+      "covers": []
+    },
+    {
+      "id": "t18",
+      "summary": "Docs: feature docs per area + CLAUDE.md architecture notes + CHANGELOG + cross-link issues #254-#259 to their landing waves",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "each shipped feature has a docs/features page naming its scope line and honest limits; CLAUDE.md updated; CHANGELOG entry per the version-bump convention; each issue cross-linked to the plan wave that lands it; stale before-state statements corrected in issue text"
+      ],
+      "deps": [
+        "t4",
+        "t9",
+        "t11",
+        "t15",
+        "t16",
+        "t17"
+      ],
+      "covers": [
+        "c1",
+        "c5",
+        "c7",
+        "h8",
+        "h12",
+        "h13",
+        "h14"
+      ]
+    },
+    {
+      "id": "t19",
+      "summary": "Validation: e2e mode-run on mock + live on the rig when a tool-calling model is served",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on mock: a --mode explore run completes with profile-resolved budgets, capacity panel rendered, artifact carrying mode, zero per-run env tuning",
+        "on the live rig once a tool-calling model is served: an ask-colleague explore completes inside its profile; if the rig is still down the degradation to mock-only validation is recorded honestly, never claimed as live"
+      ],
+      "deps": [
+        "t4",
+        "t9",
+        "t11",
+        "t15",
+        "t16",
+        "t17"
+      ],
+      "covers": [
+        "c3",
+        "h10",
+        "h11"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Exact per-mode profile numbers need live tuning on a working served model \u2014 ship conservative defaults in t1, tune in follow-up PRs",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1"
+    },
+    {
+      "id": "r2",
+      "text": "Full three-tier parity (TAUIState capacity/phase fields + event kinds) is gated on an agentfront release; colleague-side panels (t9) + artifact mode (t7) land independently of the upstream bump",
+      "kind": "unknown_nonblocking",
+      "task_id": "t8"
+    },
+    {
+      "id": "r3",
+      "text": "The rig currently serves NO tool-calling model (27B stale-listed 404, 4B lacks tool-call parser \u2014 see #66 comment); t19 live validation degrades to mock-only until serving is fixed",
+      "kind": "unknown_nonblocking",
+      "task_id": "t19"
+    },
+    {
+      "id": "r4",
+      "text": "MCP streaming progress (bot follows a live run over MCP) \u2014 separate re-spec, not in this plan",
+      "kind": "out_of_scope",
+      "task_id": null
+    },
+    {
+      "id": "r5",
+      "text": "Repeated compaction (#156 v2), custom role tool-allowlists + checksum-gating of role files, capacity-heuristic v2 \u2014 documented follow-ups, deliberately not tasks here",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

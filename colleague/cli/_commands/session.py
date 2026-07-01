@@ -64,12 +64,14 @@ from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS,
 from colleague import cockpit, feedback, handoff, layers, registry
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._session_input import CYCLE_MODE
+from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import Task, TaskResult
 from colleague.policy import load_policy
+from colleague.profiles import resolve_profile
 from colleague.session_intent import PLAN, classify_intent
 from colleague.session_modes import (
     DEFAULT_MODE,
@@ -100,6 +102,46 @@ _CLEAR_HOME = "\x1b[H\x1b[2J"
 #: Leading-line markers identifying a previously-rendered suggested action, so a
 #: refresh replaces it in place rather than stacking duplicates in the Session panel.
 _SUGGESTION_PREFIXES = ("Safest next:", "⚠ Safest next:")
+
+#: The Session panel's goal item id (spec R3 / plan t9 / #256) — the running
+#: work item's instruction, so the operator always sees WHAT is being driven.
+_GOAL_ITEM_ID = "session.goal"
+#: Goal line truncation — a first-line, at-a-glance hint, not the full instruction.
+_GOAL_MAX_CHARS = 80
+
+#: Capacity panel item ids (spec R3 / plan t9 / #256).
+_CAPACITY_PANEL_ID = "capacity"
+_CAPACITY_BUDGET_ID = "cap.budget"
+_CAPACITY_PROFILE_ID = "cap.mode_profile"
+_CAPACITY_SIGNAL_ID = "cap.signal"
+
+
+def _goal_text(instruction: str) -> str:
+    """The goal line: *instruction*'s first line, truncated to ``_GOAL_MAX_CHARS``.
+
+    Returns ``""`` for blank/whitespace-only instructions (e.g. a synthetic plan
+    task) so the caller can treat an empty result as "no goal to show".
+    """
+    first_line = instruction.strip().splitlines()[0] if instruction.strip() else ""
+    if len(first_line) > _GOAL_MAX_CHARS:
+        return first_line[: _GOAL_MAX_CHARS - 1].rstrip() + "…"
+    return first_line
+
+
+def _mode_profile_status(mode: str) -> str:
+    """Human status for *mode*'s constraint profile (spec R1's mode-profile
+    catalog, ``colleague.profiles``), or an honest 'no fixed profile' note when
+    the mode has none (``auto``, or an unprofiled/unknown name) — never a crash
+    or a stale-looking blank row."""
+    profile = resolve_profile(mode)
+    if profile is None:
+        return f"{mode} — no fixed profile (resolves per input)"
+    return (
+        f"{mode} — steps≤{profile.max_steps} · timeout {profile.timeout:.0f}s · "
+        f"budget×{profile.context_budget_fraction:g} · "
+        f"fill-line {profile.fillline_threshold:.0%} · "
+        f"synth-reserve {profile.synthesis_reserve_steps}"
+    )
 
 
 def _coerce_strs(value: object) -> list[str]:
@@ -178,19 +220,46 @@ def _resolve_selection(
 
 class _WorkSink:
     """Progress sink for an in-session work item: fold each step into the session's
-    one shared :class:`CockpitState` and (on the dynamic ANSI tier) redraw live."""
+    one shared :class:`CockpitState` and (on the dynamic ANSI tier) redraw live.
+
+    Resolves the #206 "live cockpit synthesizing status" follow-up: a phase
+    notice (empty ``tool``) is folded into the cockpit's STATUS surface
+    (``state.status.message``) instead of being dropped — so a long single
+    completion (``thinking…`` / ``synthesizing…`` / ``compacting…``, or a t6
+    backpressure advisory, all fired the same way via ``loop._emit_phase``) is
+    visibly *working, not stalled* in the live session cockpit. The #206
+    invariant still holds: a phase notice never becomes a work step
+    (``work_item.step_count`` does not advance, no conversation/feed line is
+    added, so `tui replay`/`snapshot` — which never see this sink — stay
+    step-only regardless). A subsequent REAL step always clears the phase text
+    back to the session's baseline status line.
+    """
 
     def __init__(self, session: "_Session") -> None:
         self._session = session
+        # Snapshot the status line active when this work item starts (the
+        # mode/engine summary from `_status()`) so a transient phase notice can
+        # be cleared back to it once real progress resumes. Captured once here
+        # (a plain attribute read, not a call back into the session) so this
+        # sink stays usable against a bare state-holder in tests.
+        self._base_status = session.state.status
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
-        # A phase notice (#206) carries an EMPTY tool name and is NOT a step — skip it
-        # so the session cockpit never folds a phantom step or bumps step_count
-        # (consistent with the cockpit + events sinks in _tui_sink.py).
-        if not tool:
-            return
         sess = self._session
+        if not tool:
+            # A phase notice (#206) — fold it into the STATUS surface only;
+            # never a step (work_item.step_count untouched, no feed line). Shares
+            # `fold_phase` with `_tui_sink.CockpitProgressSink` (the standalone
+            # `colleague work --tui` cockpit) so both live cockpits resolve the
+            # follow-up identically.
+            sess.state = fold_phase(sess.state, target)
+            if sess.view == "ansi":
+                sess.emit()
+            return
         sess.state = reduce(sess.state, work_step(tool, target, ok))
+        # A real step clears any phase text left showing — it must never
+        # linger once the model resumes making tool calls.
+        sess.state = replace(sess.state, status=self._base_status)
         if sess.view == "ansi":
             sess.emit()  # live redraw per step
 
@@ -262,6 +331,12 @@ class _Session:
         self.chrome = err if json_mode else out
         self.work_fn = work_fn
         self.plan_fn = plan_fn
+        # The latest fill-line/backpressure signal a completed work item surfaced
+        # on `TaskResult.capacity_warning` (spec R3 / plan t9 / #256), or `None`
+        # before any work item has run. Read by `_capacity_panel`; set in
+        # `_dispatch_work` right after a result is obtained, before the caller's
+        # `_refresh_context()` rebuilds the panel — never on the render path.
+        self._last_capacity_warning: Optional[str] = None
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -292,6 +367,7 @@ class _Session:
             panels=[
                 self._policy_panel(facts),
                 self._context_panel(facts),
+                self._capacity_panel(),
                 Panel(id="commands", title="Work templates", visible=True, items=items),
                 Panel(
                     id=_CONVERSATION_PANEL_ID,
@@ -456,6 +532,39 @@ class _Session:
             ],
         )
 
+    def _capacity_panel(self) -> Panel:
+        """The *Capacity* panel (spec R3 / plan t9 / #256): context budget, the
+        active session mode's constraint profile, and the latest fill-line /
+        backpressure signal a completed work item surfaced. Built from cheap
+        in-memory state only (``self.config`` / ``self.mode`` /
+        ``self._last_capacity_warning``) — no I/O, so it renders across every
+        tier via the generic panel walk (Markdown + TAUI JSON) with no
+        per-renderer code, exactly like Policy/Context. No agentfront schema
+        change: this rides the existing ``Panel``/``PanelItem`` shape (the
+        TAUIState `capacity` block itself is the separate, agentfront-side
+        upstream ask, agentfront#48 — out of scope here)."""
+        tokens = self.config.context_budget_tokens
+        signal = self._last_capacity_warning or "none yet"
+        return Panel(
+            id=_CAPACITY_PANEL_ID,
+            title="Capacity",
+            visible=True,
+            content_summary=f"budget {tokens:,} tokens · mode {self.mode}",
+            items=[
+                PanelItem(
+                    id=_CAPACITY_BUDGET_ID,
+                    label="🧮 context budget",
+                    status=f"{tokens:,} tokens",
+                ),
+                PanelItem(
+                    id=_CAPACITY_PROFILE_ID,
+                    label="📐 mode profile",
+                    status=_mode_profile_status(self.mode),
+                ),
+                PanelItem(id=_CAPACITY_SIGNAL_ID, label="⚠️ capacity signal", status=signal),
+            ],
+        )
+
     def _suggested_action(self, facts: dict) -> str:
         """The safest/most-useful next move (AC #1) — always answers 'what now?'."""
         if facts["dirty"] and not self.allow_dirty:
@@ -484,7 +593,11 @@ class _Session:
         stale (the cockpit promises to always answer 'what now?')."""
         facts = self._facts()
         suggested = self._suggested_action(facts)
-        rebuilt = {"policy": self._policy_panel(facts), "context": self._context_panel(facts)}
+        rebuilt = {
+            "policy": self._policy_panel(facts),
+            "context": self._context_panel(facts),
+            _CAPACITY_PANEL_ID: self._capacity_panel(),
+        }
         self.state = replace(
             self.state,
             panels=[
@@ -511,6 +624,21 @@ class _Session:
         same S5655 pattern used in ``_run_readonly``)."""
         return cast(Panel, replace(panel, content_summary=suggested))
 
+    def _with_goal(self, goal: str) -> None:
+        """Set (or clear, with ``goal=""``) the Session panel's goal item —
+        the running work item's instruction, so the operator always sees WHAT
+        is being driven (spec R3 / plan t9 / #256). Mutates ``self.state`` via
+        the frozen ``dataclasses.replace`` idiom, mirroring ``_with_suggestion``.
+        """
+        goal_items = [PanelItem(id=_GOAL_ITEM_ID, label="🎯 goal", status=goal)] if goal else []
+        self.state = replace(
+            self.state,
+            panels=[
+                cast(Panel, replace(p, items=goal_items)) if p.id == _CONVERSATION_PANEL_ID else p
+                for p in self.state.panels
+            ],
+        )
+
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
         self.state = reduce(self.state, UserInput(text=text))
@@ -524,6 +652,17 @@ class _Session:
 
     def _refresh_status(self) -> None:
         self.state = replace(self.state, mode=self.mode, status=self._status())
+        # The Capacity panel's mode-profile row depends on `self.mode`; refresh
+        # it here too (cheap, no I/O) so cycling the mode (shift-tab / `/mode`)
+        # never leaves a stale profile row showing until the next work item or
+        # config-change refresh.
+        self.state = replace(
+            self.state,
+            panels=[
+                self._capacity_panel() if p.id == _CAPACITY_PANEL_ID else p
+                for p in self.state.panels
+            ],
+        )
 
     # ── rendering (one path; three views) ────────────────────────────────────
 
@@ -731,17 +870,27 @@ class _Session:
             self._log(f"→ work: {stripped}")
         self._run_work(task, command_name)
 
-    def _run_tracked(self, task_id: str, thunk: Callable[[], _T]) -> Optional[_T]:
+    def _run_tracked(
+        self, task_id: str, thunk: Callable[[], _T], *, goal: str = ""
+    ) -> Optional[_T]:
         """Run *thunk* with the cockpit work-item marked running, uniform error
         handling, and a guaranteed running-flag reset; return its value, or ``None``
         if it raised. A :class:`CliError` (with its remediation hint) or any
         unexpected exception is surfaced via ``_error`` and swallowed, so one failed
         dispatch never tears down the session. The single home for the running-state
-        + error scaffold shared by ``_run_plan`` and ``_dispatch_work``."""
+        + error scaffold shared by ``_run_plan`` and ``_dispatch_work``.
+
+        ``goal`` (spec R3 / plan t9 / #256) is the running item's instruction
+        text; it is shown in the Session panel's goal line for the duration of
+        *thunk* and cleared unconditionally in the ``finally`` — so a goal
+        never lingers after the work item ends, on either the success or the
+        error path.
+        """
         self.state = replace(
             self.state,
             work_item=WorkItem(task_id=task_id, engine=self.engine_name, running=True),
         )
+        self._with_goal(goal)
         try:
             return thunk()
         except CliError as exc:
@@ -756,15 +905,24 @@ class _Session:
                 self.state = replace(
                     self.state, work_item=replace(self.state.work_item, running=False)
                 )
+            self._with_goal("")
 
     def _dispatch_work(
-        self, task: Task, *, open_pr: bool, config: EngineConfig, command_name: Optional[str]
+        self,
+        task: Task,
+        *,
+        open_pr: bool,
+        config: EngineConfig,
+        command_name: Optional[str],
+        mode: Optional[str] = None,
     ) -> Optional[TaskResult]:
         """Run one work item through the shared work path (cockpit running-state +
         error handling via ``_run_tracked``, then the json-mode result echo); return
         the :class:`TaskResult`, or ``None`` if the dispatch surfaced an error. The
         single home for the ``work_fn`` call shared by ``_run_work`` and
-        ``_run_readonly`` — the caller owns the feed rendering of the result."""
+        ``_run_readonly`` — the caller owns the feed rendering of the result.
+        ``mode`` (t3/R1) names the constraint profile; it resolves inside
+        ``execute_work`` — the same code path the ``work --mode`` flag uses."""
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -777,11 +935,17 @@ class _Session:
                 config=config,
                 command_name=command_name,
                 progress_sink=_WorkSink(self),
+                mode=mode,
             ),
+            goal=task.instruction,
         )
         if pair is None:
             return None
         result, _artifact = pair
+        # The Capacity panel's signal row (spec R3 / plan t9 / #256) surfaces the
+        # latest fill-line/backpressure warning; captured here, BEFORE the
+        # caller's `_refresh_context()` rebuilds the panel, so it is never stale.
+        self._last_capacity_warning = result.capacity_warning
         if self.json_mode:
             self.out(json.dumps(result.to_dict(), ensure_ascii=False))
         return result
@@ -803,6 +967,7 @@ class _Session:
                 request=request,
                 config=self.config,
             ),
+            goal=request,
         )
         if summary is None:
             return
@@ -813,7 +978,14 @@ class _Session:
         # The cockpit's state glyph animates per step while the work item runs
         # (the sink's WorkStep reductions advance ``work_item.step_count``).
         result = self._dispatch_work(
-            task, open_pr=self.open_pr, config=self.config, command_name=command_name
+            task,
+            open_pr=self.open_pr,
+            config=self.config,
+            command_name=command_name,
+            # The work verb's profile is behaviour-neutral by construction (it
+            # equals the built-in defaults) but keeps the one-code-path claim
+            # honest and lets an operator overlay tune session work runs.
+            mode="work",
         )
         if result is None:
             return
@@ -828,7 +1000,7 @@ class _Session:
         free-text question. Never writes, never pushes/PRs — the read-only role
         structurally withholds write_file/edit_file/run_command, so it cannot
         touch the operator's tree even if the model attempts a write."""
-        self._run_readonly(request, role="explorer")
+        self._run_readonly(request, role="explorer", mode="explore")
 
     def _run_review(self, request: str) -> None:
         """Read-only diverse second opinion on the committed ``<base>...HEAD`` diff
@@ -846,9 +1018,16 @@ class _Session:
             "file:line. Do not modify any files.\n\n"
             f"--- diff {self.base}...HEAD ---\n" + (diff or "(no committed changes vs base)")
         )
-        self._run_readonly(request, role="reviewer", task_text=task_text)
+        self._run_readonly(request, role="reviewer", mode="review", task_text=task_text)
 
-    def _run_readonly(self, request: str, *, role: str, task_text: str | None = None) -> None:
+    def _run_readonly(
+        self,
+        request: str,
+        *,
+        role: str,
+        mode: str | None = None,
+        task_text: str | None = None,
+    ) -> None:
         """Shared read-only dispatch for explore/review: run the work loop under a
         read-only *role* with NO push/PR handoff (``open_pr=False``), so the
         operator's tree + branch are never touched. ``task_text`` overrides the
@@ -881,7 +1060,9 @@ class _Session:
             task_text if task_text is not None else request,
             engine=self.engine_name,
         )
-        result = self._dispatch_work(task, open_pr=False, config=config, command_name=None)
+        result = self._dispatch_work(
+            task, open_pr=False, config=config, command_name=None, mode=mode
+        )
         if result is None:
             return
         self._log(f"{result.status}: {result.summary}")
