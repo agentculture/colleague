@@ -188,6 +188,7 @@ def run_plan_mode(
                 proposed_item="",
                 recommended_move=recommended,
                 resolved_gates=gate_ids,
+                request=request,
             ),
             repo_path,
         )
@@ -256,6 +257,7 @@ def run_plan_mode(
                     proposed_item="",
                     recommended_move="workforce",
                     resolved_gates=[g.item_id for g in spec_result.transcript],
+                    request=request,
                 ),
                 repo_path,
             )
