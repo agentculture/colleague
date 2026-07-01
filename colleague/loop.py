@@ -1784,6 +1784,16 @@ def _build_user_message(task: Task) -> str:
         user += f"\n\nContext:\n{task.context}"
     if task.constraints:
         user += "\n\nConstraints:\n" + "\n".join(f"- {c}" for c in task.constraints)
+    # Goal block (t15 / spec R6 / #259): a task that declares its goal/acceptance
+    # carries them as a DISTINCT block, so `finish` has a concrete target (#231)
+    # instead of re-deriving intent from prose. Absent fields → byte-identical.
+    if task.goal:
+        user += f"\n\nGoal:\n{task.goal}"
+    if task.acceptance:
+        user += (
+            "\n\nAcceptance criteria (the work is done when each of these holds):\n"
+            + "\n".join(f"- {c}" for c in task.acceptance)
+        )
     return user
 
 
@@ -1933,6 +1943,80 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
         ctx.result.not_finished,
         ctx.result.stopped_without_finish,
     ) = saved
+
+
+_ACCEPTANCE_CHECK_PROMPT = (
+    "Before this work item closes: for EACH acceptance criterion listed below, state "
+    "whether the work you just did meets it. Respond with ONLY a JSON array of "
+    'objects, one per criterion IN ORDER, shaped {"criterion": "...", "met": '
+    'true|false, "evidence": "one concrete sentence"}. No prose outside the JSON, '
+    "no tool calls.\n\nCriteria:\n"
+)
+
+
+def _parse_acceptance_outcomes(text: str, criteria: list[str]) -> list[dict[str, object]]:
+    """Parse the self-check turn's JSON into per-criterion outcome records.
+
+    Tolerant by contract (the check is advisory and must never raise): any
+    parse failure returns ``[]`` (nothing recorded). Entries are matched to the
+    task's criteria BY POSITION and the criterion text is taken from the TASK
+    (authoritative), so a model that paraphrases or hallucinates criteria can
+    only ever grade the real ones; a missing entry reads as ``met=False`` with
+    empty evidence — the conservative default.
+    """
+    try:
+        start = text.index("[")
+        end = text.rindex("]") + 1
+        data = json.loads(text[start:end])
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    outcomes: list[dict[str, object]] = []
+    for index, criterion in enumerate(criteria):
+        entry = data[index] if index < len(data) and isinstance(data[index], dict) else {}
+        outcomes.append(
+            {
+                "criterion": criterion,
+                "met": bool(entry.get("met", False)),
+                "evidence": str(entry.get("evidence") or ""),
+            }
+        )
+    return outcomes
+
+
+def _maybe_run_acceptance_selfcheck(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
+    """ONE bounded self-check turn recording per-criterion outcomes (t15 / R6 / #259).
+
+    Fires only when the task declared ``acceptance`` criteria AND the loop
+    finished cleanly (an incomplete/aborted run should not spend a turn grading
+    itself; its honest status must stand untouched). The check is a SINGLE
+    completion — never a re-entered tool loop — so it structurally cannot call
+    ``finish`` and cannot clobber the work item's terminal summary/status (a
+    stronger invariant than the lint fix-turn's save/restore, by construction).
+    ADVISORY only: outcomes land on ``result.acceptance_outcomes`` for the
+    feedback/ROI loop; ``met=False`` never flips the run status — operator
+    judgment stays the authority (the devague-tool convention: the backend
+    cannot self-confirm). Best-effort + fail-safe like the sibling gates.
+    """
+    if aborted is not None or outcome != _EXIT_FINISHED or not ctx.task.acceptance:
+        return
+    with suppress(Exception):
+        criteria = [str(criterion) for criterion in ctx.task.acceptance]
+        ctx.messages.append(
+            {
+                "role": "user",
+                "content": _ACCEPTANCE_CHECK_PROMPT
+                + "\n".join(f"- {criterion}" for criterion in criteria),
+            }
+        )
+        resp = _complete_with_degradation(ctx, complete)
+        _account_turn(ctx, resp)
+        outcomes = _parse_acceptance_outcomes(resp.content or resp.reasoning or "", criteria)
+        if outcomes:
+            ctx.result.acceptance_outcomes = outcomes
 
 
 def _maybe_run_test_integrity_gate(
@@ -2469,6 +2553,13 @@ def run(
     # test-integrity so it sees their fixed changed set. The aborted guard + best-effort
     # wrapping live in the helper so it can never abort run().
     _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
+
+    # Acceptance self-check (t15 / spec R6 / #259): on a CLEAN finish of a task
+    # that declared acceptance criteria, ONE bounded completion records advisory
+    # per-criterion {criterion, met, evidence} outcomes on
+    # result.acceptance_outcomes. Runs after the gates so it grades the final
+    # (lint-fixed) state; never flips status; strict no-op without criteria.
+    _maybe_run_acceptance_selfcheck(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)
     # Record the typed-subagent role this work item ran as (#t4), on every exit
