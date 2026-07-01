@@ -102,3 +102,52 @@ def test_live_holder_is_never_stolen(tmp_path):
     with rig_slot(tmp_path, on_wait=waits.append, max_wait=0.1, poll=0.05) as held:
         assert held is False
     assert slot.exists()  # untouched
+
+
+# ---------------------------------------------------------------------------
+# execute_work wiring — one slot per top-level work item
+# ---------------------------------------------------------------------------
+
+
+def test_execute_work_holds_and_releases_a_rig_slot(tmp_path, monkeypatch):
+    import subprocess
+
+    from colleague.config import EngineConfig
+    from colleague.contract import OK, Task, TaskResult
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    for key, value in (("user.email", "t@e.c"), ("user.name", "T")):
+        subprocess.run(
+            ["git", "config", key, value],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+    (tmp_path / "README.md").write_text("x\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+    _declare_rig(tmp_path, 1)
+
+    held_during_work: list[bool] = []
+
+    class _SlotProbeEngine:
+        def work(self, task, config):
+            slot = tmp_path / ".colleague" / "rig-slots" / "slot-0"
+            held_during_work.append(slot.is_dir())
+            return TaskResult(task_id=task.id, status=OK, summary="done")
+
+    monkeypatch.setattr("colleague.registry.load", lambda name: _SlotProbeEngine())
+    from colleague.cli._commands.work import execute_work
+
+    task = Task.new(str(tmp_path), "probe the slot", engine="mock")
+    execute_work(
+        repo=tmp_path,
+        engine_name="mock",
+        task=task,
+        open_pr=False,
+        base="main",
+        config=EngineConfig.resolve(repo_path=tmp_path),
+        allow_dirty=True,
+    )
+    assert held_during_work == [True]  # held while the engine drove
+    assert not (tmp_path / ".colleague" / "rig-slots" / "slot-0").exists()  # released

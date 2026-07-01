@@ -29,7 +29,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Collection
 
-from colleague import flight, registry, worktrees
+from colleague import flight, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
@@ -493,8 +493,19 @@ def execute_work(
             config.subagent_batch_spawn = make_batch_spawn(
                 task.repo_path, config, task.engine, counter=budget
             )
+            # Rig-level cooperative concurrency budget (t13 / spec R5 / #258): hold
+            # ONE slot for the whole model-driving loop, so concurrent TOP-LEVEL
+            # work items sharing this repo's endpoint serialize to the operator's
+            # declared width instead of starving each other toward the timeout
+            # (#239's interference class). Deliberately NOT taken per subagent
+            # child: a parent holding a slot would starve its own children
+            # (deadlock-by-composition) — in-run fan-out is already budgeted by
+            # width-scaled child budgets (t12) + the backpressure throttle (t6).
+            # Strict no-op without .colleague/rig.json; degrades OPEN after the
+            # wait cap (an advisory backstop, never a wedge).
             try:
-                result = engine.work(task, config)
+                with rig.rig_slot(repo, on_wait=emit_diagnostic):
+                    result = engine.work(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
                 # Prefer the partial result the loop preserved on an engine raise
                 # (#37): its steps / usage / changed_files + trace reflect the work
