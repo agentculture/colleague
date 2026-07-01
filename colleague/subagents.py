@@ -68,11 +68,20 @@ from typing import Callable, List, Optional, cast
 from colleague import registry, worktrees
 from colleague.config import (
     MAX_SUBAGENT_DEPTH,
+    MAX_SUBAGENT_FANOUT,
     MAX_SUBAGENT_TOTAL,
     EngineConfig,
     effective_concurrency,
 )
 from colleague.contract import ERROR, OK, SubResult, Task, Usage
+from colleague.roles import is_read_only
+
+# Floors for the width-scaled child budget share (t12 / spec R5): a child's
+# share is clamped so scaling can never hand a child an unworkable budget —
+# and never MORE than the parent's own value (a tiny parent budget stays the
+# ceiling, floors notwithstanding).
+_MIN_CHILD_MAX_STEPS = 10
+_MIN_CHILD_CONTEXT_BUDGET = 16000
 
 #: A spawn callback: ``spawn(instruction, engine=None, model=None, role=None)
 #: -> SubResult``. Bound to a repo/parent-config/parent-engine/depth/budget by
@@ -220,8 +229,14 @@ def run_subagent(
     model: Optional[str] = None,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
+    max_steps: Optional[int] = None,
+    context_budget_tokens: Optional[int] = None,
 ) -> SubResult:
     """Run one nested child work item and return its :class:`SubResult`.
+
+    ``max_steps`` / ``context_budget_tokens`` (t12) explicitly budget THIS
+    child; ``None`` (the default) inherits the parent's value unchanged —
+    byte-identical to the pre-scaling behavior.
 
     ``depth`` is the nesting level of THIS child (top-level children = 1). Two
     structural caps are enforced *first, before any work* — a refused child does
@@ -265,17 +280,23 @@ def run_subagent(
     except registry.UnknownEngine as exc:
         raise SubagentError(str(exc)) from exc
 
-    # (c) Inherit the parent's config, overriding ONLY the model and the typed role
-    # when provided. dataclasses.replace keeps base_url/api_key/max_steps/... intact
+    # (c) Inherit the parent's config, overriding ONLY the model, the typed role,
+    # and (t12) an explicit child budget when the caller provides one — the batch
+    # path passes the width-scaled share here, and a per-item override wins over
+    # that share upstream. dataclasses.replace keeps base_url/api_key/... intact
     # and leaves the parent object untouched. The cast is purely for the static
     # analyser (Sonar models replace()'s return as a generic DataclassInstance).
+    replace_kwargs: dict = {
+        "model": (model or parent_config.model),
+        "role": role,
+    }
+    if max_steps is not None:
+        replace_kwargs["max_steps"] = max_steps
+    if context_budget_tokens is not None:
+        replace_kwargs["context_budget_tokens"] = context_budget_tokens
     child_config = cast(
         EngineConfig,
-        dataclasses.replace(
-            parent_config,
-            model=(model or parent_config.model),
-            role=role,
-        ),
+        dataclasses.replace(parent_config, **replace_kwargs),
     )
 
     # (d) Give the child its OWN spawn + batch-spawn callbacks bound to depth + 1
@@ -314,6 +335,71 @@ def run_subagent(
 # ---------------------------------------------------------------------------
 
 
+def _positive_int_or_none(value: object) -> Optional[int]:
+    """A positive int, or None (bools and non-ints are not budgets)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
+
+
+def _child_budget_share(
+    parent_config: EngineConfig, width: int
+) -> tuple[Optional[int], Optional[int]]:
+    """The per-child ``(max_steps, context_budget_tokens)`` share at *width*.
+
+    ``(None, None)`` at width <= 1 — the sequential path inherits the parent's
+    full budget unchanged (byte-identical, h5). At width > 1 each concurrent
+    child gets ``parent // width``, floored at the ``_MIN_CHILD_*`` constants
+    but never above the parent's own value, so W concurrent children stop
+    scheduling W full parent budgets against one served model (spec R5).
+    """
+    if width <= 1:
+        return None, None
+    steps = min(
+        parent_config.max_steps,
+        max(_MIN_CHILD_MAX_STEPS, parent_config.max_steps // width),
+    )
+    budget = min(
+        parent_config.context_budget_tokens,
+        max(
+            _MIN_CHILD_CONTEXT_BUDGET,
+            parent_config.context_budget_tokens // width,
+        ),
+    )
+    return steps, budget
+
+
+def _batch_all_read_only(items: List[dict], batch_role: Optional[str]) -> bool:
+    """True when every child's effective role is a read-only builtin.
+
+    The effective role mirrors ``_spawn_children``: the item's own ``role``,
+    falling back to the batch-level role. Read-only children provably cannot
+    write (role-withheld tools), so the batch's merge child is structurally a
+    no-op over empty diffs.
+    """
+    if not items:
+        return False
+    return all(is_read_only(item.get("role") or batch_role) for item in items)
+
+
+def _resolve_batch_width(
+    parent_config: EngineConfig, items: List[dict], batch_role: Optional[str]
+) -> int:
+    """Effective concurrency width for a batch (t12).
+
+    Normally ``effective_concurrency`` clamps to ``MAX_SUBAGENT_FANOUT - 1`` —
+    one fan-out slot stays reserved for the merge child. A batch whose children
+    are ALL read-only roles frees that reservation (its merge is a no-op), so
+    its width may use the full ``MAX_SUBAGENT_FANOUT``. Always clamped to the
+    item count; width 1 (the default) never touches a thread pool.
+    """
+    if _batch_all_read_only(items, batch_role):
+        width = min(max(1, parent_config.subagent_concurrency), MAX_SUBAGENT_FANOUT)
+    else:
+        width = effective_concurrency(parent_config.subagent_concurrency)
+    return min(width, len(items))
+
+
 def _child_id(batch_token: str, index: int) -> str:
     """Derive a stable, unique child id from a per-batch token and the child index.
 
@@ -336,6 +422,8 @@ def _run_child_in_worktree(
     model: Optional[str] = None,
     role: Optional[str] = None,
     counter: Optional["_AgentBudget"] = None,
+    max_steps: Optional[int] = None,
+    context_budget_tokens: Optional[int] = None,
 ) -> SubResult:
     """Drive ONE batch child inside its own git worktree, then commit its branch.
 
@@ -369,6 +457,8 @@ def _run_child_in_worktree(
         model=model,
         role=role,
         counter=counter,
+        max_steps=max_steps,
+        context_budget_tokens=context_budget_tokens,
     )
     # Commit whatever the child wrote onto its sub/<child_id> branch so the
     # post-join merge has something to integrate. An empty diff is fine.
@@ -513,8 +603,14 @@ def _spawn_children(
     """
     results: List[Optional[SubResult]] = [None] * len(items)
 
+    # Width-scaled default budget share (t12): computed once for the batch;
+    # (None, None) at width <= 1, so the sequential path stays byte-identical.
+    share_steps, share_budget = _child_budget_share(parent_config, width)
+
     def _run_one(i: int) -> SubResult:
         item = items[i]
+        item_steps = _positive_int_or_none(item.get("max_steps"))
+        item_budget = _positive_int_or_none(item.get("context_budget_tokens"))
         return _run_child_in_worktree(
             repo_path,
             child_ids[i],
@@ -526,6 +622,9 @@ def _spawn_children(
             model=(item.get("model") or None),
             role=(item.get("role") or role),
             counter=counter,
+            # An explicit per-item budget wins over the width-scaled share.
+            max_steps=(item_steps if item_steps is not None else share_steps),
+            context_budget_tokens=(item_budget if item_budget is not None else share_budget),
         )
 
     if width <= 1:
@@ -586,11 +685,11 @@ def _run_batch(
             f"{len(items)} exceeds {counter.remaining()} remaining"
         )
 
-    # (b) Resolve the effective concurrency width. Width 1 (the default) is the
-    # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to the
-    # pre-concurrency behavior. Also defensively clamp workers to the item count.
-    width = effective_concurrency(parent_config.subagent_concurrency)
-    width = min(width, len(items))
+    # (b) Resolve the effective concurrency width (t12: an all-read-only batch
+    # frees the merge-child reservation). Width 1 (the default) is the
+    # sequential path that NEVER touches ThreadPoolExecutor — byte-identical to
+    # the pre-concurrency behavior.
+    width = _resolve_batch_width(parent_config, items, role)
 
     # (c) Assign a deterministic-within-batch token + per-child ids up front (main
     # thread), so the branch names are stable relative to each other.
