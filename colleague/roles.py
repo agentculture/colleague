@@ -39,8 +39,11 @@ class Role:
         builds the child's schema it filters ``colleague.tools.SCHEMAS`` to
         only those names.
     skill_subset:
-        Tuple of skill-name strings the child may use, or ``None`` meaning
-        "all skills".
+        Tuple of skill-name-or-glob-pattern strings the child may use (each
+        entry is matched via :func:`colleague.layers._filter_skills`, so a
+        plain name matches exactly and a wildcard pattern like ``"cicd*"``
+        matches a whole class of skills), or ``None`` meaning "all skills"
+        (byte-identical to the unfiltered catalog — the no-silent-loss floor).
     read_only:
         ``True`` when the role must never mutate the repo tree.  Read-only
         roles exclude ``write_file``, ``edit_file``, and ``run_command`` from
@@ -78,6 +81,40 @@ _READONLY_TOOLS = (
 #: Read-only tools for the validator role (includes the dedicated test runner).
 _VALIDATOR_TOOLS = _READONLY_TOOLS + ("run_tests",)
 
+#: Curated skill-subset patterns for the read-and-report built-in roles
+#: (explorer / planner / reviewer / validator, t10).
+#:
+#: BUILTIN_ROLES is a single module-level constant shared by *every* repo
+#: colleague drives, so this can't be a hardcoded list of this repo's current
+#: ``.colleague/skills/*.md`` filenames — it has to travel by NAMING
+#: CONVENTION (an fnmatch-style glob via ``colleague.layers._filter_skills``)
+#: so a subset composed against a different repo's skill catalog still makes
+#: sense. Each pattern below is an INCLUDE — a class of skill the read-only
+#: roles are trusted to know about because it is itself investigation/
+#: reporting-shaped (reads state, writes nothing). Everything NOT matched is
+#: excluded by omission: this repo's own release/side-effect-shaped skills —
+#: ``cicd`` (opens/pushes PRs), ``version-bump`` (releases), ``pypi-maintainer``
+#: (mutates the install source), ``assign-to-workforce`` (spawns writing
+#: subagents), ``communicate`` (files issues / sends mesh messages),
+#: ``ask-colleague`` (its own ``write --apply``/``--pr`` verbs mutate/push),
+#: and ``promote`` (graduates a resident mesh peer) — are all deliberately
+#: left out, and a pattern matching none of a repo's skills just composes an
+#: empty skills section (never an error; see ``_filter_skills``).
+_INVESTIGATION_SKILL_PATTERNS: tuple[str, ...] = (
+    "recall*",  # shared eidetic-memory search — pure read, never writes
+    "explore*",  # investigation/survey-shaped skills (e.g. "explore-notes")
+    "review*",  # second-opinion/critique-shaped skills — report, never apply
+    "agent-config*",  # read-only "show agent config" inspection
+    "doc-test-alignment*",  # verifies docs/tests/code still agree — report only
+    "sonarclaude*",  # queries hosted code-quality data — read-only reporting
+)
+
+#: The validator's purpose is verifying correctness by *running* tests (via
+#: its dedicated ``run_tests`` tool), so it additionally keeps the matching
+#: skill doc describing that workflow — still non-mutating (running the
+#: existing suite writes no repo content the model authored).
+_VALIDATOR_SKILL_PATTERNS: tuple[str, ...] = _INVESTIGATION_SKILL_PATTERNS + ("run-tests*",)
+
 
 def _writer_allowlist() -> tuple[str, ...]:
     """Return the full tool surface derived from the current SCHEMAS."""
@@ -94,7 +131,7 @@ BUILTIN_ROLES: dict[str, Role] = {
             "gather context. Do not write or execute commands."
         ),
         tool_allowlist=_READONLY_TOOLS,
-        skill_subset=None,
+        skill_subset=_INVESTIGATION_SKILL_PATTERNS,
         read_only=True,
     ),
     "planner": Role(
@@ -104,7 +141,7 @@ BUILTIN_ROLES: dict[str, Role] = {
             "produce a structured plan. Do not write or execute commands."
         ),
         tool_allowlist=_READONLY_TOOLS,
-        skill_subset=None,
+        skill_subset=_INVESTIGATION_SKILL_PATTERNS,
         read_only=True,
     ),
     "reviewer": Role(
@@ -114,7 +151,7 @@ BUILTIN_ROLES: dict[str, Role] = {
             "or execute commands."
         ),
         tool_allowlist=_READONLY_TOOLS,
-        skill_subset=None,
+        skill_subset=_INVESTIGATION_SKILL_PATTERNS,
         read_only=True,
     ),
     "validator": Role(
@@ -124,7 +161,7 @@ BUILTIN_ROLES: dict[str, Role] = {
             "Do not write files or execute arbitrary commands."
         ),
         tool_allowlist=_VALIDATOR_TOOLS,
-        skill_subset=None,
+        skill_subset=_VALIDATOR_SKILL_PATTERNS,
         read_only=True,
     ),
     "writer": Role(

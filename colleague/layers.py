@@ -49,6 +49,7 @@ notes); colleague does not read ``mcp.json`` today. Only stdlib is used.
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -318,15 +319,31 @@ def system_prompt_for(
 
 
 def _filter_skills(skills: dict[str, Skill], subset: tuple[str, ...] | None) -> dict[str, Skill]:
-    """Filter *skills* to *subset* names.
+    """Filter *skills* to *subset*, where each entry is either an exact skill
+    name or an :mod:`fnmatch`-style glob pattern (e.g. ``"cicd*"``).
 
     When *subset* is ``None``, all skills pass through (byte-identical to the
-    unfiltered dict).  When *subset* is an empty tuple, no skills pass.
-    Names not present in *skills* are silently ignored.
+    unfiltered dict — the "no silent skill loss" invariant a curated role/mode
+    must never breach). When *subset* is an empty tuple, no skills pass.
+
+    Matching uses :func:`fnmatch.fnmatchcase` so behaviour does not vary by
+    platform casing rules; a plain literal name (no wildcard characters) still
+    matches only that exact skill, so this is a strict superset of the old
+    exact-name-only semantics — every existing exact-name subset keeps
+    matching exactly what it matched before. This is what lets a **built-in**
+    role's curated subset (a single module-level constant shared by every repo
+    colleague drives) stay repo-portable: it names a class of skills by
+    pattern (e.g. ``"explore*"``) rather than hardcoding one repo's current
+    skill filenames. A pattern that matches nothing in a given repo's catalog
+    simply composes an empty skills section — never an error.
     """
     if subset is None:
         return skills
-    return {name: skill for name, skill in skills.items() if name in subset}
+    return {
+        name: skill
+        for name, skill in skills.items()
+        if any(fnmatch.fnmatchcase(name, pattern) for pattern in subset)
+    }
 
 
 def compose_role_prompt(
