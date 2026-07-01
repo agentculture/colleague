@@ -106,30 +106,42 @@ def _reap_stale_slot(slot: Path) -> None:
         pass
 
 
-def _try_take_slot(slots: Path, width: int) -> Optional[Path]:
-    """One non-blocking pass over the slot indices; the taken slot or ``None``.
+def _slot_is_stale(slot: Path) -> bool:
+    """True when *slot* records a holder PID that is no longer alive."""
+    holder = _slot_holder_pid(slot)
+    return holder is not None and not _pid_alive(holder)
 
-    ``mkdir`` is the atomic take; a stale slot (dead holder PID) is reaped and
-    retried once in the same pass.
+
+def _claim_slot(slot: Path) -> Optional[Path]:
+    """Claim ONE slot index, reaping at most one stale holder (S3776 extract).
+
+    ``mkdir`` is the atomic take. ``None`` = held by a live process or
+    unavailable (an unwritable bookkeeping dir degrades open, never raises).
     """
+    for _attempt in (0, 1):  # second attempt only after reaping a stale slot
+        try:
+            slot.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            if _slot_is_stale(slot):
+                _reap_stale_slot(slot)
+                continue  # retry this index once after the reap
+            return None  # genuinely held
+        except OSError:
+            return None  # unwritable bookkeeping dir — degrade open
+        try:
+            (slot / "pid").write_text(str(os.getpid()), encoding="utf-8")
+        except OSError:
+            pass  # a pid-less slot still works; it just can't be reaped early
+        return slot
+    return None
+
+
+def _try_take_slot(slots: Path, width: int) -> Optional[Path]:
+    """One non-blocking pass over the slot indices; the taken slot or ``None``."""
     for index in range(width):
-        slot = slots / f"slot-{index}"
-        for _attempt in (0, 1):  # second attempt only after reaping a stale slot
-            try:
-                slot.mkdir(parents=True, exist_ok=False)
-            except FileExistsError:
-                holder = _slot_holder_pid(slot)
-                if holder is not None and not _pid_alive(holder):
-                    _reap_stale_slot(slot)
-                    continue  # retry this index once after the reap
-                break  # genuinely held — next index
-            except OSError:
-                break  # unwritable bookkeeping dir — next index (degrade open)
-            try:
-                (slot / "pid").write_text(str(os.getpid()), encoding="utf-8")
-            except OSError:
-                pass  # a pid-less slot still works; it just can't be reaped early
-            return slot
+        taken = _claim_slot(slots / f"slot-{index}")
+        if taken is not None:
+            return taken
     return None
 
 
