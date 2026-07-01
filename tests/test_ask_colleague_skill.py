@@ -379,6 +379,180 @@ def test_readonly_verb_isolates_in_a_worktree_and_cleans_up(tmp_path) -> None:
     assert _wt_count() == before, "worktree leaked — run_readonly did not clean up"
 
 
+def _mode_aware_fake_colleague(argv_log: Path, env_log: Path | None, *, mode_in_help: bool) -> str:
+    """A stub `colleague` whose `work --help` output mentions `--mode` iff
+    *mode_in_help*, and which otherwise (any other invocation — the real
+    drive call) records its argv (and, when *env_log* is given, its own
+    environment) before echoing a canned successful TaskResult. Mirrors the
+    resolved CLI: `colleague work --help` for mode detection, `colleague
+    drive ...` for the actual work item (t4/spec R1)."""
+    help_line = (
+        'echo "usage: colleague work [-h] [--model MODEL] "'
+        '"--mode {auto,work,plan,explore,review} ..."'
+        if mode_in_help
+        # Deliberately includes --model (every version has it) but NOT --mode —
+        # this is the real shape of a stale pre-#254 colleague CLI, and it is
+        # the regression case for the substring bug where a naive `*--mode*`
+        # match false-positives on "--model" (which literally starts with the
+        # substring "--mode").
+        else 'echo "usage: colleague work [-h] [--engine ENGINE] "'
+        '"[--model MODEL] [--max-steps N] [--json]"'
+    )
+    env_dump = f'env > "{env_log}"\n' if env_log is not None else ""
+    return (
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == "work" && "$2" == "--help" ]]; then\n'
+        f"    {help_line}\n"
+        "    exit 0\n"
+        "fi\n"
+        f'printf "%s\\n" "$@" > "{argv_log}"\n'
+        f"{env_dump}"
+        'echo \'{"status": "ok", "summary": "MODE_STUB_OK", "changed_files": []}\'\n'
+    )
+
+
+@pytest.mark.parametrize("verb", ["explore", "review"])
+def test_explore_review_adopt_native_mode_profile(tmp_path, verb: str) -> None:
+    """t4/spec R1: when the resolved `colleague` supports `--mode`, explore/review
+    select colleague's own native "explore"/"review" mode profile
+    (colleague/profiles.py) instead of the wrapper's OLD caller-side overrides —
+    no wrapper-default `--max-steps` is forwarded (the profile supplies it as a
+    runtime DEFAULT) and no `COLLEAGUE_SYNTHESIS_RESERVE_STEPS` env var is
+    exported (the profile's own reserve knob covers it)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    env_log = tmp_path / "env.txt"
+    fake = bindir / "colleague"
+    fake.write_text(_mode_aware_fake_colleague(argv_log, env_log, mode_in_help=True))
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    env.pop("COLLEAGUE_SYNTHESIS_RESERVE_STEPS", None)
+    args = ["bash", str(SCRIPT), verb, "investigate something", "--repo", str(repo)]
+    if verb == "review":
+        # review validates --base against a real ref before rendering the prompt;
+        # _init_repo's default branch name depends on the local git config
+        # (init.defaultBranch), so pin --base to the repo's actual current branch
+        # rather than assume "main".
+        branch = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        args += ["--base", branch]
+    r = subprocess.run(args, capture_output=True, text=True, env=env, check=False)
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert "--mode" in argv, argv
+    assert argv[argv.index("--mode") + 1] == verb
+    assert "--max-steps" not in argv, argv
+    env_text = env_log.read_text()
+    assert "COLLEAGUE_SYNTHESIS_RESERVE_STEPS" not in env_text
+
+
+@pytest.mark.parametrize("explicit_steps", [12, 50])
+def test_explicit_max_steps_still_wins_over_the_mode_profile(tmp_path, explicit_steps: int) -> None:
+    """An explicit `--max-steps` from the caller must still be forwarded and win
+    over the mode profile's own default (30) — in EITHER direction, lower (12)
+    or higher (50) than the profile's number — because the runtime treats an
+    explicit flag as authoritative ahead of any profile default."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text(_mode_aware_fake_colleague(argv_log, None, mode_in_help=True))
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            "explore",
+            "investigate something",
+            "--repo",
+            str(repo),
+            "--max-steps",
+            str(explicit_steps),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert "--max-steps" in argv, argv
+    assert argv[argv.index("--max-steps") + 1] == str(explicit_steps)
+    # The mode is still selected — only the step count is caller-overridden.
+    assert "--mode" in argv, argv
+    assert argv[argv.index("--mode") + 1] == "explore"
+
+
+def test_write_keeps_legacy_max_steps_default_and_gains_no_mode(tmp_path) -> None:
+    """write must stay byte-identical (t4 point 3): it keeps its existing
+    `--max-steps 20` default and never gains a `--mode` flag — even against a
+    `colleague` that supports `--mode` — because write's profile is
+    behavior-neutral (identical to no mode at all)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    fake = bindir / "colleague"
+    fake.write_text(_mode_aware_fake_colleague(argv_log, None, mode_in_help=True))
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "write", "do a thing", "--repo", str(repo), "--apply"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert "--max-steps" in argv, argv
+    assert argv[argv.index("--max-steps") + 1] == "20"
+    assert "--mode" not in argv, argv
+
+
+def test_explore_falls_back_to_legacy_defaults_without_native_mode_support(tmp_path) -> None:
+    """Honest limit (t4 point 5): a stale installed `colleague` that predates
+    `--mode` must not break the wrapper. explore falls back to the OLD
+    caller-side `--max-steps 30` default + `COLLEAGUE_SYNTHESIS_RESERVE_STEPS=3`
+    export, and never passes `--mode` (which the stale CLI would reject)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    env_log = tmp_path / "env.txt"
+    fake = bindir / "colleague"
+    fake.write_text(_mode_aware_fake_colleague(argv_log, env_log, mode_in_help=False))
+    fake.chmod(0o755)
+    repo = _init_repo(tmp_path / "repo")
+
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    env.pop("COLLEAGUE_SYNTHESIS_RESERVE_STEPS", None)
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "explore", "investigate something", "--repo", str(repo)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert r.returncode == 0, r.stderr
+    argv = argv_log.read_text().splitlines()
+    assert "--mode" not in argv, argv
+    assert "--max-steps" in argv, argv
+    assert argv[argv.index("--max-steps") + 1] == "30"
+    env_text = env_log.read_text()
+    assert "COLLEAGUE_SYNTHESIS_RESERVE_STEPS=3" in env_text
+
+
 def test_explore_partial_warning_has_rerun_hint(tmp_path) -> None:
     """#194: a not-finished explore drive prints an ACTIONABLE re-run hint naming the
     reached step count and a concrete larger --max-steps (2x the explore default 30)."""
