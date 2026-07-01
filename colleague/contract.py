@@ -379,6 +379,63 @@ class LintReport:
 
 
 @dataclass
+class DeepthinkCall:
+    """One escalation call to the "deepthink" model during a work item.
+
+    Dual-model colleague (plan task t3, spec covers c14/h6) optionally pairs a
+    fast wide-window main model that does the driving with a second
+    "deepthink" model escalated to for hard reasoning. Every escalation —
+    whether it actually completed against the deepthink model or degraded
+    back to the main model — is recorded as one ``DeepthinkCall`` on
+    ``TaskResult.deepthink`` (see :mod:`colleague.contract` and, for the
+    seam that produces these records, ``colleague.deepthink.run_deepthink``,
+    task t2).
+
+    Fields
+    ------
+    point:
+        Which escalation point fired (a free-form label, e.g. ``"tool"`` for
+        the model-callable ``deepthink`` loop tool, ``"acceptance_selfcheck"``
+        for the pre-finish acceptance self-check, or ``"plan_proposal"`` for a
+        plan-mode proposal completion).
+    tokens:
+        Total tokens used by the completion, or ``None`` when not reported
+        (e.g. a degraded call that never reached the wire).
+    duration:
+        Wall-clock seconds the call took, or ``None`` when not measured.
+    degraded:
+        ``True`` iff the escalation fell back to the main model (a dead
+        port, request error, or context overflow on the deepthink endpoint)
+        instead of actually completing against the deepthink model. Default
+        ``False``.
+    """
+
+    point: str
+    tokens: Optional[int] = None
+    duration: Optional[float] = None
+    degraded: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "point": self.point,
+            "tokens": self.tokens,
+            "duration": self.duration,
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DeepthinkCall":
+        raw_tokens = data.get("tokens")
+        raw_duration = data.get("duration")
+        return cls(
+            point=str(data.get("point", "")),
+            tokens=int(raw_tokens) if raw_tokens is not None else None,
+            duration=float(raw_duration) if raw_duration is not None else None,
+            degraded=bool(data.get("degraded", False)),
+        )
+
+
+@dataclass
 class Step:
     """One iteration of the agentic tool-loop: a tool call and its result."""
 
@@ -627,6 +684,16 @@ class TaskResult:
     tolerates malformed (non-dict) entries by dropping them rather than
     raising, matching the codebase's best-effort stance on optional structured
     payloads read back from an artifact."""
+    deepthink: Optional[list[DeepthinkCall]] = None
+    """Every escalation call to the "deepthink" model fired during this work
+    item, in order, or ``None`` when no dual-model config was present / no
+    escalation occurred (plan task t3, spec covers c14/h6). Each record is a
+    :class:`DeepthinkCall` (``{point, tokens, duration, degraded}``). Like
+    ``lint_report``/``capacity_decision``/``acceptance_outcomes``, the
+    serialized key is OMITTED (not null) when ``None``, so a single-model
+    work item serializes byte-identically to today's artifact. Populated by
+    the loop (plan task t5) each time it escalates via the deepthink seam
+    (:mod:`colleague.deepthink`)."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -683,6 +750,11 @@ class TaskResult:
         # today's artifact (no extra key).
         if self.acceptance_outcomes is not None:
             d["acceptance_outcomes"] = [dict(entry) for entry in self.acceptance_outcomes]
+        # deepthink gets the same omit-when-None treatment (plan task t3): a
+        # single-model work item (or one that never escalated) serializes
+        # byte-identically to today's artifact (no extra key).
+        if self.deepthink is not None:
+            d["deepthink"] = [c.to_dict() for c in self.deepthink]
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -734,6 +806,7 @@ class TaskResult:
             role=data.get("role"),
             mode=data.get("mode"),
             acceptance_outcomes=_coerce_acceptance_outcomes(data.get("acceptance_outcomes")),
+            deepthink=_coerce_deepthink_calls(data.get("deepthink")),
         )
 
 
@@ -763,6 +836,28 @@ def _coerce_acceptance_outcomes(
             }
         )
     return outcomes
+
+
+def _coerce_deepthink_calls(
+    raw: Optional[list[Any]],
+) -> Optional[list[DeepthinkCall]]:
+    """Coerce a raw ``deepthink`` payload read back from an artifact.
+
+    ``None`` in, ``None`` out (no dual-model config was present / no
+    escalation occurred — the common case). When a list is present, each
+    entry is expected to be a :class:`DeepthinkCall`-shaped mapping; a
+    malformed (non-dict) entry is dropped rather than raising, matching the
+    codebase's best-effort stance on optional structured payloads read back
+    from JSON (see :func:`_coerce_acceptance_outcomes`).
+    """
+    if raw is None:
+        return None
+    calls: list[DeepthinkCall] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        calls.append(DeepthinkCall.from_dict(entry))
+    return calls
 
 
 # ── lazy import helper (avoids circular import at module level) ─────────
