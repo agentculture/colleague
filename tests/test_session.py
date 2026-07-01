@@ -237,10 +237,17 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
     assert isinstance(result_drive.changed_files, list)
     assert isinstance(result_session.steps, list)
     assert isinstance(result_drive.steps, list)
-    # Both must carry the same top-level keys
+    # Both must carry the same top-level keys, MODULO "mode" (t7 / spec R3 / #256):
+    # the session always dispatches a work-template selection under the neutral
+    # "work" mode (``_run_work`` passes ``mode="work"`` unconditionally — t3), while
+    # this test's direct ``execute_work`` call above passes no ``mode`` at all (a
+    # bare ``colleague work``-style call). That is a genuine, by-design asymmetry
+    # now that mode is recorded on the artifact (omit-when-None) — not a shape bug.
     drive_keys = set(result_drive.to_dict().keys())
     session_keys = set(result_session.to_dict().keys())
-    assert session_keys == drive_keys
+    assert session_keys - {"mode"} == drive_keys - {"mode"}
+    assert "mode" not in drive_keys
+    assert result_session.mode == "work"
 
 
 # ---------------------------------------------------------------------------

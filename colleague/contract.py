@@ -556,6 +556,16 @@ class TaskResult:
     ``ContextControls.role`` (the engine forwards ``config.role``). Omitted from
     ``to_dict`` when ``None``, so a role-less work item serializes byte-identically
     to the pre-role artifact shape."""
+    mode: Optional[str] = None
+    """The driving mode (auto|work|plan|explore|review) this work item ran under,
+    or ``None`` when no mode was selected (plain ``colleague work`` without
+    ``--mode`` / session mode selection) (spec R3 / plan t7 / #256). Set by
+    :func:`colleague.cli._commands.work.execute_work`, NOT by the engine/loop —
+    the mode concept lives at the CLI/session entry doors, so
+    ``registry.load(...).work(...)`` called directly (as the e2e mock shape
+    test does) never sets it. Like role/destination, the serialized key is
+    OMITTED (not null) when ``None``, so a mode-less work item serializes
+    byte-identically to the pre-mode artifact shape."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -600,6 +610,11 @@ class TaskResult:
         # serializes byte-identically to the pre-role artifact (no extra key).
         if self.role is not None:
             d["role"] = self.role
+        # mode gets the same omit-when-None treatment (spec R3 / plan t7): a
+        # mode-less work item serializes byte-identically to the pre-mode artifact
+        # (no extra key).
+        if self.mode is not None:
+            d["mode"] = self.mode
         if self.affected_tests_report is not None:
             d["affected_tests_report"] = self.affected_tests_report.to_dict()
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
@@ -651,6 +666,7 @@ class TaskResult:
             not_finished=bool(data.get("not_finished", False)),
             stopped_without_finish=bool(data.get("stopped_without_finish", False)),
             role=data.get("role"),
+            mode=data.get("mode"),
         )
 
 
