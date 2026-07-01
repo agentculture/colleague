@@ -572,6 +572,38 @@ def test_session_work_sink_skips_phase_events() -> None:
     assert sess.state.work_item.step_count == 1  # the phantom step was NOT folded
 
 
+def test_session_work_sink_folds_phase_into_status_and_clears_on_real_step() -> None:
+    """The #206 follow-up, resolved (spec R3 / plan t9 / #256): a phase notice's
+    text becomes visible on the cockpit's STATUS surface instead of being
+    silently dropped, and a subsequent REAL step clears it back to the
+    baseline status active when the work item started — so the phase text
+    never lingers once the model resumes making tool calls."""
+    import dataclasses
+    from types import SimpleNamespace
+
+    from agentfront.taui.state import Status
+    from agentfront.taui.state import TAUIState as CockpitState
+    from agentfront.taui.state import WorkItem
+
+    from colleague.cli._commands.session import _WorkSink
+
+    state = CockpitState(status=Status(severity="info", message="colleague session · mock · local"))
+    state = dataclasses.replace(
+        state, work_item=WorkItem(task_id="t", engine="mock", step_count=0, running=True)
+    )
+    sess = SimpleNamespace(state=state, view="markdown")
+    sink = _WorkSink(sess)
+
+    sink(0, "", "thinking… (waiting on the model)", True)  # a phase notice
+    assert sess.state.status.message == "thinking… (waiting on the model)"
+    assert sess.state.work_item.step_count == 0  # still not a step
+    assert sess.state.conversation == []  # no feed line was added for the phase
+
+    sink(1, "read_file", "a.py", True)  # a real step
+    assert sess.state.work_item.step_count == 1
+    assert sess.state.status.message == "colleague session · mock · local"  # cleared
+
+
 def test_session_unknown_slash_is_a_stderr_error(tmp_path: Path) -> None:
     err = _CollectingOut()
     rc = run_session(

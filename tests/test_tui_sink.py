@@ -11,11 +11,14 @@ from __future__ import annotations
 import io
 
 from agentfront.taui.events import loads_events
+from agentfront.taui.state import TAUIState as CockpitState
+from agentfront.taui.state import WorkItem
 
 from colleague.cli._commands._tui_sink import (
     CockpitProgressSink,
     build_progress,
     cockpit_active,
+    fold_phase,
     make_events_sink,
     make_fanout,
 )
@@ -161,6 +164,36 @@ def test_step_progress_renders_phase_as_standalone_line(capsys) -> None:
     assert "synthesizing the final answer…" in err
     assert "step 3: synthesizing" not in err  # the phase line is NOT shaped like a step
     assert "step 3: read_file a.py [ok]" in err  # a real step keeps its shape
+
+
+# --- fold_phase: the #206 follow-up (spec R3 / plan t9 / #256) ---------------
+
+
+def test_fold_phase_sets_status_without_touching_work_item_or_conversation() -> None:
+    """`fold_phase` is a pure STATUS-surface fold: it must not create a work
+    step (`work_item.step_count` untouched) or a feed line (`conversation`
+    untouched) — the #206 invariant holds for whoever calls it."""
+    state = CockpitState(work_item=WorkItem(task_id="t", engine="mock", step_count=2, running=True))
+    folded = fold_phase(state, "compacting the conversation to free context…")
+    assert folded.status.message == "compacting the conversation to free context…"
+    assert folded.work_item.step_count == 2  # untouched
+    assert folded.conversation == []  # no feed line added
+
+
+def test_cockpit_sink_phase_notice_updates_status_and_clears_on_real_step() -> None:
+    """The #206 follow-up: a phase notice is folded into the cockpit's STATUS
+    surface (visible to the operator) instead of being dropped; a subsequent
+    REAL step clears it back to the sink's baseline status."""
+    sink = CockpitProgressSink("t1", "mock", stream=_Stream(isatty=False))
+    base_message = sink._state.status.message
+
+    sink(0, "", "thinking… (waiting on the model)", True)  # a phase notice
+    assert sink._state.status.message == "thinking… (waiting on the model)"
+    assert sink._state.work_item.step_count == 0  # still not a step
+
+    sink(1, "read_file", "a.py", True)  # a real step clears the phase text
+    assert sink._state.status.message == base_message
+    assert sink._state.work_item.step_count == 1
 
 
 # --- fan-out isolation -------------------------------------------------------

@@ -171,6 +171,114 @@ def test_taui_mirror_exposes_policy_and_context_panels(tmp_path: Path) -> None:
     assert {"policy", "context", "commands", "panel.conversation"} <= ids
 
 
+# ── Capacity panel + phase status + goal line (spec R3 / plan t9 / #256) ────
+# Rides the existing generic panel walk — no agentfront schema bump. The
+# upstream TAUIState `capacity`/`phase`/`goal` fields are a separate ask
+# (agentfront#48); this is the "lands independently" half (see
+# docs/features/tier-visibility.md).
+
+
+def _capacity_panel(session: _Session) -> Panel:
+    return next(p for p in session.state.panels if p.id == "capacity")
+
+
+def test_capacity_panel_present_after_startup_with_budget_row(tmp_path: Path) -> None:
+    s = _make_session(tmp_path)
+    panel = _capacity_panel(s)
+    budget = next(i for i in panel.items if i.id == "cap.budget")
+    assert "tokens" in budget.status
+    assert str(s.config.context_budget_tokens) in budget.status.replace(",", "")
+    # No work item has run yet — the signal row says so honestly.
+    signal = next(i for i in panel.items if i.id == "cap.signal")
+    assert signal.status == "none yet"
+
+
+def test_capacity_panel_shows_active_mode_profile(tmp_path: Path) -> None:
+    s = _make_session(tmp_path)
+    s.mode = "explore"
+    s._refresh_status()  # mirrors a shift-tab / `/mode explore` cycle
+    profile_row = next(i for i in _capacity_panel(s).items if i.id == "cap.mode_profile")
+    assert "explore" in profile_row.status
+    assert "steps" in profile_row.status  # a concrete profile, not "no fixed profile"
+
+
+def test_capacity_panel_auto_mode_says_no_fixed_profile(tmp_path: Path) -> None:
+    s = _make_session(tmp_path)
+    assert s.mode == "auto"
+    profile_row = next(i for i in _capacity_panel(s).items if i.id == "cap.mode_profile")
+    assert "no fixed profile" in profile_row.status
+
+
+def test_capacity_panel_shows_capacity_warning_after_work_item(tmp_path: Path) -> None:
+    """The latest fill-line/backpressure signal surfaced on a finished
+    TaskResult (`capacity_warning`) renders in the refreshed Capacity panel."""
+    from colleague.contract import OK, Task, TaskResult
+
+    def _work_fn(**kwargs: object) -> tuple[TaskResult, Path]:
+        return (
+            TaskResult(
+                task_id="x",
+                status=OK,
+                summary="done",
+                capacity_warning="backpressure escalated: model turns are averaging slow",
+            ),
+            tmp_path / "art.json",
+        )
+
+    s = _make_session(tmp_path)
+    s.work_fn = _work_fn
+    s._run_work(Task.new(str(tmp_path), "do something"), None)
+    signal = next(i for i in _capacity_panel(s).items if i.id == "cap.signal")
+    assert "backpressure escalated" in signal.status
+
+
+def test_markdown_and_mirror_carry_capacity_panel(tmp_path: Path) -> None:
+    """The generic panel walk carries the Capacity panel to both agent-facing
+    tiers with no per-renderer code (AC e)."""
+    s = _make_session(tmp_path)
+    md = render_markdown(s.state)
+    assert "## Capacity" in md
+    ids = {p["id"] for p in serialize(s.state)["panels"]}
+    assert "capacity" in ids
+    mirrored = next(p for p in serialize(s.state)["panels"] if p["id"] == "capacity")
+    item_ids = {i["id"] for i in mirrored["items"]}
+    assert {"cap.budget", "cap.mode_profile", "cap.signal"} <= item_ids
+
+
+def _session_panel(session: _Session) -> Panel:
+    return next(p for p in session.state.panels if p.id == "panel.conversation")
+
+
+def test_goal_line_appears_while_work_item_runs_and_clears_after(tmp_path: Path) -> None:
+    from colleague.contract import OK, Task, TaskResult
+
+    captured: dict = {}
+
+    def _work_fn(**kwargs: object) -> tuple[TaskResult, Path]:
+        sink = kwargs["progress_sink"]
+        goal_item = next((i for i in _session_panel(sink._session).items), None)
+        captured["status"] = goal_item.status if goal_item else None
+        return TaskResult(task_id="x", status=OK, summary="done"), tmp_path / "art.json"
+
+    s = _make_session(tmp_path)
+    s.work_fn = _work_fn
+    task = Task.new(str(tmp_path), "fix the flaky auth test at login.py line 42")
+    s._run_work(task, None)
+    assert captured["status"] == "fix the flaky auth test at login.py line 42"
+    # Cleared once the work item ends — no lingering goal item.
+    assert _session_panel(s).items == []
+
+
+def test_goal_line_truncates_to_first_line_around_80_chars(tmp_path: Path) -> None:
+    from colleague.cli._commands.session import _goal_text
+
+    long_instruction = "x" * 120
+    goal = _goal_text(f"{long_instruction}\nsecond line ignored")
+    assert goal.endswith("…")
+    assert len(goal) <= 80
+    assert "second line" not in goal
+
+
 # ── end-to-end through run_session (Markdown tier) ──────────────────────────
 
 
