@@ -1,0 +1,63 @@
+# colleague's work modes — explore, plan, review, work — now fit the machine they run on: each mode carries its own context/compute profile (step budget, context budget, synthesis reserve, timeout) instead of one global knob set; skills are curated to the mode instead of always-all; subagent orchestration respects the served model's real concurrency; every work item carries a visible task+goal; and all of it is legible on all three surfaces — the human TUI, the agent markdown/TAUI, and the bot/app JSON — with each improvement area tracked as a concrete GitHub issue.
+
+> colleague's work modes — explore, plan, review, work — now fit the machine they run on: each mode carries its own context/compute profile (step budget, context budget, synthesis reserve, timeout) instead of one global knob set; skills are curated to the mode instead of always-all; subagent orchestration respects the served model's real concurrency; every work item carries a visible task+goal; and all of it is legible on all three surfaces — the human TUI, the agent markdown/TAUI, and the bot/app JSON — with each improvement area tracked as a concrete GitHub issue.
+
+## Audience
+
+- Three audiences, one per surface: human operators at the TTY (live ANSI TUI), agents driving colleague via markdown/TAUI, and bots/apps consuming JSON (artifact, events.jsonl, MCP serve).
+
+## Before → After
+
+- Before: Today a mode changes only verb + role + PR flag (session.py route_for); every constraint knob is one global env value and the only per-mode overrides live caller-side in ask-colleague.sh (explore/review: max-steps 30, reserve 3); skills always compose in full (Role.skill_subset exists but every built-in role sets None); a subagent child inherits the parent's full EngineConfig unchanged; capacity/fill-line state and phase notices are invisible in the cockpit tiers and mode is absent from events.jsonl/artifact/MCP; Task carries no goal or acceptance criteria — destination is recorded only post-execution on TaskResult.
+- After: Every work mode (explore, plan, review, work) runs inside explicit context + compute constraints: a per-mode profile sets step budget / context budget / synthesis reserve / timeout, skills compose per mode instead of always-all, subagent fan-out respects the served model's real concurrency, each work item carries a visible task+goal, and all three surfaces render that state consistently.
+
+## Why it matters
+
+- The reference rig is a single serializing 27B GPU with a 256k window — context and compute constraints are the operating reality, not an edge case; a mode that ignores them times out, overflows, or silently wastes the run.
+
+## Requirements
+
+- R1 mode profiles: per-mode constraint profiles move into the runtime — selecting a mode (session mode, role, or ask-colleague verb) resolves a named profile (max_steps, context-budget fraction, synthesis reserve steps, timeout, fillline threshold) through the existing EngineConfig.resolve precedence as a new default layer (explicit flag > env > profile > built-in), replacing the caller-side env overrides in ask-colleague.sh; runtime-owned (all-engines), byte-identical when no mode/profile is selected.
+  - honesty: A mode profile changes only DEFAULTS: an explicit flag or env var still wins through the existing EngineConfig.resolve precedence, and a run with no mode/profile selected is byte-identical to today (the e2e mock shape test stays green).
+- R2 adaptive backpressure: the loop measures per-turn wall-clock latency and, when turns slow toward the request timeout, proactively tightens — shrinks the context window it feeds (the #229 move) and throttles effective subagent concurrency/fan-out — bounded and advisory-first; it only ever tightens toward safety and never switches models or backends (not a router).
+  - honesty: Backpressure only ever tightens toward safety (smaller window, lower concurrency), is bounded (termination preserved), is a strict no-op on an unsaturated server, and never selects a different model or backend — the no-router scope line holds.
+- R3 tier visibility parity: capacity/fill-line state, phase (thinking/synthesizing/compacting — the #206 follow-up), and the task goal become visible across the three tiers, and mode reaches the tiers it is missing from (events.jsonl, artifact, MCP result); fields are added once to the shared cockpit/TAUI state and artifact rather than per-renderer, with TAUIState changes routed upstream to agentfront first (consumer-side-only in colleague, the #249 pattern).
+  - honesty: Tier fields are added once to shared state (TAUI state + artifact) and rendered by each tier from that one source, never recomputed per-renderer; any TAUIState schema change ships upstream in agentfront first and colleague stays consumer-side only.
+- R4 budget-aware skill curation: built-in roles get real skill subsets (today every role sets skill_subset=None) and mode-level curation reuses the same mechanism; layers.py composes the skill catalog within an explicit token cap with a priority order, dropping whole skills with a visible omitted-N note instead of composing unconditionally.
+  - honesty: A role/mode with no curated subset keeps today's full skill catalog (no silent skill loss); the budget cap drops whole skills by declared priority and says so in the composed prompt (omitted-N note), never truncating a skill mid-text.
+- R5 subagent budget scaling + rig-level concurrency: a child inherits a scaled share of the parent's context/step budget (clamped to a workable floor) instead of the full EngineConfig; a rig-level concurrency budget coordinates concurrent work items sharing one served endpoint (file-based, no daemon — addresses the #239 concurrent-runs class); read-only batches stop reserving the merge slot (the documented FANOUT-slot follow-up).
+  - honesty: Child budget scaling clamps to a workable floor and equals today's behavior at fan-out 1; the rig-level concurrency budget is file-based cooperative coordination (no daemon, no socket) and a missing/absent budget file is a strict no-op.
+- R6 tasks carry their goal: Task gains optional structured goal/acceptance fields (pre-execution, machine-readable — today acceptance lives only as instruction text and destination is post-hoc on TaskResult), SubResult records per-criterion outcomes, task lineage (parent linkage) is recorded across subagent trees, and plan resume (plan continue) becomes a first-class verb; the goal renders in the cockpit feed and artifact.
+  - honesty: Goal/acceptance/lineage fields are optional and omit-when-None — a task authored without them is byte-identical through Task, TaskResult, and the artifact; acceptance outcomes are recorded, never self-graded as authoritative (operator confirmation stays the authority, matching the devague-tool convention).
+
+## Honesty conditions
+
+- The announcement ships as six re-specced increments inside the v1 conventions, each tracked by its own GitHub issue — never one big-bang change.
+- Each tier is exercised by a real consumer in the repo today (session TTY cockpit; markdown/TAUI render + snapshot quad; JSON artifact/events.jsonl + mcp serve) — no tier is hypothetical.
+- The after-state counts as reached only when a mode run on the reference endpoint completes inside its profile without manual per-run env tuning.
+- The constraint reality is live-verified, not assumed: on 2026-07-01 the endpoint stale-lists the 27B (completions 404) and the served Qwen3.5-4B lacks tool-calling — a bare colleague work currently has NO working backend on this rig (evidence for #66).
+- Every filed issue names its scope line explicitly; anything that would breach it (router, sandbox, daemon, second base dep) is parked or re-specced, never slipped in as a side effect.
+- Issues are filed only after this frame converges; each issue cites the spec and concrete file:line anchors and cross-links (never duplicates) #12, #229, #250, #27, #24, #7, #66, #239.
+- Before-state statements are code-anchored from the exploration (file:line) and re-verifiable; any found stale are corrected in the issue text rather than defended.
+- Per-model profile resolution reuses the existing exact-path per-model layering (sanitize_model, no sibling globbing) rather than inventing a second resolution axis.
+
+## Success signals
+
+- Each improvement area has an open GitHub issue with concrete, code-grounded guidance that cross-links (not duplicates) existing issues (#12, #229, #250, #27, #24, #7); and the spec names, per mode, which constraint knobs a profile would set.
+
+## Scope / boundaries
+
+- The v1 scope line holds: no multi-model router / automatic routing policy, no execution sandbox, no colleague-owned daemon, no second base dependency; every improvement lands as a re-specced increment inside those conventions.
+
+## Non-goals
+
+- This leg does not implement the improvements — the deliverable is the converged spec plus one concrete GitHub issue per improvement area (guidance: files, knobs, approach, honest limits); implementation is follow-on work per issue.
+
+## Assumptions
+
+- Constraint profiles must resolve against the SERVED model, not a fixed rig: the reference endpoint today stale-lists the 27B while only Qwen3.5-4B answers (live probe 2026-07-01, the #66 diagnosability gap observed live), so the existing per-model layering axis (layers.py) is the natural resolution axis for capacity/compute profiles too.
+
+## Open / follow-up
+
+- MCP streaming progress (a bot following a live run over MCP rather than tailing events.jsonl) — needs the MCP SDK streaming surface; separate re-spec.
+- Already-documented follow-ups folded into the issues rather than re-specced here: repeated compaction (#156 v2), capacity-heuristic v2, custom role tool-allowlists + checksum-gating of role files, live-cockpit synthesizing status (#206).
