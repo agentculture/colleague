@@ -160,6 +160,9 @@ class TestBatchShape:
             counter=None,
             max_steps=None,
             context_budget_tokens=None,
+            goal=None,
+            acceptance=None,
+            parent_task_id=None,
         ):
             seen_repo_paths.append(repo_path)
             return real_run(
@@ -172,6 +175,11 @@ class TestBatchShape:
                 model=model,
                 role=role,
                 counter=counter,
+                max_steps=max_steps,
+                context_budget_tokens=context_budget_tokens,
+                goal=goal,
+                acceptance=acceptance,
+                parent_task_id=parent_task_id,
             )
 
         sa.run_subagent = _spy_run
@@ -229,6 +237,9 @@ class TestMerge:
             counter=None,
             max_steps=None,
             context_budget_tokens=None,
+            goal=None,
+            acceptance=None,
+            parent_task_id=None,
         ):
             # Create the isolated worktree (the real runner does this), write a
             # unique file inside it keyed on the instruction, and commit the branch.
@@ -281,6 +292,9 @@ class TestMerge:
             counter=None,
             max_steps=None,
             context_budget_tokens=None,
+            goal=None,
+            acceptance=None,
+            parent_task_id=None,
         ):
             # Both children write the SAME path with DIFFERENT content -> conflict.
             wt = worktrees.worktree_add(repo_path, child_id)
@@ -340,6 +354,9 @@ class TestMerge:
             counter=None,
             max_steps=None,
             context_budget_tokens=None,
+            goal=None,
+            acceptance=None,
+            parent_task_id=None,
         ):
             wt = worktrees.worktree_add(repo_path, child_id)
             # Both children write the SAME path with DIFFERENT content -> the
@@ -417,6 +434,9 @@ class TestConcurrency:
             counter=None,
             max_steps=None,
             context_budget_tokens=None,
+            goal=None,
+            acceptance=None,
+            parent_task_id=None,
         ):
             time.sleep(_DELAY)
             return SubResult(
@@ -489,6 +509,9 @@ class TestConcurrency:
             counter=None,
             max_steps=None,
             context_budget_tokens=None,
+            goal=None,
+            acceptance=None,
+            parent_task_id=None,
         ):
             order.append(instruction)
             return SubResult(
