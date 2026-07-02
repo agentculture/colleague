@@ -517,6 +517,13 @@ class Task:
     goal without acceptance criteria is fine (no self-check runs). ``None`` is
     the default. Omitted from ``to_dict`` when ``None`` so a task without
     acceptance criteria serializes byte-identically to today."""
+    attachments: Optional[list[dict[str, Any]]] = None
+    """Optional media attachments for this work item — each entry is a
+    ``{"path": str, "media_type": str}`` mapping (e.g. an image or audio file
+    to route into a multimodal completion). ``None`` is the default (a bare
+    ``colleague work "<instruction>"`` carries no attachments). Omitted from
+    ``to_dict`` when ``None`` so an attachment-less task serializes
+    byte-identically to today (task t1)."""
 
     @classmethod
     def new(
@@ -530,6 +537,7 @@ class Task:
         watch: bool = False,
         goal: str | None = None,
         acceptance: list[str] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> "Task":
         """Create a task with a fresh short id."""
         return cls(
@@ -542,6 +550,9 @@ class Task:
             watch=watch,
             goal=goal,
             acceptance=list(acceptance) if acceptance is not None else None,
+            attachments=(
+                [dict(entry) for entry in attachments] if attachments is not None else None
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -562,6 +573,10 @@ class Task:
             data["goal"] = self.goal
         if self.acceptance is not None:
             data["acceptance"] = list(self.acceptance)
+        # attachments gets the same omit-when-None treatment (task t1): a task
+        # authored without attachments serializes byte-identically to today.
+        if self.attachments is not None:
+            data["attachments"] = [dict(entry) for entry in self.attachments]
         return data
 
     @classmethod
@@ -576,6 +591,26 @@ class Task:
             if isinstance(raw_acceptance, list)
             else None
         )
+        raw_attachments = data.get("attachments")
+        # Only a list of dict-shaped entries is a valid attachments payload: a
+        # bare string would explode into per-character entries via list() (the
+        # same bare-string corruption class as acceptance, Qodo PR #260), and a
+        # bare dict has no list shape at all. A non-dict entry anywhere in the
+        # list has no "path"/"media_type" to coerce, so the whole payload
+        # degrades to None rather than partially dropping entries — the
+        # best-effort from_dict stance.
+        attachments = (
+            [
+                {
+                    "path": str(entry.get("path", "")),
+                    "media_type": str(entry.get("media_type", "")),
+                }
+                for entry in raw_attachments
+            ]
+            if isinstance(raw_attachments, list)
+            and all(isinstance(entry, dict) for entry in raw_attachments)
+            else None
+        )
         return cls(
             id=str(data["id"]),
             repo_path=str(data["repo_path"]),
@@ -586,6 +621,7 @@ class Task:
             watch=bool(data.get("watch", False)),
             goal=data.get("goal"),
             acceptance=acceptance,
+            attachments=attachments,
         )
 
 
