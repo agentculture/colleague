@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
-from colleague import registry
+from colleague import media, registry
 from colleague.config import EngineConfig
 from colleague.contract import DeepthinkCall
 
@@ -108,6 +108,44 @@ def _truncated_text(question: str, cut: int) -> str:
     return f"{prefix}\n\n{_TRUNCATION_NOTE}"
 
 
+def _needs_flattening(messages: "list[dict[str, Any]]") -> bool:
+    """``True`` iff any message in *messages* carries non-string content.
+
+    A plain OpenAI-format message always has string content; a content-PARTS
+    LIST (an image/audio-bearing turn — see :mod:`colleague.media`) is the one
+    shape :func:`_flatten_history` must rewrite. Split out so
+    :func:`_flatten_history` can skip rebuilding the list entirely when
+    nothing needs it (task t7's byte-identical guard).
+    """
+    return any(not isinstance(m.get("content"), str) for m in messages)
+
+
+def _flatten_history(messages: "list[dict[str, Any]]") -> "list[dict[str, Any]]":
+    """Flatten every message's ``content`` through :func:`colleague.media.flatten_parts`.
+
+    The deepthink model may be TEXT-ONLY (today's served 27B), so a
+    content-PARTS LIST — the shape the loop's own message history carries for
+    a media-bearing user turn — must structurally never reach the wire (task
+    t7). Every message's content is routed through
+    :func:`colleague.media.flatten_parts`: a plain string passes through
+    unchanged (``flatten_parts`` is the identity for ``str``), a parts list
+    becomes readable text with ``[image attachment]``/``[audio attachment]``
+    placeholders standing in for what a text-only model cannot see.
+
+    Byte-identical when nothing needs it: if every message already carries
+    string content, the ORIGINAL *messages* object is returned untouched (not
+    a copy) — so a string-only history composed by today's callers (the
+    `deepthink` tool's model-authored context, plan-mode's claim/text
+    prompts) is indistinguishable from before this change, all the way down
+    to object identity. Otherwise a NEW list is returned (the input is never
+    mutated), each message a shallow copy with ``content`` replaced by its
+    flattened string; every other key (``role``, …) is preserved unchanged.
+    """
+    if not _needs_flattening(messages):
+        return messages
+    return [dict(m, content=media.flatten_parts(m.get("content", ""))) for m in messages]
+
+
 def window_messages(
     messages: "list[dict[str, Any]]",
     *,
@@ -119,17 +157,29 @@ def window_messages(
     The message-list twin of :func:`_window_question`, for the one enumerated
     caller that composes its own multi-turn prompt (plan-mode proposals) —
     spec h4 windows EVERY deepthink call against the deepthink model's OWN
-    context budget before the request is sent. Reserves one quarter of
-    *budget* for the completion, so the prompt must measure at or under
-    ``budget - budget // 4``. A list that already fits is returned untouched
-    (byte-identical pass-through). Otherwise the LAST user message — the
-    payload turn in every caller's composition — is truncated (binary search
-    on length, so the number of ``count_tokens`` calls is bounded) with
-    :data:`_TRUNCATION_NOTE` appended, so whoever reads the prompt can always
-    tell it was cut. Messages are never dropped and the input list is never
-    mutated. A list with no user message is returned unchanged — nothing is
-    safely truncatable, and the reactive shrink-retry ladder stays the floor.
+    context budget before the request is sent. This is also the ONE point
+    every deepthink message-list digest funnels through (directly here, or by
+    way of :func:`_window_question` from :func:`run_deepthink`), so it is
+    where :func:`_flatten_history` runs FIRST (task t7): a caller composing
+    this digest from the loop's own message history may hand us a
+    content-PARTS LIST (a media-bearing user turn), and that list is
+    guaranteed flattened to a plain string before any budget arithmetic or
+    truncation below ever looks at it — a list-typed content field must
+    structurally never reach the second model's wire. A string-only history
+    is untouched, including the "no copy" identity guarantee below.
+
+    Reserves one quarter of *budget* for the completion, so the prompt must
+    measure at or under ``budget - budget // 4``. A list that already fits is
+    returned untouched (byte-identical pass-through). Otherwise the LAST user
+    message — the payload turn in every caller's composition — is truncated
+    (binary search on length, so the number of ``count_tokens`` calls is
+    bounded) with :data:`_TRUNCATION_NOTE` appended, so whoever reads the
+    prompt can always tell it was cut. Messages are never dropped and the
+    input list is never mutated. A list with no user message is returned
+    unchanged — nothing is safely truncatable, and the reactive shrink-retry
+    ladder stays the floor.
     """
+    messages = _flatten_history(messages)
     reserve = max(1, budget // 4)
     send_budget = max(1, budget - reserve)
     if count_tokens(messages) <= send_budget:
