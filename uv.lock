@@ -291,6 +291,9 @@ otel = [
     { name = "opentelemetry-sdk" },
     { name = "opentelemetry-semantic-conventions" },
 ]
+resident = [
+    { name = "agent-lifecycle" },
+]
 tui = [
     { name = "rich" },
     { name = "textual" },
@@ -316,6 +319,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "agent-lifecycle", marker = "extra == 'culture'", specifier = ">=0.7" },
+    { name = "agent-lifecycle", marker = "extra == 'resident'", specifier = ">=0.7" },
     { name = "agentfront", specifier = ">=0.19.0" },
     { name = "agentirc-cli", marker = "extra == 'culture'", specifier = ">=9.6,<10" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28.0" },
@@ -326,7 +330,7 @@ requires-dist = [
     { name = "rich", marker = "extra == 'tui'", specifier = ">=13" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.50" },
 ]
-provides-extras = ["otel", "mcp", "tui", "culture"]
+provides-extras = ["otel", "mcp", "tui", "resident", "culture"]
 
 [package.metadata.requires-dev]
 dev = [
