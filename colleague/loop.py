@@ -55,7 +55,7 @@ from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
-from colleague.context import classify_degradable, window_messages
+from colleague.context import classify_degradable, count_tokens_chars, window_messages
 from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
@@ -1979,6 +1979,11 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
             raise
         _account_turn(ctx, resp)
         last_prompt_tokens = resp.prompt_tokens
+        # Delivered-vs-dropped verification (t9, decision c25): classify the
+        # task's attachments from the FIRST media-bearing completion's
+        # token-contribution signal; a strict no-op afterwards and for
+        # attachment-less runs.
+        _maybe_record_media_delivery(ctx, resp)
 
         # If a fill-line decision is pending (#156), this turn is the model's
         # declaration: record it and, on a pure compact declaration, summarize +
@@ -2330,6 +2335,88 @@ def _build_initial_content(task: Task) -> "str | list[dict[str, Any]]":
             path = attachment.get("path", "?") if isinstance(attachment, dict) else "?"
             parts.append({"type": "text", "text": f"[attachment {path} unreadable: {exc}]"})
     return parts
+
+
+#: Per-part token-contribution floor for the delivered/dropped classification
+#: (t9): half the measured per-tile estimate — any REAL image contributes at
+#: least one full tile (~260 tokens, live probe 2026-07-02), so a genuinely
+#: tiny image still clears the floor, while a silent drop contributes ~0.
+_MEDIA_DELIVERY_FLOOR = media.IMAGE_TOKEN_ESTIMATE // 2
+
+_MEDIA_DELIVERED = "delivered"
+_MEDIA_DROPPED = "dropped"
+_MEDIA_UNKNOWN = "unknown"
+
+
+def _classify_media_delivery(prompt_tokens: int, text_only_tokens: int, n_parts: int) -> str:
+    """Classify media delivery from the token-contribution signal (t9, c25).
+
+    ``delivered`` iff the prompt's reported tokens exceed the text-only
+    estimate by at least the per-part floor — the exact signal the live
+    silent-drop probe exposed (an image contributes hundreds of prompt
+    tokens; a drop contributes ~0). A server that reported NO usage
+    (``prompt_tokens <= 0`` — e.g. a scripted mock) classifies ``unknown``:
+    a drop is never claimed without evidence. The word is DELIVERED, never
+    "understood" — comprehension is claimed only by the livecheck proof.
+    """
+    if prompt_tokens <= 0:
+        return _MEDIA_UNKNOWN
+    if prompt_tokens - text_only_tokens >= _MEDIA_DELIVERY_FLOOR * max(1, n_parts):
+        return _MEDIA_DELIVERED
+    return _MEDIA_DROPPED
+
+
+def _maybe_record_media_delivery(ctx: _Work, resp: ModelResponse) -> None:
+    """Record the delivered/dropped verdict for the task's attachments (t9).
+
+    Fires once, on the first completion after the media-bearing initial
+    message; strict no-op with no attachments or once recorded. Zero extra
+    model turns: the text-only baseline is counted locally (the exact counter
+    when bound — flattened messages are all-string, so it can count them —
+    else the char estimate) and compared against the server-reported
+    ``prompt_tokens``. A drop warns on stderr and is recorded on
+    ``TaskResult.media``; it never blocks or aborts the run.
+    """
+    if not ctx.task.attachments or ctx.result.media is not None:
+        return
+    flattened = [
+        (
+            dict(m, content=media.flatten_parts(m["content"]))
+            if isinstance(m.get("content"), list)
+            else m
+        )
+        for m in ctx.messages
+    ]
+    counter = ctx.count_tokens if ctx.count_tokens is not None else count_tokens_chars
+    try:
+        text_only = counter(flattened)
+    except Exception:  # noqa: BLE001 - a counter failure must never abort the run
+        text_only = count_tokens_chars(flattened)
+    initial = ctx.messages[1].get("content") if len(ctx.messages) > 1 else None
+    n_parts = (
+        sum(
+            1
+            for p in initial
+            if isinstance(p, dict) and p.get("type") in ("image_url", "input_audio")
+        )
+        if isinstance(initial, list)
+        else len(ctx.task.attachments)
+    )
+    status = _classify_media_delivery(resp.prompt_tokens, text_only, n_parts)
+    ctx.result.media = {
+        "attachments": [
+            {"path": str(a.get("path", "?")), "status": status}
+            for a in ctx.task.attachments
+            if isinstance(a, dict)
+        ]
+    }
+    if status == _MEDIA_DROPPED:
+        print(
+            f"warning: {n_parts} media attachment(s) were NOT delivered to the "
+            "model (prompt token contribution below the per-part floor) — "
+            "recorded on the artifact's media key",
+            file=sys.stderr,
+        )
 
 
 _POINT_MEDIA_BRIDGE = "media-bridge"

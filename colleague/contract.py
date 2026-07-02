@@ -767,6 +767,15 @@ class TaskResult:
     a misleading memory is traceable, never silent) and whether the post-run
     lesson landed in the store. Omit-when-None, so a memory-less run serializes
     byte-identically."""
+    media: Optional[dict[str, Any]] = None
+    """Delivery record for the task's media attachments (t9, decision c25), or
+    ``None`` for an attachment-less run. Shape: ``{"attachments": [{"path",
+    "status"}]}`` where ``status`` is ``"delivered"``, ``"dropped"``, or
+    ``"unknown"`` (no usage reported) — the token-contribution verdict, which
+    proves the media ENTERED the prompt, never that the model *understood* it
+    (comprehension is claimed only by the livecheck red-pixel proof). Populated
+    by the loop after the first media-bearing completion; omit-when-None so an
+    attachment-less run serializes byte-identically."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -836,6 +845,12 @@ class TaskResult:
         # memory-less work item serializes byte-identically (no extra key).
         if self.memory is not None:
             d["memory"] = dict(self.memory)
+        # media gets the same omit-when-None treatment (t9): an attachment-less
+        # work item serializes byte-identically (no extra key).
+        if self.media is not None:
+            d["media"] = {
+                "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
+            }
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -890,6 +905,7 @@ class TaskResult:
             deepthink=_coerce_deepthink_calls(data.get("deepthink")),
             finish_recovered=data.get("finish_recovered"),
             memory=data.get("memory"),
+            media=data.get("media") if isinstance(data.get("media"), dict) else None,
         )
 
 
