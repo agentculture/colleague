@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.0] - 2026-07-02
+
+### Added
+
+- Media input on all fronts: images and audio ride the task contract to a multimodal main model — `colleague work --attach PATH` (repeatable, composes with --command), the session's `/attach` slash (staged one-shot for the next work line), and mesh `attach: <path>` line references on the resident surface
+- `Task.attachments` on the contract ({path, media_type}, omit-when-None) + `colleague/media.py` pure-stdlib helpers (validation, data-URI part builders, per-tile token estimate, part flattening)
+- `view_media` read-only loop tool — the media sibling of read_file: _safe_path-confined, 4MB-capped, images-only, curated into read-only roles; the image folds into a follow-up user parts message
+- Delivery verification (decision c25): the first media-bearing completion's token contribution classifies each attachment delivered/dropped/unknown/bridged onto omit-when-None TaskResult.media — zero extra turns; 'delivered' never claims understood
+- Media-comprehension bridge (decision c24): with a dual-model config whose second model is declared multimodal (COLLEAGUE_DEEPTHINK_MULTIMODAL / config.json deepthink.multimodal), a text-only main + attached media escalates one tools-off media-bearing digest to the multimodal endpoint and folds the description back (TaskResult.deepthink point=media-bridge)
+- Mesh media trust (anti-exfiltration): operator-only arbitrary paths; a non-operator attach: reference must resolve inside the repo working tree (resolve-then-contain, symlink-escape refused) and still runs read-only under explorer
+- livecheck media proofs: image end-to-end (PASS requires delivered AND the answer naming the color — never trusts a 200) and the audio delivery check (grades from token evidence; honestly SKIPs on a rig that drops input_audio); ledger rows in docs/live-testing.md — image proof PASSED live on the served Gemma4 2026-07-02
+- Gemma4-as-main STAGED not flipped: a test-proven per-mode per-model overlay recipe (96000@128K) with the modeless no-op pinned; the default stays the 27B at 48000, gated on the external serving-side Gemma tool parser
+
+### Changed
+
+- Budget accounting is part-aware: the exact /tokenize counter receives a text-flattened copy plus a 260-token per-part estimate; the char fallback charges the same estimate; windowing/compaction drop a parts message whole, never sliced mid-part
+- Deepthink digests flatten media parts to text placeholders — a parts list structurally never reaches a text-only second-model wire; with the bridge armed, the declared-text-only MAIN wire carries no parts either (flattened placeholders; real parts travel only on the bridge escalation)
+
+### Fixed
+
+- A media-refusing endpoint no longer hard-fails the run: the text-only 27B rejects image parts with HTTP 400 (live-probed, verbatim test fixture) — the loop now flattens to placeholders, retries once, and records the media dropped
+- tests/test_resident_media.py's module-level importorskip skipped the whole file (including the pure anti-exfiltration trust pins) in an environment without the resident extra — now a skipif marker on exactly the four appserver-dependent classes
+
 ## [1.33.0] - 2026-07-02
 
 ### Added
