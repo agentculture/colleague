@@ -314,7 +314,7 @@ def _baseline_untracked_for(work_repo: Path, repo: Path, tui_events: str | None)
     return baseline
 
 
-def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
+def _preserve_isolated_wip(worktree_path: str | None, status: str) -> bool:
     """Commit a non-OK isolated run's WIP to its ``colleague/<id>`` branch (#222).
 
     The git handoff only runs on an ``OK`` result, so a cooperative ``flight stop`` or
@@ -322,13 +322,16 @@ def _preserve_isolated_wip(worktree_path: str | None, status: str) -> None:
     torn down. This commits it first so a stopped run stays inspectable and mergeable.
     A no-op when not isolated (``worktree_path is None`` — the in-place session path)
     and best-effort (empty diff = no-op; a commit failure never masks the result).
+    Returns ``True`` when a WIP commit was actually made — the engine-failure path
+    (#268) uses that to point the operator at the surviving branch in the error hint.
     Extracted from :func:`execute_work` to keep its cognitive complexity under the
     S3776 threshold (review of #228, SonarCloud).
     """
     if worktree_path is None:
-        return
+        return False
     with suppress(Exception):
-        worktrees.commit_iso_worktree_wip(worktree_path, reason=f"stop ({status})")
+        return worktrees.commit_iso_worktree_wip(worktree_path, reason=f"stop ({status})")
+    return False
 
 
 def _engine_failure_error(
@@ -340,6 +343,7 @@ def _engine_failure_error(
     command_name: str | None,
     mode: str | None,
     work_span,
+    worktree_path: str | None = None,
 ) -> CliError:
     """Turn an engine raise into the failure artifact + a diagnosable CliError.
 
@@ -354,7 +358,10 @@ def _engine_failure_error(
     partial (e.g. an error before the loop starts). Writes the artifact and the
     ``last_work`` pointer (the work item happened even if it failed — a 1/5 is
     exactly the ROI signal), and names the exception class when the payload is
-    bare (#269: ``KeyError: 'path'`` instead of ``'path'``).
+    bare (#269: ``KeyError: 'path'`` instead of ``'path'``). With a
+    *worktree_path*, the iso worktree's uncommitted progress is swept onto the
+    ``colleague/<id>`` branch and the hint names the surviving branch (#268
+    ask 3 — the #222 sweep extended to the exception path).
     """
     partial = getattr(exc, "result", None)
     if isinstance(partial, TaskResult):
@@ -384,10 +391,18 @@ def _engine_failure_error(
     detail = str(original)
     if not detail or not any(ch.isspace() for ch in detail):
         detail = f"{type(original).__name__}: {detail}".rstrip(": ")
+    # #268 ask 3: an engine-failure abort must not strand the model's uncommitted
+    # progress in the (about-to-be-removed) iso worktree. Commit it onto the
+    # colleague/<id> branch — the same #222 sweep the signal and non-OK paths
+    # already get — and point the operator at the surviving branch, so an
+    # orchestrator can resume from the partial work instead of spelunking for it.
+    wip_note = ""
+    if _preserve_isolated_wip(worktree_path, f"engine failure: {detail[:80]}"):
+        wip_note = f"; partial work preserved on branch {branch_name(task.id, task.instruction)}"
     return CliError(
         EXIT_ENV_ERROR,
         f"engine '{engine_name}' failed: {detail}",
-        f"check the engine config / vLLM server; {artifact_note}",
+        f"check the engine config / vLLM server; {artifact_note}{wip_note}",
         result=result if isinstance(partial, TaskResult) else None,
     )
 
@@ -602,6 +617,7 @@ def execute_work(
                     command_name=command_name,
                     mode=mode,
                     work_span=work_span,
+                    worktree_path=worktree_path,
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine
@@ -975,6 +991,15 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
     calling this; the host-command path lets agentfront set ``func=`` to the
     handler it was registered with (also ``cmd_work``).
     """
+    # #268 ask 4: the timeout surface is documented where the operator looks for
+    # it — `colleague work --help` — not only in the error string after a loss.
+    p.epilog = (
+        "env knobs: COLLEAGUE_TIMEOUT — seconds per model turn (default 120; a "
+        "mid-flight turn timeout or armed backpressure raises it once, bounded "
+        "x2, before the flight is failed); COLLEAGUE_CONTEXT_BUDGET — tokens "
+        "per turn window (default 48000, sized to the reference rig's served "
+        "64K window). `colleague doctor` reports the effective values."
+    )
     # ``instruction`` is now zero-or-more positional tokens (nargs="*") so
     # ``--command`` can be the sole input without argparse raising an error.
     p.add_argument(

@@ -619,6 +619,16 @@ class EngineConfig:
     max_steps: int = _DEFAULT_MAX_STEPS
     temperature: float = _DEFAULT_TEMPERATURE
     timeout: float = _DEFAULT_TIMEOUT
+    # Runtime-only (#268 escalation bookkeeping, Qodo PR #271): the OPERATOR's
+    # configured timeout, recorded the moment a work item's bounded x2
+    # escalation raises `timeout` in place. Presence means `timeout` may carry
+    # escalated state — `loop._make_timeout_escalator` restores `timeout` from
+    # it at every work-item start, so an escalation can never leak into a
+    # subagent child config (derived via dataclasses.replace, which copies both
+    # fields) or a session-reused config and compound past 2x the operator's
+    # value. Never resolved from env/file, never serialized (absent from
+    # to_dict), None on every fresh resolve().
+    base_timeout: float | None = None
     context_budget_tokens: int = _DEFAULT_CONTEXT_BUDGET
     max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS
     subagent_concurrency: int = _DEFAULT_SUBAGENT_CONCURRENCY
