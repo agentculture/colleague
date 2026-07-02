@@ -144,10 +144,12 @@ Live results (2026-07-02, `coolthor/gemma-4-12B-it-NVFP4A16`):
 - **Delivery is aggregate, not per-part:** the token-contribution signal
   cannot distinguish which of several attachments dropped; all entries in one
   run share a status.
-- **Audio comprehension is thinner than image comprehension:** the image proof
-  pins the answer content (red); audio delivery is token-evidenced, with a
-  tone-identification probe as the comprehension check — treat audio results
-  as rig-dependent until the serving side stabilizes.
+- **Audio comprehension is UNPROVEN:** the image proof pins the answer
+  content (red); audio has only the delivery evidence (token contribution on
+  a short clip). A tone-identification comprehension probe (1 s, 16 kHz)
+  timed out at 300 s — the rig strains on audio compute — so no doc claims
+  the model *understands* audio; treat audio as rig-dependent
+  delivery-only until a comprehension probe completes.
 - **`view_media` is images-only** and capped at 4 MB.
 - **The bridge trigger is an operator declaration**, not a capability probe —
   colleague never special-cases a model name (pinned by the no-gemma-in-source
