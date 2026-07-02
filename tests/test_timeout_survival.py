@@ -57,6 +57,44 @@ def test_escalator_no_positive_timeout_is_dormant() -> None:
         assert cfg.timeout == value
 
 
+def test_escalator_restores_a_previously_escalated_config() -> None:
+    """Qodo PR #271: a config carrying escalated state (base_timeout set) is
+    normalized back to the operator's value at every escalator build, so a
+    session-reused config starts the next work item at the configured timeout."""
+    cfg = SimpleNamespace(timeout=240.0, base_timeout=120.0)
+    escalate = _make_timeout_escalator(cfg)
+    assert cfg.timeout == 120.0  # restored before the work item starts
+    assert escalate() == 240.0  # x2 of the OPERATOR's value, not of 240
+    assert cfg.base_timeout == 120.0
+
+
+def test_escalation_never_compounds_into_child_configs() -> None:
+    """Qodo PR #271 (the reported bug): a parent escalation must not raise a
+    subagent child's STARTING timeout, nor let the child's own once-only x2
+    push past 2x the operator's configured value (120 -> 240 -> 480)."""
+    import dataclasses
+
+    from colleague.config import EngineConfig
+
+    parent = EngineConfig.resolve()
+    operator_timeout = parent.timeout
+    parent_escalate = _make_timeout_escalator(parent)
+    assert parent_escalate() == operator_timeout * 2
+
+    # The subagents module derives child configs via dataclasses.replace, which
+    # copies the escalated timeout AND the recorded base.
+    child = dataclasses.replace(parent)
+    assert child.timeout == operator_timeout * 2  # the leak Qodo reported...
+
+    # ...but the child's own escalator build (from_config runs per work item)
+    # restores the operator's value first, so the child starts at base and its
+    # bounded raise cannot exceed 2x base.
+    child_escalate = _make_timeout_escalator(child)
+    assert child.timeout == operator_timeout
+    assert child_escalate() == operator_timeout * 2
+    assert child.timeout == operator_timeout * 2  # never 4x
+
+
 # ---------------------------------------------------------------------------
 # Reactive trigger: a turn timeout raises the cap BEFORE the degraded retry
 # ---------------------------------------------------------------------------

@@ -2187,7 +2187,21 @@ def _make_timeout_escalator(config) -> Callable[[], float | None]:
     ``2 x timeout`` to ``timeout + 2 x timeout`` and no further. Returns the
     raised value once, ``None`` on every later call or when no positive
     timeout is configured.
+
+    **Escalation never compounds across work items (Qodo PR #271):** the raise
+    mutates ``config.timeout`` in place, and that instance is shared — a
+    subagent child config derives via ``dataclasses.replace(parent_config, …)``
+    (copying the escalated value), and the session reuses one config across
+    palette work items. So the first escalation records the operator's value on
+    ``config.base_timeout``, and every escalator BUILD (this function runs once
+    per work item, parent and child alike, via ``ContextControls.from_config``)
+    restores ``config.timeout`` from it first. A child or follow-up work item
+    therefore always starts at the operator's timeout and can raise to at most
+    2x that — never 4x.
     """
+    base = getattr(config, "base_timeout", None)
+    if base is not None and base > 0:
+        config.timeout = base
     done = [False]
 
     def escalate() -> float | None:
@@ -2197,6 +2211,7 @@ def _make_timeout_escalator(config) -> Callable[[], float | None]:
         if not current or current <= 0:
             return None
         done[0] = True
+        config.base_timeout = float(current)
         config.timeout = float(current) * 2
         return config.timeout
 
