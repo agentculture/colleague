@@ -449,6 +449,8 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   spec R4 / h10, boundary h6) — no daemon, no polling
 #   memory.py        — shells out to the operator-installed eidetic CLI for
 #                   recall/remember; subprocess is the transport (plan t1)
+#   livecheck.py     — runs pytest on gated live-proof files; subprocess is the
+#                   transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -463,6 +465,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/affectedtests.py",
         "colleague/background.py",
         "colleague/memory.py",
+        "colleague/livecheck.py",
     }
 )
 

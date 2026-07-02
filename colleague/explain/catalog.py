@@ -162,6 +162,26 @@ warning, not an error.
     colleague doctor --probe
 """
 
+_LIVECHECK = """\
+# colleague livecheck
+
+Probe the configured endpoint and run gated live proofs, reporting per-row
+pass/fail/skip. One verb that combines endpoint reachability with live-proof
+execution.
+
+When the endpoint is unreachable, prints an honest skip report naming the
+endpoint and exits 0 without running pytest. When reachable, runs the proofs
+and prints a per-row table plus a summary line; exits 1 if any proof failed,
+else 0.
+
+## Usage
+
+    colleague livecheck
+    colleague livecheck --repo PATH
+    colleague livecheck --json
+    colleague livecheck --repo PATH --json
+"""
+
 _CLEAN = """\
 # colleague clean
 
@@ -1123,6 +1143,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("explain",): _EXPLAIN,
     ("overview",): _OVERVIEW,
     ("doctor",): _DOCTOR,
+    ("livecheck",): _LIVECHECK,
     ("clean",): _CLEAN,
     ("learn-from",): _LEARN_FROM,
     ("cli",): _CLI,
