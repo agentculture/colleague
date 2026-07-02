@@ -14,6 +14,11 @@ Confinement (honesty condition h3): ``read_file`` / ``write_file`` / ``edit_file
 additionally refuse writes into the read-only neighbour clone tree. ``run_command``
 runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
 sandboxing is a later wheel.
+
+A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) is deliberately
+kept OUT of :data:`SCHEMAS` — it is appended only by :func:`curate_schemas` when a
+caller opts in (``deepthink=True``), which the loop does only when a dual-model
+config is present. A single-model run offers exactly the schemas above.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ import subprocess  # nosec B404 - running model-issued commands is the point (tr
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
     from colleague.roles import Role
@@ -34,6 +39,7 @@ from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
 FINISH = "finish"
+DEEPTHINK = "deepthink"
 
 #: Shared description for the repo-relative ``path`` parameter, reused across the
 #: file tool schemas (read_file / write_file / edit_file) so the literal lives once.
@@ -397,27 +403,96 @@ SCHEMAS: list[dict[str, Any]] = [
 
 TOOL_NAMES: list[str] = [s["function"]["name"] for s in SCHEMAS]
 
+#: The ``deepthink`` loop tool (plan t4 / spec c10(a), c5, h14) — a backend-judged
+#: escalation the MAIN model MAY call mid-work to hand ONE hard judgment call to a
+#: stronger, slower reasoning model. Deliberately kept OUT of the module-level
+#: :data:`SCHEMAS` list (and therefore out of :data:`TOOL_NAMES`): a single-model
+#: run must offer today's tool list byte-identically, so this schema is only ever
+#: appended by :func:`curate_schemas` when the caller opts in (``deepthink=True``,
+#: wired by the loop only when a dual-model config is present — task t5).
+DEEPTHINK_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": DEEPTHINK,
+        "description": (
+            "Escalate ONE hard judgment call to a stronger, slower reasoning "
+            "model — a verdict, a design decision, a plan critique. Use this to "
+            "escalate JUDGMENT, never mechanical work: do NOT call it to read "
+            "files, run commands, or make edits — do that yourself first, then "
+            "escalate only the decision. Compose a SELF-CONTAINED 'question' (the "
+            "judgment you want decided) plus an optional 'context' digest "
+            "distilling the relevant code/diff/findings — the deepthink model "
+            "sees ONLY what you pass here: it has no repo access, no tool "
+            "access, and no conversation history, so the digest must fit its "
+            "smaller context budget. It returns exactly one bounded text "
+            "answer. Use sparingly: it is slower than the model driving this "
+            "loop."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "The judgment being escalated — a clear, self-contained "
+                        "question (e.g. a verdict to render, a decision to make, "
+                        "a plan to critique)."
+                    ),
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional self-composed digest of the relevant code, "
+                        "diff, or findings — the ONLY context the deepthink "
+                        "model will see, so include what it needs to answer "
+                        "well. Keep it focused: it must fit the deepthink "
+                        "model's (smaller) context budget."
+                    ),
+                },
+            },
+            "required": ["question"],
+        },
+    },
+}
 
-def curate_schemas(role: "Role | str") -> list[dict[str, Any]]:
+
+def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> list[dict[str, Any]]:
     """Return only the schemas whose tool name is in *role*'s allow-list.
 
-    Accepts either a :class:`Role` instance or a role name string (looked up in
-    :data:`colleague.roles.BUILTIN_ROLES`).  Names in the allow-list that are
-    not present in :data:`SCHEMAS` are silently skipped.
+    Accepts a :class:`Role` instance, a role name string (looked up in
+    :data:`colleague.roles.BUILTIN_ROLES`), or ``None`` meaning "full surface" —
+    the historical shape callers relied on before curation existed (mirrors the
+    ``curate_schemas(role) if role is not None else SCHEMAS`` guard at call
+    sites). Names in the allow-list that are not present in :data:`SCHEMAS` are
+    silently skipped.
+
+    ``deepthink`` (default ``False`` — additive/opt-in, task t4) appends
+    :data:`DEEPTHINK_SCHEMA` when the resolved role allows it (or *role* is
+    ``None``, i.e. full surface). The deepthink schema is never part of
+    :data:`SCHEMAS` itself, so a caller that never passes ``deepthink=True``
+    sees a byte-identical schema list to before this feature existed — a
+    single-model run (no dual-model config) never opts in, so it is offered
+    today's tool list exactly.
     """
     from colleague.roles import BUILTIN_ROLES, Role
 
-    if isinstance(role, str):
+    allow: Optional[set[str]]
+    if role is None:
+        allow = None  # None = no filtering, full surface
+    elif isinstance(role, str):
         role_obj = BUILTIN_ROLES.get(role)
         if role_obj is None:
             raise ValueError(f"unknown role '{role}'")
+        allow = set(role_obj.tool_allowlist)
     elif isinstance(role, Role):
-        role_obj = role
+        allow = set(role.tool_allowlist)
     else:
         raise TypeError(f"curate_schemas expects a Role or role name, got {type(role).__name__}")
 
-    allow = set(role_obj.tool_allowlist)
-    return [s for s in SCHEMAS if s["function"]["name"] in allow]
+    curated = [s for s in SCHEMAS if allow is None or s["function"]["name"] in allow]
+    if deepthink and (allow is None or DEEPTHINK in allow):
+        curated = curated + [DEEPTHINK_SCHEMA]
+    return curated
 
 
 def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
@@ -455,6 +530,7 @@ class ToolExecutor:
         *,
         spawn=None,
         batch_spawn=None,
+        deepthink: Callable[[str, str], str] | None = None,
         max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
         allowlist: "Role | tuple[str, ...] | None" = None,
     ) -> None:
@@ -470,6 +546,12 @@ class ToolExecutor:
         # Batch spawn callable: ``batch_spawn(items) -> list[SubResult]``.
         # Injected by the loop (t5); None means the subagents tool is unavailable.
         self._batch_spawn = batch_spawn
+        # Deepthink escalation callable: ``deepthink(question, context) -> str``.
+        # Injected by the loop only when a dual-model config is present (t5); None
+        # means the deepthink tool is unavailable for this drive — the schema
+        # should not have been offered in that case (curate_schemas gates it), but
+        # a hallucinated call is handled defensively (see ``_deepthink_tool``).
+        self._deepthink = deepthink
         # Cap on each tool result fed back to the model so a huge file/command
         # can't blow the context window. Resolved from EngineConfig (env
         # COLLEAGUE_MAX_OUTPUT_CHARS); sized for the served model's window.
@@ -537,6 +619,7 @@ class ToolExecutor:
             "subagents": self._subagents,
             "run_tests": self._run_tests,
             "check_test_integrity": lambda _a: self._check_test_integrity(),
+            DEEPTHINK: self._deepthink_tool,
             FINISH: self._finish,
         }
         handler = dispatch.get(name)
@@ -789,6 +872,36 @@ class ToolExecutor:
         except devague.DevagueToolError as exc:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
+
+    def _deepthink_tool(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch the ``deepthink`` tool to the injected one-shot escalation seam.
+
+        The actual completion call (windowing to the deepthink model's own budget,
+        the tools-off invariant, degradation) lives in the injected ``deepthink``
+        callable (set by the loop only when a dual-model config is present — task
+        t5, see :func:`colleague.deepthink.run_deepthink`); here we validate the
+        inputs and translate a missing seam into a clean, non-crashing result
+        string.
+
+        Defensive floor (never raises for a missing seam): ``curate_schemas``
+        only offers :data:`DEEPTHINK_SCHEMA` when a role allows it AND the loop
+        opted in, so a live drive should never reach this branch with
+        ``self._deepthink is None`` — but a hallucinated call must still degrade
+        gracefully rather than crash the drive.
+        """
+        question = arguments.get("question")
+        if not question or not isinstance(question, str):
+            raise ToolError("deepthink tool requires a 'question'")
+        context = str(arguments.get("context") or "")
+
+        if self._deepthink is None:
+            return ToolOutcome(result="deepthink is not configured for this run")
+
+        try:
+            answer = self._deepthink(question, context)
+        except Exception as exc:  # the injected seam degrades internally; defense-in-depth
+            raise ToolError(f"deepthink failed: {exc}") from exc
+        return ToolOutcome(result=self._truncate(str(answer)))
 
     def _check_test_integrity(self) -> ToolOutcome:
         """Run the mirror-detection heuristic on the work item's changed files.
