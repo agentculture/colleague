@@ -70,11 +70,15 @@ _WRITE_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 #: write-capable CLIs (``devex``, ``devague converge`` writes a frame), which
 #: would quietly contradict the read-only guarantee. ``finish`` is REQUIRED —
 #: without it a curated read-only child has no way to complete cleanly and
-#: would always burn to budget exhaustion.
+#: would always burn to budget exhaustion. ``deepthink`` (plan t4) is included
+#: too: it is pure computation — ONE bounded tools-off completion against a
+#: second model, no writes, no shell — so a read-only reviewer/explorer/planner
+#: can escalate a hard verdict without weakening the read-only guarantee at all.
 _READONLY_TOOLS = (
     "read_file",
     "list_dir",
     "check_test_integrity",
+    "deepthink",
     "finish",
 )
 
@@ -117,10 +121,21 @@ _VALIDATOR_SKILL_PATTERNS: tuple[str, ...] = _INVESTIGATION_SKILL_PATTERNS + ("r
 
 
 def _writer_allowlist() -> tuple[str, ...]:
-    """Return the full tool surface derived from the current SCHEMAS."""
-    from colleague.tools import SCHEMAS
+    """Return the full tool surface derived from the current SCHEMAS, plus ``deepthink``.
 
-    return tuple(s["function"]["name"] for s in SCHEMAS)
+    ``deepthink`` (plan t4) is deliberately NOT part of the module-level
+    :data:`colleague.tools.SCHEMAS` list (a single-model run must offer today's
+    tool list byte-identically), so it does not fall out of the SCHEMAS-derived
+    tuple below automatically. It is appended explicitly here for the same
+    reason it is added to every other built-in role: it is pure computation —
+    one bounded completion, no writes, no shell — so the full-surface writer
+    role allows it too. It is a no-op unless the loop actually offers the
+    schema (a dual-model config is present).
+    """
+    from colleague.tools import DEEPTHINK, SCHEMAS
+
+    names = tuple(s["function"]["name"] for s in SCHEMAS)
+    return names + (DEEPTHINK,)
 
 
 BUILTIN_ROLES: dict[str, Role] = {

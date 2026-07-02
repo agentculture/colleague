@@ -23,7 +23,12 @@ class TestCurateSchemas:
         explorer = BUILTIN_ROLES["explorer"]
         curated = curate_schemas(explorer)
         names = {s["function"]["name"] for s in curated}
-        assert names == set(explorer.tool_allowlist)
+        # "deepthink" (plan t4) is in explorer's allowlist but is deliberately
+        # NOT part of SCHEMAS, so the default (deepthink=False) curated list
+        # never includes it — see test_deepthink_tool.py for the opt-in path.
+        from colleague.tools import DEEPTHINK
+
+        assert names == set(explorer.tool_allowlist) - {DEEPTHINK}
 
     def test_unknown_allowlist_name_is_skipped(self) -> None:
         # A role whose allow-list contains a name not in SCHEMAS (e.g. a tool a

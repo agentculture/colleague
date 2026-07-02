@@ -114,24 +114,31 @@ class TestWriterRole:
         assert BUILTIN_ROLES["writer"].read_only is False
 
     def test_writer_allowlist_equals_schemas(self) -> None:
-        from colleague.tools import SCHEMAS
+        from colleague.tools import DEEPTHINK, SCHEMAS
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         writer_names = set(BUILTIN_ROLES["writer"].tool_allowlist)
-        assert writer_names == schema_names
+        # "deepthink" (plan t4) is the one deliberate extra: a curated tool
+        # available to every built-in role (including the full-surface writer)
+        # that is NOT part of the base SCHEMAS list — it is offered only via
+        # curate_schemas(role, deepthink=True), never by default (see
+        # test_deepthink_tool.py for the byte-identical-by-default proof).
+        assert writer_names == schema_names | {DEEPTHINK}
 
     def test_writer_allowlist_stays_in_sync(self) -> None:
         """If SCHEMAS grows, writer's allowlist must grow too."""
-        from colleague.tools import SCHEMAS
+        from colleague.tools import DEEPTHINK, SCHEMAS
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         writer_names = set(BUILTIN_ROLES["writer"].tool_allowlist)
         # Every schema tool must be in the writer allowlist.
         assert schema_names.issubset(writer_names)
         # And the writer allowlist must not contain tools outside SCHEMAS
-        # (except "run_tests" which is a future tool the validator references).
+        # (except "run_tests" which is a future tool the validator references,
+        # and "deepthink" (plan t4) — a curated tool deliberately kept out of
+        # SCHEMAS itself; see test_writer_allowlist_equals_schemas above).
         extra = writer_names - schema_names
-        assert extra <= {"run_tests"}, f"writer allowlist has unexpected extras: {extra}"
+        assert extra <= {"run_tests", DEEPTHINK}, f"writer allowlist has unexpected extras: {extra}"
 
 
 # ---------------------------------------------------------------------------
@@ -269,11 +276,13 @@ class TestDefaultRole:
         assert role.read_only is False
 
     def test_default_allowlist_equals_schemas(self) -> None:
-        from colleague.tools import SCHEMAS
+        from colleague.tools import DEEPTHINK, SCHEMAS
 
         schema_names = {s["function"]["name"] for s in SCHEMAS}
         default_names = set(default_role().tool_allowlist)
-        assert default_names == schema_names
+        # See TestWriterRole.test_writer_allowlist_equals_schemas: "deepthink"
+        # (plan t4) is the one deliberate curated extra outside base SCHEMAS.
+        assert default_names == schema_names | {DEEPTHINK}
 
     def test_default_skill_subset_is_none(self) -> None:
         role = default_role()
