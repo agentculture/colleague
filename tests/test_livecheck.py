@@ -115,14 +115,36 @@ class TestRunProofs:
 
     @patch("colleague.livecheck.subprocess.run")
     def test_timeout_means_skipped(self, mock_run: MagicMock) -> None:
-        """TimeoutExpired → skipped."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="pytest", timeout=120)
+        """TimeoutExpired → skipped, naming the configured cap + the env knob (#266)."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="pytest", timeout=600)
         proofs = [{"file": "tests/test_vllm_live.py", "label": "basic"}]
         results = run_proofs(proofs, ".")
 
         assert len(results) == 1
         assert results[0].status == "skipped"
         assert "timeout" in results[0].detail
+        assert "600" in results[0].detail
+        assert "COLLEAGUE_LIVECHECK_TIMEOUT" in results[0].detail
+
+    @patch("colleague.livecheck.subprocess.run")
+    def test_timeout_env_override_wins(self, mock_run: MagicMock, monkeypatch) -> None:
+        """COLLEAGUE_LIVECHECK_TIMEOUT overrides the 600s default (#266)."""
+        monkeypatch.setenv("COLLEAGUE_LIVECHECK_TIMEOUT", "1234")
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="pytest", timeout=1234)
+        proofs = [{"file": "tests/test_vllm_live.py", "label": "basic"}]
+        results = run_proofs(proofs, ".")
+
+        assert mock_run.call_args.kwargs["timeout"] == 1234.0
+        assert "1234" in results[0].detail
+
+    @patch("colleague.livecheck.subprocess.run")
+    def test_explicit_timeout_param_wins_over_env(self, mock_run: MagicMock, monkeypatch) -> None:
+        monkeypatch.setenv("COLLEAGUE_LIVECHECK_TIMEOUT", "1234")
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        proofs = [{"file": "tests/test_vllm_live.py", "label": "basic"}]
+        run_proofs(proofs, ".", timeout=42.0)
+
+        assert mock_run.call_args.kwargs["timeout"] == 42.0
 
     @patch("colleague.livecheck.subprocess.run")
     def test_file_not_found_means_skipped(self, mock_run: MagicMock) -> None:

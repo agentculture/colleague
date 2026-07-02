@@ -1019,7 +1019,9 @@ class ToolExecutor:
                 raise ToolError("memory 'recall' requires a 'query' string")
             top_k = int(arguments.get("top_k", 5))
             hits = memory.recall(self.root, query, top_k=top_k)
-            return ToolOutcome(result=json.dumps(hits))
+            # Bounded like every other tool result (PR #267 review): a store
+            # with huge records must not blow the tool-output budget.
+            return ToolOutcome(result=self._truncate(json.dumps(hits)))
         else:
             # verb == "remember"
             record = arguments.get("record")

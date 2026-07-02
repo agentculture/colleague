@@ -593,7 +593,10 @@ cannot land it decomposed is recorded as a model limit, never claimed solved.
   literal markup (the t5 re-parse targets a *finish* shape, not synthesis
   text); [#265](https://github.com/agentculture/colleague/issues/265) — the
   WIP-on-stop sweep commits `.colleague/worktrees/` lock files and
-  `__pycache__` residue onto the work branch.
+  `__pycache__` residue onto the work branch — fixed post-review in this same
+  PR: the admin lock + pid markers moved out of the working tree entirely
+  (under the git common dir, shared across linked worktrees) and the sweep
+  excludes `__pycache__`/`*.pyc`.
 
 ## Livecheck closing regression (best-colleague arc R7, 2026-07-02)
 
@@ -603,10 +606,12 @@ cannot land it decomposed is recorded as a model limit, never claimed solved.
 - **Passed live in the battery:** loop tools, live mode, neighbours, and the
   dual-model proof (4 rows).
 - **Skipped by the runner:** the basic-drive, context-budget, and
-  gated-configs proofs hit livecheck's fixed 120s per-proof cap — too tight
-  for full drives on the reference 27B (each passed historically; the cap is
-  a v1 constant in `colleague/livecheck.py`; tunable follow-up filed as
-  [#266](https://github.com/agentculture/colleague/issues/266)).
+  gated-configs proofs hit livecheck's then-fixed 120s per-proof cap — too
+  tight for full drives on the reference 27B (each passed historically).
+  Fixed post-review in this same PR
+  ([#266](https://github.com/agentculture/colleague/issues/266)): the cap is
+  now 600s by default, tunable via `COLLEAGUE_LIVECHECK_TIMEOUT`, and a skip
+  names the configured cap + the knob.
 - **Failed in the battery, passed on re-run — a serving-side window, proven
   byte-identical:** the telemetry and subagents proofs failed during a window
   where the endpoint emitted malformed literal tool-markup instead of parsed

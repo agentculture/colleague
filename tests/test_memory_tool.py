@@ -117,6 +117,17 @@ class TestMemoryRecallDispatch:
         )
         assert outcome.result == json.dumps(hits)
 
+    def test_recall_output_is_bounded_like_every_other_tool(
+        self, tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A store with huge records must not blow the tool-output budget (PR #267)."""
+        hits = [{"id": "1", "content": "x" * 10_000}]
+        monkeypatch.setattr(memory_module, "recall", lambda *a, **kw: hits)
+        executor = ToolExecutor(tmp_repo, max_output_chars=500)
+        outcome = executor.execute("memory", {"verb": "recall", "query": "q"})
+        assert len(outcome.result) < 1_000
+        assert outcome.result != json.dumps(hits)
+
     def test_recall_with_custom_top_k(
         self, tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

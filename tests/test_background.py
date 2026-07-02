@@ -253,15 +253,22 @@ def test_reap_background_dry_run_changes_nothing(tmp_path):
     assert d.exists()
 
 
-def test_reap_background_corrupt_meta_is_reaped(tmp_path):
+def test_reap_background_corrupt_meta_is_kept(tmp_path):
+    """No liveness signal (missing/corrupt meta.json) -> NEVER delete (PR #267).
+
+    A child that crashed before its meta.json landed may still be alive behind
+    the unreadable metadata; treating "unknown" as "dead" would let `colleague
+    clean` remove logs for a genuinely running child. Reported honestly as
+    kept-unknown instead — operator judgment removes it manually.
+    """
     repo = _init_repo(tmp_path)
     d = background.log_dir(repo, "corrupt1")
     d.mkdir(parents=True)
     (d / "meta.json").write_text("{not json")
 
     results = background.reap_background(repo)
-    assert results == [{"background": "corrupt1", "action": "reaped"}]
-    assert not d.exists()
+    assert results == [{"background": "corrupt1", "action": "kept-unknown"}]
+    assert d.exists()
 
 
 def test_reap_background_never_touches_a_live_run(tmp_path):

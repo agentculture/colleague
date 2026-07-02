@@ -93,15 +93,41 @@ def select_proofs(repo: str | Path) -> list[dict[str, str]]:
     return results
 
 
+# Per-proof timeout default (seconds). A full live drive routinely exceeds two
+# minutes per turn-sequence on the reference 27B (one slow model turn alone can
+# take the work loop's whole 120s COLLEAGUE_TIMEOUT window), so the cap must be
+# rig-realistic; override with COLLEAGUE_LIVECHECK_TIMEOUT (#266).
+_DEFAULT_PROOF_TIMEOUT = 600.0
+_PROOF_TIMEOUT_ENV = "COLLEAGUE_LIVECHECK_TIMEOUT"
+
+
+def _proof_timeout() -> float:
+    """Resolve the per-proof timeout: env override > 600s default (#266)."""
+    raw = os.environ.get(_PROOF_TIMEOUT_ENV, "")
+    try:
+        value = float(raw)
+        if value > 0:
+            return value
+    except ValueError:
+        pass
+    return _DEFAULT_PROOF_TIMEOUT
+
+
 def run_proofs(
     proofs: list[dict[str, str]],
     repo: str | Path,
+    *,
+    timeout: float | None = None,
 ) -> list[ProofResult]:
     """Run pytest on the given proof files with COLLEAGUE_VLLM_E2E=1.
 
-    Returns a list of :class:`ProofResult` with per-file status.
+    Each proof file is capped at *timeout* seconds (default: the
+    ``COLLEAGUE_LIVECHECK_TIMEOUT`` env var, else 600s — #266); a timed-out
+    proof is reported ``skipped`` with the configured cap and the knob named,
+    never silently. Returns a list of :class:`ProofResult` with per-file status.
     """
     repo_path = str(repo)
+    cap = timeout if timeout is not None else _proof_timeout()
     env = os.environ.copy()
     env["COLLEAGUE_VLLM_E2E"] = "1"
 
@@ -123,7 +149,7 @@ def run_proofs(
                 text=True,
                 cwd=repo_path,
                 env=env,
-                timeout=120,
+                timeout=cap,
             )
             if proc.returncode == 0:
                 status = "passed"
@@ -135,7 +161,7 @@ def run_proofs(
                 detail = lines[-1] if lines else proc.stdout.strip()[:200]
         except subprocess.TimeoutExpired:
             status = "skipped"
-            detail = "timeout (120s)"
+            detail = f"timeout ({cap:g}s; raise {_PROOF_TIMEOUT_ENV} to allow more)"
         except FileNotFoundError:
             status = "skipped"
             detail = "pytest not found"

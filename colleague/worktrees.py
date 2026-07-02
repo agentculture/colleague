@@ -83,6 +83,33 @@ def _branch_name(child_id: str) -> str:
     return f"sub/{child_id}"
 
 
+def _runtime_state_dir(repo: Path) -> Path:
+    """Directory for colleague's transient worktree-admin state (lock + pid markers).
+
+    Resolved under the repo's git COMMON dir (`git rev-parse --git-common-dir`),
+    which every linked worktree of one repository shares, rather than under the
+    current working tree. Two wins (PR #267 review, the #265 evidence): (a) two
+    colleague processes running from DIFFERENT linked worktrees of one repo
+    contend on the SAME lock — the admin state they mutate (`.git/worktrees/`)
+    is shared, so the serialization must be too; (b) the lock/marker files live
+    under `.git/`, which `git add -A` never stages, so a WIP-on-stop sweep can
+    no longer commit them onto the work branch. Degrades to the historical
+    in-tree `.colleague/worktrees/` location when git is unavailable (a non-git
+    dir) — best-effort, never raises.
+    """
+    proc = _git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir", check=False)
+    if proc.returncode == 0:
+        common = (proc.stdout or "").strip()
+        if common:
+            state = Path(common) / "colleague"
+            try:
+                state.mkdir(parents=True, exist_ok=True)
+                return state
+            except OSError:
+                pass
+    return repo / _WORKTREES_SUBDIR
+
+
 @contextmanager
 def _admin_lock(repo: Path) -> Iterator[None]:
     """Serialize git worktree ADMIN mutations (add/remove/prune) for *repo* (#239).
@@ -109,8 +136,9 @@ def _admin_lock(repo: Path) -> Iterator[None]:
     changed-file scan / gate pytest invocation.
 
     A single advisory OS file lock (``fcntl.flock``, exclusive) over
-    ``.colleague/worktrees/.worktree-admin.lock`` serializes ONLY the brief
-    admin mutation itself (a handful of milliseconds) — never the work done
+    ``<git-common-dir>/colleague/.worktree-admin.lock`` (shared by every linked
+    worktree of the repo — see :func:`_runtime_state_dir`) serializes ONLY the
+    brief admin mutation itself (a handful of milliseconds) — never the work done
     inside an already-created worktree, so real subagent/work-item parallelism
     is untouched. Degrades to a no-op (unserialized, matching every other git
     call's best-effort tolerance in this module) when ``fcntl`` is unavailable
@@ -120,7 +148,7 @@ def _admin_lock(repo: Path) -> Iterator[None]:
     the already-guarded :func:`worktree_remove` sequentially, never while
     holding its own lock).
     """
-    lock_path = repo / _WORKTREES_SUBDIR / _ADMIN_LOCK_NAME
+    lock_path = _runtime_state_dir(repo) / _ADMIN_LOCK_NAME
     handle = None
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,8 +178,10 @@ def iso_liveness_path(repo_path: str, task_id: str) -> Path:
     Mirrors :mod:`colleague.flight`'s ``feed_path``/``control_path`` pattern — a
     small, discoverable, public path helper so a caller (or a test) can inspect
     or fabricate the marker directly rather than re-deriving the naming scheme.
+    Lives under the git common dir (:func:`_runtime_state_dir`) so the marker is
+    shared across linked worktrees and can never be swept into a commit.
     """
-    return Path(repo_path).resolve() / _WORKTREES_SUBDIR / f"iso-{task_id}.pid"
+    return _runtime_state_dir(Path(repo_path).resolve()) / f"iso-{task_id}.pid"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -380,8 +410,12 @@ def commit_all(worktree_path: str, message: str) -> bool:
     """
     wt = Path(worktree_path)
 
-    # Stage everything (new, modified, deleted).
-    _git(wt, "add", "-A")
+    # Stage everything (new, modified, deleted) EXCEPT Python build residue:
+    # a WIP-on-stop sweep used to commit __pycache__/*.pyc onto the work branch
+    # (#265, seen live in the h9 proof), and a committed .pyc then blocks a
+    # plain `git checkout` in the operator repo. Pathspec excludes use git's
+    # default fnmatch (where `*` also matches `/`), so these cover any depth.
+    _git(wt, "add", "-A", "--", ":(exclude)*__pycache__*", ":(exclude)*.pyc")
 
     # If the index matches HEAD there is nothing to commit — report False, not error.
     status = _git(wt, "status", "--porcelain", check=False)
@@ -500,6 +534,11 @@ def reap_orphaned_iso_worktrees(
             for wt in paths:
                 _git(repo, "worktree", "remove", "--force", wt, check=False)
             _git(repo, "worktree", "prune", check=False)
+        # A reaped worktree's stale pid marker is residue too (PR #267 review):
+        # the holder is gone (that is why it was reaped), so clear the marker
+        # rather than leaving a dead pidfile behind.
+        for wt in paths:
+            _clear_liveness_marker(repo, Path(wt).name[len("iso-") :])
     return paths
 
 

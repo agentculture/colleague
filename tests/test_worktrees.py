@@ -574,3 +574,67 @@ def _dead_pid() -> int:
     )
     proc.wait()
     return proc.pid
+
+
+class TestRuntimeStateOutOfTree:
+    """PR #267 review: transient admin state lives under the git COMMON dir,
+    shared across linked worktrees and structurally uncommittable (#265)."""
+
+    def test_liveness_marker_is_not_in_the_working_tree(self, git_repo: Path) -> None:
+        marker = worktrees.iso_liveness_path(str(git_repo), "t1")
+        assert str(marker).startswith(str(git_repo / ".git")), marker
+        assert not str(marker).startswith(str(git_repo / ".colleague")), marker
+
+    def test_admin_lock_file_is_not_in_the_working_tree(self, git_repo: Path) -> None:
+        with worktrees._admin_lock(git_repo):
+            pass
+        assert not (git_repo / ".colleague" / "worktrees" / ".worktree-admin.lock").exists()
+        assert (git_repo / ".git" / "colleague" / ".worktree-admin.lock").exists()
+
+    def test_linked_worktree_resolves_the_same_state_dir(self, git_repo: Path) -> None:
+        """Two colleague runs from different linked worktrees must contend on the
+        SAME lock — the admin state they mutate (.git/worktrees/) is shared."""
+        wt = worktrees.isolation_worktree_add(str(git_repo), "linked1", "colleague/linked1")
+        try:
+            assert worktrees._runtime_state_dir(Path(wt)) == worktrees._runtime_state_dir(git_repo)
+        finally:
+            worktrees.isolation_worktree_remove(str(git_repo), wt)
+
+    def test_non_git_dir_degrades_to_in_tree_path(self, tmp_path: Path) -> None:
+        plain = tmp_path / "not-a-repo"
+        plain.mkdir()
+        assert worktrees._runtime_state_dir(plain) == plain / ".colleague" / "worktrees"
+
+    def test_reap_clears_the_stale_liveness_marker(self, git_repo: Path) -> None:
+        worktrees.isolation_worktree_add(str(git_repo), "stale1", "colleague/stale1")
+        marker = worktrees.iso_liveness_path(str(git_repo), "stale1")
+        marker.write_text(str(_dead_pid()), encoding="utf-8")
+
+        reaped = worktrees.reap_orphaned_iso_worktrees(str(git_repo))
+        assert reaped and not marker.exists()
+
+
+class TestCommitAllExcludesBuildResidue:
+    """PR #267 review / #265: the WIP sweep must not commit __pycache__/*.pyc."""
+
+    def test_pycache_and_pyc_never_staged(self, git_repo: Path) -> None:
+        wt = worktrees.isolation_worktree_add(str(git_repo), "resid1", "colleague/resid1")
+        try:
+            (Path(wt) / "real.py").write_text("x = 1\n", encoding="utf-8")
+            cache = Path(wt) / "tests" / "__pycache__"
+            cache.mkdir(parents=True)
+            (cache / "real.cpython-312.pyc").write_bytes(b"\x00")
+            (Path(wt) / "stray.pyc").write_bytes(b"\x00")
+
+            assert worktrees.commit_all(wt, "wip") is True
+            shown = subprocess.run(
+                ["git", "-C", wt, "show", "--name-only", "--format=", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            assert "real.py" in shown
+            assert "__pycache__" not in shown
+            assert ".pyc" not in shown
+        finally:
+            worktrees.isolation_worktree_remove(str(git_repo), wt)

@@ -220,7 +220,15 @@ def reap_background(repo_path: str | Path, *, dry_run: bool = False) -> list[dic
         return results
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
         meta = _read_meta(d)
-        if _pid_alive(meta.get("pid")):
+        pid = meta.get("pid")
+        if not isinstance(pid, int):
+            # No liveness signal at all (meta.json missing/corrupt/incomplete):
+            # a child may still be alive behind it, so NEVER delete — report the
+            # dir honestly instead (PR #267 review; conservative like the
+            # flight/artifact reaps). Operator judgment can remove it manually.
+            results.append({"background": d.name, "action": "kept-unknown"})
+            continue
+        if _pid_alive(pid):
             continue  # a live holder -> never reap a run still in progress
         if dry_run:
             results.append({"background": d.name, "action": "would-reap"})
