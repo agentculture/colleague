@@ -770,12 +770,15 @@ class TaskResult:
     media: Optional[dict[str, Any]] = None
     """Delivery record for the task's media attachments (t9, decision c25), or
     ``None`` for an attachment-less run. Shape: ``{"attachments": [{"path",
-    "status"}]}`` where ``status`` is ``"delivered"``, ``"dropped"``, or
-    ``"unknown"`` (no usage reported) — the token-contribution verdict, which
-    proves the media ENTERED the prompt, never that the model *understood* it
+    "status"}]}`` where ``status`` is ``"delivered"``, ``"dropped"``,
+    ``"unknown"`` (no usage reported), or ``"bridged"`` (the main model is
+    declared text-only and a multimodal second model delivered a description
+    via the media bridge, t8) — the token-contribution verdict, which proves
+    the media ENTERED a prompt, never that the model *understood* it
     (comprehension is claimed only by the livecheck red-pixel proof). Populated
-    by the loop after the first media-bearing completion; omit-when-None so an
-    attachment-less run serializes byte-identically."""
+    by the loop after the first media-bearing completion (or preset by a
+    successful bridge); omit-when-None so an attachment-less run serializes
+    byte-identically."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {

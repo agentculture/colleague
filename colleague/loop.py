@@ -2445,6 +2445,12 @@ def _maybe_run_media_bridge(ctx: _Work) -> None:
     ]
     if not parts:
         return
+    # The main model is DECLARED text-only (that is what armed the bridge), so
+    # the parts must not ride its wire at all — a text-only vLLM endpoint
+    # typically rejects image parts outright rather than dropping them. The
+    # main wire gets the flattened text (placeholders); the REAL parts travel
+    # only on the bridge escalation below (h12/h18 extended to the main wire).
+    ctx.messages[1] = dict(ctx.messages[1], content=media.flatten_parts(initial))
     question = (
         "You are the multimodal half of a dual-model rig. The MAIN model "
         "driving this task is text-only and cannot see the attached media. "
@@ -2458,6 +2464,9 @@ def _maybe_run_media_bridge(ctx: _Work) -> None:
         _record_deepthink(ctx.result, call)
     text = (getattr(res, "text", "") or "").strip()
     if call is not None and getattr(call, "degraded", False) or not text:
+        # Degraded bridge: nothing folds; the media record stays unset so the
+        # t9 verifier classifies the (now text-only) first completion honestly
+        # — dropped with real usage, unknown without.
         return
     ctx.messages.append(
         {
@@ -2466,6 +2475,16 @@ def _maybe_run_media_bridge(ctx: _Work) -> None:
             "media and reports:\n" + text,
         }
     )
+    # Delivery record (c25 vocabulary + the bridge case): the MAIN model saw
+    # placeholders, the description was delivered via the second model —
+    # recorded as "bridged" (preset here; the t9 verifier skips a set record).
+    ctx.result.media = {
+        "attachments": [
+            {"path": str(a.get("path", "?")), "status": "bridged"}
+            for a in ctx.task.attachments
+            if isinstance(a, dict)
+        ]
+    }
 
 
 def _maybe_inject_upfront_hint(ctx: _Work) -> None:

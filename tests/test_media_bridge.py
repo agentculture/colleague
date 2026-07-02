@@ -83,6 +83,14 @@ def test_bridge_fires_once_and_folds_description(tmp_path: Path) -> None:
     assert "a solid red image" in advisory[0]["content"]
     assert result.deepthink and result.deepthink[0].point == _POINT
     assert result.deepthink[0].degraded is False
+    # The main model is DECLARED text-only: its wire must carry NO parts —
+    # the initial message is flattened, the real parts travel only on the
+    # bridge escalation (h12/h18 extended to the main wire).
+    assert all(isinstance(m.get("content"), str) for m in seen[0] if "content" in m)
+    assert "[image attachment]" in seen[0][1]["content"]
+    # Delivery vocabulary for the bridge case: "bridged", never "delivered".
+    assert result.media is not None
+    assert result.media["attachments"][0]["status"] == "bridged"
 
 
 def test_bridge_noop_without_multimodal_declaration(tmp_path: Path) -> None:
@@ -132,6 +140,12 @@ def test_bridge_degrades_never_raises(tmp_path: Path) -> None:
         for m in seen[0]
         if isinstance(m.get("content"), str) and m["content"].startswith("[media bridge]")
     ], "a degraded bridge folds nothing into the conversation"
+    # Even degraded, the declared-text-only main wire carries no parts; the
+    # t9 verifier then classifies honestly (unknown here — scripted complete
+    # reports no usage; dropped with real usage numbers).
+    assert isinstance(seen[0][1]["content"], str)
+    assert result.media is not None
+    assert result.media["attachments"][0]["status"] == "unknown"
 
 
 # ---------------------------------------------------------------------------
