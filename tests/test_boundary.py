@@ -359,6 +359,35 @@ def test_flight_module_has_no_io_surface() -> None:
         ), f"flight.py must not use {forbidden!r} (no-daemon/no-socket)"
 
 
+def test_deepthink_module_has_no_io_surface() -> None:
+    """The dual-model deepthink escalation seam (plan task t2, spec c15/h7) is
+    pure stdlib + the engine's own OpenAI-wire ``make_complete`` -- no direct
+    socket/daemon/thread/subprocess primitive of its own.
+
+    Named explicitly (mirroring ``flight.py`` above) so the boundary sweep's
+    coverage of ``colleague/deepthink.py`` is asserted directly, not only
+    implied by the parametrized package-wide scans (``_all_py_sources()``
+    already walks every ``*.py`` under ``colleague/``, so every parametrized
+    check above — no-networking, subprocess confinement, no dynamic import,
+    no mcp.json reference — already covers this file; this pins it by name so
+    a future refactor that moves the seam out from under ``colleague/``
+    cannot silently drop it from the sweep).
+    """
+    deepthink_src = _PACKAGE_DIR / "deepthink.py"
+    assert deepthink_src in _all_py_sources(), "deepthink.py must be in the scanned package sources"
+    source = deepthink_src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        "import subprocess",
+    ):
+        assert (
+            forbidden not in source
+        ), f"deepthink.py must not use {forbidden!r} (no-daemon/no-socket)"
+
+
 # ---------------------------------------------------------------------------
 # Structural check 4 — subprocess confined to sanctioned files
 # ---------------------------------------------------------------------------

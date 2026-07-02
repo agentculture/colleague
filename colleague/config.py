@@ -147,6 +147,22 @@ _DEFAULT_TESTINTEGRITY_FIX_RETRIES = 0
 # API shape. Empty (the default) degrades to record-only — no reviewer is spawned.
 _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 
+# Dual-model deepthink escalation target (spec
+# docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md,
+# claims c8/h1/c2/h11). Optional: a second OpenAI-compatible endpoint the
+# runtime MAY escalate hard-reasoning turns to at a fixed, enumerated set of
+# points (the deepthink loop tool, the acceptance self-check, plan-mode
+# proposals, and the test-integrity reviewer default) — never an automatic
+# router. Present iff the resolved model is a non-empty, non-whitespace
+# string; ``base_url``/``api_key`` then default to the MAIN resolved
+# endpoint's own values (so declaring dual-model needs only a model id unless
+# deepthink truly lives elsewhere). ``context_budget`` defaults to a
+# 64K-window-sized share — the same proportion as the main
+# 192000-for-256K default (192000/262144 ≈ 0.73 ≈ 48000/65536). Override per
+# environment with COLLEAGUE_DEEPTHINK_MODEL / _BASE_URL / _API_KEY /
+# _CONTEXT_BUDGET, or a ``deepthink`` section in .colleague/config.json.
+_DEFAULT_DEEPTHINK_CONTEXT_BUDGET = 48000
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -163,6 +179,8 @@ MAX_SUBAGENT_TOTAL = 24
 _CONFIG_FILENAME = "config.json"
 # Recognised keys in .colleague/config.json.
 _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
+# Recognised keys inside the NESTED "deepthink" section of .colleague/config.json.
+_DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget"})
 
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
@@ -195,6 +213,37 @@ def load_config_file(repo_path: str | Path) -> dict[str, str]:
     if not isinstance(data, dict):
         return {}
     return {k: str(v) for k, v in data.items() if k in _CONFIG_KEYS and v is not None}
+
+
+def _load_deepthink_overrides(repo_path: str | Path) -> dict[str, str]:
+    """Read the NESTED ``deepthink`` section of .colleague/config.json.
+
+    Mirrors :func:`load_config_file`'s malformed-input handling but reads a
+    *nested* object (``{"deepthink": {...}}``) instead of top-level keys —
+    ``load_config_file``'s ``dict[str, str]`` endpoint contract (base_url/
+    api_key/model) must not change. Returns a dict of stringified values for
+    the recognised keys (``model``, ``base_url``, ``api_key``,
+    ``context_budget``). A missing file, malformed JSON, a non-dict payload,
+    or an absent/non-dict ``deepthink`` section all yield an empty dict and
+    never raise.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    section = data.get("deepthink")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _DEEPTHINK_CONFIG_KEYS and value is not None
+    }
 
 
 def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
@@ -338,6 +387,108 @@ def _resolve_affected_tests_enabled(file_value: str | None) -> bool:
     return _DEFAULT_AFFECTED_TESTS_ENABLED
 
 
+def _resolve_deepthink(
+    file_deepthink: dict[str, str],
+    main_base_url: str,
+    main_api_key: str,
+) -> "DeepthinkConfig | None":
+    """Resolve the optional dual-model deepthink escalation target.
+
+    Precedence per key: ``COLLEAGUE_DEEPTHINK_*`` env (``CONVERTIBLE_DEEPTHINK_*``
+    honored as a deprecated fallback, matching every other knob in this module)
+    > the ``deepthink`` section of .colleague/config.json > a default.
+
+    Dual-model is PRESENT iff the resolved model is a non-empty, non-whitespace
+    string; otherwise this returns ``None`` regardless of the other keys — an
+    operator-set base_url/api_key/context_budget with no model is not a
+    dual-model declaration (the model IS the presence signal, spec h1).
+
+    ``base_url``/``api_key`` default to *main_base_url*/*main_api_key* — the
+    ALREADY-resolved main endpoint values — so declaring dual-model needs only
+    a model id unless deepthink truly lives at a different endpoint. An empty
+    file value for ``base_url``/``api_key`` is treated as absent (falls
+    through to the main endpoint), matching the env-var "empty is absent"
+    convention used throughout this module.
+
+    ``context_budget`` parses as an int; a malformed or absent value falls
+    back to :data:`_DEFAULT_DEEPTHINK_CONTEXT_BUDGET` and never raises,
+    mirroring every other numeric knob resolved via :func:`_try_int`.
+    """
+    model = _pick(
+        None,
+        "COLLEAGUE_DEEPTHINK_MODEL",
+        "CONVERTIBLE_DEEPTHINK_MODEL",
+        default=file_deepthink.get("model", ""),
+    )
+    if not model.strip():
+        return None
+    base_url = _pick(
+        None,
+        "COLLEAGUE_DEEPTHINK_BASE_URL",
+        "CONVERTIBLE_DEEPTHINK_BASE_URL",
+        default=file_deepthink.get("base_url") or main_base_url,
+    )
+    api_key = _pick(
+        None,
+        "COLLEAGUE_DEEPTHINK_API_KEY",
+        "CONVERTIBLE_DEEPTHINK_API_KEY",
+        default=file_deepthink.get("api_key") or main_api_key,
+    )
+    context_budget = _try_int(
+        _pick(
+            None,
+            "COLLEAGUE_DEEPTHINK_CONTEXT_BUDGET",
+            "CONVERTIBLE_DEEPTHINK_CONTEXT_BUDGET",
+            default=file_deepthink.get("context_budget", ""),
+        ),
+        default=_DEFAULT_DEEPTHINK_CONTEXT_BUDGET,
+    )
+    return DeepthinkConfig(
+        model=model.strip(),
+        base_url=base_url,
+        api_key=api_key,
+        context_budget=context_budget,
+    )
+
+
+def _resolve_testintegrity_reviewer_model(
+    explicit: str,
+    deepthink: "DeepthinkConfig | None",
+    main_base_url: str,
+) -> str:
+    """Default the test-integrity diverse-model reviewer to the deepthink model.
+
+    Spec c10(d) (task t7): when dual-model deepthink (t1) is configured and the
+    operator has NOT set an explicit ``COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL``
+    (or its ``CONVERTIBLE_*`` fallback), the deepthink model becomes the
+    reviewer default — the strong reasoner is the natural diverse reviewer for
+    a mirrored-test finding (#203).
+
+    *explicit* is the value already resolved from env (empty/whitespace means
+    unconfigured, matching this module's convention throughout). An
+    explicit value — even whitespace-only-vs-non-whitespace aside, ANY
+    non-blank explicit value — always wins over the default; this function
+    only ever fills in the ELSE branch.
+
+    The default is guarded to the SAME endpoint: the reviewer subagent switch
+    (``colleague/subagents.py``'s ``dataclasses.replace(parent_config,
+    model=..., role=...)``) carries only a model name — the spawned child
+    inherits the parent's ``base_url``/``api_key`` unchanged. Defaulting to a
+    deepthink model served on a DIFFERENT endpoint would point the reviewer
+    subagent at a model name the main endpoint likely doesn't serve, so when
+    ``deepthink.base_url`` differs from *main_base_url* the reviewer model is
+    left exactly as *explicit* (empty, or a caller-provided whitespace value
+    from an already-empty resolution). Honest v1 limit: a cross-endpoint
+    reviewer default is a documented follow-up that needs the subagent switch
+    to carry an endpoint of its own — not built here.
+    """
+    if explicit.strip():
+        return explicit
+    if deepthink is not None and deepthink.base_url == main_base_url:
+        return deepthink.model
+    return explicit
+
+
 def resolve_engine(explicit: str | None) -> str:
     """Resolve the backend plugin name to drive.
 
@@ -386,6 +537,26 @@ def resolve_session_engine(explicit: str | None) -> str:
     return resolve_engine(None)
 
 
+@dataclass(frozen=True)
+class DeepthinkConfig:
+    """A resolved dual-model deepthink escalation target.
+
+    Optional: present on :attr:`EngineConfig.deepthink` only when the
+    operator has declared a deepthink model (env var or a ``deepthink``
+    section in .colleague/config.json) — see :func:`_resolve_deepthink`. The
+    deepthink endpoint speaks the same OpenAI surface as the main endpoint
+    through the same ``vllm-openai`` adapter, so retargeting stays a config
+    change, never a code change (h2 precedent). Nothing here hard-codes a
+    specific pair of models (h1) — any two OpenAI-compatible endpoints can
+    play main and deepthink.
+    """
+
+    model: str
+    base_url: str
+    api_key: str
+    context_budget: int
+
+
 @dataclass
 class EngineConfig:
     """Settings for an OpenAI-compatible engine driver."""
@@ -423,6 +594,10 @@ class EngineConfig:
     affected_tests_depth: int = _DEFAULT_AFFECTED_TESTS_DEPTH
     affected_tests_max_files: int = _DEFAULT_AFFECTED_TESTS_MAX_FILES
     affected_tests_override: Optional[str] = None
+    # Dual-model deepthink escalation target (t1). ``None`` = single-model,
+    # byte-identical to today (the pre-feature default). See
+    # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
+    deepthink: Optional[DeepthinkConfig] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -506,6 +681,7 @@ class EngineConfig:
         file_at_retries: str | None = None
         file_at_depth: str | None = None
         file_at_max_files: str | None = None
+        file_deepthink: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -513,26 +689,52 @@ class EngineConfig:
             file_at, file_at_retries, file_at_depth, file_at_max_files = (
                 _load_affected_tests_overrides(repo_path)
             )
+            file_deepthink = _load_deepthink_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
         file_model: str | None = file_cfg.get("model")
 
+        # Resolved once as locals (not just inline in the ``cls(...)`` call
+        # below) so the deepthink resolution can default ITS base_url/api_key
+        # to the MAIN endpoint's already-resolved values (spec requirement).
+        resolved_base_url = _pick(
+            base_url,
+            "COLLEAGUE_BASE_URL",
+            "CONVERTIBLE_BASE_URL",
+            "OPENAI_BASE_URL",
+            default=file_base_url if file_base_url is not None else _DEFAULT_BASE_URL,
+        )
+        resolved_api_key = _pick(
+            api_key,
+            "COLLEAGUE_API_KEY",
+            "CONVERTIBLE_API_KEY",
+            "OPENAI_API_KEY",
+            default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
+        )
+
+        # Dual-model deepthink (t1) — resolved once as a local (like
+        # resolved_base_url/resolved_api_key above) so the test-integrity
+        # reviewer default backfill (t7) below can inspect the resolved
+        # DeepthinkConfig before EngineConfig itself is constructed.
+        resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
+        # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
+        # default (empty), then backfilled from the deepthink model when
+        # unconfigured and same-endpoint (t7, spec c10(d)).
+        resolved_testintegrity_reviewer_model = _resolve_testintegrity_reviewer_model(
+            _pick(
+                None,
+                "COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL",
+                "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
+                default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
+            ),
+            resolved_deepthink,
+            resolved_base_url,
+        )
+
         return cls(
-            base_url=_pick(
-                base_url,
-                "COLLEAGUE_BASE_URL",
-                "CONVERTIBLE_BASE_URL",
-                "OPENAI_BASE_URL",
-                default=file_base_url if file_base_url is not None else _DEFAULT_BASE_URL,
-            ),
-            api_key=_pick(
-                api_key,
-                "COLLEAGUE_API_KEY",
-                "CONVERTIBLE_API_KEY",
-                "OPENAI_API_KEY",
-                default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
-            ),
+            base_url=resolved_base_url,
+            api_key=resolved_api_key,
             model=_pick(
                 model,
                 "COLLEAGUE_MODEL",
@@ -702,12 +904,7 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
             ),
-            testintegrity_reviewer_model=_pick(
-                None,
-                "COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL",
-                "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
-                default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
-            ),
+            testintegrity_reviewer_model=resolved_testintegrity_reviewer_model,
             # Affected-tests gate (#213) — env > config.json > default-on, mirroring
             # lint. Kept off the signature (no CLI flag in v0) for the S107 ceiling.
             affected_tests=_resolve_affected_tests_enabled(file_at),
@@ -749,11 +946,15 @@ class EngineConfig:
             ),
             # affected_tests_override has no env var (set later from a CLI flag).
             affected_tests_override=None,
+            # Dual-model deepthink (t1) — env > config.json `deepthink` section >
+            # absent (None). base_url/api_key default to the resolved MAIN
+            # endpoint values computed above.
+            deepthink=resolved_deepthink,
         )
 
     def to_dict(self) -> dict[str, object]:
         """Config snapshot for the result artifact, with the api_key redacted."""
-        return {
+        data: dict[str, object] = {
             "base_url": self.base_url,
             "model": self.model,
             "max_steps": self.max_steps,
@@ -780,6 +981,18 @@ class EngineConfig:
             "affected_tests_depth": self.affected_tests_depth,
             "affected_tests_max_files": self.affected_tests_max_files,
         }
+        # Dual-model deepthink (t1): present ONLY when configured, so a
+        # single-model snapshot is byte-identical to today (omit-when-None,
+        # the destination/lint_report/capacity_decision convention). The
+        # deepthink api_key is redacted exactly like the main api_key above —
+        # simply absent from the sub-dict, never included.
+        if self.deepthink is not None:
+            data["deepthink"] = {
+                "model": self.deepthink.model,
+                "base_url": self.deepthink.base_url,
+                "context_budget": self.deepthink.context_budget,
+            }
+        return data
 
 
 def _str(value: object | None) -> str | None:

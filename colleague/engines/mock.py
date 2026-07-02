@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
+from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
 from colleague.loop import (
     CompleteFn,
@@ -73,6 +74,12 @@ class MockEngine(Engine):
         # ``allowlist`` is the role-enforcement point here. None → unrestricted
         # (byte-identical to the pre-role path). Prompt via role-aware system_prompt.
         role = resolve_role(config, task.repo_path)
+        # Dual-model deepthink (t5): the mock binds the SAME seam the live backend
+        # does (all-engines rule). Its scripted turns never call the tool, but the
+        # acceptance self-check escalation path fires identically — and degrades
+        # to a recorded no-op, since the mock's make_complete raises (no live
+        # model), exercising the c13 degradation ladder end-to-end.
+        dt_run = make_deepthink_run(config, self.name)
         return run(
             _script(task),
             task,
@@ -90,11 +97,12 @@ class MockEngine(Engine):
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
                 allowlist=role,
+                deepthink=dt_run,
             ),
             # All-engines rule: the mock exercises the SAME loop windowing path and
             # arms reactive auto-split (#151) identically (dormant unless an
             # exhausted overflow fires it). No count_tokens → the loop uses the char
             # estimate via window_messages. ``from_config`` is the single source for
             # the config→controls forwarding both backends share.
-            context=ContextControls.from_config(config),
+            context=ContextControls.from_config(config, deepthink_run=dt_run),
         )

@@ -510,3 +510,36 @@ now validated live (or live + cited-deterministic where the model adds no signal
   loop has no live backend on this rig. Run the gated test once serving is fixed;
   until then the mock e2e is the validated floor — recorded honestly, never
   claimed as live (plan risk r3).
+
+## Dual-model deepthink escalation (spec 2026-07-01, plan task t10)
+
+- **Validated (mock + deterministic).** The config resolution
+  (`tests/test_deepthink_config.py`), the one-shot windowed/degrading
+  `make_complete` seam (`tests/test_deepthink.py`), the `TaskResult.deepthink`
+  block shape (`tests/test_contract_deepthink.py`), the loop tool + role
+  curation (`tests/test_deepthink_tool.py`), the loop wiring + all-engines
+  forwarding + acceptance-selfcheck escalation (`tests/test_loop_deepthink.py`),
+  the plan-mode proposal routing (`tests/test_plan_deepthink.py`), and the
+  test-integrity reviewer default (`tests/test_deepthink_reviewer_default.py`)
+  all pass against the `mock` engine and fixtures: a no-deepthink-config run is
+  byte-identical to today, and a dual-config run against `mock` records a
+  degraded no-op (the lint fix-turn precedent) instead of failing.
+- **PENDING live.** `tests/test_dual_live.py` (gated on `COLLEAGUE_DUAL_E2E=1`,
+  requiring both `COLLEAGUE_BASE_URL`/`_MODEL` for a tool-calling main model
+  *and* `COLLEAGUE_DEEPTHINK_MODEL`/`_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET` for
+  a live deepthink endpoint) is written but NOT yet run against a live rig: as
+  of 2026-07-02 the reference rig serves no tool-calling-capable backend at all
+  (the same standing gap as the mode-profiles row above — evidence
+  [#66](https://github.com/agentculture/colleague/issues/66)) — the main model
+  in a dual pair must be served with tool calling (vLLM
+  `--enable-auto-tool-choice` plus a model-appropriate `--tool-call-parser`)
+  and a *second* endpoint must serve the deepthink model concurrently, which
+  this rig does not yet do. The wall-clock + quality benchmark
+  (`scripts/bench_dual.py`) is scripted and documented (quality graded via the
+  existing feedback loop, `colleague feedback record <task_id> --rating N`) but
+  refuses to run against an unreachable endpoint rather than fake a comparison
+  (verified: it exits 1 with a clear stderr message against this rig's
+  unconfigured/unreachable deepthink target, and never starts a model run).
+  Run both once the rig serves two tool-calling-capable OpenAI-compatible
+  endpoints; until then this row stays PENDING — never declared validated
+  (spec honesty condition, plan task t10 acceptance).

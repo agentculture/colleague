@@ -25,6 +25,7 @@ from typing import Any, Callable
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
+from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
 from colleague.loop import (
     CompleteFn,
@@ -257,10 +258,18 @@ class VllmOpenAIEngine(Engine):
             payload: dict[str, Any] = {
                 "model": config.model,
                 "messages": messages,
-                "tools": offered_tools,
-                "tool_choice": "auto",
                 "temperature": config.temperature,
             }
+            # An EMPTY offered-tools list is the honest "tools-off" invariant (the
+            # deepthink seam relies on this, colleague/deepthink.py task t2): omit
+            # BOTH "tools" and "tool_choice" from the payload entirely rather than
+            # sending an empty tools array, which some servers 400 on and which is
+            # not honestly "no tools" anyway. ``None`` never reaches here — it was
+            # already resolved to the full SCHEMAS above — so a caller that omits
+            # ``tools`` (e.g. plan mode) stays byte-identical to before this change.
+            if offered_tools:
+                payload["tools"] = offered_tools
+                payload["tool_choice"] = "auto"
             if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
                 # Best-effort: a diagnostic dump must NEVER break a work item — a
                 # closed/broken stderr (e.g. `2>/dev/null`, a dead pipe) raises
@@ -279,13 +288,30 @@ class VllmOpenAIEngine(Engine):
 
         return complete
 
-    def make_complete(self, config: EngineConfig) -> CompleteFn:
+    def make_complete(
+        self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
+    ) -> CompleteFn:
         """Public one-shot completion seam (see :meth:`Engine.make_complete`).
 
         Returns the same ``complete`` the work loop uses, so non-work-loop
-        features (``colleague plan``) can drive the live model directly.
+        features (``colleague plan``, the deepthink escalation seam) can drive
+        a live model directly. ``tools=None`` (the default) sends the full
+        SCHEMAS — byte-identical to today, the plan-mode pin; ``tools=[]`` is
+        the tools-off invariant the deepthink seam relies on (see
+        :meth:`Engine.make_complete`).
         """
-        return self._make_complete(config)
+        return self._make_complete(config, tools=tools)
+
+    def make_count_tokens(self, config: EngineConfig) -> Callable[[list[dict[str, Any]]], int]:
+        """Public one-shot token-counter seam (see :meth:`Engine.make_count_tokens`).
+
+        Returns the same exact-or-estimate counter the work loop uses
+        internally — the server's ``/tokenize`` endpoint, degrading to the
+        char-heuristic estimate on any error — so a feature calling
+        :meth:`make_complete` outside the loop (the deepthink seam, task t2)
+        windows its prompt with the loop's own precision.
+        """
+        return self._make_count_tokens(config)
 
     def work(self, task: Task, config: EngineConfig) -> TaskResult:
         """Work the task through the shared bounded tool-loop.
@@ -298,7 +324,12 @@ class VllmOpenAIEngine(Engine):
         # SCHEMAS + an unrestricted executor (byte-identical to the pre-role path).
         # The role PROMPT is composed by the role-aware self.system_prompt below.
         role = resolve_role(config, task.repo_path)
-        offered_tools = curate_schemas(role) if role is not None else SCHEMAS
+        # Dual-model deepthink (t5): ONE binding per work item, injected into BOTH
+        # the executor (the model-facing tool) and the ContextControls (the
+        # runtime escalation points) — None for a single-model config, which also
+        # keeps the deepthink tool schema un-offered (byte-identical run).
+        dt_run = make_deepthink_run(config, self.name)
+        offered_tools = curate_schemas(role, deepthink=dt_run is not None)
         return run(
             self._make_complete(config, tools=offered_tools),
             task,
@@ -316,6 +347,7 @@ class VllmOpenAIEngine(Engine):
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
                 allowlist=role,
+                deepthink=dt_run,
             ),
             # Context-window management (windowing + reactive auto-split #151),
             # forwarded identically by every backend (all-engines rule); dormant
@@ -324,6 +356,8 @@ class VllmOpenAIEngine(Engine):
             # both backends share (all-engines rule); the vLLM backend's one
             # per-backend variation is its exact ``/tokenize`` counter.
             context=ContextControls.from_config(
-                config, count_tokens=self._make_count_tokens(config)
+                config,
+                count_tokens=self._make_count_tokens(config),
+                deepthink_run=dt_run,
             ),
         )

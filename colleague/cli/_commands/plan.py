@@ -28,13 +28,15 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from colleague import registry
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_diagnostic, emit_result
 from colleague.config import EngineConfig, resolve_engine
+from colleague.context import count_tokens_chars
+from colleague.deepthink import deepthink_engine_config, window_messages
 from colleague.plan import checkpoint as ckpt
 from colleague.plan.cli_driver import (
     make_propose_claims,
@@ -162,6 +164,89 @@ def cmd_plan_overview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _route_proposals_through_deepthink(
+    engine: Any,
+    config: EngineConfig,
+    complete_main: Callable[[list[dict[str, Any]]], Any],
+) -> Callable[[list[dict[str, Any]]], Any]:
+    """Route plan-mode proposal completions through the deepthink model.
+
+    Planning is exactly the hard-reasoning moment the deepthink model exists
+    for (spec claim c10(b)): when the operator has declared a dual-model
+    config, every proposal completion (claims, honesty, plan items) targets
+    the deepthink endpoint instead of the main model, tools-off (spec h2 —
+    the same invariant :func:`colleague.deepthink.run_deepthink` relies on: a
+    one-shot completion offering no tool schema structurally cannot call a
+    tool or ``finish``).
+
+    Every routed call is windowed to the DEEPTHINK model's own context budget
+    before the request is sent (spec h4 — the same invariant
+    :func:`colleague.deepthink.run_deepthink` holds for the other escalation
+    points), via :func:`colleague.deepthink.window_messages` and the engine's
+    own token counter (exact where the endpoint offers it, char-estimate
+    floor otherwise). The main-model fallback receives the ORIGINAL,
+    un-windowed messages — the main model has the wide window.
+
+    Degradation is per-call, never a crashed plan run (spec c13 / h5): if the
+    deepthink completion raises for a given message batch — a dead endpoint,
+    a timeout, a context overflow — *complete_main* answers that one call
+    instead, so a dual-config plan run never fails because deepthink is
+    unreachable. Building the deepthink completion is itself guarded: an
+    out-of-tree engine whose ``make_complete`` predates the ``tools``
+    parameter degrades the whole route to the main model up front, never a
+    crash. A stderr info line marks the route as active; a stderr warning
+    fires once, the first time a call actually falls back, so the
+    degradation is visible, never silent.
+
+    Plan mode drives the model OUTSIDE the bounded work loop, so there is no
+    per-step ``TaskResult`` here to fold a ``DeepthinkCall`` onto — these
+    stderr lines ARE this seam's visibility; artifact-level recording of
+    deepthink calls is a work-loop concern (task t5).
+    """
+    dt_config = deepthink_engine_config(config)
+    if dt_config is None:  # pragma: no cover - guarded by the caller's dual-config check
+        raise RuntimeError("no deepthink config resolved")
+
+    # Tools-off ALWAYS (spec h2): an explicit empty tool list, never ``None`` —
+    # a deepthink proposal completion structurally cannot call a tool or `finish`.
+    try:
+        complete_deepthink = engine.make_complete(dt_config, tools=[])
+    except Exception:
+        emit_diagnostic(
+            "plan: deepthink completion unavailable "
+            "(engine rejected the tools-off build); proposals stay on the main model"
+        )
+        return complete_main
+
+    # Spec h4: the prompt is windowed to the deepthink model's OWN budget.
+    # A fake/legacy engine without the counter seam gets the char-estimate
+    # floor — the same fallback the loop itself uses.
+    try:
+        count_tokens = engine.make_count_tokens(dt_config)
+    except Exception:
+        count_tokens = count_tokens_chars
+
+    emit_diagnostic(f"plan: proposals via deepthink model {dt_config.model}")
+    warned = False
+
+    def complete(messages: list[dict[str, Any]]) -> Any:
+        nonlocal warned
+        try:
+            windowed = window_messages(
+                messages,
+                budget=dt_config.context_budget_tokens,
+                count_tokens=count_tokens,
+            )
+            return complete_deepthink(windowed)
+        except Exception:
+            if not warned:
+                emit_diagnostic("plan: deepthink unreachable; falling back to main model")
+                warned = True
+            return complete_main(messages)
+
+    return complete
+
+
 def run_plan_request(
     *,
     repo: Path,
@@ -199,6 +284,14 @@ def run_plan_request(
             str(exc),
             "use a live backend, e.g. --engine vllm-openai",
         ) from exc
+
+    # Dual-model (spec c10(b), task t6): when the operator has declared a
+    # deepthink model, plan-mode proposals are exactly the hard-reasoning
+    # moment it exists for — route them there, with a per-call fallback to
+    # the main model above. No dual config → `complete` is untouched, so this
+    # path is byte-identical to before dual-model existed.
+    if config.deepthink is not None:
+        complete = _route_proposals_through_deepthink(engine, config, complete)
 
     simple = robust_simple_complete(complete)
     # ONE shared agent budget so the global MAX_SUBAGENT_TOTAL cap is enforced for
