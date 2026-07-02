@@ -12,10 +12,17 @@ artifacts; ``--merged`` and ``--older-than`` opt into broader reaping. It is
 **conservative with ``.git/objects``**: it *reports* leftover 0-byte loose
 objects and suggests ``git prune`` but never deletes them itself.
 
+Also reaps a crashed ``work --background`` one-shot's residue (t12): a
+``kill -9``'d detached child leaves its ``.colleague/background/<id>/`` log
+dir behind with no supervisor to clean it up; liveness is checked by holder
+PID (:func:`colleague.background.reap_background`), so a genuinely
+still-running background child is never touched.
+
 Thin presentation layer: the git-touching reap logic lives in
-:mod:`colleague.handoff` (the sanctioned subprocess consumer) and the
-artifact reap in :mod:`colleague.artifact`; this module only orchestrates and
-renders. It imports no ``subprocess`` (``tests/test_boundary.py``).
+:mod:`colleague.handoff` (the sanctioned subprocess consumer), the artifact
+reap in :mod:`colleague.artifact`, and the background reap in
+:mod:`colleague.background`; this module only orchestrates and renders. It
+imports no ``subprocess`` (``tests/test_boundary.py``).
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague import artifact, flight, handoff, worktrees
+from colleague import artifact, background, flight, handoff, worktrees
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
 
@@ -79,6 +86,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
     # Reap stale flight residue but SPARE a flight that is still running (same
     # active-id set used above). reap_orphans treats the recent ids as "active".
     flights = [str(p) for p in flight.reap_orphans(repo, active_flights, dry_run=dry_run)]
+    # Reap background one-shot residue (t12): a kill -9'd `work --background`
+    # child leaves its .colleague/background/<id>/ log dir behind with no
+    # supervisor to clean it up. Liveness is checked by holder PID (os.kill(pid,
+    # 0)), not the flight mtime heuristic above, so a genuinely still-running
+    # background child is never reaped out from under it.
+    backgrounds = background.reap_background(repo, dry_run=dry_run)
     empty_objects = handoff.empty_loose_objects(repo)
 
     report = {
@@ -88,6 +101,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         "branches": branches,
         "artifacts": artifacts,
         "flights": flights,
+        "background": backgrounds,
         "empty_loose_objects": empty_objects,
     }
     emit_result(report if json_mode else _render(report), json_mode=json_mode)
@@ -118,10 +132,20 @@ def _render(report: dict) -> str:
     if reaped_flights:
         lines.append(f"flight files ({verb}):")
         lines += [f"  - {f}" for f in reaped_flights]
-    if not reaped_branches and not reaped_arts and not reaped_flights and not iso_worktrees:
+    reaped_backgrounds = [b for b in report.get("background", []) if b["action"] in _REAPED]
+    if reaped_backgrounds:
+        lines.append(f"background runs ({verb}):")
+        lines += [f"  - {b['background']}" for b in reaped_backgrounds]
+    if (
+        not reaped_branches
+        and not reaped_arts
+        and not reaped_flights
+        and not reaped_backgrounds
+        and not iso_worktrees
+    ):
         lines.append(
             "nothing to reap — no stale colleague/* branches, orphaned .colleague/ "
-            "artifacts, or isolation worktrees"
+            "artifacts, isolation worktrees, or dead background runs"
         )
     if kept:
         lines.append(

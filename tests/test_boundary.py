@@ -388,6 +388,36 @@ def test_deepthink_module_has_no_io_surface() -> None:
         ), f"deepthink.py must not use {forbidden!r} (no-daemon/no-socket)"
 
 
+def test_background_module_confined_to_one_shot_detach() -> None:
+    """The background one-shot detach primitive stays supervisor-free (plan t12).
+
+    Named explicitly (mirroring ``flight.py`` / ``deepthink.py`` above) so the
+    boundary sweep's coverage of ``colleague/background.py`` is asserted
+    directly. ``subprocess`` IS expected here (it is the sanctioned one-shot
+    detach transport, see ``_SUBPROCESS_ALLOWED`` below) but no
+    socket/asyncio/threading primitive may appear, and the module must never
+    ``.wait()``/``.poll()`` the child it launches — a wait/poll loop would turn
+    a one-shot detach into a hidden supervisor, which is exactly what the
+    no-daemon convention (spec h6) forbids.
+    """
+    background_src = _PACKAGE_DIR / "background.py"
+    assert (
+        background_src in _all_py_sources()
+    ), "background.py must be in the scanned package sources"
+    source = background_src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        ".wait(",
+        ".poll(",
+    ):
+        assert (
+            forbidden not in source
+        ), f"background.py must not use {forbidden!r} (one-shot, no supervisor)"
+
+
 # ---------------------------------------------------------------------------
 # Structural check 4 — subprocess confined to sanctioned files
 # ---------------------------------------------------------------------------
@@ -413,6 +443,10 @@ def test_deepthink_module_has_no_io_surface() -> None:
 #                   and call it, so subprocess stays confined to this one file
 #   affectedtests.py — runs pytest on affected test files; subprocess is the
 #                   transport
+#   background.py — detaches a one-shot ``colleague work --background`` child
+#                   via ``subprocess.Popen(..., start_new_session=True)``;
+#                   subprocess is the ONE-SHOT detach transport (plan t12,
+#                   spec R4 / h10, boundary h6) — no daemon, no polling
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -425,6 +459,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/lint.py",
         "colleague/resident/steward.py",
         "colleague/affectedtests.py",
+        "colleague/background.py",
     }
 )
 
