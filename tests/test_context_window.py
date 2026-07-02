@@ -399,9 +399,7 @@ class TestIsContextOverflow:
         # colleague.context in sys.modules poisons identity assertions in tests
         # that later run on the same xdist worker (e.g. test_deepthink's
         # `counter is count_tokens_chars` — two module objects, two functions).
-        saved = {
-            key: sys.modules[key] for key in list(sys.modules) if "colleague.context" in key
-        }
+        saved = {key: sys.modules[key] for key in list(sys.modules) if "colleague.context" in key}
         for key in saved:
             del sys.modules[key]
 
