@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.0] - 2026-07-02
+
+### Added
+
+- Memory-informed runtime (best-colleague arc R1): `colleague/memory.py` shells out to the operator-installed eidetic CLI (allow-list exactly `recall`/`remember`, identity injected, strict no-op when the CLI is absent) — the SAME store + scope the operator's remember/recall skills use, so colleague's and Claude's lessons are mutually visible; the loop does recall-before (one char-capped advisory prior-lessons message at task start) and remember-after (a deterministic per-work-item lesson — status, steps, tool counts, honesty signals — INCOMPLETE runs included), recorded on omit-when-None `TaskResult.memory`; armed only when `config.memory` (default-ON, opt-out `COLLEAGUE_MEMORY=0` / config.json `{"memory": false}`) AND the repo carries a `.eidetic/` store AND the CLI is installed; isolated runs target the operator repo via `config.memory_root` (a lesson written to the throwaway worktree would die with it)
+- Model-callable `memory` loop tool (verb=recall|remember) offered to every backend; read-only roles get recall only (remember is a write-capable shell-out, refused by the role-aware executor)
+- Finish recovery (R2): the loop re-parses a finish emitted as literal tool-call markup in message content (#248 mode B) and fires forced synthesis on a thin headline-only (#248 mode A) or meta describes-a-report-it-never-contains (#231) finish after a read-heavy zero-write run — each recovery recorded honestly on omit-when-None `TaskResult.finish_recovered`
+- Line-grounded `read_file` output (#240): `cat -n`-style true line numbers prefixed BEFORE truncation so cited line numbers are copy-derived, never re-counted from drifting context; display-only, never round-trips into `edit_file` matching
+- Background one-shot (R4): `colleague work --background` detaches the run as a session-leader child (`colleague/background.py` — the ONE sanctioned detach module, `Popen(start_new_session=True)`, stdio to `.colleague/background/<id>/`, machine-readable `{id, pid, log_dir, flight}` start payload, flight plane auto-armed); `colleague clean` reaps dead-pid background residue and never a live run
+- Resident appserver (R5, decision c17): `colleague/resident/appserver.py` behind the opt-in `[resident]` extra embeds `agent_lifecycle.runtime` (>= 0.9) as a library — colleague implements the upstream `Harness` Protocol, an inbound mesh Message becomes an `execute_work` work item, replies carry the result; c19 trust policy in `colleague/resident/trust.py` (anyone may ask; non-operator requests run read-only under `explorer` or are refused; only the operator's identity authorizes writes); base install stays byte-identical (no agent-lifecycle import, no socket, no daemon)
+- `colleague livecheck` verb (R7): an endpoint probe + env-gated live-proof runner surfacing which live validations the current rig can actually run
+- Concurrent-run worktree correctness (#239, R6): `git worktree` admin mutations serialized by an advisory `fcntl` lock + a pid-liveness marker on isolation worktrees, so concurrent colleague processes can no longer corrupt shared `.git/worktrees/` state (empirically ~3% corruption over 288 unlocked cycles → 0 locked) and `clean` never lists a LIVE run's worktree as reapable
+
+### Changed
+
+- `working_tree_dirty` (#149 guard) ignores `.eidetic/`-only changes — store reinforcement is colleague's own state, not operator dirt; the records still sweep onto the work branch so lessons travel with the work
+- `docs/live-testing.md` ledger refreshed with live evidence: edit_file (×20 across real TDD builds), memory warm-vs-cold (10→2 steps, 23.4k→4.3k tokens), spontaneous unprompted `subagents` delegation, mode-profiles and dual-model rows flipped to VALIDATED (incl. the deepthink degrade path proven via a stale-listed model, #66)
+- Dev deps aligned to deployed upstreams: `agent-lifecycle>=0.9` (`[resident]`/`[culture]` extras), agentfront 0.20.0 in the lock
+
+### Fixed
+
+- A malformed model tool call (missing required argument) now costs ONE non-ok step with a self-correcting message, never the run: per-tool `_require` validation raises `ToolError` ("read_file requires 'path'") and the loop's dispatch boundary converts residual argument-shaped errors (KeyError/TypeError/ValueError) into a recoverable failed step — live evidence: a 12-step run with 4 folded sub-results died on a bare `KeyError('path')` escaping as `engine 'vllm-openai' failed: 'path'`
+- Memory lessons from isolated runs no longer die with the reaped worktree (recall/remember target `config.memory_root` = the operator repo)
+
 ## [1.30.0] - 2026-07-02
 
 ### Added
