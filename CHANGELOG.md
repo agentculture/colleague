@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.0] - 2026-07-02
+
+### Added
+
+- Dual-model deepthink escalation: an operator-declared second model (`.colleague/config.json` `deepthink` section / `COLLEAGUE_DEEPTHINK_MODEL`/`_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET`) reachable from a fixed, enumerated surface — the backend-judged `deepthink` loop tool, plan-mode proposals, the acceptance self-check, and the test-integrity reviewer default (same-endpoint only); absent config is byte-identical single-model
+- `colleague/deepthink.py`: one bounded tools-off completion per escalation via the public `Engine.make_complete(config, tools=[])` seam, windowed to the deepthink model's OWN context budget (per-endpoint `/tokenize`-exact via the new `Engine.make_count_tokens` seam, char fallback); degrades, never raises — a dual run never fails because deepthink is unreachable
+- Work-loop escalations recorded on `TaskResult.deepthink` (`{point, tokens, duration, degraded}`, omit-when-None); one `make_deepthink_run` binding per work item injected into both the tool executor and ContextControls by every backend (all-engines rule)
+- Env-gated live dual-model proof (`tests/test_dual_live.py`, `COLLEAGUE_DUAL_E2E=1`) + wall-clock benchmark procedure (`scripts/bench_dual.py`, quality graded via the feedback loop) — recorded as PENDING in `docs/live-testing.md` until the rig serves a tool-calling backend
+- Boundary + drift guards: `tests/test_deepthink_boundary.py` pins the import allow-list for the deepthink seam (engines + plan.py only; loop.py/tools.py stay injection-only), the tools-off sweep, and the feature-doc/CLAUDE.md honest-line wording; `tests/test_deepthink_guards.py` pins byte-identical single-model + zero-dep invariants
+- Feature doc `docs/features/deepthink.md` + CLAUDE.md architecture bullet, including the honest not-a-router line and the synthesis/compaction-stays-on-main decision (window asymmetry)
+
+### Changed
+
+- `Engine.make_complete` gains an optional `tools` parameter (None = engine default, unchanged; `[]` = tools-off — nothing tool-related on the wire); `curate_schemas` offers the `deepthink` tool schema only under dual config, available to read-only roles (pure computation)
+- With dual config and no explicit `COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL`, the test-integrity reviewer subagent defaults to the deepthink model when the two endpoints share a base_url
+- `colleague plan` proposals route through the deepthink model under dual config, with per-call fallback to the main model (stderr-visible)
+
 ## [1.29.0] - 2026-07-02
 
 ### Added
