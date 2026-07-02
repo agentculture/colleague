@@ -302,6 +302,62 @@ The architecture, part by part:
   Feature doc: `docs/features/deepthink.md`; spec + plan:
   `docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
   and `docs/plans/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`.
+- **Memory (best-colleague arc, R1)** — colleague remembers and learns from
+  every run. `colleague/memory.py` shells out to the operator-installed
+  **eidetic** CLI (the SAME store + scope the operator's remember/recall
+  skills use, so colleague's and Claude's lessons are mutually visible);
+  allow-list exactly `recall`/`remember`, identity injected, strict no-op when
+  the CLI is absent. The runtime (`colleague/loop.py`) does
+  **recall-before** (a char-capped prior-lessons block injected as ONE
+  advisory message at task start) and **remember-after** (a deterministic
+  per-work-item lesson record — status, steps, tool counts, honesty signals —
+  upserted at exit, INCOMPLETE runs included: failures are the most valuable
+  lessons), recorded on omit-when-None `TaskResult.memory` `{query, recalled,
+  injected_chars, lesson_recorded}` (h7: diagnosable, never silent). Arming is
+  triple-gated: `config.memory` (default-ON; opt-out `COLLEAGUE_MEMORY=0` /
+  config.json `{"memory": false}`) AND the repo carries a `.eidetic/` store
+  (a store-less repo — every tmp test repo — is a strict no-op with zero
+  subprocess) AND the CLI is installed. **Isolated runs target the OPERATOR
+  repo** via `config.memory_root` (execute_work threads it; a lesson written
+  to the throwaway worktree would die with it — caught live). `.eidetic/`-only
+  working-tree changes do NOT trip the #149 dirty guard (store reinforcement
+  is colleague's own state; it still sweeps onto the work branch — lessons
+  travel with the work). A model-callable **`memory` loop tool**
+  (verb=recall|remember) is offered to every backend; read-only roles get
+  recall only (remember is a write-capable shell-out, refused by the
+  role-aware executor). All-engines rule throughout.
+- **Finish recovery + grounded reads (best-colleague arc, R2)** — a work
+  item's findings always survive to the caller. The loop re-parses a finish
+  the model emitted as literal tool-call markup in message content (#248 mode
+  B), and fires the forced-synthesis path on a **thin** (headline-only, #248
+  mode A) or **meta** (describes-a-report-it-never-contains, #231) finish
+  after a read-heavy zero-write run — each recovery recorded honestly on
+  omit-when-None `TaskResult.finish_recovered` (`"literal-markup"` /
+  `"thin-finish-synthesis"` / `"meta-finish-synthesis"`). `read_file` output
+  is **line-number grounded** (`cat -n` style, numbering before truncation so
+  surviving lines still name the real file line) so cited line numbers are
+  copy-derived, not re-counted from drifting context (#240); the numbering is
+  display-only and never round-trips into `edit_file` matching.
+- **Background one-shot + mesh residency (best-colleague arc, R4/R5,
+  decision c17)** — `colleague work --background` detaches the run as a
+  session-leader child (`colleague/background.py`, the sanctioned one-shot
+  detach: stdio to `.colleague/background/<id>/`, machine-readable start
+  payload `{id, pid, log_dir, flight}`, flight plane auto-armed so the run is
+  pilotable, `colleague clean` reaps dead-pid residue and never a live run).
+  **Residency (appserver mode)**: `colleague/resident/appserver.py` (opt-in
+  `[resident]` extra) embeds `agent_lifecycle.runtime` as a library — the
+  upstream-ratified consumption mode (`docs/colleague-embed.md` upstream):
+  colleague implements the `Harness` Protocol, an inbound mesh Message becomes
+  an `execute_work` work item (artifact + gates + rig budget for free), and
+  the reply carries the result; supervision failures surface via
+  `Supervisor.failure()`. **Trust model (decision c19)**: anyone may ask; a
+  non-operator request runs read-only under the `explorer` role or is refused;
+  only the operator's identity authorizes writes; in doubt the resident may
+  consult peers (a documented follow-up hook). Batch semantics: a detached
+  one-shot runs to completion and needs no supervisor (restart-policy `never`
+  suffices — recorded for upstream's hard question). Base install stays
+  byte-identical: no agent-lifecycle import, no socket, no daemon
+  (`test_zero_deps.py` + `test_boundary.py` pins).
 - **Auto-split** — when an assignment is too large for one context window,
   colleague recommends splitting it into up to ~4 coherent child assignments
   (via the existing `subagents` tool) instead of degrading lossily or failing.
@@ -1138,14 +1194,27 @@ an advisory per-criterion self-check turn, and `SubResult.parent` lineage
 above): one operator-declared second model reached from a fixed, enumerated
 escalation surface, single-model byte-identical (spec + plan:
 `docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
-and the matching `docs/plans/` file).
+and the matching `docs/plans/` file) — and the **best-colleague arc** (spec +
+plan: `docs/specs/2026-07-02-colleague-is-now-the-colleague-you-always-wanted-i.md`
+and the matching `docs/plans/` file; the **Memory**, **Finish recovery +
+grounded reads**, and **Background one-shot + mesh residency** parts above):
+the memory-informed runtime (eidetic recall-before/remember-after + the
+`memory` loop tool, R1), the report-reliability cluster (finish recovery
+markers, line-grounded reads, R2), concurrent-run worktree-admin locking
+(#239, R6), the background one-shot (`work --background`, R4), the resident
+appserver on the agent-lifecycle library embed behind the `[resident]` extra
+(R5, decision c17 — the deliberate no-daemon re-spec), and the `livecheck`
+verb + refreshed live proofs (R7).
 All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
 the capacity standard, the lint gate, the test-integrity gate, the affected-tests gate,
-the six work-modes increments, and the dual-model deepthink escalation) were added
-via explicit re-specs (spec + plan committed
-under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
-no-socket / no-daemon conventions.
+the six work-modes increments, the dual-model deepthink escalation, and the
+best-colleague arc) were added via explicit re-specs (spec + plan committed
+under `docs/specs/` / `docs/plans/`); they extend the runtime within the
+zero-deps / no-socket / no-daemon conventions (the daemonless line now reading:
+colleague ships no socket/daemon code of its own — supervision is imported from
+agent-lifecycle behind an opt-in extra, and background execution is a one-shot
+detached child).
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
 router / routing policy (the **dual-model deepthink escalation** is the landed,
@@ -1153,7 +1222,21 @@ re-spec'd increment at this line: ONE operator-declared second model, a fixed
 enumerated escalation surface, no automatic task→model routing, no N-model
 generalization — anything beyond that is still the excluded router; document
 the distinction honestly), an execution sandbox, a colleague-owned daemon/server
-mode, Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch (there is still
+mode (**deliberately re-specced by the best-colleague arc, decision c17 — the
+third recorded convention change** after the agentfront base dep and the LLM
+self-summary: background one-shot execution (`work --background`, a detached
+child process with file-based control — `colleague/background.py`, no daemon,
+no socket, no polling) and **mesh residency via agent-lifecycle library embed**
+(`colleague/resident/appserver.py` behind the opt-in `[resident]` extra:
+colleague implements the upstream `Harness` Protocol and wires it to a
+caller-supplied Transport through `agent_lifecycle.runtime`'s in-process
+`Supervisor` — supervision and transport belong UPSTREAM, colleague still
+ships zero socket/daemon code of its own, pinned by `test_boundary.py` +
+`test_zero_deps.py`; trust model c19: anyone may ask, non-operator requests
+run read-only under the `explorer` role or are refused, only the operator's
+identity authorizes writes) are IN scope; anything beyond — a colleague-owned
+persistent server process, socket code, or transport implementation — is still
+excluded), Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch (there is still
 no such flag — the approval gate's checksum-based trust model is the landed
 increment of the planned hook trust gate, but it is a policy gate, not a
 sandbox; document this gap honestly, never invent a `--no-hooks` flag), and a
@@ -1252,14 +1335,20 @@ test (`tests/test_e2e_mock.py`) is the guard.
   uses `subprocess.run` (shell=True) in the repo working directory. Command
   templates are Markdown text files, never executed as Python. No code path
   opens a socket or forks a daemon.
-- **Threads and subprocesses are sanctioned in exactly two modules.**
-  `colleague/worktrees.py` manages git worktree/branch operations (subprocess);
-  `colleague/subagents.py` runs parallel children via `concurrent.futures`
-  (threads). No other colleague module imports `subprocess` at the loop level,
-  `threading`, or `concurrent.futures` — enforced by boundary tests
-  (`test_boundary.py`). The `culture` and `devague` tools (both in the loop)
-  shell out to operator-installed CLIs, a permitted exception handled via
-  explicit allow-listing.
+- **Threads and subprocesses are confined to an explicit sanctioned list.**
+  `tests/test_boundary.py`'s `_SUBPROCESS_ALLOWED` is the authority — a module
+  may import `subprocess` only by joining that list with a stated reason. The
+  sanctioned consumers: `hooks.py`, `tools.py`, `handoff.py`, `neighbours.py`,
+  `culture.py`, `devague.py`, `worktrees.py`, `lint.py`, `resident/steward.py`,
+  `affectedtests.py`, **`background.py`** (the one-shot `work --background`
+  detach — `Popen(start_new_session=True)`, no daemon/polling; a dedicated
+  boundary test additionally pins no `.wait()`/`.poll()`), **`memory.py`** (the
+  eidetic CLI shell-out), and **`livecheck.py`** (the gated live-proof runner).
+  Threads (`concurrent.futures`) stay confined to `colleague/subagents.py`.
+  Every shell-out targets an operator-installed CLI via explicit allow-listing;
+  none opens a socket or forks a daemon. `worktrees.py`'s admin mutations are
+  additionally serialized by an advisory `fcntl` lock (#239) so concurrent
+  colleague processes cannot corrupt the shared `.git/worktrees/` state.
 - **Hooks belong to the runtime, not to backends.** `colleague/loop.py` owns
   hook firing — new backend plugins inherit the full lifecycle layer automatically
   and must not duplicate it. The all-engines rule applies: a hook config that
