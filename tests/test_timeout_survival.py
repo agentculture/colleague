@@ -168,9 +168,9 @@ def test_engine_failure_path_names_surviving_branch() -> None:
     helper = source.split("def _engine_failure_error", 1)[1].split("\ndef ", 1)[0]
     assert "_preserve_isolated_wip(worktree_path" in helper
     assert "partial work preserved on branch" in helper
-    except_body = source.split(
-        "except Exception as exc:  # noqa: BLE001 - any failure", 1
-    )[1].split("finally:", 1)[0]
+    except_body = source.split("except Exception as exc:  # noqa: BLE001 - any failure", 1)[
+        1
+    ].split("finally:", 1)[0]
     assert "_engine_failure_error(" in except_body
     assert "worktree_path=worktree_path" in except_body
 

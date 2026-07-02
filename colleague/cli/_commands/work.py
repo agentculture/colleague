@@ -398,9 +398,7 @@ def _engine_failure_error(
     # orchestrator can resume from the partial work instead of spelunking for it.
     wip_note = ""
     if _preserve_isolated_wip(worktree_path, f"engine failure: {detail[:80]}"):
-        wip_note = (
-            f"; partial work preserved on branch {branch_name(task.id, task.instruction)}"
-        )
+        wip_note = f"; partial work preserved on branch {branch_name(task.id, task.instruction)}"
     return CliError(
         EXIT_ENV_ERROR,
         f"engine '{engine_name}' failed: {detail}",
