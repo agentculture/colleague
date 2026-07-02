@@ -17,15 +17,17 @@ code against:
 (b) MERGE: two children touching DIFFERENT files cleanly integrate both into the
     main tree; two children touching the SAME file in conflicting ways surface
     the conflict in the merge child's SubResult — nothing force-merged or dropped.
-(c) CONCURRENCY: with width>1 a batch of 3 artificially-delayed children finishes
-    in wall-clock well under the sequential sum; with width==1 NO
-    ThreadPoolExecutor is ever instantiated (sequential path).
+(c) CONCURRENCY: with width>1 a batch of 3 artificially-delayed children overlaps
+    in flight (asserted via a high-water-mark counter, not wall-clock elapsed
+    time — see TestConcurrency's docstring); with width==1 NO ThreadPoolExecutor
+    is ever instantiated (sequential path).
 """
 
 from __future__ import annotations
 
 import concurrent.futures
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -397,8 +399,27 @@ _DELAY = 0.1
 
 class TestConcurrency:
     def test_width_gt_1_runs_children_concurrently(self, git_repo: Path) -> None:
-        """3 delayed children at width 3 finish well under the sequential sum."""
+        """3 delayed children at width 3 overlap in flight.
+
+        Asserted via a concurrency HIGH-WATER MARK (a shared counter of
+        currently-sleeping children under a lock), not wall-clock elapsed time.
+        A wall-clock threshold (the prior form of this test asserted
+        ``elapsed < 0.6 * sequential_sum``) is a flaky-under-load anti-pattern:
+        on a box also running many OTHER concurrent pytest-xdist workers (e.g.
+        colleague's own multi-task parallel build topology — the #239
+        "shifting failures... under pytest -n auto" class), thread scheduling
+        can genuinely get starved past an absolute time budget with zero change
+        in actual concurrency behavior, producing a spurious failure unrelated
+        to any product regression (confirmed: this exact assertion flaked once
+        under `pytest -n auto` for the full suite while passing every standalone
+        rerun). A high-water mark is deterministic regardless of how slow the
+        box is, as long as the sleeps genuinely overlap at all.
+        """
         import colleague.subagents as sa
+
+        active = 0
+        high_water = 0
+        state_lock = threading.Lock()
 
         def _slow_child(
             repo_path,
@@ -414,7 +435,15 @@ class TestConcurrency:
             counter=None,
             spec=None,
         ):
-            time.sleep(_DELAY)
+            nonlocal active, high_water
+            with state_lock:
+                active += 1
+                high_water = max(high_water, active)
+            try:
+                time.sleep(_DELAY)
+            finally:
+                with state_lock:
+                    active -= 1
             return SubResult(
                 task_id=f"t-{child_id}",
                 engine=parent_engine,
@@ -430,19 +459,17 @@ class TestConcurrency:
         try:
             cfg = EngineConfig(subagent_concurrency=3)
             batch = make_batch_spawn(str(git_repo), cfg, "mock")
-            start = time.monotonic()
             results = batch(_items("c1", "c2", "c3"))
-            elapsed = time.monotonic() - start
         finally:
             sa._run_child_in_worktree = orig
 
         # 3 children + 1 merge child.
         assert len(results) == 4
-        sequential_sum = 3 * _DELAY
-        # Concurrent execution overlaps the sleeps: well under 0.6x the serial sum.
-        assert elapsed < 0.6 * sequential_sum, (
-            f"width=3 batch took {elapsed:.3f}s, expected < {0.6 * sequential_sum:.3f}s "
-            "(children did not overlap)"
+        # At least 2 children were sleeping at the same instant -- true
+        # sequential execution could never observe high_water > 1.
+        assert high_water >= 2, (
+            f"width=3 batch never observed 2+ children running concurrently "
+            f"(high water mark={high_water}) — children did not overlap"
         )
 
     def test_width_1_never_creates_threadpool(self, git_repo: Path, monkeypatch) -> None:

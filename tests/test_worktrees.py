@@ -13,10 +13,14 @@ Acceptance criteria (from t1 in the build plan):
 
 from __future__ import annotations
 
+import os
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
+
+from colleague import worktrees
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -368,3 +372,197 @@ class TestWorktreeIsolation:
         ).exists(), "child_only.txt leaked into the main working tree"
 
         worktree_remove(str(git_repo), "iso-main")
+
+
+# ---------------------------------------------------------------------------
+# #239 — concurrent-run gate correctness: the git worktree ADMIN directory
+# (.git/worktrees/) is shared across every worktree of one repo. Unguarded
+# concurrent add/remove/prune from SEPARATE colleague processes sharing a repo
+# corrupts each other's view of that shared admin state, making
+# isolation_worktree_add raise — which used to make _setup_isolation silently
+# degrade THAT run to running in-place on the operator's real (shared) repo,
+# where a second concurrent run's uncommitted files leak into the degraded
+# run's changed-file scan / gate pytest invocation. _admin_lock (an advisory
+# fcntl file lock over .colleague/worktrees/.worktree-admin.lock) serializes
+# only the admin mutation itself so concurrent runs never race on it.
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentAdminMutations:
+    def test_concurrent_isolation_cycles_never_race(self, git_repo: Path) -> None:
+        """Reproduces #239's root mechanism deterministically: many threads each
+        running isolation_worktree_add -> write -> isolation_worktree_remove
+        concurrently against ONE shared repo must never raise. Before the
+        _admin_lock fix this reliably reproduced git errors like::
+
+            fatal: failed to read .git/worktrees/iso-t9-1/commondir: Success
+            fatal: could not open '.git/worktrees/iso-t2-1/gitdir' for writing: ...
+
+        i.e. one task's ``worktree add`` failing because a DIFFERENT task's
+        concurrent remove/prune corrupted the shared .git/worktrees/ admin
+        directory mid-flight — the "prune timing" / "worktree lock contention"
+        mechanism #239 named. This is a pure git/OS-level integration test (real
+        threads, real subprocess git calls), not a mock — the race is real.
+        """
+        errors: list[tuple[str, Exception]] = []
+        lock = threading.Lock()
+        n_threads = 10
+        n_cycles = 12
+
+        def worker(i: int) -> None:
+            for c in range(n_cycles):
+                task_id = f"t{i}-{c}"
+                branch = f"colleague/{task_id}"
+                try:
+                    wt = worktrees.isolation_worktree_add(str(git_repo), task_id, branch)
+                    (Path(wt) / f"file-{i}-{c}.txt").write_text("x", encoding="utf-8")
+                    worktrees.isolation_worktree_remove(str(git_repo), wt)
+                except Exception as exc:  # noqa: BLE001 - collecting for the assertion
+                    with lock:
+                        errors.append((task_id, exc))
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], (
+            f"{len(errors)}/{n_threads * n_cycles} concurrent isolation worktree "
+            f"cycles raised (first: {errors[0] if errors else None})"
+        )
+        # No leftover branches/worktrees — every cycle's remove ran cleanly.
+        remaining = _git(git_repo, "worktree", "list", "--porcelain").stdout
+        assert "iso-t" not in remaining
+
+    def test_concurrent_mixed_sub_and_iso_worktrees_never_race(self, git_repo: Path) -> None:
+        """The admin lock guards BOTH worktree_add (sub/<id>, the subagent-batch
+        path) and isolation_worktree_add (iso-<id>, the work-item path) — they
+        share one repo's .git/worktrees/ admin directory, so a concurrent mix of
+        both must be race-free too."""
+        errors: list[tuple[str, Exception]] = []
+        lock = threading.Lock()
+        n_threads = 6
+        n_cycles = 8
+
+        def worker_iso(i: int) -> None:
+            for c in range(n_cycles):
+                task_id = f"i{i}-{c}"
+                try:
+                    wt = worktrees.isolation_worktree_add(
+                        str(git_repo), task_id, f"colleague/{task_id}"
+                    )
+                    worktrees.isolation_worktree_remove(str(git_repo), wt)
+                except Exception as exc:  # noqa: BLE001
+                    with lock:
+                        errors.append((f"iso-{task_id}", exc))
+
+        def worker_sub(i: int) -> None:
+            for c in range(n_cycles):
+                child_id = f"s{i}-{c}"
+                try:
+                    worktrees.worktree_add(str(git_repo), child_id)
+                    worktrees.worktree_remove(str(git_repo), child_id)
+                except Exception as exc:  # noqa: BLE001
+                    with lock:
+                        errors.append((f"sub-{child_id}", exc))
+
+        threads = []
+        for i in range(n_threads):
+            threads.append(threading.Thread(target=worker_iso, args=(i,)))
+            threads.append(threading.Thread(target=worker_sub, args=(i,)))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], (
+            f"{len(errors)} concurrent mixed worktree cycles raised "
+            f"(first: {errors[0] if errors else None})"
+        )
+
+
+class TestIsolationLivenessMarker:
+    """#239 h1: colleague clean must never flag a LIVE run's isolation worktree
+    as reapable. isolation_worktree_add stamps a pid-file liveness marker
+    (mirroring colleague/rig.py's os.kill(pid, 0) probe) that reap_orphaned_
+    iso_worktrees consults BEFORE the caller-supplied active_task_ids
+    (flight-tracking) signal, so a bare (non-``--watch``) `colleague work` run
+    — which never registers as an active flight — is still recognized as live.
+    """
+
+    def test_add_writes_liveness_marker_with_current_pid(self, git_repo: Path) -> None:
+        worktrees.isolation_worktree_add(str(git_repo), "live1", "colleague/live1")
+        marker = worktrees.iso_liveness_path(str(git_repo), "live1")
+        assert marker.exists()
+        assert marker.read_text(encoding="utf-8").strip() == str(os.getpid())
+
+    def test_remove_clears_liveness_marker(self, git_repo: Path) -> None:
+        wt = worktrees.isolation_worktree_add(str(git_repo), "live2", "colleague/live2")
+        marker = worktrees.iso_liveness_path(str(git_repo), "live2")
+        assert marker.exists()
+        worktrees.isolation_worktree_remove(str(git_repo), wt)
+        assert not marker.exists()
+
+    def test_iso_worktree_is_live_true_for_current_process(self, git_repo: Path) -> None:
+        worktrees.isolation_worktree_add(str(git_repo), "live3", "colleague/live3")
+        assert worktrees.iso_worktree_is_live(str(git_repo), "live3") is True
+
+    def test_iso_worktree_is_live_false_when_marker_absent(self, git_repo: Path) -> None:
+        # No worktree/marker for this task id at all.
+        assert worktrees.iso_worktree_is_live(str(git_repo), "never-existed") is False
+
+    def test_iso_worktree_is_live_false_for_dead_pid(self, git_repo: Path) -> None:
+        worktrees.isolation_worktree_add(str(git_repo), "dead1", "colleague/dead1")
+        marker = worktrees.iso_liveness_path(str(git_repo), "dead1")
+        marker.write_text(str(_dead_pid()), encoding="utf-8")
+        assert worktrees.iso_worktree_is_live(str(git_repo), "dead1") is False
+
+    def test_reap_spares_a_live_runs_worktree_with_no_active_task_ids(self, git_repo: Path) -> None:
+        """The headline #239 regression: `colleague clean --dry-run` flagged a
+        LIVE (in-flight, un-watched) run's isolation worktree as "would reap"
+        because the only signal it had was active_task_ids (flight tracking),
+        which a bare `colleague work` (no --watch) never populates. The
+        liveness marker alone must now spare it."""
+        live = worktrees.isolation_worktree_add(str(git_repo), "inflight", "colleague/inflight")
+
+        # No active_task_ids passed — mirrors an un-watched run mid-flight.
+        reaped = worktrees.reap_orphaned_iso_worktrees(str(git_repo))
+        assert reaped == []
+        assert Path(live).exists()
+
+        reported = worktrees.reap_orphaned_iso_worktrees(str(git_repo), dry_run=True)
+        assert reported == []  # dry-run must not list it as "would reap" either
+
+    def test_reap_still_reaps_a_dead_holders_worktree(self, git_repo: Path) -> None:
+        """A worktree whose creating process has actually exited (a crashed run,
+        #222's motivating case) remains reapable — the liveness marker degrading
+        to a dead PID must not make orphaned residue permanently un-reapable."""
+        orphan = worktrees.isolation_worktree_add(str(git_repo), "crashed1", "colleague/crashed1")
+        marker = worktrees.iso_liveness_path(str(git_repo), "crashed1")
+        marker.write_text(str(_dead_pid()), encoding="utf-8")
+
+        reaped = worktrees.reap_orphaned_iso_worktrees(str(git_repo))
+        assert reaped == [orphan]
+        assert not Path(orphan).exists()
+
+    def test_reap_missing_marker_falls_back_to_active_task_ids(self, git_repo: Path) -> None:
+        """A worktree with no marker at all (e.g. created by a pre-#239 colleague
+        version) preserves the old behavior exactly: reap-by-default, spared only
+        via active_task_ids."""
+        orphan = worktrees.isolation_worktree_add(str(git_repo), "legacy1", "colleague/legacy1")
+        worktrees.iso_liveness_path(str(git_repo), "legacy1").unlink()
+
+        reaped = worktrees.reap_orphaned_iso_worktrees(str(git_repo))
+        assert reaped == [orphan]
+
+
+def _dead_pid() -> int:
+    """A PID guaranteed to have already exited (spawn a trivial process, reap it)."""
+    proc = subprocess.Popen(
+        [os.environ.get("COMSPEC", "true")] if os.name == "nt" else ["true"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    proc.wait()
+    return proc.pid
