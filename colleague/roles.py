@@ -78,6 +78,7 @@ _WRITE_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 #: read-only roles cannot use the 'remember' verb (write-capable shell-out).
 _READONLY_TOOLS = (
     "read_file",
+    "view_media",
     "list_dir",
     "check_test_integrity",
     "deepthink",

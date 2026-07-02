@@ -303,6 +303,53 @@ The architecture, part by part:
   Feature doc: `docs/features/deepthink.md`; spec + plan:
   `docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
   and `docs/plans/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`.
+- **Media input** — images and audio ride the task contract to a multimodal
+  main model on all three surfaces (in chat: the session's `/attach` slash,
+  staged one-shot for the next work line; out of chat: `colleague work
+  --attach PATH`, repeatable, composes with `--command`; as a service: mesh
+  `attach: <path>` line references under the c19 trust model — operator-only
+  arbitrary paths, non-operator repo-confined resolve-then-contain,
+  anti-exfiltration test-proven). One plumbing: optional `Task.attachments`
+  (`{path, media_type}`, omit-when-None) → the loop builds the initial user
+  message as standard OpenAI content parts (`colleague/media.py`, pure
+  stdlib; no attachments = plain string, byte-identical) → engines pass parts
+  verbatim (all-engines). A read-only **`view_media`** loop tool (the media
+  sibling of `read_file`: `_safe_path`-confined, 4MB-capped, images-only,
+  curated into read-only roles) folds a repo image into a follow-up user
+  parts message mid-work. **Delivery is verified, never assumed** (decision
+  c25): the first media-bearing completion's `prompt_tokens` vs a
+  text-only baseline classifies each attachment
+  delivered/dropped/unknown/bridged onto omit-when-None `TaskResult.media` —
+  zero extra turns, "delivered" never claims *understood* (comprehension is
+  the livecheck red-pixel proof's claim). A **media-refusing endpoint
+  degrades**: a text-only model 400s on image parts (live-probed, verbatim
+  fixture) → the loop flattens to placeholders, retries once, records
+  dropped — never a hard-failed run. The **media-comprehension bridge**
+  (operator decision c24): with a dual-model config whose second model is
+  declared multimodal (`COLLEAGUE_DEEPTHINK_MULTIMODAL` / config.json
+  `deepthink.multimodal` — a declaration, never a probe), a text-only main +
+  attached media escalates ONE tools-off media-bearing digest to the
+  multimodal endpoint (`run_media_bridge` — the deliberate inverse of the
+  deepthink flatten; the declared-text-only main wire carries NO parts) and
+  folds the description back as one advisory message (`TaskResult.deepthink`
+  point=media-bridge, media status `bridged`). Budget accounting counts
+  parts (exact counter gets a flattened copy + 260 tokens/part estimate;
+  windowing/compaction drop parts whole, never sliced); deepthink digests
+  always flatten (a parts list structurally never reaches a text-only wire).
+  Live-proven 2026-07-02 (`docs/live-testing.md` rows 15-16): image
+  end-to-end PASSED on the served Gemma4 (red-pixel through the real
+  `--attach` surface, delivered + answer names red); text-only 27B
+  degradation VERIFIED; audio delivery rig-dependent (dropped in the morning
+  probe, consumed later the same day — the livecheck grades from evidence
+  and honestly SKIPs on regression). **Honest limits:** delivery is
+  aggregate per run (not per-part); Gemma4-as-main stays STAGED not flipped
+  (96000@128K per-mode overlay recipe; default 27B@48000; gated on the
+  external serving-side Gemma tool parser); no media output/video/OCR/URL
+  fetch; no automatic task→model media routing (the bridge is ONE declared
+  second model on the existing enumerated escalation surface). Runtime-owned
+  (all-engines rule). Feature doc: `docs/features/media-input.md`; spec +
+  plan: `docs/specs/2026-07-02-hand-colleague-a-screenshot-a-diagram-or-a-voice-n.md`
+  and the matching `docs/plans/` file.
 - **Memory (best-colleague arc, R1)** — colleague remembers and learns from
   every run. `colleague/memory.py` shells out to the operator-installed
   **eidetic** CLI (the SAME store + scope the operator's remember/recall

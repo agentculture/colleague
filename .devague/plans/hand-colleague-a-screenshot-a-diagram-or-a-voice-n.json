@@ -1,0 +1,533 @@
+{
+  "slug": "hand-colleague-a-screenshot-a-diagram-or-a-voice-n",
+  "title": "Hand colleague a screenshot, a diagram, or a voice note along with your task - in the interactive session, from the CLI, or over the mesh - and it works from the media directly: attachments ride the task contract to a multimodal main model, and colleague verifies the model actually saw them instead of trusting a 200.",
+  "frame_slug": "hand-colleague-a-screenshot-a-diagram-or-a-voice-n",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-02T13:41:53Z",
+  "updated": "2026-07-02T13:59:34Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Hand colleague a screenshot, a diagram, or a voice note along with your task - in the interactive session, from the CLI, or over the mesh - and it works from the media directly: attachments ride the task contract to a multimodal main model, and colleague verifies the model actually saw them instead of trusting a 200."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A media-bearing task works end-to-end through at least one real surface on the live rig (image), and 'colleague verified the model saw it' is backed by the recorded token-contribution check on the TaskResult; the announcement never claims audio works while the rig drops it."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators delegating repo work that hinges on visual context (a failing-UI screenshot, an architecture diagram, a whiteboard photo) or spoken context (a voice note), plus mesh peers handing colleague media-bearing requests as a service."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The mesh-peer audience is honestly constrained: a non-operator peer gets read-only execution and repo-confined media only, so 'as a service' never implies arbitrary file access for strangers."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "colleague is text-only on every surface: Task carries only instruction strings, the loop builds string-content messages, the engine reads content as a string - and the one multimodal model on the rig (Gemma4 at 128K, image input proven live) cannot be exercised; media context must be hand-transcribed into prose, losing exactly the detail that matters."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The text-only baseline is pinned: with no attachments, message shapes, artifact bytes, and surface behavior are byte-identical to pre-arc (e2e mock shape test unchanged)."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "A Task can carry media attachments end-to-end: colleague work --attach on the CLI, an attach affordance in the interactive session, and a path-reference convention on the resident/mesh surface all land as standard OpenAI content parts on the task prompt; runtime comprehension verification detects a model that silently dropped the media and records it honestly on the TaskResult."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "All three surfaces converge on Task.attachments with no per-surface media plumbing - one contract field, one parts builder, each surface driven by a test."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The rig already serves a 128K multimodal model going unused; visual context is the highest-bandwidth task context there is, and the silent-drop probe result proves a 200 OK means nothing - honest media support needs runtime verification, which only the harness can own."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "The verification story is grounded in the reproduced live silent-drop (recorded usage numbers in a test), not a hypothetical - the token-contribution signal demonstrably separates consumed from dropped media."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Input only, still one runtime: no media OUTPUT or generation, no video, no OCR preprocessing pipeline, no lobes-side routing (#250 stays excluded), no N-model media router (the dual-model deepthink line holds - one declared second model, enumerated surface). Audio is SHAPED but its live proof is GATED: the rig today silently drops input_audio, so audio ships as wire-shape + tests + an honest livecheck skip, never claimed working."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Audio ships wire-shape + tests + an honest livecheck SKIP only; no doc, changelog, or announcement claims working audio until the live gate passes."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "The red-pixel probe runs through the real surface, not curl: colleague work --attach red.png 'what color is this?' answers red with comprehension verified, on both a live Gemma4 run and the mock shape test; a text-only main model with an attachment degrades to a recorded honest limitation (never a silent drop); an attachment-less run stays byte-identical on every surface."
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The success signal is measured through the shipped surface (colleague work --attach on the live rig + the mock shape test), not through curl or a test harness bypass; the degradation half (text-only main, attachment present) is itself test-proven, and byte-identical means byte-identical - pinned by the existing e2e shape test, not eyeballed."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Task.attachments: the task contract gains optional media attachments (path + media type per entry), omit-when-None so an attachment-less task serializes byte-identically; round-trips to_dict/from_dict; all-engines (mock and vllm-openai see the same shape)."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "A Task without attachments serializes byte-identically to today (omit-when-None) and a legacy artifact round-trips through from_dict unchanged; a malformed attachments payload degrades to None, never a crash."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Parts plumbing in the loop: when attachments are present the runtime builds the initial user message as OpenAI content parts (text part + one part per attachment); with no attachments the message stays a plain string - byte-identical shapes, pinned by the e2e mock test."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "With attachments absent the initial message stays a plain STRING (not a one-part list) - pinned by test, so downstream string-assuming code (windowing, markup re-parse, fill-line) never meets a surprise list."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Engine wire pass-through: vllm-openai forwards content-parts messages verbatim over the standard OpenAI wire format (image_url data-URI for images; input_audio shape for audio); no vLLM-only fields, so retargeting another OpenAI-compatible server stays a config change."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Parts are standard OpenAI content parts only - no vLLM-only wire fields enter the engine; mock accepts the identical shape (all-engines rule holds end-to-end)."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "view_media loop tool: a read-only tool that loads an image file from the repo into the conversation as a content part mid-work (the media sibling of read_file), repo-confined via the same safe-path check, size-capped, curated into read-only roles (pure read)."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "view_media refuses a path outside the repo (same _safe_path confinement) and oversize files with a clear error; a role withholding it refuses the call even when the model hallucinates it."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Budget accounting for media: media parts are counted against the context budget (exact via /tokenize if it accepts parts - unknown, probe during build - else a fixed per-image estimate from the live probe, ~260-300 tokens per tile); windowing and compaction drop a media part WHOLE with a placeholder note, never truncating mid-part."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A media part is never sliced mid-part by windowing or compaction - dropped whole with a placeholder note - and its token cost is counted (exact or estimated) inside the same budget windowing enforces, never ignored."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Deepthink digest flattening: every deepthink escalation digest flattens media to a text placeholder or description before hitting the wire - the second model may be text-only (today's 27B is), so media parts must structurally never reach a text-only endpoint; pinned by a test."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "A test pins that no content-part list ever reaches the deepthink wire - the digest builder structurally flattens media; a media-bearing dual-model run still escalates successfully."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Comprehension verification: after a media-bearing completion the runtime checks the model actually consumed the media using the token-contribution signal (an image contributes ~hundreds of prompt tokens; a silent drop contributes ~0 - the exact signal the live probe exposed), needs no extra model turn, and records a detected drop honestly on the TaskResult - never a silent OK."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Drop detection costs no extra model turn, thresholds against the known per-tile token floor so a genuinely tiny image cannot false-positive, and a detected drop lands on the TaskResult + stderr - never silently ignored."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Three surfaces, one plumbing: (in chat) colleague session accepts attachments on a work line; (out of chat) colleague work --attach PATH, repeatable, feeds Task.attachments; (as service) the resident accepts a media path reference in a mesh request under the c19 trust model. All three converge on the same Task.attachments - no per-surface media code paths."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Each surface is driven by its own test (work --attach, session attach, resident media reference) and all three produce the same Task.attachments shape - proven, not asserted."
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Mesh media trust: over the resident surface, only the OPERATOR identity may attach arbitrary operator-local paths; a non-operator request may reference media only inside the target repo working tree (no reaching into the wider filesystem - a mesh peer must not be able to exfiltrate ~/.ssh by asking colleague to look at it as an image), and still runs read-only under the explorer role."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "A crafted non-operator mesh request referencing a path outside the repo is refused with a recorded reason (test-proven); operator authority reuses the existing c19 trust seam - no new trust code path to audit."
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "Gemma4-as-main staged, not flipped: the Gemma profile (128K window, 96000 budget) ships as ready per-model config, but the DEFAULT main-model flip stays gated on the serving-side Gemma tool parser (Gemma4 emits no structured tool_calls today, so it cannot drive the tool loop); the default remains 27B-as-main at 48000."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Defaults unchanged: a bare run still resolves 27B-as-main at 48000 budget; the Gemma profile activates only by explicit operator config; the flip prerequisite (serving-side parser) is documented as external, never worked around in colleague code."
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Live proofs via livecheck: the image end-to-end proof (red-pixel through colleague work --attach on live Gemma4) and the audio honest-skip (rig silently drops input_audio - recorded as SKIP with reason, never a pass) both land as livecheck entries in docs/live-testing.md."
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The audio livecheck records SKIP with the silent-drop reason and never reports green; the image livecheck asserts the ANSWER content (red), not merely a 200 response."
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "Media-comprehension bridge (operator decision 2026-07-02): when the MAIN model is text-only and the task carries media, the runtime escalates a media-bearing digest tools-off to the declared multimodal second model (the inverse deepthink direction - reusing the run_deepthink one-bounded-completion machinery and the enumerated-escalation-surface convention, adding media comprehension as one enumerated point) and folds the returned description back into the main loop - so attachments are useful on today's rig (27B main + Gemma vision) before the Gemma-as-main flip."
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The bridge escalation is a strict no-op when the main model is multimodal, when no media is attached, or when no second model is declared (single-model config stays byte-identical); a bridge failure degrades - the run continues with the media recorded as undelivered, never a crash; and no media part reaches a text-only wire even in the bridge path (the digest carries the parts to the MULTIMODAL endpoint only)."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Task.attachments on the contract: optional attachments list ({path, media_type}) on Task, omit-when-None, to_dict/from_dict round-trip, malformed payload degrades to None. Files: colleague/contract.py + tests/test_contract_attachments.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Task without attachments serializes byte-identically to today (existing artifact fixtures re-parse unchanged; to_dict has no attachments key when None)",
+        "round-trip test: Task with attachments -> to_dict -> from_dict -> equal; malformed attachments payload (string, dict) degrades to None without raising"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h7"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Media helpers module (NEW colleague/media.py, pure stdlib): attachment validation (exists/readable/media-type inference from extension), data-URI encoding, OpenAI content-part builders (image_url + input_audio shapes), per-image token estimate constant from the live probe, part-aware flatten helper (parts -> text placeholder). No I/O beyond reading the attachment file; no third-party dep.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "unit tests: a png path becomes a valid image_url data-URI part; a wav path becomes an input_audio part; unknown extension raises a clear error; flatten(parts) yields text with a placeholder per media part",
+        "test_zero_deps still passes (module imports cleanly with no third-party import)"
+      ],
+      "deps": [],
+      "covers": [
+        "c10"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "Loop wiring for initial parts: when task.attachments is non-empty, loop.py builds the initial user message as content parts (text + one part per attachment) via colleague.media; with no attachments the message stays a plain string. Files: colleague/loop.py + tests/test_loop_media.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with attachments absent the initial message content is type str (not a one-part list) - pinned by test; e2e mock shape test unchanged",
+        "with one image attachment the first user message is a 2-element parts list (text part + image part) on both mock and vllm-openai message builders (all-engines)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c10",
+        "h8"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Engine wire pass-through: vllm-openai serializes content-parts messages verbatim over the standard OpenAI wire (no vLLM-only fields); mock engine accepts parts-shaped messages. Files: colleague/engines/vllm_openai.py + colleague/engines/mock.py + tests/test_engine_parts.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a captured request body for a parts message contains only standard OpenAI content-part keys (type, text, image_url, input_audio) - asserted by test",
+        "mock engine round-trips a parts message without error and the e2e shape test still passes"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c11",
+        "h9"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "view_media loop tool: read-only tool loading an image file from the repo into the conversation as a content part mid-work. Schema + role-aware executor dispatch in colleague/tools.py (structured outcome carrying the part), loop.py folds a media tool outcome into a parts user message, curated into read-only roles in colleague/roles.py. Files: tools.py + roles.py + loop.py + tests/test_view_media.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "view_media on a path outside the repo is refused via the same _safe_path check (test); oversize file (over the size cap) refused with a clear error naming the cap",
+        "a role withholding view_media refuses the call even when the model emits it (role-aware executor test); explorer/reviewer roles include it (pure read)",
+        "after a successful view_media call the next model turn sees a parts user message containing the image part (loop fold test on mock)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c12",
+        "h10"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "Budget accounting + part-safe windowing: media parts counted against the context budget (exact via /tokenize when it accepts parts - probe and adapt; else the colleague.media per-image estimate); windowing and fill-line compaction drop a media part WHOLE with a placeholder note, never truncating mid-part. Files: colleague/context.py + colleague/loop.py + tests/test_context_media.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "count_tokens on a parts message returns text tokens + per-media estimate when /tokenize cannot count parts (char-fallback path test); the estimate is the colleague.media constant, not zero",
+        "windowing a history containing a parts message either keeps the message intact or replaces it with the placeholder note - a test asserts no output message ever contains a truncated/partial parts list"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c13",
+        "h11"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Deepthink digest flattening: every deepthink escalation digest flattens media parts to text placeholders/descriptions before the wire - parts structurally never reach a text-only endpoint. Files: colleague/deepthink.py + tests/test_deepthink_media.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test pins that run_deepthink never sends a list-typed content field: digest built from a parts-bearing history contains only string content (uses colleague.media flatten helper)",
+        "a media-bearing dual-model run still escalates successfully on mock (no crash, degraded=False path intact)"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c14",
+        "h12"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Media-comprehension bridge (operator decision c24): when the MAIN model is text-only and the task carries media, escalate a media-bearing digest tools-off to the declared multimodal second model and fold the returned description back into the main loop as one advisory message; recorded on TaskResult.deepthink ({point: media-bridge}). Strict no-op when main is multimodal, no media attached, or no second model declared; bridge failure degrades (media recorded undelivered), never raises. Files: colleague/deepthink.py + colleague/loop.py + tests/test_media_bridge.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "single-model config with attachments: bridge does not fire and the run is byte-identical except the delivered/dropped record (no-op test)",
+        "dual config + text-only main + image attachment on mock: exactly one tools-off bridge escalation fires, its description is injected as one advisory message, and TaskResult.deepthink records point=media-bridge",
+        "bridge endpoint unreachable: run completes with media recorded undelivered and a degraded bridge record - no exception escapes"
+      ],
+      "deps": [
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c24",
+        "h18"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Delivered-vs-dropped verification (decision c25): after a media-bearing completion the runtime compares usage.prompt_tokens against the text-only estimate + per-tile floor to classify each attachment DELIVERED or DROPPED (zero extra model turns); recorded on an omit-when-None TaskResult.media field ({attachments: [{path, status}]}, never the word understood) + stderr warning on a drop. Files: colleague/loop.py + colleague/contract.py + tests/test_media_delivery.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a mock run replaying the LIVE silent-drop usage numbers (prompt_tokens ~= text-only estimate) classifies the image DROPPED and records it on TaskResult.media + stderr - the reproduced-probe test",
+        "threshold uses the per-tile token floor: a run whose prompt_tokens exceed the text estimate by at least the floor classifies DELIVERED; no false-positive on a tiny image (boundary test at the floor)",
+        "a run with no attachments has no media key in the artifact (omit-when-None, byte-identical)"
+      ],
+      "deps": [
+        "t1",
+        "t8"
+      ],
+      "covers": [
+        "c15",
+        "h13",
+        "h5"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "CLI surface: colleague work --attach PATH (repeatable) feeds Task.attachments after colleague.media validation (exists/type inferable); clean choices-shaped error on a missing/unsupported file. Files: colleague/cli/_commands/work.py + tests/test_cli_attach.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "work --attach img.png --attach diagram.jpg produces a Task whose attachments field lists both, in order, with inferred media types (test via execute_work seam on mock)",
+        "work --attach missing.png exits with a structured CliError naming the path (no traceback); bare work without --attach builds a Task with attachments=None"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c16",
+        "h14"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Session surface (in chat): the interactive session accepts attachments on a work line and threads them into the same Task.attachments (ergonomics decided at build: /attach slash or inline path token - drift-tested against the SlashSpec catalog if a slash). Files: colleague/cli/_commands/session.py + tests/test_session_attach.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a session work line with an attachment produces a Task whose attachments match the CLI-built shape exactly (same-shape test vs the t10 path)",
+        "a session line with no attachment routes byte-identically to today (intent routing and palette selection untouched - existing session tests unchanged)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c16",
+        "h14"
+      ]
+    },
+    {
+      "id": "t12",
+      "summary": "Resident/mesh surface (as service) + media trust: a mesh request may reference media by path; OPERATOR identity may attach arbitrary operator-local paths, a non-operator request only paths inside the target repo working tree (anti-exfiltration), still read-only under explorer. Files: colleague/resident/appserver.py + colleague/resident/trust.py + tests/test_resident_media.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a crafted non-operator request referencing /home/user/.ssh/id_rsa is refused with a recorded reason (test); the same path from the operator identity is accepted",
+        "a non-operator media request still resolves to the explorer role (read-only) - reuses the existing c19 trust seam, no new trust decision path (asserted by test on the existing trust functions)",
+        "the accepted request produces the same Task.attachments shape as the CLI path (same-shape test)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c16",
+        "c17",
+        "h15",
+        "h2",
+        "h14"
+      ]
+    },
+    {
+      "id": "t13",
+      "summary": "Livecheck live proofs: image end-to-end (generate a red-pixel png, colleague work --attach through the real surface on live Gemma4, assert the ANSWER contains red + DELIVERED recorded) and audio honest-skip (input_audio attachment on the live rig records DROPPED -> livecheck reports SKIP with the silent-drop reason, never green). Ledger rows in docs/live-testing.md. Files: colleague/livecheck.py + docs/live-testing.md + tests/test_livecheck_media.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the image livecheck asserts answer content (red) and TaskResult.media DELIVERED - a 200 with a dropped image FAILS the check (asserted via a simulated-drop unit test)",
+        "the audio livecheck records SKIP with the silent-drop reason on today's rig and never reports pass while the drop persists (unit test on the classification logic)",
+        "both entries appear in docs/live-testing.md with their gating condition; offline runs of the livecheck verb degrade to skipped, never a traceback"
+      ],
+      "deps": [
+        "t9",
+        "t10"
+      ],
+      "covers": [
+        "c19",
+        "h17",
+        "h1",
+        "h6",
+        "c7",
+        "h19"
+      ]
+    },
+    {
+      "id": "t14",
+      "summary": "Gemma4-as-main STAGED per-model config: a documented, test-proven per-model overlay recipe (.colleague/<sanitized-gemma-model>/ config: 96000 budget @ 128K window) that activates ONLY by explicit operator config; defaults unchanged (bare run resolves 27B-as-main at 48000); the flip prerequisite (serving-side Gemma tool parser) documented as external. Files: docs/features/media-input.md (staging section) + tests/test_gemma_staged_config.py (+ example config in docs, no default change in colleague/config.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a repo with the documented Gemma per-model overlay resolves context_budget_tokens=96000 for that model and 48000 for the default model (existing per-model overlay seam, exact-path, test)",
+        "a bare EngineConfig.resolve() still yields the 27B default at 48000 (no default drift test); no colleague code special-cases Gemma (grep-level assertion in test)"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "h16"
+      ]
+    },
+    {
+      "id": "t15",
+      "summary": "Byte-identical + all-engines pin sweep: the no-attachments baseline is pinned across the whole runtime (e2e mock shape test unchanged, artifact bytes identical, boundary/zero-deps guards pass with colleague/media.py sanctioned read-only) and the three surfaces produce one Task.attachments shape (cross-surface parity test). Files: tests/test_e2e_mock.py + tests/test_boundary.py + tests/test_zero_deps.py + tests/test_media_parity.py",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "full suite green with an attachment-less run producing an artifact byte-identical to pre-arc (fixture comparison test)",
+        "cross-surface parity test asserts CLI/session/resident all build the identical attachments shape; boundary test confirms media.py imports no subprocess and no third-party module"
+      ],
+      "deps": [
+        "t4",
+        "t9"
+      ],
+      "covers": [
+        "h3",
+        "h4",
+        "c3",
+        "c4"
+      ]
+    },
+    {
+      "id": "t16",
+      "summary": "Docs + honest limits: docs/features/media-input.md (three surfaces, bridge, delivered-vs-comprehended, budget accounting), CLAUDE.md architecture part, boundary honesty everywhere - audio is shaped-but-parked (livecheck SKIP, no doc claims working audio), input-only non-goals (no media output/video/OCR/URL fetch/lobes routing), why-it-matters framing. Files: docs/features/media-input.md + CLAUDE.md + CHANGELOG.md",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "doc-test alignment check passes: every documented behavior names its pinning test; no doc, changelog, or help text claims working audio (grep for audio claims returns only shaped/parked/SKIP wording)",
+        "CLAUDE.md gains the media-input architecture part with the honest-limits block (audio gate, comprehension vs delivery, flip prerequisite) mirroring the spec boundary"
+      ],
+      "deps": [
+        "t13",
+        "t15"
+      ],
+      "covers": [
+        "c1",
+        "c2",
+        "c5",
+        "c6",
+        "h6"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "/tokenize content-parts capability unknown: probe at t6 build time; the per-image estimate fallback works either way (accounting exact-or-estimated, never zero)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6"
+    },
+    {
+      "id": "r2",
+      "text": "Serving-side Gemma tool parser is external (lobes serving change): the Gemma4-as-main default flip stays staged regardless of this plan; t14 documents the prerequisite, never works around it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14"
+    },
+    {
+      "id": "r3",
+      "text": "Audio live proof gated on the rig actually consuming input_audio: the audio livecheck records SKIP until the rig changes; no plan task claims working audio",
+      "kind": "follow_up",
+      "task_id": "t13"
+    },
+    {
+      "id": "r4",
+      "text": "Session attach ergonomics (slash command vs inline path token) decided at t11 build time against the SlashSpec drift-test - either shape satisfies the acceptance criteria",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11"
+    },
+    {
+      "id": "r5",
+      "text": "Per-image token cost varies with image size/tiling: the t9 threshold uses the per-tile FLOOR so variance can only widen the DELIVERED margin, never false-positive a drop",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9"
+    },
+    {
+      "id": "r6",
+      "text": "Real bridge quality on live Gemma (description fidelity for diagrams/screenshots) unmeasured until the t13 live proof - bounded by the one-completion budget, degrades recorded",
+      "kind": "follow_up",
+      "task_id": "t8"
+    }
+  ]
+}

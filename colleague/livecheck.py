@@ -9,16 +9,24 @@ This module owns the logic; the CLI verb in
 
 from __future__ import annotations
 
+import io
 import os
+import struct
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
+import wave
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from colleague import media
 from colleague.config import EngineConfig
+from colleague.contract import Task
+from colleague.engines.vllm_openai import VllmOpenAIEngine
 from colleague.oilcheck.reachability import _PROBE_TIMEOUT
 
 
@@ -171,3 +179,226 @@ def run_proofs(
 
         results.append(ProofResult(file=file_path, status=status, detail=detail))
     return results
+
+
+# ---------------------------------------------------------------------------
+# Media live proofs (plan task t13): image end-to-end + audio honest-skip.
+#
+# Unlike the pytest-file proofs above (subprocess to a *separate* gated test
+# file), these two checks drive one real ``engine.work()`` call directly —
+# the same seam ``tests/test_vllm_live.py`` uses (``VllmOpenAIEngine().work``)
+# — because each needs a runtime-generated fixture attachment rather than a
+# pre-existing test file. The classification logic below is pure (no I/O) so
+# it is unit-testable against simulated ``TaskResult`` payloads with no live
+# rig required; only ``run_media_image_check``/``run_media_audio_check``
+# touch the network, and both degrade to "skipped" — never a traceback — when
+# the endpoint is unreachable or the live call itself errors.
+# ---------------------------------------------------------------------------
+
+# Live rig fact (probed 2026-07-02, see docs/live-testing.md): the reference
+# endpoint accepts an ``input_audio`` content part with a 200 OK response but
+# contributes ~0 prompt tokens for it — a SILENT DROP, not a rejection. Named
+# here so both the classifier and the CLI/docs procedure state the same reason.
+_AUDIO_DROP_REASON = (
+    "rig silently drops input_audio (200 OK, ~0 prompt tokens contributed "
+    "— see docs/live-testing.md)"
+)
+
+_MEDIA_IMAGE_INSTRUCTION = "What color is the attached image? Answer with the color name only."
+_MEDIA_AUDIO_INSTRUCTION = "Describe the attached audio clip in one sentence."
+
+
+def _make_red_png(size: int = 16) -> bytes:
+    """Hand-encode a minimal, valid solid-red PNG (stdlib ``zlib``/``struct`` only).
+
+    No third-party imaging library — the whole media arc holds the one
+    sanctioned base dep (agentfront) line, so the livecheck fixture is built
+    the same way the runtime is: raw PNG chunks (signature, IHDR, IDAT,
+    IEND), DEFLATE via the stdlib ``zlib`` module. ``size`` defaults to a
+    small but real image (16x16, truecolor, no alpha) — small enough to
+    generate instantly, large enough that a live vision model sees a real
+    tile rather than a degenerate 1x1 input.
+    """
+    width = height = size
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)  # 8-bit truecolor RGB
+    row = b"\x00" + b"\xff\x00\x00" * width  # filter byte (none) + solid-red RGB pixels
+    idat = zlib.compress(row * height)
+    return signature + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+
+def _make_test_wav(duration_seconds: float = 0.5, framerate: int = 8000) -> bytes:
+    """Generate a tiny valid mono WAV clip (stdlib ``wave`` module only)."""
+    frame_count = int(duration_seconds * framerate)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(framerate)
+        handle.writeframes(b"\x00\x00" * frame_count)
+    return buf.getvalue()
+
+
+def _attachment_status(media_record: dict[str, Any] | None) -> str:
+    """Extract the first attachment's delivery status.
+
+    Mirrors ``TaskResult.media``'s vocabulary (decision c25): ``delivered``,
+    ``dropped``, or ``unknown`` (no usage reported) — plus ``missing`` here
+    for a run that recorded no media block at all, so a livecheck classifier
+    always has a status to reason about instead of a bare ``None``.
+    """
+    if not media_record:
+        return "missing"
+    attachments = media_record.get("attachments") or []
+    if not attachments:
+        return "missing"
+    return str(attachments[0].get("status", "missing"))
+
+
+def classify_media_image_check(media_record: dict[str, Any] | None, answer: str) -> tuple[str, str]:
+    """Classify the image livecheck (t13): PASS only on delivered AND red-named.
+
+    A 200 response is never trusted alone — an attachment that is
+    dropped/unknown/missing FAILS the check regardless of what the answer
+    text says, and a delivered attachment whose answer doesn't name "red"
+    also fails: the check proves *comprehension*, not merely wire delivery
+    (spec honesty: "the image livecheck asserts the ANSWER content (red),
+    not merely a 200 response").
+    """
+    status = _attachment_status(media_record)
+    names_red = "red" in (answer or "").lower()
+    if status == "delivered" and names_red:
+        return "passed", "image delivered and the answer names red"
+    if status != "delivered":
+        return (
+            "failed",
+            f"attachment not delivered (status={status!r}) — a 200 response is never trusted alone",
+        )
+    return (
+        "failed",
+        f"image delivered but the answer did not name red: {(answer or '').strip()[:120]!r}",
+    )
+
+
+def classify_media_audio_check(media_record: dict[str, Any] | None, answer: str) -> tuple[str, str]:
+    """Classify the audio livecheck (t13): honest SKIP while the rig drops input_audio.
+
+    Never reports pass while the drop persists — a ``dropped`` (or
+    otherwise non-delivered) attachment always SKIPs, naming the silent-drop
+    reason. Written so the classification flips automatically the day the
+    rig actually consumes ``input_audio``: a ``delivered`` attachment is then
+    graded like any other live proof (pass on a real answer, fail on none)
+    instead of an unconditional skip.
+    """
+    status = _attachment_status(media_record)
+    if status == "delivered":
+        if (answer or "").strip():
+            return (
+                "passed",
+                "audio delivered and the model answered — the rig now consumes input_audio",
+            )
+        return "failed", "audio delivered but the model produced no answer"
+    if status == "dropped":
+        return "skipped", _AUDIO_DROP_REASON
+    return "skipped", f"attachment status {status!r} — cannot confirm the rig consumed the audio"
+
+
+def _reachable(repo: str | Path) -> tuple[bool, str | None]:
+    """Thin wrapper over :func:`probe_endpoint` returning ``(reachable, reason)``."""
+    probe = probe_endpoint(repo)
+    return bool(probe["reachable"]), probe["reason"]
+
+
+def _run_media_check(
+    repo: str | Path,
+    *,
+    name: str,
+    instruction: str,
+    fixture_bytes: bytes,
+    fixture_name: str,
+    classify: Callable[[dict[str, Any] | None, str], tuple[str, str]],
+    model: str | None = None,
+) -> ProofResult:
+    """Shared live-invocation for the two media proofs (t13).
+
+    Builds a real attachment on disk, drives ONE real ``engine.work()`` call
+    (the same seam as ``tests/test_vllm_live.py``:
+    ``VllmOpenAIEngine().work(task, config)``), then hands the result's
+    ``media`` record + ``summary`` to *classify*. Degrades to ``skipped`` —
+    never raises — when the endpoint is unreachable or the live call itself
+    errors, mirroring :func:`run_proofs`'s honest-skip behaviour for a
+    timeout/missing-pytest.
+    """
+    reachable, reason = _reachable(repo)
+    if not reachable:
+        return ProofResult(file=name, status="skipped", detail=f"endpoint unreachable: {reason}")
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture_path = Path(tmp) / fixture_name
+            fixture_path.write_bytes(fixture_bytes)
+            attachment = media.validate_attachment(str(fixture_path))
+            task = Task.new(
+                tmp,
+                instruction,
+                engine="vllm-openai",
+                attachments=[attachment],
+            )
+            config = EngineConfig.resolve(repo_path=str(repo), model=model)
+            result = VllmOpenAIEngine().work(task, config)
+    except Exception as exc:  # a live proof degrades, it never crashes the caller
+        return ProofResult(file=name, status="skipped", detail=f"proof error: {exc}")
+
+    status, detail = classify(result.media, result.summary)
+    return ProofResult(file=name, status=status, detail=detail)
+
+
+# Gating condition (see docs/live-testing.md's media-proof ledger entry): the
+# image proof needs a live, media-capable serving path — pass model= (or set
+# COLLEAGUE_MODEL) to target whichever configured model actually accepts
+# image input; no colleague code special-cases a specific model (t14 rule).
+def run_media_image_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
+    """Live proof (t13): a real solid-red PNG through the ``--attach`` engine seam.
+
+    PASSES only when the answer names "red" AND ``TaskResult.media`` records
+    the attachment ``delivered`` — see :func:`classify_media_image_check`.
+    Gated on a live, media-capable serving path being configured (pass
+    ``model=`` to target one explicitly); degrades to ``skipped`` when the
+    endpoint is unreachable.
+    """
+    return _run_media_check(
+        repo,
+        name="media_image",
+        instruction=_MEDIA_IMAGE_INSTRUCTION,
+        fixture_bytes=_make_red_png(),
+        fixture_name="red.png",
+        classify=classify_media_image_check,
+        model=model,
+    )
+
+
+def run_media_audio_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
+    """Live proof (t13): a real WAV clip through the ``--attach`` engine seam.
+
+    Reports SKIP with the silent-drop reason on today's rig — see
+    :func:`classify_media_audio_check`; never reports pass while the drop
+    persists. Degrades to ``skipped`` when the endpoint is unreachable.
+    """
+    return _run_media_check(
+        repo,
+        name="media_audio",
+        instruction=_MEDIA_AUDIO_INSTRUCTION,
+        fixture_bytes=_make_test_wav(),
+        fixture_name="clip.wav",
+        classify=classify_media_audio_check,
+        model=model,
+    )

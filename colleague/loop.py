@@ -50,11 +50,17 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
+from colleague import media
 from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
-from colleague.context import classify_degradable, window_messages
+from colleague.context import (
+    classify_degradable,
+    count_tokens_chars,
+    is_media_rejection,
+    window_messages,
+)
 from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
@@ -535,6 +541,9 @@ class _Work:
     # Dual-model deepthink escalation seam (t5): the bound ``DeepthinkRun`` from
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
+    # Media-comprehension bridge (t8, c24): armed only when the operator declared
+    # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
+    media_bridge: bool = False
     # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a
     # positive ``autosplit_target``), an EXHAUSTED context-overflow injects ONE
     # split recommendation — pointing the model at the existing ``subagents`` tool
@@ -874,6 +883,19 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
         span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
         ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
         ctx.messages.append(_tool_message(call.id, outcome.result))
+        if outcome.media_part is not None:
+            # view_media fold (t5): the tool message above stays a plain string
+            # (the wire-safe convention); the image itself rides a follow-up
+            # user parts message the next turn sees.
+            ctx.messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"[{call.name}] {outcome.result}"},
+                        outcome.media_part,
+                    ],
+                }
+            )
         _emit_progress(ctx, step_index, call.name, arguments, ok=True)
 
         # post_tool — after the tool executed. Observe-only: the decision does
@@ -1405,6 +1427,43 @@ def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
     return note
 
 
+# Sentinel: a media-rejection flatten happened (#c7) — retry immediately, and
+# this attempt must NOT count against the reactive retry cap (see
+# :func:`_attempt_completion_or_retry_plan`).
+_RETRY_IMMEDIATE = object()
+
+
+def _attempt_completion_or_retry_plan(
+    ctx: _Work,
+    complete: CompleteFn,
+    effective: int,
+    saw_overflow: bool,
+) -> tuple[ModelResponse | None, object]:
+    """Run one reactive-retry-loop attempt; on failure, decide how to continue.
+
+    Extracted from :func:`_complete_with_degradation` (SonarCloud S3776) so the
+    loop's own body stays a flat dispatch. Returns ``(resp, None)`` on success.
+    On a caught error, returns ``(None, _RETRY_IMMEDIATE)`` when
+    :func:`_flatten_on_media_rejection` handled it (retry now, don't count
+    against the attempt cap — structurally bounded since the flatten removes
+    every part, so it cannot fire twice) or ``(None, plan)`` with the
+    ``(new_effective, new_cap, new_saw_overflow)`` tuple from
+    :func:`_plan_degraded_retry` to retry with the updated windowing state.
+    Re-raises the original exception unchanged when :func:`_plan_degraded_retry`
+    reports ``None`` (non-degradable, or the degradable floor was reached) —
+    the give-up path, so :func:`run` preserves the partial.
+    """
+    try:
+        return _timed_complete(ctx, complete), None
+    except Exception as exc:  # noqa: BLE001
+        if _flatten_on_media_rejection(ctx, exc):
+            return None, _RETRY_IMMEDIATE
+        plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
+        if plan is None:
+            raise
+        return None, plan
+
+
 def _complete_with_degradation(
     ctx: _Work, complete: CompleteFn, *, phase: str = _PHASE_THINKING
 ) -> ModelResponse:
@@ -1430,6 +1489,11 @@ def _complete_with_degradation(
     budget is carried to the next turn — the recommendation turn — via
     :func:`_remember_degraded_floor`. Non-degradable errors are never retried — they
     propagate immediately.
+
+    The per-attempt failure handling (media-rejection flatten vs. classify-and-shrink)
+    is delegated to :func:`_attempt_completion_or_retry_plan`; this function stays the
+    orchestrator over the retry accounting (``effective``/``cap``/``saw_overflow``/
+    ``attempt``).
     """
     # Phase notice (#206): announce the model turn is in flight BEFORE the (possibly
     # long) completion — fired here, the one chokepoint every model turn passes
@@ -1441,7 +1505,14 @@ def _complete_with_degradation(
         # Feature off: strict pass-through, byte-identical to the pre-feature loop
         # (latency is still measured when backpressure is armed — the advisory +
         # fan-out throttle work without windowing; only the shrink needs a budget).
-        return _timed_complete(ctx, complete)
+        # ONE exception (t9, c7): a media-refusing endpoint still degrades to a
+        # text-only retry — that handling must not depend on the budget feature.
+        try:
+            return _timed_complete(ctx, complete)
+        except Exception as exc:  # noqa: BLE001
+            if _flatten_on_media_rejection(ctx, exc):
+                return _timed_complete(ctx, complete)
+            raise
 
     # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
     # window is proactively tightened — smaller prompts make faster turns, the
@@ -1460,15 +1531,51 @@ def _complete_with_degradation(
     cap = _MAX_OVERFLOW_RETRIES
     attempt = 0
     while attempt <= cap:
-        try:
-            return _timed_complete(ctx, complete)
-        except Exception as exc:  # noqa: BLE001
-            plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
-            if plan is None:
-                raise
-            effective, cap, saw_overflow = plan
-            attempt += 1
+        resp, plan = _attempt_completion_or_retry_plan(ctx, complete, effective, saw_overflow)
+        if resp is not None:
+            return resp
+        if plan is _RETRY_IMMEDIATE:
+            continue
+        effective, cap, saw_overflow = plan
+        attempt += 1
     return _final_degraded_attempt(ctx, complete, effective)
+
+
+def _flatten_on_media_rejection(ctx: _Work, exc: Exception) -> bool:
+    """Flatten every parts message and record the drop after a media-refusal (c7).
+
+    Returns ``True`` when a retry should happen — the error matched
+    :func:`colleague.context.is_media_rejection` AND at least one parts
+    message existed to flatten (so the retry is structurally different).
+    The task's attachments are recorded ``dropped`` (unless a bridge already
+    preset the record) with a stderr warning naming the cause; the run
+    continues text-only instead of hard-failing on an attachment the serving
+    model cannot take.
+    """
+    if not is_media_rejection(str(exc)):
+        return False
+    had_parts = False
+    for i, m in enumerate(ctx.messages):
+        if isinstance(m.get("content"), list):
+            ctx.messages[i] = dict(m, content=media.flatten_parts(m["content"]))
+            had_parts = True
+    if not had_parts:
+        return False
+    if ctx.task.attachments and ctx.result.media is None:
+        ctx.result.media = {
+            "attachments": [
+                {"path": str(a.get("path", "?")), "status": _MEDIA_DROPPED}
+                for a in ctx.task.attachments
+                if isinstance(a, dict)
+            ]
+        }
+    print(
+        "warning: the serving endpoint rejected media content parts "
+        f"({exc}) — retrying text-only with placeholders; media recorded "
+        "dropped on the artifact",
+        file=sys.stderr,
+    )
+    return True
 
 
 def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
@@ -1962,6 +2069,11 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
             raise
         _account_turn(ctx, resp)
         last_prompt_tokens = resp.prompt_tokens
+        # Delivered-vs-dropped verification (t9, decision c25): classify the
+        # task's attachments from the FIRST media-bearing completion's
+        # token-contribution signal; a strict no-op afterwards and for
+        # attachment-less runs.
+        _maybe_record_media_delivery(ctx, resp)
 
         # If a fill-line decision is pending (#156), this turn is the model's
         # declaration: record it and, on a pure compact declaration, summarize +
@@ -2071,6 +2183,10 @@ class ContextControls:
     # binding they inject into the tool executor (all-engines rule).
     # compare=False: a closure — behavior, not comparable config.
     deepthink_run: Callable[..., Any] | None = field(default=None, compare=False, repr=False)
+    # Media-comprehension bridge arming (t8, c24): True only when the operator
+    # declared the second model multimodal (config.deepthink.multimodal); set by
+    # from_config for every backend identically (all-engines rule).
+    media_bridge: bool = False
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
     # verdict turn (#191) runs with fresher, less-windowed context instead of being
@@ -2172,6 +2288,9 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
+            media_bridge=bool(
+                config.deepthink is not None and getattr(config.deepthink, "multimodal", False)
+            ),
         )
 
 
@@ -2280,6 +2399,182 @@ def _build_user_message(task: Task) -> str:
             + "\n".join(f"- {c}" for c in task.acceptance)
         )
     return user
+
+
+def _build_initial_content(task: Task) -> "str | list[dict[str, Any]]":
+    """The first user turn's content: a plain string, or content parts with media.
+
+    With ``task.attachments`` empty/None this returns :func:`_build_user_message`'s
+    string UNCHANGED — the h8 baseline: downstream string-assuming code
+    (windowing, markup re-parse, fill-line) must never meet a surprise list on
+    an attachment-less run. With attachments it returns OpenAI content parts:
+    one text part carrying the full task prompt, then one part per attachment
+    in order (:func:`colleague.media.build_part`). An attachment whose file
+    became unreadable between surface validation and here degrades to a text
+    placeholder naming the path — a broken attachment must never abort the run
+    (the delivered/dropped verification is the honest record, task t9).
+    """
+    text = _build_user_message(task)
+    if not task.attachments:
+        return text
+    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for attachment in task.attachments:
+        try:
+            parts.append(media.build_part(attachment))
+        except (OSError, ValueError, KeyError) as exc:
+            path = attachment.get("path", "?") if isinstance(attachment, dict) else "?"
+            parts.append({"type": "text", "text": f"[attachment {path} unreadable: {exc}]"})
+    return parts
+
+
+#: Per-part token-contribution floor for the delivered/dropped classification
+#: (t9): half the measured per-tile estimate — any REAL image contributes at
+#: least one full tile (~260 tokens, live probe 2026-07-02), so a genuinely
+#: tiny image still clears the floor, while a silent drop contributes ~0.
+_MEDIA_DELIVERY_FLOOR = media.IMAGE_TOKEN_ESTIMATE // 2
+
+_MEDIA_DELIVERED = "delivered"
+_MEDIA_DROPPED = "dropped"
+_MEDIA_UNKNOWN = "unknown"
+
+
+def _classify_media_delivery(prompt_tokens: int, text_only_tokens: int, n_parts: int) -> str:
+    """Classify media delivery from the token-contribution signal (t9, c25).
+
+    ``delivered`` iff the prompt's reported tokens exceed the text-only
+    estimate by at least the per-part floor — the exact signal the live
+    silent-drop probe exposed (an image contributes hundreds of prompt
+    tokens; a drop contributes ~0). A server that reported NO usage
+    (``prompt_tokens <= 0`` — e.g. a scripted mock) classifies ``unknown``:
+    a drop is never claimed without evidence. The word is DELIVERED, never
+    "understood" — comprehension is claimed only by the livecheck proof.
+    """
+    if prompt_tokens <= 0:
+        return _MEDIA_UNKNOWN
+    if prompt_tokens - text_only_tokens >= _MEDIA_DELIVERY_FLOOR * max(1, n_parts):
+        return _MEDIA_DELIVERED
+    return _MEDIA_DROPPED
+
+
+def _maybe_record_media_delivery(ctx: _Work, resp: ModelResponse) -> None:
+    """Record the delivered/dropped verdict for the task's attachments (t9).
+
+    Fires once, on the first completion after the media-bearing initial
+    message; strict no-op with no attachments or once recorded. Zero extra
+    model turns: the text-only baseline is counted locally (the exact counter
+    when bound — flattened messages are all-string, so it can count them —
+    else the char estimate) and compared against the server-reported
+    ``prompt_tokens``. A drop warns on stderr and is recorded on
+    ``TaskResult.media``; it never blocks or aborts the run.
+    """
+    if not ctx.task.attachments or ctx.result.media is not None:
+        return
+    flattened = [
+        (
+            dict(m, content=media.flatten_parts(m["content"]))
+            if isinstance(m.get("content"), list)
+            else m
+        )
+        for m in ctx.messages
+    ]
+    counter = ctx.count_tokens if ctx.count_tokens is not None else count_tokens_chars
+    try:
+        text_only = counter(flattened)
+    except Exception:  # noqa: BLE001 - a counter failure must never abort the run
+        text_only = count_tokens_chars(flattened)
+    initial = ctx.messages[1].get("content") if len(ctx.messages) > 1 else None
+    n_parts = (
+        sum(
+            1
+            for p in initial
+            if isinstance(p, dict) and p.get("type") in ("image_url", "input_audio")
+        )
+        if isinstance(initial, list)
+        else len(ctx.task.attachments)
+    )
+    status = _classify_media_delivery(resp.prompt_tokens, text_only, n_parts)
+    ctx.result.media = {
+        "attachments": [
+            {"path": str(a.get("path", "?")), "status": status}
+            for a in ctx.task.attachments
+            if isinstance(a, dict)
+        ]
+    }
+    if status == _MEDIA_DROPPED:
+        print(
+            f"warning: {n_parts} media attachment(s) were NOT delivered to the "
+            "model (prompt token contribution below the per-part floor) — "
+            "recorded on the artifact's media key",
+            file=sys.stderr,
+        )
+
+
+_POINT_MEDIA_BRIDGE = "media-bridge"
+
+
+def _maybe_run_media_bridge(ctx: _Work) -> None:
+    """Escalate attached media to the declared multimodal second model (t8, c24).
+
+    Fires ONCE, before the first turn, and only when ALL of: the task carries
+    attachments, a dual-model config is bound (``deepthink_run``), and the
+    operator declared the second model multimodal (``media_bridge`` — never
+    probed or inferred). The escalation is one bounded tools-off completion
+    (``run_media_bridge`` via the binding's ``media_parts`` path); its
+    description folds back as exactly ONE advisory user message. A degraded
+    bridge records honestly on ``TaskResult.deepthink`` and folds nothing —
+    the run continues from the text alone (h18: degrade, never raise; the
+    delivered/dropped record is task t9's).
+    """
+    if not ctx.media_bridge or ctx.deepthink_run is None or not ctx.task.attachments:
+        return
+    initial = ctx.messages[1].get("content") if len(ctx.messages) > 1 else None
+    if not isinstance(initial, list):
+        return
+    parts = [
+        p for p in initial if isinstance(p, dict) and p.get("type") in ("image_url", "input_audio")
+    ]
+    if not parts:
+        return
+    # The main model is DECLARED text-only (that is what armed the bridge), so
+    # the parts must not ride its wire at all — a text-only vLLM endpoint
+    # typically rejects image parts outright rather than dropping them. The
+    # main wire gets the flattened text (placeholders); the REAL parts travel
+    # only on the bridge escalation below (h12/h18 extended to the main wire).
+    ctx.messages[1] = dict(ctx.messages[1], content=media.flatten_parts(initial))
+    question = (
+        "You are the multimodal half of a dual-model rig. The MAIN model "
+        "driving this task is text-only and cannot see the attached media. "
+        "Describe the attached media precisely and completely as it relates "
+        "to the task below, so a text-only model can act on your description "
+        "alone.\n\nTask:\n" + (ctx.task.instruction or "")
+    )
+    res = ctx.deepthink_run(question, "", point=_POINT_MEDIA_BRIDGE, media_parts=parts)
+    call = getattr(res, "call", None)
+    if call is not None:
+        _record_deepthink(ctx.result, call)
+    text = (getattr(res, "text", "") or "").strip()
+    if call is not None and getattr(call, "degraded", False) or not text:
+        # Degraded bridge: nothing folds; the media record stays unset so the
+        # t9 verifier classifies the (now text-only) first completion honestly
+        # — dropped with real usage, unknown without.
+        return
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": "[media bridge] A multimodal model examined the attached "
+            "media and reports:\n" + text,
+        }
+    )
+    # Delivery record (c25 vocabulary + the bridge case): the MAIN model saw
+    # placeholders, the description was delivered via the second model —
+    # recorded as "bridged" (preset here; the t9 verifier skips a set record).
+    ctx.result.media = {
+        "attachments": [
+            {"path": str(a.get("path", "?")), "status": "bridged"}
+            for a in ctx.task.attachments
+            if isinstance(a, dict)
+        ]
+    }
 
 
 def _maybe_inject_upfront_hint(ctx: _Work) -> None:
@@ -2959,7 +3254,7 @@ def run(
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt or _DEFAULT_SYSTEM},
-        {"role": "user", "content": _build_user_message(task)},
+        {"role": "user", "content": _build_initial_content(task)},
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
@@ -2999,6 +3294,7 @@ def run(
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
+        media_bridge=_context.media_bridge,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
@@ -3035,6 +3331,12 @@ def run(
     # Recall-before (spec R1 / plan t2): inject prior lessons from the repo's
     # eidetic store as ONE advisory context message; a strict no-op unless armed.
     _maybe_recall_memory(ctx)
+
+    # Media-comprehension bridge (t8, c24): with a text-only main + attached
+    # media + an operator-declared multimodal second model, ONE tools-off
+    # escalation describes the media and folds the answer back; strict no-op
+    # otherwise.
+    _maybe_run_media_bridge(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto

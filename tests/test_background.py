@@ -439,6 +439,34 @@ def test_background_child_argv_uses_command_template_form(tmp_path):
     assert "arg1" in argv
 
 
+def test_background_child_argv_forwards_attach_as_absolute_path(tmp_path):
+    """--attach must not be silently dropped for the detached background child.
+
+    The child may run with a different cwd, and media.validate_attachment()
+    resolves a relative path against cwd -- so the parent resolves each
+    --attach value to an absolute path before handing it to the child (Qodo
+    regression: --attach used to be omitted from the child argv entirely).
+    """
+    repo = _init_repo(tmp_path)
+    ns = _full_namespace(attach=["a.png"])
+    argv = _background_child_argv(ns, repo)
+
+    assert "--attach" in argv
+    idx = argv.index("--attach")
+    assert argv[idx + 1] == str(Path("a.png").resolve())
+
+
+def test_background_child_argv_forwards_multiple_attach_values_in_order(tmp_path):
+    repo = _init_repo(tmp_path)
+    ns = _full_namespace(attach=["a.png", "sub/b.wav"])
+    argv = _background_child_argv(ns, repo)
+
+    attach_indices = [i for i, tok in enumerate(argv) if tok == "--attach"]
+    assert len(attach_indices) == 2
+    resolved = [argv[i + 1] for i in attach_indices]
+    assert resolved == [str(Path("a.png").resolve()), str(Path("sub/b.wav").resolve())]
+
+
 # --- cmd_work wiring: --background never runs the loop in the parent -------
 
 

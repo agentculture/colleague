@@ -30,7 +30,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import background, flight, registry, rig, worktrees
+from colleague import background, flight, media, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
@@ -676,6 +676,33 @@ def execute_work(
                 worktrees.isolation_worktree_remove(str(repo), worktree_path)
 
 
+def _collect_attachments(args: argparse.Namespace) -> list[dict] | None:
+    """Validate and collect ``--attach PATH`` (repeatable) into attachment dicts.
+
+    Returns ``None`` when no ``--attach`` was given (byte-identical
+    ``Task.attachments`` for the common case); otherwise the list of
+    :func:`colleague.media.validate_attachment` results, in flag order.
+    Raises the same :class:`CliError` as before on an invalid attachment.
+    Extracted from :func:`_build_task` to keep that function's cognitive
+    complexity under the threshold (SonarCloud S3776).
+    """
+    raw_attach: list[str] = getattr(args, "attach", None) or []
+    if not raw_attach:
+        return None
+    attachments: list[dict] = []
+    for path_str in raw_attach:
+        try:
+            validated = media.validate_attachment(path_str)
+        except ValueError as exc:
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"attachment error: {exc}",
+                "pass --attach pointing at an existing file with a known media extension",
+            ) from exc
+        attachments.append(validated)
+    return attachments
+
+
 def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: EngineConfig) -> Task:
     """Resolve the positional tokens into a :class:`Task` (instruction or --command).
 
@@ -697,10 +724,12 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
             "run 'colleague work --help' to see usage",
         )
 
+    attachments = _collect_attachments(args)
+
     if has_command:
         # Positional tokens are template arguments when --command is set.
         try:
-            return expand_command(
+            task = expand_command(
                 repo,
                 command_name,
                 positional_tokens,
@@ -713,9 +742,15 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
                 str(exc),
                 "list available commands with: colleague commands list --repo <path>",
             ) from exc
+        # expand_command has no attachments parameter (its Task.new shape is
+        # template-owned); --attach applies to a template task the same way
+        # the session surface does — assigned post-construction.
+        if attachments:
+            task.attachments = attachments
+        return task
 
     # Plain instruction path (original behaviour).
-    return Task.new(str(repo), " ".join(positional_tokens), engine=engine)
+    return Task.new(str(repo), " ".join(positional_tokens), engine=engine, attachments=attachments)
 
 
 def _validated_mode(mode: str | None) -> str | None:
@@ -757,6 +792,39 @@ _CHILD_FLAG_TABLE: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def _child_tail_argv(args: argparse.Namespace) -> list[str]:
+    """Non-uniform ``work`` child flags, in CLI order.
+
+    These flags don't fit the ``_CHILD_FLAG_TABLE`` value/bool pattern — a
+    tri-state (``--tui``/``--no-tui``) or a repeatable one (``--attach``) —
+    so they're built here. Extracted from :func:`_background_child_argv` so
+    that function stays under SonarCloud's cognitive-complexity threshold
+    (S3776).
+    """
+    tail: list[str] = []
+    if getattr(args, "max_steps", None) is not None:
+        tail += ["--max-steps", str(args.max_steps)]
+    if getattr(args, "mode", None):
+        tail += ["--mode", args.mode]
+    tui = getattr(args, "tui", None)
+    if tui is True:
+        tail.append("--tui")
+    elif tui is False:
+        tail.append("--no-tui")
+    if getattr(args, "tui_events", None):
+        tail += ["--tui-events", args.tui_events]
+    if getattr(args, "json", False):
+        tail.append("--json")
+    # Forward each --attach value (repeatable), resolved to an ABSOLUTE path here
+    # in the parent: the child may run with a different cwd, and
+    # media.validate_attachment() resolves a relative path against cwd, so a
+    # relative --attach would silently miss (or hit the wrong file) in the
+    # detached child. Without this the attachment was dropped entirely (Qodo).
+    for attach_path in getattr(args, "attach", None) or []:
+        tail += ["--attach", str(Path(attach_path).resolve())]
+    return tail
+
+
 def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
     """Rebuild ``work``'s CLI argv for the detached background child (t12).
 
@@ -768,7 +836,10 @@ def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
     ``work`` was invoked directly or reached via the legacy ``drive`` alias,
     and ``--repo`` always carries the fully resolved absolute path (not
     whatever relative string the caller typed) so the child is unambiguous
-    about which repo it targets.
+    about which repo it targets. Each ``--attach`` value is likewise forwarded
+    as a resolved absolute path (not the table-driven flags below — repeatable,
+    non-uniform shape) so a relative attachment path still resolves correctly
+    against the child's own cwd.
     """
     argv: list[str] = ["work"]
     command_name = getattr(args, "command_name", None)
@@ -785,19 +856,9 @@ def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
                 argv.append(flag)
         elif value:
             argv += [flag, str(value)]
-    if getattr(args, "max_steps", None) is not None:
-        argv += ["--max-steps", str(args.max_steps)]
-    if getattr(args, "mode", None):
-        argv += ["--mode", args.mode]
-    tui = getattr(args, "tui", None)
-    if tui is True:
-        argv.append("--tui")
-    elif tui is False:
-        argv.append("--no-tui")
-    if getattr(args, "tui_events", None):
-        argv += ["--tui-events", args.tui_events]
-    if getattr(args, "json", False):
-        argv.append("--json")
+    # Non-uniform tail flags (tri-state --tui, repeatable --attach, etc.) live
+    # in a helper so this function stays under the S3776 complexity threshold.
+    argv += _child_tail_argv(args)
     # Force-arm the flight control plane: a detached run has no other pilot
     # interface, so --watch is not optional here (spec R4 — the flight feed +
     # 'colleague flight status/guide/stop' is the ONLY way to observe/steer it).
@@ -1116,6 +1177,17 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
             "{background, id, pid, log_dir, flight}. Auto-arms --watch so the "
             "detached run is pilotable via 'colleague flight'; a crashed "
             "background run's residue is reaped by 'colleague clean'."
+        ),
+    )
+    p.add_argument(
+        "--attach",
+        action="append",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Attach a media file (image or audio) to the work item. "
+            "May be repeated. The file is validated (must exist, known extension) "
+            "and passed to the backend as an attachment."
         ),
     )
 

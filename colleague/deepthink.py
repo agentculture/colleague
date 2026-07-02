@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
-from colleague import registry
+from colleague import media, registry
 from colleague.config import EngineConfig
 from colleague.contract import DeepthinkCall
 
@@ -108,6 +108,44 @@ def _truncated_text(question: str, cut: int) -> str:
     return f"{prefix}\n\n{_TRUNCATION_NOTE}"
 
 
+def _needs_flattening(messages: "list[dict[str, Any]]") -> bool:
+    """``True`` iff any message in *messages* carries non-string content.
+
+    A plain OpenAI-format message always has string content; a content-PARTS
+    LIST (an image/audio-bearing turn — see :mod:`colleague.media`) is the one
+    shape :func:`_flatten_history` must rewrite. Split out so
+    :func:`_flatten_history` can skip rebuilding the list entirely when
+    nothing needs it (task t7's byte-identical guard).
+    """
+    return any(not isinstance(m.get("content"), str) for m in messages)
+
+
+def _flatten_history(messages: "list[dict[str, Any]]") -> "list[dict[str, Any]]":
+    """Flatten every message's ``content`` through :func:`colleague.media.flatten_parts`.
+
+    The deepthink model may be TEXT-ONLY (today's served 27B), so a
+    content-PARTS LIST — the shape the loop's own message history carries for
+    a media-bearing user turn — must structurally never reach the wire (task
+    t7). Every message's content is routed through
+    :func:`colleague.media.flatten_parts`: a plain string passes through
+    unchanged (``flatten_parts`` is the identity for ``str``), a parts list
+    becomes readable text with ``[image attachment]``/``[audio attachment]``
+    placeholders standing in for what a text-only model cannot see.
+
+    Byte-identical when nothing needs it: if every message already carries
+    string content, the ORIGINAL *messages* object is returned untouched (not
+    a copy) — so a string-only history composed by today's callers (the
+    `deepthink` tool's model-authored context, plan-mode's claim/text
+    prompts) is indistinguishable from before this change, all the way down
+    to object identity. Otherwise a NEW list is returned (the input is never
+    mutated), each message a shallow copy with ``content`` replaced by its
+    flattened string; every other key (``role``, …) is preserved unchanged.
+    """
+    if not _needs_flattening(messages):
+        return messages
+    return [dict(m, content=media.flatten_parts(m.get("content", ""))) for m in messages]
+
+
 def window_messages(
     messages: "list[dict[str, Any]]",
     *,
@@ -119,17 +157,29 @@ def window_messages(
     The message-list twin of :func:`_window_question`, for the one enumerated
     caller that composes its own multi-turn prompt (plan-mode proposals) —
     spec h4 windows EVERY deepthink call against the deepthink model's OWN
-    context budget before the request is sent. Reserves one quarter of
-    *budget* for the completion, so the prompt must measure at or under
-    ``budget - budget // 4``. A list that already fits is returned untouched
-    (byte-identical pass-through). Otherwise the LAST user message — the
-    payload turn in every caller's composition — is truncated (binary search
-    on length, so the number of ``count_tokens`` calls is bounded) with
-    :data:`_TRUNCATION_NOTE` appended, so whoever reads the prompt can always
-    tell it was cut. Messages are never dropped and the input list is never
-    mutated. A list with no user message is returned unchanged — nothing is
-    safely truncatable, and the reactive shrink-retry ladder stays the floor.
+    context budget before the request is sent. This is also the ONE point
+    every deepthink message-list digest funnels through (directly here, or by
+    way of :func:`_window_question` from :func:`run_deepthink`), so it is
+    where :func:`_flatten_history` runs FIRST (task t7): a caller composing
+    this digest from the loop's own message history may hand us a
+    content-PARTS LIST (a media-bearing user turn), and that list is
+    guaranteed flattened to a plain string before any budget arithmetic or
+    truncation below ever looks at it — a list-typed content field must
+    structurally never reach the second model's wire. A string-only history
+    is untouched, including the "no copy" identity guarantee below.
+
+    Reserves one quarter of *budget* for the completion, so the prompt must
+    measure at or under ``budget - budget // 4``. A list that already fits is
+    returned untouched (byte-identical pass-through). Otherwise the LAST user
+    message — the payload turn in every caller's composition — is truncated
+    (binary search on length, so the number of ``count_tokens`` calls is
+    bounded) with :data:`_TRUNCATION_NOTE` appended, so whoever reads the
+    prompt can always tell it was cut. Messages are never dropped and the
+    input list is never mutated. A list with no user message is returned
+    unchanged — nothing is safely truncatable, and the reactive shrink-retry
+    ladder stays the floor.
     """
+    messages = _flatten_history(messages)
     reserve = max(1, budget // 4)
     send_budget = max(1, budget - reserve)
     if count_tokens(messages) <= send_budget:
@@ -294,6 +344,81 @@ def run_deepthink(
         )
 
 
+def run_media_bridge(
+    question: str,
+    media_parts: "list[dict[str, Any]]",
+    *,
+    config: EngineConfig,
+    point: str = "media-bridge",
+    engine_name: str,
+    system_prompt: Optional[str] = None,
+    engine_loader: "Optional[Callable[[str], Engine]]" = None,
+    count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+) -> DeepthinkResult:
+    """ONE tools-off completion carrying REAL media parts to the second model (t8).
+
+    The deliberate inverse of the t7 flattening rule: the operator declared the
+    SECOND model multimodal (``config.deepthink.multimodal``), so the media
+    parts are sent un-flattened to THAT endpoint — and only that endpoint; the
+    text-only main wire never sees them. The question text is windowed to the
+    deepthink model's own budget minus a per-part media reserve, then the parts
+    ride ONE appended user message. Mirrors :func:`run_deepthink`'s
+    degrade-never-raise contract (spec h5/h18): any failure returns a degraded
+    :class:`DeepthinkResult`, never an exception.
+    """
+    start = time.monotonic()
+
+    if config.deepthink is None or not config.deepthink.multimodal or not media_parts:
+        return DeepthinkResult(
+            text="",
+            call=DeepthinkCall(point=point, degraded=True, duration=time.monotonic() - start),
+        )
+
+    loader = engine_loader if engine_loader is not None else registry.load
+    try:
+        dt_config = deepthink_engine_config(config)
+        if dt_config is None:  # pragma: no cover - guarded above
+            raise RuntimeError("no deepthink config resolved")
+
+        engine = loader(engine_name)
+        counter = count_tokens if count_tokens is not None else engine.make_count_tokens(dt_config)
+        # Reserve budget for the media parts themselves so the windowed text +
+        # parts still fit the deepthink window (t6's estimate currency).
+        reserve = media.IMAGE_TOKEN_ESTIMATE * len(media_parts)
+        text_budget = max(1, dt_config.context_budget_tokens - reserve)
+        messages = _window_question(
+            question,
+            system_prompt=system_prompt,
+            budget=text_budget,
+            count_tokens=counter,
+        )
+        messages = messages + [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "The attached media:"}] + list(media_parts),
+            }
+        ]
+
+        complete = engine.make_complete(dt_config, tools=[])
+        response = complete(messages)
+        duration = time.monotonic() - start
+        return DeepthinkResult(
+            text=response.content,
+            call=DeepthinkCall(
+                point=point,
+                tokens=_call_tokens(response),
+                duration=duration,
+                degraded=False,
+            ),
+        )
+    except Exception:
+        duration = time.monotonic() - start
+        return DeepthinkResult(
+            text="",
+            call=DeepthinkCall(point=point, degraded=True, duration=duration),
+        )
+
+
 DeepthinkRun = Callable[..., DeepthinkResult]
 """The bound escalation callable the runtime threads through the loop.
 
@@ -321,8 +446,24 @@ def make_deepthink_run(config: EngineConfig, engine_name: str) -> Optional[Deept
     if config.deepthink is None:
         return None
 
-    def bound(question: str, context: str = "", *, point: str = "tool") -> DeepthinkResult:
+    def bound(
+        question: str,
+        context: str = "",
+        *,
+        point: str = "tool",
+        media_parts: "Optional[list[dict[str, Any]]]" = None,
+    ) -> DeepthinkResult:
         prompt = question if not context else f"{question}\n\nContext digest:\n{context}"
+        if media_parts:
+            # The media-bridge path (t8): parts travel un-flattened to the
+            # operator-declared multimodal second endpoint.
+            return run_media_bridge(
+                prompt,
+                media_parts,
+                config=config,
+                point=point,
+                engine_name=engine_name,
+            )
         return run_deepthink(prompt, config=config, point=point, engine_name=engine_name)
 
     return bound

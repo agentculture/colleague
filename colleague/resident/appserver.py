@@ -102,11 +102,28 @@ work CLI never references the resident package — this module reaching
 *into* ``execute_work`` is the permitted, one-way direction of that boundary
 (the resident depends on the work path; the work path never depends on the
 resident).
+
+**Media references (task t12).** A mesh request's ``body`` MAY reference
+local media via a line-anchored ``attach: <path>`` token — one per line, at
+most :data:`_MAX_ATTACHMENTS`; :func:`_extract_attach_lines` parses these OUT
+of the request text (a matched line never reaches the model as prose) and
+returns the candidate paths. Each candidate is checked against the c19 trust
+boundary FIRST, via :func:`colleague.resident.trust.check_attachment_path`
+(operator: any local path; non-operator: must resolve inside the repo
+working tree — the anti-exfiltration rule) — this runs *before*
+``colleague.media.validate_attachment`` ever touches the filesystem for
+content. Only a path that clears BOTH the trust check and
+``validate_attachment`` becomes a ``Task.attachments`` entry (the same
+``{"path", "media_type"}`` shape a CLI-authored attachment carries); a
+refusal at either stage drops just that one attachment — recorded as a note,
+never a crash, and the request still runs under whatever role
+:func:`~colleague.resident.trust.classify_request` already assigned.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from dataclasses import replace as _dc_replace
 from pathlib import Path
@@ -116,7 +133,8 @@ from agent_lifecycle.runtime.message import Message
 from agent_lifecycle.runtime.supervisor import Supervisor
 
 from colleague.contract import Task
-from colleague.resident.trust import classify_request
+from colleague.media import validate_attachment
+from colleague.resident.trust import check_attachment_path, classify_request
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from agent_lifecycle.runtime.transport import Transport
@@ -125,6 +143,46 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
 
 # Sentinel placed on the reply queue by stop() to end the replies() stream.
 _STOP: object = object()
+
+# t12: the mesh media-reference convention -- a line-anchored `attach: <path>`
+# token, one per line. Capped so a request can't smuggle an unbounded number
+# of filesystem probes through one message; extras beyond the cap are counted
+# and reported, never silently dropped.
+_MAX_ATTACHMENTS = 4
+_ATTACH_LINE_RE = re.compile(r"^attach:\s*(\S.*)$")
+
+
+def _extract_attach_lines(text: str) -> tuple[str, list[str], int]:
+    """Split *text* into ``(cleaned_text, candidate_paths, dropped_count)``.
+
+    Recognises the ``attach: <path>`` convention (see the module docstring).
+    A matched line is REMOVED from the returned text entirely. At most
+    :data:`_MAX_ATTACHMENTS` candidates are kept, in order; any further
+    matches are counted in *dropped_count* (never silently truncated without
+    a trace -- the caller turns that count into a recorded note).
+
+    A *text* with no ``attach:`` lines is returned completely unchanged
+    (same object, even) -- a request with no media reference behaves
+    byte-identically to before this feature existed.
+    """
+    lines = text.splitlines()
+    if not any(_ATTACH_LINE_RE.match(line) for line in lines):
+        return text, [], 0
+
+    kept_lines: list[str] = []
+    candidates: list[str] = []
+    dropped = 0
+    for line in lines:
+        match = _ATTACH_LINE_RE.match(line)
+        if not match:
+            kept_lines.append(line)
+            continue
+        path = match.group(1).rstrip()
+        if len(candidates) < _MAX_ATTACHMENTS:
+            candidates.append(path)
+        else:
+            dropped += 1
+    return "\n".join(kept_lines), candidates, dropped
 
 
 class AppserverHarness:
@@ -211,10 +269,12 @@ class AppserverHarness:
 
         Trust classification (:func:`colleague.resident.trust.classify_request`)
         happens FIRST, before any work is dispatched — a refused request never
-        reaches ``execute_work`` at all. An allowed request is dispatched
-        synchronously via ``execute_work`` in the default executor (so the
-        pump/transport stay responsive during a long-running work item, the
-        same reasoning as :class:`~colleague.resident.harness.ColleagueHarness`).
+        reaches ``execute_work`` at all. An allowed request's ``attach:``
+        candidates are resolved by :meth:`_resolve_attachments` (t12: parses,
+        trust-checks, and validates each one — see that method's docstring),
+        then the work item is run and replied via :meth:`_dispatch_and_reply`
+        (which also owns the expected-vs-unexpected failure split described
+        below).
 
         An expected work-item failure (:class:`~colleague.cli._errors.CliError`
         — e.g. an unreachable engine) is caught and turned into an error reply.
@@ -244,10 +304,83 @@ class AppserverHarness:
             )
             return
 
-        body = getattr(message, "body", "") or ""
-        task = Task.new(self._repo_path, body, engine=self._engine_name)
+        raw_body = getattr(message, "body", "") or ""
+        body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
+
+        task = Task.new(
+            self._repo_path,
+            body,
+            engine=self._engine_name,
+            attachments=attachments or None,
+        )
         req_config = _dc_replace(self._config, role=decision.role)
 
+        await self._dispatch_and_reply(
+            task,
+            req_config,
+            target=target,
+            role=decision.role,
+            attachment_notes=attachment_notes,
+        )
+
+    def _resolve_attachments(
+        self, sender: str, raw_body: str
+    ) -> tuple[str, list[dict[str, Any]], list[str]]:
+        """Parse + trust-check + validate a message body's ``attach:`` lines (t12).
+
+        Returns ``(cleaned_body, attachments, attachment_notes)``: the body
+        with every ``attach:`` line removed, the accepted attachments in
+        ``colleague.media.validate_attachment``'s ``{"path", "media_type"}``
+        shape, and a list of human-readable notes for anything dropped (the
+        attachment cap, a c19 trust refusal, or a validation failure) — never
+        a crash, and the caller proceeds under the SAME role regardless of
+        how many attachments were refused. See the module docstring's "Media
+        references" section for the full contract.
+        """
+        body, attach_candidates, dropped = _extract_attach_lines(raw_body)
+
+        attachments: list[dict[str, Any]] = []
+        attachment_notes: list[str] = []
+        if dropped:
+            attachment_notes.append(
+                f"ignored {dropped} extra attach: line(s) beyond the "
+                f"{_MAX_ATTACHMENTS}-attachment cap"
+            )
+        for candidate in attach_candidates:
+            path_decision = check_attachment_path(
+                candidate,
+                repo_path=self._repo_path,
+                sender=sender,
+                operator_identity=self._operator_identity,
+            )
+            if not path_decision.allowed:
+                attachment_notes.append(path_decision.reason)
+                continue
+            try:
+                attachments.append(validate_attachment(candidate))
+            except ValueError as exc:
+                attachment_notes.append(f"attach: {candidate!r} failed validation — {exc}")
+
+        return body, attachments, attachment_notes
+
+    async def _dispatch_and_reply(
+        self,
+        task: Task,
+        req_config: "EngineConfig",
+        *,
+        target: str,
+        role: Optional[str],
+        attachment_notes: list[str],
+    ) -> None:
+        """Run one work item via :meth:`_dispatch` and enqueue exactly one reply.
+
+        A caught :class:`~colleague.cli._errors.CliError` becomes an error
+        reply (``status: error``); any OTHER exception propagates unchanged so
+        the Supervisor's pump records it via ``failure()`` (see the
+        :meth:`feed_message` / module docstring). A successful dispatch's
+        reply carries the ``TaskResult`` summary + artifact pointer. Either
+        reply carries ``attachment_notes`` when non-empty.
+        """
         loop = asyncio.get_running_loop()
         try:
             result, artifact_path = await loop.run_in_executor(
@@ -258,10 +391,12 @@ class AppserverHarness:
 
             if not isinstance(exc, CliError):
                 raise  # a genuine infra failure -> surfaced via Supervisor.failure()
-            reply_meta: dict[str, Any] = {"status": "error", "role": decision.role}
+            reply_meta: dict[str, Any] = {"status": "error", "role": role}
             partial = exc.result
             if partial is not None:
                 reply_meta["task_id"] = partial.task_id
+            if attachment_notes:
+                reply_meta["attachment_notes"] = attachment_notes
             await self._reply_queue.put(
                 Message(
                     sender=self._agent_nick,
@@ -273,18 +408,21 @@ class AppserverHarness:
             )
             return
 
+        reply_meta: dict[str, Any] = {
+            "task_id": result.task_id,
+            "status": result.status,
+            "artifact": str(artifact_path),
+            "role": role,
+        }
+        if attachment_notes:
+            reply_meta["attachment_notes"] = attachment_notes
         await self._reply_queue.put(
             Message(
                 sender=self._agent_nick,
                 target=target,
                 body=result.summary or "",
                 kind="message",
-                metadata={
-                    "task_id": result.task_id,
-                    "status": result.status,
-                    "artifact": str(artifact_path),
-                    "role": decision.role,
-                },
+                metadata=reply_meta,
             )
         )
 

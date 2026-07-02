@@ -76,6 +76,8 @@ treat ❌-by-staleness the same as never-validated.
 | 12 | Resident appserver (agent-lifecycle embed) | `colleague/resident/appserver.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (real `agent_lifecycle` 0.9.0 + reference transport e2e; REAL mesh transport PENDING upstream — h15, never claimed) | — |
 | 13 | Spontaneous `subagents` delegation | `colleague/subagents.py` | ✅ | `bf6cf2d` · 2026-07-02 (work items `5ccdf8573cad` ×1, `6422d3224e32` ×2 with 7 folded sub_results — UNPROMPTED, superseding §2's "needs an explicit invite" caveat) | — |
 | 14 | Substantial decomposed write (h9) | `colleague/loop.py`, `colleague/tools.py`, `colleague/subagents.py` | ⚠️ | `22adbb3` · 2026-07-02 (pre-fix `4c6a96107269` CRASHED on a malformed tool call; post-fix `55859cb1d605` survived to an honest `incomplete` — harness proven, the served 27B couldn't land the full decomposition; see the substantial-write section below) | — |
+| 15 | Media image live proof (`media_image`) | `colleague/livecheck.py` | ⚠️ | `ec500c0` · 2026-07-02 (classification logic unit-proven, `tests/test_livecheck_media.py`; live rig run PENDING — see the media-proofs section below) | — |
+| 16 | Media audio honest-skip (`media_audio`) | `colleague/livecheck.py` | ⚠️ | `ec500c0` · 2026-07-02 (SKIP-on-drop classification unit-proven; a live run today is EXPECTED to SKIP, never pass — see the media-proofs section below) | — |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -625,3 +627,74 @@ cannot land it decomposed is recorded as a model limit, never claimed solved.
   re-run (`2 passed in 699.70s`). This is the same markup-emission pathology
   that limited the h9 substantial-write run — now isolated to the serving
   layer with wire-level evidence.
+
+## Media attachment live proofs (spec 2026-07-02, plan task t13)
+
+Two new `colleague/livecheck.py` checks prove the media arc's headline claim —
+"colleague verifies the model actually saw \[an attachment] instead of trusting
+a 200" — against a real rig. Unlike the pytest-file proofs in the
+[matrix](#validation-matrix) above (each a *separate* gated test file the
+runner subprocesses into), these two drive one real `engine.work()` call
+directly (`VllmOpenAIEngine().work(task, config)`, the same seam
+`tests/test_vllm_live.py` uses) because each needs a runtime-generated
+fixture attachment rather than a pre-existing test file:
+
+- **`run_media_image_check`** — hand-encodes a real solid-red PNG (stdlib
+  `zlib`/`struct`, no third-party imaging library) at runtime, attaches it via
+  the same `Task.attachments` shape `work --attach` builds, and asks "What
+  color is the attached image? Answer with the color name only." **PASSES
+  only when BOTH** the answer names "red" **AND** `TaskResult.media` records
+  the attachment `delivered` — a 200 response whose media record says
+  dropped/unknown/missing **always FAILS**, even if the (hallucinated)
+  answer happens to say "red" (`classify_media_image_check`,
+  `TestClassifyMediaImageCheck.test_dropped_with_red_answer_still_fails`
+  pins the never-trust-a-200 rule). **Gating condition:** a live,
+  media-capable serving path must be configured — as of 2026-07-02 that is
+  Gemma4 (`coolthor/gemma-4-12B-it-NVFP4A16`; the reference 27B main model is
+  text-only), reached by passing `model="coolthor/gemma-4-12B-it-NVFP4A16"`
+  (or setting `COLLEAGUE_MODEL`).
+- **`run_media_audio_check`** — generates a tiny valid mono WAV clip (stdlib
+  `wave` module) and asks the model to describe it. **Gating condition:**
+  gated on the rig actually *consuming* `input_audio`. As of 2026-07-02 the
+  reference rig **silently drops** it (200 OK, ~0 prompt tokens contributed —
+  the same silent-drop shape row 9/t9's delivered-vs-dropped verification
+  classifies `dropped`), so this check **currently reports SKIP** with the
+  reason `"rig silently drops input_audio (200 OK, ~0 prompt tokens
+  contributed — see docs/live-testing.md)"` and **never reports pass** while
+  that holds (`classify_media_audio_check`,
+  `TestClassifyMediaAudioCheck.test_never_passes_while_dropped_even_with_a_plausible_answer`).
+  The classification is written to flip automatically the day the rig
+  changes: a `delivered` attachment is graded like any other proof (pass on
+  a real answer, fail on none) instead of an unconditional skip — no plan
+  task claims working audio (plan risk, task t13).
+- Both checks degrade to `skipped` — never a traceback — when the configured
+  endpoint is unreachable (`probe_endpoint` short-circuit, no fixture is even
+  built) or when the live call itself raises mid-flight (network drop,
+  malformed response); see
+  `TestRunMediaChecksOffline`/`TestRunMediaChecksLiveCallErrors` in
+  `tests/test_livecheck_media.py`.
+
+**Result — deterministic (unit-proven), live run PENDING.** The
+classification logic (`_attachment_status`, `classify_media_image_check`,
+`classify_media_audio_check`), the fixture generation
+(`_make_red_png`/`_make_test_wav`, structurally verified — CRC-valid PNG
+chunks, `wave`-readable WAV), and the offline/error-degradation paths are all
+pinned by `tests/test_livecheck_media.py` (30 tests, zero network — simulated
+`TaskResult.media`/`summary` payloads only). Neither `run_media_image_check`
+nor `run_media_audio_check` has been executed against the reference rig yet
+— rows 15/16 in the [matrix](#validation-matrix) record this honestly (⚠️,
+not ✅). Run them live with:
+
+```bash
+uv run python -c "
+from colleague.livecheck import run_media_image_check, run_media_audio_check
+print(run_media_image_check('.', model='coolthor/gemma-4-12B-it-NVFP4A16'))
+print(run_media_audio_check('.'))
+"
+```
+
+**Acceptance to flip row 15 to ✅:** a live `run_media_image_check` call
+returns `status="passed"` (answer names red AND delivered recorded). **Row
+16 stays ⚠️/expected-SKIP by design** until the rig itself changes to consume
+`input_audio` — a `skipped` result with the silent-drop reason IS the correct
+outcome today, not a gap to close.
