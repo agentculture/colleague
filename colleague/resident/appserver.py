@@ -199,7 +199,10 @@ class AppserverHarness:
         self._reply_queue: "asyncio.Queue[Any]" = asyncio.Queue()
         self._replies_iter: Optional[AsyncIterator[Message]] = None
 
-    async def start(self) -> None:
+    # `async` with no `await` is required here: the upstream agent_lifecycle
+    # Harness Protocol declares `async def start()`, and the supervisor awaits
+    # it — a sync def would not conform. NOSONAR (S7503: protocol conformance).
+    async def start(self) -> None:  # NOSONAR
         """Fresh reply stream per session (supports restart of the harness itself)."""
         self._replies_iter = None
 

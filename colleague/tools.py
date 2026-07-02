@@ -408,16 +408,16 @@ SCHEMAS: list[dict[str, Any]] = [
                         "type": "string",
                         "enum": ["recall", "remember"],
                         "description": (
-                            "The memory operation: 'recall' to search, " "'remember' to store."
+                            "The memory operation: 'recall' to search, 'remember' to store."
                         ),
                     },
                     "query": {
                         "type": "string",
-                        "description": ("Search query for recall " "(required when verb=recall)."),
+                        "description": "Search query for recall (required when verb=recall).",
                     },
                     "record": {
                         "type": "object",
-                        "description": ("Record dict to store " "(required when verb=remember)."),
+                        "description": "Record dict to store (required when verb=remember).",
                     },
                     "top_k": {
                         "type": "integer",

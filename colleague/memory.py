@@ -87,7 +87,7 @@ def recall(
             timeout=timeout,
             env=env,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError):
         return []
 
     stdout = proc.stdout or ""
@@ -96,7 +96,7 @@ def recall(
         if isinstance(results, list):
             return results
         return []
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         return []
 
 
@@ -144,7 +144,7 @@ def remember(
             timeout=timeout,
             env=env,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError):
         return False
 
     return proc.returncode == 0

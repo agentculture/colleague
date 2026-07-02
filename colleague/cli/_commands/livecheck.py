@@ -127,7 +127,7 @@ def _print_table(results: list[ProofResult]) -> None:
     failed = sum(1 for r in results if r.status == "failed")
     skipped = sum(1 for r in results if r.status == "skipped")
     total = len(results)
-    print(f"\nsummary: {passed} passed, {failed} failed, {skipped} skipped " f"({total} total)")
+    print(f"\nsummary: {passed} passed, {failed} failed, {skipped} skipped ({total} total)")
 
 
 def register(sub: argparse._SubParsersAction) -> None:

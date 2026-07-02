@@ -689,6 +689,25 @@ def _validated_mode(mode: str | None) -> str | None:
     return mode
 
 
+# The forwardable ``work`` flags a background child inherits verbatim, in CLI
+# order: ``(args attr, flag, kind)`` where kind "value" carries an argument and
+# "bool" is a bare switch. max_steps / mode / tui / tui-events / json have
+# non-uniform shapes and stay explicit in _background_child_argv.
+_CHILD_FLAG_TABLE: tuple[tuple[str, str, str], ...] = (
+    ("engine", "--engine", "value"),
+    ("no_pr", "--no-pr", "bool"),
+    ("allow_dirty", "--allow-dirty", "bool"),
+    ("no_lint", "--no-lint", "bool"),
+    ("no_affected_tests", "--no-affected-tests", "bool"),
+    ("test", "--test", "value"),
+    ("base", "--base", "value"),
+    ("base_url", "--base-url", "value"),
+    ("model", "--model", "value"),
+    ("role", "--role", "value"),
+    ("api_key", "--api-key", "value"),
+)
+
+
 def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
     """Rebuild ``work``'s CLI argv for the detached background child (t12).
 
@@ -708,28 +727,15 @@ def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
         argv += ["--command", command_name]
     argv += list(getattr(args, "instruction", None) or [])
     argv += ["--repo", str(repo)]
-    if getattr(args, "engine", None):
-        argv += ["--engine", args.engine]
-    if getattr(args, "no_pr", False):
-        argv.append("--no-pr")
-    if getattr(args, "allow_dirty", False):
-        argv.append("--allow-dirty")
-    if getattr(args, "no_lint", False):
-        argv.append("--no-lint")
-    if getattr(args, "no_affected_tests", False):
-        argv.append("--no-affected-tests")
-    if getattr(args, "test", None):
-        argv += ["--test", args.test]
-    if getattr(args, "base", None):
-        argv += ["--base", args.base]
-    if getattr(args, "base_url", None):
-        argv += ["--base-url", args.base_url]
-    if getattr(args, "model", None):
-        argv += ["--model", args.model]
-    if getattr(args, "role", None):
-        argv += ["--role", args.role]
-    if getattr(args, "api_key", None):
-        argv += ["--api-key", args.api_key]
+    # Table-driven forwarding (order preserved from the CLI surface): "value"
+    # appends flag + str(value) when truthy, "bool" appends the bare flag.
+    for attr, flag, kind in _CHILD_FLAG_TABLE:
+        value = getattr(args, attr, None)
+        if kind == "bool":
+            if value:
+                argv.append(flag)
+        elif value:
+            argv += [flag, str(value)]
     if getattr(args, "max_steps", None) is not None:
         argv += ["--max-steps", str(args.max_steps)]
     if getattr(args, "mode", None):
@@ -847,21 +853,7 @@ def cmd_work(args: argparse.Namespace) -> int:
         # Detach and return immediately — never runs the loop in this process.
         return _cmd_work_background(args, repo, json_mode)
 
-    watch = bool(getattr(args, "watch", False))
-    task.watch = watch
-    if watch:
-        if flight.depth_exceeded():
-            raise CliError(
-                EXIT_USER_ERROR,
-                "flight depth cap reached — refusing to nest another sub-flight",
-                "a flight may pilot a sub-flight, but not unbounded recursion",
-            )
-        os.environ.update(flight.child_depth_env())
-        emit_diagnostic(
-            f"flight: {task.id}\n"
-            f"feed: {flight.feed_path(repo, task.id)}\n"
-            f"control: {flight.control_path(repo, task.id)}"
-        )
+    _arm_watch(args, task, repo)
 
     # Delegate the full work orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
@@ -893,6 +885,33 @@ def cmd_work(args: argparse.Namespace) -> int:
             emit_result(exc.result.to_dict(), json_mode=True)
         raise
 
+    return _emit_work_outcome(result, engine, artifact_path, json_mode)
+
+
+def _arm_watch(args: argparse.Namespace, task, repo: Path) -> None:
+    """Arm the flight control plane when ``--watch`` was passed (extracted from
+    :func:`cmd_work` to keep its cognitive complexity in budget — S3776)."""
+    watch = bool(getattr(args, "watch", False))
+    task.watch = watch
+    if not watch:
+        return
+    if flight.depth_exceeded():
+        raise CliError(
+            EXIT_USER_ERROR,
+            "flight depth cap reached — refusing to nest another sub-flight",
+            "a flight may pilot a sub-flight, but not unbounded recursion",
+        )
+    os.environ.update(flight.child_depth_env())
+    emit_diagnostic(
+        f"flight: {task.id}\n"
+        f"feed: {flight.feed_path(repo, task.id)}\n"
+        f"control: {flight.control_path(repo, task.id)}"
+    )
+
+
+def _emit_work_outcome(result, engine: str, artifact_path, json_mode: bool) -> int:
+    """Surface warnings + the result, and map status to the exit code (extracted
+    from :func:`cmd_work` to keep its cognitive complexity in budget — S3776)."""
     # Surface the warn-only "too big for one repo" capacity warning (#156) on stderr
     # — a diagnostic, so it never pollutes the stdout result stream and reaches the
     # caller (agent or human) in both text and --json modes; it is also recorded in

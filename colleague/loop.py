@@ -234,7 +234,10 @@ _META_FINISH_PROMPT = (
 # tool call. The report exists — only the transport failed — so the loop re-parses
 # that shape and treats it as the finish payload instead of losing it to the
 # nudge/stop path. Tolerant by design: optional ``<tool_call>`` wrapper, optional
-# ``<`` on the function tag, DOTALL summary capture up to ``</parameter>``.
+# ``<`` on the function tag, summary = everything between ``<parameter=summary>``
+# and the next ``</parameter>``. Parsed with linear ``str.find`` scans (not a
+# regex) so a large adversarial content string cannot trigger super-linear
+# backtracking (SonarCloud S8786).
 #
 #   <tool_call>
 #   function=finish>
@@ -243,24 +246,27 @@ _META_FINISH_PROMPT = (
 #   </parameter>
 #   </function>
 #   </tool_call>
-_LITERAL_FINISH_RE = _re.compile(
-    r"<?function=finish>?.*?<parameter=summary>\s*(?P<summary>.+?)\s*</parameter>",
-    _re.DOTALL,
-)
+_SUMMARY_OPEN = "<parameter=summary>"
+_SUMMARY_CLOSE = "</parameter>"
 
 
 def _parse_literal_finish(content: str) -> str | None:
     """Recover a finish summary from literal tool-call markup in message content.
 
     Returns the summary text, or ``None`` when the content is ordinary prose (the
-    cheap substring guards keep the regex off the hot path). #248 mode B.
+    cheap substring guards keep the scan off the hot path). #248 mode B.
     """
-    if "function=finish" not in content or "<parameter=summary>" not in content:
+    marker = content.find("function=finish")
+    if marker == -1:
         return None
-    match = _LITERAL_FINISH_RE.search(content)
-    if match is None:
+    start = content.find(_SUMMARY_OPEN, marker)
+    if start == -1:
         return None
-    return match.group("summary").strip() or None
+    start += len(_SUMMARY_OPEN)
+    end = content.find(_SUMMARY_CLOSE, start)
+    if end == -1:
+        return None
+    return content[start:end].strip() or None
 
 
 # Pre-completion phase notices (colleague#206) — fired through the progress sink
@@ -1547,7 +1553,9 @@ def _maybe_recall_memory(ctx: _Work) -> None:
     query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
     try:
         records = _memorymod.recall(_memory_repo(ctx), query, top_k=5, timeout=_MEMORY_TIMEOUT)
-    except Exception:  # noqa: BLE001 - advisory context, never a precondition
+    except Exception:  # noqa: BLE001
+        # Advisory context only, never a precondition — a recall failure must
+        # not block the run.
         return
     block = _memorymod.build_recall_block(records) if records else ""
     if block:
