@@ -742,7 +742,22 @@ class ToolExecutor:
         handler = dispatch.get(name)
         if handler is None:
             raise ToolError(f"unknown tool '{name}'")
-        return handler(arguments)
+        try:
+            return handler(arguments)
+        except ToolError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - defense-in-depth (#269)
+            # A handler crash on model-supplied input is a MODEL-visible step
+            # error, never a run abort: the per-arg `_require` guards cover the
+            # known required keys, but any future unguarded KeyError/TypeError in
+            # a handler must still bounce back to the model as a self-correcting
+            # observation naming the tool (the live 1.30.0 failure aborted a
+            # flight with a bare "'path'" — unknown-tool errors already recovered,
+            # malformed-call errors must behave the same).
+            raise ToolError(
+                f"{name} failed: {type(exc).__name__}: {exc} — check the tool's "
+                f"argument schema and retry"
+            ) from exc
 
     def _finish(self, arguments: dict[str, Any]) -> ToolOutcome:
         """The ``finish`` tool — record the terminal summary + optional destination."""
@@ -1255,6 +1270,13 @@ class ToolExecutor:
             raise ToolError(f"subagents failed: {exc}") from exc
 
         self.sub_results.extend(batch_results)
+        # Merge every child's changed files into the parent tracker (#263) — the
+        # single-`subagent` path already does this (see `_subagent`); without it a
+        # batch child's edits are invisible to the artifact's `changed_files` AND
+        # to every changed-file-scoped pre-handoff gate (lint / test-integrity /
+        # affected-tests), silently under-scoping all three.
+        for sub in batch_results:
+            self.changed.update(sub.changed_files)
 
         # Build a summary line: report each child's status + the merge outcome.
         lines = []

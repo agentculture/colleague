@@ -269,6 +269,53 @@ def _parse_literal_finish(content: str) -> str | None:
     return content[start:end].strip() or None
 
 
+# Markup-shaped synthesis guard (#264): the forced-synthesis turn's OWN output can
+# itself be literal tool-call markup (the same served-model failure mode #248
+# recovers for `finish`) — used verbatim it garbles the terminal summary (live:
+# work item 55859cb1d605). The guard detects the markup shape, retries ONCE with
+# an explicit plain-prose instruction (the bounded-retry precedent of
+# `_final_degraded_attempt`; stays on the MAIN model like every synthesis turn),
+# and otherwise salvages the prose prefix before the first marker; when nothing
+# substantive survives, the summary is left unset so `_resolve_terminal_summary`
+# falls through to its next rung (compaction self-summary → last-substantive).
+# Markers are LINE-ANCHORED (a marker mid-sentence is prose *about* markup, not
+# markup — this repo's own docs discuss these tokens) and scanned with linear
+# `str.find` (no regex — SonarCloud S8786).
+_TOOL_MARKUP_MARKERS = (
+    "<tool_call",
+    "</tool_call>",
+    "<parameter=",
+    "</parameter>",
+    "</function>",
+)
+_MARKUP_SALVAGE_CHARS = 80
+_MARKUP_SYNTHESIS_PROMPT = (
+    "Your reply was tool-call markup, but there are no tools on this turn — markup "
+    "is ignored. Reply again NOW with the answer itself as plain prose only: no "
+    "<tool_call>, no <parameter=...> syntax, just the findings/summary text."
+)
+
+
+def _strip_tool_markup(text: str) -> str:
+    """Return *text* truncated at the first line-anchored tool-markup marker.
+
+    Returns the stripped input unchanged when no marker starts a line — the
+    cheap substring scans keep this off the hot path (#264).
+    """
+    cut = len(text)
+    for marker in _TOOL_MARKUP_MARKERS:
+        start = 0
+        while True:
+            idx = text.find(marker, start)
+            if idx == -1 or idx >= cut:
+                break
+            if idx == 0 or text[idx - 1] == "\n":
+                cut = idx
+                break
+            start = idx + 1
+    return text[:cut].strip()
+
+
 # Pre-completion phase notices (colleague#206) — fired through the progress sink
 # right BEFORE a model completion so a long single turn (above all the final
 # no-tools synthesis turn) is visibly "working, not stalled" on a slow backend. A
@@ -577,6 +624,16 @@ class _Work:
     # once-per-work-item advisory was recorded.
     request_timeout: float | None = None
     fanout_throttle: Callable[[str], None] | None = None
+    # Bounded one-time request-timeout raise (#268): the backend-built escalator
+    # (:func:`_make_timeout_escalator` via ``ContextControls.from_config``) that
+    # doubles the engine's per-turn timeout ONCE per work item. ``None`` (direct
+    # ``run`` callers) leaves the feature dormant — byte-identical behavior.
+    escalate_timeout: Callable[[], float | None] | None = None
+    # The raised per-turn timeout after a #268 escalation — a list cell because
+    # ``_Work`` is frozen (the ``_turn_latencies``/``_backpressure_state``
+    # precedent). Read through :func:`_effective_timeout` so backpressure
+    # classification runs against the raised cap.
+    _escalated_timeout: list[float] = field(default_factory=list)
     _turn_latencies: list[float] = field(default_factory=list)
     _backpressure_state: list[str] = field(default_factory=list)
     _backpressure_advised: list[bool] = field(default_factory=list)
@@ -1219,6 +1276,13 @@ def _plan_degraded_retry(
     if signal is None:
         return None  # non-degradable: propagate immediately (unchanged)
     saw_overflow = saw_overflow or signal == "overflow"
+    if signal == "timeout":
+        # #268 ask 1: raise the per-turn timeout (bounded, once) BEFORE the retry
+        # so the retry gets real headroom — a shrunken window alone cannot help
+        # when the server itself is saturated (the observed irc-lens abort: both
+        # attempts hit the same 120s wall). A no-op when already raised by the
+        # proactive backpressure trigger or when no escalator is wired.
+        _escalate_request_timeout(ctx, "a turn timeout")
     cap = _MAX_OVERFLOW_RETRIES if saw_overflow else _MAX_TIMEOUT_RETRIES
     shrunk = _shrink_for_retry(ctx, effective)
     if shrunk is None:
@@ -1241,6 +1305,12 @@ def _final_degraded_attempt(ctx: _Work, complete: CompleteFn, effective: int) ->
         if classify_degradable(str(exc)) is not None:
             _remember_degraded_floor(ctx, effective)
         raise
+
+
+def _effective_timeout(ctx: _Work) -> float | None:
+    """The live per-turn timeout: the #268-escalated value when raised, else the
+    configured one — so backpressure classifies against the cap actually in force."""
+    return ctx._escalated_timeout[0] if ctx._escalated_timeout else ctx.request_timeout
 
 
 def _current_backpressure(ctx: _Work) -> str:
@@ -1277,7 +1347,7 @@ def _record_turn_latency(ctx: _Work, seconds: float) -> None:
     """
     ctx._turn_latencies.append(seconds)
     previous = _current_backpressure(ctx)
-    state = backpressure.assess(ctx._turn_latencies, float(ctx.request_timeout or 0))
+    state = backpressure.assess(ctx._turn_latencies, float(_effective_timeout(ctx) or 0))
     ctx._backpressure_state[:] = [state]
     if state == previous:
         return
@@ -1289,13 +1359,50 @@ def _record_turn_latency(ctx: _Work, seconds: float) -> None:
         note = (
             f"backpressure {state}: model turns are averaging "
             f"{sum(ctx._turn_latencies[-3:]) / len(ctx._turn_latencies[-3:]):.0f}s "
-            f"toward the {ctx.request_timeout:.0f}s request timeout — tightening the "
+            f"toward the {(_effective_timeout(ctx) or 0):.0f}s request timeout — tightening the "
             f"context window (x{backpressure.shrink_fraction(state)}) and subagent "
             "fan-out until turns recover"
         )
         existing = ctx.result.capacity_warning
         ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
         _emit_phase(ctx, note)
+        # #268 ask 2: the harness saw the timeout coming — raise the per-turn
+        # timeout NOW (bounded, once) instead of pushing "raise COLLEAGUE_TIMEOUT"
+        # to the caller after the work is lost.
+        _escalate_request_timeout(ctx, "turns drifting toward the request timeout")
+
+
+def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
+    """Bounded one-time raise of the engine's per-turn request timeout (#268).
+
+    Fired from two places — the backpressure departure-from-CLEAR advisory
+    (proactive) and a timeout-classified degraded retry (reactive) — whichever
+    comes first; the escalator closure itself enforces once-per-work-item and
+    the x2 bound (see :func:`_make_timeout_escalator`), so double-firing is
+    structurally impossible. Updates ``ctx.request_timeout`` so subsequent
+    backpressure classification runs against the raised cap, records the raise
+    on ``result.capacity_warning`` (artifact-visible), and emits a phase notice
+    (operator-visible). Returns the note, or ``None`` when dormant / already
+    raised / nothing to raise. Best-effort: an escalator error never breaks the
+    turn.
+    """
+    if ctx.escalate_timeout is None:
+        return None
+    try:
+        raised = ctx.escalate_timeout()
+    except Exception:  # noqa: BLE001 - advisory plumbing must never break a turn
+        return None
+    if not raised:
+        return None
+    ctx._escalated_timeout[:] = [raised]
+    note = (
+        f"request timeout raised to {raised:.0f}s after {trigger} "
+        f"(bounded one-time x2 — cheaper than losing the flight)"
+    )
+    existing = ctx.result.capacity_warning
+    ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
+    _emit_phase(ctx, note)
+    return note
 
 
 def _complete_with_degradation(
@@ -1697,12 +1804,48 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     except Exception:  # noqa: BLE001 - best-effort; a finalize-time turn never raises
         return
     _account_turn(ctx, resp)
-    if resp.content:
+    content, markup_recovered = _plain_prose_synthesis(ctx, complete, resp)
+    if content:
         if reason is not None:
             # Honest degradation marker (#248/#231, h8): the artifact records that
             # the summary came from a recovery turn, not the model's own finish.
             ctx.result.finish_recovered = f"{reason}-finish-synthesis"
-        ctx.result.summary = resp.content
+        elif markup_recovered:
+            # Honest marker (#264): the synthesis turn itself emitted tool markup
+            # and the summary came from the recovery pass, not the first output.
+            ctx.result.finish_recovered = "markup-synthesis"
+        ctx.result.summary = content
+
+
+def _plain_prose_synthesis(
+    ctx: _Work, complete: CompleteFn, first: ModelResponse
+) -> tuple[str, bool]:
+    """Return ``(content, recovered)`` — plain-prose text from a synthesis turn (#264).
+
+    ``recovered`` is True when the first synthesis output was markup-contaminated
+    and a recovery pass produced the returned content: ONE bounded plain-prose
+    retry, else the prose prefix before the first marker when substantive
+    (>= ``_MARKUP_SALVAGE_CHARS``). An empty return means nothing usable survived —
+    the caller leaves the summary unset so ``_resolve_terminal_summary`` falls
+    through to its next rung instead of shipping garbled markup as the deliverable.
+    """
+    content = (first.content or "").strip()
+    prefix = _strip_tool_markup(content)
+    if prefix == content:
+        return content, False
+    ctx.messages.append({"role": "assistant", "content": first.content})
+    ctx.messages.append({"role": "user", "content": _MARKUP_SYNTHESIS_PROMPT})
+    try:
+        retry = _complete_with_degradation(ctx, complete, phase=_PHASE_SYNTHESIZING)
+    except Exception:  # noqa: BLE001 - best-effort; salvage what the first turn had
+        return (prefix if len(prefix) >= _MARKUP_SALVAGE_CHARS else ""), True
+    _account_turn(ctx, retry)
+    retry_content = (retry.content or "").strip()
+    retry_prefix = _strip_tool_markup(retry_content)
+    if retry_content and retry_prefix == retry_content:
+        return retry_content, True
+    best = retry_prefix if len(retry_prefix) > len(prefix) else prefix
+    return (best if len(best) >= _MARKUP_SALVAGE_CHARS else ""), True
 
 
 def _resolve_terminal_summary(
@@ -1914,6 +2057,12 @@ class ContextControls:
     # comparable config (the EngineConfig.role/spawn-callback precedent); the
     # all-engines guarantee comes from from_config being the single source.
     throttle_fanout: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
+    # Bounded one-time request-timeout raise (#268): built by
+    # :func:`_make_timeout_escalator` in :meth:`from_config` (the all-engines
+    # single source). ``None`` (direct ``run`` callers) = dormant, byte-identical.
+    escalate_timeout: Callable[[], float | None] | None = field(
+        default=None, compare=False, repr=False
+    )
     # Dual-model deepthink escalation (t5 / spec c10): the bound ``DeepthinkRun``
     # seam (:func:`colleague.deepthink.make_deepthink_run`), ``None`` when no
     # dual-model config is present — the runtime escalation points (acceptance
@@ -2008,6 +2157,7 @@ class ContextControls:
             synthesis_reserve=config.synthesis_reserve_steps,
             request_timeout=config.timeout,
             throttle_fanout=_make_fanout_throttle(config),
+            escalate_timeout=_make_timeout_escalator(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
             memory=config.memory,
@@ -2023,6 +2173,49 @@ class ContextControls:
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
         )
+
+
+def _make_timeout_escalator(config) -> Callable[[], float | None]:
+    """Build the bounded one-time request-timeout raise bound to *config* (#268).
+
+    Every backend's completion closure reads ``config.timeout`` per call (the
+    vLLM adapter passes it to ``_post_json`` on each turn; mock ignores it), so
+    raising it here takes effect on the very next attempt — including the
+    degraded retry of the turn that just timed out. Bounded and once-only by
+    construction: a single x2 raise per work item, never repeated, so the
+    documented worst case on a genuinely dead server grows from
+    ``2 x timeout`` to ``timeout + 2 x timeout`` and no further. Returns the
+    raised value once, ``None`` on every later call or when no positive
+    timeout is configured.
+
+    **Escalation never compounds across work items (Qodo PR #271):** the raise
+    mutates ``config.timeout`` in place, and that instance is shared — a
+    subagent child config derives via ``dataclasses.replace(parent_config, …)``
+    (copying the escalated value), and the session reuses one config across
+    palette work items. So the first escalation records the operator's value on
+    ``config.base_timeout``, and every escalator BUILD (this function runs once
+    per work item, parent and child alike, via ``ContextControls.from_config``)
+    restores ``config.timeout`` from it first. A child or follow-up work item
+    therefore always starts at the operator's timeout and can raise to at most
+    2x that — never 4x.
+    """
+    base = getattr(config, "base_timeout", None)
+    if base is not None and base > 0:
+        config.timeout = base
+    done = [False]
+
+    def escalate() -> float | None:
+        if done[0]:
+            return None
+        current = getattr(config, "timeout", None)
+        if not current or current <= 0:
+            return None
+        done[0] = True
+        config.base_timeout = float(current)
+        config.timeout = float(current) * 2
+        return config.timeout
+
+    return escalate
 
 
 def _make_fanout_throttle(config) -> Callable[[str], None]:
@@ -2814,6 +3007,7 @@ def run(
         max_continue_nudges=_resolve_nudge_cap(_context),
         request_timeout=_context.request_timeout,
         fanout_throttle=_context.throttle_fanout,
+        escalate_timeout=_context.escalate_timeout,
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,

@@ -8,9 +8,15 @@ from colleague.config import EngineConfig
 
 
 def test_context_budget_default() -> None:
-    """Default context_budget_tokens is sized for the 256k reference rig."""
+    """Default context_budget_tokens fits the reference rig's SERVED window.
+
+    The lobes rig serves the default 27B at 64K (65536 tokens, probed live
+    2026-07-02), so the default keeps the ~0.73 fill fraction: 48000. The old
+    192000 assumed the retired 256K serving and drove long runs into
+    overflow/latency churn.
+    """
     cfg = EngineConfig.resolve()
-    assert cfg.context_budget_tokens == 192000
+    assert cfg.context_budget_tokens == 48000
 
 
 def test_context_budget_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,20 +45,21 @@ def test_context_budget_to_dict_default() -> None:
     """to_dict() with default context_budget_tokens."""
     cfg = EngineConfig.resolve()
     snapshot = cfg.to_dict()
-    assert snapshot["context_budget_tokens"] == 192000
+    assert snapshot["context_budget_tokens"] == 48000
 
 
 # ---------------------------------------------------------------------------
 # Tool-output cap: explicit > COLLEAGUE_MAX_OUTPUT_CHARS > default. Mirrors the
-# context-budget knob — sized for the 256k window so a large file read isn't
-# truncated at the old hardcoded 20000 chars.
+# context-budget knob — scaled with the budget (~13% of window) so one large
+# read can't evict half the working history; still above the old hardcoded
+# 20000 chars.
 # ---------------------------------------------------------------------------
 
 
 def test_max_output_chars_default() -> None:
-    """Default max_output_chars is raised from the old hardcoded 20000."""
+    """Default max_output_chars scales with the budget, above the old 20000."""
     cfg = EngineConfig.resolve()
-    assert cfg.max_output_chars == 100000
+    assert cfg.max_output_chars == 25000
 
 
 def test_max_output_chars_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

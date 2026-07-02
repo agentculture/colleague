@@ -54,7 +54,7 @@ the `--json` work path — not empty output plus an opaque error.
 |---------|--------|-------|
 | `COLLEAGUE_CONTEXT_BUDGET` | Environment variable | Tokens; overrides config default. |
 | `--context-budget-tokens` | CLI flag (future) | Not yet a flag; config only today. |
-| `EngineConfig.context_budget_tokens` | Config object | Default: 192,000 tokens (sized for the 256k-window reference rig; lower it for a small-context model). |
+| `EngineConfig.context_budget_tokens` | Config object | Default: 48,000 tokens (48000 — sized for the 64K/65,536-token window the reference rig actually serves the default model at, probed 2026-07-02; raise it for a wider-window model, e.g. 96000 for a 128K serving). |
 
 The budget is resolved via the standard precedence: explicit value (code) >
 environment > default. It must be a positive integer in **tokens** — the exact
@@ -156,7 +156,7 @@ unchanged even with the feature enabled.
 # Explicit budget (tokens):
 COLLEAGUE_CONTEXT_BUDGET=16000 colleague work "read all files" --engine vllm-openai
 
-# Default budget (192,000 tokens, sized for the 256k-window reference rig):
+# Default budget (48,000 tokens, sized for the rig's served 64K window):
 colleague work "read all files" --engine vllm-openai
 
 # Turn off (0 disables proactive windowing; reactive retry still engages on overflow):

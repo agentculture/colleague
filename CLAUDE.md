@@ -269,7 +269,8 @@ The architecture, part by part:
   presence keyed solely on a resolved model; `COLLEAGUE_DEEPTHINK_MODEL`/
   `_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET` env > `.colleague/config.json`
   `deepthink` section > absent; base_url/api_key default to the main endpoint,
-  `context_budget` defaults 48000 (64K-sized; the main default stays 192000).
+  `context_budget` defaults 48000 (64K-sized; the main default is 48000 too
+  since the rig serves the default 27B at 64K).
   The escalation surface is **enumerated** (boundary-tested — the complete
   list): (a) the backend-judged **`deepthink` loop tool** (offered only under
   dual config, judgment-not-mechanics description, available to read-only
@@ -752,12 +753,13 @@ The architecture, part by part:
   the loop injects runs against the small window (not the full one that just
   failed) and can actually complete. The
   knob is `COLLEAGUE_CONTEXT_BUDGET` (tokens, on `EngineConfig.context_budget_tokens`,
-  default 192000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 256k (262144-token)
-  reference rig, leaving headroom for the completion; lower it for a small-context
-  model. A companion knob caps each tool result fed back to the model:
+  default 48000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 64K (65536-token)
+  window the lobes rig actually serves the default 27B at (probed 2026-07-02),
+  leaving headroom for the completion; raise it for a wider-window model (the
+  rig's Gemma4-12B serves 128K → 96000). A companion knob caps each tool result fed back to the model:
   `COLLEAGUE_MAX_OUTPUT_CHARS` (chars, on `EngineConfig.max_output_chars`, default
-  100000, raised from the old hardcoded 20000 so a large `read_file`/`run_command`
-  result isn't truncated inside the bigger window); both resolve via the same
+  25000 — scaled with the budget, ~13% of window, still above the old hardcoded
+  20000); both resolve via the same
   `EngineConfig.resolve` precedence and the backends forward them to the loop
   identically (all-engines rule). The work step budget default is
   `COLLEAGUE_MAX_STEPS` (`EngineConfig.max_steps`, default 40). Token counting goes
@@ -786,7 +788,22 @@ The architecture, part by part:
   `capacity_warning` advisory + a phase-notice line on the first departure from
   CLEAR, and restoring the operator's configured concurrency automatically once
   latency clears. Dormant (no clock, no shrink, no throttle) unless
-  `request_timeout` is set; never switches model or backend. Feature doc:
+  `request_timeout` is set; never switches model or backend. **Timeout
+  survival (#268):** the per-turn request timeout is additionally raised ONCE
+  per work item, bounded ×2 (`_make_timeout_escalator` via
+  `ContextControls.from_config`, all-engines — the engine closure reads
+  `config.timeout` per call so the raise reaches the very next attempt),
+  triggered by whichever fires first: the backpressure departure-from-CLEAR
+  advisory (proactive) or a timeout-classified degraded retry (reactive, so the
+  single #154 retry runs with real headroom instead of hitting the same wall).
+  Recorded on `capacity_warning` + a phase notice; subsequent backpressure
+  classification runs against the raised cap; documented worst case on a dead
+  server grows to `timeout + 2×timeout` and no further. An **engine-failure
+  abort now sweeps the iso worktree's WIP** onto the `colleague/<id>` branch
+  (the #222 sweep extended to the `except Exception` path in `execute_work`)
+  and the error hint names the surviving branch; the effective timeout + its
+  source surface in `colleague doctor` (`provider_timeout`), `work --help`,
+  and `colleague learn`. Feature doc:
   `docs/features/backpressure.md`. Runtime-owned
   (all-engines rule): the feature fires identically for every backend.
   Specification + plan:

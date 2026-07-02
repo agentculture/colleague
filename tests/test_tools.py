@@ -38,6 +38,86 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
         assert "parameters" in schema["function"]
 
 
+def test_subagents_batch_merges_child_changed_files(tmp_path: Path) -> None:
+    """#263: a batch child's changed files must reach the parent tracker.
+
+    The single-``subagent`` path already merges ``sub.changed_files`` into
+    ``executor.changed``; the batch path silently dropped them, so a work item
+    that delegated an edit via ``subagents`` under-reported ``changed_files``
+    in the artifact AND under-scoped every changed-file-scoped pre-handoff
+    gate (lint / test-integrity / affected-tests). Live evidence: work item
+    5ccdf8573cad (t3) — tools.py edited by a batch child, absent from the
+    artifact's changed_files.
+    """
+    from colleague.contract import SubResult
+
+    def fake_batch_spawn(items, batch_role=None):
+        return [
+            SubResult(
+                task_id="c1",
+                engine="mock",
+                model="m",
+                status="ok",
+                summary="edited tools",
+                changed_files=["colleague/tools.py"],
+            ),
+            SubResult(
+                task_id="c2",
+                engine="mock",
+                model="m",
+                status="ok",
+                summary="edited roles",
+                changed_files=["colleague/roles.py"],
+            ),
+            SubResult(
+                task_id="merge",
+                engine="mock",
+                model="m",
+                status="ok",
+                summary="merged",
+                changed_files=[],
+            ),
+        ]
+
+    ex = ToolExecutor(tmp_path, batch_spawn=fake_batch_spawn)
+    out = ex.execute(
+        "subagents",
+        {"instructions": [{"instruction": "edit tools"}, {"instruction": "edit roles"}]},
+    )
+    assert "subagents batch" in out.result
+    assert "colleague/tools.py" in ex.changed
+    assert "colleague/roles.py" in ex.changed
+
+
+def test_dispatch_converts_handler_crash_to_tool_error(tmp_path: Path) -> None:
+    """#269 defense-in-depth: a non-ToolError handler crash becomes a
+    model-visible ToolError naming the tool — a step error the model can react
+    to, never a run abort with a bare ``'path'``."""
+    ex = ToolExecutor(tmp_path)
+
+    def broken(arguments):
+        raise KeyError("path")
+
+    ex._read_file = broken  # simulate a future unguarded handler crash
+    with pytest.raises(ToolError) as ei:
+        ex.execute("read_file", {})
+    msg = str(ei.value)
+    assert "read_file" in msg
+    assert "KeyError" in msg
+
+
+def test_missing_required_arg_is_tool_error_not_crash(tmp_path: Path) -> None:
+    """#269 primary shape (fixed by ``_require`` in 1.31.0, pinned here): a
+    tool call missing its required argument costs one self-correcting step
+    error naming the tool and the key."""
+    ex = ToolExecutor(tmp_path)
+    for tool in ("read_file", "write_file", "edit_file"):
+        with pytest.raises(ToolError) as ei:
+            ex.execute(tool, {})
+        assert tool in str(ei.value)
+        assert "path" in str(ei.value)
+
+
 def test_write_then_read_round_trip(tmp_path: Path) -> None:
     ex = ToolExecutor(tmp_path)
     out = ex.execute("write_file", {"path": "sub/hello.txt", "content": "hi there"})

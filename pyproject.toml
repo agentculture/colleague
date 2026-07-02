@@ -1,6 +1,6 @@
 [project]
 name = "colleague"
-version = "1.31.0"
+version = "1.33.0"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,8 +20,11 @@ classifiers = [
 # allow-lists exactly `agentfront` and asserts no other third-party leaks. The
 # MCP server bonus and its `mcp` SDK ship behind the opt-in [mcp] extra below,
 # never on the base path (no socket/daemon at base).
-# agentfront 0.18.0 ships agentfront.taui (work-loop cockpit; agentfront#43)
-dependencies = ["agentfront>=0.19.0"]
+# agentfront 0.18.0 ships agentfront.taui (work-loop cockpit; agentfront#43);
+# 0.20.0 ships agentfront.testing — the public consumer harness whose
+# assert_surfaces_agree gate colleague's CI adopts (colleague#262 /
+# agentfront#49), pinning that the CLI/MCP/HTTP/TAUI surfaces cannot drift.
+dependencies = ["agentfront>=0.20.0"]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/colleague"

@@ -70,6 +70,29 @@ def _checks(repo_path) -> list[dict]:
         )
     )
 
+    # 1b. provider_timeout — the effective per-turn request timeout + its source
+    # (#268 ask 4: COLLEAGUE_TIMEOUT used to appear only in the failure hint,
+    # after the work was already lost). Always emitted, always healthy (info).
+    if (os.environ.get("COLLEAGUE_TIMEOUT") or "").strip():
+        timeout_source = "env COLLEAGUE_TIMEOUT"
+    elif (os.environ.get("CONVERTIBLE_TIMEOUT") or "").strip():
+        timeout_source = "env CONVERTIBLE_TIMEOUT (deprecated alias)"
+    else:
+        timeout_source = "default"
+    out.append(
+        make_check(
+            "provider_timeout",
+            True,
+            "info",
+            (
+                f"engine request timeout: {cfg.timeout:.0f}s per model turn "
+                f"(source: {timeout_source}); a mid-flight turn timeout or armed "
+                "backpressure raises it once in-flight, bounded x2 — raise "
+                "COLLEAGUE_TIMEOUT up front for big-context audits"
+            ),
+        )
+    )
+
     # For checks 2 and 3, only fire on a non-default (third-party) base_url.
     # A local vLLM rig (default base_url) needs no credentials or budget cap.
     is_third_party = cfg.base_url != _DEFAULT_BASE_URL
