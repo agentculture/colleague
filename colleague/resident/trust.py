@@ -34,11 +34,27 @@ consult peers" — there is no group-intelligence / peer-consultation hook here;
 a plain binary operator/non-operator classification is v0. A future increment
 could let :func:`classify_request` consult a peer roster before refusing, but
 that is out of scope for this task.
+
+**Media references (task t12).** A mesh request MAY reference local media via
+a line-anchored ``attach: <path>`` token (parsed by
+:mod:`colleague.resident.appserver`, which owns the token grammar/cap — this
+module owns only the trust boundary a candidate path must clear).
+:func:`check_attachment_path` applies the SAME operator/non-operator split as
+:func:`classify_request` (via the shared :func:`_is_operator` check — no
+second trust decision path): the operator may reference any local path; a
+non-operator's path must resolve **inside** the target repo's working tree,
+or it is refused before :func:`colleague.media.validate_attachment` (or
+anything else) ever reads the file's content. This is the anti-exfiltration
+rule — a non-operator asking the resident to read and possibly summarize/echo
+back an arbitrary local file (e.g. ``~/.ssh/id_rsa``) is exactly the kind of
+"beyond its limits" request c19 already refuses for write access; the same
+posture applies to *reading* a path outside the repo on a stranger's say-so.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping, Optional
 
 #: Metadata key a caller may set on a request ``Message`` to explicitly ask
@@ -79,6 +95,37 @@ class RequestDecision:
     role: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class AttachmentDecision:
+    """The trust-policy verdict for one mesh-referenced attachment path (t12).
+
+    Attributes:
+        allowed: Whether *path* may be handed to
+            :func:`colleague.media.validate_attachment` for this requester.
+        reason: A human-readable explanation for a recorded/diagnostic note —
+            always names the path, and on refusal names the rule that
+            refused it (the anti-exfiltration containment rule) so a denial
+            is never a bare boolean.
+    """
+
+    allowed: bool
+    reason: str
+
+
+def _is_operator(sender: str, operator_identity: Optional[str]) -> bool:
+    """The single operator-identity check shared by every trust decision here.
+
+    :func:`classify_request` and :func:`check_attachment_path` both call
+    this — deliberately, so an attachment's trust boundary can never drift
+    from a request's trust boundary (this task must not invent a *second*
+    trust decision path; it reuses this exact one). Same fail-safe default
+    as ``classify_request``: an unresolved ``operator_identity`` (``None`` or
+    empty) never matches, so an unconfigured operator never accidentally
+    grants unrestricted access.
+    """
+    return bool(operator_identity) and sender == operator_identity
+
+
 def classify_request(
     *,
     sender: str,
@@ -106,8 +153,7 @@ def classify_request(
     metadata = metadata or {}
     wants_write = metadata.get(MODE_METADATA_KEY) == WRITE_MODE_VALUE
 
-    is_operator = bool(operator_identity) and sender == operator_identity
-    if is_operator:
+    if _is_operator(sender, operator_identity):
         return RequestDecision(
             ALLOW_WRITE,
             f"operator identity {sender!r} confirmed — write-capable work authorized",
@@ -131,6 +177,77 @@ def classify_request(
     )
 
 
+def check_attachment_path(
+    path: str,
+    *,
+    repo_path: str,
+    sender: str,
+    operator_identity: Optional[str] = None,
+) -> AttachmentDecision:
+    """Anti-exfiltration containment check for one mesh ``attach:`` path (t12).
+
+    Called BEFORE :func:`colleague.media.validate_attachment` — this function
+    itself never reads a file's *content*, only path metadata (``Path.resolve()``
+    stats components to follow symlinks; it does not open the target).
+
+    * **Operator** (:func:`_is_operator` — the exact same check
+      :func:`classify_request` uses, not a new trust decision path): any
+      local path is allowed, mirroring the operator's unrestricted
+      write-capable authority under c19.
+    * **Non-operator**: *path* must resolve to somewhere INSIDE *repo_path*'s
+      working tree. Both sides are resolved with ``Path.resolve()`` (which
+      follows symlinks) before the strict containment check
+      (``Path.is_relative_to``), so a symlink placed *inside* the repo that
+      points *outside* it is caught too — not just a literal ``..`` escape.
+      Anything not contained is refused with a reason naming both the path
+      and the rule; refusal never raises — the caller drops the one
+      attachment and continues the (read-only) request.
+
+    Args:
+        path: The raw ``attach:`` token value, exactly as parsed from the
+            request text (not yet validated to exist).
+        repo_path: The target repo's working-tree root the request will run
+            against (``AppserverHarness._repo_path``).
+        sender: The requesting identity (``Message.sender``).
+        operator_identity: The resolved operator identity, or ``None`` if
+            unconfigured (fail-safe: every requester is then non-operator).
+
+    Returns:
+        An :class:`AttachmentDecision`.
+    """
+    if _is_operator(sender, operator_identity):
+        return AttachmentDecision(
+            True,
+            f"operator identity {sender!r} confirmed — any local path is allowed",
+        )
+
+    try:
+        resolved = Path(path).resolve()
+        repo_root = Path(repo_path).resolve()
+    except (OSError, RuntimeError) as exc:
+        return AttachmentDecision(
+            False,
+            f"attach: {path!r} could not be resolved ({exc}) — refusing for "
+            f"non-operator {sender!r} (anti-exfiltration containment rule)",
+        )
+
+    contained = resolved == repo_root or resolved.is_relative_to(repo_root)
+    if not contained:
+        return AttachmentDecision(
+            False,
+            f"attach: {path!r} resolves to {resolved} which is outside the repo "
+            f"working tree {repo_root} — refusing for non-operator {sender!r} "
+            "(anti-exfiltration containment rule: a non-operator's attachment "
+            "must resolve inside the repo)",
+        )
+
+    return AttachmentDecision(
+        True,
+        f"attach: {path!r} resolves inside the repo working tree — allowed for "
+        f"non-operator {sender!r}",
+    )
+
+
 __all__ = [
     "ALLOW_READ_ONLY",
     "ALLOW_WRITE",
@@ -138,6 +255,8 @@ __all__ = [
     "READ_ONLY_ROLE",
     "REFUSE",
     "WRITE_MODE_VALUE",
+    "AttachmentDecision",
     "RequestDecision",
+    "check_attachment_path",
     "classify_request",
 ]
