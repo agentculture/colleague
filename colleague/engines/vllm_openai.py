@@ -257,10 +257,18 @@ class VllmOpenAIEngine(Engine):
             payload: dict[str, Any] = {
                 "model": config.model,
                 "messages": messages,
-                "tools": offered_tools,
-                "tool_choice": "auto",
                 "temperature": config.temperature,
             }
+            # An EMPTY offered-tools list is the honest "tools-off" invariant (the
+            # deepthink seam relies on this, colleague/deepthink.py task t2): omit
+            # BOTH "tools" and "tool_choice" from the payload entirely rather than
+            # sending an empty tools array, which some servers 400 on and which is
+            # not honestly "no tools" anyway. ``None`` never reaches here — it was
+            # already resolved to the full SCHEMAS above — so a caller that omits
+            # ``tools`` (e.g. plan mode) stays byte-identical to before this change.
+            if offered_tools:
+                payload["tools"] = offered_tools
+                payload["tool_choice"] = "auto"
             if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
                 # Best-effort: a diagnostic dump must NEVER break a work item — a
                 # closed/broken stderr (e.g. `2>/dev/null`, a dead pipe) raises
@@ -279,13 +287,30 @@ class VllmOpenAIEngine(Engine):
 
         return complete
 
-    def make_complete(self, config: EngineConfig) -> CompleteFn:
+    def make_complete(
+        self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
+    ) -> CompleteFn:
         """Public one-shot completion seam (see :meth:`Engine.make_complete`).
 
         Returns the same ``complete`` the work loop uses, so non-work-loop
-        features (``colleague plan``) can drive the live model directly.
+        features (``colleague plan``, the deepthink escalation seam) can drive
+        a live model directly. ``tools=None`` (the default) sends the full
+        SCHEMAS — byte-identical to today, the plan-mode pin; ``tools=[]`` is
+        the tools-off invariant the deepthink seam relies on (see
+        :meth:`Engine.make_complete`).
         """
-        return self._make_complete(config)
+        return self._make_complete(config, tools=tools)
+
+    def make_count_tokens(self, config: EngineConfig) -> Callable[[list[dict[str, Any]]], int]:
+        """Public one-shot token-counter seam (see :meth:`Engine.make_count_tokens`).
+
+        Returns the same exact-or-estimate counter the work loop uses
+        internally — the server's ``/tokenize`` endpoint, degrading to the
+        char-heuristic estimate on any error — so a feature calling
+        :meth:`make_complete` outside the loop (the deepthink seam, task t2)
+        windows its prompt with the loop's own precision.
+        """
+        return self._make_count_tokens(config)
 
     def work(self, task: Task, config: EngineConfig) -> TaskResult:
         """Work the task through the shared bounded tool-loop.

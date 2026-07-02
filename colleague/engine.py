@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import abc
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
@@ -79,21 +79,53 @@ class Engine(abc.ABC):
 
             cls.work = _work_via_legacy_drive  # type: ignore[method-assign]
 
-    def make_complete(self, config: EngineConfig) -> "CompleteFn":
+    def make_complete(
+        self, config: EngineConfig, tools: "list[dict[str, Any]] | None" = None
+    ) -> "CompleteFn":
         """Return a one-shot completion callable (``messages -> ModelResponse``).
 
         The bounded work loop builds its own ``complete`` inside :meth:`work`;
         this public seam exposes the same capability to features that need a
         direct model turn *outside* the loop — e.g. ``colleague plan``, where the
-        backend proposes spec claims and plan items. The default raises: a
-        backend without a live model (the ``mock`` engine) inherits it, so plan
-        mode requires a real backend. The all-engines rule holds at the
-        contract level — every live backend exposes this identically.
+        backend proposes spec claims and plan items, or the dual-model
+        ``deepthink`` escalation seam (:mod:`colleague.deepthink`, task t2). The
+        default raises: a backend without a live model (the ``mock`` engine)
+        inherits it, so plan mode requires a real backend. The all-engines rule
+        holds at the contract level — every live backend exposes this identically.
+
+        ``tools`` controls what tool schema (if any) is offered on the wire:
+        ``None`` (the default) means *engine default* — for ``vllm-openai`` that
+        is today's behavior, the full tool schema, so a caller that omits
+        ``tools`` (e.g. plan mode) is byte-identical to before this parameter
+        existed. An EMPTY list (``[]``) means *tools-off*: nothing tool-related
+        is sent on the wire at all — the deepthink seam always passes ``[]`` so
+        its one-shot completion structurally cannot call a tool or ``finish``
+        (the same invariant class as the acceptance self-check).
         """
         raise NotImplementedError(
             f"engine '{self.name}' does not support one-shot completions; "
             "plan mode needs a live backend (e.g. vllm-openai)"
         )
+
+    def make_count_tokens(self, config: EngineConfig) -> "Callable[[list[dict[str, Any]]], int]":
+        """Return a token counter (``messages -> int``) for use outside the loop.
+
+        The bounded work loop windows its own history via a counter built inside
+        :meth:`work`; this public seam exposes the same counting capability to
+        features that call :meth:`make_complete` directly — e.g. the deepthink
+        escalation seam (:mod:`colleague.deepthink`, task t2), which must window
+        its prompt to the deepthink model's OWN context budget before sending it.
+
+        The base default returns the zero-dependency char-heuristic estimator
+        (:func:`colleague.context.count_tokens_chars`) — the same fallback the
+        loop itself uses when a backend has no exact counter. A backend with an
+        exact counter (e.g. vLLM's ``/tokenize`` endpoint) overrides this to
+        return it, so a caller of this seam gets the same precision the loop
+        gets. Imported lazily to keep this module's import surface minimal.
+        """
+        from colleague.context import count_tokens_chars
+
+        return count_tokens_chars
 
     def system_prompt(self, task: Task, config: EngineConfig) -> str | None:
         """Compose the model-specific system prompt (AGENTS + skills layers).
