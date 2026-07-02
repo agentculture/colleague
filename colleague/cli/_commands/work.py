@@ -334,6 +334,81 @@ def _preserve_isolated_wip(worktree_path: str | None, status: str) -> bool:
     return False
 
 
+def _engine_failure_error(
+    exc: Exception,
+    *,
+    task: Task,
+    repo: Path,
+    engine_name: str,
+    command_name: str | None,
+    mode: str | None,
+    work_span,
+    worktree_path: str | None = None,
+) -> CliError:
+    """Turn an engine raise into the failure artifact + a diagnosable CliError.
+
+    The engine-failure ``except`` body from :func:`execute_work`, extracted to
+    keep that function under the S3776 cognitive-complexity threshold. Returns
+    (never raises) the :class:`CliError` so the caller can ``raise ... from exc``
+    at the original site.
+
+    Prefers the partial result the loop preserved on an engine raise (#37): its
+    steps / usage / changed_files + trace reflect the work done up to the
+    failure; falls back to a fresh ``failed_result`` for a failure with no
+    partial (e.g. an error before the loop starts). Writes the artifact and the
+    ``last_work`` pointer (the work item happened even if it failed — a 1/5 is
+    exactly the ROI signal), and names the exception class when the payload is
+    bare (#269: ``KeyError: 'path'`` instead of ``'path'``). With a
+    *worktree_path*, the iso worktree's uncommitted progress is swept onto the
+    ``colleague/<id>`` branch and the hint names the surviving branch (#268
+    ask 3 — the #222 sweep extended to the exception path).
+    """
+    partial = getattr(exc, "result", None)
+    if isinstance(partial, TaskResult):
+        result = partial
+        original: BaseException = exc.__cause__ or exc
+        # A partial run has accumulated steps -> the trace is non-empty.
+        artifact_note = "a result artifact (with the partial trace) was still written"
+    else:
+        # Carry the request into stats so even an early-failure artifact stays
+        # discoverable-by-request / sortable in `feedback list` (#132).
+        result = failed_result(task.id, f"{type(exc).__name__}: {exc}", request=task.instruction)
+        original = exc
+        # No partial result -> the trace is empty; don't claim otherwise.
+        artifact_note = "a result artifact was still written"
+    result.command = command_name
+    # Mode (t7 / spec R3 / #256): recorded on the failure path too — a moded run
+    # that raises still carries the mode that drove it.
+    result.mode = mode
+    work_span.set(status=result.status)
+    write(result, artifact_dir(repo))
+    # Best-effort: never mask the error.
+    with suppress(Exception):
+        set_last_work(repo, result.task_id)
+    # A bare exception payload (e.g. KeyError('path') -> "'path'") tells the
+    # operator nothing — name the exception class so the error is diagnosable
+    # from the message alone (#269).
+    detail = str(original)
+    if not detail or not any(ch.isspace() for ch in detail):
+        detail = f"{type(original).__name__}: {detail}".rstrip(": ")
+    # #268 ask 3: an engine-failure abort must not strand the model's uncommitted
+    # progress in the (about-to-be-removed) iso worktree. Commit it onto the
+    # colleague/<id> branch — the same #222 sweep the signal and non-OK paths
+    # already get — and point the operator at the surviving branch, so an
+    # orchestrator can resume from the partial work instead of spelunking for it.
+    wip_note = ""
+    if _preserve_isolated_wip(worktree_path, f"engine failure: {detail[:80]}"):
+        wip_note = (
+            f"; partial work preserved on branch {branch_name(task.id, task.instruction)}"
+        )
+    return CliError(
+        EXIT_ENV_ERROR,
+        f"engine '{engine_name}' failed: {detail}",
+        f"check the engine config / vLLM server; {artifact_note}{wip_note}",
+        result=result if isinstance(partial, TaskResult) else None,
+    )
+
+
 def _moded_config(config: EngineConfig, mode: str | None, repo: Path) -> EngineConfig:
     """Apply *mode*'s constraint profile to *config* (t3 / spec R1 / #254).
 
@@ -536,60 +611,15 @@ def execute_work(
                 with rig.rig_slot(repo, on_wait=emit_diagnostic):
                     result = engine.work(task, config)
             except Exception as exc:  # noqa: BLE001 - any failure still writes an artifact (h5)
-                # Prefer the partial result the loop preserved on an engine raise
-                # (#37): its steps / usage / changed_files + trace reflect the work
-                # done up to the failure. Fall back to a fresh failed_result for a
-                # failure with no partial (e.g. an error before the loop starts).
-                partial = getattr(exc, "result", None)
-                if isinstance(partial, TaskResult):
-                    result = partial
-                    original: BaseException = exc.__cause__ or exc
-                    # A partial run has accumulated steps -> the trace is non-empty.
-                    artifact_note = "a result artifact (with the partial trace) was still written"
-                else:
-                    # Carry the request into stats so even an early-failure
-                    # artifact stays discoverable-by-request / sortable in
-                    # `feedback list` and is named with a slug (#132).
-                    result = failed_result(
-                        task.id, f"{type(exc).__name__}: {exc}", request=task.instruction
-                    )
-                    original = exc
-                    # No partial result -> the trace is empty; don't claim otherwise.
-                    artifact_note = "a result artifact was still written"
-                result.command = command_name
-                # Mode (t7 / spec R3 / #256): recorded on the failure path too — a
-                # moded run that raises still carries the mode that drove it, before
-                # this artifact write (the mirror of command_name just above).
-                result.mode = mode
-                work_span.set(status=result.status)
-                write(result, artifact_dir(repo))
-                # The work item happened (even if it failed) — record it as 'last' so
-                # `feedback last` can still grade it. Best-effort: never mask the error.
-                with suppress(Exception):
-                    set_last_work(repo, result.task_id)
-                # A bare exception payload (e.g. KeyError('path') -> "'path'")
-                # tells the operator nothing — name the exception class so the
-                # error is diagnosable from the message alone (#269).
-                detail = str(original)
-                if not detail or not any(ch.isspace() for ch in detail):
-                    detail = f"{type(original).__name__}: {detail}".rstrip(": ")
-                # #268 ask 3: an engine-failure abort must not strand the model's
-                # uncommitted progress in the (about-to-be-removed) iso worktree.
-                # Commit it onto the colleague/<id> branch — the same #222 sweep
-                # the signal and non-OK paths already get — and point the operator
-                # at the surviving branch in the hint, so an orchestrator can
-                # resume from the partial work instead of spelunking for it.
-                wip_note = ""
-                if _preserve_isolated_wip(worktree_path, f"engine failure: {detail[:80]}"):
-                    wip_note = (
-                        f"; partial work preserved on branch "
-                        f"{branch_name(task.id, task.instruction)}"
-                    )
-                raise CliError(
-                    EXIT_ENV_ERROR,
-                    f"engine '{engine_name}' failed: {detail}",
-                    f"check the engine config / vLLM server; {artifact_note}{wip_note}",
-                    result=result if isinstance(partial, TaskResult) else None,
+                raise _engine_failure_error(
+                    exc,
+                    task=task,
+                    repo=repo,
+                    engine_name=engine_name,
+                    command_name=command_name,
+                    mode=mode,
+                    work_span=work_span,
+                    worktree_path=worktree_path,
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine

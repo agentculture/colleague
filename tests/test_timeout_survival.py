@@ -160,13 +160,19 @@ def test_preserve_isolated_wip_reports_commit(git_repo: Path) -> None:
 
 
 def test_engine_failure_path_names_surviving_branch() -> None:
-    """Source-level pin: execute_work's engine-failure handler preserves WIP and
-    puts the surviving branch in the CliError hint (#268 ask 3)."""
+    """Source-level pin: the engine-failure handler (extracted to
+    ``_engine_failure_error`` for S3776) preserves WIP and puts the surviving
+    branch in the CliError hint (#268 ask 3), and ``execute_work``'s except
+    path routes through it with the worktree in hand."""
     source = Path("colleague/cli/_commands/work.py").read_text(encoding="utf-8")
-    handler = source.split("except Exception as exc:  # noqa: BLE001 - any failure", 1)[1]
-    handler = handler.split("raise CliError", 1)[0]
-    assert "_preserve_isolated_wip(worktree_path" in handler
-    assert "partial work preserved on branch" in handler
+    helper = source.split("def _engine_failure_error", 1)[1].split("\ndef ", 1)[0]
+    assert "_preserve_isolated_wip(worktree_path" in helper
+    assert "partial work preserved on branch" in helper
+    except_body = source.split(
+        "except Exception as exc:  # noqa: BLE001 - any failure", 1
+    )[1].split("finally:", 1)[0]
+    assert "_engine_failure_error(" in except_body
+    assert "worktree_path=worktree_path" in except_body
 
 
 # ---------------------------------------------------------------------------
