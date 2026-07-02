@@ -15,6 +15,20 @@ additionally refuse writes into the read-only neighbour clone tree. ``run_comman
 runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
 sandboxing is a later wheel.
 
+``read_file`` line-grounding (#240): the raw text the loop fed back to the model
+carried no line markers, so a model citing "line N" had to re-count from its own
+(possibly windowed/truncated) context — the root cause of a ~240-line citation
+drift seen live in ``ask-colleague explore``. :func:`_number_lines` now prefixes
+every real line with its true 1-based line number, ``cat -n`` style
+(``"   12\t<content>"``), before the result is (still) run through
+:meth:`ToolExecutor._truncate`, so a cited line number is copy-derived from tool
+output, never re-counted, and any surviving prefix after truncation still names
+the real file line. This is read-display only: numbering is never written to
+disk and never round-trips into ``edit_file`` — ``_edit_file`` reads the file
+itself via a separate ``path.read_text()`` call and matches ``old_string``
+against that raw content, so a numbered prefix pasted from a ``read_file``
+result will simply fail to match (by design).
+
 A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) is deliberately
 kept OUT of :data:`SCHEMAS` — it is appended only by :func:`curate_schemas` when a
 caller opts in (``deepthink=True``), which the loop does only when a dual-model
@@ -23,6 +37,7 @@ config is present. A single-model run offers exactly the schemas above.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
@@ -34,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
-from colleague import culture, devague, testintegrity
+from colleague import culture, devague, memory, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -79,7 +94,14 @@ SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a UTF-8 text file, relative to the repo root.",
+            "description": (
+                "Read a UTF-8 text file, relative to the repo root. Each line "
+                "in the result is prefixed with its exact 1-based line number "
+                "and a tab (cat -n style, e.g. '    12\\tsome code'), so you "
+                "can cite an exact file:line location. The line-number prefix "
+                "is DISPLAY ONLY — it is never part of the file on disk, so "
+                "never include it in edit_file's old_string."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string", "description": _PATH_DESC}},
@@ -373,6 +395,42 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "memory",
+            "description": (
+                "Search or store memory records via the eidetic CLI. "
+                "Use 'recall' to search for past context, 'remember' to "
+                "store a new record."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "verb": {
+                        "type": "string",
+                        "enum": ["recall", "remember"],
+                        "description": (
+                            "The memory operation: 'recall' to search, 'remember' to store."
+                        ),
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query for recall (required when verb=recall).",
+                    },
+                    "record": {
+                        "type": "object",
+                        "description": "Record dict to store (required when verb=remember).",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Max results for recall (default 5).",
+                    },
+                },
+                "required": ["verb"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -495,6 +553,52 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     return curated
 
 
+#: Column width for the ``cat -n`` style line-number prefix (matches GNU
+#: ``cat -n``'s default right-justified 6-column number).
+_LINE_NUMBER_WIDTH = 6
+
+
+def _number_lines(text: str) -> str:
+    """Ground *text* for citation: prefix every real line with its true line number.
+
+    ``cat -n`` style — ``f"{n:6d}\\t{line}"`` — so a model quoting a result line
+    is quoting a copy-derived ``file:line``, never a re-counted one (issue #240:
+    a served model citing "line N" from its own windowed/truncated context
+    drifted by ~240 lines from the real file). Splits on bare ``"\\n"`` only,
+    NOT :meth:`str.splitlines`, which also breaks on ``\\v``/``\\f``/``\\x1c``-``\\x1e``/
+    ``\\x85``/``\\u2028``/``\\u2029`` — a wider set that would silently invent phantom
+    line boundaries a real ``grep -n``/editor would never count. A trailing
+    newline terminates the last line without minting a phantom extra line (the
+    same convention as ``cat -n``/``grep -n``); an empty file grounds to an
+    empty string (no lines to number).
+
+    Display-only: the numbering is never written to disk and never read back
+    by ``edit_file`` — that tool re-reads the file itself and matches
+    ``old_string`` against the raw, unnumbered content.
+    """
+    if text == "":
+        return ""
+    body = text[:-1] if text.endswith("\n") else text
+    lines = body.split("\n")
+    return "\n".join(f"{i:{_LINE_NUMBER_WIDTH}d}\t{line}" for i, line in enumerate(lines, start=1))
+
+
+def _require(arguments: dict[str, Any], key: str, tool: str) -> Any:
+    """Fetch a required tool argument or raise a self-correcting :class:`ToolError`.
+
+    A served model sometimes emits a tool call with empty/missing arguments
+    (live: work item ``4c6a96107269`` died at step 12 when a bare
+    ``arguments["path"]`` raised ``KeyError`` and escaped the dispatch, which
+    caught only ``ToolError`` — aborting a 12-step run with 4 folded
+    sub-results). A missing required argument is a MODEL error, not a harness
+    bug: it must cost one non-ok step carrying a message the model can act on,
+    never the run.
+    """
+    if key not in arguments:
+        raise ToolError(f"{tool} requires '{key}'")
+    return arguments[key]
+
+
 def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
     """Validate + normalize the ``subagents`` tool's instruction items.
 
@@ -574,6 +678,11 @@ class ToolExecutor:
         else:
             self._allowlist = set(allowlist)
 
+        # Read-only flag for role-aware tool restrictions (e.g. memory remember)
+        self._is_read_only: bool = False
+        if hasattr(allowlist, "read_only"):
+            self._is_read_only = allowlist.read_only
+
     def _truncate(self, text: str) -> str:
         limit = self._max_output_chars
         if len(text) <= limit:
@@ -622,6 +731,7 @@ class ToolExecutor:
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,
+            "memory": self._memory,
             "subagent": self._subagent,
             "subagents": self._subagents,
             "run_tests": self._run_tests,
@@ -645,17 +755,21 @@ class ToolExecutor:
         )
 
     def _read_file(self, arguments: dict[str, Any]) -> ToolOutcome:
-        path = self._safe_path(str(arguments["path"]))
+        path = self._safe_path(str(_require(arguments, "path", "read_file")))
         try:
             text = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
             raise ToolError(f"no such file: {arguments['path']}") from exc
         except OSError as exc:
             raise ToolError(f"cannot read {arguments['path']}: {exc}") from exc
-        return ToolOutcome(result=self._truncate(text))
+        # Ground every line with its true 1-based number BEFORE truncating (#240)
+        # so a surviving line's prefix always matches the real file — truncation
+        # only ever drops the tail, never renumbers what remains — and the
+        # existing max_output_chars budget still bounds the final string.
+        return ToolOutcome(result=self._truncate(_number_lines(text)))
 
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
-        rel = str(arguments["path"])
+        rel = str(_require(arguments, "path", "write_file"))
         path = self._safe_path(rel)
         self._refuse_clone_write(path, rel)
         content = str(arguments.get("content", ""))
@@ -679,7 +793,7 @@ class ToolExecutor:
         for full-file ``write_file`` timing out on large existing files. ``old_string``
         must be unique unless ``replace_all`` is set.
         """
-        rel = str(arguments["path"])
+        rel = str(_require(arguments, "path", "edit_file"))
         path = self._safe_path(rel)
         self._refuse_clone_write(path, rel)
         try:
@@ -696,8 +810,8 @@ class ToolExecutor:
         except OSError as exc:
             raise ToolError(f"cannot read {rel}: {exc}") from exc
 
-        old = str(arguments["old_string"])
-        new = str(arguments["new_string"])
+        old = str(_require(arguments, "old_string", "edit_file"))
+        new = str(_require(arguments, "new_string", "edit_file"))
         replace_all = bool(arguments.get("replace_all", False))
         if old == "":
             raise ToolError("old_string must be non-empty; use write_file to create a file")
@@ -766,7 +880,7 @@ class ToolExecutor:
         airtight sandbox is out of v0 scope (see CLAUDE.md). The guard covers
         the obvious / accidental case; document rather than overclaim.
         """
-        command = str(arguments["command"])
+        command = str(_require(arguments, "command", "run_command"))
 
         # Best-effort guard: refuse commands that EXECUTE a path inside the clone
         # dir. Token-aware (shlex) so a benign command that merely *mentions* the
@@ -879,6 +993,42 @@ class ToolExecutor:
         except devague.DevagueToolError as exc:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
+
+    def _memory(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch the memory tool to the eidetic CLI via colleague.memory.
+
+        Enforces role-aware verb restrictions: read-only roles may only use
+        'recall' (search); 'remember' (store) is refused with a clear error.
+        When the eidetic CLI is absent, recall returns an empty JSON array
+        and remember returns 'ok' — never crashes.
+        """
+        verb = str(arguments.get("verb", ""))
+        if verb not in ("recall", "remember"):
+            raise ToolError("memory tool requires verb 'recall' or 'remember'")
+
+        # Role-aware refusal: read-only roles cannot use 'remember'
+        if verb == "remember" and self._is_read_only:
+            raise ToolError(
+                "memory 'remember' is not allowed for read-only roles; "
+                "use 'recall' to search instead"
+            )
+
+        if verb == "recall":
+            query = str(arguments.get("query", ""))
+            if not query:
+                raise ToolError("memory 'recall' requires a 'query' string")
+            top_k = int(arguments.get("top_k", 5))
+            hits = memory.recall(self.root, query, top_k=top_k)
+            # Bounded like every other tool result (PR #267 review): a store
+            # with huge records must not blow the tool-output budget.
+            return ToolOutcome(result=self._truncate(json.dumps(hits)))
+        else:
+            # verb == "remember"
+            record = arguments.get("record")
+            if not isinstance(record, dict):
+                raise ToolError("memory 'remember' requires a 'record' object")
+            ok = memory.remember(self.root, record)
+            return ToolOutcome(result="ok" if ok else "failed")
 
     def _deepthink_tool(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch the ``deepthink`` tool to the injected one-shot escalation seam.

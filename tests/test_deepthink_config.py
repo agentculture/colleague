@@ -123,6 +123,7 @@ def test_absent_to_dict_matches_pre_deepthink_keys() -> None:
         "subagent_depth",
         "subagent_total",
         "lint",
+        "memory",
         "lint_fix_retries",
         "testintegrity",
         "testintegrity_fix_retries",

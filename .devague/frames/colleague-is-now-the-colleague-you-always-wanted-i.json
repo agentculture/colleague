@@ -1,0 +1,310 @@
+{
+  "slug": "colleague-is-now-the-colleague-you-always-wanted-i",
+  "title": "Colleague is now the colleague you always wanted: it remembers and learns from every run - eidetic and daria memory inform its context before it starts - it wastes fewer steps across the whole arc from scope through plan, explore, work, review and live-test, and it takes work fully off your hands: run it detached in the background, or let it live in the culture mesh as a resident (via the agent-lifecycle harness seam) that runs its own instances.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-02T04:35:33Z",
+  "updated": "2026-07-02T04:46:44Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague is now the colleague you always wanted: it remembers and learns from every run - eidetic and daria memory inform its context before it starts - it wastes fewer steps across the whole arc from scope through plan, explore, work, review and live-test, and it takes work fully off your hands: run it detached in the background, or let it live in the culture mesh as a resident (via the agent-lifecycle harness seam) that runs its own instances.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Each of the three legs (memory, arc efficiency, background/residency) ships as its own verifiable increment; the announcement never claims a leg with no landed evidence",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Claude (the orchestrating agent), the operator (Ori), and mesh peers who delegate field-work to colleague and need it to be reliable hands and a diverse second mind",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The delegating caller (Claude via ask-colleague, a mesh peer via the transport) can consume results without reading colleague source - artifact + flight + feedback are the entire interface",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "A delegated task starts warm - colleague recalls repo-scoped memory (prior decisions, gotchas, repo map) before working - runs efficiently with fewer wasted steps, records what it learned afterward, and can run fully detached: the caller fires it into the background (or hands it to the resident) and folds results back later via artifact, flight feed, and feedback, never blocking a foreground terminal",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Warm-start is measurable: WorkStats of a memory-warm run vs the same task cold shows the saving; if it does not, the claim is retracted, not massaged",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Every run starts cold: colleague re-derives repo knowledge each time (no recall of prior runs), explore wastes steps and mis-cites line numbers (#240), finish can return a meta-description instead of findings (#231), a malformed finish loses the structured report from the artifact (#248), substantial writes do not land in one drive (#237), concurrent runs trip spurious gate failures (#239), and every run occupies a foreground terminal of the caller",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "Each named inefficiency is reproduced or evidenced from a real artifact/issue before it is fixed - no phantom problems",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Delegation ROI compounds: the more colleague can be trusted to run unattended, remember, and self-improve, the more field-work moves off Claude and the operator - a diverse mind that gets cheaper and smarter with every run instead of resetting to zero",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "ROI is computed from the existing stats + feedback loop, never just asserted",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a multi-model router, not a sandbox, not a colleague-invented daemon: the resident leg builds on agent-lifecycle's Harness seam (colleague is a named proving harness) + the existing promote path, background one-shots reuse the existing flight control plane; memory lives in eidetic's store (colleague invents no store of its own); daria integration is observational (colleague feeds/reads awareness, daria is not in the work loop)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "colleague ships no socket/daemon code of its own: resident supervision is imported from agent-lifecycle, background one-shots are detached child processes with file-based control; the boundary test suite extends to pin this",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A memory-warm work item demonstrably saves steps/tokens vs the same task cold (measured via the always-on WorkStats), and a lesson recorded by one run is recalled by a later run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The warm-vs-cold comparison runs on the live rig with the same task, both artifact ids + WorkStats recorded in the feature doc; the first honest comparison counts - no cherry-picking",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "A background work item completes with zero foreground terminal: fired detached, piloted via flight, graded via feedback afterward; the resident accepts a work request over the mesh and returns the result",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "The zero-terminal path is demonstrated live end-to-end (detached start, flight status, completion, feedback grade); the resident round-trip is demonstrated over a real transport once agent-lifecycle ships one - until then the resident row is recorded PENDING, never claimed",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "R1 memory-informed runtime: colleague recalls before work (repo-scoped eidetic recall folded into the task context at start) and remembers after (a lesson record per work item: what wasted steps, what worked), via shell-out to the operator-installed eidetic CLI with a curated allow-list - the same pattern as the culture/devague tools; absent eidetic CLI = strict no-op",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "Absent eidetic CLI = strict no-op (byte-identical artifact); recall injection is token-capped and recorded in the artifact so a misleading memory is diagnosable; colleague writes only to its own scope",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "R2 report reliability cluster: a work item's findings always survive to the caller - fix #248 (structured report lost on malformed finish or completion-budget exhaustion), #231 (finish returns the findings themselves, never a meta-description), #240 (explore cites accurate line numbers)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Each of #248/#231/#240 gets a regression test reproducing the observed failure BEFORE the fix; the artifact always carries the report or an honest degradation marker, never silence",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R3 substantial writes land: a too-large write task decomposes (plan-first into subagent waves via the existing auto-split/plan machinery) so ask-colleague write can land substantial implementations instead of stalling in one drive (#237)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Proven on a real substantial task against the live rig (the #237 evidence class), not only unit fixtures; if the served model still cannot land it decomposed, that is recorded as a model limit, not claimed solved",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R4 background one-shot: colleague work --background detaches the run (no foreground terminal), with the existing flight control plane as the pilot interface (status/guide/stop), the artifact + feedback as the result interface, and honest crash-residue cleanup (clean reaps a dead background run)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A killed background run leaves recoverable state (partial artifact + reapable residue via clean) and never wedges the repo; detach is one-shot, no polling daemon",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "R5 mesh residency (appserver mode): colleague implements agent-lifecycle's Harness interface and lives in the culture mesh as a resident that accepts work requests over the transport, runs them as background work items (including spawning its own colleague instances, governed by the rig budget), and reports results back - the daemon/supervision belongs to agent-lifecycle, not colleague",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "Resident path gated behind an opt-in extra; a base install stays daemon-free and byte-identical; supervision failures surface via agent-lifecycle failure(), never silently",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "R6 concurrent-run correctness: two colleague processes on one repo never trip spurious pre-handoff gate failures (#239) - gates scope to the run's own worktree/changed-files, composing with the rig-slot budget (#258)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Reproduce #239's spurious failure deterministically first; after the fix, two concurrent runs on one repo pass gates with disjoint changed-files",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "R7 live-test the arc now the rig serves tool-calling again: run the pending live proofs (mode profiles test_vllm_live_mode.py, deepthink test_dual_live.py, edit_file row), update the ledger, and make the live check repeatable as a single verb (e.g. colleague livecheck) so live validation stops being a manual procedure",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "Ledger rows updated with commit+date+evidence per procedure; a proof that fails live is recorded honestly as failed/partial, never retro-fitted",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "non_goal",
+      "text": "No automatic task-to-model routing policy, no N-model generalization beyond the landed deepthink increment, no execution sandbox, no MCP client - the existing out-of-scope lines all hold except the two this spec deliberately re-specs: background execution and mesh residency",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "The no-daemon convention is deliberately re-specced (the third recorded convention change, after the agentfront base dep and the LLM self-summary): background/resident operation is IN scope, with the honest split that process supervision + transport belong to agent-lifecycle/culture and colleague contributes the Harness implementation and detached one-shots",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "assumption",
+      "text": "daria (data-refinery) integration stays observational in this increment: colleague's artifacts/lessons become material daria can observe and investigate; daria does not enter the work loop - deeper coupling is a follow-up once the eidetic leg proves out",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "decision",
+      "text": "Resident trust model (resolves v4): any channel member can ASK the resident for work, but only the operator has authority - authoritative decisions and confirmations are operator-only; the agent can always refuse a request beyond the limits of its logic, and in case of doubt it can consult other agents for group intelligence before acting",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Exact recall injection point + prompt shape (system prompt vs first user message vs tool result) and the recall query derivation from the task",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Deeper daria coupling (colleague consulting daria's investigations mid-run) - follow-up once the eidetic leg proves out",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Which transport the resident uses first (IRC vs agtag vs Slack) - depends on agent-lifecycle's transport-plug increments upstream",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    }
+  ]
+}

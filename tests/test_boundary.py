@@ -388,6 +388,36 @@ def test_deepthink_module_has_no_io_surface() -> None:
         ), f"deepthink.py must not use {forbidden!r} (no-daemon/no-socket)"
 
 
+def test_background_module_confined_to_one_shot_detach() -> None:
+    """The background one-shot detach primitive stays supervisor-free (plan t12).
+
+    Named explicitly (mirroring ``flight.py`` / ``deepthink.py`` above) so the
+    boundary sweep's coverage of ``colleague/background.py`` is asserted
+    directly. ``subprocess`` IS expected here (it is the sanctioned one-shot
+    detach transport, see ``_SUBPROCESS_ALLOWED`` below) but no
+    socket/asyncio/threading primitive may appear, and the module must never
+    ``.wait()``/``.poll()`` the child it launches — a wait/poll loop would turn
+    a one-shot detach into a hidden supervisor, which is exactly what the
+    no-daemon convention (spec h6) forbids.
+    """
+    background_src = _PACKAGE_DIR / "background.py"
+    assert (
+        background_src in _all_py_sources()
+    ), "background.py must be in the scanned package sources"
+    source = background_src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        ".wait(",
+        ".poll(",
+    ):
+        assert (
+            forbidden not in source
+        ), f"background.py must not use {forbidden!r} (one-shot, no supervisor)"
+
+
 # ---------------------------------------------------------------------------
 # Structural check 4 — subprocess confined to sanctioned files
 # ---------------------------------------------------------------------------
@@ -413,6 +443,14 @@ def test_deepthink_module_has_no_io_surface() -> None:
 #                   and call it, so subprocess stays confined to this one file
 #   affectedtests.py — runs pytest on affected test files; subprocess is the
 #                   transport
+#   background.py — detaches a one-shot ``colleague work --background`` child
+#                   via ``subprocess.Popen(..., start_new_session=True)``;
+#                   subprocess is the ONE-SHOT detach transport (plan t12,
+#                   spec R4 / h10, boundary h6) — no daemon, no polling
+#   memory.py        — shells out to the operator-installed eidetic CLI for
+#                   recall/remember; subprocess is the transport (plan t1)
+#   livecheck.py     — runs pytest on gated live-proof files; subprocess is the
+#                   transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -425,6 +463,9 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/lint.py",
         "colleague/resident/steward.py",
         "colleague/affectedtests.py",
+        "colleague/background.py",
+        "colleague/memory.py",
+        "colleague/livecheck.py",
     }
 )
 
@@ -759,3 +800,46 @@ def test_colleague_tui_imports_only_the_surviving_adapter_and_driver() -> None:
         "not a duplicated colleague.tui.* module (only from_work + render.driver "
         "survive):\n" + "\n".join(violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURAL — agent_lifecycle imports are confined to colleague/resident/
+# (plan task t13 / spec R4). This is the package-source-level companion to
+# tests/test_zero_deps.py's runtime `test_resident_core_import_clean` /
+# `test_appserver_needs_the_resident_extra` checks: those prove WHAT gets
+# imported at runtime; this pins WHERE `agent_lifecycle` is referenced in
+# source at all, so a future module outside colleague/resident/ (e.g. a base
+# CLI verb) could never start depending on the opt-in seam without this test
+# catching it immediately, even before a runtime import-graph check would.
+# ---------------------------------------------------------------------------
+
+_AGENT_LIFECYCLE_IMPORT_RE = re.compile(
+    r"^\s*(?:import\s+agent_lifecycle\b|from\s+agent_lifecycle\b)", re.MULTILINE
+)
+
+
+class TestAgentLifecycleConfinement:
+    """``agent_lifecycle`` (the plan-t13 resident/appserver seam) is imported
+    ONLY under ``colleague/resident/`` — never by a base-path module."""
+
+    @pytest.mark.parametrize(
+        "py_file",
+        _all_py_sources(),
+        ids=lambda p: str(p.relative_to(_PACKAGE_DIR.parent)),
+    )
+    def test_agent_lifecycle_only_imported_under_resident(self, py_file: Path) -> None:
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        if rel.startswith(_ASYNC_EXEMPT_PREFIX):
+            return  # colleague/resident/ is the sanctioned consumer of the seam
+
+        source = py_file.read_text(encoding="utf-8")
+        violations = [
+            f"  {rel}:{lineno}: {line.rstrip()!r}"
+            for lineno, line in enumerate(source.splitlines(), start=1)
+            if _AGENT_LIFECYCLE_IMPORT_RE.search(line)
+        ]
+        assert not violations, (
+            "agent_lifecycle imported outside colleague/resident/ — the base install "
+            "must stay dep-free (the [resident]/[culture] extras are opt-in):\n"
+            + "\n".join(violations)
+        )

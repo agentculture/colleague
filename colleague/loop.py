@@ -33,12 +33,14 @@ from __future__ import annotations
 
 import datetime
 import json
+import re as _re
 import shlex
 import sys
 import time
 from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
@@ -48,6 +50,7 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
+from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
@@ -186,6 +189,85 @@ _EMPTY_FINISH_PROMPT = (
     "a review, the concrete findings and verdict you gathered. Do not request any "
     "more tools."
 )
+# Thin-finish synthesis (#248 mode A): the model *called* finish after a read-heavy,
+# zero-write run but its summary is only a headline (the observed 130k-token run
+# that returned one sentence — the completion budget went to tool-call args). The
+# empty-finish guard (#202) misses it because the summary is non-empty, so the
+# forced-synthesis path also fires on a THIN finish, with a prompt that names the
+# failure. Thresholds are deliberately conservative: a short summary is legitimate
+# for a run that wrote files ("wrote out.txt"), so the trigger requires many steps
+# AND zero write/edit calls — the findings-run signature.
+_THIN_FINISH_CHARS = 160
+_THIN_FINISH_MIN_STEPS = 8
+_THIN_FINISH_PROMPT = (
+    "Your `finish` summary was only a headline, but for a read-heavy run the summary "
+    "IS the deliverable. Write the complete findings NOW from what you actually read — "
+    "specific and self-contained (files, behaviors, conclusions). Do not request any "
+    "more tools; reply with the findings themselves as plain text."
+)
+# Meta-description finish (#231): the model *called* finish after a read-heavy,
+# zero-write run with a summary that DESCRIBES a report ("Report covers all three
+# features with file:line references…") that is nowhere in the return value — the
+# observed run d0c20c8c2e54 shape. Too long for the thin guard, so a pattern match
+# catches the claim-of-coverage language; the length cap keeps a real (long) report
+# that merely *says* "analysis complete" out of reach, and the read-heavy/zero-write
+# gate (shared with the thin guard) protects write-run summaries.
+_META_FINISH_CHARS = 600
+_META_FINISH_RE = _re.compile(
+    r"\b(report|analysis|review|summary|findings|writeup|write-up)\b[^.]{0,80}?"
+    r"\b(covers|includes|contains|provides|documents)\b"
+    r"|\b(reconnaissance|analysis|review|survey|investigation|exploration)\s+complete\b"
+    r"|\bsee (the )?(full )?(report|analysis|findings)\b",
+    _re.IGNORECASE,
+)
+_META_FINISH_PROMPT = (
+    "Your `finish` summary DESCRIBED a report but did not include it — the summary IS "
+    "the deliverable, and a description of findings is not the findings. Write the "
+    "report itself NOW from what you actually read: the concrete findings, file "
+    "references, and conclusions you promised. Do not request any more tools; reply "
+    "with the report as plain text."
+)
+
+# Literal finish-markup recovery (#248 mode B): a served model sometimes emits its
+# finish as literal tool-call MARKUP inside message content (observed shape below,
+# including a mangled ``function=finish>`` missing its ``<``) instead of a structured
+# tool call. The report exists — only the transport failed — so the loop re-parses
+# that shape and treats it as the finish payload instead of losing it to the
+# nudge/stop path. Tolerant by design: optional ``<tool_call>`` wrapper, optional
+# ``<`` on the function tag, summary = everything between ``<parameter=summary>``
+# and the next ``</parameter>``. Parsed with linear ``str.find`` scans (not a
+# regex) so a large adversarial content string cannot trigger super-linear
+# backtracking (SonarCloud S8786).
+#
+#   <tool_call>
+#   function=finish>
+#   <parameter=summary>
+#   ...the full report...
+#   </parameter>
+#   </function>
+#   </tool_call>
+_SUMMARY_OPEN = "<parameter=summary>"
+_SUMMARY_CLOSE = "</parameter>"
+
+
+def _parse_literal_finish(content: str) -> str | None:
+    """Recover a finish summary from literal tool-call markup in message content.
+
+    Returns the summary text, or ``None`` when the content is ordinary prose (the
+    cheap substring guards keep the scan off the hot path). #248 mode B.
+    """
+    marker = content.find("function=finish")
+    if marker == -1:
+        return None
+    start = content.find(_SUMMARY_OPEN, marker)
+    if start == -1:
+        return None
+    start += len(_SUMMARY_OPEN)
+    end = content.find(_SUMMARY_CLOSE, start)
+    if end == -1:
+        return None
+    return content[start:end].strip() or None
+
 
 # Pre-completion phase notices (colleague#206) — fired through the progress sink
 # right BEFORE a model completion so a long single turn (above all the final
@@ -512,6 +594,12 @@ class _Work:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint_enabled: bool = False
     lint_fix_retries: int = 0
+    # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after
+    # via the eidetic CLI adapter. Armed only when True AND the repo has a
+    # .eidetic/ store AND the CLI is installed (see _memory_armed) — otherwise a
+    # strict no-op, byte-identical to the pre-memory loop.
+    memory_enabled: bool = False
+    memory_root: str | None = None
     # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
     # mirror-detection heuristic on the work item's changed files after the loop and
     # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
@@ -694,12 +782,25 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
 
         try:
             outcome = ctx.executor.execute(call.name, arguments)
-        except ToolError as exc:
-            span.set(ok=False, error=str(exc))
-            ctx.result.steps.append(
-                Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
+        except (ToolError, KeyError, TypeError, ValueError) as exc:
+            # ToolError is the tools' own contract. KeyError/TypeError/ValueError
+            # are the argument-shaped residue of a malformed MODEL tool call that
+            # slipped past per-tool validation (live: work item 4c6a96107269 died
+            # mid-run on a bare KeyError('path') the old ToolError-only catch let
+            # escape as an engine failure). Either way it costs ONE non-ok step
+            # with a self-correcting message — never the run. Anything else
+            # (AttributeError, OSError, …) is a genuine harness bug and still
+            # aborts loudly.
+            msg = (
+                str(exc)
+                if isinstance(exc, ToolError)
+                else f"bad tool arguments: {type(exc).__name__}: {exc}"
             )
-            ctx.messages.append(_tool_message(call.id, f"error: {exc}"))
+            span.set(ok=False, error=msg)
+            ctx.result.steps.append(
+                Step(step_index, call.name, arguments, f"error: {msg}", ok=False)
+            )
+            ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
             _emit_progress(ctx, step_index, call.name, arguments, ok=False)
             # post_tool still fires after a tool *attempt*; observe-only.
             _fire_hooks(
@@ -1295,6 +1396,15 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
     ``_last_substantive`` floor when synthesis (and the compaction fallback) yield
     nothing (auto-compact-on-finish, t3).
     """
+    # Literal finish-markup recovery (#248 mode B): the "no-tool turn" may actually
+    # BE the finish — the model emitted it as literal tool-call text in content.
+    # Re-parse it as the finish payload instead of nudging a model that already
+    # answered (the nudge/stop path would lose the report from the artifact).
+    recovered = _parse_literal_finish(resp.content or "")
+    if recovered is not None:
+        ctx.result.summary = recovered
+        ctx.result.finish_recovered = "literal-markup"
+        return nudges, _EXIT_FINISHED
     if nudges < ctx.max_continue_nudges:
         if resp.content:
             ctx.messages.append({"role": "assistant", "content": resp.content})
@@ -1400,6 +1510,142 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
+# Bounded eidetic-CLI wait for the two in-loop memory calls (t2): a recall/remember
+# must never stall the loop the way a full COLLEAGUE_TIMEOUT completion may.
+_MEMORY_TIMEOUT = 15.0
+
+
+def _memory_armed(ctx: _Work) -> bool:
+    """Memory fires only when enabled AND the repo opted in by carrying a store.
+
+    The store check is what keeps the default-ON flag safe: a tmp test repo (or
+    any repo without ``.eidetic/``) never spawns the CLI — a strict no-op. CLI
+    absence is handled inside :mod:`colleague.memory` (t1's contract).
+    """
+    if not ctx.memory_enabled:
+        return False
+    return (Path(_memory_repo(ctx)) / ".eidetic").is_dir()
+
+
+def _memory_repo(ctx: _Work) -> str:
+    """The durable store root: the operator repo for isolated runs (t2 fix).
+
+    An isolated run's ``task.repo_path`` is a throwaway worktree that is reaped
+    after handoff — a lesson written there would be silently lost (caught live
+    on the first mock smoke run). ``execute_work`` threads the real root via
+    ``config.memory_root``; the in-place session path falls back to the task's
+    own repo.
+    """
+    return ctx.memory_root or ctx.task.repo_path
+
+
+def _maybe_recall_memory(ctx: _Work) -> None:
+    """Recall-before (spec R1 / plan t2): prior lessons as ONE advisory message.
+
+    The query derives from the task's goal (when set) or the instruction head;
+    the injected block is char-capped (``memory.RECALL_BLOCK_CAP`` — h7's
+    token-cap without a tokenizer) and the whole exchange is recorded on
+    ``TaskResult.memory`` so a misleading recall is diagnosable from the
+    artifact (h7). Best-effort: any failure leaves the run untouched.
+    """
+    if not _memory_armed(ctx):
+        return
+    query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
+    try:
+        records = _memorymod.recall(_memory_repo(ctx), query, top_k=5, timeout=_MEMORY_TIMEOUT)
+    except Exception:  # noqa: BLE001
+        # Advisory context only, never a precondition — a recall failure must
+        # not block the run.
+        return
+    block = _memorymod.build_recall_block(records) if records else ""
+    if block:
+        ctx.messages.append({"role": "user", "content": block})
+    ctx.result.memory = {
+        "query": query,
+        "recalled": len(records),
+        "injected_chars": len(block),
+    }
+
+
+def _maybe_remember_lesson(ctx: _Work) -> None:
+    """Remember-after (spec R1 / plan t2): one deterministic lesson per work item.
+
+    Composed from the finished result's own facts (status, steps, tool counts,
+    honesty markers) — no extra model turn. Idempotent: the record id derives
+    from the task id, so a re-run upserts. An INCOMPLETE run is recorded too —
+    failures are the most valuable lessons. Best-effort: a store failure never
+    masks the work item result; the outcome lands on ``TaskResult.memory``.
+    """
+    if not _memory_armed(ctx):
+        return
+    result = ctx.result
+    stats = result.stats
+    instruction = (ctx.task.instruction or "").strip()
+    request_head = instruction.splitlines()[0][:120] if instruction else ""
+    tools = ", ".join(f"{k}={v}" for k, v in sorted(stats.tool_counts.items()))
+    text = (
+        f"Work item {result.task_id} finished {result.status} on request: "
+        f"{request_head}. steps={stats.step_count}, tools=({tools}), "
+        f"files_changed={len(result.changed_files)}."
+    )
+    signals = []
+    if result.finish_recovered:
+        signals.append(f"finish_recovered={result.finish_recovered}")
+    if result.capacity_warning:
+        signals.append("capacity_warning")
+    if result.not_finished:
+        signals.append("step budget exhausted")
+    if result.stopped_without_finish:
+        signals.append("stopped without finish")
+    if signals:
+        text += " Signals: " + "; ".join(signals) + "."
+    record = _memorymod.build_lesson_record(
+        result.task_id,
+        text,
+        {"topic": "colleague-work-lesson", "status": result.status},
+    )
+    recorded = False
+    with suppress(Exception):
+        recorded = _memorymod.remember(_memory_repo(ctx), record, timeout=_MEMORY_TIMEOUT)
+    if result.memory is None:
+        result.memory = {}
+    result.memory["lesson_recorded"] = bool(recorded)
+
+
+def _read_heavy_zero_write(ctx: _Work) -> bool:
+    """The findings-run signature shared by the thin and meta finish guards.
+
+    Many steps spent reading, nothing written — for such a run the summary IS
+    the deliverable. A run that wrote/edited files legitimately finishes short
+    ("wrote out.txt"), so any write disarms both triggers; so does a short run
+    (few steps = little context worth synthesizing).
+    """
+    stats = ctx.result.stats
+    if stats.step_count < _THIN_FINISH_MIN_STEPS:
+        return False
+    writes = stats.tool_counts.get("write_file", 0) + stats.tool_counts.get("edit_file", 0)
+    return writes == 0
+
+
+def _finish_recovery_reason(ctx: _Work) -> str | None:
+    """Why a *called* finish still needs a synthesis turn, or ``None`` if it doesn't.
+
+    - ``"thin"`` (#248 mode A): the summary is a bare headline (under
+      ``_THIN_FINISH_CHARS``) after a read-heavy zero-write run.
+    - ``"meta"`` (#231): the summary DESCRIBES a report (claim-of-coverage
+      language) without containing it — under ``_META_FINISH_CHARS`` so a real
+      long report that merely says "analysis complete" is never re-opened.
+    """
+    summary = (ctx.result.summary or "").strip()
+    if not summary or not _read_heavy_zero_write(ctx):
+        return None
+    if len(summary) < _THIN_FINISH_CHARS:
+        return "thin"
+    if len(summary) < _META_FINISH_CHARS and _META_FINISH_RE.search(summary):
+        return "meta"
+    return None
+
+
 def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> None:
     """Force ONE no-tools synthesis turn when a context-rich run produced no summary.
 
@@ -1413,6 +1659,10 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
       but gave no usable summary. For a read-only verb the summary IS the deliverable,
       so a blank finish is a silent no-op (status reads ``ok``); synthesise the answer
       from what was read instead of falling back to the last planning line.
+    - **finish with a thin or meta summary** (#248 mode A / #231) — the summary is a
+      bare headline, or *describes* a report it never contains, after a read-heavy
+      zero-write run (:func:`_finish_recovery_reason`); recovered via a dedicated
+      prompt and recorded on ``TaskResult.finish_recovered``.
 
     Best-effort: any error or an empty answer leaves ``summary`` untouched so the
     caller falls back to the last-substantive content or the ``NO_RESULT_PRODUCED``
@@ -1424,9 +1674,21 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     """
     if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED, _EXIT_FINISHED):
         return
-    if ctx.result.summary or ctx.result.stats.step_count <= 0:
+    # Finish-recovery reasons (#248 mode A + #231): a *called* finish whose summary
+    # is only a headline ("thin") or a description of an unwritten report ("meta")
+    # after a read-heavy zero-write run — non-empty, so the #202 empty-finish guard
+    # alone would skip both.
+    reason = _finish_recovery_reason(ctx) if outcome == _EXIT_FINISHED else None
+    if (ctx.result.summary and reason is None) or ctx.result.stats.step_count <= 0:
         return
-    prompt = _EMPTY_FINISH_PROMPT if outcome == _EXIT_FINISHED else _SYNTHESIS_PROMPT
+    if reason == "thin":
+        prompt = _THIN_FINISH_PROMPT
+    elif reason == "meta":
+        prompt = _META_FINISH_PROMPT
+    elif outcome == _EXIT_FINISHED:
+        prompt = _EMPTY_FINISH_PROMPT
+    else:
+        prompt = _SYNTHESIS_PROMPT
     ctx.messages.append({"role": "user", "content": prompt})
     try:
         # The synthesis turn is the worst case for #206: a single no-tools completion
@@ -1436,6 +1698,10 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
         return
     _account_turn(ctx, resp)
     if resp.content:
+        if reason is not None:
+            # Honest degradation marker (#248/#231, h8): the artifact records that
+            # the summary came from a recovery turn, not the model's own finish.
+            ctx.result.finish_recovered = f"{reason}-finish-synthesis"
         ctx.result.summary = resp.content
 
 
@@ -1672,6 +1938,15 @@ class ContextControls:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint: bool | None = None
     lint_fix_retries: int | None = None
+    # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after.
+    # ``None``/False = dormant (strict no-op). Forwarded by every backend from
+    # ``config.memory`` (all-engines rule); the loop additionally requires the
+    # repo to carry a .eidetic/ store, so test repos never spawn a subprocess.
+    memory: bool | None = None
+    # The durable repo root the memory store lives in (execute_work sets it to
+    # the operator repo for isolated runs); ``None`` falls back to the task's
+    # own repo_path (the in-place session path).
+    memory_root: str | None = None
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -1735,6 +2010,8 @@ class ContextControls:
             throttle_fanout=_make_fanout_throttle(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
+            memory=config.memory,
+            memory_root=getattr(config, "memory_root", None),
             testintegrity=config.testintegrity,
             testintegrity_fix_retries=config.testintegrity_fix_retries,
             testintegrity_reviewer_model=config.testintegrity_reviewer_model,
@@ -2540,6 +2817,8 @@ def run(
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
+        memory_enabled=bool(_context.memory),
+        memory_root=_context.memory_root,
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
@@ -2558,6 +2837,10 @@ def run(
     # result.capacity_warning when even a split can't hold the job; a strict no-op
     # for a normal-sized assignment.
     _maybe_warn_too_big(ctx)
+
+    # Recall-before (spec R1 / plan t2): inject prior lessons from the repo's
+    # eidetic store as ONE advisory context message; a strict no-op unless armed.
+    _maybe_recall_memory(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto
@@ -2706,6 +2989,10 @@ def run(
     # _resolve_terminal_summary — extracted so run() stays under the S3776 threshold
     # and so synthesis runs BEFORE the compaction fallback (the stale-summary fix).
     _resolve_terminal_summary(ctx, outcome, complete, _last_sub)
+
+    # Remember-after (spec R1 / plan t2): record this work item's lesson to the
+    # repo's memory store; a strict no-op unless armed, best-effort always.
+    _maybe_remember_lesson(ctx)
 
     # Escalation seam — not-finished path (#106 t3): step budget exhausted without
     # calling finish.  Runs AFTER summary resolution (above) so the continuation

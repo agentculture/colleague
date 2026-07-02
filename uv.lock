@@ -9,20 +9,20 @@ resolution-markers = [
 
 [[package]]
 name = "agent-lifecycle"
-version = "0.7.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e3/f2/521d43f3bb757e55d8462e3fab2c9705f75a39954ffa3e6dcc06ea20ed0e/agent_lifecycle-0.7.0.tar.gz", hash = "sha256:6b21565d94f5dd8c038250cb8610067e1bbe3d5488622c6fc0121ab209e3d45d", size = 238650, upload-time = "2026-06-12T04:18:07.943Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/99/ec0ddda63124533d6713b5b7294cebdee0db44167c08c8128542d25f0c8e/agent_lifecycle-0.9.0.tar.gz", hash = "sha256:0bff07f0cc2230360765bd266952ecb2ef24acf97c986d151c42919ef6f521a5", size = 263633, upload-time = "2026-07-02T06:00:16.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/d9/f4920c0df2dbe56e3941754fc6debdee7ce11311982512514612c15624fb/agent_lifecycle-0.7.0-py3-none-any.whl", hash = "sha256:a9ae50a9404a2d28aa21e3d960d0c3d6536e796a1250936aee194ded2dc256fc", size = 57264, upload-time = "2026-06-12T04:18:06.865Z" },
+    { url = "https://files.pythonhosted.org/packages/3d/b3/da45cd1cc3df175fb796868582f6659dde5dc4e02503ede602c6521e1436/agent_lifecycle-0.9.0-py3-none-any.whl", hash = "sha256:3806be1132a994203599afec75ded7ac2c9b3511b15d4394f61dbe2428d55479", size = 57809, upload-time = "2026-07-02T06:00:14.715Z" },
 ]
 
 [[package]]
 name = "agentfront"
-version = "0.19.0"
+version = "0.20.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1f/3a/65a61f9b9abb85d9c1801fbb1be449d23a62570e55611ae1f3c79f8f4c38/agentfront-0.19.0.tar.gz", hash = "sha256:35d24ee983a4747e396786260d6c06665fb161c8594bb26380a5cb409d9c9164", size = 411019, upload-time = "2026-06-27T19:39:15.457Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/c2/acf94fc4274161b3c6983b9308544ff7f6ea376ade72c13f7bfeb3dd0711/agentfront-0.20.0.tar.gz", hash = "sha256:990901c75b04cff4d6413eeb510f2fb1c33332a8d43267aa86e5c0e2380f2c37", size = 485014, upload-time = "2026-07-02T06:04:58.983Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/ff/758d4086abae896b5dc393a7838e2d0de7c6b6ad3f54944445e158e12394/agentfront-0.19.0-py3-none-any.whl", hash = "sha256:ff634f69e86ad87c1c5fb9d475541c0e7f932af8a97dfabccabe1211c2bb3bbc", size = 119760, upload-time = "2026-06-27T19:39:14.049Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/95/8fd2a19d2b92fe1500bb28587af722d28638f95e70a0d8ac191cd45b2a72/agentfront-0.20.0-py3-none-any.whl", hash = "sha256:1c6b20006e3aad858ed6cb4ef6c3f7181c2b27c54e82eb269f31658707bdfd98", size = 140246, upload-time = "2026-07-02T06:04:57.696Z" },
 ]
 
 [[package]]
@@ -271,7 +271,7 @@ wheels = [
 
 [[package]]
 name = "colleague"
-version = "1.30.0"
+version = "1.31.0"
 source = { editable = "." }
 dependencies = [
     { name = "agentfront" },
@@ -290,6 +290,9 @@ otel = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
     { name = "opentelemetry-semantic-conventions" },
+]
+resident = [
+    { name = "agent-lifecycle" },
 ]
 tui = [
     { name = "rich" },
@@ -315,7 +318,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-lifecycle", marker = "extra == 'culture'", specifier = ">=0.7" },
+    { name = "agent-lifecycle", marker = "extra == 'culture'", specifier = ">=0.9" },
+    { name = "agent-lifecycle", marker = "extra == 'resident'", specifier = ">=0.9" },
     { name = "agentfront", specifier = ">=0.19.0" },
     { name = "agentirc-cli", marker = "extra == 'culture'", specifier = ">=9.6,<10" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28.0" },
@@ -326,7 +330,7 @@ requires-dist = [
     { name = "rich", marker = "extra == 'tui'", specifier = ">=13" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.50" },
 ]
-provides-extras = ["otel", "mcp", "tui", "culture"]
+provides-extras = ["otel", "mcp", "tui", "resident", "culture"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -116,6 +116,12 @@ _DEFAULT_SYNTHESIS_RESERVE = 0
 _DEFAULT_LINT_ENABLED = True
 _DEFAULT_LINT_FIX_RETRIES = 1
 
+# Memory-informed runtime (spec R1 / plan t2). Default-ON with opt-outs
+# (COLLEAGUE_MEMORY=0 / config.json {"memory": false} / --no-memory); the loop
+# additionally arms only when the repo has a .eidetic/ store and the eidetic
+# CLI is installed, so a store-less repo is a strict no-op regardless.
+_DEFAULT_MEMORY_ENABLED = True
+
 # Affected-tests gate (#213). Default-ON with an opt-out: after the loop the
 # runtime selects and runs only the tests whose import chain reaches the changed
 # files (bounded-depth transitive reverse-import selection). Disable with
@@ -322,6 +328,44 @@ def _resolve_lint_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_LINT_ENABLED
+
+
+def _load_memory_override(repo_path: str | Path) -> str | None:
+    """Read the ``memory`` key from .colleague/config.json as a raw string.
+
+    Mirrors :func:`_load_lint_overrides` (kept separate from
+    :func:`load_config_file`, whose endpoint-string contract must not change).
+    Returns the stringified value or ``None`` when absent; a missing/malformed
+    file yields ``None`` and never raises.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("memory")
+    return None if value is None else str(value)
+
+
+def _resolve_memory_enabled(file_value: str | None) -> bool:
+    """Resolve memory-informed-runtime enablement (spec R1 / plan t2):
+    env ``COLLEAGUE_MEMORY`` > config.json ``{"memory": ...}`` > default-on.
+
+    Default-ON is safe because the loop additionally arms only when the repo
+    contains a ``.eidetic/`` store AND the eidetic CLI is installed — a repo
+    without a store (every tmp test repo) is a strict no-op regardless.
+    """
+    for env_key in ("COLLEAGUE_MEMORY", "CONVERTIBLE_MEMORY"):
+        env = os.environ.get(env_key)
+        if env is not None and env.strip() != "":
+            return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_MEMORY_ENABLED
 
 
 def _load_affected_tests_overrides(
@@ -585,6 +629,7 @@ class EngineConfig:
     max_continue_nudges: int = _DEFAULT_MAX_CONTINUE_NUDGES
     synthesis_reserve_steps: int = _DEFAULT_SYNTHESIS_RESERVE
     lint: bool = _DEFAULT_LINT_ENABLED
+    memory: bool = _DEFAULT_MEMORY_ENABLED
     lint_fix_retries: int = _DEFAULT_LINT_FIX_RETRIES
     testintegrity: bool = _DEFAULT_TESTINTEGRITY_ENABLED
     testintegrity_fix_retries: int = _DEFAULT_TESTINTEGRITY_FIX_RETRIES
@@ -623,6 +668,13 @@ class EngineConfig:
     # role-composed prompt from it (t8). A runtime field, not env-resolved, so it is
     # excluded from eq/repr/to_dict like the spawn callbacks above.
     role: Optional[str] = field(default=None, compare=False, repr=False)
+
+    # Memory root (spec R1 / plan t2): the OPERATOR repo the memory store lives
+    # in. An isolated run works in a throwaway worktree, so a lesson written to
+    # task.repo_path would die with it — execute_work sets this to the real repo
+    # root so recall/remember target the durable store. A runtime field set by
+    # the CLI layer (the ``role`` precedent); excluded from eq/repr/to_dict.
+    memory_root: Optional[str] = field(default=None, compare=False, repr=False)
 
     # Mode-profile explicit-knob mask (t3 / spec R1): the EngineConfig field names
     # the caller set from explicit CLI flags (e.g. ``{"max_steps"}`` when
@@ -674,6 +726,7 @@ class EngineConfig:
         # the file is absent/malformed).
         file_cfg: dict[str, str] = {}
         file_lint: str | None = None
+        file_memory: str | None = None
         file_lint_retries: str | None = None
         file_ti: str | None = None
         file_ti_retries: str | None = None
@@ -685,6 +738,7 @@ class EngineConfig:
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
+            file_memory = _load_memory_override(repo_path)
             file_ti, file_ti_retries = _load_testintegrity_overrides(repo_path)
             file_at, file_at_retries, file_at_depth, file_at_max_files = (
                 _load_affected_tests_overrides(repo_path)
@@ -875,6 +929,7 @@ class EngineConfig:
             # signature (the --no-lint flag overrides post-resolve) to hold the
             # S107 parameter ceiling, mirroring synthesis_reserve_steps above.
             lint=_resolve_lint_enabled(file_lint),
+            memory=_resolve_memory_enabled(file_memory),
             lint_fix_retries=_try_int(
                 _pick(
                     None,
@@ -972,6 +1027,7 @@ class EngineConfig:
             "subagent_depth": self.subagent_depth,
             "subagent_total": self.subagent_total,
             "lint": self.lint,
+            "memory": self.memory,
             "lint_fix_retries": self.lint_fix_retries,
             "testintegrity": self.testintegrity,
             "testintegrity_fix_retries": self.testintegrity_fix_retries,

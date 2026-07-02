@@ -69,7 +69,13 @@ treat ❌-by-staleness the same as never-validated.
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ✅ | `64361da` · 2026-06-05 (drive `711505cb4c3f`); see §5 result | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ✅ | `d5c9312` · 2026-06-05 (e2e in CI + live drive `eff14af763d4`); see §6 result | [#126](https://github.com/agentculture/colleague/issues/126) |
 | 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ✅ | `fcbf4ec` · 2026-06-05 (proactive `36b022abc7f0`, reactive `0323db53b1dd`); see §7 result | [#127](https://github.com/agentculture/colleague/issues/127) |
-| 8 | Partial-edit tool (`edit_file`) | `colleague/tools.py` | ❌ | — (added in #174; not yet exercised in a live drive) | [#174](https://github.com/agentculture/colleague/issues/174) |
+| 8 | Partial-edit tool (`edit_file`) | `colleague/tools.py` | ✅ | `bf6cf2d` · 2026-07-02 (work items `ede0f61fb28b` ×7, `5ccdf8573cad` ×2, `6422d3224e32` ×11 — real TDD builds on this repo) | [#174](https://github.com/agentculture/colleague/issues/174) |
+| 9 | Memory: recall-before / remember-after | `colleague/memory.py`, `colleague/loop.py` | ✅ | `bf6cf2d` · 2026-07-02 (smoke `e082b37e602e` lesson persisted to the durable store; warm-vs-cold `503b0a36c33a` vs `c5774404bc3d` — 10→2 steps, 23.4k→4.3k tokens; see `docs/features/memory.md`) | — |
+| 10 | Finish recovery (thin/meta/literal-markup) | `colleague/loop.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (deterministic regression suite on the #248/#231 evidence shapes; a live re-occurrence not yet observed post-fix — the fix removes the trigger) | [#248](https://github.com/agentculture/colleague/issues/248) [#231](https://github.com/agentculture/colleague/issues/231) |
+| 11 | Background one-shot (`work --background`) | `colleague/background.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (mock-engine e2e through `main()` incl. kill-reap; a live-model background run not yet exercised) | — |
+| 12 | Resident appserver (agent-lifecycle embed) | `colleague/resident/appserver.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (real `agent_lifecycle` 0.9.0 + reference transport e2e; REAL mesh transport PENDING upstream — h15, never claimed) | — |
+| 13 | Spontaneous `subagents` delegation | `colleague/subagents.py` | ✅ | `bf6cf2d` · 2026-07-02 (work items `5ccdf8573cad` ×1, `6422d3224e32` ×2 with 7 folded sub_results — UNPROMPTED, superseding §2's "needs an explicit invite" caveat) | — |
+| 14 | Substantial decomposed write (h9) | `colleague/loop.py`, `colleague/tools.py`, `colleague/subagents.py` | ⚠️ | `22adbb3` · 2026-07-02 (pre-fix `4c6a96107269` CRASHED on a malformed tool call; post-fix `55859cb1d605` survived to an honest `incomplete` — harness proven, the served 27B couldn't land the full decomposition; see the substantial-write section below) | — |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -502,14 +508,12 @@ now validated live (or live + cited-deterministic where the model adds no signal
   throttle + advisory), `tests/test_rig.py` (cross-process slot semantics incl. a
   live `execute_work` hold/release), and `tests/test_loop_acceptance_selfcheck.py`
   (goal block + advisory self-check).
-- **PENDING live.** `tests/test_vllm_live_mode.py` (gated on `COLLEAGUE_VLLM_E2E=1`)
-  is written but NOT yet run against a live model: as of 2026-07-02 the reference
-  endpoint stale-lists the 27B (completions 404) and the served Qwen3.5-4B rejects
-  tool calls (no `--enable-auto-tool-choice` — evidence on
-  [#66](https://github.com/agentculture/colleague/issues/66)), so colleague's tool
-  loop has no live backend on this rig. Run the gated test once serving is fixed;
-  until then the mock e2e is the validated floor — recorded honestly, never
-  claimed as live (plan risk r3).
+- **VALIDATED live — `bf6cf2d` · 2026-07-02.** The rig came back with tool
+  calling (the 27B serves and the `doctor --probe` tool-calling round-trip
+  passes), and `COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live_mode.py`
+  **PASSED** (`test_mode_explore_live`, 30s): a live `--mode explore` run
+  completed inside its profile. The profile *numbers* remain conservative
+  defaults pending broader live tuning (plan risk r1 — tuning, not validity).
 
 ## Dual-model deepthink escalation (spec 2026-07-01, plan task t10)
 
@@ -524,22 +528,100 @@ now validated live (or live + cited-deterministic where the model adds no signal
   all pass against the `mock` engine and fixtures: a no-deepthink-config run is
   byte-identical to today, and a dual-config run against `mock` records a
   degraded no-op (the lint fix-turn precedent) instead of failing.
-- **PENDING live.** `tests/test_dual_live.py` (gated on `COLLEAGUE_DUAL_E2E=1`,
-  requiring both `COLLEAGUE_BASE_URL`/`_MODEL` for a tool-calling main model
-  *and* `COLLEAGUE_DEEPTHINK_MODEL`/`_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET` for
-  a live deepthink endpoint) is written but NOT yet run against a live rig: as
-  of 2026-07-02 the reference rig serves no tool-calling-capable backend at all
-  (the same standing gap as the mode-profiles row above — evidence
-  [#66](https://github.com/agentculture/colleague/issues/66)) — the main model
-  in a dual pair must be served with tool calling (vLLM
-  `--enable-auto-tool-choice` plus a model-appropriate `--tool-call-parser`)
-  and a *second* endpoint must serve the deepthink model concurrently, which
-  this rig does not yet do. The wall-clock + quality benchmark
-  (`scripts/bench_dual.py`) is scripted and documented (quality graded via the
-  existing feedback loop, `colleague feedback record <task_id> --rating N`) but
-  refuses to run against an unreachable endpoint rather than fake a comparison
-  (verified: it exits 1 with a clear stderr message against this rig's
-  unconfigured/unreachable deepthink target, and never starts a model run).
-  Run both once the rig serves two tool-calling-capable OpenAI-compatible
-  endpoints; until then this row stays PENDING — never declared validated
-  (spec honesty condition, plan task t10 acceptance).
+- **VALIDATED live — `bf6cf2d` · 2026-07-02.** The rig now serves multiple
+  models on one endpoint, so the dual pair ran as main =
+  `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (tool-calling verified) +
+  deepthink = `coolthor/gemma-4-12B-it-NVFP4A16` (tools-off bare completion —
+  a deepthink target needs no tool parser). `COLLEAGUE_DUAL_E2E=1
+  COLLEAGUE_DEEPTHINK_MODEL=coolthor/gemma-4-12B-it-NVFP4A16 uv run pytest
+  tests/test_dual_live.py` — **both tests PASSED**:
+  - *deepthink tool:* the main model escalated the judgment question —
+    `read_file → deepthink → finish`, `DeepthinkCall(point='tool',
+    tokens=825, duration=36.4s, degraded=False)` on the artifact.
+  - *acceptance self-check:* `DeepthinkCall(point='acceptance_selfcheck',
+    tokens=246, duration=2.0s, degraded=False)`.
+  - *degrade path (bonus, proven live):* pointing the deepthink target at the
+    endpoint's stale-listed `nvidia/Qwen3-14B-NVFP4` (models-list entry whose
+    completions 404 — evidence commented on
+    [#66](https://github.com/agentculture/colleague/issues/66)) produced a
+    clean OK run with `DeepthinkCall(degraded=True, duration=0.019s)` — the
+    dual run never fails because deepthink is unreachable, exactly as spec'd.
+  Two test-infra fixes were needed to make the proof runnable at all,
+  recorded honestly: the autouse conftest env-scrub hid the deepthink target
+  from the gate (fixed with an import-time env snapshot), and the judgment
+  task needed the #122-style explicit invite (the 27B happily answers without
+  escalating; the row proves the escalation *plumbing*, not spontaneity).
+  Residuals: the intended role-optimal pairing (wide-window main + stronger
+  reasoner deepthink) awaits serving both with tool parsers, and the
+  wall-clock/quality benchmark (`scripts/bench_dual.py`) has not been run —
+  the mechanism rows above are what this validates.
+
+## Substantial decomposed write (best-colleague arc h9, plan task t9)
+
+The h9 protocol: hand the loop a genuinely multi-part assignment (a 3-module
+Python package + per-module tests, explicit instruction to DELEGATE via
+`subagents`), run it live, and record the outcome honestly — a model that
+cannot land it decomposed is recorded as a model limit, never claimed solved.
+
+- **Pre-fix run `4c6a96107269` (CRASH — real harness bug caught live).** The
+  27B delegated correctly (4 folded sub_results) but at step 12 emitted a
+  tool call with empty arguments; the bare `arguments["path"]` `KeyError`
+  escaped the dispatch (which caught only `ToolError`) and aborted the whole
+  run as `engine 'vllm-openai' failed: 'path'`. Fixed in `22adbb3` (two
+  layers: per-tool `_require` validation + argument-shaped-error conversion
+  at the dispatch boundary), pinned by `tests/test_tool_arg_errors.py`.
+- **Post-fix run `55859cb1d605` (survived — honest `incomplete`, 460s).** The
+  identical task re-run: the parent spawned 3 children + merge
+  (`COLLEAGUE_SUBAGENT_CONCURRENCY=2`); malformed/err steps cost one step
+  each and the run kept going (the fix, proven live). Child 0 (tokenizer)
+  delivered module+tests; child 1 (counter) delivered module+tests but ALSO
+  re-wrote `tokenizer.py`/`__init__.py` as its own dependency stubs; child 2
+  (report) stalled emitting literal tool-markup and wrote nothing. The merge
+  child integrated child 0, no-op'd child 2, and **surfaced (did not
+  force-merge) the child-1 conflict** — exactly the designed behavior. The
+  parent ran out of budget resolving it; forced synthesis fired but its own
+  output was literal markup, so the terminal summary is honest-but-garbled.
+  The delivered half is real: **13/13 tests pass** on the work branch
+  (`python3 -m pytest tests/` on `colleague/55859cb1d605-…`).
+- **Verdict.** Harness: VALIDATED — the crash class is fixed live; isolation,
+  fan-out, conflict-surfacing, and honest `incomplete` all behaved. Model:
+  the served 27B under concurrent self-load still cannot land a 3-way
+  decomposed write end-to-end (markup-emission stalls + duplicate-dependency
+  conflicts) — recorded per h9 as a model limit, not claimed solved.
+- **Follow-ups filed from this run:**
+  [#264](https://github.com/agentculture/colleague/issues/264) — forced-synthesis output can itself be
+  literal markup (the t5 re-parse targets a *finish* shape, not synthesis
+  text); [#265](https://github.com/agentculture/colleague/issues/265) — the
+  WIP-on-stop sweep commits `.colleague/worktrees/` lock files and
+  `__pycache__` residue onto the work branch — fixed post-review in this same
+  PR: the admin lock + pid markers moved out of the working tree entirely
+  (under the git common dir, shared across linked worktrees) and the sweep
+  excludes `__pycache__`/`*.pyc`.
+
+## Livecheck closing regression (best-colleague arc R7, 2026-07-02)
+
+`colleague livecheck --repo . --json` ran as the arc's closing regression
+(the verb's own first full live outing). Results, recorded honestly:
+
+- **Passed live in the battery:** loop tools, live mode, neighbours, and the
+  dual-model proof (4 rows).
+- **Skipped by the runner:** the basic-drive, context-budget, and
+  gated-configs proofs hit livecheck's then-fixed 120s per-proof cap — too
+  tight for full drives on the reference 27B (each passed historically).
+  Fixed post-review in this same PR
+  ([#266](https://github.com/agentculture/colleague/issues/266)): the cap is
+  now 600s by default, tunable via `COLLEAGUE_LIVECHECK_TIMEOUT`, and a skip
+  names the configured cap + the knob.
+- **Failed in the battery, passed on re-run — a serving-side window, proven
+  byte-identical:** the telemetry and subagents proofs failed during a window
+  where the endpoint emitted malformed literal tool-markup instead of parsed
+  tool calls. Diagnosis: `COLLEAGUE_DUMP_REQUEST=1` captured the exact
+  outgoing payload; a byte-for-byte identical request (same system prompt,
+  same 13 tool schemas, `temperature: 0.0` greedy decoding) failed 3/3 in one
+  window and passed 3/3 (curl) + end-to-end (CLI) minutes later. Identical
+  greedy requests giving different outputs over time is endpoint-side
+  nondeterminism (speculative-decoding/batching state on the MTP-served 27B —
+  the #66 family), not a harness or test bug. Both proofs **passed** on
+  re-run (`2 passed in 699.70s`). This is the same markup-emission pathology
+  that limited the h9 substantial-write run — now isolated to the serving
+  layer with wire-level evidence.

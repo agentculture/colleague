@@ -394,20 +394,28 @@ class TestIsContextOverflow:
         """The module must import only stdlib — no third-party deps."""
         import sys
 
-        # Remove cached module if present
-        for key in list(sys.modules.keys()):
-            if "colleague.context" in key:
-                del sys.modules[key]
+        # Snapshot + remove the cached module so the re-import is fresh, then
+        # RESTORE the original module objects afterward: leaving a re-imported
+        # colleague.context in sys.modules poisons identity assertions in tests
+        # that later run on the same xdist worker (e.g. test_deepthink's
+        # `counter is count_tokens_chars` — two module objects, two functions).
+        saved = {key: sys.modules[key] for key in list(sys.modules) if "colleague.context" in key}
+        for key in saved:
+            del sys.modules[key]
 
-        import colleague.context  # noqa: F401
+        try:
+            import colleague.context  # noqa: F401
 
-        # Verify the module only imports stdlib modules (no third-party)
-        # We check by ensuring tiktoken / transformers / etc. are NOT imported
-        third_party = {"tiktoken", "transformers", "openai", "anthropic"}
-        loaded = set(sys.modules.keys())
-        bad = third_party & loaded
-        # Allow any that were already loaded before this test
-        assert not bad, f"Third-party modules loaded: {bad}"
+            # Verify the module only imports stdlib modules (no third-party)
+            # We check by ensuring tiktoken / transformers / etc. are NOT imported
+            third_party = {"tiktoken", "transformers", "openai", "anthropic"}
+            loaded = set(sys.modules.keys())
+            bad = third_party & loaded
+            # Allow any that were already loaded before this test
+            assert not bad, f"Third-party modules loaded: {bad}"
+        finally:
+            for key, mod in saved.items():
+                sys.modules[key] = mod
 
 
 # ===========================================================================

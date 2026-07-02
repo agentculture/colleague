@@ -14,6 +14,7 @@ Covers the three code requirements:
 from __future__ import annotations
 
 import argparse
+import json
 import signal
 import subprocess
 from pathlib import Path
@@ -49,6 +50,27 @@ def _branch_log(repo: Path, branch: str) -> str:
     return proc.stdout
 
 
+def _dead_pid() -> int:
+    """A PID guaranteed to have already exited (spawn a trivial process, reap it)."""
+    proc = subprocess.Popen(["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc.wait()
+    return proc.pid
+
+
+def _mark_orphaned(repo: Path, task_id: str) -> None:
+    """Overwrite *task_id*'s liveness marker (#239 h1) with a definitely-dead PID.
+
+    isolation_worktree_add stamps the CALLING process's pid as the holder, so a
+    worktree created directly by a test (in-process, not via a real subprocess
+    colleague invocation) carries the test's OWN pid — which is alive for the
+    whole test. Reap-path tests below model a crashed/finished work item (the
+    realistic orphaned-residue scenario reap_orphaned_iso_worktrees exists for),
+    so they must fake the marker going stale, exactly as it would once the real
+    owning process had exited.
+    """
+    worktrees.iso_liveness_path(str(repo), task_id).write_text(str(_dead_pid()), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # t1 — worktrees primitives
 # ---------------------------------------------------------------------------
@@ -66,6 +88,7 @@ def test_commit_iso_worktree_wip_commits_then_noop(git_repo: Path) -> None:
 
 def test_list_and_reap_scoped_to_iso_only(git_repo: Path) -> None:
     iso = worktrees.isolation_worktree_add(str(git_repo), "abc", "colleague/abc")
+    _mark_orphaned(git_repo, "abc")  # simulate: the creating process has exited (#239 h1)
     # decoys that must NEVER be reaped by the iso path:
     sub = worktrees.worktree_add(str(git_repo), "child1")  # .colleague/worktrees/child1 (sub/*)
     outside = git_repo.parent / "unrelated-wt"
@@ -85,6 +108,7 @@ def test_list_and_reap_scoped_to_iso_only(git_repo: Path) -> None:
 
 def test_reap_dry_run_reports_without_removing(git_repo: Path) -> None:
     iso = worktrees.isolation_worktree_add(str(git_repo), "dry", "colleague/dry")
+    _mark_orphaned(git_repo, "dry")  # simulate: the creating process has exited (#239 h1)
     reported = worktrees.reap_orphaned_iso_worktrees(str(git_repo), dry_run=True)
     assert reported == [iso]
     assert Path(iso).exists()  # dry-run changed nothing
@@ -94,6 +118,7 @@ def test_reap_spares_active_task_ids(git_repo: Path) -> None:
     """A still-running work item (active flight id) is never reaped (review of #228)."""
     live = worktrees.isolation_worktree_add(str(git_repo), "live1", "colleague/live1")
     dead = worktrees.isolation_worktree_add(str(git_repo), "dead1", "colleague/dead1")
+    _mark_orphaned(git_repo, "dead1")  # simulate: dead1's process has exited (#239 h1)
 
     reaped = worktrees.reap_orphaned_iso_worktrees(str(git_repo), active_task_ids={"live1"})
     assert reaped == [dead]  # only the non-active one
@@ -151,6 +176,7 @@ def _clean_args(repo: Path, *, dry_run: bool) -> argparse.Namespace:
 
 def test_clean_reaps_orphan_iso_worktree(git_repo: Path, capsys: pytest.CaptureFixture) -> None:
     iso = worktrees.isolation_worktree_add(str(git_repo), "crash", "colleague/crash")
+    _mark_orphaned(git_repo, "crash")  # simulate: the crashed run's process has exited (#239 h1)
     sub = worktrees.worktree_add(str(git_repo), "child9")
 
     assert cmd_clean(_clean_args(git_repo, dry_run=False)) == 0
@@ -162,3 +188,21 @@ def test_clean_dry_run_keeps_iso_worktree(git_repo: Path) -> None:
     iso = worktrees.isolation_worktree_add(str(git_repo), "keep", "colleague/keep")
     assert cmd_clean(_clean_args(git_repo, dry_run=True)) == 0
     assert Path(iso).exists()  # dry-run removed nothing
+
+
+def test_clean_dry_run_never_reports_a_live_runs_worktree_as_reapable(
+    git_repo: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """#239 h1 headline fix: `colleague clean --dry-run` used to list a LIVE
+    run's isolation worktree as "would reap" because the only signal it had
+    was active-flight tracking, which a bare (non-``--watch``) `colleague
+    work` run never registers as. The liveness marker (this process's own
+    pid, stamped by isolation_worktree_add) now spares it even with zero
+    flight tracking involved."""
+    iso = worktrees.isolation_worktree_add(str(git_repo), "inflight", "colleague/inflight")
+
+    rc = cmd_clean(_clean_args(git_repo, dry_run=True))
+    assert rc == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["iso_worktrees"] == []  # never listed as "would reap"
+    assert Path(iso).exists()

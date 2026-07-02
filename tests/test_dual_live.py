@@ -79,15 +79,29 @@ def git_repo(tmp_path: Path) -> Path:
     return repo
 
 
+# Snapshot the operator's live-rig env at IMPORT time (collection), because the
+# autouse ``_isolate_provider_env`` conftest fixture scrubs every COLLEAGUE_*
+# var before each test — without this, the env-based dual gate below could
+# never see the deepthink target and the proof was structurally unrunnable
+# (caught on the first real t10 attempt against the live rig).
+_LIVE_ENV_SNAPSHOT: dict[str, str] = {
+    key: value
+    for key, value in os.environ.items()
+    if key.startswith(("COLLEAGUE_", "CONVERTIBLE_"))
+}
+
+
 @pytest.fixture()
-def dual_config() -> EngineConfig:
-    """Resolve EngineConfig from env (main + COLLEAGUE_DEEPTHINK_*).
+def dual_config(monkeypatch: pytest.MonkeyPatch) -> EngineConfig:
+    """Resolve EngineConfig from the import-time env snapshot (main + deepthink).
 
     ``COLLEAGUE_DUAL_E2E=1`` alone is not sufficient to run — a live deepthink
     target must actually be declared, or this skips with a clear message
     rather than silently exercising a single-model run under a "dual" test
     name.
     """
+    for key, value in _LIVE_ENV_SNAPSHOT.items():
+        monkeypatch.setenv(key, value)
     config = EngineConfig.resolve()
     if config.deepthink is None:
         pytest.skip(
@@ -118,14 +132,21 @@ def _drive(repo: Path, task: Task, config: EngineConfig, label: str) -> TaskResu
 #    tool — the end-to-end proof the escalation reaches the second model.
 # ---------------------------------------------------------------------------
 
+# The invite is EXPLICIT ("use the deepthink tool ... before you decide"), not
+# a MAY: the served 27B happily answers this in one turn without escalating
+# (observed live — the #122 "delegation needs an explicit invite" pattern), and
+# this row proves the escalation PLUMBING (tool call → second model → recorded
+# DeepthinkCall), not spontaneous model judgment. Spontaneity stays honest in
+# the tool's judgment-not-mechanics description; the proof just removes the
+# model's option to skip the wire under test.
 _JUDGMENT_TASK = (
     "Look at calc.py's add_all function. There are two named design options: "
     "(A) keep the current explicit for-loop, or (B) rewrite it as "
     "`return sum(nums)`. This is a genuine design judgment call, not a "
-    "mechanical edit — you MAY use the deepthink tool to think it through "
-    "with the stronger reasoning model before you decide. Do not change any "
-    "code. State your decision (A or B) and a one-line rationale in your "
-    "finish summary."
+    "mechanical edit — use the deepthink tool to think it through with the "
+    "stronger reasoning model BEFORE you decide (call it once with the "
+    "question, then decide). Do not change any code. State your decision "
+    "(A or B) and a one-line rationale in your finish summary."
 )
 
 

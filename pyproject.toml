@@ -1,6 +1,6 @@
 [project]
 name = "colleague"
-version = "1.30.0"
+version = "1.31.0"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -55,17 +55,33 @@ tui = [
     "rich>=13",
     "textual>=0.50",
 ]
+# RESIDENT (appserver mode, plan task t13): colleague consumes
+# agent-lifecycle's runtime as a LIBRARY EMBED — colleague.resident.appserver
+# implements the Harness Protocol (start/feed_message/replies/stop) and wires
+# it to a caller-supplied Transport through agent-lifecycle's Supervisor, so
+# colleague can accept mesh work requests and run them as real background
+# work items. Needs ONLY agent-lifecycle — no IRC wire — because the appserver
+# is transport-agnostic (the caller supplies its own Transport; a real mesh
+# transport for work *requests* has not shipped upstream yet — h15/PENDING —
+# so this is proven against agent_lifecycle's own reference InMemoryTransport
+# today). A base install stays dep-free (tests/test_zero_deps.py); this extra
+# is a strict SUBSET of [culture] below (agent-lifecycle is the only package
+# both need), so `pip install "colleague[culture]"` already satisfies it too.
+# Install with: pip install "colleague[resident]"  (or: uv sync --extra resident).
+resident = [
+    "agent-lifecycle>=0.9",
+]
 # CULTURE (mesh-member promotion): agent-lifecycle's asyncio runtime seam
 # (Transport/Presence/Harness/Supervisor) + agentirc-cli (the IRC wire) are
 # opt-in *extras*, never base runtime deps — the deps colleague needs to live in
 # the Culture mesh as a resident. The base install keeps `dependencies = []`
 # (enforced by tests/test_zero_deps.py). colleague/resident/ imports them lazily —
 # the package's import-clean core (__init__, steward) pulls nothing third-party;
-# only the async seam adapters (harness/transport/supervisor) touch agent_lifecycle,
-# and only when the resident actually runs.
+# only the async seam adapters (harness/transport/supervisor/appserver) touch
+# agent_lifecycle, and only when the resident actually runs.
 # Install with: pip install "colleague[culture]"  (or: uv sync --extra culture).
 culture = [
-    "agent-lifecycle>=0.7",
+    "agent-lifecycle>=0.9",
     "agentirc-cli>=9.6,<10",
 ]
 

@@ -208,6 +208,32 @@ list of what shipped (and when), see [`CHANGELOG.md`](CHANGELOG.md).
 | Approval gate | [See Approval gate section below](#approval-gate) |
 | Ask colleague (a different mind) | [ask-colleague.md](docs/features/ask-colleague.md) |
 | Escalation (agtag continuation) | [escalation.md](docs/features/escalation.md) |
+| Memory (eidetic recall/remember) | [memory.md](docs/features/memory.md) |
+| Background one-shot (`work --background`) | [background.md](docs/features/background.md) |
+| Resident appserver (mesh work requests) | [resident.md](docs/features/resident.md) |
+| Deepthink (dual-model escalation) | [deepthink.md](docs/features/deepthink.md) |
+| Mode profiles | [mode-profiles.md](docs/features/mode-profiles.md) |
+| Adaptive backpressure | [backpressure.md](docs/features/backpressure.md) |
+| Tier visibility | [tier-visibility.md](docs/features/tier-visibility.md) |
+| Skill curation (budget-aware) | [skill-curation.md](docs/features/skill-curation.md) |
+| Rig budget (cross-process slots) | [rig-budget.md](docs/features/rig-budget.md) |
+| Task goals & acceptance | [task-goals.md](docs/features/task-goals.md) |
+| Session modes (shift-tab / `/mode`) | [session-modes.md](docs/features/session-modes.md) |
+| Plan mode | [plan-mode.md](docs/features/plan-mode.md) |
+| Subagent roles (typed workforce) | [subagent-roles.md](docs/features/subagent-roles.md) |
+| Write isolation (throwaway worktrees) | [write-isolation.md](docs/features/write-isolation.md) |
+| Lint pre-finish gate | [lint-gate.md](docs/features/lint-gate.md) |
+| Test-integrity gate | [test-integrity.md](docs/features/test-integrity.md) |
+| Affected-tests gate | [affected-tests.md](docs/features/affected-tests.md) |
+| Capacity standard / fill-line | [capacity-standard.md](docs/features/capacity-standard.md) |
+| Explore never wastes a run | [explore-never-wastes.md](docs/features/explore-never-wastes.md) |
+| Continue-working (stall recovery) | [continue-working.md](docs/features/continue-working.md) |
+| Flight (pilot a run mid-air) | [flight.md](docs/features/flight.md) |
+| Cleanup / reap (`clean`) | [cleanup-reap.md](docs/features/cleanup-reap.md) |
+| Config resolution (`.colleague/config.json`) | [config-resolution.md](docs/features/config-resolution.md) |
+| Approval gate (detail) | [approval-gate.md](docs/features/approval-gate.md) |
+| CLI on agentfront (rendered surface) | [cli-on-agentfront.md](docs/features/cli-on-agentfront.md) |
+| ask-colleague trustworthy reflex | [ask-colleague-trustworthy-reflex.md](docs/features/ask-colleague-trustworthy-reflex.md) |
 
 The detailed sections below remain the canonical reference; the feature pages add
 per-feature source pointers and cross-links.

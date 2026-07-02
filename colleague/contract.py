@@ -712,6 +712,25 @@ class TaskResult:
     work item serializes byte-identically to today's artifact. Populated by
     the loop (plan task t5) each time it escalates via the deepthink seam
     (:mod:`colleague.deepthink`)."""
+    finish_recovered: Optional[str] = None
+    """How the summary was recovered when the model's finish *transport* failed
+    (#248), or ``None`` when the finish arrived intact. ``"literal-markup"``:
+    the model emitted its finish as literal tool-call text in message content
+    and the loop re-parsed it as the finish payload. ``"thin-finish-synthesis"``:
+    the finish carried only a headline after a read-heavy zero-write run, so one
+    forced synthesis turn (#191) produced the real report. The honest degradation
+    marker required by the best-colleague-arc spec (h8): a recovered report is
+    diagnosable from the artifact, never silent. Omit-when-None like
+    role/mode/deepthink, so an intact-finish run serializes byte-identically."""
+    memory: Optional[dict[str, Any]] = None
+    """The memory-informed-runtime exchange for this work item (spec R1 / plan
+    t2), or ``None`` when memory never armed (no ``.eidetic/`` store, no eidetic
+    CLI, or disabled). A plain ``{"query", "recalled", "injected_chars",
+    "lesson_recorded"}`` record populated by the loop: what was recalled and
+    injected before work (h7: token-capped and diagnosable from the artifact —
+    a misleading memory is traceable, never silent) and whether the post-run
+    lesson landed in the store. Omit-when-None, so a memory-less run serializes
+    byte-identically."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -773,6 +792,14 @@ class TaskResult:
         # byte-identically to today's artifact (no extra key).
         if self.deepthink is not None:
             d["deepthink"] = [c.to_dict() for c in self.deepthink]
+        # finish_recovered gets the same omit-when-None treatment (#248): an
+        # intact-finish work item serializes byte-identically (no extra key).
+        if self.finish_recovered is not None:
+            d["finish_recovered"] = self.finish_recovered
+        # memory gets the same omit-when-None treatment (spec R1 / plan t2): a
+        # memory-less work item serializes byte-identically (no extra key).
+        if self.memory is not None:
+            d["memory"] = dict(self.memory)
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -825,6 +852,8 @@ class TaskResult:
             mode=data.get("mode"),
             acceptance_outcomes=_coerce_acceptance_outcomes(data.get("acceptance_outcomes")),
             deepthink=_coerce_deepthink_calls(data.get("deepthink")),
+            finish_recovered=data.get("finish_recovered"),
+            memory=data.get("memory"),
         )
 
 

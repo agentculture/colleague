@@ -77,7 +77,8 @@ class TestRoleAwareExecutor:
         (tmp_path / "c.txt").write_text("data")
         ex = ToolExecutor(tmp_path, allowlist=("read_file",))
         out = ex.execute("read_file", {"path": "c.txt"})
-        assert out.result == "data"
+        # read_file grounds each line with its true 1-based number (#240).
+        assert out.result == "     1\tdata"
 
     def test_role_object_as_allowlist(self, tmp_path) -> None:
         explorer = BUILTIN_ROLES["explorer"]
@@ -85,7 +86,7 @@ class TestRoleAwareExecutor:
         # read_file is in explorer's allowlist
         (tmp_path / "d.txt").write_text("hello")
         out = ex.execute("read_file", {"path": "d.txt"})
-        assert out.result == "hello"
+        assert out.result == "     1\thello"
         # write_file is not
         with pytest.raises(ToolError):
             ex.execute("write_file", {"path": "e.txt", "content": "nope"})
