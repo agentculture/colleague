@@ -74,11 +74,14 @@ _WRITE_TOOLS = frozenset({"write_file", "edit_file", "run_command"})
 #: too: it is pure computation — ONE bounded tools-off completion against a
 #: second model, no writes, no shell — so a read-only reviewer/explorer/planner
 #: can escalate a hard verdict without weakening the read-only guarantee at all.
+#: ``memory`` is included for recall (search) only — the executor enforces that
+#: read-only roles cannot use the 'remember' verb (write-capable shell-out).
 _READONLY_TOOLS = (
     "read_file",
     "list_dir",
     "check_test_integrity",
     "deepthink",
+    "memory",
     "finish",
 )
 
