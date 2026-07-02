@@ -15,7 +15,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from colleague.livecheck import (
     ProofResult,
