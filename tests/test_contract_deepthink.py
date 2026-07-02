@@ -233,3 +233,31 @@ def test_task_result_from_dict_drops_malformed_deepthink_entries() -> None:
     result = TaskResult.from_dict(payload)
 
     assert result.deepthink == [DeepthinkCall(point="tool")]
+
+
+def test_task_result_from_dict_tolerates_unparseable_deepthink_numbers() -> None:
+    """A malformed ``tokens``/``duration`` (e.g. a hand-edited or corrupted
+    artifact entry) must not raise and abort the whole ``TaskResult.from_dict``
+    call — it falls back to ``None`` for the field that couldn't be parsed,
+    while ``point``/``degraded`` still survive (Qodo review of PR #261,
+    comment PRRC_kwDOSoxhoM7RPQer)."""
+    payload = {
+        "task_id": "badnum1",
+        "status": OK,
+        "summary": "",
+        "changed_files": [],
+        "steps": [],
+        "usage": {},
+        "deepthink": [
+            {"point": "x", "tokens": "n/a", "duration": "bad", "degraded": True},
+        ],
+    }
+
+    # Must not raise.
+    result = TaskResult.from_dict(payload)
+
+    assert result.deepthink == [DeepthinkCall(point="x", tokens=None, duration=None, degraded=True)]
+    assert result.deepthink[0].tokens is None
+    assert result.deepthink[0].duration is None
+    assert result.deepthink[0].point == "x"
+    assert result.deepthink[0].degraded is True

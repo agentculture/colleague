@@ -79,6 +79,29 @@ _CALC_PY = (
     "def add_all(nums):\n    total = 0\n    for n in nums:\n        total += n\n    return total\n"
 )
 
+#: Env-var name prefixes that carry secrets (API keys, tokens) the throwaway
+#: ``git init``/``config``/``add``/``commit`` calls in ``_make_repo`` have no
+#: need for — git only needs a name/email to make a commit. Deliberately
+#: distinct from ``_run_one``, which passes the full environment on purpose
+#: because the ``colleague work`` child genuinely needs the keys.
+_SENSITIVE_ENV_PREFIXES = ("COLLEAGUE_", "OPENAI_", "OTEL_", "ANTHROPIC_")
+
+
+def _sanitized_git_env() -> dict:
+    """The current environment with every sensitive-prefixed key stripped.
+
+    Used only for the scratch-repo bootstrap git calls in ``_make_repo`` —
+    ``git init``/``config``/``add``/``commit`` never need an API key, so
+    there is no reason for those subprocesses to inherit
+    ``COLLEAGUE_*``/``OPENAI_*``/``OTEL_*``/``ANTHROPIC_*`` secrets from the
+    caller's shell.
+    """
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(_SENSITIVE_ENV_PREFIXES)
+    }
+
 
 def _reachable(base_url: str) -> tuple[bool, str]:
     """GET ``{base_url}/models`` with a short timeout (mirrors doctor --probe)."""
@@ -128,18 +151,23 @@ def _make_repo(tmp_root: Path, name: str) -> Path:
     """A fresh one-commit git repo with a tiny calc.py, isolated per (mode, task)."""
     repo = tmp_root / name
     repo.mkdir(parents=True)
+    git_env = _sanitized_git_env()
     for args in (
         ["git", "init", "-q"],
         ["git", "config", "user.email", "bench@colleague.test"],
         ["git", "config", "user.name", "bench"],
     ):
-        subprocess.run(args, cwd=repo, check=True, capture_output=True)
+        subprocess.run(args, cwd=repo, env=git_env, check=True, capture_output=True)
     (repo / "calc.py").write_text(_CALC_PY)
     subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
-        ["git", "add", "calc.py"], cwd=repo, check=True, capture_output=True
+        ["git", "add", "calc.py"], cwd=repo, env=git_env, check=True, capture_output=True
     )
     subprocess.run(  # nosec B603 B607 - fixed 'git' argv, no shell
-        ["git", "commit", "-q", "-m", "init"], cwd=repo, check=True, capture_output=True
+        ["git", "commit", "-q", "-m", "init"],
+        cwd=repo,
+        env=git_env,
+        check=True,
+        capture_output=True,
     )
     return repo
 

@@ -425,12 +425,30 @@ class DeepthinkCall:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DeepthinkCall":
+        """Coerce a raw ``DeepthinkCall``-shaped mapping read back from an artifact.
+
+        ``tokens``/``duration`` are best-effort numeric coercions: a value that
+        cannot be parsed as ``int``/``float`` (e.g. a malformed artifact entry
+        like ``{"tokens": "n/a"}``) falls back to ``None`` rather than raising
+        and aborting the whole ``TaskResult.from_dict`` call — matching the
+        codebase's best-effort stance on optional structured payloads read back
+        from JSON (see ``_coerce_acceptance_outcomes``). ``point``/``degraded``
+        still survive from the rest of the entry.
+        """
         raw_tokens = data.get("tokens")
         raw_duration = data.get("duration")
+        try:
+            tokens = int(raw_tokens) if raw_tokens is not None else None
+        except (TypeError, ValueError):
+            tokens = None
+        try:
+            duration = float(raw_duration) if raw_duration is not None else None
+        except (TypeError, ValueError):
+            duration = None
         return cls(
             point=str(data.get("point", "")),
-            tokens=int(raw_tokens) if raw_tokens is not None else None,
-            duration=float(raw_duration) if raw_duration is not None else None,
+            tokens=tokens,
+            duration=duration,
             degraded=bool(data.get("degraded", False)),
         )
 

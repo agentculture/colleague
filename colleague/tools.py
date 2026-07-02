@@ -918,9 +918,7 @@ class ToolExecutor:
             self.deepthink_calls.append(call)
             if getattr(call, "degraded", False):
                 return ToolOutcome(
-                    result=(
-                        "deepthink is unavailable (degraded) — proceed with " "your own judgment."
-                    )
+                    result="deepthink is unavailable (degraded) — proceed with your own judgment."
                 )
             return ToolOutcome(result=self._truncate(str(getattr(answer, "text", ""))))
         # Back-compat: a plain str-returning seam answers but records nothing.

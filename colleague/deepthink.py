@@ -29,7 +29,7 @@ from __future__ import annotations
 import dataclasses
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 from colleague import registry
 from colleague.config import EngineConfig
@@ -79,12 +79,15 @@ def deepthink_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
     dt = config.deepthink
     if dt is None:
         return None
-    return dataclasses.replace(
-        config,
-        model=dt.model,
-        base_url=dt.base_url,
-        api_key=dt.api_key,
-        context_budget_tokens=dt.context_budget,
+    return cast(
+        EngineConfig,
+        dataclasses.replace(
+            config,
+            model=dt.model,
+            base_url=dt.base_url,
+            api_key=dt.api_key,
+            context_budget_tokens=dt.context_budget,
+        ),
     )
 
 
