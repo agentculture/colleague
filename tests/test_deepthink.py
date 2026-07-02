@@ -24,7 +24,12 @@ import pytest
 from colleague.config import DeepthinkConfig, EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import DeepthinkCall
-from colleague.deepthink import DeepthinkResult, deepthink_engine_config, run_deepthink
+from colleague.deepthink import (
+    DeepthinkResult,
+    deepthink_engine_config,
+    run_deepthink,
+    window_messages,
+)
 from colleague.engine import Engine
 from colleague.engines import vllm_openai
 from colleague.engines.vllm_openai import VllmOpenAIEngine
@@ -216,6 +221,57 @@ class TestWindowing:
         assert sent is not None
         assert sent[-1]["content"] == small_question
         assert "truncated" not in sent[-1]["content"]
+
+
+class TestWindowMessages:
+    """The message-list twin (plan-mode's windowing path — spec h4).
+
+    ``window_messages`` is the ONE windowing implementation: ``run_deepthink``
+    reaches it through ``_window_question``; plan-mode's proposal routing calls
+    it directly with a self-composed multi-turn list.
+    """
+
+    def _counter(self, messages: list[dict]) -> int:
+        return sum(len(m.get("content") or "") for m in messages)
+
+    def test_fitting_messages_pass_through_as_the_same_object(self) -> None:
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "small"},
+        ]
+        out = window_messages(messages, budget=100000, count_tokens=self._counter)
+        assert out is messages  # byte-identical pass-through, no copy
+
+    def test_oversized_last_user_message_is_truncated_under_send_budget(self) -> None:
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "x" * 1000},
+        ]
+        out = window_messages(messages, budget=100, count_tokens=self._counter)
+        assert self._counter(out) <= 75  # send budget = 100 - 100 // 4
+        assert out[0] == {"role": "system", "content": "sys"}  # untouched turn
+        assert "[deepthink digest truncated to fit budget]" in out[1]["content"]
+        # The input list was never mutated (the caller may fall back to the
+        # main model with the ORIGINAL messages).
+        assert messages[1]["content"] == "x" * 1000
+
+    def test_truncation_targets_the_last_user_message(self) -> None:
+        messages = [
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "an answer"},
+            {"role": "user", "content": "y" * 1000},
+        ]
+        out = window_messages(messages, budget=120, count_tokens=self._counter)
+        assert out[0] == messages[0]
+        assert out[1] == messages[1]
+        assert "[deepthink digest truncated to fit budget]" in out[2]["content"]
+
+    def test_no_user_message_is_returned_unchanged(self) -> None:
+        # Nothing safely truncatable — the reactive shrink-retry ladder is the
+        # floor; window_messages never drops or rewrites a non-user turn.
+        messages = [{"role": "system", "content": "s" * 1000}]
+        out = window_messages(messages, budget=100, count_tokens=self._counter)
+        assert out is messages
 
 
 # ---------------------------------------------------------------------------

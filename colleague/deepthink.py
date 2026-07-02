@@ -105,6 +105,58 @@ def _truncated_text(question: str, cut: int) -> str:
     return f"{prefix}\n\n{_TRUNCATION_NOTE}"
 
 
+def window_messages(
+    messages: "list[dict[str, Any]]",
+    *,
+    budget: int,
+    count_tokens: "Callable[[list[dict[str, Any]]], int]",
+) -> "list[dict[str, Any]]":
+    """Window an already-composed message list to the deepthink send budget.
+
+    The message-list twin of :func:`_window_question`, for the one enumerated
+    caller that composes its own multi-turn prompt (plan-mode proposals) —
+    spec h4 windows EVERY deepthink call against the deepthink model's OWN
+    context budget before the request is sent. Reserves one quarter of
+    *budget* for the completion, so the prompt must measure at or under
+    ``budget - budget // 4``. A list that already fits is returned untouched
+    (byte-identical pass-through). Otherwise the LAST user message — the
+    payload turn in every caller's composition — is truncated (binary search
+    on length, so the number of ``count_tokens`` calls is bounded) with
+    :data:`_TRUNCATION_NOTE` appended, so whoever reads the prompt can always
+    tell it was cut. Messages are never dropped and the input list is never
+    mutated. A list with no user message is returned unchanged — nothing is
+    safely truncatable, and the reactive shrink-retry ladder stays the floor.
+    """
+    reserve = max(1, budget // 4)
+    send_budget = max(1, budget - reserve)
+    if count_tokens(messages) <= send_budget:
+        return messages
+
+    idx = next(
+        (i for i in range(len(messages) - 1, -1, -1) if messages[i].get("role") == "user"),
+        None,
+    )
+    if idx is None:
+        return messages
+
+    original = str(messages[idx].get("content") or "")
+
+    def with_content(text: str) -> "list[dict[str, Any]]":
+        return [dict(m, content=text) if i == idx else m for i, m in enumerate(messages)]
+
+    lo, hi = 0, len(original)
+    best = _TRUNCATION_NOTE
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate_text = _truncated_text(original, mid)
+        if count_tokens(with_content(candidate_text)) <= send_budget:
+            best = candidate_text
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return with_content(best)
+
+
 def _window_question(
     question: str,
     *,
@@ -114,35 +166,18 @@ def _window_question(
 ) -> "list[dict[str, Any]]":
     """Window *question* to fit the deepthink model's send budget BEFORE the request.
 
-    Reserves one quarter of *budget* for the completion (spec h4), so the
-    prompt itself must measure at or under ``budget - budget // 4``. If the
-    composed messages already fit, they are returned untouched (a small
-    question passes through byte-identical). Otherwise the question text is
-    truncated (binary search on length, so the minimal number of
-    ``count_tokens`` calls is bounded) and :data:`_TRUNCATION_NOTE` is
-    appended, so the caller can always tell a digest was cut. The final
-    messages measure under the send budget by *count_tokens* whenever any
-    prefix length can satisfy it at all.
+    Composes the one-shot message list (optional system turn + the question)
+    and delegates the budget arithmetic + truncation to
+    :func:`window_messages` — ONE windowing implementation for every
+    enumerated escalation point (spec h4). The question is the last (only)
+    user message, so a small question passes through byte-identical and an
+    oversized one is truncated with the visible :data:`_TRUNCATION_NOTE`.
     """
-    reserve = max(1, budget // 4)
-    send_budget = max(1, budget - reserve)
-
-    messages = _compose_messages(question, system_prompt)
-    if count_tokens(messages) <= send_budget:
-        return messages
-
-    lo, hi = 0, len(question)
-    best = _TRUNCATION_NOTE
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        candidate_text = _truncated_text(question, mid)
-        candidate = _compose_messages(candidate_text, system_prompt)
-        if count_tokens(candidate) <= send_budget:
-            best = candidate_text
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return _compose_messages(best, system_prompt)
+    return window_messages(
+        _compose_messages(question, system_prompt),
+        budget=budget,
+        count_tokens=count_tokens,
+    )
 
 
 def _call_tokens(response: "ModelResponse") -> int:

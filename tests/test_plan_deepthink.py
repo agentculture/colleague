@@ -17,7 +17,7 @@ import types
 
 import pytest
 
-from colleague.cli._commands.plan import run_plan_request
+from colleague.cli._commands.plan import _route_proposals_through_deepthink, run_plan_request
 from colleague.config import DeepthinkConfig, EngineConfig
 
 _PLAN_JSON = (
@@ -222,3 +222,104 @@ def test_plan_no_deepthink_info_line_absent(
 
     err = capsys.readouterr().err
     assert "plan: proposals via deepthink model" not in err
+
+
+def test_plan_dual_config_with_legacy_engine_degrades_never_raises(
+    tmp_path, monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Degrade-never-raise covers the BUILD too (spec c13/h5): an out-of-tree
+    engine whose ``make_complete(config)`` predates the ``tools`` parameter
+    raises ``TypeError`` when the deepthink route is built — the route must
+    degrade the whole run to the main model, not crash ``colleague plan``.
+    """
+    config = _main_config(_deepthink_config())
+    engine = _NoToolsKwargEngine()  # legacy 1-arg make_complete + dual config
+    monkeypatch.setattr("colleague.registry.load", lambda _name: engine)
+
+    result = _run(tmp_path, config)  # must not raise
+
+    assert result.converged is True
+    assert [i.id for i in result.plan_items] == ["t1", "t2"]
+    # Only the main-model build landed (the tools-off build raised before
+    # recording); the main model answered every proposal.
+    assert engine.calls == [config]
+
+    err = capsys.readouterr().err
+    assert "plan: deepthink completion unavailable" in err
+    assert "plan: proposals via deepthink model" not in err  # route never armed
+
+
+class _WindowProbeEngine:
+    """Captures the messages the deepthink completion actually receives, with
+    a 1-token-per-content-char counter so the budget arithmetic is exact.
+    """
+
+    name = "fake"
+
+    def __init__(self, fail_deepthink: bool = False) -> None:
+        self.deepthink_received: list[list[dict]] = []
+        self._fail = fail_deepthink
+
+    def make_complete(self, config, tools=None):
+        def complete(messages):
+            self.deepthink_received.append(messages)
+            if self._fail:
+                raise TimeoutError("deepthink endpoint unreachable")
+            return types.SimpleNamespace(content=_PLAN_JSON)
+
+        return complete
+
+    def make_count_tokens(self, config):
+        return lambda messages: sum(len(str(m.get("content") or "")) for m in messages)
+
+
+def test_route_windows_oversized_proposals_to_the_deepthink_budget(capsys) -> None:
+    """Spec h4 holds for plan-mode too: a proposal prompt bigger than the
+    deepthink model's own context budget is windowed BEFORE the request is
+    sent — the last user message truncated with the visible note, the other
+    turns untouched.
+    """
+    config = _main_config(_deepthink_config(context_budget=100))  # send budget 75
+    engine = _WindowProbeEngine()
+
+    def complete_main(_messages):  # pragma: no cover - deepthink answers
+        raise AssertionError("main model must not answer a successful deepthink call")
+
+    route = _route_proposals_through_deepthink(engine, config, complete_main)
+    response = route(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "x" * 10_000},
+        ]
+    )
+
+    assert response.content == _PLAN_JSON
+    (received,) = engine.deepthink_received
+    assert received[0] == {"role": "system", "content": "sys"}
+    assert "[deepthink digest truncated to fit budget]" in received[1]["content"]
+    counter = engine.make_count_tokens(None)
+    assert counter(received) <= 75
+
+
+def test_route_fallback_hands_main_the_original_unwindowed_messages(capsys) -> None:
+    """The fallback targets the MAIN model's wide window — it must receive the
+    ORIGINAL messages, never the deepthink-truncated copy.
+    """
+    config = _main_config(_deepthink_config(context_budget=100))
+    engine = _WindowProbeEngine(fail_deepthink=True)
+    main_received: list[list[dict]] = []
+
+    def complete_main(messages):
+        main_received.append(messages)
+        return types.SimpleNamespace(content=_PLAN_JSON)
+
+    route = _route_proposals_through_deepthink(engine, config, complete_main)
+    original = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "x" * 10_000},
+    ]
+    route(original)
+
+    (received,) = main_received
+    assert received is original  # untruncated, same object
+    assert received[1]["content"] == "x" * 10_000
