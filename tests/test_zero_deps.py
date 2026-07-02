@@ -200,6 +200,7 @@ def test_no_third_party_imports():
         import colleague.commands  # noqa: F401
         import colleague.configdir  # noqa: F401
         import colleague.culture  # noqa: F401
+        import colleague.deepthink  # noqa: F401
         import colleague.devague  # noqa: F401
         import colleague.flight  # noqa: F401
         import colleague.hooks  # noqa: F401
