@@ -21,6 +21,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 # Known import-system builtins (not in sys.stdlib_module_names but safe):
 # importlib internals and setup/packaging artifacts.
 _KNOWN_IMPORT_BUILTINS = {
@@ -137,6 +139,76 @@ def test_base_import_does_not_load_mcp():
         "Importing colleague.cli pulled the mcp SDK — it must stay lazy "
         "(only App.mcp_server() / `colleague mcp serve` may import mcp)."
     )
+
+
+def test_resident_extra_declared():
+    """The [resident] extra declares agent-lifecycle only (plan task t13).
+
+    Unlike [culture] (the conversational `colleague promote` resident, which
+    additionally needs the IRC wire), the appserver Harness
+    (colleague.resident.appserver) is transport-agnostic — the caller supplies
+    its own Transport — so it needs only agent-lifecycle itself. This pins
+    that the extra exists and pulls no IRC dependency the appserver path does
+    not need.
+    """
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    extras = data.get("project", {}).get("optional-dependencies", {})
+    resident = extras.get("resident")
+    assert resident is not None, "Expected a [project.optional-dependencies].resident extra"
+    joined = " ".join(resident)
+    assert "agent-lifecycle" in joined, f"[resident] must pin agent-lifecycle, got {resident}"
+    assert (
+        "agentirc" not in joined
+    ), f"[resident] is transport-agnostic and must not pin the IRC wire, got {resident}"
+
+    # [resident] is a strict SUBSET of [culture] (both pin agent-lifecycle) so a
+    # `colleague[culture]` install already satisfies the appserver's needs too.
+    culture = extras.get("culture") or []
+    assert any(
+        "agent-lifecycle" in pin for pin in culture
+    ), "[culture] must still pin agent-lifecycle so it remains a superset of [resident]"
+
+
+def test_appserver_needs_the_resident_extra():
+    """colleague.resident.appserver pulls in agent_lifecycle when its extra is
+    installed -- proving the seam is real, not silently stubbed away.
+
+    Run in a FRESH subprocess (mirroring test_resident_no_work_path.py's
+    ``test_work_path_does_not_import_resident``) rather than diffing
+    ``sys.modules`` in-process: another test module in the same pytest session
+    may already have imported ``agent_lifecycle`` (e.g. via
+    ``pytest.importorskip`` in an earlier-collected resident test file), which
+    would make an in-process before/after diff show no *new* import even
+    though the module genuinely depends on it -- a subprocess starts with a
+    clean ``sys.modules`` every time, so this is deterministic regardless of
+    test order.
+
+    The COMPLEMENTARY negative claim (nothing on the base import path ever
+    reaches this module) is proven two other ways: tests/test_boundary.py's
+    ``TestAgentLifecycleConfinement`` (agent_lifecycle is referenced in source
+    ONLY under colleague/resident/) and this file's own
+    ``test_no_third_party_imports`` (whose core-module list never includes
+    anything under colleague.resident, so agent_lifecycle never shows up as a
+    "leak" there either).
+    """
+    pytest.importorskip(
+        "agent_lifecycle", reason="install the [resident]/[culture] extra to run this guard"
+    )
+    import subprocess
+
+    code = (
+        "import colleague.resident.appserver;"
+        "import sys;"
+        "assert 'agent_lifecycle' in sys.modules, "
+        "'colleague.resident.appserver did not pull in agent_lifecycle';"
+        "print('needs-agent-lifecycle')"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "needs-agent-lifecycle" in result.stdout
 
 
 def test_culture_extra_declared():
