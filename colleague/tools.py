@@ -583,6 +583,22 @@ def _number_lines(text: str) -> str:
     return "\n".join(f"{i:{_LINE_NUMBER_WIDTH}d}\t{line}" for i, line in enumerate(lines, start=1))
 
 
+def _require(arguments: dict[str, Any], key: str, tool: str) -> Any:
+    """Fetch a required tool argument or raise a self-correcting :class:`ToolError`.
+
+    A served model sometimes emits a tool call with empty/missing arguments
+    (live: work item ``4c6a96107269`` died at step 12 when a bare
+    ``arguments["path"]`` raised ``KeyError`` and escaped the dispatch, which
+    caught only ``ToolError`` — aborting a 12-step run with 4 folded
+    sub-results). A missing required argument is a MODEL error, not a harness
+    bug: it must cost one non-ok step carrying a message the model can act on,
+    never the run.
+    """
+    if key not in arguments:
+        raise ToolError(f"{tool} requires '{key}'")
+    return arguments[key]
+
+
 def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
     """Validate + normalize the ``subagents`` tool's instruction items.
 
@@ -739,7 +755,7 @@ class ToolExecutor:
         )
 
     def _read_file(self, arguments: dict[str, Any]) -> ToolOutcome:
-        path = self._safe_path(str(arguments["path"]))
+        path = self._safe_path(str(_require(arguments, "path", "read_file")))
         try:
             text = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
@@ -753,7 +769,7 @@ class ToolExecutor:
         return ToolOutcome(result=self._truncate(_number_lines(text)))
 
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
-        rel = str(arguments["path"])
+        rel = str(_require(arguments, "path", "write_file"))
         path = self._safe_path(rel)
         self._refuse_clone_write(path, rel)
         content = str(arguments.get("content", ""))
@@ -777,7 +793,7 @@ class ToolExecutor:
         for full-file ``write_file`` timing out on large existing files. ``old_string``
         must be unique unless ``replace_all`` is set.
         """
-        rel = str(arguments["path"])
+        rel = str(_require(arguments, "path", "edit_file"))
         path = self._safe_path(rel)
         self._refuse_clone_write(path, rel)
         try:
@@ -794,8 +810,8 @@ class ToolExecutor:
         except OSError as exc:
             raise ToolError(f"cannot read {rel}: {exc}") from exc
 
-        old = str(arguments["old_string"])
-        new = str(arguments["new_string"])
+        old = str(_require(arguments, "old_string", "edit_file"))
+        new = str(_require(arguments, "new_string", "edit_file"))
         replace_all = bool(arguments.get("replace_all", False))
         if old == "":
             raise ToolError("old_string must be non-empty; use write_file to create a file")
@@ -864,7 +880,7 @@ class ToolExecutor:
         airtight sandbox is out of v0 scope (see CLAUDE.md). The guard covers
         the obvious / accidental case; document rather than overclaim.
         """
-        command = str(arguments["command"])
+        command = str(_require(arguments, "command", "run_command"))
 
         # Best-effort guard: refuse commands that EXECUTE a path inside the clone
         # dir. Token-aware (shlex) so a benign command that merely *mentions* the

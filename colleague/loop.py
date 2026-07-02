@@ -776,12 +776,25 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
 
         try:
             outcome = ctx.executor.execute(call.name, arguments)
-        except ToolError as exc:
-            span.set(ok=False, error=str(exc))
-            ctx.result.steps.append(
-                Step(step_index, call.name, arguments, f"error: {exc}", ok=False)
+        except (ToolError, KeyError, TypeError, ValueError) as exc:
+            # ToolError is the tools' own contract. KeyError/TypeError/ValueError
+            # are the argument-shaped residue of a malformed MODEL tool call that
+            # slipped past per-tool validation (live: work item 4c6a96107269 died
+            # mid-run on a bare KeyError('path') the old ToolError-only catch let
+            # escape as an engine failure). Either way it costs ONE non-ok step
+            # with a self-correcting message — never the run. Anything else
+            # (AttributeError, OSError, …) is a genuine harness bug and still
+            # aborts loudly.
+            msg = (
+                str(exc)
+                if isinstance(exc, ToolError)
+                else f"bad tool arguments: {type(exc).__name__}: {exc}"
             )
-            ctx.messages.append(_tool_message(call.id, f"error: {exc}"))
+            span.set(ok=False, error=msg)
+            ctx.result.steps.append(
+                Step(step_index, call.name, arguments, f"error: {msg}", ok=False)
+            )
+            ctx.messages.append(_tool_message(call.id, f"error: {msg}"))
             _emit_progress(ctx, step_index, call.name, arguments, ok=False)
             # post_tool still fires after a tool *attempt*; observe-only.
             _fire_hooks(
