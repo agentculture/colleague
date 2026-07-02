@@ -1533,7 +1533,7 @@ def _maybe_recall_memory(ctx: _Work) -> None:
         return
     query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
     try:
-        records = _memorymod.recall(ctx.task.repo_path, query, top_k=5, timeout=_MEMORY_TIMEOUT)
+        records = _memorymod.recall(_memory_repo(ctx), query, top_k=5, timeout=_MEMORY_TIMEOUT)
     except Exception:  # noqa: BLE001 - advisory context, never a precondition
         return
     block = _memorymod.build_recall_block(records) if records else ""
@@ -1585,7 +1585,7 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     )
     recorded = False
     with suppress(Exception):
-        recorded = _memorymod.remember(ctx.task.repo_path, record, timeout=_MEMORY_TIMEOUT)
+        recorded = _memorymod.remember(_memory_repo(ctx), record, timeout=_MEMORY_TIMEOUT)
     if result.memory is None:
         result.memory = {}
     result.memory["lesson_recorded"] = bool(recorded)

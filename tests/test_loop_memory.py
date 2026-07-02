@@ -64,8 +64,9 @@ def _fake_eidetic(bin_dir: Path, log: Path, recall_payload: list[dict]) -> None:
     payload = json.dumps(recall_payload)
     script.write_text(
         "#!/usr/bin/env python3\n"
-        "import json, sys\n"
-        f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "import json, os, sys\n"
+        f"open({str(log)!r}, 'a').write("
+        "json.dumps({'argv': sys.argv[1:], 'cwd': os.getcwd()}) + '\\n')\n"
         "if sys.argv[1] == 'recall':\n"
         f"    print({payload!r})\n"
         "sys.exit(0)\n"
@@ -99,7 +100,11 @@ def eidetic_log(repo: Path, tmp_path: Path, monkeypatch) -> Path:
 def _calls(log: Path) -> list[list[str]]:
     if not log.exists():
         return []
-    return [json.loads(line) for line in log.read_text().splitlines()]
+    return [json.loads(line)["argv"] for line in log.read_text().splitlines()]
+
+
+def _cwds(log: Path) -> list[str]:
+    return [json.loads(line)["cwd"] for line in log.read_text().splitlines()]
 
 
 def test_armed_run_recalls_injects_and_remembers(repo: Path, eidetic_log: Path) -> None:
@@ -229,6 +234,9 @@ def test_memory_root_targets_durable_store(repo: Path, eidetic_log: Path, tmp_pa
 
     calls = _calls(eidetic_log)
     assert [c[0] for c in calls] == ["recall", "remember"]
+    # THE point of memory_root: both CLI invocations run with cwd at the
+    # durable operator root, never the throwaway worktree (the live-smoke bug).
+    assert all(cwd == str(repo) for cwd in _cwds(eidetic_log))
     assert result.memory is not None and result.memory["lesson_recorded"] is True
 
 
@@ -237,3 +245,31 @@ def test_memory_field_round_trips() -> None:
     assert TaskResult.from_dict(r.to_dict()).memory == {"recalled": 2, "lesson_recorded": True}
     bare = TaskResult(task_id="x", status=OK)
     assert "memory" not in bare.to_dict()
+
+
+def test_eidetic_only_changes_do_not_read_as_dirty(tmp_path: Path) -> None:
+    """Store reinforcement/lessons never block the next run (#149 stays for real WIP)."""
+    import subprocess
+
+    from colleague.handoff import working_tree_dirty
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.t"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"], cwd=tmp_path, check=True, capture_output=True
+    )
+    store = tmp_path / ".eidetic" / "memory"
+    store.mkdir(parents=True)
+    (store / "colleague__public.jsonl").write_text("{}\n")
+    (tmp_path / "code.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    # A memory-armed run's own store churn: not dirty.
+    (store / "colleague__public.jsonl").write_text('{"id": "work-lesson-x"}\n')
+    assert working_tree_dirty(tmp_path) is False
+    # Real operator WIP on a tracked file: still dirty (#149 unchanged).
+    (tmp_path / "code.py").write_text("x = 2\n")
+    assert working_tree_dirty(tmp_path) is True

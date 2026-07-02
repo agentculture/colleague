@@ -443,7 +443,17 @@ def working_tree_dirty(repo_path: str | Path) -> bool:
         )
     except (HandoffError, OSError):
         return False
-    return proc.returncode == 0 and bool(proc.stdout.strip())
+    if proc.returncode != 0:
+        return False
+    # Changes confined to the committed eidetic memory store are colleague's own
+    # state, not operator work-in-progress: a memory-armed run (spec R1 / plan t2)
+    # reinforces recalled records and upserts a lesson into ``.eidetic/`` on every
+    # run, so counting those as "dirty" would make each memory-armed run block the
+    # next one. They are still swept onto the work branch by the handoff — lessons
+    # travel with the work — which is desirable, not a hazard.
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    non_memory = [ln for ln in lines if not ln[3:].lstrip().startswith(".eidetic/")]
+    return bool(non_memory)
 
 
 def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
