@@ -716,13 +716,12 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
     if has_command:
         # Positional tokens are template arguments when --command is set.
         try:
-            return expand_command(
+            task = expand_command(
                 repo,
                 command_name,
                 positional_tokens,
                 engine_default=engine,
                 model=config.model,
-                attachments=attachments,
             )
         except CommandError as exc:
             raise CliError(
@@ -730,6 +729,12 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
                 str(exc),
                 "list available commands with: colleague commands list --repo <path>",
             ) from exc
+        # expand_command has no attachments parameter (its Task.new shape is
+        # template-owned); --attach applies to a template task the same way
+        # the session surface does — assigned post-construction.
+        if attachments:
+            task.attachments = attachments
+        return task
 
     # Plain instruction path (original behaviour).
     return Task.new(str(repo), " ".join(positional_tokens), engine=engine, attachments=attachments)

@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from colleague.cli._commands.work import _build_task, cmd_work
+from colleague.cli._commands.work import _build_task
 from colleague.cli._errors import CliError
+from colleague.config import EngineConfig
 
 
 def _make_ns(
@@ -124,3 +125,37 @@ class TestBareWorkNoAttach:
         ns = _make_ns(git_repo, attach=[])
         task = _build_task(ns, git_repo, "mock", None)
         assert task.attachments is None
+
+
+class TestAttachWithCommandTemplate:
+    """--attach composes with --command: expand_command has no attachments
+    parameter, so the flag is applied to the expanded task post-construction
+    (the regression that slipped the first delivery: the kwarg was passed
+    unconditionally and every --command run raised TypeError)."""
+
+    def _template_repo(self, git_repo):
+        cmd_dir = git_repo / ".colleague" / "commands"
+        cmd_dir.mkdir(parents=True, exist_ok=True)
+        (cmd_dir / "hello.md").write_text("Say hello to the repo.\n")
+        return git_repo
+
+    def test_command_without_attach_builds(self, git_repo):
+        self._template_repo(git_repo)
+        ns = _make_ns(git_repo, instruction=[])
+        ns.command_name = "hello"
+        task = _build_task(ns, git_repo, "mock", EngineConfig())
+        assert task.attachments is None
+
+    def test_command_with_attach_lands_on_task(self, git_repo, tmp_path):
+        self._template_repo(git_repo)
+        img = tmp_path / "shot.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        ns = _make_ns(git_repo, instruction=[])
+        ns.command_name = "hello"
+        task = _build_task(ns, git_repo, "mock", EngineConfig())
+        # ns built without the attach kwarg above so the two cases share a
+        # template; re-run with the attachment present.
+        ns = _make_ns(git_repo, instruction=[], attach=[str(img)])
+        ns.command_name = "hello"
+        task = _build_task(ns, git_repo, "mock", EngineConfig())
+        assert task.attachments == [{"path": str(img), "media_type": "image/png"}]
