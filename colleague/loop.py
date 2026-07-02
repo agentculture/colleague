@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re as _re
 import shlex
 import sys
 import time
@@ -186,6 +187,57 @@ _EMPTY_FINISH_PROMPT = (
     "a review, the concrete findings and verdict you gathered. Do not request any "
     "more tools."
 )
+# Thin-finish synthesis (#248 mode A): the model *called* finish after a read-heavy,
+# zero-write run but its summary is only a headline (the observed 130k-token run
+# that returned one sentence — the completion budget went to tool-call args). The
+# empty-finish guard (#202) misses it because the summary is non-empty, so the
+# forced-synthesis path also fires on a THIN finish, with a prompt that names the
+# failure. Thresholds are deliberately conservative: a short summary is legitimate
+# for a run that wrote files ("wrote out.txt"), so the trigger requires many steps
+# AND zero write/edit calls — the findings-run signature.
+_THIN_FINISH_CHARS = 160
+_THIN_FINISH_MIN_STEPS = 8
+_THIN_FINISH_PROMPT = (
+    "Your `finish` summary was only a headline, but for a read-heavy run the summary "
+    "IS the deliverable. Write the complete findings NOW from what you actually read — "
+    "specific and self-contained (files, behaviors, conclusions). Do not request any "
+    "more tools; reply with the findings themselves as plain text."
+)
+
+# Literal finish-markup recovery (#248 mode B): a served model sometimes emits its
+# finish as literal tool-call MARKUP inside message content (observed shape below,
+# including a mangled ``function=finish>`` missing its ``<``) instead of a structured
+# tool call. The report exists — only the transport failed — so the loop re-parses
+# that shape and treats it as the finish payload instead of losing it to the
+# nudge/stop path. Tolerant by design: optional ``<tool_call>`` wrapper, optional
+# ``<`` on the function tag, DOTALL summary capture up to ``</parameter>``.
+#
+#   <tool_call>
+#   function=finish>
+#   <parameter=summary>
+#   ...the full report...
+#   </parameter>
+#   </function>
+#   </tool_call>
+_LITERAL_FINISH_RE = _re.compile(
+    r"<?function=finish>?.*?<parameter=summary>\s*(?P<summary>.+?)\s*</parameter>",
+    _re.DOTALL,
+)
+
+
+def _parse_literal_finish(content: str) -> str | None:
+    """Recover a finish summary from literal tool-call markup in message content.
+
+    Returns the summary text, or ``None`` when the content is ordinary prose (the
+    cheap substring guards keep the regex off the hot path). #248 mode B.
+    """
+    if "function=finish" not in content or "<parameter=summary>" not in content:
+        return None
+    match = _LITERAL_FINISH_RE.search(content)
+    if match is None:
+        return None
+    return match.group("summary").strip() or None
+
 
 # Pre-completion phase notices (colleague#206) — fired through the progress sink
 # right BEFORE a model completion so a long single turn (above all the final
@@ -1295,6 +1347,15 @@ def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[
     ``_last_substantive`` floor when synthesis (and the compaction fallback) yield
     nothing (auto-compact-on-finish, t3).
     """
+    # Literal finish-markup recovery (#248 mode B): the "no-tool turn" may actually
+    # BE the finish — the model emitted it as literal tool-call text in content.
+    # Re-parse it as the finish payload instead of nudging a model that already
+    # answered (the nudge/stop path would lose the report from the artifact).
+    recovered = _parse_literal_finish(resp.content or "")
+    if recovered is not None:
+        ctx.result.summary = recovered
+        ctx.result.finish_recovered = "literal-markup"
+        return nudges, _EXIT_FINISHED
     if nudges < ctx.max_continue_nudges:
         if resp.content:
             ctx.messages.append({"role": "assistant", "content": resp.content})
@@ -1400,6 +1461,26 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
+def _is_thin_finish(ctx: _Work) -> bool:
+    """A finish whose summary is a bare headline on a read-heavy, zero-write run.
+
+    The #248 mode-A signature: many steps spent reading, nothing written, and a
+    summary under ``_THIN_FINISH_CHARS`` — for such a run the summary IS the
+    deliverable, so a headline means the report never made it out. A run that
+    wrote/edited files legitimately finishes short ("wrote out.txt"), so any
+    write disarms the trigger; so does a short run (few steps = little context
+    worth synthesizing).
+    """
+    summary = (ctx.result.summary or "").strip()
+    if not summary or len(summary) >= _THIN_FINISH_CHARS:
+        return False
+    stats = ctx.result.stats
+    if stats.step_count < _THIN_FINISH_MIN_STEPS:
+        return False
+    writes = stats.tool_counts.get("write_file", 0) + stats.tool_counts.get("edit_file", 0)
+    return writes == 0
+
+
 def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> None:
     """Force ONE no-tools synthesis turn when a context-rich run produced no summary.
 
@@ -1424,9 +1505,18 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     """
     if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED, _EXIT_FINISHED):
         return
-    if ctx.result.summary or ctx.result.stats.step_count <= 0:
+    # Thin finish (#248 mode A): a finish whose summary is only a headline after a
+    # read-heavy zero-write run is the observed "130k tokens, one sentence" failure —
+    # non-empty, so the #202 empty-finish guard alone would skip it.
+    thin = outcome == _EXIT_FINISHED and _is_thin_finish(ctx)
+    if (ctx.result.summary and not thin) or ctx.result.stats.step_count <= 0:
         return
-    prompt = _EMPTY_FINISH_PROMPT if outcome == _EXIT_FINISHED else _SYNTHESIS_PROMPT
+    if thin:
+        prompt = _THIN_FINISH_PROMPT
+    elif outcome == _EXIT_FINISHED:
+        prompt = _EMPTY_FINISH_PROMPT
+    else:
+        prompt = _SYNTHESIS_PROMPT
     ctx.messages.append({"role": "user", "content": prompt})
     try:
         # The synthesis turn is the worst case for #206: a single no-tools completion
@@ -1436,6 +1526,10 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
         return
     _account_turn(ctx, resp)
     if resp.content:
+        if thin:
+            # Honest degradation marker (#248/h8): the artifact records that the
+            # summary came from a recovery turn, not the model's own finish.
+            ctx.result.finish_recovered = "thin-finish-synthesis"
         ctx.result.summary = resp.content
 
 
