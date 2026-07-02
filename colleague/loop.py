@@ -40,6 +40,7 @@ import time
 from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from colleague import affectedtests as _affectedtests
@@ -49,6 +50,7 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
+from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
@@ -586,6 +588,11 @@ class _Work:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint_enabled: bool = False
     lint_fix_retries: int = 0
+    # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after
+    # via the eidetic CLI adapter. Armed only when True AND the repo has a
+    # .eidetic/ store AND the CLI is installed (see _memory_armed) — otherwise a
+    # strict no-op, byte-identical to the pre-memory loop.
+    memory_enabled: bool = False
     # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
     # mirror-detection heuristic on the work item's changed files after the loop and
     # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
@@ -1483,6 +1490,94 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
+# Bounded eidetic-CLI wait for the two in-loop memory calls (t2): a recall/remember
+# must never stall the loop the way a full COLLEAGUE_TIMEOUT completion may.
+_MEMORY_TIMEOUT = 15.0
+
+
+def _memory_armed(ctx: _Work) -> bool:
+    """Memory fires only when enabled AND the repo opted in by carrying a store.
+
+    The store check is what keeps the default-ON flag safe: a tmp test repo (or
+    any repo without ``.eidetic/``) never spawns the CLI — a strict no-op. CLI
+    absence is handled inside :mod:`colleague.memory` (t1's contract).
+    """
+    if not ctx.memory_enabled:
+        return False
+    return (Path(ctx.task.repo_path) / ".eidetic").is_dir()
+
+
+def _maybe_recall_memory(ctx: _Work) -> None:
+    """Recall-before (spec R1 / plan t2): prior lessons as ONE advisory message.
+
+    The query derives from the task's goal (when set) or the instruction head;
+    the injected block is char-capped (``memory.RECALL_BLOCK_CAP`` — h7's
+    token-cap without a tokenizer) and the whole exchange is recorded on
+    ``TaskResult.memory`` so a misleading recall is diagnosable from the
+    artifact (h7). Best-effort: any failure leaves the run untouched.
+    """
+    if not _memory_armed(ctx):
+        return
+    query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
+    try:
+        records = _memorymod.recall(ctx.task.repo_path, query, top_k=5, timeout=_MEMORY_TIMEOUT)
+    except Exception:  # noqa: BLE001 - advisory context, never a precondition
+        return
+    block = _memorymod.build_recall_block(records) if records else ""
+    if block:
+        ctx.messages.append({"role": "user", "content": block})
+    ctx.result.memory = {
+        "query": query,
+        "recalled": len(records),
+        "injected_chars": len(block),
+    }
+
+
+def _maybe_remember_lesson(ctx: _Work) -> None:
+    """Remember-after (spec R1 / plan t2): one deterministic lesson per work item.
+
+    Composed from the finished result's own facts (status, steps, tool counts,
+    honesty markers) — no extra model turn. Idempotent: the record id derives
+    from the task id, so a re-run upserts. An INCOMPLETE run is recorded too —
+    failures are the most valuable lessons. Best-effort: a store failure never
+    masks the work item result; the outcome lands on ``TaskResult.memory``.
+    """
+    if not _memory_armed(ctx):
+        return
+    result = ctx.result
+    stats = result.stats
+    instruction = (ctx.task.instruction or "").strip()
+    request_head = instruction.splitlines()[0][:120] if instruction else ""
+    tools = ", ".join(f"{k}={v}" for k, v in sorted(stats.tool_counts.items()))
+    text = (
+        f"Work item {result.task_id} finished {result.status} on request: "
+        f"{request_head}. steps={stats.step_count}, tools=({tools}), "
+        f"files_changed={len(result.changed_files)}."
+    )
+    signals = []
+    if result.finish_recovered:
+        signals.append(f"finish_recovered={result.finish_recovered}")
+    if result.capacity_warning:
+        signals.append("capacity_warning")
+    if result.not_finished:
+        signals.append("step budget exhausted")
+    if result.stopped_without_finish:
+        signals.append("stopped without finish")
+    if signals:
+        text += " Signals: " + "; ".join(signals) + "."
+    record = _memorymod.build_lesson_record(
+        result.task_id,
+        text,
+        {"topic": "colleague-work-lesson", "status": result.status},
+    )
+    recorded = False
+    with suppress(Exception):
+        recorded = _memorymod.remember(ctx.task.repo_path, record, timeout=_MEMORY_TIMEOUT)
+    if result.memory is None:
+        result.memory = {}
+    result.memory["lesson_recorded"] = bool(recorded)
+
+
 def _read_heavy_zero_write(ctx: _Work) -> bool:
     """The findings-run signature shared by the thin and meta finish guards.
 
@@ -1809,6 +1904,11 @@ class ContextControls:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint: bool | None = None
     lint_fix_retries: int | None = None
+    # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after.
+    # ``None``/False = dormant (strict no-op). Forwarded by every backend from
+    # ``config.memory`` (all-engines rule); the loop additionally requires the
+    # repo to carry a .eidetic/ store, so test repos never spawn a subprocess.
+    memory: bool | None = None
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -1872,6 +1972,7 @@ class ContextControls:
             throttle_fanout=_make_fanout_throttle(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
+            memory=config.memory,
             testintegrity=config.testintegrity,
             testintegrity_fix_retries=config.testintegrity_fix_retries,
             testintegrity_reviewer_model=config.testintegrity_reviewer_model,
@@ -2677,6 +2778,7 @@ def run(
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
+        memory_enabled=bool(_context.memory),
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
@@ -2695,6 +2797,10 @@ def run(
     # result.capacity_warning when even a split can't hold the job; a strict no-op
     # for a normal-sized assignment.
     _maybe_warn_too_big(ctx)
+
+    # Recall-before (spec R1 / plan t2): inject prior lessons from the repo's
+    # eidetic store as ONE advisory context message; a strict no-op unless armed.
+    _maybe_recall_memory(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto
@@ -2843,6 +2949,10 @@ def run(
     # _resolve_terminal_summary — extracted so run() stays under the S3776 threshold
     # and so synthesis runs BEFORE the compaction fallback (the stale-summary fix).
     _resolve_terminal_summary(ctx, outcome, complete, _last_sub)
+
+    # Remember-after (spec R1 / plan t2): record this work item's lesson to the
+    # repo's memory store; a strict no-op unless armed, best-effort always.
+    _maybe_remember_lesson(ctx)
 
     # Escalation seam — not-finished path (#106 t3): step budget exhausted without
     # calling finish.  Runs AFTER summary resolution (above) so the continuation

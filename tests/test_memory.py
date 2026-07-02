@@ -131,11 +131,13 @@ class TestRecallHappyPath:
 
 
 class TestRecallCliAbsent:
-    def test_recall_returns_empty_list_when_cli_absent(self, tmp_path: Path) -> None:
+    def test_recall_returns_empty_list_when_cli_absent(self, tmp_path: Path, monkeypatch) -> None:
         """When eidetic is not on PATH, recall returns [] without raising."""
         empty_bin = tmp_path / "emptybin"
         empty_bin.mkdir()
-        os.environ["PATH"] = str(empty_bin)
+        # monkeypatch (not a bare os.environ assignment) so PATH is restored —
+        # a clobbered PATH breaks every later test in the same worker.
+        monkeypatch.setenv("PATH", str(empty_bin))
         # Ensure eidetic is not found
         with patch("colleague.memory.shutil") as mock_shutil:
             mock_shutil.which.return_value = None

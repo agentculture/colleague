@@ -44,6 +44,7 @@ def recall(
     query: str,
     *,
     top_k: int = 5,
+    timeout: float = _TIMEOUT_SECONDS,
 ) -> list[dict[str, Any]]:
     """Search the repo's eidetic memory store and return matching records.
 
@@ -83,7 +84,7 @@ def recall(
             cwd=str(root_path),
             capture_output=True,
             text=True,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=timeout,
             env=env,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -102,6 +103,8 @@ def recall(
 def remember(
     repo_path: str | Path,
     record: dict[str, Any],
+    *,
+    timeout: float = _TIMEOUT_SECONDS,
 ) -> bool:
     """Store a memory record in the repo's eidetic memory store.
 
@@ -138,10 +141,47 @@ def remember(
             cwd=str(root_path),
             capture_output=True,
             text=True,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=timeout,
             env=env,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
 
     return proc.returncode == 0
+
+
+# ── pure helpers for the runtime wiring (plan t2) ────────────────────────────
+
+#: Cap on the injected prior-lessons block, in characters (~1k tokens) — h7's
+#: "recall injection is token-capped" without bundling a tokenizer.
+RECALL_BLOCK_CAP = 4000
+
+
+def build_recall_block(records: list[dict[str, Any]], *, cap_chars: int = RECALL_BLOCK_CAP) -> str:
+    """Render recalled records as one advisory context block, capped.
+
+    Pure formatting — no subprocess. Empty/non-text records are skipped; an
+    all-empty result yields ``""`` (the caller injects nothing).
+    """
+    lines = ["[memory] Prior lessons recalled from this repo's memory store (advisory):"]
+    for rec in records:
+        text = str(rec.get("text", "")).strip()
+        if text:
+            lines.append(f"- {text}")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)[:cap_chars]
+
+
+def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    """Shape one work-item lesson as an eidetic record (id/type/text/metadata).
+
+    Idempotent by construction: the id is derived from the task id, so a
+    re-remember upserts in place (eidetic dedups by id) instead of duplicating.
+    """
+    return {
+        "id": f"work-lesson-{task_id}",
+        "type": "work-lesson",
+        "text": text,
+        "metadata": dict(metadata),
+    }

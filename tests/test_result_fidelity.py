@@ -240,6 +240,7 @@ class TestNoFinishResultFidelity:
             "acceptance_outcomes",
             "deepthink",
             "finish_recovered",
+            "memory",
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields
