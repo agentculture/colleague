@@ -344,6 +344,81 @@ def run_deepthink(
         )
 
 
+def run_media_bridge(
+    question: str,
+    media_parts: "list[dict[str, Any]]",
+    *,
+    config: EngineConfig,
+    point: str = "media-bridge",
+    engine_name: str,
+    system_prompt: Optional[str] = None,
+    engine_loader: "Optional[Callable[[str], Engine]]" = None,
+    count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+) -> DeepthinkResult:
+    """ONE tools-off completion carrying REAL media parts to the second model (t8).
+
+    The deliberate inverse of the t7 flattening rule: the operator declared the
+    SECOND model multimodal (``config.deepthink.multimodal``), so the media
+    parts are sent un-flattened to THAT endpoint — and only that endpoint; the
+    text-only main wire never sees them. The question text is windowed to the
+    deepthink model's own budget minus a per-part media reserve, then the parts
+    ride ONE appended user message. Mirrors :func:`run_deepthink`'s
+    degrade-never-raise contract (spec h5/h18): any failure returns a degraded
+    :class:`DeepthinkResult`, never an exception.
+    """
+    start = time.monotonic()
+
+    if config.deepthink is None or not config.deepthink.multimodal or not media_parts:
+        return DeepthinkResult(
+            text="",
+            call=DeepthinkCall(point=point, degraded=True, duration=time.monotonic() - start),
+        )
+
+    loader = engine_loader if engine_loader is not None else registry.load
+    try:
+        dt_config = deepthink_engine_config(config)
+        if dt_config is None:  # pragma: no cover - guarded above
+            raise RuntimeError("no deepthink config resolved")
+
+        engine = loader(engine_name)
+        counter = count_tokens if count_tokens is not None else engine.make_count_tokens(dt_config)
+        # Reserve budget for the media parts themselves so the windowed text +
+        # parts still fit the deepthink window (t6's estimate currency).
+        reserve = media.IMAGE_TOKEN_ESTIMATE * len(media_parts)
+        text_budget = max(1, dt_config.context_budget_tokens - reserve)
+        messages = _window_question(
+            question,
+            system_prompt=system_prompt,
+            budget=text_budget,
+            count_tokens=counter,
+        )
+        messages = messages + [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "The attached media:"}] + list(media_parts),
+            }
+        ]
+
+        complete = engine.make_complete(dt_config, tools=[])
+        response = complete(messages)
+        duration = time.monotonic() - start
+        return DeepthinkResult(
+            text=response.content,
+            call=DeepthinkCall(
+                point=point,
+                tokens=_call_tokens(response),
+                duration=duration,
+                degraded=False,
+            ),
+        )
+    except Exception:
+        duration = time.monotonic() - start
+        return DeepthinkResult(
+            text="",
+            call=DeepthinkCall(point=point, degraded=True, duration=duration),
+        )
+
+
 DeepthinkRun = Callable[..., DeepthinkResult]
 """The bound escalation callable the runtime threads through the loop.
 
@@ -371,8 +446,24 @@ def make_deepthink_run(config: EngineConfig, engine_name: str) -> Optional[Deept
     if config.deepthink is None:
         return None
 
-    def bound(question: str, context: str = "", *, point: str = "tool") -> DeepthinkResult:
+    def bound(
+        question: str,
+        context: str = "",
+        *,
+        point: str = "tool",
+        media_parts: "Optional[list[dict[str, Any]]]" = None,
+    ) -> DeepthinkResult:
         prompt = question if not context else f"{question}\n\nContext digest:\n{context}"
+        if media_parts:
+            # The media-bridge path (t8): parts travel un-flattened to the
+            # operator-declared multimodal second endpoint.
+            return run_media_bridge(
+                prompt,
+                media_parts,
+                config=config,
+                point=point,
+                engine_name=engine_name,
+            )
         return run_deepthink(prompt, config=config, point=point, engine_name=engine_name)
 
     return bound

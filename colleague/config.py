@@ -194,7 +194,7 @@ _CONFIG_FILENAME = "config.json"
 # Recognised keys in .colleague/config.json.
 _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 # Recognised keys inside the NESTED "deepthink" section of .colleague/config.json.
-_DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget"})
+_DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
 
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
@@ -495,11 +495,20 @@ def _resolve_deepthink(
         ),
         default=_DEFAULT_DEEPTHINK_CONTEXT_BUDGET,
     )
+    # The media-bridge declaration (t8): truthy strings arm it, anything else
+    # (absent, empty, junk) resolves False — a declaration, never a probe.
+    multimodal = _pick(
+        None,
+        "COLLEAGUE_DEEPTHINK_MULTIMODAL",
+        "CONVERTIBLE_DEEPTHINK_MULTIMODAL",
+        default=file_deepthink.get("multimodal", ""),
+    ).strip().lower() in ("1", "true", "yes")
     return DeepthinkConfig(
         model=model.strip(),
         base_url=base_url,
         api_key=api_key,
         context_budget=context_budget,
+        multimodal=multimodal,
     )
 
 
@@ -607,6 +616,11 @@ class DeepthinkConfig:
     base_url: str
     api_key: str
     context_budget: int
+    multimodal: bool = False
+    """Operator declaration that THIS (second) model accepts media content
+    parts while the main model is text-only (task t8, decision c24) — arming
+    the runtime's media-comprehension bridge. Never probed or inferred from a
+    model name; default ``False`` keeps a dual-model config byte-identical."""
 
 
 @dataclass

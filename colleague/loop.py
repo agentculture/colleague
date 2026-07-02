@@ -536,6 +536,9 @@ class _Work:
     # Dual-model deepthink escalation seam (t5): the bound ``DeepthinkRun`` from
     # ContextControls, ``None`` for a single-model run (escalation points dormant).
     deepthink_run: Callable[..., Any] | None = None
+    # Media-comprehension bridge (t8, c24): armed only when the operator declared
+    # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
+    media_bridge: bool = False
     # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a
     # positive ``autosplit_target``), an EXHAUSTED context-overflow injects ONE
     # split recommendation — pointing the model at the existing ``subagents`` tool
@@ -2085,6 +2088,10 @@ class ContextControls:
     # binding they inject into the tool executor (all-engines rule).
     # compare=False: a closure — behavior, not comparable config.
     deepthink_run: Callable[..., Any] | None = field(default=None, compare=False, repr=False)
+    # Media-comprehension bridge arming (t8, c24): True only when the operator
+    # declared the second model multimodal (config.deepthink.multimodal); set by
+    # from_config for every backend identically (all-engines rule).
+    media_bridge: bool = False
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
     # verdict turn (#191) runs with fresher, less-windowed context instead of being
@@ -2186,6 +2193,9 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
+            media_bridge=bool(
+                config.deepthink is not None and getattr(config.deepthink, "multimodal", False)
+            ),
         )
 
 
@@ -2320,6 +2330,55 @@ def _build_initial_content(task: Task) -> "str | list[dict[str, Any]]":
             path = attachment.get("path", "?") if isinstance(attachment, dict) else "?"
             parts.append({"type": "text", "text": f"[attachment {path} unreadable: {exc}]"})
     return parts
+
+
+_POINT_MEDIA_BRIDGE = "media-bridge"
+
+
+def _maybe_run_media_bridge(ctx: _Work) -> None:
+    """Escalate attached media to the declared multimodal second model (t8, c24).
+
+    Fires ONCE, before the first turn, and only when ALL of: the task carries
+    attachments, a dual-model config is bound (``deepthink_run``), and the
+    operator declared the second model multimodal (``media_bridge`` — never
+    probed or inferred). The escalation is one bounded tools-off completion
+    (``run_media_bridge`` via the binding's ``media_parts`` path); its
+    description folds back as exactly ONE advisory user message. A degraded
+    bridge records honestly on ``TaskResult.deepthink`` and folds nothing —
+    the run continues from the text alone (h18: degrade, never raise; the
+    delivered/dropped record is task t9's).
+    """
+    if not ctx.media_bridge or ctx.deepthink_run is None or not ctx.task.attachments:
+        return
+    initial = ctx.messages[1].get("content") if len(ctx.messages) > 1 else None
+    if not isinstance(initial, list):
+        return
+    parts = [
+        p for p in initial if isinstance(p, dict) and p.get("type") in ("image_url", "input_audio")
+    ]
+    if not parts:
+        return
+    question = (
+        "You are the multimodal half of a dual-model rig. The MAIN model "
+        "driving this task is text-only and cannot see the attached media. "
+        "Describe the attached media precisely and completely as it relates "
+        "to the task below, so a text-only model can act on your description "
+        "alone.\n\nTask:\n" + (ctx.task.instruction or "")
+    )
+    res = ctx.deepthink_run(question, "", point=_POINT_MEDIA_BRIDGE, media_parts=parts)
+    call = getattr(res, "call", None)
+    if call is not None:
+        _record_deepthink(ctx.result, call)
+    text = (getattr(res, "text", "") or "").strip()
+    if call is not None and getattr(call, "degraded", False) or not text:
+        return
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": "[media bridge] A multimodal model examined the attached "
+            "media and reports:\n" + text,
+        }
+    )
 
 
 def _maybe_inject_upfront_hint(ctx: _Work) -> None:
@@ -3039,6 +3098,7 @@ def run(
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
+        media_bridge=_context.media_bridge,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
@@ -3075,6 +3135,12 @@ def run(
     # Recall-before (spec R1 / plan t2): inject prior lessons from the repo's
     # eidetic store as ONE advisory context message; a strict no-op unless armed.
     _maybe_recall_memory(ctx)
+
+    # Media-comprehension bridge (t8, c24): with a text-only main + attached
+    # media + an operator-declared multimodal second model, ONE tools-off
+    # escalation describes the media and folds the answer back; strict no-op
+    # otherwise.
+    _maybe_run_media_bridge(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
     # the loop. Captured here so the duration covers the model work; finalized onto
