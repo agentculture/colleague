@@ -50,6 +50,7 @@ from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
 from colleague import lint as _lint
+from colleague import media
 from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
@@ -2282,6 +2283,32 @@ def _build_user_message(task: Task) -> str:
     return user
 
 
+def _build_initial_content(task: Task) -> "str | list[dict[str, Any]]":
+    """The first user turn's content: a plain string, or content parts with media.
+
+    With ``task.attachments`` empty/None this returns :func:`_build_user_message`'s
+    string UNCHANGED — the h8 baseline: downstream string-assuming code
+    (windowing, markup re-parse, fill-line) must never meet a surprise list on
+    an attachment-less run. With attachments it returns OpenAI content parts:
+    one text part carrying the full task prompt, then one part per attachment
+    in order (:func:`colleague.media.build_part`). An attachment whose file
+    became unreadable between surface validation and here degrades to a text
+    placeholder naming the path — a broken attachment must never abort the run
+    (the delivered/dropped verification is the honest record, task t9).
+    """
+    text = _build_user_message(task)
+    if not task.attachments:
+        return text
+    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for attachment in task.attachments:
+        try:
+            parts.append(media.build_part(attachment))
+        except (OSError, ValueError, KeyError) as exc:
+            path = attachment.get("path", "?") if isinstance(attachment, dict) else "?"
+            parts.append({"type": "text", "text": f"[attachment {path} unreadable: {exc}]"})
+    return parts
+
+
 def _maybe_inject_upfront_hint(ctx: _Work) -> None:
     """Append the up-front advisory split hint when armed and the task looks big (#151).
 
@@ -2959,7 +2986,7 @@ def run(
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt or _DEFAULT_SYSTEM},
-        {"role": "user", "content": _build_user_message(task)},
+        {"role": "user", "content": _build_initial_content(task)},
     ]
 
     result = TaskResult(task_id=task.id, status=OK)
