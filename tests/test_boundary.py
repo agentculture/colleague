@@ -413,6 +413,8 @@ def test_deepthink_module_has_no_io_surface() -> None:
 #                   and call it, so subprocess stays confined to this one file
 #   affectedtests.py — runs pytest on affected test files; subprocess is the
 #                   transport
+#   memory.py        — shells out to the operator-installed eidetic CLI for
+#                   recall/remember; subprocess is the transport
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -425,6 +427,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/lint.py",
         "colleague/resident/steward.py",
         "colleague/affectedtests.py",
+        "colleague/memory.py",
     }
 )
 
