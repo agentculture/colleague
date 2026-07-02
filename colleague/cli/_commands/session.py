@@ -70,6 +70,7 @@ from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import Task, TaskResult
+from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.profiles import resolve_profile
 from colleague.session_intent import PLAN, classify_intent
@@ -337,6 +338,11 @@ class _Session:
         # `_dispatch_work` right after a result is obtained, before the caller's
         # `_refresh_context()` rebuilds the panel — never on the render path.
         self._last_capacity_warning: Optional[str] = None
+        # Media attachments staged by `/attach` (task t11), in staged order —
+        # consumed (and cleared, one-shot) the next time a work line builds a
+        # Task in `_work_line`. Empty by default, so a session that never
+        # attaches anything is byte-identical to today.
+        self._staged_attachments: list[dict] = []
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -828,6 +834,18 @@ class _Session:
 
     # ── work ────────────────────────────────────────────────────────────────
 
+    def _consume_staged_attachments(self, task: Task) -> None:
+        """Move any ``/attach``-staged entries onto *task*, in staged order, and
+        clear the staging list — one-shot semantics (task t11): the work line
+        that follows carries none. A no-op when nothing is staged, so a task
+        built with no ``/attach`` in play keeps its constructed default
+        (``attachments=None``), byte-identical to before this feature.
+        """
+        if not self._staged_attachments:
+            return
+        task.attachments = self._staged_attachments
+        self._staged_attachments = []
+
     def _work_line(self, line: str) -> None:
         # Agent-native intent routing (#234), now mode-aware: a free-text goal
         # reaches colleague's own verb WITHOUT the user typing the subcommand. The
@@ -866,6 +884,10 @@ class _Session:
         if resolved is None:
             return
         task, command_name = resolved
+        # Any /attach-staged media rides THIS work item (staged order), then the
+        # staging list clears (t11 one-shot semantics) — only a genuine work-line
+        # dispatch consumes it; a plan/explore/review route above never reaches here.
+        self._consume_staged_attachments(task)
         if is_free_text:
             self._log(f"→ work: {stripped}")
         self._run_work(task, command_name)
@@ -1140,6 +1162,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         ("git", "pr", "writes", "human-loop"),
     ),
     SlashSpec(
+        "attach",
+        "[path]",
+        "stage a media attachment for the next work line (no arg lists staged)",
+        "controls",
+        ("media", "config"),
+    ),
+    SlashSpec(
         "learn-from",
         "<source> [name…]",
         "learn skills from a peer (e.g. claude) into .colleague/skills/",
@@ -1334,6 +1363,31 @@ def _act_pr(s: "_Session", rest: list[str]) -> str:
     return f"push + PR on each work item → {'on' if s.open_pr else 'off'}"
 
 
+def _act_attach(s: "_Session", rest: list[str]) -> str:
+    """``/attach <path>`` validates *path* (:func:`colleague.media.validate_attachment`)
+    and stages it for the NEXT work line — repeatable, staged in order, one-shot
+    (task t11: the following work item's ``Task.attachments`` clears the staging
+    list). ``/attach`` with no argument lists what is currently staged, or reports
+    none staged — a read, not a mutation, so it never (re)raises.
+
+    A validation failure (missing file / unknown extension) raises ``ValueError``,
+    which the ``_slash`` dispatcher reports via the session's normal error style
+    (``_error``) and stages nothing — mirroring every other ``_CONFIG_ACTIONS``
+    usage error.
+    """
+    if not rest:
+        if not s._staged_attachments:
+            return "no attachments staged"
+        listed = ", ".join(a["path"] for a in s._staged_attachments)
+        return f"staged attachments ({len(s._staged_attachments)}): {listed}"
+    attachment = validate_attachment(rest[0])  # raises ValueError -> caught by _slash
+    s._staged_attachments.append(attachment)
+    return (
+        f"attached: {attachment['path']} ({attachment['media_type']}) "
+        "— staged for the next work line"
+    )
+
+
 def _act_learn_from(s: "_Session", rest: list[str]) -> str:
     """Learn skills from a peer in-session via the real ``learn-from`` verb.
 
@@ -1355,6 +1409,7 @@ _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "mode": _act_mode,
     "base": _act_base,
     "pr": _act_pr,
+    "attach": _act_attach,
     "learn-from": _act_learn_from,
 }
 
