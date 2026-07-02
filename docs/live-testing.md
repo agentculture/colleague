@@ -75,6 +75,7 @@ treat ❌-by-staleness the same as never-validated.
 | 11 | Background one-shot (`work --background`) | `colleague/background.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (mock-engine e2e through `main()` incl. kill-reap; a live-model background run not yet exercised) | — |
 | 12 | Resident appserver (agent-lifecycle embed) | `colleague/resident/appserver.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (real `agent_lifecycle` 0.9.0 + reference transport e2e; REAL mesh transport PENDING upstream — h15, never claimed) | — |
 | 13 | Spontaneous `subagents` delegation | `colleague/subagents.py` | ✅ | `bf6cf2d` · 2026-07-02 (work items `5ccdf8573cad` ×1, `6422d3224e32` ×2 with 7 folded sub_results — UNPROMPTED, superseding §2's "needs an explicit invite" caveat) | — |
+| 14 | Substantial decomposed write (h9) | `colleague/loop.py`, `colleague/tools.py`, `colleague/subagents.py` | ⚠️ | `22adbb3` · 2026-07-02 (pre-fix `4c6a96107269` CRASHED on a malformed tool call; post-fix `55859cb1d605` survived to an honest `incomplete` — harness proven, the served 27B couldn't land the full decomposition; see the substantial-write section below) | — |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -554,3 +555,40 @@ now validated live (or live + cited-deterministic where the model adds no signal
   reasoner deepthink) awaits serving both with tool parsers, and the
   wall-clock/quality benchmark (`scripts/bench_dual.py`) has not been run —
   the mechanism rows above are what this validates.
+
+## Substantial decomposed write (best-colleague arc h9, plan task t9)
+
+The h9 protocol: hand the loop a genuinely multi-part assignment (a 3-module
+Python package + per-module tests, explicit instruction to DELEGATE via
+`subagents`), run it live, and record the outcome honestly — a model that
+cannot land it decomposed is recorded as a model limit, never claimed solved.
+
+- **Pre-fix run `4c6a96107269` (CRASH — real harness bug caught live).** The
+  27B delegated correctly (4 folded sub_results) but at step 12 emitted a
+  tool call with empty arguments; the bare `arguments["path"]` `KeyError`
+  escaped the dispatch (which caught only `ToolError`) and aborted the whole
+  run as `engine 'vllm-openai' failed: 'path'`. Fixed in `22adbb3` (two
+  layers: per-tool `_require` validation + argument-shaped-error conversion
+  at the dispatch boundary), pinned by `tests/test_tool_arg_errors.py`.
+- **Post-fix run `55859cb1d605` (survived — honest `incomplete`, 460s).** The
+  identical task re-run: the parent spawned 3 children + merge
+  (`COLLEAGUE_SUBAGENT_CONCURRENCY=2`); malformed/err steps cost one step
+  each and the run kept going (the fix, proven live). Child 0 (tokenizer)
+  delivered module+tests; child 1 (counter) delivered module+tests but ALSO
+  re-wrote `tokenizer.py`/`__init__.py` as its own dependency stubs; child 2
+  (report) stalled emitting literal tool-markup and wrote nothing. The merge
+  child integrated child 0, no-op'd child 2, and **surfaced (did not
+  force-merge) the child-1 conflict** — exactly the designed behavior. The
+  parent ran out of budget resolving it; forced synthesis fired but its own
+  output was literal markup, so the terminal summary is honest-but-garbled.
+  The delivered half is real: **13/13 tests pass** on the work branch
+  (`python3 -m pytest tests/` on `colleague/55859cb1d605-…`).
+- **Verdict.** Harness: VALIDATED — the crash class is fixed live; isolation,
+  fan-out, conflict-surfacing, and honest `incomplete` all behaved. Model:
+  the served 27B under concurrent self-load still cannot land a 3-way
+  decomposed write end-to-end (markup-emission stalls + duplicate-dependency
+  conflicts) — recorded per h9 as a model limit, not claimed solved.
+- **Follow-ups filed from this run:** forced-synthesis output can itself be
+  literal markup (the t5 re-parse targets a *finish* shape, not synthesis
+  text); the WIP-on-stop sweep commits `.colleague/worktrees/` lock files and
+  `__pycache__` residue onto the work branch.
