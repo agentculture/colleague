@@ -451,6 +451,44 @@ def _resolve_deepthink(
     )
 
 
+def _resolve_testintegrity_reviewer_model(
+    explicit: str,
+    deepthink: "DeepthinkConfig | None",
+    main_base_url: str,
+) -> str:
+    """Default the test-integrity diverse-model reviewer to the deepthink model.
+
+    Spec c10(d) (task t7): when dual-model deepthink (t1) is configured and the
+    operator has NOT set an explicit ``COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL``
+    (or its ``CONVERTIBLE_*`` fallback), the deepthink model becomes the
+    reviewer default — the strong reasoner is the natural diverse reviewer for
+    a mirrored-test finding (#203).
+
+    *explicit* is the value already resolved from env (empty/whitespace means
+    unconfigured, matching this module's convention throughout). An
+    explicit value — even whitespace-only-vs-non-whitespace aside, ANY
+    non-blank explicit value — always wins over the default; this function
+    only ever fills in the ELSE branch.
+
+    The default is guarded to the SAME endpoint: the reviewer subagent switch
+    (``colleague/subagents.py``'s ``dataclasses.replace(parent_config,
+    model=..., role=...)``) carries only a model name — the spawned child
+    inherits the parent's ``base_url``/``api_key`` unchanged. Defaulting to a
+    deepthink model served on a DIFFERENT endpoint would point the reviewer
+    subagent at a model name the main endpoint likely doesn't serve, so when
+    ``deepthink.base_url`` differs from *main_base_url* the reviewer model is
+    left exactly as *explicit* (empty, or a caller-provided whitespace value
+    from an already-empty resolution). Honest v1 limit: a cross-endpoint
+    reviewer default is a documented follow-up that needs the subagent switch
+    to carry an endpoint of its own — not built here.
+    """
+    if explicit.strip():
+        return explicit
+    if deepthink is not None and deepthink.base_url == main_base_url:
+        return deepthink.model
+    return explicit
+
+
 def resolve_engine(explicit: str | None) -> str:
     """Resolve the backend plugin name to drive.
 
@@ -675,6 +713,25 @@ class EngineConfig:
             default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
         )
 
+        # Dual-model deepthink (t1) — resolved once as a local (like
+        # resolved_base_url/resolved_api_key above) so the test-integrity
+        # reviewer default backfill (t7) below can inspect the resolved
+        # DeepthinkConfig before EngineConfig itself is constructed.
+        resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
+        # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
+        # default (empty), then backfilled from the deepthink model when
+        # unconfigured and same-endpoint (t7, spec c10(d)).
+        resolved_testintegrity_reviewer_model = _resolve_testintegrity_reviewer_model(
+            _pick(
+                None,
+                "COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL",
+                "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
+                default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
+            ),
+            resolved_deepthink,
+            resolved_base_url,
+        )
+
         return cls(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
@@ -847,12 +904,7 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
             ),
-            testintegrity_reviewer_model=_pick(
-                None,
-                "COLLEAGUE_TESTINTEGRITY_REVIEWER_MODEL",
-                "CONVERTIBLE_TESTINTEGRITY_REVIEWER_MODEL",
-                default=_DEFAULT_TESTINTEGRITY_REVIEWER_MODEL,
-            ),
+            testintegrity_reviewer_model=resolved_testintegrity_reviewer_model,
             # Affected-tests gate (#213) — env > config.json > default-on, mirroring
             # lint. Kept off the signature (no CLI flag in v0) for the S107 ceiling.
             affected_tests=_resolve_affected_tests_enabled(file_at),
@@ -897,7 +949,7 @@ class EngineConfig:
             # Dual-model deepthink (t1) — env > config.json `deepthink` section >
             # absent (None). base_url/api_key default to the resolved MAIN
             # endpoint values computed above.
-            deepthink=_resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key),
+            deepthink=resolved_deepthink,
         )
 
     def to_dict(self) -> dict[str, object]:
