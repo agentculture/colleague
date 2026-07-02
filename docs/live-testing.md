@@ -588,7 +588,9 @@ cannot land it decomposed is recorded as a model limit, never claimed solved.
   the served 27B under concurrent self-load still cannot land a 3-way
   decomposed write end-to-end (markup-emission stalls + duplicate-dependency
   conflicts) — recorded per h9 as a model limit, not claimed solved.
-- **Follow-ups filed from this run:** forced-synthesis output can itself be
+- **Follow-ups filed from this run:**
+  [#264](https://github.com/agentculture/colleague/issues/264) — forced-synthesis output can itself be
   literal markup (the t5 re-parse targets a *finish* shape, not synthesis
-  text); the WIP-on-stop sweep commits `.colleague/worktrees/` lock files and
+  text); [#265](https://github.com/agentculture/colleague/issues/265) — the
+  WIP-on-stop sweep commits `.colleague/worktrees/` lock files and
   `__pycache__` residue onto the work branch.
