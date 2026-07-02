@@ -55,7 +55,7 @@ via the mesh-member re-spec:
 
 | Tool | What it does |
 |------|--------------|
-| `read_file` | Read a UTF-8 file, relative to the repo root. |
+| `read_file` | Read a UTF-8 file, relative to the repo root. Each line is prefixed with its true 1-based line number, `cat -n` style, so a cited `file:line` is copy-derived, never re-counted (#240). |
 | `write_file` | Create/overwrite a UTF-8 file, relative to the repo root. |
 | `edit_file` | Replace an exact string in an existing file (partial edit; cost scales with the change, not file size). Prefer over `write_file` for edits. |
 | `list_dir` | List a directory's entries, relative to the repo root. |
@@ -88,8 +88,11 @@ the repo root and refuse anything that escapes it (`..` traversal, absolute path
 outside the tree); `edit_file` (like `write_file`) also refuses writes into the
 read-only neighbour clone tree. `run_command` runs with `cwd` pinned to the root. v0 **trusts the command
 itself** (decision D2) — there is no sandbox; that is a later increment. Tool output
-fed back to the model is truncated at 20,000 chars so a huge file or command
-can't blow the context window.
+fed back to the model is truncated at `COLLEAGUE_MAX_OUTPUT_CHARS` so a huge file or
+command can't blow the context window — `read_file`'s line-number prefixes are added
+*before* that cap is applied, so a surviving (possibly truncated) line's number always
+still matches the real file; the numbering is display-only and is never written to
+disk or read back by `edit_file`, which matches `old_string` against the raw file.
 
 ### Guaranteed termination
 

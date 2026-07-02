@@ -43,7 +43,8 @@ def test_write_then_read_round_trip(tmp_path: Path) -> None:
     assert "sub/hello.txt" in ex.changed
     assert (tmp_path / "sub" / "hello.txt").read_text() == "hi there"
     read = ex.execute("read_file", {"path": "sub/hello.txt"})
-    assert read.result == "hi there"
+    # read_file grounds each line with its true 1-based number, cat -n style (#240).
+    assert read.result == "     1\thi there"
 
 
 def test_list_dir(tmp_path: Path) -> None:
@@ -263,3 +264,112 @@ def test_edit_file_write_failure_raises_toolerror(tmp_path: Path) -> None:
             ex.execute("edit_file", {"path": "ro.txt", "old_string": "keep", "new_string": "drop"})
     finally:
         target.chmod(0o644)
+
+
+# ---------------------------------------------------------------------------
+# read_file line-grounding tests (#240) — a cited "line N" must be
+# copy-derived from tool output, never re-counted by the model.
+# ---------------------------------------------------------------------------
+
+
+def test_read_file_prefixes_each_line_with_its_true_line_number(tmp_path: Path) -> None:
+    real_lines = [f"line{i}" for i in range(1, 11)]
+    (tmp_path / "f.py").write_text("\n".join(real_lines) + "\n", encoding="utf-8")
+    out = ToolExecutor(tmp_path).execute("read_file", {"path": "f.py"})
+    numbered_lines = out.result.split("\n")
+    assert len(numbered_lines) == 10
+    for i, numbered_line in enumerate(numbered_lines, start=1):
+        prefix, body = numbered_line.split("\t", 1)
+        assert int(prefix) == i
+        assert body == real_lines[i - 1]
+
+
+def test_read_file_trailing_newline_does_not_mint_a_phantom_line(tmp_path: Path) -> None:
+    # cat -n / grep -n convention: a trailing "\n" terminates the last line, it
+    # does not add a numbered empty line after it.
+    (tmp_path / "g.py").write_text("alpha\nbeta\n", encoding="utf-8")
+    out = ToolExecutor(tmp_path).execute("read_file", {"path": "g.py"})
+    assert out.result == "     1\talpha\n     2\tbeta"
+
+
+def test_read_file_no_trailing_newline(tmp_path: Path) -> None:
+    (tmp_path / "h.py").write_text("alpha\nbeta", encoding="utf-8")
+    out = ToolExecutor(tmp_path).execute("read_file", {"path": "h.py"})
+    assert out.result == "     1\talpha\n     2\tbeta"
+
+
+def test_read_file_empty_file_grounds_to_empty_string(tmp_path: Path) -> None:
+    (tmp_path / "empty.txt").write_text("", encoding="utf-8")
+    out = ToolExecutor(tmp_path).execute("read_file", {"path": "empty.txt"})
+    assert out.result == ""
+
+
+def test_read_file_embedded_blank_line_is_numbered(tmp_path: Path) -> None:
+    (tmp_path / "blank.txt").write_text("a\n\nb\n", encoding="utf-8")
+    out = ToolExecutor(tmp_path).execute("read_file", {"path": "blank.txt"})
+    assert out.result == "     1\ta\n     2\t\n     3\tb"
+
+
+def test_read_file_line_numbers_survive_truncation(tmp_path: Path) -> None:
+    # Every real line is a fixed 20-char body (zero-padded index + filler) so the
+    # truncation cutoff can be aligned to an exact line boundary deterministically
+    # (each numbered line is exactly 6 + 1 + 20 = 27 chars).
+    real_lines = [f"L{i:04d}" + "-" * 15 for i in range(1, 201)]
+    (tmp_path / "big.py").write_text("\n".join(real_lines) + "\n", encoding="utf-8")
+
+    # 3 numbered lines (27 chars each) joined by 2 "\n" separators, no trailing "\n".
+    limit = 27 * 3 + 2
+    ex = ToolExecutor(tmp_path, max_output_chars=limit)
+    out = ex.execute("read_file", {"path": "big.py"})
+
+    assert f"truncated at {limit} chars" in out.result
+    body = out.result.split("\n... [truncated")[0]
+    expected_body = "\n".join(f"{i:6d}\t{real_lines[i - 1]}" for i in range(1, 4))
+    # The surviving lines are byte-identical to what the real file's first three
+    # lines would produce — the numbering is not shifted/renumbered by the cut.
+    assert body == expected_body
+    assert len(body) == limit
+    # The final result stays bounded: max_output_chars + the fixed truncation
+    # note, never unbounded by the added numbering overhead.
+    expected_suffix = f"\n... [truncated at {limit} chars]"
+    assert out.result == expected_body + expected_suffix
+    assert real_lines[3] not in out.result  # line 4 never made it into the result
+
+
+def test_read_file_max_output_chars_bounds_the_numbered_result(tmp_path: Path) -> None:
+    # A file whose RAW content fits comfortably under the limit, but whose
+    # NUMBERED content does not — proves numbering overhead is still folded
+    # into (never exempt from) the max_output_chars budget.
+    real_lines = ["x" * 10 for _ in range(50)]  # raw: 50*11-1 = 549 chars
+    (tmp_path / "wide.py").write_text("\n".join(real_lines) + "\n", encoding="utf-8")
+    limit = 600  # bigger than the raw text, smaller than the numbered text
+    ex = ToolExecutor(tmp_path, max_output_chars=limit)
+    out = ex.execute("read_file", {"path": "wide.py"})
+    assert "truncated" in out.result
+    truncated_prefix = out.result.split("\n... [truncated")[0]
+    assert len(truncated_prefix) == limit
+
+
+def test_edit_file_matches_raw_content_not_the_numbered_display(tmp_path: Path) -> None:
+    """edit_file's old_string matches the raw file on disk, never a read_file
+
+    numbering artifact — read_file's line-grounding (#240) is display-only and
+    must never round-trip into an edit.
+    """
+    ex = ToolExecutor(tmp_path)
+    ex.execute("write_file", {"path": "e.txt", "content": "alpha\nbeta\ngamma\n"})
+
+    read_out = ex.execute("read_file", {"path": "e.txt"})
+    assert "\t" in read_out.result  # grounded numbering is present in the display
+
+    # edit_file still matches the RAW (unnumbered) file content.
+    ex.execute("edit_file", {"path": "e.txt", "old_string": "beta", "new_string": "BETA"})
+    assert (tmp_path / "e.txt").read_text() == "alpha\nBETA\ngamma\n"
+
+    # A numbered-looking old_string (as if copy-pasted from read_file's display)
+    # does not exist verbatim in the raw file, so it is correctly refused.
+    with pytest.raises(ToolError):
+        ex.execute(
+            "edit_file",
+            {"path": "e.txt", "old_string": "     1\talpha", "new_string": "nope"},
+        )

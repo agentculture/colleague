@@ -15,6 +15,20 @@ additionally refuse writes into the read-only neighbour clone tree. ``run_comman
 runs with ``cwd`` pinned to the root. v0 trusts the command itself (decision D2);
 sandboxing is a later wheel.
 
+``read_file`` line-grounding (#240): the raw text the loop fed back to the model
+carried no line markers, so a model citing "line N" had to re-count from its own
+(possibly windowed/truncated) context — the root cause of a ~240-line citation
+drift seen live in ``ask-colleague explore``. :func:`_number_lines` now prefixes
+every real line with its true 1-based line number, ``cat -n`` style
+(``"   12\t<content>"``), before the result is (still) run through
+:meth:`ToolExecutor._truncate`, so a cited line number is copy-derived from tool
+output, never re-counted, and any surviving prefix after truncation still names
+the real file line. This is read-display only: numbering is never written to
+disk and never round-trips into ``edit_file`` — ``_edit_file`` reads the file
+itself via a separate ``path.read_text()`` call and matches ``old_string``
+against that raw content, so a numbered prefix pasted from a ``read_file``
+result will simply fail to match (by design).
+
 A curated ``deepthink`` tool (:data:`DEEPTHINK_SCHEMA`, plan t4) is deliberately
 kept OUT of :data:`SCHEMAS` — it is appended only by :func:`curate_schemas` when a
 caller opts in (``deepthink=True``), which the loop does only when a dual-model
@@ -79,7 +93,14 @@ SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a UTF-8 text file, relative to the repo root.",
+            "description": (
+                "Read a UTF-8 text file, relative to the repo root. Each line "
+                "in the result is prefixed with its exact 1-based line number "
+                "and a tab (cat -n style, e.g. '    12\\tsome code'), so you "
+                "can cite an exact file:line location. The line-number prefix "
+                "is DISPLAY ONLY — it is never part of the file on disk, so "
+                "never include it in edit_file's old_string."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string", "description": _PATH_DESC}},
@@ -495,6 +516,36 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     return curated
 
 
+#: Column width for the ``cat -n`` style line-number prefix (matches GNU
+#: ``cat -n``'s default right-justified 6-column number).
+_LINE_NUMBER_WIDTH = 6
+
+
+def _number_lines(text: str) -> str:
+    """Ground *text* for citation: prefix every real line with its true line number.
+
+    ``cat -n`` style — ``f"{n:6d}\\t{line}"`` — so a model quoting a result line
+    is quoting a copy-derived ``file:line``, never a re-counted one (issue #240:
+    a served model citing "line N" from its own windowed/truncated context
+    drifted by ~240 lines from the real file). Splits on bare ``"\\n"`` only,
+    NOT :meth:`str.splitlines`, which also breaks on ``\\v``/``\\f``/``\\x1c``-``\\x1e``/
+    ``\\x85``/``\\u2028``/``\\u2029`` — a wider set that would silently invent phantom
+    line boundaries a real ``grep -n``/editor would never count. A trailing
+    newline terminates the last line without minting a phantom extra line (the
+    same convention as ``cat -n``/``grep -n``); an empty file grounds to an
+    empty string (no lines to number).
+
+    Display-only: the numbering is never written to disk and never read back
+    by ``edit_file`` — that tool re-reads the file itself and matches
+    ``old_string`` against the raw, unnumbered content.
+    """
+    if text == "":
+        return ""
+    body = text[:-1] if text.endswith("\n") else text
+    lines = body.split("\n")
+    return "\n".join(f"{i:{_LINE_NUMBER_WIDTH}d}\t{line}" for i, line in enumerate(lines, start=1))
+
+
 def _parse_batch_items(raw_instructions: list) -> list[dict[str, Any]]:
     """Validate + normalize the ``subagents`` tool's instruction items.
 
@@ -652,7 +703,11 @@ class ToolExecutor:
             raise ToolError(f"no such file: {arguments['path']}") from exc
         except OSError as exc:
             raise ToolError(f"cannot read {arguments['path']}: {exc}") from exc
-        return ToolOutcome(result=self._truncate(text))
+        # Ground every line with its true 1-based number BEFORE truncating (#240)
+        # so a surviving line's prefix always matches the real file — truncation
+        # only ever drops the tail, never renumbers what remains — and the
+        # existing max_output_chars budget still bounds the final string.
+        return ToolOutcome(result=self._truncate(_number_lines(text)))
 
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         rel = str(arguments["path"])
