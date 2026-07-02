@@ -70,6 +70,7 @@ class TestCultureToolExposed:
         assert names == _BASE_TOOLS | {
             "culture",
             "devague",
+            "memory",
             "subagent",
             "subagents",
             "check_test_integrity",

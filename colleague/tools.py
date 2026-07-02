@@ -37,6 +37,7 @@ config is present. A single-model run offers exactly the schemas above.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
@@ -48,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
-from colleague import culture, devague, testintegrity
+from colleague import culture, devague, memory, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -394,6 +395,42 @@ SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "memory",
+            "description": (
+                "Search or store memory records via the eidetic CLI. "
+                "Use 'recall' to search for past context, 'remember' to "
+                "store a new record."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "verb": {
+                        "type": "string",
+                        "enum": ["recall", "remember"],
+                        "description": (
+                            "The memory operation: 'recall' to search, " "'remember' to store."
+                        ),
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": ("Search query for recall " "(required when verb=recall)."),
+                    },
+                    "record": {
+                        "type": "object",
+                        "description": ("Record dict to store " "(required when verb=remember)."),
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Max results for recall (default 5).",
+                    },
+                },
+                "required": ["verb"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": FINISH,
             "description": "Signal the task is complete. Provide a short summary of what changed.",
             "parameters": {
@@ -625,6 +662,11 @@ class ToolExecutor:
         else:
             self._allowlist = set(allowlist)
 
+        # Read-only flag for role-aware tool restrictions (e.g. memory remember)
+        self._is_read_only: bool = False
+        if hasattr(allowlist, "read_only"):
+            self._is_read_only = allowlist.read_only
+
     def _truncate(self, text: str) -> str:
         limit = self._max_output_chars
         if len(text) <= limit:
@@ -673,6 +715,7 @@ class ToolExecutor:
             "run_command": self._run_command,
             "culture": self._culture,
             "devague": self._devague,
+            "memory": self._memory,
             "subagent": self._subagent,
             "subagents": self._subagents,
             "run_tests": self._run_tests,
@@ -934,6 +977,40 @@ class ToolExecutor:
         except devague.DevagueToolError as exc:
             raise ToolError(str(exc)) from exc
         return ToolOutcome(result=output)
+
+    def _memory(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """Dispatch the memory tool to the eidetic CLI via colleague.memory.
+
+        Enforces role-aware verb restrictions: read-only roles may only use
+        'recall' (search); 'remember' (store) is refused with a clear error.
+        When the eidetic CLI is absent, recall returns an empty JSON array
+        and remember returns 'ok' — never crashes.
+        """
+        verb = str(arguments.get("verb", ""))
+        if verb not in ("recall", "remember"):
+            raise ToolError("memory tool requires verb 'recall' or 'remember'")
+
+        # Role-aware refusal: read-only roles cannot use 'remember'
+        if verb == "remember" and self._is_read_only:
+            raise ToolError(
+                "memory 'remember' is not allowed for read-only roles; "
+                "use 'recall' to search instead"
+            )
+
+        if verb == "recall":
+            query = str(arguments.get("query", ""))
+            if not query:
+                raise ToolError("memory 'recall' requires a 'query' string")
+            top_k = int(arguments.get("top_k", 5))
+            hits = memory.recall(self.root, query, top_k=top_k)
+            return ToolOutcome(result=json.dumps(hits))
+        else:
+            # verb == "remember"
+            record = arguments.get("record")
+            if not isinstance(record, dict):
+                raise ToolError("memory 'remember' requires a 'record' object")
+            ok = memory.remember(self.root, record)
+            return ToolOutcome(result="ok" if ok else "failed")
 
     def _deepthink_tool(self, arguments: dict[str, Any]) -> ToolOutcome:
         """Dispatch the ``deepthink`` tool to the injected one-shot escalation seam.
