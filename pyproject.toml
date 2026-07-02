@@ -69,7 +69,7 @@ tui = [
 # both need), so `pip install "colleague[culture]"` already satisfies it too.
 # Install with: pip install "colleague[resident]"  (or: uv sync --extra resident).
 resident = [
-    "agent-lifecycle>=0.7",
+    "agent-lifecycle>=0.9",
 ]
 # CULTURE (mesh-member promotion): agent-lifecycle's asyncio runtime seam
 # (Transport/Presence/Harness/Supervisor) + agentirc-cli (the IRC wire) are
@@ -81,7 +81,7 @@ resident = [
 # agent_lifecycle, and only when the resident actually runs.
 # Install with: pip install "colleague[culture]"  (or: uv sync --extra culture).
 culture = [
-    "agent-lifecycle>=0.7",
+    "agent-lifecycle>=0.9",
     "agentirc-cli>=9.6,<10",
 ]
 
