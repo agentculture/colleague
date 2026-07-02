@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from colleague.media import IMAGE_TOKEN_ESTIMATE, flatten_parts
+
 # ---------------------------------------------------------------------------
 # Public constant
 # ---------------------------------------------------------------------------
@@ -31,19 +33,42 @@ _PLACEHOLDER_TEXT = "[earlier steps elided to fit the context budget]"
 # ---------------------------------------------------------------------------
 
 
+def _content_chars(content) -> int:
+    """Char-equivalent size of a message ``content`` (str or parts list, t6).
+
+    A media part charges ``IMAGE_TOKEN_ESTIMATE * 4`` chars — the token
+    estimate expressed in the same chars/4 currency the heuristic divides by —
+    so a parts message is never sized ``len(list)`` (the part COUNT, the bug
+    the t4 report named) and never zero.
+    """
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        total = 0
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "text":
+                total += len(part.get("text") or "")
+            else:
+                total += IMAGE_TOKEN_ESTIMATE * 4
+        return total
+    return 0
+
+
 def count_tokens_chars(messages: list[dict]) -> int:
     """Estimate tokens from character count (chars / 4, minimum 1 if any text).
 
-    Sums the ``content`` string of every message plus the ``name`` and
-    ``arguments`` text of every function in any ``tool_calls`` list, then
-    divides by 4 (integer division).  Returns 0 for an empty/contentless list,
-    and at least 1 when any text is found.
+    Sums the ``content`` of every message (str, or a parts list sized via
+    :func:`_content_chars` — text parts by length, media parts at the
+    per-image estimate) plus the ``name`` and ``arguments`` text of every
+    function in any ``tool_calls`` list, then divides by 4 (integer
+    division).  Returns 0 for an empty/contentless list, and at least 1 when
+    any text is found.
     """
     total = 0
     for m in messages:
-        content = m.get("content")
-        if content:
-            total += len(content)
+        total += _content_chars(m.get("content"))
         for tc in m.get("tool_calls") or []:
             fn = tc.get("function") or {}
             name = fn.get("name") or ""
@@ -52,6 +77,42 @@ def count_tokens_chars(messages: list[dict]) -> int:
     if total == 0:
         return 0
     return max(1, total // 4)
+
+
+def media_aware_count(
+    messages: list[dict],
+    count_tokens: Callable[[list[dict]], int] | None,
+) -> int:
+    """Count *messages* with an exact counter that cannot see media parts (t6).
+
+    ``count_tokens`` is the engine's exact counter (e.g. the vLLM ``/tokenize``
+    closure) — a text endpoint that cannot tokenize an image part. A
+    string-only history passes through UNTOUCHED (the original list object, so
+    the media-less path stays zero-overhead and byte-identical). A
+    parts-bearing history is counted as: exact count of a text-flattened copy
+    (:func:`colleague.media.flatten_parts` — media parts become short
+    placeholders) **plus** ``IMAGE_TOKEN_ESTIMATE`` per media part. The
+    estimate is deliberately additive-conservative (the placeholder text also
+    costs a few tokens): over-counting shrinks the window slightly, never
+    overflows it. With ``count_tokens=None`` this is exactly
+    :func:`count_tokens_chars` (itself part-aware).
+    """
+    if count_tokens is None:
+        return count_tokens_chars(messages)
+    media_parts = 0
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list):
+            media_parts += sum(
+                1 for part in content if isinstance(part, dict) and part.get("type") != "text"
+            )
+    if media_parts == 0 and not any(isinstance(m.get("content"), list) for m in messages):
+        return count_tokens(messages)
+    flattened = [
+        dict(m, content=flatten_parts(m["content"])) if isinstance(m.get("content"), list) else m
+        for m in messages
+    ]
+    return count_tokens(flattened) + IMAGE_TOKEN_ESTIMATE * media_parts
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +184,7 @@ def _seg_chars(seg: list[dict]) -> int:
     """Approximate character size of one segment (content + tool_call text)."""
     total = 0
     for m in seg:
-        total += len(m.get("content") or "")
+        total += _content_chars(m.get("content"))
         for tc in m.get("tool_calls") or []:
             fn = tc.get("function") or {}
             total += len(fn.get("name") or "") + len(fn.get("arguments") or "")
@@ -198,7 +259,12 @@ def window_messages(
     OpenAI validity is maintained: no assistant ``tool_calls`` turn without
     its matching tool replies, and no orphan ``tool`` message.
     """
-    _count = count_tokens if count_tokens is not None else count_tokens_chars
+
+    # Media-aware counting (t6): the exact counter gets a text-flattened copy
+    # plus the per-media estimate; a string-only history passes through
+    # untouched (and count_tokens_chars is itself part-aware).
+    def _count(msgs: list[dict]) -> int:
+        return media_aware_count(msgs, count_tokens)
 
     # Call 1: check if already under budget.
     if _count(messages) <= budget_tokens:
