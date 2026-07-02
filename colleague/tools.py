@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 if TYPE_CHECKING:
     from colleague.roles import Role
 
-from colleague import culture, devague, memory, testintegrity
+from colleague import culture, devague, media, memory, testintegrity
 from colleague.config import _DEFAULT_MAX_OUTPUT_CHARS, MAX_SUBAGENT_FANOUT
 from colleague.contract import SubResult
 
@@ -59,6 +59,11 @@ DEEPTHINK = "deepthink"
 #: Shared description for the repo-relative ``path`` parameter, reused across the
 #: file tool schemas (read_file / write_file / edit_file) so the literal lives once.
 _PATH_DESC = "Path relative to the repo root."
+
+#: Size cap for ``view_media`` files (task t5). Base64 inflates bytes ~4/3 and
+#: the encoded part rides every subsequent windowed prompt, so the cap bounds
+#: wire + context cost; a typical screenshot is well under it.
+MAX_MEDIA_BYTES = 4 * 1024 * 1024
 
 #: Bound a runaway model-issued command so it cannot stall the loop indefinitely
 #: (mirrors culture/devague ``_TIMEOUT_SECONDS`` and neighbours ``_GIT_TIMEOUT_SECONDS``).
@@ -86,6 +91,11 @@ class ToolOutcome:
     announcement: str | None = None
     """The announcement text declared on arrival at the destination, or ``None``
     when the engine did not declare one."""
+    media_part: dict[str, Any] | None = None
+    """An OpenAI content part produced by ``view_media`` (task t5), or ``None``
+    for every other tool. The loop folds a non-None part into a follow-up user
+    parts message — tool-message content itself stays a plain string (the
+    wire-safe convention every OpenAI-compatible server accepts)."""
 
 
 # OpenAI tool/function schemas — handed to the model verbatim in the loop.
@@ -101,6 +111,24 @@ SCHEMAS: list[dict[str, Any]] = [
                 "can cite an exact file:line location. The line-number prefix "
                 "is DISPLAY ONLY — it is never part of the file on disk, so "
                 "never include it in edit_file's old_string."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": _PATH_DESC}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "view_media",
+            "description": (
+                "Load an image file from the repo into the conversation so you "
+                "can see it (the media sibling of read_file — read-only, "
+                "repo-confined, images only). The image arrives as a content "
+                "part on the next turn. Only useful when the serving model "
+                "accepts image input; a text-only model will see a placeholder."
             ),
             "parameters": {
                 "type": "object",
@@ -725,6 +753,7 @@ class ToolExecutor:
         # complexity in budget — S3776). check_test_integrity takes no args.
         dispatch = {
             "read_file": self._read_file,
+            "view_media": self._view_media,
             "write_file": self._write_file,
             "edit_file": self._edit_file,
             "list_dir": self._list_dir,
@@ -782,6 +811,39 @@ class ToolExecutor:
         # only ever drops the tail, never renumbers what remains — and the
         # existing max_output_chars budget still bounds the final string.
         return ToolOutcome(result=self._truncate(_number_lines(text)))
+
+    def _view_media(self, arguments: dict[str, Any]) -> ToolOutcome:
+        """The ``view_media`` tool (t5) — load a repo image as a content part.
+
+        Pure read: same ``_safe_path`` confinement as ``read_file``, a byte cap
+        (:data:`MAX_MEDIA_BYTES`) so one call can't flood the wire/context, and
+        images only — audio has no mid-work read use while the serving rig
+        drops it, and ``validate_attachment`` already rejects non-media.
+        """
+        rel = str(_require(arguments, "path", "view_media"))
+        path = self._safe_path(rel)
+        if not path.is_file():
+            raise ToolError(f"no such file: {rel}")
+        size = path.stat().st_size
+        if size > MAX_MEDIA_BYTES:
+            raise ToolError(
+                f"cannot view {rel}: {size} bytes exceeds the {MAX_MEDIA_BYTES}-byte "
+                "media size cap"
+            )
+        try:
+            attachment = media.validate_attachment(str(path))
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+        if not attachment["media_type"].startswith("image/"):
+            raise ToolError(f"view_media is images only: {rel} is {attachment['media_type']}")
+        try:
+            part = media.build_part(attachment)
+        except OSError as exc:
+            raise ToolError(f"cannot read {rel}: {exc}") from exc
+        return ToolOutcome(
+            result=f"loaded image {rel} ({size} bytes) into the conversation",
+            media_part=part,
+        )
 
     def _write_file(self, arguments: dict[str, Any]) -> ToolOutcome:
         rel = str(_require(arguments, "path", "write_file"))

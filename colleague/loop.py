@@ -875,6 +875,19 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
         span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
         ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
         ctx.messages.append(_tool_message(call.id, outcome.result))
+        if outcome.media_part is not None:
+            # view_media fold (t5): the tool message above stays a plain string
+            # (the wire-safe convention); the image itself rides a follow-up
+            # user parts message the next turn sees.
+            ctx.messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"[{call.name}] {outcome.result}"},
+                        outcome.media_part,
+                    ],
+                }
+            )
         _emit_progress(ctx, step_index, call.name, arguments, ok=True)
 
         # post_tool — after the tool executed. Observe-only: the decision does

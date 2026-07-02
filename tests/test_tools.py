@@ -19,6 +19,7 @@ def test_schemas_cover_base_six_plus_culture_and_devague() -> None:
     # memory tool (eidetic CLI, t3).
     assert set(TOOL_NAMES) == {
         "read_file",
+        "view_media",
         "write_file",
         "edit_file",
         "list_dir",
