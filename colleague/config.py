@@ -669,6 +669,13 @@ class EngineConfig:
     # excluded from eq/repr/to_dict like the spawn callbacks above.
     role: Optional[str] = field(default=None, compare=False, repr=False)
 
+    # Memory root (spec R1 / plan t2): the OPERATOR repo the memory store lives
+    # in. An isolated run works in a throwaway worktree, so a lesson written to
+    # task.repo_path would die with it — execute_work sets this to the real repo
+    # root so recall/remember target the durable store. A runtime field set by
+    # the CLI layer (the ``role`` precedent); excluded from eq/repr/to_dict.
+    memory_root: Optional[str] = field(default=None, compare=False, repr=False)
+
     # Mode-profile explicit-knob mask (t3 / spec R1): the EngineConfig field names
     # the caller set from explicit CLI flags (e.g. ``{"max_steps"}`` when
     # ``--max-steps`` was given), so ``apply_mode_profile`` never overwrites them.

@@ -447,6 +447,9 @@ def execute_work(
     read_only_role = is_read_only(getattr(config, "role", None))
     _guard_clean_tree(repo, allow_dirty=allow_dirty or read_only_role)
     work_repo, base_sha, worktree_path, task = _setup_isolation(repo, task, isolate)
+    # Memory targets the OPERATOR repo (spec R1 / plan t2): an isolated run's
+    # worktree is reaped after handoff, so a lesson written there would be lost.
+    config.memory_root = str(repo)
     # Interruption safety (#222): on the isolated path, a SIGTERM (a caller's
     # `timeout`) / Ctrl-C now commits the model's WIP to colleague/<id> before the
     # process exits, instead of stranding it as uncommitted files in an orphan

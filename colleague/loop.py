@@ -593,6 +593,7 @@ class _Work:
     # .eidetic/ store AND the CLI is installed (see _memory_armed) — otherwise a
     # strict no-op, byte-identical to the pre-memory loop.
     memory_enabled: bool = False
+    memory_root: str | None = None
     # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
     # mirror-detection heuristic on the work item's changed files after the loop and
     # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
@@ -1504,7 +1505,19 @@ def _memory_armed(ctx: _Work) -> bool:
     """
     if not ctx.memory_enabled:
         return False
-    return (Path(ctx.task.repo_path) / ".eidetic").is_dir()
+    return (Path(_memory_repo(ctx)) / ".eidetic").is_dir()
+
+
+def _memory_repo(ctx: _Work) -> str:
+    """The durable store root: the operator repo for isolated runs (t2 fix).
+
+    An isolated run's ``task.repo_path`` is a throwaway worktree that is reaped
+    after handoff — a lesson written there would be silently lost (caught live
+    on the first mock smoke run). ``execute_work`` threads the real root via
+    ``config.memory_root``; the in-place session path falls back to the task's
+    own repo.
+    """
+    return ctx.memory_root or ctx.task.repo_path
 
 
 def _maybe_recall_memory(ctx: _Work) -> None:
@@ -1909,6 +1922,10 @@ class ContextControls:
     # ``config.memory`` (all-engines rule); the loop additionally requires the
     # repo to carry a .eidetic/ store, so test repos never spawn a subprocess.
     memory: bool | None = None
+    # The durable repo root the memory store lives in (execute_work sets it to
+    # the operator repo for isolated runs); ``None`` falls back to the task's
+    # own repo_path (the in-place session path).
+    memory_root: str | None = None
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -1973,6 +1990,7 @@ class ContextControls:
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
             memory=config.memory,
+            memory_root=getattr(config, "memory_root", None),
             testintegrity=config.testintegrity,
             testintegrity_fix_retries=config.testintegrity_fix_retries,
             testintegrity_reviewer_model=config.testintegrity_reviewer_model,
@@ -2779,6 +2797,7 @@ def run(
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
         memory_enabled=bool(_context.memory),
+        memory_root=_context.memory_root,
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,

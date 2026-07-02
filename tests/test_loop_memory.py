@@ -209,6 +209,29 @@ def test_lesson_recorded_even_on_incomplete_run(repo: Path, eidetic_log: Path) -
     assert result.memory is not None and result.memory["lesson_recorded"] is True
 
 
+def test_memory_root_targets_durable_store(repo: Path, eidetic_log: Path, tmp_path: Path) -> None:
+    """An isolated run's lessons land in the OPERATOR repo, not the worktree.
+
+    ``repo`` (with .eidetic) plays the operator root via ``memory_root``; the
+    task's own repo_path is a store-less stand-in for the throwaway worktree —
+    without the root override memory would not even arm, and a lesson written
+    to the worktree would be reaped with it (caught live on the first smoke run).
+    """
+    worktree = tmp_path / "iso-worktree"
+    worktree.mkdir()
+    task = Task.new(str(worktree), "isolated work")
+    result = run(
+        scripted([_FINISH]),
+        task,
+        max_steps=5,
+        context=ContextControls(memory=True, memory_root=str(repo)),
+    )
+
+    calls = _calls(eidetic_log)
+    assert [c[0] for c in calls] == ["recall", "remember"]
+    assert result.memory is not None and result.memory["lesson_recorded"] is True
+
+
 def test_memory_field_round_trips() -> None:
     r = TaskResult(task_id="x", status=OK, memory={"recalled": 2, "lesson_recorded": True})
     assert TaskResult.from_dict(r.to_dict()).memory == {"recalled": 2, "lesson_recorded": True}
