@@ -170,23 +170,32 @@ def test_non_operator_role_outcome_is_still_explorer_regardless_of_media() -> No
 # ---------------------------------------------------------------------------
 # Everything below needs the [resident]/[culture] extra -- colleague.resident
 # .appserver imports agent_lifecycle unconditionally at module scope, exactly
-# like tests/test_resident_appserver.py.
+# like tests/test_resident_appserver.py. Gated via try/except + a skipif
+# MARKER (not a module-level importorskip, which would skip THIS WHOLE FILE
+# at collection — including the pure trust-layer tests above that need no
+# extra; caught by the t15 parity sweep in an extra-less environment).
 # ---------------------------------------------------------------------------
 
-pytest.importorskip(
-    "agent_lifecycle", reason="install the [culture]/[resident] extra to test the resident seam"
-)
+try:
+    import asyncio
 
-import asyncio  # noqa: E402
+    from agent_lifecycle.reference import InMemoryTransport
+    from agent_lifecycle.runtime.message import Message
 
-from agent_lifecycle.reference import InMemoryTransport  # noqa: E402
-from agent_lifecycle.runtime.message import Message  # noqa: E402
+    from colleague.config import EngineConfig
+    from colleague.resident.appserver import (
+        _MAX_ATTACHMENTS,
+        _extract_attach_lines,
+        build_appserver_supervisor,
+    )
 
-from colleague.config import EngineConfig  # noqa: E402
-from colleague.resident.appserver import (  # noqa: E402
-    _MAX_ATTACHMENTS,
-    _extract_attach_lines,
-    build_appserver_supervisor,
+    _HAS_LIFECYCLE = True
+except ImportError:  # pragma: no cover - exercised only without the extra
+    _HAS_LIFECYCLE = False
+
+requires_lifecycle = pytest.mark.skipif(
+    not _HAS_LIFECYCLE,
+    reason="install the [culture]/[resident] extra to test the resident seam",
 )
 
 # ---------------------------------------------------------------------------
@@ -194,6 +203,7 @@ from colleague.resident.appserver import (  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+@requires_lifecycle
 class TestExtractAttachLines:
     def test_no_attach_lines_is_byte_identical(self) -> None:
         """Requirement 4 (TDD list): no attach: lines -> the text comes back
@@ -287,6 +297,7 @@ def _capture_execute_work(monkeypatch: pytest.MonkeyPatch, captured: dict, artif
     monkeypatch.setattr(work_mod, "execute_work", _fake_execute_work)
 
 
+@requires_lifecycle
 class TestNonOperatorArbitraryPathRefusedOperatorAccepted:
     """TDD item 1: a crafted NON-operator request referencing a path outside
     the repo (e.g. `attach: /home/user/.ssh/id_rsa`) is refused with a
@@ -347,6 +358,7 @@ class TestNonOperatorArbitraryPathRefusedOperatorAccepted:
         assert captured["task"].attachments == [validate_attachment(str(secret))]
 
 
+@requires_lifecycle
 class TestAcceptedAttachmentShapesTaskAttachments:
     """TDD item 3: an accepted candidate lands on Task.attachments in the
     exact {"path", "media_type"} shape validate_attachment produces."""
@@ -398,6 +410,7 @@ class TestAcceptedAttachmentShapesTaskAttachments:
         assert any("notes.txt" in note for note in notes)
 
 
+@requires_lifecycle
 class TestNoAttachLinesIsByteIdenticalToToday:
     """TDD item 4: a request with no attach: lines behaves exactly as before
     this feature existed -- no attachments key, no attachment_notes key."""
