@@ -203,6 +203,28 @@ _THIN_FINISH_PROMPT = (
     "specific and self-contained (files, behaviors, conclusions). Do not request any "
     "more tools; reply with the findings themselves as plain text."
 )
+# Meta-description finish (#231): the model *called* finish after a read-heavy,
+# zero-write run with a summary that DESCRIBES a report ("Report covers all three
+# features with file:line references…") that is nowhere in the return value — the
+# observed run d0c20c8c2e54 shape. Too long for the thin guard, so a pattern match
+# catches the claim-of-coverage language; the length cap keeps a real (long) report
+# that merely *says* "analysis complete" out of reach, and the read-heavy/zero-write
+# gate (shared with the thin guard) protects write-run summaries.
+_META_FINISH_CHARS = 600
+_META_FINISH_RE = _re.compile(
+    r"\b(report|analysis|review|summary|findings|writeup|write-up)\b[^.]{0,80}?"
+    r"\b(covers|includes|contains|provides|documents)\b"
+    r"|\b(reconnaissance|analysis|review|survey|investigation|exploration)\s+complete\b"
+    r"|\bsee (the )?(full )?(report|analysis|findings)\b",
+    _re.IGNORECASE,
+)
+_META_FINISH_PROMPT = (
+    "Your `finish` summary DESCRIBED a report but did not include it — the summary IS "
+    "the deliverable, and a description of findings is not the findings. Write the "
+    "report itself NOW from what you actually read: the concrete findings, file "
+    "references, and conclusions you promised. Do not request any more tools; reply "
+    "with the report as plain text."
+)
 
 # Literal finish-markup recovery (#248 mode B): a served model sometimes emits its
 # finish as literal tool-call MARKUP inside message content (observed shape below,
@@ -1461,24 +1483,38 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
-def _is_thin_finish(ctx: _Work) -> bool:
-    """A finish whose summary is a bare headline on a read-heavy, zero-write run.
+def _read_heavy_zero_write(ctx: _Work) -> bool:
+    """The findings-run signature shared by the thin and meta finish guards.
 
-    The #248 mode-A signature: many steps spent reading, nothing written, and a
-    summary under ``_THIN_FINISH_CHARS`` — for such a run the summary IS the
-    deliverable, so a headline means the report never made it out. A run that
-    wrote/edited files legitimately finishes short ("wrote out.txt"), so any
-    write disarms the trigger; so does a short run (few steps = little context
-    worth synthesizing).
+    Many steps spent reading, nothing written — for such a run the summary IS
+    the deliverable. A run that wrote/edited files legitimately finishes short
+    ("wrote out.txt"), so any write disarms both triggers; so does a short run
+    (few steps = little context worth synthesizing).
     """
-    summary = (ctx.result.summary or "").strip()
-    if not summary or len(summary) >= _THIN_FINISH_CHARS:
-        return False
     stats = ctx.result.stats
     if stats.step_count < _THIN_FINISH_MIN_STEPS:
         return False
     writes = stats.tool_counts.get("write_file", 0) + stats.tool_counts.get("edit_file", 0)
     return writes == 0
+
+
+def _finish_recovery_reason(ctx: _Work) -> str | None:
+    """Why a *called* finish still needs a synthesis turn, or ``None`` if it doesn't.
+
+    - ``"thin"`` (#248 mode A): the summary is a bare headline (under
+      ``_THIN_FINISH_CHARS``) after a read-heavy zero-write run.
+    - ``"meta"`` (#231): the summary DESCRIBES a report (claim-of-coverage
+      language) without containing it — under ``_META_FINISH_CHARS`` so a real
+      long report that merely says "analysis complete" is never re-opened.
+    """
+    summary = (ctx.result.summary or "").strip()
+    if not summary or not _read_heavy_zero_write(ctx):
+        return None
+    if len(summary) < _THIN_FINISH_CHARS:
+        return "thin"
+    if len(summary) < _META_FINISH_CHARS and _META_FINISH_RE.search(summary):
+        return "meta"
+    return None
 
 
 def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> None:
@@ -1494,6 +1530,10 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
       but gave no usable summary. For a read-only verb the summary IS the deliverable,
       so a blank finish is a silent no-op (status reads ``ok``); synthesise the answer
       from what was read instead of falling back to the last planning line.
+    - **finish with a thin or meta summary** (#248 mode A / #231) — the summary is a
+      bare headline, or *describes* a report it never contains, after a read-heavy
+      zero-write run (:func:`_finish_recovery_reason`); recovered via a dedicated
+      prompt and recorded on ``TaskResult.finish_recovered``.
 
     Best-effort: any error or an empty answer leaves ``summary`` untouched so the
     caller falls back to the last-substantive content or the ``NO_RESULT_PRODUCED``
@@ -1505,14 +1545,17 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     """
     if outcome not in (_EXIT_BUDGET, _EXIT_STOPPED, _EXIT_FINISHED):
         return
-    # Thin finish (#248 mode A): a finish whose summary is only a headline after a
-    # read-heavy zero-write run is the observed "130k tokens, one sentence" failure —
-    # non-empty, so the #202 empty-finish guard alone would skip it.
-    thin = outcome == _EXIT_FINISHED and _is_thin_finish(ctx)
-    if (ctx.result.summary and not thin) or ctx.result.stats.step_count <= 0:
+    # Finish-recovery reasons (#248 mode A + #231): a *called* finish whose summary
+    # is only a headline ("thin") or a description of an unwritten report ("meta")
+    # after a read-heavy zero-write run — non-empty, so the #202 empty-finish guard
+    # alone would skip both.
+    reason = _finish_recovery_reason(ctx) if outcome == _EXIT_FINISHED else None
+    if (ctx.result.summary and reason is None) or ctx.result.stats.step_count <= 0:
         return
-    if thin:
+    if reason == "thin":
         prompt = _THIN_FINISH_PROMPT
+    elif reason == "meta":
+        prompt = _META_FINISH_PROMPT
     elif outcome == _EXIT_FINISHED:
         prompt = _EMPTY_FINISH_PROMPT
     else:
@@ -1526,10 +1569,10 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
         return
     _account_turn(ctx, resp)
     if resp.content:
-        if thin:
-            # Honest degradation marker (#248/h8): the artifact records that the
-            # summary came from a recovery turn, not the model's own finish.
-            ctx.result.finish_recovered = "thin-finish-synthesis"
+        if reason is not None:
+            # Honest degradation marker (#248/#231, h8): the artifact records that
+            # the summary came from a recovery turn, not the model's own finish.
+            ctx.result.finish_recovered = f"{reason}-finish-synthesis"
         ctx.result.summary = resp.content
 
 

@@ -170,3 +170,90 @@ def test_finish_recovered_round_trips_from_dict() -> None:
     assert TaskResult.from_dict(r.to_dict()).finish_recovered == "literal-markup"
     bare = TaskResult(task_id="x", status=OK, summary="s")
     assert TaskResult.from_dict(bare.to_dict()).finish_recovered is None
+
+
+# The exact meta-description finish observed in issue #231 run d0c20c8c2e54: a
+# one-sentence summary that DESCRIBES a report ("covers ... with file:line
+# references ...") that is nowhere in the return value. Too long for the thin
+# guard (~300 chars > 160), so t6 adds a pattern-based meta-claim detector.
+_META_SUMMARY_231 = (
+    "Read-only architecture reconnaissance complete. Report covers all three "
+    "planned features (Migration Importer, Freshness/Temporal Model, "
+    "No-Hard-Delete Lifecycle) with file:line references, schema changes, "
+    "computation points, and conflict analysis."
+)
+
+
+def test_meta_description_finish_triggers_synthesis(tmp_path: Path) -> None:
+    """#231: a finish that DESCRIBES the report (instead of being it) synthesizes."""
+    report = (
+        "FINDINGS: record.py holds the schema (add decay fields); scoring.py is "
+        "where reinforcement lands; the mongo backend conflicts with shadowing."
+    )
+    responses = _read_turns(16) + [
+        ModelResponse(tool_calls=[ToolCall("f", "finish", {"summary": _META_SUMMARY_231})]),
+        ModelResponse(content=report),
+    ]
+    complete, state = _counting(responses)
+    result = run(complete, Task.new(str(tmp_path), "architecture recon"), max_steps=30)
+
+    assert result.status == OK
+    assert result.summary == report
+    assert result.finish_recovered == "meta-finish-synthesis"
+    assert state["i"] == 18  # 16 reads + finish + ONE synthesis turn
+
+
+def test_real_report_containing_meta_phrase_is_untouched(tmp_path: Path) -> None:
+    """A long real report may legitimately SAY 'analysis complete' — never re-opened."""
+    real = (
+        "The analysis is complete. FINDINGS ON ALL THREE FEATURES:\n"
+        "1) Migration importer: touch eidetic/memory/record.py:41 (schema) and "
+        "backends/files.py:88 (reader); add a `migrated_from` field.\n"
+        "2) Freshness/temporal: decay computed in scoring.py:120; reinforcement on "
+        "recall lands in cli/_commands/recall.py:63.\n"
+        "3) No-hard-delete: shadowing conflicts with mongo backend TTL indexes "
+        "(backends/mongo.py:204) — needs a tombstone collection instead.\n"
+        "Risks: the files backend has no transaction; concurrent shadow writes race."
+    )
+    responses = _read_turns(16) + [
+        ModelResponse(tool_calls=[ToolCall("f", "finish", {"summary": real})])
+    ]
+    complete, state = _counting(responses)
+    result = run(complete, Task.new(str(tmp_path), "architecture recon"), max_steps=30)
+
+    assert result.status == OK
+    assert result.summary == real
+    assert result.finish_recovered is None
+    assert state["i"] == 17  # no synthesis turn
+
+
+def test_meta_phrase_on_write_run_is_untouched(tmp_path: Path) -> None:
+    """A write-run finish naming its coverage is legitimate — writes disarm t6."""
+    summary = "Refactor complete. The change covers all three call sites with tests."
+    responses = _read_turns(7) + [
+        ModelResponse(
+            tool_calls=[ToolCall("w", "write_file", {"path": "out.txt", "content": "x"})]
+        ),
+        ModelResponse(tool_calls=[ToolCall("f", "finish", {"summary": summary})]),
+    ]
+    complete, state = _counting(responses)
+    result = run(complete, Task.new(str(tmp_path), "refactor"), max_steps=30)
+
+    assert result.status == OK
+    assert result.summary == summary
+    assert result.finish_recovered is None
+    assert state["i"] == 9
+
+
+def test_meta_phrase_on_short_run_is_untouched(tmp_path: Path) -> None:
+    """A short run (little read context) is never re-opened — nothing to synthesize."""
+    responses = _read_turns(3) + [
+        ModelResponse(tool_calls=[ToolCall("f", "finish", {"summary": _META_SUMMARY_231})])
+    ]
+    complete, state = _counting(responses)
+    result = run(complete, Task.new(str(tmp_path), "quick look"), max_steps=30)
+
+    assert result.status == OK
+    assert result.summary == _META_SUMMARY_231
+    assert result.finish_recovered is None
+    assert state["i"] == 4
