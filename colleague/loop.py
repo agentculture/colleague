@@ -269,6 +269,53 @@ def _parse_literal_finish(content: str) -> str | None:
     return content[start:end].strip() or None
 
 
+# Markup-shaped synthesis guard (#264): the forced-synthesis turn's OWN output can
+# itself be literal tool-call markup (the same served-model failure mode #248
+# recovers for `finish`) — used verbatim it garbles the terminal summary (live:
+# work item 55859cb1d605). The guard detects the markup shape, retries ONCE with
+# an explicit plain-prose instruction (the bounded-retry precedent of
+# `_final_degraded_attempt`; stays on the MAIN model like every synthesis turn),
+# and otherwise salvages the prose prefix before the first marker; when nothing
+# substantive survives, the summary is left unset so `_resolve_terminal_summary`
+# falls through to its next rung (compaction self-summary → last-substantive).
+# Markers are LINE-ANCHORED (a marker mid-sentence is prose *about* markup, not
+# markup — this repo's own docs discuss these tokens) and scanned with linear
+# `str.find` (no regex — SonarCloud S8786).
+_TOOL_MARKUP_MARKERS = (
+    "<tool_call",
+    "</tool_call>",
+    "<parameter=",
+    "</parameter>",
+    "</function>",
+)
+_MARKUP_SALVAGE_CHARS = 80
+_MARKUP_SYNTHESIS_PROMPT = (
+    "Your reply was tool-call markup, but there are no tools on this turn — markup "
+    "is ignored. Reply again NOW with the answer itself as plain prose only: no "
+    "<tool_call>, no <parameter=...> syntax, just the findings/summary text."
+)
+
+
+def _strip_tool_markup(text: str) -> str:
+    """Return *text* truncated at the first line-anchored tool-markup marker.
+
+    Returns the stripped input unchanged when no marker starts a line — the
+    cheap substring scans keep this off the hot path (#264).
+    """
+    cut = len(text)
+    for marker in _TOOL_MARKUP_MARKERS:
+        start = 0
+        while True:
+            idx = text.find(marker, start)
+            if idx == -1 or idx >= cut:
+                break
+            if idx == 0 or text[idx - 1] == "\n":
+                cut = idx
+                break
+            start = idx + 1
+    return text[:cut].strip()
+
+
 # Pre-completion phase notices (colleague#206) — fired through the progress sink
 # right BEFORE a model completion so a long single turn (above all the final
 # no-tools synthesis turn) is visibly "working, not stalled" on a slow backend. A
@@ -1697,12 +1744,48 @@ def _maybe_force_synthesis(ctx: _Work, outcome: str, complete: CompleteFn) -> No
     except Exception:  # noqa: BLE001 - best-effort; a finalize-time turn never raises
         return
     _account_turn(ctx, resp)
-    if resp.content:
+    content, markup_recovered = _plain_prose_synthesis(ctx, complete, resp)
+    if content:
         if reason is not None:
             # Honest degradation marker (#248/#231, h8): the artifact records that
             # the summary came from a recovery turn, not the model's own finish.
             ctx.result.finish_recovered = f"{reason}-finish-synthesis"
-        ctx.result.summary = resp.content
+        elif markup_recovered:
+            # Honest marker (#264): the synthesis turn itself emitted tool markup
+            # and the summary came from the recovery pass, not the first output.
+            ctx.result.finish_recovered = "markup-synthesis"
+        ctx.result.summary = content
+
+
+def _plain_prose_synthesis(
+    ctx: _Work, complete: CompleteFn, first: ModelResponse
+) -> tuple[str, bool]:
+    """Return ``(content, recovered)`` — plain-prose text from a synthesis turn (#264).
+
+    ``recovered`` is True when the first synthesis output was markup-contaminated
+    and a recovery pass produced the returned content: ONE bounded plain-prose
+    retry, else the prose prefix before the first marker when substantive
+    (>= ``_MARKUP_SALVAGE_CHARS``). An empty return means nothing usable survived —
+    the caller leaves the summary unset so ``_resolve_terminal_summary`` falls
+    through to its next rung instead of shipping garbled markup as the deliverable.
+    """
+    content = (first.content or "").strip()
+    prefix = _strip_tool_markup(content)
+    if prefix == content:
+        return content, False
+    ctx.messages.append({"role": "assistant", "content": first.content})
+    ctx.messages.append({"role": "user", "content": _MARKUP_SYNTHESIS_PROMPT})
+    try:
+        retry = _complete_with_degradation(ctx, complete, phase=_PHASE_SYNTHESIZING)
+    except Exception:  # noqa: BLE001 - best-effort; salvage what the first turn had
+        return (prefix if len(prefix) >= _MARKUP_SALVAGE_CHARS else ""), True
+    _account_turn(ctx, retry)
+    retry_content = (retry.content or "").strip()
+    retry_prefix = _strip_tool_markup(retry_content)
+    if retry_content and retry_prefix == retry_content:
+        return retry_content, True
+    best = retry_prefix if len(retry_prefix) > len(prefix) else prefix
+    return (best if len(best) >= _MARKUP_SALVAGE_CHARS else ""), True
 
 
 def _resolve_terminal_summary(

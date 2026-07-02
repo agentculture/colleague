@@ -564,9 +564,15 @@ def execute_work(
                 # `feedback last` can still grade it. Best-effort: never mask the error.
                 with suppress(Exception):
                     set_last_work(repo, result.task_id)
+                # A bare exception payload (e.g. KeyError('path') -> "'path'")
+                # tells the operator nothing — name the exception class so the
+                # error is diagnosable from the message alone (#269).
+                detail = str(original)
+                if not detail or not any(ch.isspace() for ch in detail):
+                    detail = f"{type(original).__name__}: {detail}".rstrip(": ")
                 raise CliError(
                     EXIT_ENV_ERROR,
-                    f"engine '{engine_name}' failed: {original}",
+                    f"engine '{engine_name}' failed: {detail}",
                     f"check the engine config / vLLM server; {artifact_note}",
                     result=result if isinstance(partial, TaskResult) else None,
                 ) from exc

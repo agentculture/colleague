@@ -269,7 +269,8 @@ The architecture, part by part:
   presence keyed solely on a resolved model; `COLLEAGUE_DEEPTHINK_MODEL`/
   `_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET` env > `.colleague/config.json`
   `deepthink` section > absent; base_url/api_key default to the main endpoint,
-  `context_budget` defaults 48000 (64K-sized; the main default stays 192000).
+  `context_budget` defaults 48000 (64K-sized; the main default is 48000 too
+  since the rig serves the default 27B at 64K).
   The escalation surface is **enumerated** (boundary-tested — the complete
   list): (a) the backend-judged **`deepthink` loop tool** (offered only under
   dual config, judgment-not-mechanics description, available to read-only
@@ -752,12 +753,13 @@ The architecture, part by part:
   the loop injects runs against the small window (not the full one that just
   failed) and can actually complete. The
   knob is `COLLEAGUE_CONTEXT_BUDGET` (tokens, on `EngineConfig.context_budget_tokens`,
-  default 192000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 256k (262144-token)
-  reference rig, leaving headroom for the completion; lower it for a small-context
-  model. A companion knob caps each tool result fed back to the model:
+  default 48000, env `COLLEAGUE_CONTEXT_BUDGET`) — sized for the 64K (65536-token)
+  window the lobes rig actually serves the default 27B at (probed 2026-07-02),
+  leaving headroom for the completion; raise it for a wider-window model (the
+  rig's Gemma4-12B serves 128K → 96000). A companion knob caps each tool result fed back to the model:
   `COLLEAGUE_MAX_OUTPUT_CHARS` (chars, on `EngineConfig.max_output_chars`, default
-  100000, raised from the old hardcoded 20000 so a large `read_file`/`run_command`
-  result isn't truncated inside the bigger window); both resolve via the same
+  25000 — scaled with the budget, ~13% of window, still above the old hardcoded
+  20000); both resolve via the same
   `EngineConfig.resolve` precedence and the backends forward them to the loop
   identically (all-engines rule). The work step budget default is
   `COLLEAGUE_MAX_STEPS` (`EngineConfig.max_steps`, default 40). Token counting goes

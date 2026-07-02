@@ -44,15 +44,22 @@ _DEFAULT_TIMEOUT = 120.0
 # Proactive context budget in tokens. Counted exactly via the served model's
 # /tokenize endpoint when reachable; char-based fallback otherwise (best-effort
 # exact, char-approximate fallback, never token-exact-guaranteed — no tokenizer
-# library is bundled). Sized for the 256k (262144-token) reference rig, leaving
-# headroom for the completion + system/tools prompt. Override per environment
-# with COLLEAGUE_CONTEXT_BUDGET (e.g. lower it for a small-context model).
-_DEFAULT_CONTEXT_BUDGET = 192000
+# library is bundled). Sized for the window the reference rig ACTUALLY serves
+# the default model at: the lobes rig serves the 27B at 64K (65536 tokens,
+# probed live 2026-07-02 — the old 192000 default assumed the retired 256K
+# serving and drove every long run into overflow/latency churn), keeping the
+# same ~0.73 fill fraction (48000/65536) with headroom for the completion +
+# system/tools prompt. Override per environment with COLLEAGUE_CONTEXT_BUDGET
+# (e.g. raise it for a wider-window model: the rig's Gemma4-12B serves 128K →
+# 96000; a Gemma4 default-model flip is staged on the serving side growing a
+# Gemma-format tool-call parser — probed: it emits no structured tool calls yet).
+_DEFAULT_CONTEXT_BUDGET = 48000
 # Cap on each tool result (read_file / run_command / list_dir / subagent) fed
-# back to the model, in characters. Raised from the old hardcoded 20000 to suit
-# the 256k window so a large file read isn't truncated. Tunable per environment
-# with COLLEAGUE_MAX_OUTPUT_CHARS.
-_DEFAULT_MAX_OUTPUT_CHARS = 100000
+# back to the model, in characters. Scaled with the context budget (the same
+# ~13% of window as the previous 100000-for-192000 sizing) so one large read
+# cannot evict half the working history; still above the old hardcoded 20000.
+# Tunable per environment with COLLEAGUE_MAX_OUTPUT_CHARS.
+_DEFAULT_MAX_OUTPUT_CHARS = 25000
 
 # Opt-in concurrency width for subagent delegation (how many may run in
 # parallel). Clamped to [1, MAX_SUBAGENT_FANOUT - 1] by effective_concurrency().
@@ -163,8 +170,9 @@ _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 # string; ``base_url``/``api_key`` then default to the MAIN resolved
 # endpoint's own values (so declaring dual-model needs only a model id unless
 # deepthink truly lives elsewhere). ``context_budget`` defaults to a
-# 64K-window-sized share — the same proportion as the main
-# 192000-for-256K default (192000/262144 ≈ 0.73 ≈ 48000/65536). Override per
+# 64K-window-sized share (48000/65536 ≈ 0.73) — since the rig now serves the
+# default main model at 64K too, this equals the main default's fill fraction
+# by construction. Override per
 # environment with COLLEAGUE_DEEPTHINK_MODEL / _BASE_URL / _API_KEY /
 # _CONTEXT_BUDGET, or a ``deepthink`` section in .colleague/config.json.
 _DEFAULT_DEEPTHINK_CONTEXT_BUDGET = 48000

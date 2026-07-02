@@ -15,8 +15,8 @@ precedence pattern as every other knob in ``colleague/config.py``:
 Presence is keyed SOLELY on the resolved model being a non-empty,
 non-whitespace string; base_url/api_key then default to the already-resolved
 MAIN endpoint's own values, and context_budget defaults to 48000 (a
-64K-window-sized share, matching the main model's 192000-for-256K
-proportion). These tests intentionally use ARBITRARY endpoint/model names
+64K-window-sized share — the same ~0.73 fill fraction as the main
+default). These tests intentionally use ARBITRARY endpoint/model names
 (never a specific reference-rig model) to pin the endpoint-agnostic honesty
 condition (h1): nothing in the design may hard-code a specific pair of models.
 """
