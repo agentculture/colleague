@@ -54,10 +54,28 @@ Memory fires only when **all three** hold:
 
 The success signal is measurable, not asserted: the same task run live twice —
 once against a cold store, once warmed — compared via the always-on
-`WorkStats`. Recorded here when run; per h3, a no-saving result retracts the
-warm-start claim rather than massaging it.
+`WorkStats`. Per h3/h14, the first honest comparison counts and a no-saving
+result would have retracted the claim.
 
-**Status: PENDING** — to be run as plan task t4 against the live rig.
+**Status: MEASURED (2026-07-02, live rig, 27B, `--mode explore --role
+explorer`).** Task: locate a computation hidden behind three layers of
+delegation in a 10-file fixture repo ("find where the retry backoff multiplier
+is computed"). Cold store = no task-specific lesson; warm = one seeded
+prior-run lesson naming the real location.
+
+| Leg | Work item | Steps | Model turns | Tokens | Duration |
+|-----|-----------|-------|-------------|--------|----------|
+| Cold | `503b0a36c33a` | 10 | 9 | 23,358 | 46.4 s |
+| Warm | `c5774404bc3d` | **2** | **2** | **4,266** | **14.1 s** |
+
+**5× fewer steps, 5.5× fewer tokens, 3.3× faster — the same correct answer.**
+Notably the warm run did not parrot the lesson: it spent its one read step
+*verifying* the recalled location against the real file before finishing —
+recall as a map, evidence still from the territory. Honest footnote: "cold"
+means no task-specific lesson, not zero recall — eidetic merges the operator's
+`$HOME` store, so one generic record (1,056 chars) was injected in the cold
+leg too; it contained nothing about the task and the cold run's 10 steps show
+it. Both artifacts carry the full `memory` block for audit.
 
 ## Honest limits
 

@@ -69,7 +69,12 @@ treat ❌-by-staleness the same as never-validated.
 | 5 | Neighbours read-only clones | `colleague/neighbours.py` | ✅ | `64361da` · 2026-06-05 (drive `711505cb4c3f`); see §5 result | [#125](https://github.com/agentculture/colleague/issues/125) |
 | 6 | Telemetry end-to-end | `colleague/telemetry/` | ✅ | `d5c9312` · 2026-06-05 (e2e in CI + live drive `eff14af763d4`); see §6 result | [#126](https://github.com/agentculture/colleague/issues/126) |
 | 7 | Context-overflow graceful degradation | `colleague/context.py`, `colleague/loop.py` | ✅ | `fcbf4ec` · 2026-06-05 (proactive `36b022abc7f0`, reactive `0323db53b1dd`); see §7 result | [#127](https://github.com/agentculture/colleague/issues/127) |
-| 8 | Partial-edit tool (`edit_file`) | `colleague/tools.py` | ❌ | — (added in #174; not yet exercised in a live drive) | [#174](https://github.com/agentculture/colleague/issues/174) |
+| 8 | Partial-edit tool (`edit_file`) | `colleague/tools.py` | ✅ | `bf6cf2d` · 2026-07-02 (work items `ede0f61fb28b` ×7, `5ccdf8573cad` ×2, `6422d3224e32` ×11 — real TDD builds on this repo) | [#174](https://github.com/agentculture/colleague/issues/174) |
+| 9 | Memory: recall-before / remember-after | `colleague/memory.py`, `colleague/loop.py` | ✅ | `bf6cf2d` · 2026-07-02 (smoke `e082b37e602e` lesson persisted to the durable store; warm-vs-cold `503b0a36c33a` vs `c5774404bc3d` — 10→2 steps, 23.4k→4.3k tokens; see `docs/features/memory.md`) | — |
+| 10 | Finish recovery (thin/meta/literal-markup) | `colleague/loop.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (deterministic regression suite on the #248/#231 evidence shapes; a live re-occurrence not yet observed post-fix — the fix removes the trigger) | [#248](https://github.com/agentculture/colleague/issues/248) [#231](https://github.com/agentculture/colleague/issues/231) |
+| 11 | Background one-shot (`work --background`) | `colleague/background.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (mock-engine e2e through `main()` incl. kill-reap; a live-model background run not yet exercised) | — |
+| 12 | Resident appserver (agent-lifecycle embed) | `colleague/resident/appserver.py` | ⚠️ | `bf6cf2d` · 2026-07-02 (real `agent_lifecycle` 0.9.0 + reference transport e2e; REAL mesh transport PENDING upstream — h15, never claimed) | — |
+| 13 | Spontaneous `subagents` delegation | `colleague/subagents.py` | ✅ | `bf6cf2d` · 2026-07-02 (work items `5ccdf8573cad` ×1, `6422d3224e32` ×2 with 7 folded sub_results — UNPROMPTED, superseding §2's "needs an explicit invite" caveat) | — |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -502,14 +507,12 @@ now validated live (or live + cited-deterministic where the model adds no signal
   throttle + advisory), `tests/test_rig.py` (cross-process slot semantics incl. a
   live `execute_work` hold/release), and `tests/test_loop_acceptance_selfcheck.py`
   (goal block + advisory self-check).
-- **PENDING live.** `tests/test_vllm_live_mode.py` (gated on `COLLEAGUE_VLLM_E2E=1`)
-  is written but NOT yet run against a live model: as of 2026-07-02 the reference
-  endpoint stale-lists the 27B (completions 404) and the served Qwen3.5-4B rejects
-  tool calls (no `--enable-auto-tool-choice` — evidence on
-  [#66](https://github.com/agentculture/colleague/issues/66)), so colleague's tool
-  loop has no live backend on this rig. Run the gated test once serving is fixed;
-  until then the mock e2e is the validated floor — recorded honestly, never
-  claimed as live (plan risk r3).
+- **VALIDATED live — `bf6cf2d` · 2026-07-02.** The rig came back with tool
+  calling (the 27B serves and the `doctor --probe` tool-calling round-trip
+  passes), and `COLLEAGUE_VLLM_E2E=1 uv run pytest tests/test_vllm_live_mode.py`
+  **PASSED** (`test_mode_explore_live`, 30s): a live `--mode explore` run
+  completed inside its profile. The profile *numbers* remain conservative
+  defaults pending broader live tuning (plan risk r1 — tuning, not validity).
 
 ## Dual-model deepthink escalation (spec 2026-07-01, plan task t10)
 
@@ -524,22 +527,30 @@ now validated live (or live + cited-deterministic where the model adds no signal
   all pass against the `mock` engine and fixtures: a no-deepthink-config run is
   byte-identical to today, and a dual-config run against `mock` records a
   degraded no-op (the lint fix-turn precedent) instead of failing.
-- **PENDING live.** `tests/test_dual_live.py` (gated on `COLLEAGUE_DUAL_E2E=1`,
-  requiring both `COLLEAGUE_BASE_URL`/`_MODEL` for a tool-calling main model
-  *and* `COLLEAGUE_DEEPTHINK_MODEL`/`_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET` for
-  a live deepthink endpoint) is written but NOT yet run against a live rig: as
-  of 2026-07-02 the reference rig serves no tool-calling-capable backend at all
-  (the same standing gap as the mode-profiles row above — evidence
-  [#66](https://github.com/agentculture/colleague/issues/66)) — the main model
-  in a dual pair must be served with tool calling (vLLM
-  `--enable-auto-tool-choice` plus a model-appropriate `--tool-call-parser`)
-  and a *second* endpoint must serve the deepthink model concurrently, which
-  this rig does not yet do. The wall-clock + quality benchmark
-  (`scripts/bench_dual.py`) is scripted and documented (quality graded via the
-  existing feedback loop, `colleague feedback record <task_id> --rating N`) but
-  refuses to run against an unreachable endpoint rather than fake a comparison
-  (verified: it exits 1 with a clear stderr message against this rig's
-  unconfigured/unreachable deepthink target, and never starts a model run).
-  Run both once the rig serves two tool-calling-capable OpenAI-compatible
-  endpoints; until then this row stays PENDING — never declared validated
-  (spec honesty condition, plan task t10 acceptance).
+- **VALIDATED live — `bf6cf2d` · 2026-07-02.** The rig now serves multiple
+  models on one endpoint, so the dual pair ran as main =
+  `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (tool-calling verified) +
+  deepthink = `coolthor/gemma-4-12B-it-NVFP4A16` (tools-off bare completion —
+  a deepthink target needs no tool parser). `COLLEAGUE_DUAL_E2E=1
+  COLLEAGUE_DEEPTHINK_MODEL=coolthor/gemma-4-12B-it-NVFP4A16 uv run pytest
+  tests/test_dual_live.py` — **both tests PASSED**:
+  - *deepthink tool:* the main model escalated the judgment question —
+    `read_file → deepthink → finish`, `DeepthinkCall(point='tool',
+    tokens=825, duration=36.4s, degraded=False)` on the artifact.
+  - *acceptance self-check:* `DeepthinkCall(point='acceptance_selfcheck',
+    tokens=246, duration=2.0s, degraded=False)`.
+  - *degrade path (bonus, proven live):* pointing the deepthink target at the
+    endpoint's stale-listed `nvidia/Qwen3-14B-NVFP4` (models-list entry whose
+    completions 404 — evidence commented on
+    [#66](https://github.com/agentculture/colleague/issues/66)) produced a
+    clean OK run with `DeepthinkCall(degraded=True, duration=0.019s)` — the
+    dual run never fails because deepthink is unreachable, exactly as spec'd.
+  Two test-infra fixes were needed to make the proof runnable at all,
+  recorded honestly: the autouse conftest env-scrub hid the deepthink target
+  from the gate (fixed with an import-time env snapshot), and the judgment
+  task needed the #122-style explicit invite (the 27B happily answers without
+  escalating; the row proves the escalation *plumbing*, not spontaneity).
+  Residuals: the intended role-optimal pairing (wide-window main + stronger
+  reasoner deepthink) awaits serving both with tool parsers, and the
+  wall-clock/quality benchmark (`scripts/bench_dual.py`) has not been run —
+  the mechanism rows above are what this validates.
