@@ -788,7 +788,22 @@ The architecture, part by part:
   `capacity_warning` advisory + a phase-notice line on the first departure from
   CLEAR, and restoring the operator's configured concurrency automatically once
   latency clears. Dormant (no clock, no shrink, no throttle) unless
-  `request_timeout` is set; never switches model or backend. Feature doc:
+  `request_timeout` is set; never switches model or backend. **Timeout
+  survival (#268):** the per-turn request timeout is additionally raised ONCE
+  per work item, bounded ×2 (`_make_timeout_escalator` via
+  `ContextControls.from_config`, all-engines — the engine closure reads
+  `config.timeout` per call so the raise reaches the very next attempt),
+  triggered by whichever fires first: the backpressure departure-from-CLEAR
+  advisory (proactive) or a timeout-classified degraded retry (reactive, so the
+  single #154 retry runs with real headroom instead of hitting the same wall).
+  Recorded on `capacity_warning` + a phase notice; subsequent backpressure
+  classification runs against the raised cap; documented worst case on a dead
+  server grows to `timeout + 2×timeout` and no further. An **engine-failure
+  abort now sweeps the iso worktree's WIP** onto the `colleague/<id>` branch
+  (the #222 sweep extended to the `except Exception` path in `execute_work`)
+  and the error hint names the surviving branch; the effective timeout + its
+  source surface in `colleague doctor` (`provider_timeout`), `work --help`,
+  and `colleague learn`. Feature doc:
   `docs/features/backpressure.md`. Runtime-owned
   (all-engines rule): the feature fires identically for every backend.
   Specification + plan:

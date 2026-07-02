@@ -112,6 +112,33 @@ rolling per-turn latency is classified against. `None`/`<= 0` leaves
 backpressure dormant, a strict no-op (no timing, no shrink, no throttle) —
 so a direct `run()` caller with no `request_timeout` is unaffected.
 
+## Timeout escalation (#268)
+
+Backpressure's sibling move: when the harness has evidence turns are running
+out of road, it raises the per-turn request timeout ONCE per work item,
+bounded x2 (`colleague/loop.py` `_make_timeout_escalator`, built in
+`ContextControls.from_config` — all-engines). Two triggers, whichever fires
+first (the escalator closure enforces once-only, so double-firing is
+structurally impossible):
+
+- **proactive** — the first departure from CLEAR (the same moment the
+  advisory + shrink arm): the harness saw the timeout coming, so it raises the
+  cap in flight instead of pushing "raise COLLEAGUE_TIMEOUT" to the caller
+  after the work is lost;
+- **reactive** — a timeout-classified degraded retry (`_plan_degraded_retry`):
+  the raise lands BEFORE the single #154 retry, so that retry runs with real
+  headroom (the observed irc-lens abort had both attempts hit the same 120s
+  wall — a shrunken window alone cannot help a saturated server).
+
+The engine's completion closure reads `config.timeout` per call, so the raise
+reaches the very next attempt. The raise is recorded on
+`TaskResult.capacity_warning` and a phase-notice line; subsequent backpressure
+classification runs against the raised cap (`_effective_timeout`). The
+documented worst case on a genuinely dead server grows from `2 x timeout` to
+`timeout + 2 x timeout` and no further. The effective timeout + its source
+(env / default) surface in `colleague doctor` (`provider_timeout`),
+`colleague work --help`, and `colleague learn`.
+
 ## Honest limits
 
 - **Per-process and cooperative, not a scheduler.** Backpressure reacts to
@@ -124,8 +151,9 @@ so a direct `run()` caller with no `request_timeout` is unaffected.
   shrinks the window to make the *next* turn faster, which only helps a
   context-bloat-induced slowdown. A genuinely stuck or unreachable server
   still burns through the existing `_MAX_TIMEOUT_RETRIES` bounded retries
-  (each a full `COLLEAGUE_TIMEOUT` window) per #154 before the run preserves
-  its partial — this feature does not change that cap or that ceiling.
+  per #154 before the run preserves its partial — the #268 escalation does not
+  change that cap, it widens each window once (worst case
+  `timeout + 2 x timeout`, documented above).
 - **Advisory + tighten-only, never an error.** A run that never crosses the
   arm threshold is byte-identical; crossing it never fails the run, never
   switches model/backend, and always composes with (never replaces) the

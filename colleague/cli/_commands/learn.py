@@ -135,6 +135,12 @@ def _as_json_payload() -> dict[str, object]:
             ],
             "work": 'colleague work "<task>" --repo . --engine <backend> --no-pr',
             "backend_resolution": "--engine > COLLEAGUE_ENGINE > vllm-openai (never a silent mock)",
+            "timeout": (
+                "COLLEAGUE_TIMEOUT seconds per model turn (default 120); a mid-flight "
+                "turn timeout or armed backpressure raises it once in-flight, bounded "
+                "x2, before the flight is failed — `colleague doctor` reports the "
+                "effective value and its source"
+            ),
         },
         "teach_with_skills": {
             "skills": ".colleague/skills/<name>.md (per-model overlay: .colleague/<model>/skills/)",

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.33.0] - 2026-07-02
+
+### Added
+
+- Timeout survival mid-flight (#268): a bounded one-time x2 raise of the per-turn request timeout (`_make_timeout_escalator`, wired through `ContextControls.from_config` for every backend), triggered by whichever fires first — the backpressure departure-from-CLEAR advisory (proactive) or a timeout-classified degraded retry (reactive, so the single #154 retry runs with real headroom instead of hitting the same wall). Recorded on `capacity_warning` + a phase notice; backpressure classification follows the raised cap.
+- Engine-failure aborts preserve partial work (#268): the `except Exception` path in `execute_work` now commits the iso worktree's WIP onto the `colleague/<id>` branch (the #222 sweep extended to the exception path) and the error hint names the surviving branch, so an orchestrator can resume from the partial instead of spelunking.
+- The timeout surface is documented (#268): `colleague doctor` gains a `provider_timeout` check (effective per-turn timeout + source: env COLLEAGUE_TIMEOUT / deprecated CONVERTIBLE_TIMEOUT / default), `colleague work --help` gains an env-knobs epilog, and `colleague learn` names the knob.
+
 ## [1.32.0] - 2026-07-02
 
 ### Added
