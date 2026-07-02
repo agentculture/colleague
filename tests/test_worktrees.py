@@ -178,17 +178,25 @@ class TestWorktreeAdd:
         import importlib
         import sys
 
-        # Ensure fresh load
-        if "colleague.worktrees" in sys.modules:
+        # Snapshot + remove for a fresh load, then RESTORE the original module:
+        # leaving a re-imported module in sys.modules poisons identity
+        # assertions in later same-worker tests (the test_context_window /
+        # test_deepthink xdist collision class).
+        saved = sys.modules.get("colleague.worktrees")
+        if saved is not None:
             del sys.modules["colleague.worktrees"]
 
-        mod = importlib.import_module("colleague.worktrees")
-        # The module object must not have imported 'git' (GitPython) or similar.
-        assert (
-            not hasattr(mod, "git")
-            or getattr(mod, "git", None) is None
-            or callable(getattr(mod, "git", None))
-        ), "worktrees.py must not import the 'git' library"
+        try:
+            mod = importlib.import_module("colleague.worktrees")
+            # The module object must not have imported 'git' (GitPython) or similar.
+            assert (
+                not hasattr(mod, "git")
+                or getattr(mod, "git", None) is None
+                or callable(getattr(mod, "git", None))
+            ), "worktrees.py must not import the 'git' library"
+        finally:
+            if saved is not None:
+                sys.modules["colleague.worktrees"] = saved
         # Quick sanity: the module uses subprocess
         import subprocess as sp
 
