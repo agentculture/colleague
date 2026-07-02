@@ -55,7 +55,12 @@ from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
 from colleague.config import MAX_SUBAGENT_FANOUT
-from colleague.context import classify_degradable, count_tokens_chars, window_messages
+from colleague.context import (
+    classify_degradable,
+    count_tokens_chars,
+    is_media_rejection,
+    window_messages,
+)
 from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
@@ -1458,7 +1463,14 @@ def _complete_with_degradation(
         # Feature off: strict pass-through, byte-identical to the pre-feature loop
         # (latency is still measured when backpressure is armed — the advisory +
         # fan-out throttle work without windowing; only the shrink needs a budget).
-        return _timed_complete(ctx, complete)
+        # ONE exception (t9, c7): a media-refusing endpoint still degrades to a
+        # text-only retry — that handling must not depend on the budget feature.
+        try:
+            return _timed_complete(ctx, complete)
+        except Exception as exc:  # noqa: BLE001
+            if _flatten_on_media_rejection(ctx, exc):
+                return _timed_complete(ctx, complete)
+            raise
 
     # Adaptive backpressure (t6/#255): under ARMED/ESCALATED the next turn's
     # window is proactively tightened — smaller prompts make faster turns, the
@@ -1480,12 +1492,57 @@ def _complete_with_degradation(
         try:
             return _timed_complete(ctx, complete)
         except Exception as exc:  # noqa: BLE001
+            # Media-rejection degradation (t9, spec c7): an endpoint that
+            # REFUSES media parts (a text-only model 400s on an image part —
+            # live-probed) gets ONE text-only retry with the parts flattened
+            # to placeholders and the media recorded dropped. Structurally
+            # bounded: the flatten removes every part, so this branch cannot
+            # fire twice.
+            if _flatten_on_media_rejection(ctx, exc):
+                continue
             plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
             if plan is None:
                 raise
             effective, cap, saw_overflow = plan
             attempt += 1
     return _final_degraded_attempt(ctx, complete, effective)
+
+
+def _flatten_on_media_rejection(ctx: _Work, exc: Exception) -> bool:
+    """Flatten every parts message and record the drop after a media-refusal (c7).
+
+    Returns ``True`` when a retry should happen — the error matched
+    :func:`colleague.context.is_media_rejection` AND at least one parts
+    message existed to flatten (so the retry is structurally different).
+    The task's attachments are recorded ``dropped`` (unless a bridge already
+    preset the record) with a stderr warning naming the cause; the run
+    continues text-only instead of hard-failing on an attachment the serving
+    model cannot take.
+    """
+    if not is_media_rejection(str(exc)):
+        return False
+    had_parts = False
+    for i, m in enumerate(ctx.messages):
+        if isinstance(m.get("content"), list):
+            ctx.messages[i] = dict(m, content=media.flatten_parts(m["content"]))
+            had_parts = True
+    if not had_parts:
+        return False
+    if ctx.task.attachments and ctx.result.media is None:
+        ctx.result.media = {
+            "attachments": [
+                {"path": str(a.get("path", "?")), "status": _MEDIA_DROPPED}
+                for a in ctx.task.attachments
+                if isinstance(a, dict)
+            ]
+        }
+    print(
+        "warning: the serving endpoint rejected media content parts "
+        f"({exc}) — retrying text-only with placeholders; media recorded "
+        "dropped on the artifact",
+        file=sys.stderr,
+    )
+    return True
 
 
 def _account_turn(ctx: _Work, resp: ModelResponse) -> None:

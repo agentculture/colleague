@@ -166,3 +166,51 @@ def test_delivery_never_says_understood(tmp_path: Path) -> None:
         context=_controls(),
     )
     assert "understood" not in str(result.to_dict().get("media"))
+
+
+# ---------------------------------------------------------------------------
+# Media-rejection degradation (spec c7: the text-only-main half)
+# ---------------------------------------------------------------------------
+
+# Verbatim from the live probe 2026-07-02 against the served text-only 27B.
+_LIVE_400 = (
+    'HTTP Error 400: Bad Request: {"error":{"message":"At most 0 image(s) '
+    'may be provided in one prompt. (parameter=image)"}}'
+)
+
+
+def test_media_rejection_classifier() -> None:
+    from colleague.context import is_media_rejection
+
+    assert is_media_rejection(_LIVE_400)
+    assert is_media_rejection("the model does not support image input")
+    assert not is_media_rejection("maximum context length exceeded")
+    assert not is_media_rejection("request timed out")
+
+
+def test_rejecting_endpoint_degrades_to_text_only(tmp_path: Path, capsys) -> None:
+    """The live scenario: --attach against a text-only main without a bridge.
+
+    First call raises the verbatim 400; the loop flattens the parts, retries
+    text-only, and the run COMPLETES with media recorded dropped — never a
+    hard-failed run for an attachment the model cannot take.
+    """
+    attempts: list[list[dict]] = []
+
+    def complete(messages: list[dict]) -> ModelResponse:
+        attempts.append([dict(m) for m in messages])
+        if any(isinstance(m.get("content"), list) for m in messages):
+            raise RuntimeError(_LIVE_400)
+        return ModelResponse(
+            tool_calls=[ToolCall("1", "finish", {"summary": "done"})],
+            prompt_tokens=_TEXT_ONLY + 2,
+            completion_tokens=5,
+        )
+
+    result = run(complete, _task_with_image(tmp_path), max_steps=3, context=_controls())
+    assert result.status == OK
+    assert len(attempts) == 2, "exactly one flatten-and-retry"
+    assert all(isinstance(m.get("content"), str) for m in attempts[1] if "content" in m)
+    assert "[image attachment]" in attempts[1][1]["content"]
+    assert result.media["attachments"][0]["status"] == "dropped"
+    assert "rejected media content parts" in capsys.readouterr().err

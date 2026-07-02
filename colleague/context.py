@@ -288,6 +288,29 @@ def window_messages(
     return _drop_until_fit(head, segments, start_cut, budget_tokens, _count)
 
 
+def is_media_rejection(text: str) -> bool:
+    """Detect an endpoint refusing media content parts outright (t9, spec c7).
+
+    A text-only served model does not silently drop an image part the way the
+    rig drops audio — it REJECTS the request (live probe 2026-07-02 against
+    the served 27B: ``HTTP 400: At most 0 image(s) may be provided in one
+    prompt``). The loop degrades this honestly: flatten the parts to
+    placeholders, retry text-only once, record the media dropped — never a
+    hard-failed run for an attachment the model cannot take (the c7
+    degradation half). Conservative match: a media word plus a
+    capability-refusal phrase; a context overflow or timeout never matches.
+    """
+    t = text.lower()
+    if "image" not in t and "audio" not in t:
+        return False
+    return (
+        "at most 0" in t
+        or "does not support" in t
+        or "not enabled" in t
+        or "no image processor" in t
+    )
+
+
 # ---------------------------------------------------------------------------
 # is_context_overflow
 # ---------------------------------------------------------------------------
