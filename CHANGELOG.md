@@ -27,6 +27,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A media-refusing endpoint no longer hard-fails the run: the text-only 27B rejects image parts with HTTP 400 (live-probed, verbatim test fixture) — the loop now flattens to placeholders, retries once, and records the media dropped
 - tests/test_resident_media.py's module-level importorskip skipped the whole file (including the pure anti-exfiltration trust pins) in an environment without the resident extra — now a skipif marker on exactly the four appserver-dependent classes
+- Background `--attach` dropped attachments (PR #272 review): `_background_child_argv` reconstructed the detached child's argv without the repeatable `--attach` flag, so `colleague work --background --attach PATH` silently ran with `Task.attachments=None` — now forwarded as absolute paths (repo-relative references stay correct across the child's CWD), regression-pinned
+- `Task.attachments` are size-capped on all surfaces (PR #272 review): `media.validate_attachment` now rejects directories/special files (`is_file()`) and enforces a 16 MiB `MAX_ATTACHMENT_BYTES` cap at the single funnel shared by CLI/session/mesh — closing the OOM/oversized-prompt gap that previously only the `view_media` tool guarded (a mesh requester could reference any large in-repo file)
+- Mesh `attach:` containment is repo-anchored, not CWD-anchored (PR #272 review): `check_attachment_path` resolved a relative reference against the resident process's CWD, so a valid repo-relative `attach:` (e.g. `docs/img.png`) was wrongly refused when the resident ran with a CWD other than the repo root — now anchored to `repo_path` before the resolve-then-contain check; symlink-escape and outside-repo refusal preserved
+
+### Internal
+
+- Reduced cognitive complexity (SonarCloud S3776) via behavior-preserving helper extraction — `_complete_with_degradation` (loop.py, 17->13, extracting `_attempt_completion_or_retry_plan`), `_build_task` (work.py, extracting `_collect_attachments`), and the resident `feed_message` (appserver.py, 21->~2, extracting `_resolve_attachments`/`_dispatch_and_reply`); no functional change
 
 ## [1.33.0] - 2026-07-02
 

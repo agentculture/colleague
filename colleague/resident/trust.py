@@ -195,13 +195,17 @@ def check_attachment_path(
       local path is allowed, mirroring the operator's unrestricted
       write-capable authority under c19.
     * **Non-operator**: *path* must resolve to somewhere INSIDE *repo_path*'s
-      working tree. Both sides are resolved with ``Path.resolve()`` (which
-      follows symlinks) before the strict containment check
-      (``Path.is_relative_to``), so a symlink placed *inside* the repo that
-      points *outside* it is caught too — not just a literal ``..`` escape.
-      Anything not contained is refused with a reason naming both the path
-      and the rule; refusal never raises — the caller drops the one
-      attachment and continues the (read-only) request.
+      working tree. A **relative** *path* is anchored to *repo_path* (not the
+      resident process's current working directory) before resolution — a
+      repo-relative reference like ``docs/img.png`` must not depend on
+      wherever the process happens to be running; an **absolute** *path* is
+      resolved as-is. Both the candidate and *repo_path* are then resolved
+      with ``Path.resolve()`` (which follows symlinks) before the strict
+      containment check (``Path.is_relative_to``), so a symlink placed
+      *inside* the repo that points *outside* it is caught too — not just a
+      literal ``..`` escape. Anything not contained is refused with a reason
+      naming both the path and the rule; refusal never raises — the caller
+      drops the one attachment and continues the (read-only) request.
 
     Args:
         path: The raw ``attach:`` token value, exactly as parsed from the
@@ -222,8 +226,10 @@ def check_attachment_path(
         )
 
     try:
-        resolved = Path(path).resolve()
         repo_root = Path(repo_path).resolve()
+        candidate = Path(path)
+        candidate_abs = candidate if candidate.is_absolute() else (repo_root / candidate)
+        resolved = candidate_abs.resolve()
     except (OSError, RuntimeError) as exc:
         return AttachmentDecision(
             False,

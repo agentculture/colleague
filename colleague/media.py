@@ -10,6 +10,15 @@ from pathlib import Path
 # Per-image-tile prompt-token estimate measured on the live Gemma4 probe 2026-07-02.
 IMAGE_TOKEN_ESTIMATE = 260
 
+#: Size cap for a ``Task.attachments`` entry (CLI ``--attach``, session
+#: ``/attach``, and mesh ``attach:`` references all funnel through
+#: :func:`validate_attachment`). Mirrors the intent of ``colleague.tools``'s
+#: ``MAX_MEDIA_BYTES`` (the ``view_media`` tool's 4 MB cap) but is defined here,
+#: not imported, to avoid a tools->media->tools layering cycle. Sized generously
+#: above any real attachment (screenshots, short clips) while still bounding
+#: memory + the base64-inflated prompt a non-operator mesh request could force.
+MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
+
 # Extension → media type mapping.
 _MEDIA_TYPES: dict[str, str] = {
     "png": "image/png",
@@ -25,18 +34,31 @@ _MEDIA_TYPES: dict[str, str] = {
 
 
 def validate_attachment(path: str) -> dict:
-    """Validate *path* exists and has a known media extension.
+    """Validate *path* exists, is a regular file, has a known media
+    extension, and is within :data:`MAX_ATTACHMENT_BYTES`.
 
     Returns a dict with keys ``path`` (str) and ``media_type`` (str).
-    Raises ``ValueError`` for missing files or unknown extensions.
+    Raises ``ValueError`` for a missing file, a non-regular-file path (e.g. a
+    directory), an unknown extension, or an oversize file. All three
+    attachment surfaces (CLI ``--attach``, session ``/attach``, mesh
+    ``attach:`` references) funnel through this one function, so the size cap
+    is enforced here rather than at each call site.
     """
     p = Path(path)
     if not p.exists():
         raise ValueError(f"Attachment file not found: {path}")
+    if not p.is_file():
+        raise ValueError(f"Attachment path is not a regular file: {path}")
 
     ext = p.suffix.lstrip(".").lower()
     if ext not in _MEDIA_TYPES:
         raise ValueError(f"Unknown attachment extension '{ext}' for {path}")
+
+    size = p.stat().st_size
+    if size > MAX_ATTACHMENT_BYTES:
+        raise ValueError(
+            f"attachment too large: {path} is {size} bytes " f"(max {MAX_ATTACHMENT_BYTES})"
+        )
 
     return {"path": str(p), "media_type": _MEDIA_TYPES[ext]}
 

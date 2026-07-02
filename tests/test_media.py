@@ -6,6 +6,7 @@ import pytest
 
 from colleague.media import (
     IMAGE_TOKEN_ESTIMATE,
+    MAX_ATTACHMENT_BYTES,
     build_part,
     flatten_parts,
     validate_attachment,
@@ -93,6 +94,30 @@ class TestValidateAttachment:
         f.write_bytes(b"\x89PNG")
         result = validate_attachment(str(f))
         assert result["media_type"] == "image/png"
+
+    def test_directory_path_raises(self, tmp_path):
+        d = tmp_path / "not_a_file.png"
+        d.mkdir()
+        with pytest.raises(ValueError, match="not_a_file.png"):
+            validate_attachment(str(d))
+
+    def test_oversize_file_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("colleague.media.MAX_ATTACHMENT_BYTES", 16)
+        f = tmp_path / "big.png"
+        f.write_bytes(b"\x89PNG" + b"\x00" * 32)
+        with pytest.raises(ValueError, match="too large"):
+            validate_attachment(str(f))
+
+    def test_file_within_cap_still_validates(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("colleague.media.MAX_ATTACHMENT_BYTES", 16)
+        f = tmp_path / "small.png"
+        f.write_bytes(b"\x89PNG")
+        result = validate_attachment(str(f))
+        assert result["path"] == str(f)
+        assert result["media_type"] == "image/png"
+
+    def test_default_cap_value(self):
+        assert MAX_ATTACHMENT_BYTES == 16 * 1024 * 1024
 
 
 # ── build_part ───────────────────────────────────────────────────────

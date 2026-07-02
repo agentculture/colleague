@@ -676,6 +676,33 @@ def execute_work(
                 worktrees.isolation_worktree_remove(str(repo), worktree_path)
 
 
+def _collect_attachments(args: argparse.Namespace) -> list[dict] | None:
+    """Validate and collect ``--attach PATH`` (repeatable) into attachment dicts.
+
+    Returns ``None`` when no ``--attach`` was given (byte-identical
+    ``Task.attachments`` for the common case); otherwise the list of
+    :func:`colleague.media.validate_attachment` results, in flag order.
+    Raises the same :class:`CliError` as before on an invalid attachment.
+    Extracted from :func:`_build_task` to keep that function's cognitive
+    complexity under the threshold (SonarCloud S3776).
+    """
+    raw_attach: list[str] = getattr(args, "attach", None) or []
+    if not raw_attach:
+        return None
+    attachments: list[dict] = []
+    for path_str in raw_attach:
+        try:
+            validated = media.validate_attachment(path_str)
+        except ValueError as exc:
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"attachment error: {exc}",
+                "pass --attach pointing at an existing file with a known media extension",
+            ) from exc
+        attachments.append(validated)
+    return attachments
+
+
 def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: EngineConfig) -> Task:
     """Resolve the positional tokens into a :class:`Task` (instruction or --command).
 
@@ -697,21 +724,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
             "run 'colleague work --help' to see usage",
         )
 
-    # Validate and collect attachments (--attach PATH, repeatable).
-    raw_attach: list[str] = getattr(args, "attach", None) or []
-    attachments: list[dict] | None = None
-    if raw_attach:
-        attachments = []
-        for path_str in raw_attach:
-            try:
-                validated = media.validate_attachment(path_str)
-            except ValueError as exc:
-                raise CliError(
-                    EXIT_USER_ERROR,
-                    f"attachment error: {exc}",
-                    "pass --attach pointing at an existing file with a known media extension",
-                ) from exc
-            attachments.append(validated)
+    attachments = _collect_attachments(args)
 
     if has_command:
         # Positional tokens are template arguments when --command is set.
@@ -790,7 +803,10 @@ def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
     ``work`` was invoked directly or reached via the legacy ``drive`` alias,
     and ``--repo`` always carries the fully resolved absolute path (not
     whatever relative string the caller typed) so the child is unambiguous
-    about which repo it targets.
+    about which repo it targets. Each ``--attach`` value is likewise forwarded
+    as a resolved absolute path (not the table-driven flags below — repeatable,
+    non-uniform shape) so a relative attachment path still resolves correctly
+    against the child's own cwd.
     """
     argv: list[str] = ["work"]
     command_name = getattr(args, "command_name", None)
@@ -820,6 +836,13 @@ def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
         argv += ["--tui-events", args.tui_events]
     if getattr(args, "json", False):
         argv.append("--json")
+    # Forward each --attach value (repeatable), resolved to an ABSOLUTE path here
+    # in the parent: the child may run with a different cwd, and
+    # media.validate_attachment() resolves a relative path against cwd, so a
+    # relative --attach would silently miss (or hit the wrong file) in the
+    # detached child. Without this the attachment was dropped entirely (Qodo).
+    for attach_path in getattr(args, "attach", None) or []:
+        argv += ["--attach", str(Path(attach_path).resolve())]
     # Force-arm the flight control plane: a detached run has no other pilot
     # interface, so --watch is not optional here (spec R4 — the flight feed +
     # 'colleague flight status/guide/stop' is the ONLY way to observe/steer it).

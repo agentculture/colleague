@@ -269,19 +269,12 @@ class AppserverHarness:
 
         Trust classification (:func:`colleague.resident.trust.classify_request`)
         happens FIRST, before any work is dispatched — a refused request never
-        reaches ``execute_work`` at all. An allowed request is dispatched
-        synchronously via ``execute_work`` in the default executor (so the
-        pump/transport stay responsive during a long-running work item, the
-        same reasoning as :class:`~colleague.resident.harness.ColleagueHarness`).
-
-        Any ``attach:`` lines (t12) are parsed out of the body next and each
-        candidate is checked against the c19 trust boundary
-        (:func:`~colleague.resident.trust.check_attachment_path`) *before*
-        :func:`~colleague.media.validate_attachment` ever opens the file — a
-        refusal at either stage drops just that one attachment (recorded as a
-        note on the eventual reply) and the request proceeds under the SAME
-        role :func:`classify_request` already assigned; it never crashes
-        request handling.
+        reaches ``execute_work`` at all. An allowed request's ``attach:``
+        candidates are resolved by :meth:`_resolve_attachments` (t12: parses,
+        trust-checks, and validates each one — see that method's docstring),
+        then the work item is run and replied via :meth:`_dispatch_and_reply`
+        (which also owns the expected-vs-unexpected failure split described
+        below).
 
         An expected work-item failure (:class:`~colleague.cli._errors.CliError`
         — e.g. an unreachable engine) is caught and turned into an error reply.
@@ -312,6 +305,38 @@ class AppserverHarness:
             return
 
         raw_body = getattr(message, "body", "") or ""
+        body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
+
+        task = Task.new(
+            self._repo_path,
+            body,
+            engine=self._engine_name,
+            attachments=attachments or None,
+        )
+        req_config = _dc_replace(self._config, role=decision.role)
+
+        await self._dispatch_and_reply(
+            task,
+            req_config,
+            target=target,
+            role=decision.role,
+            attachment_notes=attachment_notes,
+        )
+
+    def _resolve_attachments(
+        self, sender: str, raw_body: str
+    ) -> tuple[str, list[dict[str, Any]], list[str]]:
+        """Parse + trust-check + validate a message body's ``attach:`` lines (t12).
+
+        Returns ``(cleaned_body, attachments, attachment_notes)``: the body
+        with every ``attach:`` line removed, the accepted attachments in
+        ``colleague.media.validate_attachment``'s ``{"path", "media_type"}``
+        shape, and a list of human-readable notes for anything dropped (the
+        attachment cap, a c19 trust refusal, or a validation failure) — never
+        a crash, and the caller proceeds under the SAME role regardless of
+        how many attachments were refused. See the module docstring's "Media
+        references" section for the full contract.
+        """
         body, attach_candidates, dropped = _extract_attach_lines(raw_body)
 
         attachments: list[dict[str, Any]] = []
@@ -336,14 +361,26 @@ class AppserverHarness:
             except ValueError as exc:
                 attachment_notes.append(f"attach: {candidate!r} failed validation — {exc}")
 
-        task = Task.new(
-            self._repo_path,
-            body,
-            engine=self._engine_name,
-            attachments=attachments or None,
-        )
-        req_config = _dc_replace(self._config, role=decision.role)
+        return body, attachments, attachment_notes
 
+    async def _dispatch_and_reply(
+        self,
+        task: Task,
+        req_config: "EngineConfig",
+        *,
+        target: str,
+        role: Optional[str],
+        attachment_notes: list[str],
+    ) -> None:
+        """Run one work item via :meth:`_dispatch` and enqueue exactly one reply.
+
+        A caught :class:`~colleague.cli._errors.CliError` becomes an error
+        reply (``status: error``); any OTHER exception propagates unchanged so
+        the Supervisor's pump records it via ``failure()`` (see the
+        :meth:`feed_message` / module docstring). A successful dispatch's
+        reply carries the ``TaskResult`` summary + artifact pointer. Either
+        reply carries ``attachment_notes`` when non-empty.
+        """
         loop = asyncio.get_running_loop()
         try:
             result, artifact_path = await loop.run_in_executor(
@@ -354,7 +391,7 @@ class AppserverHarness:
 
             if not isinstance(exc, CliError):
                 raise  # a genuine infra failure -> surfaced via Supervisor.failure()
-            reply_meta: dict[str, Any] = {"status": "error", "role": decision.role}
+            reply_meta: dict[str, Any] = {"status": "error", "role": role}
             partial = exc.result
             if partial is not None:
                 reply_meta["task_id"] = partial.task_id
@@ -375,7 +412,7 @@ class AppserverHarness:
             "task_id": result.task_id,
             "status": result.status,
             "artifact": str(artifact_path),
-            "role": decision.role,
+            "role": role,
         }
         if attachment_notes:
             reply_meta["attachment_notes"] = attachment_notes

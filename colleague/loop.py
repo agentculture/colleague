@@ -1427,6 +1427,43 @@ def _escalate_request_timeout(ctx: _Work, trigger: str) -> str | None:
     return note
 
 
+# Sentinel: a media-rejection flatten happened (#c7) — retry immediately, and
+# this attempt must NOT count against the reactive retry cap (see
+# :func:`_attempt_completion_or_retry_plan`).
+_RETRY_IMMEDIATE = object()
+
+
+def _attempt_completion_or_retry_plan(
+    ctx: _Work,
+    complete: CompleteFn,
+    effective: int,
+    saw_overflow: bool,
+) -> tuple[ModelResponse | None, object]:
+    """Run one reactive-retry-loop attempt; on failure, decide how to continue.
+
+    Extracted from :func:`_complete_with_degradation` (SonarCloud S3776) so the
+    loop's own body stays a flat dispatch. Returns ``(resp, None)`` on success.
+    On a caught error, returns ``(None, _RETRY_IMMEDIATE)`` when
+    :func:`_flatten_on_media_rejection` handled it (retry now, don't count
+    against the attempt cap — structurally bounded since the flatten removes
+    every part, so it cannot fire twice) or ``(None, plan)`` with the
+    ``(new_effective, new_cap, new_saw_overflow)`` tuple from
+    :func:`_plan_degraded_retry` to retry with the updated windowing state.
+    Re-raises the original exception unchanged when :func:`_plan_degraded_retry`
+    reports ``None`` (non-degradable, or the degradable floor was reached) —
+    the give-up path, so :func:`run` preserves the partial.
+    """
+    try:
+        return _timed_complete(ctx, complete), None
+    except Exception as exc:  # noqa: BLE001
+        if _flatten_on_media_rejection(ctx, exc):
+            return None, _RETRY_IMMEDIATE
+        plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
+        if plan is None:
+            raise
+        return None, plan
+
+
 def _complete_with_degradation(
     ctx: _Work, complete: CompleteFn, *, phase: str = _PHASE_THINKING
 ) -> ModelResponse:
@@ -1452,6 +1489,11 @@ def _complete_with_degradation(
     budget is carried to the next turn — the recommendation turn — via
     :func:`_remember_degraded_floor`. Non-degradable errors are never retried — they
     propagate immediately.
+
+    The per-attempt failure handling (media-rejection flatten vs. classify-and-shrink)
+    is delegated to :func:`_attempt_completion_or_retry_plan`; this function stays the
+    orchestrator over the retry accounting (``effective``/``cap``/``saw_overflow``/
+    ``attempt``).
     """
     # Phase notice (#206): announce the model turn is in flight BEFORE the (possibly
     # long) completion — fired here, the one chokepoint every model turn passes
@@ -1489,22 +1531,13 @@ def _complete_with_degradation(
     cap = _MAX_OVERFLOW_RETRIES
     attempt = 0
     while attempt <= cap:
-        try:
-            return _timed_complete(ctx, complete)
-        except Exception as exc:  # noqa: BLE001
-            # Media-rejection degradation (t9, spec c7): an endpoint that
-            # REFUSES media parts (a text-only model 400s on an image part —
-            # live-probed) gets ONE text-only retry with the parts flattened
-            # to placeholders and the media recorded dropped. Structurally
-            # bounded: the flatten removes every part, so this branch cannot
-            # fire twice.
-            if _flatten_on_media_rejection(ctx, exc):
-                continue
-            plan = _plan_degraded_retry(ctx, exc, effective, saw_overflow)
-            if plan is None:
-                raise
-            effective, cap, saw_overflow = plan
-            attempt += 1
+        resp, plan = _attempt_completion_or_retry_plan(ctx, complete, effective, saw_overflow)
+        if resp is not None:
+            return resp
+        if plan is _RETRY_IMMEDIATE:
+            continue
+        effective, cap, saw_overflow = plan
+        attempt += 1
     return _final_degraded_attempt(ctx, complete, effective)
 
 

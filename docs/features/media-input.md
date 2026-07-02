@@ -151,6 +151,12 @@ Live results (2026-07-02, `coolthor/gemma-4-12B-it-NVFP4A16`):
   the model *understands* audio; treat audio as rig-dependent
   delivery-only until a comprehension probe completes.
 - **`view_media` is images-only** and capped at 4 MB.
+- **`Task.attachments` is size-capped too** — `colleague.media.validate_attachment`
+  (the single funnel for CLI `--attach`, session `/attach`, and mesh `attach:`
+  references) rejects a non-regular-file path and enforces
+  `MAX_ATTACHMENT_BYTES` (16 MB), the same protection `view_media` already had,
+  so a mesh request can no longer reference an oversize in-repo file to
+  exhaust memory or bloat the prompt.
 - **The bridge trigger is an operator declaration**, not a capability probe —
   colleague never special-cases a model name (pinned by the no-gemma-in-source
   test).
