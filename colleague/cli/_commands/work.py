@@ -24,12 +24,13 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import sys
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import flight, registry, rig, worktrees
+from colleague import background, flight, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
@@ -685,6 +686,105 @@ def _validated_mode(mode: str | None) -> str | None:
     return mode
 
 
+def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
+    """Rebuild ``work``'s CLI argv for the detached background child (t12).
+
+    The same invocation the parent received, minus ``--background`` (so the
+    child runs the ordinary foreground path instead of forking again) and with
+    ``--watch`` force-added (auto-arming the flight control plane — the
+    detached run's only pilot interface, per spec R4). Built from the parsed
+    ``args`` Namespace rather than raw ``sys.argv`` so it is correct whether
+    ``work`` was invoked directly or reached via the legacy ``drive`` alias,
+    and ``--repo`` always carries the fully resolved absolute path (not
+    whatever relative string the caller typed) so the child is unambiguous
+    about which repo it targets.
+    """
+    argv: list[str] = ["work"]
+    command_name = getattr(args, "command_name", None)
+    if command_name:
+        argv += ["--command", command_name]
+    argv += list(getattr(args, "instruction", None) or [])
+    argv += ["--repo", str(repo)]
+    if getattr(args, "engine", None):
+        argv += ["--engine", args.engine]
+    if getattr(args, "no_pr", False):
+        argv.append("--no-pr")
+    if getattr(args, "allow_dirty", False):
+        argv.append("--allow-dirty")
+    if getattr(args, "no_lint", False):
+        argv.append("--no-lint")
+    if getattr(args, "no_affected_tests", False):
+        argv.append("--no-affected-tests")
+    if getattr(args, "test", None):
+        argv += ["--test", args.test]
+    if getattr(args, "base", None):
+        argv += ["--base", args.base]
+    if getattr(args, "base_url", None):
+        argv += ["--base-url", args.base_url]
+    if getattr(args, "model", None):
+        argv += ["--model", args.model]
+    if getattr(args, "role", None):
+        argv += ["--role", args.role]
+    if getattr(args, "api_key", None):
+        argv += ["--api-key", args.api_key]
+    if getattr(args, "max_steps", None) is not None:
+        argv += ["--max-steps", str(args.max_steps)]
+    if getattr(args, "mode", None):
+        argv += ["--mode", args.mode]
+    tui = getattr(args, "tui", None)
+    if tui is True:
+        argv.append("--tui")
+    elif tui is False:
+        argv.append("--no-tui")
+    if getattr(args, "tui_events", None):
+        argv += ["--tui-events", args.tui_events]
+    if getattr(args, "json", False):
+        argv.append("--json")
+    # Force-arm the flight control plane: a detached run has no other pilot
+    # interface, so --watch is not optional here (spec R4 — the flight feed +
+    # 'colleague flight status/guide/stop' is the ONLY way to observe/steer it).
+    argv.append("--watch")
+    return argv
+
+
+def _render_background(payload: dict) -> str:
+    lines = [
+        f"background: {payload['id']}",
+        f"pid: {payload['pid']}",
+        f"log_dir: {payload['log_dir']}",
+        f"flight: {payload['flight'] or '(none)'}",
+    ]
+    if payload.get("flight"):
+        lines.append(f"pilot: colleague flight status {payload['flight']} --repo <repo>")
+    return "\n".join(lines)
+
+
+def _cmd_work_background(args: argparse.Namespace, repo: Path, json_mode: bool) -> int:
+    """Detach this work item as a background one-shot child (t12, spec R4 / h10).
+
+    Pre-mints the handle id here (parent side), builds the child's argv (the
+    same invocation minus ``--background``, with ``--watch`` force-added), and
+    hands off to :func:`colleague.background.spawn_background` — a one-shot
+    ``subprocess.Popen(start_new_session=True)`` re-invoking ``python -m
+    colleague`` so the child always runs the exact package currently
+    executing, never a stale PATH install. Returns immediately with the
+    machine-readable start payload; the child runs the ordinary foreground
+    work path (:func:`cmd_work` again, this time without ``--background``)
+    start to finish entirely on its own — no polling, no daemon.
+    """
+    handle_id = background.new_handle_id()
+    child_argv = _background_child_argv(args, repo)
+    handle = background.spawn_background(
+        repo,
+        [sys.executable, "-m", "colleague", *child_argv],
+        handle_id=handle_id,
+        flight_id=handle_id,
+    )
+    payload = handle.to_dict()
+    emit_result(payload if json_mode else _render_background(payload), json_mode=json_mode)
+    return 0
+
+
 def cmd_work(args: argparse.Namespace) -> int:
     json_mode = bool(getattr(args, "json", False))
 
@@ -729,6 +829,20 @@ def cmd_work(args: argparse.Namespace) -> int:
 
     command_name: str | None = getattr(args, "command_name", None)
     task = _build_task(args, repo, engine, config)
+
+    # Background one-shot child (t12, spec R4 / h10): when this process IS the
+    # detached child, COLLEAGUE_BACKGROUND_ID carries the handle id the parent
+    # pre-minted, so the child's artifact/flight/logs are all findable from the
+    # SAME id the parent printed in its start payload. A strict no-op for every
+    # ordinary invocation — the env var is only ever set by
+    # background.spawn_background, and only in the child's own environment.
+    bg_id = os.environ.get(background.BACKGROUND_ID_ENV)
+    if bg_id:
+        task.id = bg_id
+
+    if getattr(args, "background", False):
+        # Detach and return immediately — never runs the loop in this process.
+        return _cmd_work_background(args, repo, json_mode)
 
     watch = bool(getattr(args, "watch", False))
     task.watch = watch
@@ -911,6 +1025,17 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
         help=(
             "Arm a flight-control plane so a pilot can watch/guide/stop "
             "this work item (see 'colleague flight')."
+        ),
+    )
+    p.add_argument(
+        "--background",
+        action="store_true",
+        help=(
+            "Detach this work item as a one-shot background child (no daemon, "
+            "no polling) and return immediately with a JSON start payload "
+            "{background, id, pid, log_dir, flight}. Auto-arms --watch so the "
+            "detached run is pilotable via 'colleague flight'; a crashed "
+            "background run's residue is reaped by 'colleague clean'."
         ),
     )
 
