@@ -260,6 +260,48 @@ The architecture, part by part:
   are ever created. No daemon, no socket, no threads (stdlib `os`/`json`/
   `pathlib`/`time`, atomicity from `mkdir` semantics alone). Feature doc:
   `docs/features/rig-budget.md`.
+- **Deepthink / dual-model** — colleague drives with two minds: a fast,
+  wide-window MAIN model drives every loop turn, and an operator-declared
+  **deepthink** model (a stronger reasoner) is escalated to at hard-judgment
+  moments; or single-model exactly as before — **absent deepthink config is
+  byte-identical** (no tool schema offered, no artifact key, same resolution).
+  Config: `EngineConfig.deepthink` (`colleague/config.py` `DeepthinkConfig`),
+  presence keyed solely on a resolved model; `COLLEAGUE_DEEPTHINK_MODEL`/
+  `_BASE_URL`/`_API_KEY`/`_CONTEXT_BUDGET` env > `.colleague/config.json`
+  `deepthink` section > absent; base_url/api_key default to the main endpoint,
+  `context_budget` defaults 48000 (64K-sized; the main default stays 192000).
+  The escalation surface is **enumerated** (boundary-tested — the complete
+  list): (a) the backend-judged **`deepthink` loop tool** (offered only under
+  dual config, judgment-not-mechanics description, available to read-only
+  roles — pure computation); (b) **plan-mode proposals**
+  (`cli/_commands/plan.py`, per-call fallback to the main model + stderr
+  visibility); (c) the **acceptance self-check** (graded from a self-contained
+  digest, main-model fallback on degradation); (d) the **test-integrity
+  reviewer default** (same-endpoint only — the subagent switch carries just a
+  model name). Every invocation is ONE bounded **tools-off** completion via
+  `Engine.make_complete(config, tools=[])` (nothing tool-related on the wire —
+  structurally cannot call tools/`finish`), **windowed to the deepthink
+  model's OWN budget** (`colleague/deepthink.py` `run_deepthink`, per-endpoint
+  `/tokenize` exact counting via the public `Engine.make_count_tokens` seam,
+  char fallback), and **degrades, never raises** — a dual run never fails
+  because deepthink is unreachable; on `mock` it records a degraded no-op.
+  Work-loop escalations are recorded on `TaskResult.deepthink`
+  (`{point, tokens, duration, degraded}`, omit-when-None). ONE binding per
+  work item (`make_deepthink_run(config, engine_name)`) is injected into both
+  the executor and `ContextControls` by every backend (all-engines rule).
+  **Forced synthesis (#191) and fill-line compaction (#156) deliberately stay
+  on the main model** — their prompt IS the main model's own windowed history,
+  which cannot fit the smaller deepthink window; re-windowing would discard
+  context, not add judgment. **This is NOT the out-of-scope multi-model
+  router**: one declared second model, a fixed enumerated surface, no
+  automatic task→model routing policy, no N-model generalization. Honest
+  limits: the live rig proof + wall-clock/quality benchmark are **PENDING**
+  (`docs/live-testing.md` — the rig serves no tool-calling backend yet);
+  plan-mode calls are stderr-visible only (no TaskResult outside the loop);
+  multimodal input and mode-level model preference are parked follow-ups.
+  Feature doc: `docs/features/deepthink.md`; spec + plan:
+  `docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
+  and `docs/plans/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`.
 - **Auto-split** — when an assignment is too large for one context window,
   colleague recommends splitting it into up to ~4 coherent child assignments
   (via the existing `subagents` tool) instead of degrading lossily or failing.
@@ -1091,16 +1133,26 @@ a fan-out child resolves a clamped share of the parent's context/step budget
 (`colleague/rig.py`) coordinates concurrent top-level work items sharing one
 served endpoint; and **task goals** (#259) — optional `Task.goal`/`acceptance`,
 an advisory per-criterion self-check turn, and `SubResult.parent` lineage
-(`colleague/contract.py` + `colleague/loop.py`), all omit-when-None.
+(`colleague/contract.py` + `colleague/loop.py`), all omit-when-None — and the
+**dual-model deepthink escalation** (the **Deepthink / dual-model** part
+above): one operator-declared second model reached from a fixed, enumerated
+escalation surface, single-model byte-identical (spec + plan:
+`docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
+and the matching `docs/plans/` file).
 All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
 the capacity standard, the lint gate, the test-integrity gate, the affected-tests gate,
-and the six work-modes increments) were added via explicit re-specs (spec + plan committed
+the six work-modes increments, and the dual-model deepthink escalation) were added
+via explicit re-specs (spec + plan committed
 under `docs/specs/` / `docs/plans/`); they extend the runtime within the zero-deps /
 no-socket / no-daemon conventions.
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
-router / routing policy, an execution sandbox, a colleague-owned daemon/server
+router / routing policy (the **dual-model deepthink escalation** is the landed,
+re-spec'd increment at this line: ONE operator-declared second model, a fixed
+enumerated escalation surface, no automatic task→model routing, no N-model
+generalization — anything beyond that is still the excluded router; document
+the distinction honestly), an execution sandbox, a colleague-owned daemon/server
 mode, Codex/Claude/Gemini adapters, a `--no-hooks` escape hatch (there is still
 no such flag — the approval gate's checksum-based trust model is the landed
 increment of the planned hook trust gate, but it is a policy gate, not a
