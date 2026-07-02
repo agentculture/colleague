@@ -594,3 +594,29 @@ cannot land it decomposed is recorded as a model limit, never claimed solved.
   text); [#265](https://github.com/agentculture/colleague/issues/265) — the
   WIP-on-stop sweep commits `.colleague/worktrees/` lock files and
   `__pycache__` residue onto the work branch.
+
+## Livecheck closing regression (best-colleague arc R7, 2026-07-02)
+
+`colleague livecheck --repo . --json` ran as the arc's closing regression
+(the verb's own first full live outing). Results, recorded honestly:
+
+- **Passed live in the battery:** loop tools, live mode, neighbours, and the
+  dual-model proof (4 rows).
+- **Skipped by the runner:** the basic-drive, context-budget, and
+  gated-configs proofs hit livecheck's fixed 120s per-proof cap — too tight
+  for full drives on the reference 27B (each passed historically; the cap is
+  a v1 constant in `colleague/livecheck.py`; tunable follow-up filed as
+  [#266](https://github.com/agentculture/colleague/issues/266)).
+- **Failed in the battery, passed on re-run — a serving-side window, proven
+  byte-identical:** the telemetry and subagents proofs failed during a window
+  where the endpoint emitted malformed literal tool-markup instead of parsed
+  tool calls. Diagnosis: `COLLEAGUE_DUMP_REQUEST=1` captured the exact
+  outgoing payload; a byte-for-byte identical request (same system prompt,
+  same 13 tool schemas, `temperature: 0.0` greedy decoding) failed 3/3 in one
+  window and passed 3/3 (curl) + end-to-end (CLI) minutes later. Identical
+  greedy requests giving different outputs over time is endpoint-side
+  nondeterminism (speculative-decoding/batching state on the MTP-served 27B —
+  the #66 family), not a harness or test bug. Both proofs **passed** on
+  re-run (`2 passed in 699.70s`). This is the same markup-emission pathology
+  that limited the h9 substantial-write run — now isolated to the serving
+  layer with wire-level evidence.
