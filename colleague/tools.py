@@ -530,7 +530,7 @@ class ToolExecutor:
         *,
         spawn=None,
         batch_spawn=None,
-        deepthink: Callable[[str, str], str] | None = None,
+        deepthink: Callable[..., Any] | None = None,
         max_output_chars: int = _DEFAULT_MAX_OUTPUT_CHARS,
         allowlist: "Role | tuple[str, ...] | None" = None,
     ) -> None:
@@ -546,12 +546,19 @@ class ToolExecutor:
         # Batch spawn callable: ``batch_spawn(items) -> list[SubResult]``.
         # Injected by the loop (t5); None means the subagents tool is unavailable.
         self._batch_spawn = batch_spawn
-        # Deepthink escalation callable: ``deepthink(question, context) -> str``.
-        # Injected by the loop only when a dual-model config is present (t5); None
-        # means the deepthink tool is unavailable for this drive — the schema
-        # should not have been offered in that case (curate_schemas gates it), but
-        # a hallucinated call is handled defensively (see ``_deepthink_tool``).
+        # Deepthink escalation callable (t5): the bound ``DeepthinkRun`` seam,
+        # ``deepthink(question, context, *, point="tool") -> DeepthinkResult``
+        # (:func:`colleague.deepthink.make_deepthink_run`). Injected by the engine
+        # only when a dual-model config is present; None means the deepthink tool
+        # is unavailable for this drive — the schema should not have been offered
+        # in that case (curate_schemas gates it), but a hallucinated call is
+        # handled defensively (see ``_deepthink_tool``). A plain str-returning
+        # callable is still honored (back-compat: answers, records nothing).
         self._deepthink = deepthink
+        # Every DeepthinkCall record the tool dispatch accumulated, in firing
+        # order. The loop snapshots this onto ``TaskResult.deepthink`` (spec c14)
+        # exactly like ``sub_results`` — empty stays empty → omitted artifact key.
+        self.deepthink_calls: list[Any] = []
         # Cap on each tool result fed back to the model so a huge file/command
         # can't blow the context window. Resolved from EngineConfig (env
         # COLLEAGUE_MAX_OUTPUT_CHARS); sized for the served model's window.
@@ -901,6 +908,22 @@ class ToolExecutor:
             answer = self._deepthink(question, context)
         except Exception as exc:  # the injected seam degrades internally; defense-in-depth
             raise ToolError(f"deepthink failed: {exc}") from exc
+
+        # The bound DeepthinkRun seam returns a DeepthinkResult carrying its call
+        # record — accumulate it for the loop's TaskResult.deepthink snapshot
+        # (spec c14) and translate a degraded escalation into an honest notice
+        # (spec c13: the model proceeds on its own judgment, the run never fails).
+        call = getattr(answer, "call", None)
+        if call is not None:
+            self.deepthink_calls.append(call)
+            if getattr(call, "degraded", False):
+                return ToolOutcome(
+                    result=(
+                        "deepthink is unavailable (degraded) — proceed with " "your own judgment."
+                    )
+                )
+            return ToolOutcome(result=self._truncate(str(getattr(answer, "text", ""))))
+        # Back-compat: a plain str-returning seam answers but records nothing.
         return ToolOutcome(result=self._truncate(str(answer)))
 
     def _check_test_integrity(self) -> ToolOutcome:

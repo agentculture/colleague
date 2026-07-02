@@ -254,3 +254,37 @@ def run_deepthink(
             text="",
             call=DeepthinkCall(point=point, degraded=True, duration=duration),
         )
+
+
+DeepthinkRun = Callable[..., DeepthinkResult]
+"""The bound escalation callable the runtime threads through the loop.
+
+Signature: ``(question: str, context: str = "", *, point: str = "tool") ->
+DeepthinkResult``. Built once per work item by :func:`make_deepthink_run` and
+handed BOTH to the tool executor (the model-facing ``deepthink`` tool) and to
+:class:`~colleague.loop.ContextControls` (the runtime-owned escalation points,
+e.g. the acceptance self-check) — one binding, every consumer (all-engines rule).
+"""
+
+
+def make_deepthink_run(config: EngineConfig, engine_name: str) -> Optional[DeepthinkRun]:
+    """Bind :func:`run_deepthink` to *config* + *engine_name* for the loop.
+
+    Returns ``None`` when no dual-model config is present (``config.deepthink``
+    is ``None``) — the single-model signal every consumer keys off: the engine
+    then offers no ``deepthink`` tool schema, the executor holds no seam, and
+    the runtime escalation points stay dormant (byte-identical run).
+
+    The returned callable never raises (it delegates to :func:`run_deepthink`,
+    which degrades internally — spec h5). ``context`` is appended to the
+    question as a labelled digest block so the deepthink model receives ONE
+    self-contained prompt.
+    """
+    if config.deepthink is None:
+        return None
+
+    def bound(question: str, context: str = "", *, point: str = "tool") -> DeepthinkResult:
+        prompt = question if not context else f"{question}\n\nContext digest:\n{context}"
+        return run_deepthink(prompt, config=config, point=point, engine_name=engine_name)
+
+    return bound

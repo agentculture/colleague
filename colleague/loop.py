@@ -403,6 +403,9 @@ class _Work:
     # ``None`` (the default) is a strict no-op — no windowing, no reactive retry.
     context_budget: int | None = None
     count_tokens: Callable[[list[dict[str, Any]]], int] | None = None
+    # Dual-model deepthink escalation seam (t5): the bound ``DeepthinkRun`` from
+    # ContextControls, ``None`` for a single-model run (escalation points dormant).
+    deepthink_run: Callable[..., Any] | None = None
     # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a
     # positive ``autosplit_target``), an EXHAUSTED context-overflow injects ONE
     # split recommendation — pointing the model at the existing ``subagents`` tool
@@ -1645,6 +1648,14 @@ class ContextControls:
     # comparable config (the EngineConfig.role/spawn-callback precedent); the
     # all-engines guarantee comes from from_config being the single source.
     throttle_fanout: Callable[[str], None] | None = field(default=None, compare=False, repr=False)
+    # Dual-model deepthink escalation (t5 / spec c10): the bound ``DeepthinkRun``
+    # seam (:func:`colleague.deepthink.make_deepthink_run`), ``None`` when no
+    # dual-model config is present — the runtime escalation points (acceptance
+    # self-check) stay dormant, a strict no-op (byte-identical single-model run).
+    # Both backends pass ``make_deepthink_run(config, self.name)`` — the SAME
+    # binding they inject into the tool executor (all-engines rule).
+    # compare=False: a closure — behavior, not comparable config.
+    deepthink_run: Callable[..., Any] | None = field(default=None, compare=False, repr=False)
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
     # verdict turn (#191) runs with fresher, less-windowed context instead of being
@@ -1695,7 +1706,7 @@ class ContextControls:
     affectedtests_override: str | None = None
 
     @classmethod
-    def from_config(cls, config, *, count_tokens=None) -> "ContextControls":
+    def from_config(cls, config, *, count_tokens=None, deepthink_run=None) -> "ContextControls":
         """Build the controls a backend forwards from its :class:`EngineConfig`.
 
         Every backend forwards the *same* config fields here (the all-engines
@@ -1703,6 +1714,9 @@ class ContextControls:
         diverges is a bug. The only per-backend variation is ``count_tokens``:
         the vLLM backend passes its exact ``/tokenize`` counter; the mock (and any
         backend without one) leaves it ``None`` for the char-based estimate.
+        ``deepthink_run`` is the bound dual-model escalation seam — every backend
+        passes ``make_deepthink_run(config, self.name)`` (the same object it
+        injects into the tool executor), or ``None`` for a single-model config.
 
         ``config`` is left untyped to avoid an import cycle with
         :mod:`colleague.config` (same precedent as :func:`resolve_role`).
@@ -1730,6 +1744,7 @@ class ContextControls:
             affectedtests_depth=config.affected_tests_depth,
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
+            deepthink_run=deepthink_run,
         )
 
 
@@ -2005,6 +2020,15 @@ def _maybe_run_acceptance_selfcheck(
         return
     with suppress(Exception):
         criteria = [str(criterion) for criterion in ctx.task.acceptance]
+        # Dual-model escalation (t5 / spec c10c): grading criteria is a judgment
+        # call, so a dual-model run asks the DEEPTHINK model first — with a
+        # self-contained digest (instruction + goal + summary + criteria), never
+        # the full history, so the prompt fits the deepthink model's own smaller
+        # window (the seam windows it besides). A degraded or unparseable
+        # escalation FALLS BACK to the main-model turn below (spec c13/h5) — the
+        # attempt is recorded either way, the run never fails because of it.
+        if _selfcheck_via_deepthink(ctx, criteria):
+            return
         ctx.messages.append(
             {
                 "role": "user",
@@ -2017,6 +2041,47 @@ def _maybe_run_acceptance_selfcheck(
         outcomes = _parse_acceptance_outcomes(resp.content or resp.reasoning or "", criteria)
         if outcomes:
             ctx.result.acceptance_outcomes = outcomes
+
+
+def _record_deepthink(result: TaskResult, call: object) -> None:
+    """Append one DeepthinkCall record to ``result.deepthink`` (init-on-first)."""
+    if result.deepthink is None:
+        result.deepthink = []
+    result.deepthink.append(call)
+
+
+def _selfcheck_via_deepthink(ctx: _Work, criteria: list[str]) -> bool:
+    """Grade the acceptance criteria via the deepthink model (t5 / spec c10c).
+
+    Returns ``True`` when the escalation produced usable per-criterion outcomes
+    (recorded on ``ctx.result.acceptance_outcomes``); ``False`` when there is no
+    binding (single-model run) or the escalation degraded / returned nothing
+    parseable — the caller then runs the existing main-model self-check turn,
+    the c13 degradation ladder. The escalation attempt (including a degraded
+    one) is recorded on ``result.deepthink`` — visible, never silent.
+    """
+    if ctx.deepthink_run is None:
+        return False
+    digest = (
+        "You are grading a completed repo work item against its acceptance "
+        "criteria. You see ONLY this digest — no repo, no conversation.\n\n"
+        f"Task instruction:\n{ctx.task.instruction}\n\n"
+        + (f"Goal: {ctx.task.goal}\n\n" if ctx.task.goal else "")
+        + f"Result summary:\n{ctx.result.summary or '(no summary recorded)'}\n\n"
+        + _ACCEPTANCE_CHECK_PROMPT
+        + "\n".join(f"- {criterion}" for criterion in criteria)
+    )
+    res = ctx.deepthink_run(digest, "", point="acceptance_selfcheck")
+    call = getattr(res, "call", None)
+    if call is not None:
+        _record_deepthink(ctx.result, call)
+    if call is None or getattr(call, "degraded", False):
+        return False
+    outcomes = _parse_acceptance_outcomes(str(getattr(res, "text", "") or ""), criteria)
+    if not outcomes:
+        return False
+    ctx.result.acceptance_outcomes = outcomes
+    return True
 
 
 def _maybe_run_test_integrity_gate(
@@ -2463,6 +2528,7 @@ def run(
         progress=progress,
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
+        deepthink_run=_context.deepthink_run,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
@@ -2554,11 +2620,21 @@ def run(
     # wrapping live in the helper so it can never abort run().
     _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
 
+    # Deepthink tool-call records (t5 / spec c14): snapshot the executor's
+    # accumulated records BEFORE the self-check (which may append its own), in
+    # firing order. No records → result.deepthink stays None → the key is
+    # omitted from the artifact (byte-identical single-model run). getattr:
+    # run() is a public seam and a test may pass a minimal executor stand-in.
+    _dt_calls = getattr(executor, "deepthink_calls", None)
+    if _dt_calls:
+        result.deepthink = list(_dt_calls)
+
     # Acceptance self-check (t15 / spec R6 / #259): on a CLEAN finish of a task
     # that declared acceptance criteria, ONE bounded completion records advisory
     # per-criterion {criterion, met, evidence} outcomes on
     # result.acceptance_outcomes. Runs after the gates so it grades the final
     # (lint-fixed) state; never flips status; strict no-op without criteria.
+    # A dual-model run escalates the grading to the deepthink model first (t5).
     _maybe_run_acceptance_selfcheck(ctx, complete, outcome, aborted)
 
     result.changed_files = sorted(executor.changed)

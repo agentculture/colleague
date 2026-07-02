@@ -25,6 +25,7 @@ from typing import Any, Callable
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import Task, TaskResult
+from colleague.deepthink import make_deepthink_run
 from colleague.engine import Engine
 from colleague.loop import (
     CompleteFn,
@@ -323,7 +324,12 @@ class VllmOpenAIEngine(Engine):
         # SCHEMAS + an unrestricted executor (byte-identical to the pre-role path).
         # The role PROMPT is composed by the role-aware self.system_prompt below.
         role = resolve_role(config, task.repo_path)
-        offered_tools = curate_schemas(role) if role is not None else SCHEMAS
+        # Dual-model deepthink (t5): ONE binding per work item, injected into BOTH
+        # the executor (the model-facing tool) and the ContextControls (the
+        # runtime escalation points) — None for a single-model config, which also
+        # keeps the deepthink tool schema un-offered (byte-identical run).
+        dt_run = make_deepthink_run(config, self.name)
+        offered_tools = curate_schemas(role, deepthink=dt_run is not None)
         return run(
             self._make_complete(config, tools=offered_tools),
             task,
@@ -341,6 +347,7 @@ class VllmOpenAIEngine(Engine):
                 batch_spawn=config.subagent_batch_spawn,
                 max_output_chars=config.max_output_chars,
                 allowlist=role,
+                deepthink=dt_run,
             ),
             # Context-window management (windowing + reactive auto-split #151),
             # forwarded identically by every backend (all-engines rule); dormant
@@ -349,6 +356,8 @@ class VllmOpenAIEngine(Engine):
             # both backends share (all-engines rule); the vLLM backend's one
             # per-backend variation is its exact ``/tokenize`` counter.
             context=ContextControls.from_config(
-                config, count_tokens=self._make_count_tokens(config)
+                config,
+                count_tokens=self._make_count_tokens(config),
+                deepthink_run=dt_run,
             ),
         )
