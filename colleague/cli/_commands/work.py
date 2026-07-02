@@ -30,7 +30,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from colleague import background, flight, registry, rig, worktrees
+from colleague import background, flight, media, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
@@ -697,6 +697,22 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
             "run 'colleague work --help' to see usage",
         )
 
+    # Validate and collect attachments (--attach PATH, repeatable).
+    raw_attach: list[str] = getattr(args, "attach", None) or []
+    attachments: list[dict] | None = None
+    if raw_attach:
+        attachments = []
+        for path_str in raw_attach:
+            try:
+                validated = media.validate_attachment(path_str)
+            except ValueError as exc:
+                raise CliError(
+                    EXIT_USER_ERROR,
+                    f"attachment error: {exc}",
+                    "pass --attach pointing at an existing file with a known media extension",
+                ) from exc
+            attachments.append(validated)
+
     if has_command:
         # Positional tokens are template arguments when --command is set.
         try:
@@ -706,6 +722,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
                 positional_tokens,
                 engine_default=engine,
                 model=config.model,
+                attachments=attachments,
             )
         except CommandError as exc:
             raise CliError(
@@ -715,7 +732,7 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
             ) from exc
 
     # Plain instruction path (original behaviour).
-    return Task.new(str(repo), " ".join(positional_tokens), engine=engine)
+    return Task.new(str(repo), " ".join(positional_tokens), engine=engine, attachments=attachments)
 
 
 def _validated_mode(mode: str | None) -> str | None:
@@ -1116,6 +1133,17 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
             "{background, id, pid, log_dir, flight}. Auto-arms --watch so the "
             "detached run is pilotable via 'colleague flight'; a crashed "
             "background run's residue is reaped by 'colleague clean'."
+        ),
+    )
+    p.add_argument(
+        "--attach",
+        action="append",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Attach a media file (image or audio) to the work item. "
+            "May be repeated. The file is validated (must exist, known extension) "
+            "and passed to the backend as an attachment."
         ),
     )
 
