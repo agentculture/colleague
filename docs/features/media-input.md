@@ -16,12 +16,14 @@ budget, create a per-model profiles overlay:
 .colleague/coolthor-gemma-4-12B-it-NVFP4A16/profiles.json
 ```
 
-**Contents:**
+**Contents** (keyed by the REAL mode names — the profile layer is consulted
+only when a mode is selected, and it looks the overlay up by that mode name):
 ```json
 {
-  "default": {
-    "context_budget_tokens": 96000
-  }
+  "work": {"context_budget_tokens": 96000},
+  "plan": {"context_budget_tokens": 96000},
+  "explore": {"context_budget_tokens": 72000},
+  "review": {"context_budget_tokens": 72000}
 }
 ```
 
@@ -29,9 +31,19 @@ The directory name `coolthor-gemma-4-12B-it-NVFP4A16` is the output of
 `colleague.layers.sanitize_model("coolthor/gemma-4-12B-it-NVFP4A16")` —
 slashes become hyphens, the rest is preserved verbatim.
 
-When the resolved model id matches `coolthor/gemma-4-12B-it-NVFP4A16`, the
-`apply_mode_profile` layer reads this overlay and sets `context_budget_tokens`
-to 96 000 (matching the 128K serving window at ~0.75 fill fraction).
+When the resolved model id matches `coolthor/gemma-4-12B-it-NVFP4A16` **and a
+mode is selected** (`colleague work --mode work`, or the interactive session's
+mode), the `apply_mode_profile` layer reads this overlay and sets
+`context_budget_tokens` to 96 000 (matching the 128K serving window at ~0.75
+fill; explore/review carry 72 000, preserving those modes' 0.75-of-window
+intent).
+
+**Honest limit — a bare modeless run keeps 48 000.** `apply_mode_profile` is a
+strict no-op with no mode selected, so this overlay cannot drift a bare
+`colleague work` (that is the *staged, not flipped* guarantee, pinned by
+`test_modeless_run_ignores_overlay`). To right-size a modeless run against
+Gemma4, set `COLLEAGUE_CONTEXT_BUDGET=96000` in the environment — there is no
+per-model budget seam outside the mode-profile overlay today.
 
 ### Default stays at 48 000
 

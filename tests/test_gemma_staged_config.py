@@ -28,6 +28,20 @@ _GEMMA_MODEL = "coolthor/gemma-4-12B-it-NVFP4A16"
 _GEMMA_SAFE = sanitize_model(_GEMMA_MODEL)  # "coolthor-gemma-4-12B-it-NVFP4A16"
 _GEMMA_BUDGET = 96000
 
+# The overlay keys REAL mode names (session_modes.MODES minus "auto") — the
+# profile layer is consulted only when a mode is selected, and
+# ``apply_mode_profile`` looks the overlay up by that mode name.  A made-up
+# key (e.g. "default") would satisfy a test that passes the same made-up mode
+# but can never fire on a real run — the exact mirror-shape the
+# test-integrity gate exists to catch.  explore/review carry 0.75 of the
+# window, matching the built-in profiles' fraction for those modes.
+_GEMMA_OVERLAY = {
+    "work": {"context_budget_tokens": _GEMMA_BUDGET},
+    "plan": {"context_budget_tokens": _GEMMA_BUDGET},
+    "explore": {"context_budget_tokens": 72000},
+    "review": {"context_budget_tokens": 72000},
+}
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -40,7 +54,7 @@ def gemma_repo(tmp_path: Path) -> Path:
     overlay_dir = tmp_path / ".colleague" / _GEMMA_SAFE
     overlay_dir.mkdir(parents=True)
     (overlay_dir / "profiles.json").write_text(
-        json.dumps({"default": {"context_budget_tokens": _GEMMA_BUDGET}}),
+        json.dumps(_GEMMA_OVERLAY),
         encoding="utf-8",
     )
     return tmp_path
@@ -51,27 +65,52 @@ def gemma_repo(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_per_model_overlay_sets_gemma_budget(gemma_repo: Path) -> None:
-    """A per-model overlay for the Gemma model id sets context_budget_tokens."""
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("work", _GEMMA_BUDGET),
+        ("plan", _GEMMA_BUDGET),
+        ("explore", 72000),
+        ("review", 72000),
+    ],
+)
+def test_per_model_overlay_sets_gemma_budget(gemma_repo: Path, mode: str, expected: int) -> None:
+    """A per-model overlay for the Gemma model id sets context_budget_tokens.
+
+    Uses the REAL mode names — the only names a live run ever passes.
+    """
     config = EngineConfig(model=_GEMMA_MODEL)
     applied = apply_mode_profile(
         config,
-        mode="default",
+        mode=mode,
         repo_path=gemma_repo,
     )
-    assert applied.context_budget_tokens == _GEMMA_BUDGET
+    assert applied.context_budget_tokens == expected
 
 
 def test_per_model_overlay_is_exact_path(gemma_repo: Path) -> None:
     """The overlay only applies to the exact sanitized model id."""
-    # A different model should NOT pick up the Gemma overlay
+    # A different model should NOT pick up the Gemma overlay; the built-in
+    # work profile is behavior-neutral (fraction 1.0), so the default holds.
     config = EngineConfig(model="other/model")
     applied = apply_mode_profile(
         config,
-        mode="default",
+        mode="work",
         repo_path=gemma_repo,
     )
     # Falls back to default since no overlay for "other-model"
+    assert applied.context_budget_tokens == _DEFAULT_CONTEXT_BUDGET
+
+
+def test_modeless_run_ignores_overlay(gemma_repo: Path) -> None:
+    """A bare modeless run keeps the default even WITH the overlay present.
+
+    This is the staged-not-flipped pin: profiles fire only when a mode is
+    selected (``apply_mode_profile`` is a strict no-op for ``mode=None``), so
+    staging Gemma via the overlay can never drift a bare run's budget.
+    """
+    config = EngineConfig(model=_GEMMA_MODEL)
+    applied = apply_mode_profile(config, mode=None, repo_path=gemma_repo)
     assert applied.context_budget_tokens == _DEFAULT_CONTEXT_BUDGET
 
 
@@ -159,8 +198,11 @@ def test_gemma_safe_dir_name() -> None:
 
 
 def test_gemma_overlay_json_structure(gemma_repo: Path) -> None:
-    """The overlay JSON has the expected structure for the profiles seam."""
+    """The overlay JSON keys real mode names for the profiles seam."""
     overlay_file = gemma_repo / ".colleague" / _GEMMA_SAFE / "profiles.json"
     data = json.loads(overlay_file.read_text(encoding="utf-8"))
-    assert "default" in data
-    assert data["default"]["context_budget_tokens"] == _GEMMA_BUDGET
+    assert "work" in data
+    assert data["work"]["context_budget_tokens"] == _GEMMA_BUDGET
+    # Guard against the vacuous key returning: no real run passes a
+    # "default" mode, so the recipe must never document one.
+    assert "default" not in data
