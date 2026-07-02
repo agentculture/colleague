@@ -57,7 +57,7 @@ def validate_attachment(path: str) -> dict:
     size = p.stat().st_size
     if size > MAX_ATTACHMENT_BYTES:
         raise ValueError(
-            f"attachment too large: {path} is {size} bytes " f"(max {MAX_ATTACHMENT_BYTES})"
+            f"attachment too large: {path} is {size} bytes (max {MAX_ATTACHMENT_BYTES})"
         )
 
     return {"path": str(p), "media_type": _MEDIA_TYPES[ext]}

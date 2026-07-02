@@ -792,6 +792,39 @@ _CHILD_FLAG_TABLE: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def _child_tail_argv(args: argparse.Namespace) -> list[str]:
+    """Non-uniform ``work`` child flags, in CLI order.
+
+    These flags don't fit the ``_CHILD_FLAG_TABLE`` value/bool pattern — a
+    tri-state (``--tui``/``--no-tui``) or a repeatable one (``--attach``) —
+    so they're built here. Extracted from :func:`_background_child_argv` so
+    that function stays under SonarCloud's cognitive-complexity threshold
+    (S3776).
+    """
+    tail: list[str] = []
+    if getattr(args, "max_steps", None) is not None:
+        tail += ["--max-steps", str(args.max_steps)]
+    if getattr(args, "mode", None):
+        tail += ["--mode", args.mode]
+    tui = getattr(args, "tui", None)
+    if tui is True:
+        tail.append("--tui")
+    elif tui is False:
+        tail.append("--no-tui")
+    if getattr(args, "tui_events", None):
+        tail += ["--tui-events", args.tui_events]
+    if getattr(args, "json", False):
+        tail.append("--json")
+    # Forward each --attach value (repeatable), resolved to an ABSOLUTE path here
+    # in the parent: the child may run with a different cwd, and
+    # media.validate_attachment() resolves a relative path against cwd, so a
+    # relative --attach would silently miss (or hit the wrong file) in the
+    # detached child. Without this the attachment was dropped entirely (Qodo).
+    for attach_path in getattr(args, "attach", None) or []:
+        tail += ["--attach", str(Path(attach_path).resolve())]
+    return tail
+
+
 def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
     """Rebuild ``work``'s CLI argv for the detached background child (t12).
 
@@ -823,26 +856,9 @@ def _background_child_argv(args: argparse.Namespace, repo: Path) -> list[str]:
                 argv.append(flag)
         elif value:
             argv += [flag, str(value)]
-    if getattr(args, "max_steps", None) is not None:
-        argv += ["--max-steps", str(args.max_steps)]
-    if getattr(args, "mode", None):
-        argv += ["--mode", args.mode]
-    tui = getattr(args, "tui", None)
-    if tui is True:
-        argv.append("--tui")
-    elif tui is False:
-        argv.append("--no-tui")
-    if getattr(args, "tui_events", None):
-        argv += ["--tui-events", args.tui_events]
-    if getattr(args, "json", False):
-        argv.append("--json")
-    # Forward each --attach value (repeatable), resolved to an ABSOLUTE path here
-    # in the parent: the child may run with a different cwd, and
-    # media.validate_attachment() resolves a relative path against cwd, so a
-    # relative --attach would silently miss (or hit the wrong file) in the
-    # detached child. Without this the attachment was dropped entirely (Qodo).
-    for attach_path in getattr(args, "attach", None) or []:
-        argv += ["--attach", str(Path(attach_path).resolve())]
+    # Non-uniform tail flags (tri-state --tui, repeatable --attach, etc.) live
+    # in a helper so this function stays under the S3776 complexity threshold.
+    argv += _child_tail_argv(args)
     # Force-arm the flight control plane: a detached run has no other pilot
     # interface, so --watch is not optional here (spec R4 — the flight feed +
     # 'colleague flight status/guide/stop' is the ONLY way to observe/steer it).
