@@ -35,9 +35,17 @@ Design constraints (matching the rest of the colleague runtime):
 
 from __future__ import annotations
 
+import os
 import subprocess  # nosec B404 - driving git for worktree lifecycle is this module's job
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
+
+try:
+    import fcntl  # POSIX-only; guarded so a non-POSIX host degrades, never crashes.
+except ImportError:  # pragma: no cover - exercised only on a non-POSIX host
+    fcntl = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -46,6 +54,9 @@ from pathlib import Path
 _WORKTREES_SUBDIR = ".colleague/worktrees"
 #: Line prefix git emits for each entry of ``git worktree list --porcelain``.
 _WORKTREE_LIST_PREFIX = "worktree "
+#: Advisory lock file guarding git worktree ADMIN mutations (add/remove/prune)
+#: for one repo (#239). See :func:`_admin_lock`.
+_ADMIN_LOCK_NAME = ".worktree-admin.lock"
 
 
 def _git(
@@ -70,6 +81,126 @@ def _worktree_path(repo: Path, child_id: str) -> Path:
 
 def _branch_name(child_id: str) -> str:
     return f"sub/{child_id}"
+
+
+@contextmanager
+def _admin_lock(repo: Path) -> Iterator[None]:
+    """Serialize git worktree ADMIN mutations (add/remove/prune) for *repo* (#239).
+
+    git's own bookkeeping under ``.git/worktrees/<name>/`` is NOT safe against
+    concurrent ``add``/``remove``/``prune`` invoked from separate colleague
+    processes sharing one repo: a worktree mid-creation can be corrupted by an
+    unrelated worktree's concurrent prune. Reproduced empirically — 8 threads x
+    10 ``isolation_worktree_add``/``isolation_worktree_remove`` cycles against one
+    shared repo raised ``CalledProcessError`` with git stderr like::
+
+        fatal: failed to read .git/worktrees/iso-t9-1/commondir: Success
+        fatal: could not open '.git/worktrees/iso-t2-1/gitdir' for writing: ...
+
+    i.e. task ``t1-1``'s ``worktree add`` failed while reading/writing a
+    DIFFERENT task's (``t9-1``, ``t2-1``) administrative entry — the shared
+    ``.git/worktrees/`` directory listing was corrupted mid-flight by a
+    concurrent prune/remove. This is the mechanism behind #239's spurious
+    concurrent-run gate failures: ``isolation_worktree_add`` raising makes
+    ``colleague/cli/_commands/work.py``'s ``_setup_isolation`` silently degrade
+    that run to running IN-PLACE on the operator's real (shared) repo (the h7
+    back-compat fallback) — at which point a SECOND concurrent run sharing that
+    same directory can leak its own uncommitted files into the degraded run's
+    changed-file scan / gate pytest invocation.
+
+    A single advisory OS file lock (``fcntl.flock``, exclusive) over
+    ``.colleague/worktrees/.worktree-admin.lock`` serializes ONLY the brief
+    admin mutation itself (a handful of milliseconds) — never the work done
+    inside an already-created worktree, so real subagent/work-item parallelism
+    is untouched. Degrades to a no-op (unserialized, matching every other git
+    call's best-effort tolerance in this module) when ``fcntl`` is unavailable
+    (non-POSIX) or the lock file can't be opened — never raises, never blocks a
+    run that has no lock available. NOT reentrant: callers in this module never
+    nest one lock-guarded call inside another (e.g. :func:`teardown_all` calls
+    the already-guarded :func:`worktree_remove` sequentially, never while
+    holding its own lock).
+    """
+    lock_path = repo / _WORKTREES_SUBDIR / _ADMIN_LOCK_NAME
+    handle = None
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+", encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        handle = None
+    if handle is not None and fcntl is not None:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError:
+            pass
+    try:
+        yield
+    finally:
+        if handle is not None:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            handle.close()
+
+
+def iso_liveness_path(repo_path: str, task_id: str) -> Path:
+    """Path to *task_id*'s isolation-worktree liveness marker (a pid file, #239).
+
+    Mirrors :mod:`colleague.flight`'s ``feed_path``/``control_path`` pattern — a
+    small, discoverable, public path helper so a caller (or a test) can inspect
+    or fabricate the marker directly rather than re-deriving the naming scheme.
+    """
+    return Path(repo_path).resolve() / _WORKTREES_SUBDIR / f"iso-{task_id}.pid"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort same-host liveness probe (mirrors ``colleague/rig.py``'s probe)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        # Exists but not ours (PermissionError) or unprobeable — treat as
+        # alive, never steal/reap a holder we can't rule out.
+        return True
+    return True
+
+
+def _write_liveness_marker(repo: Path, task_id: str) -> None:
+    """Best-effort: stamp this process's PID as the holder of *task_id*'s worktree."""
+    try:
+        iso_liveness_path(str(repo), task_id).write_text(str(os.getpid()), encoding="utf-8")
+    except OSError:
+        pass  # a missing marker just falls back to the caller's active_task_ids signal
+
+
+def _clear_liveness_marker(repo: Path, task_id: str) -> None:
+    """Best-effort: remove *task_id*'s liveness marker; tolerates "already gone"."""
+    try:
+        iso_liveness_path(str(repo), task_id).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def iso_worktree_is_live(repo_path: str, task_id: str) -> bool:
+    """True when *task_id*'s isolation worktree has a liveness marker naming a
+    still-running process (#239 h1).
+
+    This is the pidfile companion to a caller-supplied ``active_task_ids``
+    allow-list (e.g. flight tracking): a bare ``colleague work`` run (no
+    ``--watch``) never registers as an active flight, so ``colleague clean
+    --dry-run`` was flagging a genuinely live run's isolation worktree as
+    "would reap" — the only signal it had was flight tracking. A missing or
+    unreadable marker degrades to ``False`` (no opinion; the caller's
+    ``active_task_ids``/flight check remains the fallback signal, preserving
+    back-compat for worktrees created before this marker existed).
+    """
+    try:
+        pid = int(iso_liveness_path(repo_path, task_id).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    return _pid_alive(pid)
 
 
 @dataclass
@@ -147,7 +278,14 @@ def worktree_add(repo_path: str, child_id: str) -> str:
     # unnecessary: the repo already ignores ``/.colleague/*`` (which covers
     # ``.colleague/worktrees/``). A git worktree lives in its own administrative
     # space anyway; the directory is not added to the parent index.
-    _git(repo, "worktree", "add", str(wt_path), "-b", branch)
+    #
+    # The add is admin-lock-guarded (#239): a concurrent add/remove/prune from a
+    # SEPARATE colleague process sharing this repo can corrupt this call's view of
+    # the shared .git/worktrees/ admin directory (see _admin_lock's docstring for
+    # the reproduced failure mode). Real subagent parallelism is unaffected — only
+    # this brief admin mutation is serialized.
+    with _admin_lock(repo):
+        _git(repo, "worktree", "add", str(wt_path), "-b", branch)
 
     return str(wt_path)
 
@@ -182,10 +320,22 @@ def isolation_worktree_add(repo_path: str, task_id: str, branch: str) -> str:
     # review of t1, finding A). The branch is recreated from HEAD below, so dropping
     # the stale one loses nothing the operator could still recover (a same-id retry
     # only happens after a crash). All tolerant (``check=False``).
-    _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
-    _git(repo, "worktree", "prune", check=False)
-    _git(repo, "branch", "-D", branch, check=False)
-    _git(repo, "worktree", "add", str(wt_path), "-b", branch)
+    #
+    # The whole reclaim+add sequence is admin-lock-guarded (#239): unguarded, a
+    # SEPARATE concurrent colleague process's own add/remove/prune on this shared
+    # repo can corrupt this sequence's view of .git/worktrees/ (reproduced
+    # empirically — see _admin_lock), which used to make this call raise and
+    # silently degrade the run to in-place (h7's fallback) — the mechanism behind
+    # #239's spurious concurrent-run gate failures.
+    with _admin_lock(repo):
+        _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
+        _git(repo, "worktree", "prune", check=False)
+        _git(repo, "branch", "-D", branch, check=False)
+        _git(repo, "worktree", "add", str(wt_path), "-b", branch)
+    # Liveness marker (#239 h1): stamp this process as the worktree's holder so
+    # `colleague clean` never mistakes a still-running work item for orphaned
+    # residue, regardless of whether it is also tracked as an active flight.
+    _write_liveness_marker(repo, task_id)
     return str(wt_path)
 
 
@@ -195,11 +345,17 @@ def isolation_worktree_remove(repo_path: str, worktree_path: str) -> None:
     The branch is the deliverable (the operator merges it), so only the working
     directory is torn down. Best-effort: a teardown failure must never mask the
     work item's real outcome, so git errors are swallowed (``check=False``) and a
-    trailing ``prune`` clears any stale administrative entry.
+    trailing ``prune`` clears any stale administrative entry. Admin-lock-guarded
+    (#239, see :func:`_admin_lock`); also clears the task's liveness marker (#239
+    h1) written by :func:`isolation_worktree_add`, if any.
     """
     repo = Path(repo_path).resolve()
-    _git(repo, "worktree", "remove", "--force", str(worktree_path), check=False)
-    _git(repo, "worktree", "prune", check=False)
+    with _admin_lock(repo):
+        _git(repo, "worktree", "remove", "--force", str(worktree_path), check=False)
+        _git(repo, "worktree", "prune", check=False)
+    name = Path(worktree_path).name
+    if name.startswith("iso-"):
+        _clear_liveness_marker(repo, name[len("iso-") :])
 
 
 def commit_all(worktree_path: str, message: str) -> bool:
@@ -320,15 +476,30 @@ def reap_orphaned_iso_worktrees(
     so ``colleague clean`` cannot delete an in-flight isolated worktree out from
     under a concurrent piloted run (review of #228, Qodo). A genuinely orphaned
     (non-active) ``iso-*`` worktree is still reaped, so the recovery contract holds.
+
+    A worktree with a LIVE liveness marker (#239 h1, :func:`iso_worktree_is_live`)
+    is ALSO spared, independent of ``active_task_ids`` — the flight allow-list only
+    covers a ``--watch`` run, so a bare ``colleague work`` in flight (no flight
+    tracking) used to be indistinguishable from orphaned residue and got flagged
+    "would reap" by ``colleague clean --dry-run`` even while it was still running.
+    A worktree with no marker (pre-#239 residue, or the marker write failed) falls
+    back to the ``active_task_ids`` signal alone — unchanged behavior.
+
     ``dry_run=True`` reports the paths it would reap without changing anything.
     """
     active = set(active_task_ids)
-    paths = [p for p in list_iso_worktrees(repo_path) if Path(p).name[len("iso-") :] not in active]
+    repo = Path(repo_path).resolve()
+    paths = []
+    for p in list_iso_worktrees(repo_path):
+        task_id = Path(p).name[len("iso-") :]
+        if task_id in active or iso_worktree_is_live(str(repo), task_id):
+            continue
+        paths.append(p)
     if paths and not dry_run:
-        repo = Path(repo_path).resolve()
-        for wt in paths:
-            _git(repo, "worktree", "remove", "--force", wt, check=False)
-        _git(repo, "worktree", "prune", check=False)
+        with _admin_lock(repo):
+            for wt in paths:
+                _git(repo, "worktree", "remove", "--force", wt, check=False)
+            _git(repo, "worktree", "prune", check=False)
     return paths
 
 
@@ -420,25 +591,30 @@ def worktree_remove(repo_path: str, child_id: str, *, delete_branch: bool = True
         repo_path: Absolute (or relative) path to the git repository root.
         child_id: The child identifier whose worktree (and maybe branch) to remove.
         delete_branch: When False, keep the ``sub/<child_id>`` branch.
+
+    Admin-lock-guarded (#239, see :func:`_admin_lock`) — steps 1-3 run as one
+    serialized sequence against a repo shared with other concurrent colleague
+    processes.
     """
     repo = Path(repo_path).resolve()
     wt_path = _worktree_path(repo, child_id)
     branch = _branch_name(child_id)
 
-    # Step 1: remove the worktree.  git returns non-zero when the path is not
-    # a registered worktree (or the directory is missing); we tolerate that.
-    _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
+    with _admin_lock(repo):
+        # Step 1: remove the worktree.  git returns non-zero when the path is not
+        # a registered worktree (or the directory is missing); we tolerate that.
+        _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
 
-    # Step 2: prune stale worktree bookkeeping (handles the case where the
-    # directory was deleted externally but the worktree record still exists).
-    _git(repo, "worktree", "prune", check=False)
+        # Step 2: prune stale worktree bookkeeping (handles the case where the
+        # directory was deleted externally but the worktree record still exists).
+        _git(repo, "worktree", "prune", check=False)
 
-    # Step 3: delete the per-child branch.  ``-D`` (force delete) is required
-    # because the branch has not been merged to HEAD.  "not found" is non-zero
-    # and silently tolerated. Skipped entirely when delete_branch is False so a
-    # conflicted child's work survives.
-    if delete_branch:
-        _git(repo, "branch", "-D", branch, check=False)
+        # Step 3: delete the per-child branch.  ``-D`` (force delete) is required
+        # because the branch has not been merged to HEAD.  "not found" is non-zero
+        # and silently tolerated. Skipped entirely when delete_branch is False so a
+        # conflicted child's work survives.
+        if delete_branch:
+            _git(repo, "branch", "-D", branch, check=False)
 
 
 def teardown_all(repo_path: str) -> None:
@@ -474,11 +650,14 @@ def teardown_all(repo_path: str) -> None:
     # Remove each child worktree + its branch idempotently. These are children WE
     # created (a worktree exists/existed under our root), so deleting their
     # ``sub/<id>`` branch is safe — unlike a blanket ``sub/*`` sweep.
+    # worktree_remove is itself admin-lock-guarded (#239); called sequentially
+    # here (never while THIS function holds the lock), so no nested acquisition.
     for child_id in child_ids:
         worktree_remove(repo_path, child_id)
 
-    # Final prune to flush any remaining stale metadata.
-    _git(repo, "worktree", "prune", check=False)
+    # Final prune to flush any remaining stale metadata — its own lock scope.
+    with _admin_lock(repo):
+        _git(repo, "worktree", "prune", check=False)
 
 
 def _registered_child_ids(repo: Path, wt_root: Path) -> set[str]:
