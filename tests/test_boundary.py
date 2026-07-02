@@ -447,6 +447,8 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   via ``subprocess.Popen(..., start_new_session=True)``;
 #                   subprocess is the ONE-SHOT detach transport (plan t12,
 #                   spec R4 / h10, boundary h6) — no daemon, no polling
+#   memory.py        — shells out to the operator-installed eidetic CLI for
+#                   recall/remember; subprocess is the transport (plan t1)
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -460,6 +462,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/resident/steward.py",
         "colleague/affectedtests.py",
         "colleague/background.py",
+        "colleague/memory.py",
     }
 )
 
