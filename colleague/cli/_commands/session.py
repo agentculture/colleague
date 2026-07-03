@@ -1066,7 +1066,7 @@ class _Session:
         overwrites the same file execute_work wrote — never a second artifact."""
         try:
             _write_artifact(result, artifact_dir(self.repo))
-        except Exception:  # noqa: BLE001 - a re-save failure must never fail the run
+        except Exception:  # nosec B110 - a re-save failure must never fail the run
             pass
 
     def _finalize_split_run(self, result: TaskResult, intake_record) -> Optional[str]:

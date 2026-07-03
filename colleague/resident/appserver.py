@@ -429,7 +429,7 @@ class AppserverHarness:
         result.senses.records = pre + list(result.senses.records) + post
         try:
             _write_artifact(result, artifact_dir(self._repo_path))
-        except Exception:  # noqa: BLE001 - a re-save failure must never fail the reply
+        except Exception:  # nosec B110 - a re-save failure must never fail the reply
             pass
         return shaped
 
