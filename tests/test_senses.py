@@ -1,0 +1,346 @@
+"""Tests for the cortex/senses "senses" invocation layer (task t5).
+
+Surfaces under test (:mod:`colleague.senses`):
+
+1. tools-off on the wire — every senses completion is issued with an EMPTY
+   offered-tools list; a senses request NEVER carries a tool schema.
+2. the verbatim-original invariant — ``ContextPacket.original`` is the caller's
+   input byte-for-byte, NEVER derived from the model output (even when the model
+   emits a bogus ``original`` of its own).
+3. degrade-never-raise — an unreachable endpoint, bad/lossy JSON, empty content,
+   and the ``mock`` engine's ``NotImplementedError`` all yield ``(None, degraded
+   record)`` so the caller keeps the raw request/summary.
+4. runtime-fact records — each :class:`SensesRecord` carries latency/tokens/
+   degraded per point, and asserts NOTHING about answer quality.
+
+No network: every engine is a fake exposing ``make_complete`` /
+``make_count_tokens`` (recording what it was called with), or the real ``mock``
+engine (whose ``make_complete`` raises ``NotImplementedError``).
+"""
+
+from __future__ import annotations
+
+from colleague.config import EngineConfig, SensesConfig
+from colleague.contract import ContextPacket, SensesRecord
+from colleague.loop import ModelResponse
+from colleague.registry import load
+from colleague.senses import (
+    INTAKE_POINT,
+    SPEAKBACK_POINT,
+    run_senses_intake,
+    run_senses_speakback,
+    senses_engine_config,
+)
+
+_INTAKE_JSON = (
+    '{"interpretation": "add a retry to the uploader", "confidence": 0.8, '
+    '"task_type": "feature", "omissions": ["which backoff", "max attempts"]}'
+)
+
+
+def _senses_config(**overrides) -> EngineConfig:
+    """A plain EngineConfig standing in for the already-built senses config.
+
+    ``run_senses_*`` take the senses-pointed EngineConfig directly (t6 builds it
+    via ``senses_engine_config``); a big budget means ``_window_text`` passes the
+    prompt through untouched unless a test lowers it.
+    """
+    defaults = dict(model="senses-model", context_budget_tokens=100000)
+    defaults.update(overrides)
+    return EngineConfig(**defaults)
+
+
+class _FakeEngine:
+    """Records make_complete()/complete() calls; no network, fully scripted.
+
+    Mirrors the fake used by ``tests/test_deepthink.py``: it captures the
+    ``tools`` argument handed to ``make_complete`` (so a test can assert
+    tools-off on the wire) and the messages handed to ``complete``.
+    """
+
+    name = "fake"
+
+    def __init__(self, response: ModelResponse | None = None, raise_on_complete=None) -> None:
+        self.make_complete_calls: list[list[dict] | None] = []
+        self.complete_call_count = 0
+        self.captured_messages: list[dict] | None = None
+        self._response = response or ModelResponse(
+            content=_INTAKE_JSON, prompt_tokens=5, completion_tokens=7
+        )
+        self._raise_on_complete = raise_on_complete
+
+    def make_count_tokens(self, config: EngineConfig):
+        def counter(messages: list[dict]) -> int:
+            return sum(len(m.get("content") or "") for m in messages)
+
+        return counter
+
+    def make_complete(self, config: EngineConfig, tools=None):
+        self.make_complete_calls.append(tools)
+
+        def complete(messages: list[dict]) -> ModelResponse:
+            self.complete_call_count += 1
+            self.captured_messages = messages
+            if self._raise_on_complete is not None:
+                raise self._raise_on_complete
+            return self._response
+
+        return complete
+
+
+# ---------------------------------------------------------------------------
+# senses_engine_config — the config builder t6 uses
+# ---------------------------------------------------------------------------
+
+
+class TestSensesEngineConfig:
+    def test_none_without_senses_declaration(self) -> None:
+        assert senses_engine_config(EngineConfig()) is None
+
+    def test_maps_replaced_fields_and_inherits_the_rest(self) -> None:
+        config = EngineConfig(
+            model="main-model",
+            base_url="http://main:8001/v1",
+            api_key="main-key",
+            max_steps=99,
+            timeout=42.0,
+            senses=SensesConfig(
+                model="senses-model",
+                base_url="http://senses:8003/v1",
+                api_key="senses-key",
+                context_budget=32768,
+            ),
+        )
+
+        sc = senses_engine_config(config)
+
+        assert sc is not None
+        assert sc.model == "senses-model"
+        assert sc.base_url == "http://senses:8003/v1"
+        assert sc.api_key == "senses-key"
+        # windowed to the senses model's OWN budget, never the main model's.
+        assert sc.context_budget_tokens == 32768
+        # unrelated knobs inherit unchanged from the main config.
+        assert sc.max_steps == 99
+        assert sc.timeout == 42.0
+
+
+# ---------------------------------------------------------------------------
+# (1) tools-off on the wire + (2) verbatim original
+# ---------------------------------------------------------------------------
+
+
+class TestIntakeToolsOffAndVerbatimOriginal:
+    def test_make_complete_called_with_empty_tools(self) -> None:
+        """A senses request NEVER carries a tool schema — make_complete gets []."""
+        fake = _FakeEngine()
+        packet, record = run_senses_intake("do the thing", _senses_config(), fake)
+
+        # tools-off ALWAYS: exactly one make_complete, offered an EMPTY tool list.
+        assert fake.make_complete_calls == [[]]
+        assert fake.complete_call_count == 1
+        assert record.degraded is False
+        assert isinstance(packet, ContextPacket)
+
+    def test_original_is_verbatim_input_not_model_output(self) -> None:
+        """packet.original is the exact input, even when the model emits its own."""
+        text = "  Fix the flaky test in tests/test_widget.py — it times out.\n"
+        # The model tries to supply a DIFFERENT original; it must be ignored.
+        bogus = (
+            '{"original": "MODEL REWROTE THIS", "interpretation": "deflake a test", '
+            '"confidence": 0.6, "task_type": "bugfix", "omissions": ["root cause"]}'
+        )
+        fake = _FakeEngine(ModelResponse(content=bogus, prompt_tokens=3, completion_tokens=4))
+
+        packet, record = run_senses_intake(text, _senses_config(), fake)
+
+        assert packet is not None
+        # The core invariant: original survives byte-for-byte (whitespace,
+        # trailing newline, everything) — sourced from the input, NOT the model.
+        assert packet.original == text
+        assert packet.original != "MODEL REWROTE THIS"
+        # The derived fields DO come from the model.
+        assert packet.interpretation == "deflake a test"
+        assert packet.confidence == 0.6
+        assert packet.task_type == "bugfix"
+        assert packet.omissions == ["root cause"]
+        assert record.degraded is False
+
+    def test_structured_fields_parsed_from_model_json(self) -> None:
+        fake = _FakeEngine()
+        packet, _ = run_senses_intake("add a retry to the uploader", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.interpretation == "add a retry to the uploader"
+        assert packet.confidence == 0.8
+        assert packet.task_type == "feature"
+        assert packet.omissions == ["which backoff", "max attempts"]
+
+    def test_intake_windows_prompt_to_senses_budget(self) -> None:
+        """A huge request is truncated under the senses send budget before sending.
+
+        The verbatim original is STILL the full input — only the prompt SENT to
+        the senses model is windowed.
+        """
+        fake = _FakeEngine()
+        huge = "x" * 5000
+        budget = 2000
+        config = _senses_config(context_budget_tokens=budget)
+        send_budget = budget - budget // 4  # the reserve arithmetic in _window_text
+
+        packet, record = run_senses_intake(huge, config, fake)
+
+        sent = fake.captured_messages
+        assert sent is not None
+        # The full [system, user] prompt is windowed under the senses send budget
+        # (the fixed system prompt is the floor; only the user text is truncated).
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+        assert len(sent[-1]["content"]) < len(huge)  # the user text was truncated
+        assert "[senses digest truncated to fit budget]" in sent[-1]["content"]
+        # original is the FULL input despite the windowed prompt.
+        assert packet is not None
+        assert packet.original == huge
+        assert record.degraded is False
+
+
+# ---------------------------------------------------------------------------
+# (3) degrade-never-raise — intake keeps the raw request
+# ---------------------------------------------------------------------------
+
+
+class TestIntakeDegrades:
+    def test_unreachable_endpoint_degrades_to_none(self) -> None:
+        fake = _FakeEngine(raise_on_complete=ConnectionError("connection refused"))
+        packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is None  # caller passes the RAW text through untouched
+        assert record.degraded is True
+        assert record.point == INTAKE_POINT
+        assert record.tokens is None
+        assert record.latency is not None and record.latency >= 0
+
+    def test_bad_json_degrades_to_none(self) -> None:
+        fake = _FakeEngine(
+            ModelResponse(content="I think this is a bugfix, no JSON here.", prompt_tokens=1)
+        )
+        packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is None
+        assert record.degraded is True
+
+    def test_empty_content_degrades_to_none(self) -> None:
+        fake = _FakeEngine(ModelResponse(content="", reasoning=""))
+        packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is None
+        assert record.degraded is True
+
+    def test_mock_engine_not_implemented_degrades_never_raises(self) -> None:
+        """mock.make_complete raises NotImplementedError → degraded no-op.
+
+        This is how a senses-armed ``mock`` run records a degraded no-op — the
+        all-engines contract: the degrade-never-raise wrapping catches it.
+        """
+        engine = load("mock")
+        packet, record = run_senses_intake("do it", _senses_config(), engine)
+
+        assert packet is None
+        assert record.degraded is True
+        assert record.point == INTAKE_POINT
+        assert record.latency is not None and record.latency >= 0
+
+
+# ---------------------------------------------------------------------------
+# speakback — shapes the raw summary; degrades to the raw summary
+# ---------------------------------------------------------------------------
+
+
+class TestSpeakback:
+    def test_tools_off_and_returns_display_string(self) -> None:
+        fake = _FakeEngine(
+            ModelResponse(
+                content="Done! I added a retry with backoff.", prompt_tokens=2, completion_tokens=6
+            )
+        )
+        display, record = run_senses_speakback(
+            "wrote uploader.py; added retry", _senses_config(), fake
+        )
+
+        assert fake.make_complete_calls == [[]]  # tools-off on the wire
+        assert display == "Done! I added a retry with backoff."
+        assert record.degraded is False
+        assert record.point == SPEAKBACK_POINT
+        assert record.tokens == 8  # 2 + 6, exact — never estimated
+
+    def test_unreachable_degrades_to_none(self) -> None:
+        fake = _FakeEngine(raise_on_complete=ConnectionError("refused"))
+        display, record = run_senses_speakback("raw cortex summary", _senses_config(), fake)
+
+        assert display is None  # caller falls back to the raw summary
+        assert record.degraded is True
+        assert record.point == SPEAKBACK_POINT
+
+    def test_empty_content_degrades_to_none(self) -> None:
+        fake = _FakeEngine(ModelResponse(content="   ", reasoning=""))
+        display, record = run_senses_speakback("raw cortex summary", _senses_config(), fake)
+
+        assert display is None
+        assert record.degraded is True
+
+    def test_mock_engine_not_implemented_degrades(self) -> None:
+        engine = load("mock")
+        display, record = run_senses_speakback("raw cortex summary", _senses_config(), engine)
+
+        assert display is None
+        assert record.degraded is True
+
+
+# ---------------------------------------------------------------------------
+# (4) runtime-fact records — latency/tokens/degraded, no quality field
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeFactRecords:
+    def test_success_record_carries_exact_tokens_and_latency(self) -> None:
+        fake = _FakeEngine(
+            ModelResponse(content=_INTAKE_JSON, prompt_tokens=11, completion_tokens=13)
+        )
+        _, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert isinstance(record, SensesRecord)
+        assert record.tokens == 24  # 11 + 13, exact — never estimated
+        assert record.latency is not None and record.latency >= 0
+        assert record.degraded is False
+
+    def test_record_shape_has_no_quality_field(self) -> None:
+        """A runtime-fact layer, not a quality judge: only {point, latency, tokens,
+        degraded} — no field grades the answer."""
+        fake = _FakeEngine()
+        _, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert set(record.to_dict().keys()) == {"point", "latency", "tokens", "degraded"}
+
+
+# ---------------------------------------------------------------------------
+# boundary — senses.py opens no socket / forks no daemon / shells out to nothing
+# ---------------------------------------------------------------------------
+
+
+def test_senses_module_has_no_io_surface() -> None:
+    """senses.py is pure stdlib + the engine's own OpenAI-wire seam — no direct
+    socket/daemon/thread/subprocess primitive of its own (mirrors the named
+    deepthink.py boundary pin). The package-wide boundary sweep in
+    tests/test_boundary.py already covers this file; this pins it by name."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "colleague" / "senses.py"
+    source = src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        "import subprocess",
+    ):
+        assert forbidden not in source, f"senses.py must not use {forbidden!r}"
