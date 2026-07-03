@@ -37,7 +37,7 @@ import json
 import urllib.error
 import urllib.request
 
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, resolve_lobes_gateway_url
 from colleague.oilcheck import make_check
 
 _PROBE_TIMEOUT = 3.0
@@ -112,7 +112,51 @@ def _checks(repo_path) -> list[dict]:
     model_check = _model_available_check(config.model, base_url, served)
     if model_check is not None:
         results.append(model_check)
+
+    lobes_check = _lobes_reachable_check(repo_path)
+    if lobes_check is not None:
+        results.append(lobes_check)
     return results
+
+
+def _lobes_reachable_check(repo_path) -> dict | None:
+    """Live lobes-gateway consultation (cortex/senses arc, t4) — probe-only.
+
+    Returns ``None`` when the lobes discovery rung is unarmed. When armed, GETs
+    the gateway's ``/capabilities`` (network — hence probe-only): a successful
+    resolve reports the discovered cortex/senses ids (the rung in effect); an
+    unreachable gateway is a ``warning`` naming the degradation to the next
+    precedence rung (never an ``error`` — the run still resolves, h7).
+    """
+    gateway = resolve_lobes_gateway_url(repo_path)
+    if gateway is None:
+        return None
+    from colleague import lobes as _lobes
+
+    roles = _lobes.resolve_roles(gateway)
+    if roles is not None:
+        return make_check(
+            "provider_lobes_reachable",
+            True,
+            "info",
+            (
+                f"lobes gateway reachable at {gateway!r}: cortex={roles.cortex.model!r} "
+                f"senses={roles.senses.model!r} — role discovery in effect"
+            ),
+        )
+    return make_check(
+        "provider_lobes_reachable",
+        False,
+        "warning",
+        (
+            f"lobes gateway armed ({gateway!r}) but unreachable — config resolution "
+            "degrades to the next precedence rung (config.json / builtin default)"
+        ),
+        remediation=(
+            "start the lobes gateway, or unset COLLEAGUE_LOBES_URL / the "
+            "config.json 'lobes' section to resolve models directly"
+        ),
+    )
 
 
 def _served_models(response: object) -> list[str] | None:
