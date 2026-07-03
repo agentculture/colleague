@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.2] - 2026-07-03
+
+### Added
+
+- Spec + plan: senses live presence + voice (devague /think + /spec-to-plan) — talk to senses while cortex works: concurrent senses chat lane (session + a planned `colleague talk` flight-attach verb), operator words relayed into the running loop via the existing flight guidance plane at turn boundaries, stt transcript in / tts wav out behind a planned [voice] extra (un-parks #277 lane 1; #276 stays parked). Live-probed 2026-07-03: senses answers 1.3-1.6s during an in-flight cortex completion; STT proxies via the gateway; TTS 502s rig-side (parked non-blocking + lobes-cli issue follow-up). Docs only — no runtime change in this PR.
+
 ## [1.35.1] - 2026-07-03
 
 ### Added
