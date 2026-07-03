@@ -81,10 +81,17 @@ class RoleInfo:
 
 @dataclass(frozen=True)
 class LobesRoles:
-    """The cortex + senses metadata resolved from one gateway ``/capabilities`` call."""
+    """The cortex + senses metadata resolved from one gateway ``/capabilities`` call.
+
+    ``stt`` and ``tts`` are OPTIONAL voice roles: their absence or malformed
+    shape leaves them ``None`` but does NOT cause :func:`resolve_roles` to
+    return ``None`` (unlike cortex/senses which are mandatory).
+    """
 
     cortex: RoleInfo
     senses: RoleInfo
+    stt: RoleInfo | None = None
+    tts: RoleInfo | None = None
 
 
 def _parse_role(raw: object) -> RoleInfo | None:
@@ -178,4 +185,13 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
             return None
         resolved[name] = role
 
-    return LobesRoles(cortex=resolved["cortex"], senses=resolved["senses"])
+    # Voice roles (stt/tts) are OPTIONAL: parse them but never fail resolution.
+    stt_role = _parse_role(payload.get("stt"))
+    tts_role = _parse_role(payload.get("tts"))
+
+    return LobesRoles(
+        cortex=resolved["cortex"],
+        senses=resolved["senses"],
+        stt=stt_role,
+        tts=tts_role,
+    )
