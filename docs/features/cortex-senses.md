@@ -17,6 +17,11 @@ pair.
 This is the *second* sanctioned increment at the router-exclusion boundary,
 after [deepthink](deepthink.md) — see "The honest line" below.
 
+> For the **component map, data-flow diagrams, the model table, and what the
+> split enables**, see the companion
+> [architecture doc](cortex-senses-architecture.md). This doc covers config,
+> modes, and honest limits in prose.
+
 ## Architecture
 
 Role resolution happens once, at `EngineConfig.resolve()` time, as one more
