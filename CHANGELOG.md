@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.36.1] - 2026-07-04
+
+### Added
+
+- Spec + plan for the coder-agent cockpit UX arc (#285): idle/running cockpit states, mode-semantics disambiguation, mutation ledger, conversation vs run-activity split, /help regrouping, icons option (devague /think + /spec-to-plan; docs/specs/ + docs/plans/ 2026-07-03-colleague-s-cockpit-now-reads-like-a-real-coder-ag)
+
 ## [1.36.0] - 2026-07-03
 
 ### Added
