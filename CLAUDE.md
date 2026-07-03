@@ -361,13 +361,14 @@ The architecture, part by part:
   roles with a FIXED responsibility boundary (cortex acts, senses
   perceives/presents), resolved by name from lobes — no automatic
   task→model routing policy, no N-role generalization, no senses-decides-
-  to-answer-itself. Two follow-ups are parked, each needing its own
-  router-boundary re-spec: **#276** (senses-direct-for-cheap-tasks — senses
-  answering without cortex at all; a model deciding per-input whether cortex
-  is needed is the start of the excluded routing policy) and **#277** (the
-  voice loop — `stt`/`tts` consumption — and embedder/reranker consumption;
-  both roles are discoverable in the `/capabilities` contract from day one
-  but colleague consumes only `cortex`/`senses` today). Honest limits: the
+  to-answer-itself. Follow-ups: **#276** (senses-direct-for-cheap-tasks —
+  senses answering without cortex at all; a model deciding per-input whether
+  cortex is needed is the start of the excluded routing policy) STAYS parked;
+  **#277**'s **voice loop** (`stt`/`tts` consumption) is now CONSUMED by the
+  **Senses live presence + voice** arc (the third sanctioned increment, below),
+  while its **embedder/reranker** retrieval lane stays parked — all four extra
+  roles are discoverable in the `/capabilities` contract from day one; colleague
+  now consumes `cortex`/`senses`/`stt`/`tts`. Honest limits: the
   senses intake window is windowed to the senses model's own budget, but
   `ContextPacket.original` is never touched by that windowing (always
   verbatim); the lobes-reported per-role `endpoint` field is not
@@ -425,6 +426,64 @@ The architecture, part by part:
   second model on the existing enumerated escalation surface). Runtime-owned
   (all-engines rule). Feature doc: `docs/features/media-input.md`; spec +
   plan: `docs/specs/2026-07-02-hand-colleague-a-screenshot-a-diagram-or-a-voice-n.md`
+  and the matching `docs/plans/` file.
+- **Senses live presence + voice** — while cortex drives a work item, the
+  operator converses with **senses** concurrently instead of watching in
+  silence: senses answers in seconds from the LIVE run context (flight-feed
+  tail + context packet + task state), the operator's words become flight
+  **guidance injected at the next tool-call boundary** (never mid-completion —
+  cooperative, not preemptive), and audio rides in/out through two new
+  lobes-served voice roles. The senses talk lane
+  (`colleague/senses.py` `run_senses_talk`) is the tools-off sibling of
+  intake/speak-back — ONE `make_complete(senses_config, tools=[])` completion
+  windowed to senses' OWN budget, grounded (answer only from the given feed
+  tail — a fabricated-status answer is a test failure), degrade-never-raise,
+  and returns an advisory `{answer, relay, relay_text, latency, degraded,
+  tokens}` — NEVER the task answer (the task always goes to cortex; senses
+  converses and relays but never acts). An explicit `cortex:` prefix forces a
+  relay regardless of the model's judgment (the guaranteed path). **Voice**:
+  `colleague/voice.py` (pure urllib, no subprocess) `transcribe` POSTs
+  multipart audio to the `stt` role returning the VERBATIM transcript (the v1
+  verbatim invariant extends to transcripts — a lossy transcript is a test
+  failure), and `synthesize` POSTs to the `tts` role, writing the `.wav` beside
+  the run (file always; a 502/"no audio" degrades to None + one notice, the
+  text reply byte-identical); mic capture + speaker playback live behind the
+  opt-in **`[voice]` extra** (`colleague/voice_devices.py`, lazy `sounddevice`/
+  `soundfile` imports — a base install carries NO audio dep; a `play()` failure
+  never loses the written wav). Role resolution extends `colleague/lobes.py`
+  (`resolve_roles` now parses OPTIONAL `stt`/`tts` roles — their absence never
+  fails resolution) and a `VoiceConfig` on `EngineConfig` (`colleague/config.py`,
+  the same flag > env > config.json > lobes-discovery > absent precedence as
+  senses; absent = byte-identical). Two audiences on ONE file-based flight
+  plane: the interactive **session** polls stdin non-blockingly at each
+  progress-sink boundary (`colleague/cli/_commands/session.py`, `select` with
+  zero timeout — **NO threads**; gated on a colour TTY + senses armed, so
+  off-TTY/piped is byte-identical) and the **`colleague talk <task-id>`** attach
+  verb (`colleague/cli/_commands/talk.py`) is a flight-plane REPL for background
+  and agent-caller runs; the **resident appserver**
+  (`colleague/resident/appserver.py`) carries a synthesized-wav file-link line
+  in replies and routes peer relays under the c19 trust model — a non-operator
+  can NEVER `append_guidance` (one call site, structurally inside the operator
+  branch). **Awareness invariant**: every APPLIED injection produces a flight-feed
+  line AND a `TaskResult.senses.injections` record, every talk exchange folds
+  into `TaskResult.senses.chat` at finish, so the operator's mid-run view is
+  reconstructable from feed + artifact alone; the #206 invariant holds
+  (recording an injection never advances `step_count`). Runtime-owned
+  (all-engines rule); a run with no live lane leaves `TaskResult.senses` at the
+  pre-arc shape (omit-when-empty `injections`/`chat`), byte-identical.
+  **This is the THIRD sanctioned increment at the router-exclusion line** (see
+  the scope section): the enumerated senses surface gains a concurrent
+  conversational lane + two FIXED named-role consumers (`stt` in, `tts` out) —
+  no automatic task→model routing, no N-role generalization, still
+  no-senses-direct (#276 stays parked; #277's embedder/reranker retrieval lane
+  stays parked). **Honest limit:** the reference rig's gateway speech proxy
+  currently **502s for BOTH stt and tts** (probed 2026-07-03), so the voice
+  round-trip live proofs SKIP honestly (the crux concurrent-latency proof
+  PASSES: senses 1.14s alone / 2.33s p50 under cortex load, target p50<3s); a
+  fully-live cortex-loop injection also waits on the rig serving a tool-calling
+  cortex backend (#66). Feature doc: `docs/features/senses-live-presence.md`;
+  spec + plan:
+  `docs/specs/2026-07-03-talk-to-colleague-while-it-works-senses-is-a-live.md`
   and the matching `docs/plans/` file.
 - **Memory (best-colleague arc, R1)** — colleague remembers and learns from
   every run. `colleague/memory.py` shells out to the operator-installed
@@ -1363,27 +1422,37 @@ agent-lifecycle behind an opt-in extra, and background execution is a one-shot
 detached child).
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
-router / routing policy. Two, and only two, sanctioned increments have landed
+router / routing policy. Three sanctioned increments have landed
 at this line, each a re-spec'd, fixed, enumerated surface — never a routing
 policy: (1) the **dual-model deepthink escalation** — ONE operator-declared
 second model, a fixed enumerated escalation surface, no automatic
-task→model routing, no N-model generalization; and (2) the **cortex/senses
+task→model routing, no N-model generalization; (2) the **cortex/senses
 role split** — TWO operator-declared roles with a FIXED responsibility
 boundary (cortex acts — drives the loop, tools, gates, handoff; senses
 perceives/presents — intake, speak-back, media description on operator-facing
 surfaces only), resolved BY NAME from an optional `lobes` gateway, no
 automatic task→model routing policy, no N-role generalization, no
-senses-decides-to-answer-itself. Anything beyond either of those two is still
+senses-decides-to-answer-itself; and (3) the **senses live presence + voice**
+arc (the **Senses live presence + voice** part above) — the senses role is
+extended to a CONCURRENT conversational lane (answer + turn-boundary relay
+while cortex drives the SAME work item) and TWO more FIXED named-role consumers
+join the enumerated senses surface: `stt` (audio in → verbatim transcript) and
+`tts` (text reply → audio out), operator-declared and consumed BY NAME — no
+automatic task→model routing, no N-role generalization, and STILL no
+senses-decides-to-answer-itself (the task always goes to cortex; senses
+converses and relays but never acts, structurally tools-off). Anything beyond
+those three is still
 the excluded router; document the distinction honestly. Explicitly still OUT,
 each parked pending its own router-boundary re-spec:
 **senses-direct-for-cheap-tasks** — senses answering without cortex at all,
 tracked as [colleague#276](https://github.com/agentculture/colleague/issues/276)
 (a model deciding per-input whether cortex is needed is itself the start of
-the excluded routing policy) — and the **voice loop + retrieval consumption**
-— `stt`/`tts`/embedder/reranker roles are discoverable in the lobes
-`/capabilities` contract from day one but colleague consumes only
-`cortex`/`senses`, tracked as
-[colleague#277](https://github.com/agentculture/colleague/issues/277). An
+the excluded routing policy) — and the **retrieval consumption** lane of #277
+— `embedder`/`reranker` roles are discoverable in the lobes `/capabilities`
+contract but colleague consumes only `cortex`/`senses`/`stt`/`tts` (the voice
+lane of [colleague#277](https://github.com/agentculture/colleague/issues/277)
+is now CONSUMED by increment (3) above — stt/tts land here; the
+embedder/reranker retrieval lane stays parked). An
 execution sandbox, a colleague-owned daemon/server
 mode (**deliberately re-specced by the best-colleague arc, decision c17 — the
 third recorded convention change** after the agentfront base dep and the LLM
