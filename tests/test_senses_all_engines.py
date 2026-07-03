@@ -39,7 +39,7 @@ import pytest
 
 from colleague import registry
 from colleague.cli._commands import session as session_mod
-from colleague.cli._commands.session import _Session
+from colleague.cli._commands.session import SensesSessionOptions, SessionIO, _Session
 from colleague.config import EngineConfig, SensesConfig
 from colleague.contract import OK, SensesBlock, Task, TaskResult
 from colleague.engines import vllm_openai
@@ -425,6 +425,10 @@ def _make_session(
             result.senses = SensesBlock(mode="split", packet=packet, records=[])
         return result, Path(str(tmp_path)) / ".colleague" / "art.json"
 
+    senses_options = SensesSessionOptions(
+        cortex_only=bool(over.pop("cortex_only", False)),
+        debug_senses=bool(over.pop("debug_senses", False)),
+    )
     return _Session(
         repo=tmp_path,
         engine_name="mock",
@@ -433,8 +437,8 @@ def _make_session(
         config=config,
         json_mode=False,
         view="markdown",
-        out=out,
-        err=err,
+        io=SessionIO(out=out, err=err),
         work_fn=_fake_work,
+        senses_options=senses_options,
         **over,
     )

@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from colleague.cli._commands._session_input import CYCLE_MODE
-from colleague.cli._commands.session import _act_mode, _Session, run_session
+from colleague.cli._commands.session import SessionIO, _act_mode, _Session, run_session
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
 from colleague.session_modes import DEFAULT_MODE
@@ -96,8 +96,10 @@ def _make_session(tmp_path: Path, *, view: str = "markdown", **kw: Any) -> _Sess
         config=EngineConfig.resolve(),
         json_mode=False,
         view=view,
-        out=kw.get("out", lambda *a, **k: None),
-        err=kw.get("err", lambda *a, **k: None),
+        io=SessionIO(
+            out=kw.get("out", lambda *a, **k: None),
+            err=kw.get("err", lambda *a, **k: None),
+        ),
         work_fn=kw.get("work_fn", lambda **k: (TaskResult(task_id="t", status=OK), tmp_path)),
         plan_fn=kw.get("plan_fn", lambda **k: "planned"),
         user_home=tmp_path,  # hermetic: never scan the real ~/.colleague

@@ -450,6 +450,21 @@ def probe_lobes_stack(repo: str | Path) -> tuple[bool, str | None]:
     return True, None
 
 
+def _senses_record_runtime(record: dict[str, Any]) -> str:
+    """Format one senses record's runtime facts: ``point=Ns/Mtok``.
+
+    Qodo #3 (cortex/senses PR #281): the measurement story was incomplete
+    without each invocation's token cost alongside its latency. ``tokens`` is
+    ``None`` on a degraded record (the call never reached the wire, or the
+    response carried no usage) — rendered as ``?tok`` (an honest "unknown",
+    never fabricated as ``0tok``, which would misleadingly imply a free call).
+    Still RUNTIME FACTS ONLY, never a quality score.
+    """
+    tokens = record.get("tokens")
+    tok_str = f"{tokens}tok" if tokens is not None else "?tok"
+    return f"{record.get('point')}={record.get('latency')}s/{tok_str}"
+
+
 def classify_cortex_senses_check(
     cortex_artifact: dict[str, Any] | None,
     split_artifact: dict[str, Any] | None,
@@ -462,10 +477,11 @@ def classify_cortex_senses_check(
     ``mode=split`` AND preserved the operator's original request VERBATIM across
     the cortex/senses boundary; the returned detail emits the per-mode wall-clock
     (``stats.duration_seconds``) and the senses runtime (each record's
-    ``point=latency``) side by side, which is the measurable-against-cortex-only
-    deliverable. A split artifact missing the block, or whose packet dropped the
-    verbatim original, FAILS (a real regression); the runner SKIPs before this
-    when the stack is not serving.
+    ``point=latency``/``tokens``, via :func:`_senses_record_runtime`) side by
+    side, which is the measurable-against-cortex-only deliverable. A split
+    artifact missing the block, or whose packet dropped the verbatim original,
+    FAILS (a real regression); the runner SKIPs before this when the stack is
+    not serving.
     """
     split = split_artifact or {}
     senses = split.get("senses")
@@ -480,9 +496,7 @@ def classify_cortex_senses_check(
     cortex_secs = ((cortex_artifact or {}).get("stats") or {}).get("duration_seconds")
     split_secs = (split.get("stats") or {}).get("duration_seconds")
     records = senses.get("records") or []
-    senses_runtime = (
-        " · ".join(f"{r.get('point')}={r.get('latency')}s" for r in records) or "(none)"
-    )
+    senses_runtime = " · ".join(_senses_record_runtime(r) for r in records) or "(none)"
     detail = (
         f"cortex-only wall-clock={cortex_secs}s vs split wall-clock={split_secs}s; "
         f"senses runtime: {senses_runtime}; verbatim original preserved"

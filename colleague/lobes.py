@@ -36,12 +36,22 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 #: The one endpoint this module ever calls.
 _CAPABILITIES_PATH = "/capabilities"
 
 #: Bound a stalled gateway so a caller never hangs indefinitely on a dead rig.
 _DEFAULT_TIMEOUT = 5.0
+
+#: The only gateway URL schemes :func:`resolve_roles` will dial. Rejects
+#: ``file://`` / ``ftp://`` / any other scheme BEFORE ``urlopen`` is ever
+#: reached (Qodo #5, cortex/senses PR #281) — an operator-declared
+#: ``COLLEAGUE_LOBES_URL`` / config.json ``lobes`` value with an unexpected
+#: scheme degrades to ``None`` (the same degrade-to-None contract as an
+#: unreachable gateway) rather than risking a local-file-read / SSRF-shaped
+#: request.
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 #: The roles colleague resolves. The gateway may serve more (embedder,
 #: reranker, stt, tts as of the 2026-07-03 live probe) — those are read and
@@ -126,26 +136,36 @@ def _parse_role(raw: object) -> RoleInfo | None:
 def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> LobesRoles | None:
     """Resolve cortex + senses metadata from the lobes gateway.
 
+    Validates *gateway_url*'s scheme is ``http``/``https`` BEFORE ever calling
+    ``urlopen`` (Qodo #5, cortex/senses PR #281) — a ``file://``/``ftp://``/
+    other-scheme URL degrades to ``None`` immediately, never dialed.
+
     GETs ``{gateway_url}/capabilities`` (stdlib ``urllib``) and parses the
-    JSON body. Degrades to ``None`` on ANY failure: unreachable gateway,
-    connect/read timeout, a non-200 status, malformed/invalid JSON, a
-    non-dict top-level body, or either the ``cortex`` or ``senses`` role
-    being absent/malformed. **Never raises.**
+    JSON body. Degrades to ``None`` on ANY failure: an unsupported scheme, an
+    unreachable gateway, connect/read timeout, a non-200 status,
+    malformed/invalid JSON, a non-dict top-level body, or either the
+    ``cortex`` or ``senses`` role being absent/malformed. **Never raises.**
 
     Re-resolves on every call — there is no disk cache (v1 decision: roles
     can flip ``ready``/``loaded`` between calls, and the gateway is cheap to
     ask).
     """
+    if urlsplit(gateway_url).scheme not in _ALLOWED_SCHEMES:
+        return None
     try:
         url = gateway_url.rstrip("/") + _CAPABILITIES_PATH
         request = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
+        with urllib.request.urlopen(  # nosec B310 - scheme validated above
+            request, timeout=timeout
+        ) as response:
             status = getattr(response, "status", 200)
             if status != 200:
                 return None
             raw_body = response.read()
         payload = json.loads(raw_body.decode("utf-8"))
-    except Exception:  # noqa: BLE001 - degrade-to-None is the whole contract, never raise
+    # Degrade-to-None is the whole contract of this function: any failure
+    # (network, JSON, shape) here folds into the caller's None-check.
+    except Exception:  # noqa: BLE001
         return None
 
     if not isinstance(payload, dict):

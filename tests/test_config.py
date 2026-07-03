@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from colleague.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, ResolveOverrides, resolve_engine
 
 
 def test_defaults_point_at_vllm_reference() -> None:
@@ -41,7 +41,9 @@ def test_numeric_env_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_fanout_files_knob(monkeypatch: pytest.MonkeyPatch) -> None:
     """#188: the mapping fan-out files-read trigger N is env-tunable (parked v1)."""
     assert EngineConfig.resolve().fanout_files == 12  # default
-    assert EngineConfig.resolve(fanout_files=3).fanout_files == 3  # explicit
+    assert (
+        EngineConfig.resolve(overrides=ResolveOverrides(fanout_files=3)).fanout_files == 3
+    )  # explicit
     monkeypatch.setenv("COLLEAGUE_FANOUT_FILES", "5")
     assert EngineConfig.resolve().fanout_files == 5  # env
 
@@ -52,7 +54,8 @@ def test_max_continue_nudges_knob(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLLEAGUE_MAX_CONTINUE_NUDGES", "5")
     assert EngineConfig.resolve().max_continue_nudges == 5  # env
     assert (
-        EngineConfig.resolve(max_continue_nudges=3).max_continue_nudges == 3
+        EngineConfig.resolve(overrides=ResolveOverrides(max_continue_nudges=3)).max_continue_nudges
+        == 3
     )  # explicit wins over env
     monkeypatch.setenv("CONVERTIBLE_MAX_CONTINUE_NUDGES", "7")
     monkeypatch.delenv("COLLEAGUE_MAX_CONTINUE_NUDGES", raising=False)
@@ -153,15 +156,16 @@ def test_autosplit_target_tokens_colleague_wins_over_convertible(
 def test_autosplit_target_tokens_explicit_wins_over_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An explicit resolve(autosplit_target_tokens=...) arg beats the env var."""
+    """An explicit resolve(overrides=ResolveOverrides(autosplit_target_tokens=...))
+    arg beats the env var."""
     monkeypatch.setenv("COLLEAGUE_AUTOSPLIT_TARGET", "500000")
-    cfg = EngineConfig.resolve(autosplit_target_tokens=800_000)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(autosplit_target_tokens=800_000))
     assert cfg.autosplit_target_tokens == 800_000
 
 
 def test_autosplit_target_tokens_in_to_dict() -> None:
     """autosplit_target_tokens appears in to_dict() snapshot."""
-    cfg = EngineConfig.resolve(autosplit_target_tokens=750_000)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(autosplit_target_tokens=750_000))
     snapshot = cfg.to_dict()
     assert "autosplit_target_tokens" in snapshot
     assert snapshot["autosplit_target_tokens"] == 750_000

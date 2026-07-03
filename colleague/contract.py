@@ -520,7 +520,7 @@ class ContextPacket:
             interpretation=str(data.get("interpretation", "")),
             confidence=confidence,
             task_type=str(data.get("task_type", "")),
-            omissions=[str(o) for o in data.get("omissions", [])],
+            omissions=_coerce_omissions(data.get("omissions")),
         )
 
 
@@ -1046,42 +1046,7 @@ class TaskResult:
         # serializes byte-identically to the pre-role artifact (no extra key).
         if self.role is not None:
             d["role"] = self.role
-        # mode gets the same omit-when-None treatment (spec R3 / plan t7): a
-        # mode-less work item serializes byte-identically to the pre-mode artifact
-        # (no extra key).
-        if self.mode is not None:
-            d["mode"] = self.mode
-        if self.affected_tests_report is not None:
-            d["affected_tests_report"] = self.affected_tests_report.to_dict()
-        # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
-        # work item with no acceptance criteria serializes byte-identically to
-        # today's artifact (no extra key).
-        if self.acceptance_outcomes is not None:
-            d["acceptance_outcomes"] = [dict(entry) for entry in self.acceptance_outcomes]
-        # deepthink gets the same omit-when-None treatment (plan task t3): a
-        # single-model work item (or one that never escalated) serializes
-        # byte-identically to today's artifact (no extra key).
-        if self.deepthink is not None:
-            d["deepthink"] = [c.to_dict() for c in self.deepthink]
-        # finish_recovered gets the same omit-when-None treatment (#248): an
-        # intact-finish work item serializes byte-identically (no extra key).
-        if self.finish_recovered is not None:
-            d["finish_recovered"] = self.finish_recovered
-        # memory gets the same omit-when-None treatment (spec R1 / plan t2): a
-        # memory-less work item serializes byte-identically (no extra key).
-        if self.memory is not None:
-            d["memory"] = dict(self.memory)
-        # media gets the same omit-when-None treatment (t9): an attachment-less
-        # work item serializes byte-identically (no extra key).
-        if self.media is not None:
-            d["media"] = {
-                "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
-            }
-        # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
-        # t2): a run with no senses front door serializes byte-identically to
-        # today's artifact (no extra key).
-        if self.senses is not None:
-            d["senses"] = self.senses.to_dict()
+        d.update(self._extra_fields_to_dict())
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -1089,6 +1054,55 @@ class TaskResult:
         if self.sub_results:
             d["sub_results"] = [s.to_dict() for s in self.sub_results]
         return d
+
+    def _extra_fields_to_dict(self) -> dict[str, Any]:
+        """The omit-when-None extras added after the original destination/lint
+        convention — ``mode``, ``affected_tests_report``, ``acceptance_outcomes``,
+        ``deepthink``, ``finish_recovered``, ``memory``, ``media``, ``senses``.
+
+        Split out of :meth:`to_dict` purely to hold its cognitive complexity
+        under the SonarCloud S3776 ceiling (15) — pure extraction, no behavior
+        change; the returned partial dict is merged into ``to_dict``'s result in
+        the SAME key order these were previously inserted in.
+        """
+        extra: dict[str, Any] = {}
+        # mode gets the same omit-when-None treatment (spec R3 / plan t7): a
+        # mode-less work item serializes byte-identically to the pre-mode artifact
+        # (no extra key).
+        if self.mode is not None:
+            extra["mode"] = self.mode
+        if self.affected_tests_report is not None:
+            extra["affected_tests_report"] = self.affected_tests_report.to_dict()
+        # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
+        # work item with no acceptance criteria serializes byte-identically to
+        # today's artifact (no extra key).
+        if self.acceptance_outcomes is not None:
+            extra["acceptance_outcomes"] = [dict(entry) for entry in self.acceptance_outcomes]
+        # deepthink gets the same omit-when-None treatment (plan task t3): a
+        # single-model work item (or one that never escalated) serializes
+        # byte-identically to today's artifact (no extra key).
+        if self.deepthink is not None:
+            extra["deepthink"] = [c.to_dict() for c in self.deepthink]
+        # finish_recovered gets the same omit-when-None treatment (#248): an
+        # intact-finish work item serializes byte-identically (no extra key).
+        if self.finish_recovered is not None:
+            extra["finish_recovered"] = self.finish_recovered
+        # memory gets the same omit-when-None treatment (spec R1 / plan t2): a
+        # memory-less work item serializes byte-identically (no extra key).
+        if self.memory is not None:
+            extra["memory"] = dict(self.memory)
+        # media gets the same omit-when-None treatment (t9): an attachment-less
+        # work item serializes byte-identically (no extra key).
+        if self.media is not None:
+            extra["media"] = {
+                "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
+            }
+        # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
+        # t2): a run with no senses front door serializes byte-identically to
+        # today's artifact (no extra key).
+        if self.senses is not None:
+            extra["senses"] = self.senses.to_dict()
+        return extra
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TaskResult":
@@ -1143,6 +1157,27 @@ class TaskResult:
                 else None
             ),
         )
+
+
+def _coerce_omissions(value: Any) -> list[str]:
+    """Coerce a raw ``omissions`` payload read back from an artifact.
+
+    Mirrors :func:`colleague.senses._coerce_omissions` (kept as a standalone
+    copy, not an import, to avoid a circular import: ``colleague.senses``
+    already imports :class:`ContextPacket` from this module). A malformed
+    artifact's ``omissions`` may be missing, ``None``, a non-string scalar
+    (e.g. an int), or a bare string — none of those should crash or
+    misbehave (a bare string previously iterated per-character via
+    ``[str(o) for o in "abc"]``, Qodo finding #1 on the cortex/senses PR
+    #281). A list/tuple becomes ``[str(x) for x in value]``; a bare string
+    becomes a single-element list; anything else (``None``, a number, a
+    dict) becomes ``[]`` — tolerant of a malformed artifact, never raises.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(x) for x in value]
+    return []
 
 
 def _coerce_acceptance_outcomes(

@@ -30,7 +30,7 @@ import pytest
 
 from colleague import registry
 from colleague.cli import main
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, ResolveOverrides
 from colleague.contract import INCOMPLETE, OK, SubResult, Task
 from colleague.engines import vllm_openai
 from colleague.subagents import make_batch_spawn, make_spawn
@@ -533,7 +533,7 @@ def test_width_1_batch_stable_fields_equal_sequential_make_spawn(
 
     # Batch path (width=1 — the default; subagent_concurrency=1 → no thread pool).
     batch_repo = _make_git_repo(tmp_path, "batch-w1")
-    cfg_w1 = EngineConfig.resolve(subagent_concurrency=1)
+    cfg_w1 = EngineConfig.resolve(overrides=ResolveOverrides(subagent_concurrency=1))
     assert cfg_w1.subagent_concurrency == 1, "sanity: concurrency must be 1 for this test"
 
     batch_fn = make_batch_spawn(str(batch_repo), cfg_w1, "mock")

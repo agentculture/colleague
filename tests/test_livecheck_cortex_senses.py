@@ -64,6 +64,31 @@ class TestClassify:
         # NO quality score anywhere — the two summaries are never compared.
         assert "better" not in detail.lower() and "quality" not in detail.lower()
 
+    def test_pass_emits_each_senses_record_tokens_alongside_latency(self) -> None:
+        """Qodo #3 (cortex/senses PR #281): the measurement story is incomplete
+        without token cost alongside latency — the detail must carry both, per
+        record, e.g. ``senses-intake=0.2s/12tok``."""
+        status, detail = classify_cortex_senses_check(
+            {"stats": {"duration_seconds": 3.0}}, _split_artifact(), _INSTR
+        )
+        assert status == "passed"
+        assert "senses-intake=0.2s/12tok" in detail
+        assert "senses-speakback=0.1s/6tok" in detail
+
+    def test_degraded_record_tokens_render_as_unknown_not_zero(self) -> None:
+        """A degraded record's ``tokens`` is ``None`` (the call never reached the
+        wire) — it must render as an honest ``?tok``, never a fabricated
+        ``0tok`` (which would misleadingly imply a free call)."""
+        art = _split_artifact(
+            records=[
+                {"point": "senses-intake", "latency": 0.05, "tokens": None, "degraded": True},
+            ]
+        )
+        status, detail = classify_cortex_senses_check({}, art, _INSTR)
+        assert status == "passed"
+        assert "senses-intake=0.05s/?tok" in detail
+        assert "0tok" not in detail
+
     def test_fail_when_split_missing_senses_block(self) -> None:
         status, detail = classify_cortex_senses_check(
             {}, {"stats": {"duration_seconds": 1.0}}, _INSTR

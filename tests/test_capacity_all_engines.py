@@ -23,6 +23,7 @@ from colleague.config import (
     MAX_SUBAGENT_FANOUT,
     MAX_SUBAGENT_TOTAL,
     EngineConfig,
+    ResolveOverrides,
 )
 from colleague.contract import OK, Task, TaskResult
 from colleague.loop import (
@@ -55,28 +56,28 @@ def _capture_context(monkeypatch, engine_module) -> dict:
 
 def test_mock_engine_forwards_fillline_threshold(monkeypatch, tmp_path: Path) -> None:
     captured = _capture_context(monkeypatch, mock_eng)
-    cfg = EngineConfig.resolve(fillline_threshold=0.55)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(fillline_threshold=0.55))
     mock_eng.MockEngine().work(Task.new(str(tmp_path), "do", engine="mock"), cfg)
     assert captured["context"].fillline_threshold == 0.55
 
 
 def test_vllm_engine_forwards_fillline_threshold(monkeypatch, tmp_path: Path) -> None:
     captured = _capture_context(monkeypatch, vllm_eng)
-    cfg = EngineConfig.resolve(fillline_threshold=0.55)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(fillline_threshold=0.55))
     vllm_eng.VllmOpenAIEngine().work(Task.new(str(tmp_path), "do", engine="vllm-openai"), cfg)
     assert captured["context"].fillline_threshold == 0.55
 
 
 def test_mock_engine_forwards_max_continue_nudges(monkeypatch, tmp_path: Path) -> None:
     captured = _capture_context(monkeypatch, mock_eng)
-    cfg = EngineConfig.resolve(max_continue_nudges=4)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(max_continue_nudges=4))
     mock_eng.MockEngine().work(Task.new(str(tmp_path), "do", engine="mock"), cfg)
     assert captured["context"].max_continue_nudges == 4
 
 
 def test_vllm_engine_forwards_max_continue_nudges(monkeypatch, tmp_path: Path) -> None:
     captured = _capture_context(monkeypatch, vllm_eng)
-    cfg = EngineConfig.resolve(max_continue_nudges=4)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(max_continue_nudges=4))
     vllm_eng.VllmOpenAIEngine().work(Task.new(str(tmp_path), "do", engine="vllm-openai"), cfg)
     assert captured["context"].max_continue_nudges == 4
 
@@ -92,9 +93,11 @@ def test_from_config_forwards_fields() -> None:
     import dataclasses
 
     cfg = EngineConfig.resolve(
-        context_budget_tokens=12345,
-        max_continue_nudges=4,
-        fillline_threshold=0.55,
+        overrides=ResolveOverrides(
+            context_budget_tokens=12345,
+            max_continue_nudges=4,
+            fillline_threshold=0.55,
+        )
     )
     cfg = dataclasses.replace(cfg, role="reviewer", affected_tests=False)
     ctx = ContextControls.from_config(cfg)
@@ -120,7 +123,9 @@ def test_both_engines_build_identical_controls(monkeypatch, tmp_path: Path) -> N
     counter. This is the guard the de-dup must keep true."""
     import dataclasses
 
-    cfg = EngineConfig.resolve(fillline_threshold=0.55, max_continue_nudges=4)
+    cfg = EngineConfig.resolve(
+        overrides=ResolveOverrides(fillline_threshold=0.55, max_continue_nudges=4)
+    )
 
     cap_mock = _capture_context(monkeypatch, mock_eng)
     mock_eng.MockEngine().work(Task.new(str(tmp_path), "do", engine="mock"), cfg)

@@ -295,6 +295,37 @@ def _default_plan(*, repo: Path, engine_name: str, request: str, config: EngineC
     return _render_run(result)
 
 
+@dataclass(frozen=True)
+class SessionIO:
+    """The session's output sinks, bundled to hold ``_Session.__init__`` under
+    the SonarCloud S107 parameter ceiling (13).
+
+    ``out`` is the interactive cockpit's normal-path sink (stdout, or stderr
+    under ``--json`` so stdout carries only each completed work item's
+    ``TaskResult``); ``err`` is the diagnostic sink (always stderr). Frozen —
+    a session's sinks are fixed for its lifetime (though the resulting
+    ``_Session.out``/``.err`` instance attributes MAY still be reassigned
+    directly post-construction, as some tests do).
+    """
+
+    out: Callable[..., None]
+    err: Callable[..., None]
+
+
+@dataclass(frozen=True)
+class SensesSessionOptions:
+    """Senses-session options (cortex/senses arc, task t8), bundled to hold
+    ``_Session.__init__`` under the SonarCloud S107 parameter ceiling (13).
+
+    ``cortex_only`` bypasses the senses front door for the whole session;
+    ``debug_senses`` echoes the perceived packet to stderr. Both default off —
+    with no senses model resolved the session is byte-identical either way.
+    """
+
+    cortex_only: bool = False
+    debug_senses: bool = False
+
+
 class _Session:
     """Holds the interactive session's mutable state and renders one cockpit."""
 
@@ -307,15 +338,13 @@ class _Session:
         base: str,
         config: EngineConfig,
         json_mode: bool,
-        allow_dirty: bool = False,
-        view: str,
-        out: Callable[..., None],
-        err: Callable[..., None],
+        io: SessionIO,
         work_fn: _WorkFn,
+        view: str,
+        allow_dirty: bool = False,
         plan_fn: _PlanFn = _default_plan,
         user_home: Optional[Path] = None,
-        cortex_only: bool = False,
-        debug_senses: bool = False,
+        senses_options: Optional[SensesSessionOptions] = None,
     ) -> None:
         self.repo = repo
         self.engine_name = engine_name  # mutable via /engine
@@ -327,8 +356,9 @@ class _Session:
         # (--cortex-only) and echo the perceived packet to stderr (--debug-senses).
         # Both default off; with no senses model resolved the session is
         # byte-identical either way.
-        self.cortex_only = cortex_only
-        self.debug_senses = debug_senses
+        opts = senses_options if senses_options is not None else SensesSessionOptions()
+        self.cortex_only = opts.cortex_only
+        self.debug_senses = opts.debug_senses
         # Session mode — auto|work|plan|explore|review — cycled by shift-tab (live
         # ANSI) or the keyboard-free /mode slash. 'auto' is byte-identical to the
         # pre-mode behaviour (free text is classified per input); a pinned mode
@@ -336,11 +366,11 @@ class _Session:
         self.mode = DEFAULT_MODE
         self.json_mode = json_mode
         self.view = view  # "ansi" (dynamic) | "markdown" (static)
-        self.out = out
-        self.err = err
+        self.out = io.out
+        self.err = io.err
         # The rendered cockpit is interactive chrome: stdout normally, but stderr
         # in --json mode so stdout carries only the work TaskResult(s).
-        self.chrome = err if json_mode else out
+        self.chrome = self.err if json_mode else self.out
         self.work_fn = work_fn
         self.plan_fn = plan_fn
         # The latest fill-line/backpressure signal a completed work item surfaced
@@ -1596,12 +1626,13 @@ def run_session(
         config=config,
         json_mode=json_mode,
         view=view,
-        out=out,
-        err=err,
+        io=SessionIO(out=out, err=err),
         work_fn=_work_fn,
         plan_fn=_plan_fn,
-        cortex_only=bool(getattr(args, "cortex_only", False)),
-        debug_senses=bool(getattr(args, "debug_senses", False)),
+        senses_options=SensesSessionOptions(
+            cortex_only=bool(getattr(args, "cortex_only", False)),
+            debug_senses=bool(getattr(args, "debug_senses", False)),
+        ),
     )
     return session.run(input_fn)
 
