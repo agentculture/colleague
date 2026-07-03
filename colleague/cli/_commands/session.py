@@ -62,6 +62,8 @@ from agentfront.taui.widgets.prompt_input import plain_prompt
 from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
 
 from colleague import cockpit, feedback, handoff, layers, registry
+from colleague.artifact import artifact_dir
+from colleague.artifact import write as _write_artifact
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._session_input import CYCLE_MODE
 from colleague.cli._commands._tui_sink import fold_phase
@@ -69,10 +71,11 @@ from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_session_engine
-from colleague.contract import Task, TaskResult
+from colleague.contract import SensesBlock, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.profiles import resolve_profile
+from colleague.senses import run_senses_intake, run_senses_speakback, senses_engine_config
 from colleague.session_intent import PLAN, classify_intent
 from colleague.session_modes import (
     DEFAULT_MODE,
@@ -292,6 +295,37 @@ def _default_plan(*, repo: Path, engine_name: str, request: str, config: EngineC
     return _render_run(result)
 
 
+@dataclass(frozen=True)
+class SessionIO:
+    """The session's output sinks, bundled to hold ``_Session.__init__`` under
+    the SonarCloud S107 parameter ceiling (13).
+
+    ``out`` is the interactive cockpit's normal-path sink (stdout, or stderr
+    under ``--json`` so stdout carries only each completed work item's
+    ``TaskResult``); ``err`` is the diagnostic sink (always stderr). Frozen —
+    a session's sinks are fixed for its lifetime (though the resulting
+    ``_Session.out``/``.err`` instance attributes MAY still be reassigned
+    directly post-construction, as some tests do).
+    """
+
+    out: Callable[..., None]
+    err: Callable[..., None]
+
+
+@dataclass(frozen=True)
+class SensesSessionOptions:
+    """Senses-session options (cortex/senses arc, task t8), bundled to hold
+    ``_Session.__init__`` under the SonarCloud S107 parameter ceiling (13).
+
+    ``cortex_only`` bypasses the senses front door for the whole session;
+    ``debug_senses`` echoes the perceived packet to stderr. Both default off —
+    with no senses model resolved the session is byte-identical either way.
+    """
+
+    cortex_only: bool = False
+    debug_senses: bool = False
+
+
 class _Session:
     """Holds the interactive session's mutable state and renders one cockpit."""
 
@@ -304,13 +338,13 @@ class _Session:
         base: str,
         config: EngineConfig,
         json_mode: bool,
-        allow_dirty: bool = False,
-        view: str,
-        out: Callable[..., None],
-        err: Callable[..., None],
+        io: SessionIO,
         work_fn: _WorkFn,
+        view: str,
+        allow_dirty: bool = False,
         plan_fn: _PlanFn = _default_plan,
         user_home: Optional[Path] = None,
+        senses_options: Optional[SensesSessionOptions] = None,
     ) -> None:
         self.repo = repo
         self.engine_name = engine_name  # mutable via /engine
@@ -318,6 +352,13 @@ class _Session:
         self.allow_dirty = allow_dirty  # dirty-tree guard opt-out (#149)
         self.base = base  # mutable via /base
         self.config = config  # .model mutable via /model
+        # Cortex/senses (t8): bypass the senses front door for the whole session
+        # (--cortex-only) and echo the perceived packet to stderr (--debug-senses).
+        # Both default off; with no senses model resolved the session is
+        # byte-identical either way.
+        opts = senses_options if senses_options is not None else SensesSessionOptions()
+        self.cortex_only = opts.cortex_only
+        self.debug_senses = opts.debug_senses
         # Session mode — auto|work|plan|explore|review — cycled by shift-tab (live
         # ANSI) or the keyboard-free /mode slash. 'auto' is byte-identical to the
         # pre-mode behaviour (free text is classified per input); a pinned mode
@@ -325,11 +366,11 @@ class _Session:
         self.mode = DEFAULT_MODE
         self.json_mode = json_mode
         self.view = view  # "ansi" (dynamic) | "markdown" (static)
-        self.out = out
-        self.err = err
+        self.out = io.out
+        self.err = io.err
         # The rendered cockpit is interactive chrome: stdout normally, but stderr
         # in --json mode so stdout carries only the work TaskResult(s).
-        self.chrome = err if json_mode else out
+        self.chrome = self.err if json_mode else self.out
         self.work_fn = work_fn
         self.plan_fn = plan_fn
         # The latest fill-line/backpressure signal a completed work item surfaced
@@ -890,7 +931,12 @@ class _Session:
         self._consume_staged_attachments(task)
         if is_free_text:
             self._log(f"→ work: {stripped}")
-        self._run_work(task, command_name)
+        # Cortex/senses (t8): with a senses model resolved, a free-text work line
+        # runs senses intake first (perceives the request → ContextPacket on the
+        # task) unless --cortex-only. classify_intent already picked the VERB above;
+        # this only perceives the CONTENT — the two compose, never compete.
+        senses_mode, intake_record = self._prepare_senses(task, is_free_text)
+        self._run_work(task, command_name, senses_mode=senses_mode, intake_record=intake_record)
 
     def _run_tracked(
         self, task_id: str, thunk: Callable[[], _T], *, goal: str = ""
@@ -996,13 +1042,100 @@ class _Session:
         self._log(summary)
         self._refresh_context()
 
-    def _run_work(self, task: Task, command_name: Optional[str]) -> None:
+    # ── cortex/senses split (t8) ─────────────────────────────────────────────
+
+    def _senses_engine(self):
+        """Return ``(senses_config, engine)`` for a senses call, or ``None``.
+
+        ``None`` when no senses model is resolved (byte-identical) or the engine
+        cannot be loaded — the caller then proceeds cortex-only. Both intake and
+        speak-back go through this one seam."""
+        senses_config = senses_engine_config(self.config)
+        if senses_config is None:
+            return None
+        try:
+            engine = registry.load(self.engine_name)
+        except Exception:  # noqa: BLE001 - an unloadable engine → proceed cortex-only
+            return None
+        return senses_config, engine
+
+    def _prepare_senses(self, task: Task, is_free_text: bool):
+        """Run senses intake for a free-text work line; return ``(mode, record)``.
+
+        ``mode`` is ``None`` (no senses resolved → byte-identical),
+        ``"cortex-only"`` (resolved but bypassed via ``--cortex-only`` or a
+        non-free-text template pick), or ``"split"`` (intake ran). On ``split``
+        the perceived :class:`~colleague.contract.ContextPacket` is attached to
+        *task* so the loop (t6) injects it + records mode=split; a degraded intake
+        attaches nothing and the raw request proceeds — the run never fails
+        (spec q1 / acceptance 3)."""
+        if self.config.senses is None:
+            return None, None
+        if self.cortex_only or not is_free_text:
+            return "cortex-only", None
+        pair = self._senses_engine()
+        if pair is None:
+            return "cortex-only", None
+        senses_config, engine = pair
+        packet, record = run_senses_intake(task.instruction, senses_config, engine)
+        if packet is None:
+            self._log("senses: intake degraded — using the raw request")
+        else:
+            task.context_packet = packet
+            self._log(
+                f"senses: perceived {packet.task_type or 'request'} "
+                f"(confidence {packet.confidence:.2f})"
+            )
+            if self.debug_senses:
+                self.err(f"[debug-senses] {packet.to_dict()}")
+        return "split", record
+
+    def _resave_artifact(self, result: TaskResult) -> None:
+        """Re-write the work item's artifact after folding session-side senses
+        records in. ``write`` is deterministic on task_id + request, so this
+        overwrites the same file execute_work wrote — never a second artifact."""
+        try:
+            _write_artifact(result, artifact_dir(self.repo))
+        except Exception:  # nosec B110 - a re-save failure must never fail the run
+            pass
+
+    def _finalize_split_run(self, result: TaskResult, intake_record) -> Optional[str]:
+        """Fold the session-side intake + speak-back records onto ``result.senses``
+        and re-save the artifact; return the shaped DISPLAY summary (or ``None`` to
+        fall back to the raw one).
+
+        The raw cortex summary on ``result.summary`` is never mutated (the artifact
+        keeps it, acceptance 1); only the displayed line is shaped."""
+        shaped, speakback_record = None, None
+        pair = self._senses_engine()
+        if pair is not None:
+            senses_config, engine = pair
+            shaped, speakback_record = run_senses_speakback(result.summary, senses_config, engine)
+        if result.senses is None:
+            result.senses = SensesBlock(mode="split", packet=None, records=[])
+        pre = [intake_record] if intake_record is not None else []
+        post = [speakback_record] if speakback_record is not None else []
+        result.senses.records = pre + list(result.senses.records) + post
+        self._resave_artifact(result)
+        return shaped
+
+    def _run_work(
+        self,
+        task: Task,
+        command_name: Optional[str],
+        *,
+        senses_mode: Optional[str] = None,
+        intake_record=None,
+    ) -> None:
         # The cockpit's state glyph animates per step while the work item runs
         # (the sink's WorkStep reductions advance ``work_item.step_count``).
+        # Cortex/senses (t8): a cortex-only run suppresses the loop's senses media
+        # bridge too (config.senses=None); split/None leave the config untouched.
+        config = replace(self.config, senses=None) if senses_mode == "cortex-only" else self.config
         result = self._dispatch_work(
             task,
             open_pr=self.open_pr,
-            config=self.config,
+            config=config,
             command_name=command_name,
             # The work verb's profile is behaviour-neutral by construction (it
             # equals the built-in defaults) but keeps the one-code-path claim
@@ -1011,9 +1144,16 @@ class _Session:
         )
         if result is None:
             return
+        display = result.summary
+        if senses_mode == "split":
+            display = self._finalize_split_run(result, intake_record) or result.summary
+        elif senses_mode == "cortex-only":
+            # Senses was resolved but bypassed — record it honestly on the artifact.
+            result.senses = SensesBlock(mode="cortex-only", packet=None, records=[])
+            self._resave_artifact(result)
         changed = ", ".join(result.changed_files) or "(none)"
         branch = f" → {result.branch}" if result.branch else ""
-        self._log(f"{result.status}: {result.summary} [{changed}]{branch}")
+        self._log(f"{result.status}: {display} [{changed}]{branch}")
         # A completed work item can change branch / dirty / last-feedback state.
         self._refresh_context()
 
@@ -1486,10 +1626,13 @@ def run_session(
         config=config,
         json_mode=json_mode,
         view=view,
-        out=out,
-        err=err,
+        io=SessionIO(out=out, err=err),
         work_fn=_work_fn,
         plan_fn=_plan_fn,
+        senses_options=SensesSessionOptions(
+            cortex_only=bool(getattr(args, "cortex_only", False)),
+            debug_senses=bool(getattr(args, "debug_senses", False)),
+        ),
     )
     return session.run(input_fn)
 
@@ -1552,6 +1695,21 @@ def _configure_session_parser(p: argparse.ArgumentParser) -> None:
         ),
     )
     p.add_argument("--base", default="main", help="Base branch for the PR (default: main).")
+    p.add_argument(
+        "--cortex-only",
+        action="store_true",
+        help=(
+            "Bypass the senses front door for this session: run cortex-only (no "
+            "senses intake or speak-back shaping, no senses media bridge). The "
+            "artifact records mode=cortex-only. Byte-identical when no senses "
+            "model is resolved. (cortex/senses arc)"
+        ),
+    )
+    p.add_argument(
+        "--debug-senses",
+        action="store_true",
+        help="Print the senses ContextPacket to stderr after each intake (cortex/senses arc).",
+    )
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
     p.add_argument("--model", default=None, help="Override the engine model name.")
     p.add_argument("--api-key", default=None, help="Override the engine API key.")

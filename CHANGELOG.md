@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.0] - 2026-07-03
+
+### Added
+
+- Cortex/senses role split: colleague resolves its minds by role from the lobes gateway (GET /capabilities via urllib) as a config rung (flag > env > config.json > lobes > builtin, zero model ids in colleague) — cortex (Qwen3.6-27B @128K) the authoritative tool-calling mind, senses (Gemma-4-12B @32K) a structurally tools-off multimodal front door.
+- colleague/lobes.py role-resolution client; SensesConfig + lobes discovery rung; colleague/senses.py intake/speak-back/media-bridge invocation layer (tools-off, degrade-never-raise, verbatim original preserved).
+- Session + mesh-resident split mode: free-text intake -> ContextPacket (mode=split artifact) with display-layer speak-back shaping, --cortex-only / --debug-senses flags. The media bridge prefers a declared multimodal senses over deepthink.
+- Read-only colleague lobes noun (show/overview/--json + explain/learn/parity); cortex-senses measurement livecheck (run_cortex_senses_check) — live-proven 2026-07-03 on the served rig (cortex-only vs split, verbatim preserved, runtime facts only).
+
+### Changed
+
+- Second sanctioned increment at the router-exclusion boundary (after deepthink): two declared roles with fixed responsibilities, no automatic task->model routing. senses-direct (#276) and voice/retrieval (#277) stay out-of-scope, each pending its own re-spec.
+
+### Fixed
+
+- Vocabulary: removed 8 pre-existing brain-as-role-vocabulary uses (resident/promote surfaces) — now cortex/senses/lobes/engine; enforced by a no-brain grep test.
+
 ## [1.34.1] - 2026-07-03
 
 ### Added

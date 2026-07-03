@@ -55,7 +55,7 @@ from pathlib import Path
 import pytest
 
 from colleague import registry
-from colleague.cli._commands.session import _Session
+from colleague.cli._commands.session import SessionIO, _Session
 from colleague.cli._commands.work import _build_task
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
@@ -144,8 +144,7 @@ def _make_session(repo: Path) -> _Session:
         config=EngineConfig.resolve(model="m"),
         json_mode=False,
         view="markdown",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=lambda **k: None,
     )
 

@@ -22,7 +22,12 @@ from agentfront.taui.state import TAUIState as CockpitState
 from agentfront.taui.widgets.prompt_input import plain_prompt
 from agentfront.taui.widgets.slash_autocomplete import render_slash_autocomplete
 
-from colleague.cli._commands.session import _SLASH_COMMANDS, _Session, filter_slash
+from colleague.cli._commands.session import (
+    _SLASH_COMMANDS,
+    SessionIO,
+    _Session,
+    filter_slash,
+)
 from colleague.config import EngineConfig
 
 from .filmstrip import DEFAULT_WIDTH, FrameT
@@ -55,8 +60,7 @@ def build_session(repo: Path, *, engine: str = "mock", model: str = DEMO_MODEL) 
         config=config,
         json_mode=False,
         view="ansi",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=_noop_work,
         user_home=repo,
     )

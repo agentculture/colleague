@@ -454,6 +454,194 @@ class DeepthinkCall:
 
 
 @dataclass
+class ContextPacket:
+    """The senses model's interpretation of an operator's request (cortex/senses, t2).
+
+    The "senses" model is a tools-off front door that reads the operator's
+    *verbatim* request and produces a structured interpretation before the
+    "cortex" model drives the loop. The packet rides the task contract as the
+    optional ``Task.context_packet`` and is echoed back (serialized) inside the
+    :class:`SensesBlock` on ``TaskResult.senses``.
+
+    Fields
+    ------
+    original:
+        The operator's verbatim original text. This must round-trip through
+        JSON **byte-for-byte** — no normalization, no trimming — because it is
+        the audit-trail record of exactly what was asked. (Only ``interpretation``
+        is a derived/normalized reading; ``original`` is sacrosanct.)
+    interpretation:
+        What the senses model believes the request means — a normalized,
+        possibly reworded reading of ``original``.
+    confidence:
+        The senses model's confidence in ``interpretation`` (typically 0.0-1.0).
+    task_type:
+        A short classification of the request (e.g. ``"bugfix"``, ``"feature"``,
+        ``"docs"``).
+    omissions:
+        What the senses model judged the request left implicit or omitted —
+        one short string per gap (e.g. ``"which file"``, ``"acceptance criteria"``).
+    """
+
+    original: str
+    interpretation: str = ""
+    confidence: float = 0.0
+    task_type: str = ""
+    omissions: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "original": self.original,
+            "interpretation": self.interpretation,
+            "confidence": self.confidence,
+            "task_type": self.task_type,
+            "omissions": list(self.omissions),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ContextPacket":
+        """Coerce a raw ``ContextPacket``-shaped mapping read back from an artifact.
+
+        ``original`` is kept **verbatim**: ``str()`` on an already-string value
+        is identity, so the operator's exact text (whitespace, newlines,
+        unicode) survives byte-for-byte. ``confidence`` is a best-effort numeric
+        coercion — a value that cannot be parsed as ``float`` (e.g. a malformed
+        artifact entry) falls back to ``0.0`` rather than raising, matching the
+        codebase's best-effort stance on optional structured payloads read back
+        from JSON (see :class:`DeepthinkCall`).
+        """
+        raw_confidence = data.get("confidence")
+        try:
+            confidence = float(raw_confidence) if raw_confidence is not None else 0.0
+        except (TypeError, ValueError):
+            confidence = 0.0
+        return cls(
+            original=str(data.get("original", "")),
+            interpretation=str(data.get("interpretation", "")),
+            confidence=confidence,
+            task_type=str(data.get("task_type", "")),
+            omissions=_coerce_omissions(data.get("omissions")),
+        )
+
+
+@dataclass
+class SensesRecord:
+    """One senses-model invocation record (cortex/senses, t2).
+
+    The senses lobe's structural sibling of :class:`DeepthinkCall`: a single
+    per-invocation record collected inside the :class:`SensesBlock` on
+    ``TaskResult.senses``. Mirrors ``DeepthinkCall``'s
+    ``{point, tokens, duration, degraded}`` shape field-for-field, with
+    ``latency`` in place of ``duration`` (the senses-side naming), and gets the
+    same best-effort numeric coercion in :meth:`from_dict`.
+
+    Fields
+    ------
+    point:
+        Which senses invocation point fired (a free-form label, e.g.
+        ``"interpret"``).
+    latency:
+        Wall-clock seconds the call took, or ``None`` when not measured.
+    tokens:
+        Total tokens used by the completion, or ``None`` when not reported
+        (e.g. a degraded call that never reached the wire).
+    degraded:
+        ``True`` iff the senses call fell back / never completed against the
+        senses model (a dead endpoint, request error, or overflow) instead of
+        actually completing. Default ``False``.
+    """
+
+    point: str
+    latency: Optional[float] = None
+    tokens: Optional[int] = None
+    degraded: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "point": self.point,
+            "latency": self.latency,
+            "tokens": self.tokens,
+            "degraded": self.degraded,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SensesRecord":
+        """Coerce a raw ``SensesRecord``-shaped mapping read back from an artifact.
+
+        ``latency``/``tokens`` are best-effort numeric coercions: a value that
+        cannot be parsed as ``float``/``int`` falls back to ``None`` rather than
+        raising and aborting the whole ``TaskResult.from_dict`` call — exactly
+        as :meth:`DeepthinkCall.from_dict` handles ``duration``/``tokens``.
+        ``point``/``degraded`` still survive from the rest of the entry.
+        """
+        raw_latency = data.get("latency")
+        raw_tokens = data.get("tokens")
+        try:
+            latency = float(raw_latency) if raw_latency is not None else None
+        except (TypeError, ValueError):
+            latency = None
+        try:
+            tokens = int(raw_tokens) if raw_tokens is not None else None
+        except (TypeError, ValueError):
+            tokens = None
+        return cls(
+            point=str(data.get("point", "")),
+            latency=latency,
+            tokens=tokens,
+            degraded=bool(data.get("degraded", False)),
+        )
+
+
+@dataclass
+class SensesBlock:
+    """The cortex/senses front-door record for a work item (cortex/senses, t2).
+
+    A block of shape ``{mode, packet, records}`` recorded on
+    ``TaskResult.senses``: ``mode`` names how the cortex/senses split resolved
+    (e.g. ``"split"`` when the senses model interpreted the request, or
+    ``"cortex-only"`` when it did not), ``packet`` is the :class:`ContextPacket`
+    the senses model produced (or ``None``), and ``records`` is the ordered list
+    of per-invocation :class:`SensesRecord` entries.
+
+    This is the same *shape family* as ``TaskResult.deepthink`` — an optional,
+    omit-when-None payload whose nested records mirror :class:`DeepthinkCall`.
+    A run with no senses involvement leaves ``TaskResult.senses`` at ``None``,
+    so the key is omitted entirely and the artifact is byte-identical to today.
+    """
+
+    mode: str
+    packet: Optional[ContextPacket] = None
+    records: list[SensesRecord] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "packet": self.packet.to_dict() if self.packet is not None else None,
+            "records": [r.to_dict() for r in self.records],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SensesBlock":
+        """Coerce a raw ``SensesBlock``-shaped mapping read back from an artifact.
+
+        ``packet`` is parsed only when it is a mapping (a malformed non-dict
+        packet degrades to ``None``); malformed (non-dict) ``records`` entries
+        are dropped rather than raising, matching the best-effort stance of
+        :func:`_coerce_deepthink_calls` / :func:`_coerce_acceptance_outcomes`.
+        """
+        raw_packet = data.get("packet")
+        return cls(
+            mode=str(data.get("mode", "")),
+            packet=ContextPacket.from_dict(raw_packet) if isinstance(raw_packet, dict) else None,
+            records=[
+                SensesRecord.from_dict(entry)
+                for entry in data.get("records", [])
+                if isinstance(entry, dict)
+            ],
+        )
+
+
+@dataclass
 class Step:
     """One iteration of the agentic tool-loop: a tool call and its result."""
 
@@ -524,6 +712,14 @@ class Task:
     ``colleague work "<instruction>"`` carries no attachments). Omitted from
     ``to_dict`` when ``None`` so an attachment-less task serializes
     byte-identically to today (task t1)."""
+    context_packet: Optional["ContextPacket"] = None
+    """The senses model's structured interpretation of this request (cortex/senses,
+    t2), or ``None`` when no senses front door ran (a bare ``colleague work
+    "<instruction>"`` carries no packet). A :class:`ContextPacket`
+    (``{original, interpretation, confidence, task_type, omissions}``) whose
+    ``original`` field preserves the operator's verbatim text. Omitted from
+    ``to_dict`` when ``None`` — mirroring ``goal``/``acceptance``/``attachments``
+    — so a packet-less task serializes byte-identically to today."""
 
     @classmethod
     def new(
@@ -538,6 +734,7 @@ class Task:
         goal: str | None = None,
         acceptance: list[str] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        context_packet: Optional["ContextPacket"] = None,
     ) -> "Task":
         """Create a task with a fresh short id."""
         return cls(
@@ -553,6 +750,7 @@ class Task:
             attachments=(
                 [dict(entry) for entry in attachments] if attachments is not None else None
             ),
+            context_packet=context_packet,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -577,6 +775,11 @@ class Task:
         # authored without attachments serializes byte-identically to today.
         if self.attachments is not None:
             data["attachments"] = [dict(entry) for entry in self.attachments]
+        # context_packet gets the same omit-when-None treatment (cortex/senses,
+        # t2): a task authored without a senses packet serializes byte-identically
+        # to today.
+        if self.context_packet is not None:
+            data["context_packet"] = self.context_packet.to_dict()
         return data
 
     @classmethod
@@ -611,6 +814,13 @@ class Task:
             and all(isinstance(entry, dict) for entry in raw_attachments)
             else None
         )
+        # Only a mapping is a valid context_packet: a bare string / list has no
+        # packet shape to coerce, so it degrades to None rather than raising —
+        # the best-effort from_dict stance (cortex/senses, t2).
+        raw_packet = data.get("context_packet")
+        context_packet = (
+            ContextPacket.from_dict(raw_packet) if isinstance(raw_packet, dict) else None
+        )
         return cls(
             id=str(data["id"]),
             repo_path=str(data["repo_path"]),
@@ -622,6 +832,7 @@ class Task:
             goal=data.get("goal"),
             acceptance=acceptance,
             attachments=attachments,
+            context_packet=context_packet,
         )
 
 
@@ -779,6 +990,18 @@ class TaskResult:
     by the loop after the first media-bearing completion (or preset by a
     successful bridge); omit-when-None so an attachment-less run serializes
     byte-identically."""
+    senses: Optional[SensesBlock] = None
+    """The cortex/senses front-door record for this work item (cortex/senses,
+    t2), or ``None`` when no senses model ran (a plain cortex-only drive). A
+    :class:`SensesBlock` of shape ``{mode, packet, records}`` where ``packet`` is
+    the :class:`ContextPacket` the senses model produced and ``records`` is the
+    list of per-invocation :class:`SensesRecord` (``{point, latency, tokens,
+    degraded}``). This is the same shape family as ``deepthink`` — an optional
+    payload with nested records mirroring :class:`DeepthinkCall`. Like
+    ``deepthink``/``lint_report``/``acceptance_outcomes``, the serialized key is
+    OMITTED (not null) when ``None``, so a run with no senses involvement
+    serializes byte-identically to today's artifact. The packet's ``original``
+    text round-trips verbatim."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -823,37 +1046,7 @@ class TaskResult:
         # serializes byte-identically to the pre-role artifact (no extra key).
         if self.role is not None:
             d["role"] = self.role
-        # mode gets the same omit-when-None treatment (spec R3 / plan t7): a
-        # mode-less work item serializes byte-identically to the pre-mode artifact
-        # (no extra key).
-        if self.mode is not None:
-            d["mode"] = self.mode
-        if self.affected_tests_report is not None:
-            d["affected_tests_report"] = self.affected_tests_report.to_dict()
-        # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
-        # work item with no acceptance criteria serializes byte-identically to
-        # today's artifact (no extra key).
-        if self.acceptance_outcomes is not None:
-            d["acceptance_outcomes"] = [dict(entry) for entry in self.acceptance_outcomes]
-        # deepthink gets the same omit-when-None treatment (plan task t3): a
-        # single-model work item (or one that never escalated) serializes
-        # byte-identically to today's artifact (no extra key).
-        if self.deepthink is not None:
-            d["deepthink"] = [c.to_dict() for c in self.deepthink]
-        # finish_recovered gets the same omit-when-None treatment (#248): an
-        # intact-finish work item serializes byte-identically (no extra key).
-        if self.finish_recovered is not None:
-            d["finish_recovered"] = self.finish_recovered
-        # memory gets the same omit-when-None treatment (spec R1 / plan t2): a
-        # memory-less work item serializes byte-identically (no extra key).
-        if self.memory is not None:
-            d["memory"] = dict(self.memory)
-        # media gets the same omit-when-None treatment (t9): an attachment-less
-        # work item serializes byte-identically (no extra key).
-        if self.media is not None:
-            d["media"] = {
-                "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
-            }
+        d.update(self._extra_fields_to_dict())
         # sub_results is OMITTED (not emitted as an empty list) when no sub-task
         # was delegated — mirroring the destination/announcement omit-when-None
         # pattern above so a no-subagent drive serializes byte-identically to
@@ -861,6 +1054,55 @@ class TaskResult:
         if self.sub_results:
             d["sub_results"] = [s.to_dict() for s in self.sub_results]
         return d
+
+    def _extra_fields_to_dict(self) -> dict[str, Any]:
+        """The omit-when-None extras added after the original destination/lint
+        convention — ``mode``, ``affected_tests_report``, ``acceptance_outcomes``,
+        ``deepthink``, ``finish_recovered``, ``memory``, ``media``, ``senses``.
+
+        Split out of :meth:`to_dict` purely to hold its cognitive complexity
+        under the SonarCloud S3776 ceiling (15) — pure extraction, no behavior
+        change; the returned partial dict is merged into ``to_dict``'s result in
+        the SAME key order these were previously inserted in.
+        """
+        extra: dict[str, Any] = {}
+        # mode gets the same omit-when-None treatment (spec R3 / plan t7): a
+        # mode-less work item serializes byte-identically to the pre-mode artifact
+        # (no extra key).
+        if self.mode is not None:
+            extra["mode"] = self.mode
+        if self.affected_tests_report is not None:
+            extra["affected_tests_report"] = self.affected_tests_report.to_dict()
+        # acceptance_outcomes gets the same omit-when-None treatment (spec R6): a
+        # work item with no acceptance criteria serializes byte-identically to
+        # today's artifact (no extra key).
+        if self.acceptance_outcomes is not None:
+            extra["acceptance_outcomes"] = [dict(entry) for entry in self.acceptance_outcomes]
+        # deepthink gets the same omit-when-None treatment (plan task t3): a
+        # single-model work item (or one that never escalated) serializes
+        # byte-identically to today's artifact (no extra key).
+        if self.deepthink is not None:
+            extra["deepthink"] = [c.to_dict() for c in self.deepthink]
+        # finish_recovered gets the same omit-when-None treatment (#248): an
+        # intact-finish work item serializes byte-identically (no extra key).
+        if self.finish_recovered is not None:
+            extra["finish_recovered"] = self.finish_recovered
+        # memory gets the same omit-when-None treatment (spec R1 / plan t2): a
+        # memory-less work item serializes byte-identically (no extra key).
+        if self.memory is not None:
+            extra["memory"] = dict(self.memory)
+        # media gets the same omit-when-None treatment (t9): an attachment-less
+        # work item serializes byte-identically (no extra key).
+        if self.media is not None:
+            extra["media"] = {
+                "attachments": [dict(entry) for entry in self.media.get("attachments", [])]
+            }
+        # senses gets the same omit-when-None treatment as deepthink (cortex/senses,
+        # t2): a run with no senses front door serializes byte-identically to
+        # today's artifact (no extra key).
+        if self.senses is not None:
+            extra["senses"] = self.senses.to_dict()
+        return extra
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TaskResult":
@@ -909,7 +1151,33 @@ class TaskResult:
             finish_recovered=data.get("finish_recovered"),
             memory=data.get("memory"),
             media=data.get("media") if isinstance(data.get("media"), dict) else None,
+            senses=(
+                SensesBlock.from_dict(data["senses"])
+                if isinstance(data.get("senses"), dict)
+                else None
+            ),
         )
+
+
+def _coerce_omissions(value: Any) -> list[str]:
+    """Coerce a raw ``omissions`` payload read back from an artifact.
+
+    Mirrors :func:`colleague.senses._coerce_omissions` (kept as a standalone
+    copy, not an import, to avoid a circular import: ``colleague.senses``
+    already imports :class:`ContextPacket` from this module). A malformed
+    artifact's ``omissions`` may be missing, ``None``, a non-string scalar
+    (e.g. an int), or a bare string — none of those should crash or
+    misbehave (a bare string previously iterated per-character via
+    ``[str(o) for o in "abc"]``, Qodo finding #1 on the cortex/senses PR
+    #281). A list/tuple becomes ``[str(x) for x in value]``; a bare string
+    becomes a single-element list; anything else (``None``, a number, a
+    dict) becomes ``[]`` — tolerant of a malformed artifact, never raises.
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(x) for x in value]
+    return []
 
 
 def _coerce_acceptance_outcomes(

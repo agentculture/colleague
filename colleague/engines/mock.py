@@ -21,6 +21,7 @@ from colleague.loop import (
     resolve_role,
     run,
 )
+from colleague.senses import make_senses_run
 from colleague.tools import ToolExecutor
 
 #: Where the mock writes its marker file (relative to the repo root).
@@ -80,6 +81,11 @@ class MockEngine(Engine):
         # to a recorded no-op, since the mock's make_complete raises (no live
         # model), exercising the c13 degradation ladder end-to-end.
         dt_run = make_deepthink_run(config, self.name)
+        # Cortex/senses media bridge (t6): the mock forwards the senses binding
+        # identically (all-engines rule); make_complete raises on the mock, so a
+        # senses-armed run records a degraded no-op — the same c13 ladder as
+        # deepthink-on-mock. ``None`` for a config without senses (byte-identical).
+        senses_run = make_senses_run(config, self.name)
         return run(
             _script(task),
             task,
@@ -104,5 +110,7 @@ class MockEngine(Engine):
             # exhausted overflow fires it). No count_tokens → the loop uses the char
             # estimate via window_messages. ``from_config`` is the single source for
             # the config→controls forwarding both backends share.
-            context=ContextControls.from_config(config, deepthink_run=dt_run),
+            context=ContextControls.from_config(
+                config, deepthink_run=dt_run, senses_run=senses_run
+            ),
         )

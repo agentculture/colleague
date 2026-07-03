@@ -303,6 +303,82 @@ The architecture, part by part:
   Feature doc: `docs/features/deepthink.md`; spec + plan:
   `docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
   and `docs/plans/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`.
+- **Cortex / senses** — colleague resolves its minds **by role**, from an
+  operator-declared `lobes` gateway, instead of hardcoding a model id: a
+  **cortex** role (the authoritative, wide-window, tool-calling mind that
+  drives the bounded loop — cortex territory is otherwise untouched) and a
+  **senses** role (a tools-off multimodal front door that perceives the
+  operator's raw request before cortex acts and shapes cortex's raw summary
+  back into a conversational reply). Absent senses/lobes config is
+  **byte-identical** to pre-arc colleague (cortex-only, the default). Role
+  resolution (`colleague/lobes.py` `resolve_roles`, pure `urllib` `GET
+  {gateway}/capabilities`, degrade-to-`None` on any failure, never raises)
+  slots into the SAME `EngineConfig.resolve()` precedence chain as one more
+  rung: explicit flag > `COLLEAGUE_*` env > `.colleague/config.json` >
+  **lobes discovery** (`COLLEAGUE_LOBES_URL` / config.json `lobes` section) >
+  builtin default — an armed-but-unreachable gateway degrades to the next
+  rung with ONE stderr notice (h7), never a hard-fail. `SensesConfig`
+  (`colleague/config.py`) mirrors `DeepthinkConfig` field-for-field (`model`,
+  `base_url`, `api_key`, `context_budget` default 24000 for a 32K window,
+  `multimodal`); presence keyed solely on a resolved model. Senses reaches
+  the wire through the SAME enumerated tools-off completion machinery as
+  deepthink (`colleague/senses.py` `run_senses_intake`/`run_senses_speakback`,
+  `Engine.make_complete(senses_config, tools=[])`, windowed to senses' OWN
+  budget via `make_count_tokens`, degrade-never-raise) — a senses request
+  structurally cannot carry a tool schema, mirroring the live lobes contract's
+  own `forbidden_responsibilities = [final_decision, repo_action,
+  security_decision]` for the role; a dedicated structural proof pins that
+  `colleague/senses.py` imports neither `ToolExecutor` nor `subprocess`, and
+  that a senses response carrying tool-call-shaped output still produces only
+  an advisory record. Intake produces a `ContextPacket {original (verbatim —
+  never derived from model output), interpretation, confidence, task_type,
+  omissions}` that the loop injects as the operator's ORIGINAL text plus ONE
+  advisory companion message (`colleague/loop.py`
+  `_maybe_inject_context_packet`) — the packet augments, never replaces; a
+  failed/lossy intake degrades to passing the raw text through untouched
+  (intake can never lose the request). Two modes: **cortex-only** (default,
+  byte-identical) and **split** (senses intake + speak-back shaping for
+  DISPLAY only — the raw cortex summary is always retained in
+  `TaskResult.summary`), plus a per-run **`--cortex-only`** bypass flag
+  (`work`/`session`) and a **`--debug-senses`** flag that echoes the packet to
+  stderr. Per q1: text intake covers the interactive surfaces only —
+  `colleague session` free-text and mesh-resident inbound messages
+  (`colleague/resident/appserver.py`); one-shot `colleague work` text
+  deliberately bypasses text intake (it is already deliberate CLI input), but
+  a media-bearing work item still gets senses MEDIA perception — a declared
+  multimodal senses is PREFERRED over deepthink's media-comprehension bridge
+  (`_maybe_run_senses_media_bridge` runs first; when it handles the bridge the
+  deepthink path is a strict no-op). Runtime measurements land on
+  omit-when-None `TaskResult.senses` (`{mode, packet, records:[{point,
+  latency, tokens, degraded}]}`, the senses-side sibling of
+  `TaskResult.deepthink`) so the SAME task run cortex-only and split yields
+  directly comparable artifacts — runtime facts only, never a synthesized
+  quality score (that stays with the feedback/ROI loop). Introspect the armed
+  state via **`colleague lobes show`** (`not_configured` /
+  `armed_reachable` / `armed_unreachable`). Runtime-owned under the
+  all-engines rule throughout. **This is the SECOND sanctioned increment at
+  the router-exclusion boundary** (after deepthink): TWO operator-declared
+  roles with a FIXED responsibility boundary (cortex acts, senses
+  perceives/presents), resolved by name from lobes — no automatic
+  task→model routing policy, no N-role generalization, no senses-decides-
+  to-answer-itself. Two follow-ups are parked, each needing its own
+  router-boundary re-spec: **#276** (senses-direct-for-cheap-tasks — senses
+  answering without cortex at all; a model deciding per-input whether cortex
+  is needed is the start of the excluded routing policy) and **#277** (the
+  voice loop — `stt`/`tts` consumption — and embedder/reranker consumption;
+  both roles are discoverable in the `/capabilities` contract from day one
+  but colleague consumes only `cortex`/`senses` today). Honest limits: the
+  senses intake window is windowed to the senses model's own budget, but
+  `ContextPacket.original` is never touched by that windowing (always
+  verbatim); the lobes-reported per-role `endpoint` field is not
+  client-reachable on the reference rig, so colleague dials the gateway
+  origin for both roles instead (a documented workaround; a lobes-cli issue
+  is a warranted follow-up, not yet filed); a lobes-discovered senses is
+  `multimodal=False` (arming the media bridge needs an explicit operator
+  declaration, never inferred from the wire); intake is synchronous in v1.
+  Feature doc: `docs/features/cortex-senses.md`; spec + plan:
+  `docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`
+  and `docs/plans/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`.
 - **Media input** — images and audio ride the task contract to a multimodal
   main model on all three surfaces (in chat: the session's `/attach` slash,
   staged one-shot for the next work line; out of chat: `colleague work
@@ -1258,6 +1334,11 @@ an advisory per-criterion self-check turn, and `SubResult.parent` lineage
 above): one operator-declared second model reached from a fixed, enumerated
 escalation surface, single-model byte-identical (spec + plan:
 `docs/specs/2026-07-01-colleague-drives-with-two-minds-a-fast-wide-window.md`
+and the matching `docs/plans/` file) — and the **cortex/senses role split**
+(the **Cortex / senses** part above): two operator-declared roles (cortex
+drives the loop, senses perceives/presents) resolved by name from an optional
+`lobes` gateway discovery rung, cortex-only byte-identical (spec + plan:
+`docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`
 and the matching `docs/plans/` file) — and the **best-colleague arc** (spec +
 plan: `docs/specs/2026-07-02-colleague-is-now-the-colleague-you-always-wanted-i.md`
 and the matching `docs/plans/` file; the **Memory**, **Finish recovery +
@@ -1272,7 +1353,8 @@ verb + refreshed live proofs (R7).
 All integrated features
 (mesh-member, culture tool, destination, approval gate, subagents, stats+feedback,
 the capacity standard, the lint gate, the test-integrity gate, the affected-tests gate,
-the six work-modes increments, the dual-model deepthink escalation, and the
+the six work-modes increments, the dual-model deepthink escalation, the
+cortex/senses role split, and the
 best-colleague arc) were added via explicit re-specs (spec + plan committed
 under `docs/specs/` / `docs/plans/`); they extend the runtime within the
 zero-deps / no-socket / no-daemon conventions (the daemonless line now reading:
@@ -1281,11 +1363,28 @@ agent-lifecycle behind an opt-in extra, and background execution is a one-shot
 detached child).
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
-router / routing policy (the **dual-model deepthink escalation** is the landed,
-re-spec'd increment at this line: ONE operator-declared second model, a fixed
-enumerated escalation surface, no automatic task→model routing, no N-model
-generalization — anything beyond that is still the excluded router; document
-the distinction honestly), an execution sandbox, a colleague-owned daemon/server
+router / routing policy. Two, and only two, sanctioned increments have landed
+at this line, each a re-spec'd, fixed, enumerated surface — never a routing
+policy: (1) the **dual-model deepthink escalation** — ONE operator-declared
+second model, a fixed enumerated escalation surface, no automatic
+task→model routing, no N-model generalization; and (2) the **cortex/senses
+role split** — TWO operator-declared roles with a FIXED responsibility
+boundary (cortex acts — drives the loop, tools, gates, handoff; senses
+perceives/presents — intake, speak-back, media description on operator-facing
+surfaces only), resolved BY NAME from an optional `lobes` gateway, no
+automatic task→model routing policy, no N-role generalization, no
+senses-decides-to-answer-itself. Anything beyond either of those two is still
+the excluded router; document the distinction honestly. Explicitly still OUT,
+each parked pending its own router-boundary re-spec:
+**senses-direct-for-cheap-tasks** — senses answering without cortex at all,
+tracked as [colleague#276](https://github.com/agentculture/colleague/issues/276)
+(a model deciding per-input whether cortex is needed is itself the start of
+the excluded routing policy) — and the **voice loop + retrieval consumption**
+— `stt`/`tts`/embedder/reranker roles are discoverable in the lobes
+`/capabilities` contract from day one but colleague consumes only
+`cortex`/`senses`, tracked as
+[colleague#277](https://github.com/agentculture/colleague/issues/277). An
+execution sandbox, a colleague-owned daemon/server
 mode (**deliberately re-specced by the best-colleague arc, decision c17 — the
 third recorded convention change** after the agentfront base dep and the LLM
 self-summary: background one-shot execution (`work --background`, a detached

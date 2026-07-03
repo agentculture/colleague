@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, ResolveOverrides
 
 
 def test_context_budget_default() -> None:
@@ -29,13 +29,13 @@ def test_context_budget_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_context_budget_explicit_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Explicit context_budget_tokens arg beats env var."""
     monkeypatch.setenv("CONVERTIBLE_CONTEXT_BUDGET", "12345")
-    cfg = EngineConfig.resolve(context_budget_tokens=999)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(context_budget_tokens=999))
     assert cfg.context_budget_tokens == 999
 
 
 def test_context_budget_in_to_dict() -> None:
     """to_dict() includes context_budget_tokens."""
-    cfg = EngineConfig.resolve(context_budget_tokens=8000)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(context_budget_tokens=8000))
     snapshot = cfg.to_dict()
     assert "context_budget_tokens" in snapshot
     assert snapshot["context_budget_tokens"] == 8000
@@ -72,12 +72,12 @@ def test_max_output_chars_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_max_output_chars_explicit_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Explicit max_output_chars arg beats the env var."""
     monkeypatch.setenv("COLLEAGUE_MAX_OUTPUT_CHARS", "54321")
-    cfg = EngineConfig.resolve(max_output_chars=777)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(max_output_chars=777))
     assert cfg.max_output_chars == 777
 
 
 def test_max_output_chars_in_to_dict() -> None:
     """to_dict() includes max_output_chars."""
-    cfg = EngineConfig.resolve(max_output_chars=8000)
+    cfg = EngineConfig.resolve(overrides=ResolveOverrides(max_output_chars=8000))
     snapshot = cfg.to_dict()
     assert snapshot["max_output_chars"] == 8000

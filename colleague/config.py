@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Collection, Optional
+from urllib.parse import urlsplit
 
 from colleague import configdir
 
@@ -177,6 +179,28 @@ _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 # _CONTEXT_BUDGET, or a ``deepthink`` section in .colleague/config.json.
 _DEFAULT_DEEPTHINK_CONTEXT_BUDGET = 48000
 
+# Senses config (cortex/senses arc, spec
+# docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md,
+# claims c7/h2, plan task t3). Optional: a second OpenAI-compatible endpoint
+# declared as the multimodal front door (intake / speak-back on the
+# operator-facing surfaces) — mirrors DeepthinkConfig field-for-field.
+# Present iff the resolved model is a non-empty, non-whitespace string;
+# ``base_url``/``api_key`` then default to the MAIN resolved endpoint's own
+# values, exactly like deepthink. ``context_budget`` defaults to a
+# 32K-window-sized share (24000/32768 ≈ 0.73) — the same ~75% headroom ratio
+# deepthink uses for its own window. Override per environment with
+# COLLEAGUE_SENSES_MODEL / _BASE_URL / _API_KEY / _CONTEXT_BUDGET /
+# _MULTIMODAL, or a ``senses`` section in .colleague/config.json. This task
+# (t3) resolves env > config.json > absent; the lobes discovery rung (t4, below)
+# additionally feeds a SensesConfig from the gateway's senses role.
+_DEFAULT_SENSES_CONTEXT_BUDGET = 24000
+# The senses model window the 24000 default was sized for (the live senses
+# role's 32K window). A lobes-discovered senses role reports its OWN window; it
+# is scaled by the same headroom ratio (24000/32768 ≈ 0.73) so the live 32K role
+# reproduces the hand-tuned 24000 default and any other window scales
+# proportionally — never the raw window (which leaves no completion headroom).
+_SENSES_DEFAULT_WINDOW = 32768
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -195,6 +219,12 @@ _CONFIG_FILENAME = "config.json"
 _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 # Recognised keys inside the NESTED "deepthink" section of .colleague/config.json.
 _DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
+# Recognised keys inside the NESTED "senses" section of .colleague/config.json.
+_SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
+# Recognised key inside the NESTED "lobes" section of .colleague/config.json
+# (the lobes discovery rung, task t4). A bare string is also accepted as the
+# gateway URL directly (``{"lobes": "http://..."}``).
+_LOBES_CONFIG_KEYS = frozenset({"url"})
 
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
@@ -205,6 +235,22 @@ def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
         if value:
             return value
     return default
+
+
+def _file_or_default(file_value: str | None, default: str) -> str:
+    """``file_value if file_value is not None else default`` as a plain helper.
+
+    Several of :meth:`EngineConfig.resolve`'s numeric-knob defaults (the lint /
+    test-integrity / affected-tests retry+depth+max-files knobs) share this
+    exact "config.json value, else the builtin default" shape. Calling a
+    helper instead of inlining the ternary keeps that branching cost off
+    ``resolve``'s own cognitive-complexity tally (SonarCloud S3776) — a
+    ternary/if-expression contributes to whichever function's body it lives
+    in, so extracting it here (mirroring :func:`_resolve_lobes_rung`'s
+    extraction for the same reason) is a pure extraction with no behavior
+    change.
+    """
+    return file_value if file_value is not None else default
 
 
 def load_config_file(repo_path: str | Path) -> dict[str, str]:
@@ -258,6 +304,199 @@ def _load_deepthink_overrides(repo_path: str | Path) -> dict[str, str]:
         for key, value in section.items()
         if key in _DEEPTHINK_CONFIG_KEYS and value is not None
     }
+
+
+def _load_senses_overrides(repo_path: str | Path) -> dict[str, str]:
+    """Read the NESTED ``senses`` section of .colleague/config.json.
+
+    Mirrors :func:`_load_deepthink_overrides` field-for-field (cortex/senses
+    arc, task t3) — reads a *nested* object (``{"senses": {...}}``) instead of
+    top-level keys, so ``load_config_file``'s ``dict[str, str]`` endpoint
+    contract (base_url/api_key/model) stays unchanged. Returns a dict of
+    stringified values for the recognised keys (``model``, ``base_url``,
+    ``api_key``, ``context_budget``, ``multimodal``). A missing file,
+    malformed JSON, a non-dict payload, or an absent/non-dict ``senses``
+    section all yield an empty dict and never raise.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    section = data.get("senses")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _SENSES_CONFIG_KEYS and value is not None
+    }
+
+
+def _load_lobes_override(repo_path: str | Path) -> str | None:
+    """Read the lobes gateway URL from the ``lobes`` section of config.json.
+
+    Accepts either a bare string (``{"lobes": "http://host:8001"}``) or a nested
+    object with a ``url`` key (``{"lobes": {"url": "http://host:8001"}}``). A
+    missing file, malformed JSON, a non-dict payload, or an absent/blank section
+    yields ``None`` and never raises. NO network — this only reads the URL.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    section = data.get("lobes")
+    if isinstance(section, str):
+        return section.strip() or None
+    if isinstance(section, dict):
+        url = section.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.strip()
+    return None
+
+
+def resolve_lobes_gateway_url(repo_path: str | Path | None = None) -> str | None:
+    """The armed lobes gateway URL, or ``None`` when the rung is unarmed. NO network.
+
+    Precedence: ``COLLEAGUE_LOBES_URL`` env (``CONVERTIBLE_LOBES_URL`` honored as
+    a deprecated fallback) > a ``lobes`` section in .colleague/config.json (only
+    when *repo_path* is given) > ``None``. Public so the doctor / ``config show``
+    surfaces can report the ARMED state without consulting the gateway.
+
+    ``None`` means the lobes discovery rung is not armed — resolution stays
+    byte-identical to a pre-feature run (no ``resolve_roles`` call, no notice).
+    """
+    for key in ("COLLEAGUE_LOBES_URL", "CONVERTIBLE_LOBES_URL"):
+        value = os.environ.get(key)
+        if value and value.strip():
+            return value.strip()
+    if repo_path is not None:
+        return _load_lobes_override(repo_path)
+    return None
+
+
+def _lobes_base_url(gateway_url: str) -> str:
+    """Derive the client-reachable OpenAI base_url from the lobes GATEWAY ORIGIN.
+
+    LOBES_LIVE_FINDINGS decision 2 (load-bearing): each role's own ``endpoint``
+    field reports an internal, non-client-reachable host (e.g.
+    ``http://localhost:8000``). The gateway ORIGIN that serves ``/capabilities``
+    (``COLLEAGUE_LOBES_URL``, e.g. ``http://localhost:8001``) is the reachable
+    OpenAI endpoint and routes by model id — so BOTH cortex and senses dial it,
+    never the role's self-reported ``endpoint``. We match the SHAPE of the
+    builtin default base_url: if :data:`_DEFAULT_BASE_URL` carries a path suffix
+    (``/v1``), append the same suffix to the gateway origin.
+    """
+    suffix = urlsplit(_DEFAULT_BASE_URL).path.rstrip("/")
+    return gateway_url.rstrip("/") + suffix
+
+
+def _senses_budget_from_window(window: int) -> int:
+    """A senses context_budget derived from a role's reported window.
+
+    Applies the same headroom ratio the built-in default encodes
+    (:data:`_DEFAULT_SENSES_CONTEXT_BUDGET` / :data:`_SENSES_DEFAULT_WINDOW`), so
+    the live 32K senses role reproduces the hand-tuned 24000 default and any
+    other window scales proportionally. Floored at 1; a non-positive window
+    falls back to the default (never zero — that would disable the budget path).
+    """
+    if window <= 0:
+        return _DEFAULT_SENSES_CONTEXT_BUDGET
+    ratio = _DEFAULT_SENSES_CONTEXT_BUDGET / _SENSES_DEFAULT_WINDOW
+    return max(1, int(window * ratio))
+
+
+def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "SensesConfig | None":
+    """Build a :class:`SensesConfig` from the gateway's senses role (t4).
+
+    Used only when senses is NOT otherwise declared (env/config.json win). The
+    base_url is the gateway-derived value (decision 2, NOT the role's ``endpoint``
+    field); api_key inherits the resolved MAIN endpoint's value. ``multimodal``
+    stays ``False`` — the t1 :class:`~colleague.lobes.RoleInfo` carries no ``mtp``
+    field, so an operator arms the media bridge by declaring senses explicitly
+    (env/config, which take precedence). Returns ``None`` on a blank model.
+    """
+    model = str(getattr(role, "model", "") or "").strip()
+    if not model:
+        return None
+    return SensesConfig(
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        context_budget=_senses_budget_from_window(int(getattr(role, "context", 0) or 0)),
+        multimodal=False,
+    )
+
+
+def _emit_lobes_unreachable_notice(gateway_url: str) -> None:
+    """Emit ONE stderr notice that an armed lobes gateway was unreachable.
+
+    Fires at most once per :meth:`EngineConfig.resolve` call (not once per field)
+    — resolution proceeds on the next precedence rung, never hard-fails (h7).
+    """
+    print(
+        f"colleague: lobes gateway {gateway_url!r} unreachable — proceeding on "
+        "the next config precedence rung (config.json / builtin default)",
+        file=sys.stderr,
+    )
+
+
+def _resolve_lobes_rung(
+    repo_path: str | Path | None,
+    discover_lobes: bool,
+) -> "tuple[str | None, str | None, object | None]":
+    """Consult the lobes gateway (task t4) and return its DEFAULTS-SOURCE trio.
+
+    Extracted from :meth:`EngineConfig.resolve` to hold its cognitive
+    complexity under the SonarCloud S3776 ceiling (15) — pure extraction, no
+    behavior change.
+
+    When armed (``COLLEAGUE_LOBES_URL`` env or a ``lobes`` section in
+    config.json), the gateway is consulted ONCE as a DEFAULTS SOURCE feeding
+    cortex → the main model id + base_url and senses → a SensesConfig.
+    Unreachable degrades to the next precedence rung with ONE stderr notice
+    (never a hard-fail, h7); unarmed (``discover_lobes=False``, or no gateway
+    URL resolved) makes NO network call and returns an all-``None`` triple —
+    byte-identical to a pre-lobes resolve. ``discover_lobes=False`` is the
+    OFFLINE seam the contractually no-network ``doctor`` provider group needs
+    so an armed lobes gateway doesn't leak a network call into a plain
+    ``colleague doctor``; the default (``True``) still discovers live per run.
+
+    Returns
+    -------
+    (lobes_base_url, lobes_model, lobes_roles)
+        ``lobes_base_url``/``lobes_model`` are the two values ``resolve()``
+        folds into its own base_url/model defaults; ``lobes_roles`` is the
+        raw resolved :class:`~colleague.lobes.LobesRoles` (or ``None``) that
+        the senses rung also consults.
+    """
+    if not discover_lobes:
+        return None, None, None
+    lobes_gateway_url = resolve_lobes_gateway_url(repo_path)
+    if lobes_gateway_url is None:
+        return None, None, None
+    # Lazy import keeps config's module import graph unchanged (the
+    # sanitize_model idiom) and lets tests monkeypatch resolve_roles.
+    from colleague import lobes as _lobes
+
+    lobes_roles = _lobes.resolve_roles(lobes_gateway_url)
+    if lobes_roles is None:
+        _emit_lobes_unreachable_notice(lobes_gateway_url)
+        return None, None, None
+    # Decision 2: BOTH roles dial the gateway origin, not the role's own
+    # (internal, non-client-reachable) ``endpoint`` field.
+    lobes_base_url = _lobes_base_url(lobes_gateway_url)
+    lobes_model = (lobes_roles.cortex.model or "").strip() or None
+    return lobes_base_url, lobes_model, lobes_roles
 
 
 def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
@@ -512,6 +751,96 @@ def _resolve_deepthink(
     )
 
 
+def _resolve_senses(
+    file_senses: dict[str, str],
+    main_base_url: str,
+    main_api_key: str,
+) -> "SensesConfig | None":
+    """Resolve the optional senses (multimodal front-door) escalation target.
+
+    Mirrors :func:`_resolve_deepthink` field-for-field (cortex/senses arc,
+    task t3). Precedence per key: ``COLLEAGUE_SENSES_*`` env
+    (``CONVERTIBLE_SENSES_*`` honored as a deprecated fallback, matching
+    every other knob in this module) > the ``senses`` section of
+    .colleague/config.json > a default.
+
+    Senses is PRESENT iff the resolved model is a non-empty, non-whitespace
+    string; otherwise this returns ``None`` regardless of the other keys —
+    an operator-set base_url/api_key/context_budget with no model is not a
+    senses declaration (the model IS the presence signal, same as deepthink).
+
+    ``base_url``/``api_key`` default to *main_base_url*/*main_api_key* — the
+    ALREADY-resolved main endpoint values — so declaring senses needs only a
+    model id unless senses truly lives at a different endpoint. An empty
+    file value for ``base_url``/``api_key`` is treated as absent (falls
+    through to the main endpoint), matching the env-var "empty is absent"
+    convention used throughout this module.
+
+    ``context_budget`` parses as an int; a malformed or absent value falls
+    back to :data:`_DEFAULT_SENSES_CONTEXT_BUDGET` and never raises,
+    mirroring every other numeric knob resolved via :func:`_try_int`.
+
+    Scope note (task t3): this resolves ONLY env > config.json > absent — the
+    lobes discovery rung (t4) is a separate, later task and is not consulted
+    here.
+    """
+    model = _pick(
+        None,
+        "COLLEAGUE_SENSES_MODEL",
+        "CONVERTIBLE_SENSES_MODEL",
+        default=file_senses.get("model", ""),
+    )
+    if not model.strip():
+        return None
+    # INTENTIONAL (Qodo #2, cortex/senses PR #281): the ``or`` below treats an
+    # explicitly-empty config.json ``senses.base_url``/``api_key`` string the
+    # SAME as an absent key — both fall through to the main endpoint's already-
+    # resolved value. This is not a lost override: a JSON string field cannot
+    # distinguish "explicitly blank" from "omitted" any more usefully than
+    # "absent" does here, and this is the field-for-field mirror of
+    # ``_resolve_deepthink``'s identical ``file_x or main_x`` pattern a few
+    # functions above — changing it here without changing deepthink would
+    # split the two resolvers' behavior. See
+    # ``tests/test_config_senses.py::test_config_file_empty_base_url_and_api_key_fall_through_to_main``
+    # for the pinned regression test.
+    base_url = _pick(
+        None,
+        "COLLEAGUE_SENSES_BASE_URL",
+        "CONVERTIBLE_SENSES_BASE_URL",
+        default=file_senses.get("base_url") or main_base_url,
+    )
+    api_key = _pick(
+        None,
+        "COLLEAGUE_SENSES_API_KEY",
+        "CONVERTIBLE_SENSES_API_KEY",
+        default=file_senses.get("api_key") or main_api_key,
+    )
+    context_budget = _try_int(
+        _pick(
+            None,
+            "COLLEAGUE_SENSES_CONTEXT_BUDGET",
+            "CONVERTIBLE_SENSES_CONTEXT_BUDGET",
+            default=file_senses.get("context_budget", ""),
+        ),
+        default=_DEFAULT_SENSES_CONTEXT_BUDGET,
+    )
+    # A declaration, never a probe — truthy strings arm it, anything else
+    # (absent, empty, junk) resolves False, mirroring deepthink.multimodal.
+    multimodal = _pick(
+        None,
+        "COLLEAGUE_SENSES_MULTIMODAL",
+        "CONVERTIBLE_SENSES_MULTIMODAL",
+        default=file_senses.get("multimodal", ""),
+    ).strip().lower() in ("1", "true", "yes")
+    return SensesConfig(
+        model=model.strip(),
+        base_url=base_url,
+        api_key=api_key,
+        context_budget=context_budget,
+        multimodal=multimodal,
+    )
+
+
 def _resolve_testintegrity_reviewer_model(
     explicit: str,
     deepthink: "DeepthinkConfig | None",
@@ -623,6 +952,62 @@ class DeepthinkConfig:
     model name; default ``False`` keeps a dual-model config byte-identical."""
 
 
+@dataclass(frozen=True)
+class SensesConfig:
+    """A resolved senses (multimodal front-door) escalation target.
+
+    Cortex/senses arc (spec
+    docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md,
+    plan task t3). Optional: present on :attr:`EngineConfig.senses` only when
+    the operator has declared a senses model (env var or a ``senses`` section
+    in .colleague/config.json) — see :func:`_resolve_senses`. Mirrors
+    :class:`DeepthinkConfig` field-for-field: the senses endpoint speaks the
+    same OpenAI surface as the main endpoint through the same
+    ``vllm-openai`` adapter, so retargeting stays a config change, never a
+    code change (h2 precedent). This task (t3) resolves ONLY
+    env > config.json > absent — the lobes discovery rung is a separate,
+    later task (t4).
+    """
+
+    model: str
+    base_url: str
+    api_key: str
+    context_budget: int
+    multimodal: bool = False
+    """Operator declaration that the senses model accepts media content
+    parts — senses is the natural multimodal front door (intake / speak-back
+    on the operator-facing surfaces). Never probed or inferred from a model
+    name; default ``False`` keeps a senses config byte-identical."""
+
+
+@dataclass(frozen=True)
+class ResolveOverrides:
+    """Bundle of secondary numeric-knob explicit overrides for :meth:`EngineConfig.resolve`.
+
+    Every knob here still resolves through the SAME ``COLLEAGUE_*`` env var >
+    ``.colleague/config.json`` > built-in-default precedence as before when
+    left ``None`` — nothing about resolution itself changed. The only thing
+    that moved is WHERE an explicit override is expressed: no production CLI
+    flow ever sets more than the six identity/sizing knobs that stayed
+    top-level params on ``resolve()`` (``base_url``, ``api_key``, ``model``,
+    ``max_steps``, ``repo_path``, ``discover_lobes``); these eight are
+    exercised ONLY by tests that pin one knob's own precedence in isolation
+    (e.g. "an explicit ``context_budget_tokens`` beats the env var"). Bundling
+    them here holds ``resolve()``'s parameter list under the SonarCloud S107
+    ceiling (13) without dropping that per-knob override capability. Pure
+    extraction — no behavior change.
+    """
+
+    context_budget_tokens: int | None = None
+    max_output_chars: int | None = None
+    subagent_concurrency: int | None = None
+    autosplit_target_tokens: int | None = None
+    fillline_threshold: float | None = None
+    fanout_files: int | None = None
+    plan_offer_tokens: int | None = None
+    max_continue_nudges: int | None = None
+
+
 @dataclass
 class EngineConfig:
     """Settings for an OpenAI-compatible engine driver."""
@@ -675,6 +1060,10 @@ class EngineConfig:
     # byte-identical to today (the pre-feature default). See
     # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
     deepthink: Optional[DeepthinkConfig] = None
+    # Senses (multimodal front-door) escalation target (cortex/senses arc,
+    # task t3). ``None`` = no senses declared, byte-identical to today. See
+    # :class:`SensesConfig` and :func:`_resolve_senses`.
+    senses: Optional[SensesConfig] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -724,15 +1113,9 @@ class EngineConfig:
         api_key: str | None = None,
         model: str | None = None,
         max_steps: int | None = None,
-        context_budget_tokens: int | None = None,
-        max_output_chars: int | None = None,
-        subagent_concurrency: int | None = None,
-        autosplit_target_tokens: int | None = None,
-        fillline_threshold: float | None = None,
-        fanout_files: int | None = None,
-        plan_offer_tokens: int | None = None,
-        max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
+        discover_lobes: bool = True,
+        overrides: "ResolveOverrides | None" = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
 
@@ -753,7 +1136,18 @@ class EngineConfig:
         fields, and the ``COLLEAGUE_TEMPERATURE`` / ``COLLEAGUE_TIMEOUT`` /
         ``COLLEAGUE_SUBAGENT_DEPTH`` / ``COLLEAGUE_SUBAGENT_TOTAL`` env vars (with
         ``CONVERTIBLE_*`` fallbacks) override them as before.
+
+        *overrides* bundles eight secondary numeric-knob explicit-override slots
+        (``context_budget_tokens``, ``max_output_chars``, ``subagent_concurrency``,
+        ``autosplit_target_tokens``, ``fillline_threshold``, ``fanout_files``,
+        ``plan_offer_tokens``, ``max_continue_nudges`` — see
+        :class:`ResolveOverrides`) that used to be individual keyword params here;
+        each still resolves ``COLLEAGUE_*`` env > ``.colleague/config.json`` >
+        built-in default exactly as before when omitted from *overrides* (or when
+        *overrides* itself is ``None``) — this bundling changed nothing about
+        resolution, only how an explicit override is expressed.
         """
+        ov = overrides if overrides is not None else ResolveOverrides()
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
         file_cfg: dict[str, str] = {}
@@ -767,6 +1161,7 @@ class EngineConfig:
         file_at_depth: str | None = None
         file_at_max_files: str | None = None
         file_deepthink: dict[str, str] = {}
+        file_senses: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -776,27 +1171,43 @@ class EngineConfig:
                 _load_affected_tests_overrides(repo_path)
             )
             file_deepthink = _load_deepthink_overrides(repo_path)
+            file_senses = _load_senses_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
         file_model: str | None = file_cfg.get("model")
 
+        # Lobes discovery rung (task t4): see :func:`_resolve_lobes_rung` for the
+        # full rationale (extracted to hold this method's cognitive complexity
+        # under the SonarCloud S3776 ceiling — pure extraction, no behavior
+        # change). It slots BELOW config.json and ABOVE the builtin default.
+        lobes_base_url, lobes_model, lobes_roles = _resolve_lobes_rung(repo_path, discover_lobes)
+
         # Resolved once as locals (not just inline in the ``cls(...)`` call
         # below) so the deepthink resolution can default ITS base_url/api_key
         # to the MAIN endpoint's already-resolved values (spec requirement).
+        # The default is a plain if/else (not a nested ternary, SonarCloud
+        # S3358) over the two DEFAULTS-SOURCE rungs below the explicit
+        # arg/env precedence: config.json, then the lobes discovery rung.
+        if file_base_url is not None:
+            base_url_default = file_base_url
+        elif lobes_base_url is not None:
+            base_url_default = lobes_base_url
+        else:
+            base_url_default = _DEFAULT_BASE_URL
         resolved_base_url = _pick(
             base_url,
             "COLLEAGUE_BASE_URL",
             "CONVERTIBLE_BASE_URL",
             "OPENAI_BASE_URL",
-            default=file_base_url if file_base_url is not None else _DEFAULT_BASE_URL,
+            default=base_url_default,
         )
         resolved_api_key = _pick(
             api_key,
             "COLLEAGUE_API_KEY",
             "CONVERTIBLE_API_KEY",
             "OPENAI_API_KEY",
-            default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
+            default=_file_or_default(file_api_key, _DEFAULT_API_KEY),
         )
 
         # Dual-model deepthink (t1) — resolved once as a local (like
@@ -804,6 +1215,17 @@ class EngineConfig:
         # reviewer default backfill (t7) below can inspect the resolved
         # DeepthinkConfig before EngineConfig itself is constructed.
         resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
+        # Senses (multimodal front-door) escalation target — resolved once as a
+        # local like resolved_deepthink above. Precedence: env > config.json >
+        # lobes discovery (t4) > absent. When senses is NOT declared via
+        # env/config.json but the lobes rung resolved, the gateway's senses role
+        # supplies the SensesConfig (gateway-origin base_url per decision 2, main
+        # api_key, budget derived from the role's window).
+        resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
+        if resolved_senses is None and lobes_roles is not None:
+            resolved_senses = _senses_from_lobes_role(
+                lobes_roles.senses, lobes_base_url, resolved_api_key
+            )
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -818,6 +1240,16 @@ class EngineConfig:
             resolved_base_url,
         )
 
+        # Lobes rung (t4): the gateway's cortex model is the default only for the
+        # main model id, below config.json and above the builtin. A plain if/else
+        # (not a nested ternary, SonarCloud S3358), mirroring base_url_default above.
+        if file_model is not None:
+            model_default = file_model
+        elif lobes_model is not None:
+            model_default = lobes_model
+        else:
+            model_default = _DEFAULT_MODEL
+
         return cls(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
@@ -825,7 +1257,7 @@ class EngineConfig:
                 model,
                 "COLLEAGUE_MODEL",
                 "CONVERTIBLE_MODEL",
-                default=file_model if file_model is not None else _DEFAULT_MODEL,
+                default=model_default,
             ),
             max_steps=int(
                 _pick(
@@ -853,7 +1285,7 @@ class EngineConfig:
             ),
             context_budget_tokens=int(
                 _pick(
-                    _str(context_budget_tokens),
+                    _str(ov.context_budget_tokens),
                     "COLLEAGUE_CONTEXT_BUDGET",
                     "CONVERTIBLE_CONTEXT_BUDGET",
                     default=str(_DEFAULT_CONTEXT_BUDGET),
@@ -861,7 +1293,7 @@ class EngineConfig:
             ),
             max_output_chars=int(
                 _pick(
-                    _str(max_output_chars),
+                    _str(ov.max_output_chars),
                     "COLLEAGUE_MAX_OUTPUT_CHARS",
                     "CONVERTIBLE_MAX_OUTPUT_CHARS",
                     default=str(_DEFAULT_MAX_OUTPUT_CHARS),
@@ -869,7 +1301,7 @@ class EngineConfig:
             ),
             subagent_concurrency=_try_int(
                 _pick(
-                    _str(subagent_concurrency),
+                    _str(ov.subagent_concurrency),
                     "COLLEAGUE_SUBAGENT_CONCURRENCY",
                     "CONVERTIBLE_SUBAGENT_CONCURRENCY",
                     default=str(_DEFAULT_SUBAGENT_CONCURRENCY),
@@ -896,7 +1328,7 @@ class EngineConfig:
             ),
             autosplit_target_tokens=int(
                 _pick(
-                    _str(autosplit_target_tokens),
+                    _str(ov.autosplit_target_tokens),
                     "COLLEAGUE_AUTOSPLIT_TARGET",
                     "CONVERTIBLE_AUTOSPLIT_TARGET",
                     default=str(_DEFAULT_AUTOSPLIT_TARGET_TOKENS),
@@ -904,7 +1336,7 @@ class EngineConfig:
             ),
             fillline_threshold=_try_float(
                 _pick(
-                    _str(fillline_threshold),
+                    _str(ov.fillline_threshold),
                     "COLLEAGUE_FILLLINE_THRESHOLD",
                     "CONVERTIBLE_FILLLINE_THRESHOLD",
                     default=str(_DEFAULT_FILLLINE_THRESHOLD),
@@ -913,7 +1345,7 @@ class EngineConfig:
             ),
             fanout_files=_try_int(
                 _pick(
-                    _str(fanout_files),
+                    _str(ov.fanout_files),
                     "COLLEAGUE_FANOUT_FILES",
                     "CONVERTIBLE_FANOUT_FILES",
                     default=str(_DEFAULT_FANOUT_FILES),
@@ -930,7 +1362,7 @@ class EngineConfig:
             ),
             plan_offer_tokens=_try_int(
                 _pick(
-                    _str(plan_offer_tokens),
+                    _str(ov.plan_offer_tokens),
                     "COLLEAGUE_PLAN_OFFER_TOKENS",
                     "CONVERTIBLE_PLAN_OFFER_TOKENS",
                     default=str(_DEFAULT_PLAN_OFFER_TOKENS),
@@ -939,7 +1371,7 @@ class EngineConfig:
             ),
             max_continue_nudges=_try_int(
                 _pick(
-                    _str(max_continue_nudges),
+                    _str(ov.max_continue_nudges),
                     "COLLEAGUE_MAX_CONTINUE_NUDGES",
                     "CONVERTIBLE_MAX_CONTINUE_NUDGES",
                     default=str(_DEFAULT_MAX_CONTINUE_NUDGES),
@@ -967,11 +1399,7 @@ class EngineConfig:
                     None,
                     "COLLEAGUE_LINT_FIX_RETRIES",
                     "CONVERTIBLE_LINT_FIX_RETRIES",
-                    default=(
-                        file_lint_retries
-                        if file_lint_retries is not None
-                        else str(_DEFAULT_LINT_FIX_RETRIES)
-                    ),
+                    default=_file_or_default(file_lint_retries, str(_DEFAULT_LINT_FIX_RETRIES)),
                 ),
                 default=_DEFAULT_LINT_FIX_RETRIES,
             ),
@@ -983,10 +1411,8 @@ class EngineConfig:
                     None,
                     "COLLEAGUE_TESTINTEGRITY_FIX_RETRIES",
                     "CONVERTIBLE_TESTINTEGRITY_FIX_RETRIES",
-                    default=(
-                        file_ti_retries
-                        if file_ti_retries is not None
-                        else str(_DEFAULT_TESTINTEGRITY_FIX_RETRIES)
+                    default=_file_or_default(
+                        file_ti_retries, str(_DEFAULT_TESTINTEGRITY_FIX_RETRIES)
                     ),
                 ),
                 default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
@@ -999,10 +1425,8 @@ class EngineConfig:
                 _pick(
                     None,
                     "COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES",
-                    default=(
-                        file_at_retries
-                        if file_at_retries is not None
-                        else str(_DEFAULT_AFFECTED_TESTS_FIX_RETRIES)
+                    default=_file_or_default(
+                        file_at_retries, str(_DEFAULT_AFFECTED_TESTS_FIX_RETRIES)
                     ),
                 ),
                 default=_DEFAULT_AFFECTED_TESTS_FIX_RETRIES,
@@ -1011,11 +1435,7 @@ class EngineConfig:
                 _pick(
                     None,
                     "COLLEAGUE_AFFECTED_TESTS_DEPTH",
-                    default=(
-                        file_at_depth
-                        if file_at_depth is not None
-                        else str(_DEFAULT_AFFECTED_TESTS_DEPTH)
-                    ),
+                    default=_file_or_default(file_at_depth, str(_DEFAULT_AFFECTED_TESTS_DEPTH)),
                 ),
                 default=_DEFAULT_AFFECTED_TESTS_DEPTH,
             ),
@@ -1023,10 +1443,8 @@ class EngineConfig:
                 _pick(
                     None,
                     "COLLEAGUE_AFFECTED_TESTS_MAX_FILES",
-                    default=(
-                        file_at_max_files
-                        if file_at_max_files is not None
-                        else str(_DEFAULT_AFFECTED_TESTS_MAX_FILES)
+                    default=_file_or_default(
+                        file_at_max_files, str(_DEFAULT_AFFECTED_TESTS_MAX_FILES)
                     ),
                 ),
                 default=_DEFAULT_AFFECTED_TESTS_MAX_FILES,
@@ -1037,6 +1455,11 @@ class EngineConfig:
             # absent (None). base_url/api_key default to the resolved MAIN
             # endpoint values computed above.
             deepthink=resolved_deepthink,
+            # Senses (multimodal front-door, cortex/senses arc task t3) —
+            # env > config.json `senses` section > absent (None). Scope: no
+            # lobes discovery rung yet (t4); base_url/api_key default to the
+            # resolved MAIN endpoint values computed above.
+            senses=resolved_senses,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -1079,6 +1502,17 @@ class EngineConfig:
                 "model": self.deepthink.model,
                 "base_url": self.deepthink.base_url,
                 "context_budget": self.deepthink.context_budget,
+            }
+        # Senses (multimodal front-door, cortex/senses arc task t3): present
+        # ONLY when configured, so an unconfigured snapshot is byte-identical
+        # to today (omit-when-None, same convention as deepthink above). The
+        # senses api_key is likewise simply absent from the sub-dict, never
+        # included.
+        if self.senses is not None:
+            data["senses"] = {
+                "model": self.senses.model,
+                "base_url": self.senses.base_url,
+                "context_budget": self.senses.context_budget,
             }
         return data
 

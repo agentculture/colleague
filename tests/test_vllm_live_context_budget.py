@@ -50,7 +50,7 @@ import pytest
 
 import colleague.engines.vllm_openai as vllm_openai
 from colleague.cli._commands.work import execute_work
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, ResolveOverrides
 from colleague.context import _PLACEHOLDER_TEXT
 from colleague.contract import OK, Task
 
@@ -121,7 +121,9 @@ def test_live_small_budget_windows_history_with_placeholder(
 
     # Small budget so a couple of chained reads overflow it and force windowing.
     # Cap steps so a confused-by-trimming model still terminates fast.
-    config = EngineConfig.resolve(context_budget_tokens=1000, max_steps=10)
+    config = EngineConfig.resolve(
+        max_steps=10, overrides=ResolveOverrides(context_budget_tokens=1000)
+    )
     task = Task.new(
         str(repo),
         "Read step0.txt. Each file's first line names the next file to read "
@@ -190,7 +192,9 @@ def test_live_induced_overflow_retries_and_recovers(
 
     # Pin a positive budget so the reactive shrink-and-retry path engages regardless
     # of the environment — a COLLEAGUE_CONTEXT_BUDGET of 0/negative would disable it.
-    config = EngineConfig.resolve(context_budget_tokens=192000, max_steps=8)
+    config = EngineConfig.resolve(
+        max_steps=8, overrides=ResolveOverrides(context_budget_tokens=192000)
+    )
     task = Task.new(str(repo), _RECOVER_TASK, engine="vllm-openai")
     result, artifact_path = execute_work(
         repo=repo,

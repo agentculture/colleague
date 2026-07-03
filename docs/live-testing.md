@@ -78,6 +78,8 @@ treat ❌-by-staleness the same as never-validated.
 | 14 | Substantial decomposed write (h9) | `colleague/loop.py`, `colleague/tools.py`, `colleague/subagents.py` | ⚠️ | `22adbb3` · 2026-07-02 (pre-fix `4c6a96107269` CRASHED on a malformed tool call; post-fix `55859cb1d605` survived to an honest `incomplete` — harness proven, the served 27B couldn't land the full decomposition; see the substantial-write section below) | — |
 | 15 | Media image live proof (`media_image`) | `colleague/livecheck.py` | ⚠️ | `ec500c0` · 2026-07-02 (classification logic unit-proven, `tests/test_livecheck_media.py`; live rig run PENDING — see the media-proofs section below) | — |
 | 16 | Media audio honest-skip (`media_audio`) | `colleague/livecheck.py` | ⚠️ | `ec500c0` · 2026-07-02 (SKIP-on-drop classification unit-proven; a live run today is EXPECTED to SKIP, never pass — see the media-proofs section below) | — |
+| 17 | Cortex-only vs split comparison | `colleague/livecheck.py`, `colleague/senses.py`, `colleague/loop.py` | ✅ | 2026-07-03 (LIVE: `run_cortex_senses_check` against the served Qwen 27B + Gemma senses — cortex-only wall-clock **34.56s** vs split **32.49s**; senses runtime intake **2.52s** + speak-back **1.22s**; **verbatim original preserved** across the boundary; status=passed, runtime facts only, no quality score) | — |
+| 18 | Lobes role discovery (live gateway) | `colleague/lobes.py`, `colleague/config.py`, `colleague/cli/_commands/lobes.py` | ✅ | 2026-07-03 (LIVE: `colleague lobes show` + `config show --json` against the real gateway `:8001` resolved both roles `ready` with zero model ids in colleague — cortex→main `base_url=:8001/v1`, senses→SensesConfig; `probe_lobes_stack` serving=True; the informational per-role `endpoint` `:8000` correctly bypassed for the reachable gateway origin) | — |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -698,3 +700,55 @@ returns `status="passed"` (answer names red AND delivered recorded). **Row
 16 stays ⚠️/expected-SKIP by design** until the rig itself changes to consume
 `input_audio` — a `skipped` result with the silent-drop reason IS the correct
 outcome today, not a gap to close.
+
+## Cortex/senses role split (spec 2026-07-03, plan tasks t12/t13)
+
+Rows 17–18 are **✅ LIVE-PROVEN (2026-07-03)** — the deterministic/mock-engine
+pieces of the arc (role resolution, config precedence including the lobes rung,
+intake/speak-back windowing + degradation, the `ContextPacket`
+verbatim-preservation invariant, the structural cannot-act proof, the
+media-bridge senses-preferred path, and the all-engines/byte-identical proofs)
+are unit-proven across tasks t1–t11, AND the live comparison (t13's
+`cortex-senses` livecheck scenario) ran end-to-end against the rebalanced rig:
+`run_cortex_senses_check` drove the SAME task cortex-only and split on the
+served Qwen 27B + Gemma senses and graded from artifact evidence (see the
+measured numbers on rows 17–18). The honest-SKIP path is preserved for a rig
+that does NOT serve the rebalanced stack — `probe_lobes_stack` returns a reason
+and the scenario SKIPs rather than fabricating a pass.
+
+**The rig now serves the rebalanced stack.** The 2026-07-03 live gateway
+probe (`LOBES_LIVE_FINDINGS.md`, gateway `http://localhost:8001`) confirmed
+`GET /capabilities` reports BOTH roles `ready`+`loaded`:
+`cortex` = `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` @ 131072 (128K),
+`senses` = `coolthor/gemma-4-12B-it-NVFP4A16` @ 32768 (32K, `mtp: true` —
+multimodal). This is the stack task t13's livecheck scenario needs to run
+live rather than SKIP — a rig without it should still report SKIP with a
+reason, never a fabricated pass; a rig with it (like the one probed today)
+can produce a real per-mode comparison.
+
+- **Row 17 — cortex-only vs split comparison.** Acceptance to flip to ✅: the
+  SAME task run twice — once with `--cortex-only`, once in split mode — each
+  produces an artifact with `mode` set correctly (`"cortex-only"` /
+  `"split"`), and the split run's `TaskResult.senses.records` carry real
+  `{point, latency, tokens, degraded=False}` entries alongside a packet whose
+  `original` matches the operator's input verbatim. The two artifacts'
+  `stats`/`senses` fields are reported side-by-side as runtime facts only —
+  no quality/correctness score.
+- **Row 18 — lobes role discovery (live gateway).** Acceptance to flip to ✅:
+  `colleague lobes show` (or a `COLLEAGUE_LOBES_URL`-armed `EngineConfig.resolve()`)
+  against the real gateway reports `rung: "armed_reachable"` with both roles'
+  live metadata (model id, context window, `ready: true`), and a from-scratch
+  `.colleague/config.json` carrying **zero model ids** completes a real work
+  item with cortex driving the loop.
+
+Run them live with (mirrors the media-proofs recipe above):
+
+```bash
+COLLEAGUE_LOBES_URL=http://localhost:8001 uv run colleague lobes show --json
+COLLEAGUE_LOBES_URL=http://localhost:8001 uv run colleague work "<task>" \
+  --repo . --no-pr   # zero model ids in .colleague/config.json
+```
+
+Both rows now carry live evidence (2026-07-03) — this section documents the
+acceptance that was met and the recipe to reproduce it; the next task (t13)
+has the exact acceptance bar to clear.

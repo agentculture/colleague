@@ -14,7 +14,7 @@ import argparse
 
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
-from colleague.config import EngineConfig, load_config_file
+from colleague.config import EngineConfig, load_config_file, resolve_lobes_gateway_url
 
 
 def _config_sections() -> list[dict[str, object]]:
@@ -30,7 +30,10 @@ def _config_sections() -> list[dict[str, object]]:
         {
             "title": "Configuration",
             "items": [
-                "precedence: flag > COLLEAGUE_*/OPENAI_* env > .colleague/config.json > default",
+                "precedence: flag > COLLEAGUE_*/OPENAI_* env > .colleague/config.json "
+                "> lobes discovery > default",
+                "lobes discovery — when armed (COLLEAGUE_LOBES_URL or a config.json "
+                "'lobes' section) cortex/senses resolve by role from the gateway",
                 "base_url — provider endpoint (default: http://localhost:8001/v1)",
                 "model — model id to call",
                 "api_key — redacted in all output",
@@ -72,7 +75,18 @@ def _config_show(repo: str = ".") -> object:
         lines.append(f"config_file: .colleague/config.json sets [{keys}]")
     else:
         lines.append("config_file: (none — using env vars + built-in defaults)")
-    return rendered(cfg.to_dict(), "\n".join(lines))
+
+    # Lobes discovery rung (cortex/senses arc, t4): reflect the ARMED state so an
+    # operator can debug it. cfg.model above already reflects the rung in effect
+    # (cortex when the gateway resolved, else the degraded next-rung value). The
+    # to_dict() snapshot stays byte-identical (the guard); the lobes key is added
+    # to the rendered payload only when armed.
+    data = cfg.to_dict()
+    gateway = resolve_lobes_gateway_url(repo)
+    if gateway is not None:
+        lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")
+        data = {**data, "lobes": {"armed": True, "gateway": gateway, "resolved_model": cfg.model}}
+    return rendered(data, "\n".join(lines))
 
 
 def _config_overview() -> object:
