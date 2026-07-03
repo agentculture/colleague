@@ -1,0 +1,390 @@
+{
+  "slug": "colleague-s-cockpit-now-reads-like-a-real-coder-ag",
+  "title": "colleague's cockpit now reads like a real coder-agent cockpit in both states: idle answers identity \u2192 permissions \u2192 workspace \u2192 capacity \u2192 next action, and a running work item visibly changes the screen \u2014 live phase, step progress, current operation, and a mutation ledger (files changed \u00b7 commands run \u00b7 commits \u00b7 publish state) \u2014 while mode language is unambiguous (behavior mode vs auto resolution vs execution profile).",
+  "frame_slug": "colleague-s-cockpit-now-reads-like-a-real-coder-ag",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-03T23:24:21Z",
+  "updated": "2026-07-03T23:28:04Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague's cockpit now reads like a real coder-agent cockpit in both states: idle answers identity \u2192 permissions \u2192 workspace \u2192 capacity \u2192 next action, and a running work item visibly changes the screen \u2014 live phase, step progress, current operation, and a mutation ledger (files changed \u00b7 commands run \u00b7 commits \u00b7 publish state) \u2014 while mode language is unambiguous (behavior mode vs auto resolution vs execution profile)."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the announcement is provable from a captured snapshot pair: an idle frame and a mid-run frame from the same session render the claimed differences (distinct layouts, live status, ledger, disambiguated mode facts)"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators driving 'colleague session' interactively on a terminal, plus agents reading the same cockpit through the Markdown / TAUI-JSON mirror tiers"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "both audiences are served by the same state: an operator's flat-ANSI frame and the agent-facing Markdown/TAUI mirror carry identical new facts (no TTY-only information)"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "the mid-run cockpit looks like the idle cockpit: a vague 'thinking\u2026' line, a stale Safest-next suggestion, templates eating vertical space, transcript and tool events interleaved in one Conversation feed, and 'mode' meaning three different things (behavior, auto resolution, capacity profile)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the before-state is evidenced in current main, not strawmanned: reduce() interleaves tool labels into conversation, _suggested_action persists during runs, the empty capacity signal carries a warning glyph, and 'mode' appears with three meanings across status/capacity surfaces"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "idle and running are visibly distinct layouts; at a glance the operator can tell whether the agent is waiting on the model, reading, editing, or running a command, and can always see what has already been changed (files, commands, commits, publish state)"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "at-a-glance answers derive only from real progress-sink events and TaskResult data \u2014 the cockpit never invents a phase, count, or activity it did not observe"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "a coder agent whose run_command is ungated must earn trust by construction: the cockpit must always answer 'what is it doing right now' and 'what has it already changed' \u2014 issue #285's five-questions design principle (identity, permissions, workspace, current activity, mutations)"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "trust is earned by honest rendering: no label claims a gate, sandbox, or confirmation the harness does not enforce, and mutation counts never under-report what the sink observed"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "colleague-side content changes only: panels, labels, statuses, status-line text, and panel visibility built over the imported agentfront.taui 0.20.0 generic panel walk \u2014 no TAUIState schema change, no renderer fork, no second ANSI path; genuine schema/renderer needs (state glyph, icons switch in the renderer, WorkItem max_steps/elapsed fields) become filed upstream agentfront asks, not colleague code (the #256/agentfront#48 precedent)"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the diff touches no agentfront source and adds no colleague-side renderer: colleague/tui keeps exactly its two surviving modules (from_work.py, render/driver.py) plus any new pure state/fold helpers \u2014 no module shadows an agentfront.taui module"
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "acceptance per #285: a user can tell at a glance whether the agent is waiting/reading/editing/running and what it has changed; a running frame is provably different from an idle frame (templates collapsed, Active-run block present) and the post-run ledger matches TaskResult.stats exactly"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the acceptance criteria are executable as tests: running-frame \u2260 idle-frame assertions, post-run ledger == TaskResult.stats, and the five #285 questions answerable from a single rendered frame in each state"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "mode disambiguation: the cockpit presents the three mode concepts as distinct labeled facts \u2014 behavior (work/plan/explore/review), source (auto-classified vs pinned), and execution profile (steps/timeout/budget/fill-line) \u2014 instead of three uses of the word 'mode'"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "the three facts (behavior, source, profile) are rendered from the existing single-source catalogs (session_modes.MODES, profiles.MODE_PROFILES) and a drift test pins them \u2014 no second mode vocabulary is introduced"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "idle layout: 'Work templates' is reframed as suggested work, the Safest-next line is promoted from status text to a first-class next-action block, the Run policy panel gets a stronger honest visual grammar (aligned label \u00b7 state \u00b7 consequence), and neutral-empty facts (e.g. capacity signal none-yet) drop warning styling"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the idle frame renders the next-action block as a panel (not just status text), and no neutral-empty fact carries a warning glyph or warn severity \u2014 verified by a rendered-frame test"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "running layout: while a work item runs the cockpit visibly changes state \u2014 a live status surface composes phase \u00b7 step N/max \u00b7 current operation \u00b7 event-stamped elapsed; an Active-run block shows the goal, changes-so-far, and last action; the templates panel collapses; the idle suggestion is replaced, returning at finish"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a test proves the running frame differs from the idle frame (templates hidden, Active-run present, status shows step N/max) and that the finish path restores the idle layout including a refreshed suggestion"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "mutation ledger: mid-run counters (files touched, commands run) derived from progress-sink events, and a post-run session ledger sourced authoritatively from TaskResult.stats + the handoff outcome (commits, branch, PR), surviving into the idle cockpit as the last-run record"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the post-run ledger equals TaskResult.stats verbatim (files_changed, per-tool counts) \u2014 mid-run counters are labeled as observed-so-far and never claim more than sink events prove (no fabricated commit counts)"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "conversation/activity split: user and agent text render as a readable transcript while tool steps render as a separate auditable run-activity ledger \u2014 achieved colleague-side by composing around the imported reducer (keep reduce() for step_count/popups), never by duplicating it; tui replay/snapshot stay byte-unchanged"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "user/agent text and tool steps render in separate blocks in the live session, while agentfront's reducer, tui replay, and snapshot outputs stay byte-identical (the split composes around reduce(), it never re-implements it)"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "/help regrouping: the SlashSpec catalog gains groups that map to the operator's mental model (runtime / workspace / git-publish / inspect / session), with the existing drift test still pinning that every dispatch verb appears"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the existing /help drift test still passes with the new groups: every dispatch verb appears exactly once, and the popup + /help + slash panels all derive from the one SlashSpec catalog"
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "icons option: an icons=emoji|ascii|none setting applied to colleague-composed labels only (policy/context/capacity/ledger panel labels); the renderer-owned state glyph and popup icons stay upstream and are covered by a filed agentfront ask, not colleague code"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "with icons=ascii or none, no emoji from colleague-composed labels reaches the frame; the upstream state glyph is documented as out of colleague's control and the agentfront ask is actually filed before the spec claims it"
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "both live cockpits stay consistent: the session cockpit and the standalone 'colleague work --tui' cockpit share the new fold helpers (the fold_phase precedent) so running-state treatment cannot drift between them"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the session _WorkSink and _tui_sink.CockpitProgressSink call the same shared helpers for phase folding, activity recording, and ledger counting \u2014 a test imports both and pins the shared code path"
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "every tier stays consistent for free: the new panels ride the generic panel walk so the flat-ANSI live view, the Markdown render, and the TAUI JSON mirror all carry them with zero per-renderer code, guarded by drift tests"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "no new code is added under any render path: the Markdown and TAUI-JSON tiers show the new panels purely via the generic walk, proven by asserting the mirror dict carries them"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 Pure run-state + ledger module (colleague/cockpit_run.py): fold (tool, target, ok) sink events into an activity list (capped), files-touched set, command count, last action, phase text, and a status composer 'phase \u00b7 step N/max \u00b7 current op \u00b7 elapsed' with caller-injected timestamps (event-stamped, never a clock thread); post-run reconcile(TaskResult) returns the authoritative ledger from stats + handoff; mid-run ledger deliberately OMITS commits (resolves parked v3 \u2014 heuristic git-commit detection is dishonest, only the post-run handoff record shows commits)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pure and deterministic: no I/O, no threads, no clock reads inside fold functions (timestamps injected); unit-tested",
+        "reconcile(result) equals TaskResult.stats verbatim for files_changed and per-tool counts; mid-run counters labeled observed-so-far; commits absent from the mid-run ledger",
+        "not under colleague/tui/ (keeps the #249 two-survivors boundary test intact); imports nothing from agentfront render paths"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "h14",
+        "c13",
+        "h4"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "t2 Icons vocabulary module (colleague/icons.py): icons=emoji|ascii|none resolved flag > COLLEAGUE_ICONS env > .colleague/config.json > default emoji; a mapping applied to colleague-composed panel labels at build time (policy/context/capacity/mode/ledger/activity)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with ascii or none resolved, no emoji appears in any colleague-composed label (regex-asserted over built panels); default emoji is byte-identical to today",
+        "resolution follows the existing EngineConfig precedence conventions and is a strict no-op when unset"
+      ],
+      "deps": [],
+      "covers": [
+        "c16"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "t3 Mode-facts helpers (extend colleague/session_modes.py, pure): compose the three distinct facts \u2014 behavior (active mode), source (auto-classified vs pinned), execution profile (steps/timeout/budget/fill-line from profiles.resolve_profile) \u2014 as structured rows + a status-line fragment; drift-tested against MODES and MODE_PROFILES so no second vocabulary exists",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "rows/fragment derive only from session_modes.MODES + profiles.MODE_PROFILES; a drift test fails if a mode is added to either catalog without the facts covering it",
+        "auto renders as source=auto with the resolved-per-input explanation; a pinned mode renders source=pinned"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h1"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "t9 File the upstream agentfront asks and record the boundary: one issue for a renderer-level icons/state-glyph switch (emoji|ascii|none incl. moon-phase frames + popup glyphs), one for WorkItem schema fields (max_steps, started_at) so step N/max + elapsed become structural; link both from code comments at the consuming sites",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "both issues exist on agentculture/agentfront with reproduction/context and are referenced by URL in colleague code comments + the feature doc",
+        "colleague ships no workaround that forks or shadows an agentfront renderer meanwhile"
+      ],
+      "deps": [],
+      "covers": [
+        "h7"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "File the upstream agentfront asks and record the boundary: one issue for a renderer-level icons/state-glyph switch (emoji|ascii|none incl. moon-phase frames + popup glyphs), one for WorkItem schema fields (max_steps, started_at) so step N/max + elapsed become structural; link both from code comments at the consuming sites",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "both issues exist on agentculture/agentfront with reproduction/context and are referenced by URL in colleague code comments + the feature doc",
+        "colleague ships no workaround that forks or shadows an agentfront renderer meanwhile"
+      ],
+      "deps": [],
+      "covers": [
+        "h7"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "session.py idle-layout rework (hot-file chain 1/3): consume the mode-facts helpers for disambiguated mode rows; retitle 'Work templates' to suggested work; promote the Safest-next line into a first-class Next panel (id + items, not status text); restructure Run policy items into the aligned label \u00b7 state \u00b7 consequence grammar with honest wording only (no invented confirmation gates); neutral-empty capacity signal (no warning glyph/severity for none-yet); apply the icons vocabulary to all composed labels",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "idle frame renders the Next block as a panel and the disambiguated mode facts; asserted by a rendered-frame test (flat ANSI) plus the mirror dict",
+        "no neutral-empty fact carries a warning glyph or warn severity; policy labels claim only enforced gates (push/PR, approvals.json when present)",
+        "existing session tests stay green; --json and non-TTY paths byte-identical except the reworded panels"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c11",
+        "h2",
+        "c5",
+        "h15"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "session.py running-state switch (hot-file chain 2/3): _dispatch_work arms a run view built on the pure run-state module \u2014 Active-run panel (goal, changes-so-far from fold events, last action), templates panel collapses (visible=False), idle suggestion replaced; _WorkSink folds real steps into the run-activity surface and restores state.conversation after reduce() so transcript and tool ledger render as separate blocks; status line composes phase \u00b7 step N/max \u00b7 current op \u00b7 event-stamped elapsed; finish restores the idle layout with a refreshed suggestion and a last-run ledger panel reconciled from TaskResult.stats + handoff (idle shows the last-run record; cumulative session totals parked as follow-up \u2014 resolves parked v4)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test proves running frame differs from idle (templates hidden, Active-run present, status shows step N/max) and finish restores idle incl. refreshed suggestion",
+        "user/agent text and tool steps render in separate blocks; reduce() is composed around, never re-implemented (step_count/popups still advance through it)",
+        "post-run ledger equals TaskResult.stats verbatim; the #206 invariant holds (phase notices never advance step_count or add feed lines)"
+      ],
+      "deps": [
+        "t1",
+        "t6"
+      ],
+      "covers": [
+        "c12",
+        "h3",
+        "c14",
+        "c13"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "_tui_sink.py: CockpitProgressSink adopts the same shared run-state helpers (activity fold, ledger counting, status composition) so the standalone 'colleague work --tui' cockpit gets the identical running-state treatment; tui replay/snapshot and the events sink stay byte-unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test imports both _WorkSink and CockpitProgressSink and pins they call the shared helpers (no duplicated fold logic)",
+        "tui replay, tui snapshot, and the JSONL events stream are byte-identical to before (step-only, no phase/activity leakage)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c17",
+        "h8"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "session.py /help regrouping (hot-file chain 3/3): SlashSpec groups become runtime / workspace / git-publish / inspect / session (engine+model+mode \u2192 runtime; base+attach+learn-from \u2192 workspace; pr \u2192 git-publish); SLASH_GROUPS ordering + /help + popup + slash panels all still derive from the one catalog",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the /help drift test still passes: every dispatch verb appears exactly once under exactly one group; /pr renders under a publish-boundary heading",
+        "help verbose/compact and the autocomplete popup honor the new groups with no second catalog introduced"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c15",
+        "h6"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "Proof suite + captured snapshots: assert the mirror dict and Markdown tier carry every new panel (zero per-renderer code); capture an idle + mid-run snapshot pair via the existing snapshot machinery as the announcement evidence; extend the #249 boundary test so new pure modules never shadow agentfront.taui and no agentfront source is touched; pin replay/snapshot byte-identity for the conversation/activity split; make the #285 acceptance executable (five questions answerable from one rendered frame per state)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests assert new panels appear in the TAUI mirror + Markdown render via the generic walk only; running-frame vs idle-frame assertions pass",
+        "an idle and a mid-run snapshot pair is committed (or generated in-test) showing distinct layouts, live status, ledger, and disambiguated mode facts",
+        "boundary tests prove no colleague module shadows agentfront.taui and colleague/tui keeps only its two survivors + none of the new helpers"
+      ],
+      "deps": [
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c1",
+        "h11",
+        "c2",
+        "h12",
+        "c6",
+        "h10",
+        "c9",
+        "h16",
+        "c18",
+        "h9",
+        "h5"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Docs + release: feature doc docs/features/cockpit-ux.md recording the before-state evidence (interleaved feed, sticky suggestion, warning-styled neutral facts, triple mode meaning), the adaptations from issue #285 (event-stamped elapsed, icons scoping, omitted mid-run commits, no invented gates), and the upstream-boundary asks; CLAUDE.md architecture bullet; CHANGELOG + version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "feature doc names the before-state with pointers to pre-change code and lists every deliberate adaptation from the issue text with its rationale",
+        "CLAUDE.md bullet + CHANGELOG entry land; version bumped per the version-check CI gate"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c3",
+        "h13"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "final wording and visual grammar of each label/block settled at implementation against rendered frames (spec v2)",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "cumulative session totals (vs the shipped last-run ledger record) parked as a follow-up (spec v4 resolved to last-run in t7)",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r3",
+      "text": "a live-TTY visual pass on the real rig (colours, alignment, wide/narrow terminals) after merge \u2014 automated frame tests cannot judge aesthetics",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
