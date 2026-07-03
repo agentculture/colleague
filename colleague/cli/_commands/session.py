@@ -44,6 +44,7 @@ import contextlib
 import io
 import json
 import os
+import select
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -61,7 +62,7 @@ from agentfront.taui.state import WorkItem
 from agentfront.taui.widgets.prompt_input import plain_prompt
 from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
 
-from colleague import cockpit, feedback, handoff, layers, registry
+from colleague import cockpit, feedback, flight, handoff, layers, registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.cli._banner import emit_banner
@@ -75,7 +76,12 @@ from colleague.contract import SensesBlock, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.profiles import resolve_profile
-from colleague.senses import run_senses_intake, run_senses_speakback, senses_engine_config
+from colleague.senses import (
+    run_senses_intake,
+    run_senses_speakback,
+    run_senses_talk,
+    senses_engine_config,
+)
 from colleague.session_intent import PLAN, classify_intent
 from colleague.session_modes import (
     DEFAULT_MODE,
@@ -250,6 +256,15 @@ class _WorkSink:
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
+        # Concurrent talk lane (t7): at EVERY sink boundary — a real step OR a
+        # phase notice (thinking…/synthesizing…) — poll stdin non-blockingly so an
+        # operator message is picked up promptly even mid-completion. A strict
+        # no-op unless the lane is armed (off-TTY / no senses → never polls).
+        # ``getattr`` keeps the sink usable against a bare state-holder in tests
+        # (its documented contract) — a holder without the lane simply never polls.
+        poll = getattr(sess, "_poll_talk_lane", None)
+        if poll is not None:
+            poll()
         if not tool:
             # A phase notice (#206) — fold it into the STATUS surface only;
             # never a step (work_item.step_count untouched, no feed line). Shares
@@ -384,6 +399,16 @@ class _Session:
         # Task in `_work_line`. Empty by default, so a session that never
         # attaches anything is byte-identical to today.
         self._staged_attachments: list[dict] = []
+
+        # Concurrent senses talk lane (senses live-presence arc, task t7): while a
+        # work line runs, the operator can chat with senses at each progress-sink
+        # boundary (thread-free stdin poll — see `_poll_talk_lane`). These hold the
+        # running work item's id + intake packet while the lane is armed; all None
+        # when no work line is running or the lane is disabled (off-TTY / no senses /
+        # --cortex-only → byte-identical to today, no poll, no flight arming).
+        self._talk_active = False
+        self._talk_task_id: Optional[str] = None
+        self._talk_packet = None
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -1090,6 +1115,166 @@ class _Session:
                 self.err(f"[debug-senses] {packet.to_dict()}")
         return "split", record
 
+    # ── concurrent senses talk lane (senses live-presence arc, task t7) ──────
+
+    def _talk_lane_enabled(self) -> bool:
+        """True iff the concurrent talk lane should arm for a work line.
+
+        Armed only on an interactive colour TTY (``view == "ansi"``) with a senses
+        model resolved and not a session-wide ``--cortex-only`` bypass. Off-TTY /
+        --no-tui / piped / no-senses → False, so the session is byte-identical to
+        today: no stdin poll, no flight arming (t7 acceptance)."""
+        return (
+            self.view == "ansi"
+            and not self.cortex_only
+            and senses_engine_config(self.config) is not None
+        )
+
+    def _begin_talk_lane(self, task: Task) -> None:
+        """Arm the talk lane for *task* (a no-op unless enabled).
+
+        Marks the task watchable so ``execute_work`` arms the flight plane — the
+        operator's relays land as guidance at the next tool-call boundary — and
+        records the id + intake packet the lane answers from."""
+        self._talk_active = self._talk_lane_enabled()
+        if not self._talk_active:
+            return
+        task.watch = True
+        self._talk_task_id = task.id
+        self._talk_packet = getattr(task, "context_packet", None)
+
+    def _end_talk_lane(self) -> None:
+        """Disarm the talk lane on work-item exit (always cleared)."""
+        self._talk_active = False
+        self._talk_task_id = None
+        self._talk_packet = None
+
+    def _poll_talk_lane(self) -> None:
+        """Thread-free stdin poll at a progress-sink boundary (t7).
+
+        Non-blocking ``select`` (zero timeout) on stdin — NO threads (the whole
+        live presence is a foreground cooperative poll, decision c). On an
+        interactive TTY stdin is line-buffered (cooked), so ``select`` reports
+        readable only once the operator presses Enter and ``readline`` then never
+        blocks. A strict no-op unless the lane is armed; any error degrades to a
+        silent no-op so a talk-lane hiccup never disturbs the running work item."""
+        if not self._talk_active:
+            return
+        try:
+            ready, _, _ = select.select([sys.stdin], [], [], 0)
+        except (OSError, ValueError):
+            return
+        if not ready:
+            return
+        try:
+            line = sys.stdin.readline()
+        except (OSError, ValueError):
+            return
+        text = line.strip()
+        if not text:
+            return
+        with contextlib.suppress(Exception):
+            self._handle_talk_input(text)
+
+    def _handle_talk_input(self, text: str) -> None:
+        """Route one operator line typed mid-run: ``/say FILE`` transcribes audio
+        first, then senses answers + optionally relays (rendered labeled)."""
+        if text.startswith("/say"):
+            transcript = self._talk_transcribe(text[len("/say") :].strip())
+            if not transcript:
+                return
+            text = transcript
+        self._talk_senses(text)
+
+    def _talk_transcribe(self, path: str) -> Optional[str]:
+        """Transcribe an audio FILE to text via the stt role (``/say``). Degrades to
+        a notice + None when no stt is configured or transcription fails — the
+        verbatim transcript, when present, is the raw operator message."""
+        if not path:
+            self._log("senses: /say needs a file path")
+            return None
+        voice_cfg = getattr(self.config, "voice", None)
+        if voice_cfg is None or not getattr(voice_cfg, "stt_model", None):
+            self._log("senses: no stt configured — cannot transcribe /say audio")
+            return None
+        from colleague import voice as voicemod
+
+        transcript = voicemod.transcribe(
+            path,
+            stt_model=voice_cfg.stt_model,
+            base_url=voice_cfg.base_url,
+            api_key=voice_cfg.api_key,
+        )
+        if not transcript:
+            self._log("senses: could not transcribe the audio")
+            return None
+        self._log(f"you (voice): {transcript}")
+        return transcript
+
+    def _talk_senses(self, text: str) -> None:
+        """Answer one operator message with senses, grounded in the live run
+        context, and relay into cortex when senses judges it (or an explicit
+        ``cortex:`` prefix forces it). Every answer is labeled ``senses:``, every
+        relay echoes ``-> cortex:`` and records a flight chat line (folded into the
+        artifact at finish, t5) — nothing silent (the awareness invariant)."""
+        pair = self._senses_engine()
+        if pair is None:
+            return
+        senses_config, engine = pair
+        record = run_senses_talk(
+            text,
+            feed_tail=self._talk_feed_tail(),
+            packet=self._talk_packet,
+            task_state=self._talk_task_state(),
+            senses_config=senses_config,
+            make_complete=engine.make_complete,
+            make_count_tokens=engine.make_count_tokens(senses_config),
+        )
+        if record is None:
+            return
+        self._log(f"senses: {record['answer']}")
+        with contextlib.suppress(Exception):
+            flight.append_chat(
+                self.repo,
+                self._talk_task_id,
+                {
+                    "message": text,
+                    "answer": record["answer"],
+                    "relay": record["relay"],
+                    "relay_text": record.get("relay_text", ""),
+                    "latency": record["latency"],
+                    "degraded": record["degraded"],
+                },
+            )
+        if record["relay"]:
+            relay_text = record.get("relay_text") or text
+            with contextlib.suppress(Exception):
+                flight.append_guidance(self.repo, self._talk_task_id, relay_text)
+            self._log(f"-> cortex: {relay_text}")
+        if self.view == "ansi":
+            self.emit()
+
+    def _talk_feed_tail(self, max_lines: int = 40) -> str:
+        """The recent flight-feed text senses grounds its answer on (last
+        *max_lines* lines), or '' when the feed is absent."""
+        if self._talk_task_id is None:
+            return ""
+        try:
+            feed = flight.feed_path(self.repo, self._talk_task_id)
+            if not feed.exists():
+                return ""
+            return "\n".join(feed.read_text().splitlines()[-max_lines:])
+        except Exception:  # noqa: BLE001 - grounding is best-effort
+            return ""
+
+    def _talk_task_state(self) -> Optional[dict]:
+        """A short live snapshot (step/running) for senses grounding, taken from
+        the cockpit work item — never fabricated."""
+        wi = self.state.work_item
+        if wi is None:
+            return None
+        return {"step": wi.step_count, "running": wi.running}
+
     def _resave_artifact(self, result: TaskResult) -> None:
         """Re-write the work item's artifact after folding session-side senses
         records in. ``write`` is deterministic on task_id + request, so this
@@ -1132,16 +1317,25 @@ class _Session:
         # Cortex/senses (t8): a cortex-only run suppresses the loop's senses media
         # bridge too (config.senses=None); split/None leave the config untouched.
         config = replace(self.config, senses=None) if senses_mode == "cortex-only" else self.config
-        result = self._dispatch_work(
-            task,
-            open_pr=self.open_pr,
-            config=config,
-            command_name=command_name,
-            # The work verb's profile is behaviour-neutral by construction (it
-            # equals the built-in defaults) but keeps the one-code-path claim
-            # honest and lets an operator overlay tune session work runs.
-            mode="work",
-        )
+        # Arm the concurrent talk lane for the duration of this work item (t7): a
+        # no-op unless enabled (off-TTY / no senses / --cortex-only). When enabled
+        # it marks the task watchable so the flight plane is armed — the operator's
+        # relays land as guidance at the next tool-call boundary, on the SAME
+        # file-based flight plane the `colleague flight`/`colleague talk` clients use.
+        self._begin_talk_lane(task)
+        try:
+            result = self._dispatch_work(
+                task,
+                open_pr=self.open_pr,
+                config=config,
+                command_name=command_name,
+                # The work verb's profile is behaviour-neutral by construction (it
+                # equals the built-in defaults) but keeps the one-code-path claim
+                # honest and lets an operator overlay tune session work runs.
+                mode="work",
+            )
+        finally:
+            self._end_talk_lane()
         if result is None:
             return
         display = result.summary
