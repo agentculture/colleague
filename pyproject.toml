@@ -1,6 +1,6 @@
 [project]
 name = "colleague"
-version = "1.35.2"
+version = "1.36.0"
 description = "Colleague is a swappable coder-agent harness that turns different models into repo workers behind one shared task contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -57,6 +57,14 @@ mcp = [
 tui = [
     "rich>=13",
     "textual>=0.50",
+]
+# VOICE (senses live-presence + voice arc, task t3): operator-side mic capture +
+# speaker playback deps. Opt-in — a base install carries NO audio deps; colleague
+# consumes stt/tts over HTTP (colleague/voice.py) at base, and only `colleague
+# talk --audio` / spoken replies need this. Install: pip install "colleague[voice]".
+voice = [
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
 ]
 # RESIDENT (appserver mode, plan task t13): colleague consumes
 # agent-lifecycle's runtime as a LIBRARY EMBED — colleague.resident.appserver

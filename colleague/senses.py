@@ -16,6 +16,16 @@ model — the structural sibling of :func:`colleague.deepthink.run_deepthink`:
   operator's exact request survives byte-for-byte (the arc's core invariant).
 - :func:`run_senses_speakback` shapes the cortex's raw work summary into a
   conversational display string.
+- :func:`run_senses_talk` holds ONE live, tools-off conversational turn with
+  the operator WHILE cortex is driving a work item (senses live presence,
+  task t4) — grounded in the live flight-feed tail + the run's
+  :class:`~colleague.contract.ContextPacket` + a caller-supplied task-state
+  snapshot, windowed to senses' own budget, and returns an advisory
+  ``{answer, relay, relay_text, latency, degraded, tokens}`` record. An
+  explicit operator ``"cortex: ..."`` prefix is a DETERMINISTIC relay
+  override that always wins over the model's own (advisory) relay judgment.
+  Wiring this into the flight plane / `colleague talk` / the session lane is
+  later tasks (t5-t7); this function is the invocation layer only.
 
 Both invocations issue exactly ONE tools-off completion via the public
 :meth:`colleague.engine.Engine.make_complete` seam with ``tools=[]`` (a senses
@@ -45,6 +55,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 from colleague import media, registry
 from colleague.config import EngineConfig
+from colleague.context import count_tokens_chars
 from colleague.contract import ContextPacket, SensesRecord
 from colleague.plan.cli_driver import _extract_json_object, robust_simple_complete
 
@@ -62,6 +73,7 @@ _TRUNCATION_NOTE = "[senses digest truncated to fit budget]"
 INTAKE_POINT = "senses-intake"
 SPEAKBACK_POINT = "senses-speakback"
 MEDIA_BRIDGE_POINT = "media-bridge"
+TALK_POINT = "senses-talk"
 
 _INTAKE_SYSTEM_PROMPT = (
     "You are the senses lobe for colleague — the perception front door. Read the "
@@ -83,6 +95,22 @@ _SPEAKBACK_SYSTEM_PROMPT = (
     "concise, conversational reply for a human. Preserve every concrete fact "
     "(files changed, decisions, caveats); do not invent anything that is not in "
     "the summary. Reply with ONLY the reply text — no JSON, no preamble."
+)
+
+_TALK_SYSTEM_PROMPT = (
+    "You are the senses lobe for colleague — a live conversational presence "
+    "answering the operator WHILE the cortex model drives a running work item. "
+    "Answer the operator's live message using ONLY the run context given in the "
+    "user message below (the operator's original request, the current task "
+    "state, and the recent flight-feed tail). If the context does not say, say "
+    "plainly that you don't know rather than invent or guess run state. Reply "
+    "with ONLY a JSON object of the form: "
+    '{"answer": "...", "relay": true|false, "relay_text": "..."}. '
+    '"answer" is what you say back to the operator; "relay" is true when this '
+    "message should be forwarded to the cortex model as guidance for the "
+    'running work item, false otherwise; "relay_text" is the exact text to '
+    "inject into cortex when relay is true (default to the operator's own "
+    "message). No prose outside the JSON."
 )
 
 
@@ -437,6 +465,169 @@ def run_senses_media_bridge(
     except Exception:
         latency = time.monotonic() - start
         return None, SensesRecord(point=point, latency=latency, tokens=None, degraded=True)
+
+
+def _relay_prefix_override(message: str, relay_prefix: str) -> Optional[str]:
+    """Return the stripped relay text when *message* starts with *relay_prefix*.
+
+    Returns ``None`` when the prefix is absent — the caller then falls back to
+    the model's own (advisory) relay judgment. When present, this is the
+    GUARANTEED relay path (senses live-presence spec, decision h3): an operator
+    who deliberately types e.g. ``"cortex: focus on the config file"`` gets
+    ``relay=True`` unconditionally, even if the senses model itself judges
+    otherwise or is unreachable — the prefix is a deterministic operator
+    convention, not a classification the model can override.
+    """
+    if not relay_prefix or not message.startswith(relay_prefix):
+        return None
+    return message[len(relay_prefix) :].strip()
+
+
+def _format_talk_context(message: str, packet: Optional[ContextPacket], task_state: Any) -> str:
+    """Build the FIXED (never-windowed) portion of a talk-lane prompt.
+
+    Carries the operator's original request + prior interpretation (from
+    *packet*, when present), the caller-supplied *task_state* snapshot, and the
+    live *message* itself — everything the talk turn needs EXCEPT the flight
+    feed tail, which :func:`run_senses_talk` windows separately so a long-
+    running conversation's feed history never crowds out the message being
+    asked right now.
+    """
+    lines: list[str] = []
+    if packet is not None:
+        original = getattr(packet, "original", "") or ""
+        interpretation = getattr(packet, "interpretation", "") or ""
+        if original:
+            lines.append(f"Operator's original request: {original}")
+        if interpretation:
+            lines.append(f"Senses' prior interpretation: {interpretation}")
+    if task_state:
+        lines.append(f"Current task state: {task_state}")
+    lines.append(f"Operator's live message: {message}")
+    return "\n".join(lines)
+
+
+def run_senses_talk(
+    message: str,
+    *,
+    feed_tail: str,
+    packet: Optional[ContextPacket],
+    task_state: Any,
+    senses_config: Optional[EngineConfig],
+    make_complete: "Callable[..., Callable[[list[dict[str, Any]]], Any]]",
+    make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+    relay_prefix: str = "cortex:",
+) -> Optional[dict[str, Any]]:
+    """Hold ONE live, tools-off conversational turn with the operator (t4).
+
+    The senses live-presence lane: while cortex drives a running work item,
+    the operator can chat with senses concurrently. This issues exactly ONE
+    tools-off completion grounded in the live run context — *feed_tail* (the
+    recent flight-feed lines), *packet* (the run's
+    :class:`~colleague.contract.ContextPacket`, or ``None``), and *task_state*
+    (a short caller-supplied snapshot: step/phase/last tool, or ``None``) — and
+    returns an advisory record the caller (the flight-attach verb / the
+    session's concurrent lane) uses to display an answer and, optionally,
+    inject guidance into the running cortex loop at the next tool-call
+    boundary.
+
+    Tools-off ALWAYS: *make_complete* is invoked as ``make_complete(senses_config,
+    tools=[])`` — an explicit empty tool list, never ``None`` — mirroring
+    :func:`run_senses_intake` / :func:`run_senses_speakback` /
+    :func:`run_senses_media_bridge`. Unlike those, *make_complete* is passed in
+    directly (not a full engine) so a flight-attach caller that already
+    resolved ``engine.make_complete`` can bind it once per turn.
+
+    Grounded: the fixed run context (packet + task_state + the message itself)
+    is never trimmed; only *feed_tail* — the part that grows unbounded over a
+    long-running conversation — is windowed to *senses_config*'s OWN
+    ``context_budget_tokens`` (mirroring :func:`_window_text`'s use elsewhere),
+    counted via *make_count_tokens* when given, else the zero-dep
+    :func:`~colleague.context.count_tokens_chars` fallback (there is no engine
+    object here to fall back to its own counter). The system prompt instructs
+    senses to answer ONLY from the given context and to say it doesn't know
+    rather than fabricate run state.
+
+    Relay: the model's own JSON reply carries an advisory ``relay``/
+    ``relay_text`` judgment. An explicit ``relay_prefix`` (default
+    ``"cortex:"``) on *message* ALWAYS overrides it — see
+    :func:`_relay_prefix_override` — regardless of the model's judgment AND
+    regardless of whether the completion itself succeeds (the override is
+    computed up front and applied on both the clean and the degraded return
+    path, so the guaranteed relay path survives a dead senses endpoint too).
+
+    Returns ``None`` when *senses_config* is ``None`` (senses unarmed) — the
+    signal the caller uses to degrade to a watch-only view, no talk lane.
+    Otherwise NEVER raises: any failure (unreachable endpoint, request error,
+    overflow, empty or unrecoverable content) degrades to a record with
+    ``degraded=True`` and a safe, non-fabricated ``answer``.
+
+    Returns
+    -------
+    dict | None
+        ``None`` when unarmed. Otherwise
+        ``{"answer": str, "relay": bool, "relay_text": str, "latency": float,
+        "degraded": bool, "tokens": int | None}`` — a plain advisory dict (NOT
+        a :class:`~colleague.contract.SensesRecord`; the caller wraps this into
+        one, tagged :data:`TALK_POINT`, for the artifact). ``tokens`` is the
+        exact summed prompt+completion tokens on success, ``None`` on
+        degradation (never estimated).
+    """
+    if senses_config is None:
+        return None
+
+    start = time.monotonic()
+    relay_override = _relay_prefix_override(message, relay_prefix)
+    meter = _TokenMeter()
+    try:
+        counter = make_count_tokens if make_count_tokens is not None else count_tokens_chars
+        fixed_context = _format_talk_context(message, packet, task_state)
+        windowed_feed = _window_text(
+            feed_tail or "",
+            system_prompt=f"{_TALK_SYSTEM_PROMPT}\n\n{fixed_context}",
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
+        )
+        user_prompt = (
+            f"{fixed_context}\n\nRecent flight feed (most recent last):\n"
+            f"{windowed_feed or '(no feed yet)'}"
+        )
+        # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
+        # senses talk turn structurally cannot carry a tool schema on the wire.
+        complete = make_complete(senses_config, tools=[])
+        simple = robust_simple_complete(meter.wrap(complete))
+        raw = simple(_TALK_SYSTEM_PROMPT, user_prompt)
+        if not raw.strip():
+            raise ValueError("empty senses talk response")
+        data = _extract_json_object(raw, required_key="answer")
+        answer = str(data.get("answer", "")).strip()
+        if not answer:
+            raise ValueError("empty senses talk answer")
+        model_relay = bool(data.get("relay", False))
+        model_relay_text = str(data.get("relay_text") or message)
+        relay = relay_override is not None or model_relay
+        relay_text = relay_override if relay_override is not None else model_relay_text
+        latency = time.monotonic() - start
+        return {
+            "answer": answer,
+            "relay": relay,
+            "relay_text": relay_text,
+            "latency": latency,
+            "degraded": False,
+            "tokens": meter.value,
+        }
+    except Exception:
+        latency = time.monotonic() - start
+        relay = relay_override is not None
+        relay_text = relay_override if relay_override is not None else message
+        return {
+            "answer": "senses is unavailable right now.",
+            "relay": relay,
+            "relay_text": relay_text,
+            "latency": latency,
+            "degraded": True,
+            "tokens": None,
+        }
 
 
 #: The bound senses media-bridge callable the loop threads through

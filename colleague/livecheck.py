@@ -314,6 +314,81 @@ def classify_media_audio_check(media_record: dict[str, Any] | None, answer: str)
     return "skipped", f"attachment status {status!r} — cannot confirm the rig consumed the audio"
 
 
+# The lobes gateway's speech proxy returns 502 for BOTH /v1/audio/transcriptions
+# and /v1/audio/speech (probed 2026-07-03: tts → {"error":"TTS backend returned no
+# audio"}, stt → HTTP 502). The stt/tts round-trip live proofs SKIP honestly until
+# the rig-side proxy is fixed (sibling of lobes-cli#87). The classification flips to
+# a real grade the day the proxy serves audio — never a fabricated pass.
+_SPEECH_PROXY_502_REASON = (
+    "lobes gateway speech proxy 502s (stt /audio/transcriptions + tts /audio/speech, "
+    "probed 2026-07-03) — graded from evidence, never a fabricated pass"
+)
+
+
+def classify_senses_latency_check(
+    p50: float | None,
+    p95: float | None,
+    *,
+    p50_target: float = 3.0,
+    p95_target: float = 8.0,
+) -> tuple[str, str]:
+    """Grade the concurrent-senses-latency proof (t10 / spec h9): a senses answer
+    issued WHILE cortex is mid-completion must meet the responsiveness target
+    (p50 < 3s, p95 < 8s; probe baseline 1.1s alone / 2.3s p50 under cortex load on
+    the shared GPU, 2026-07-03).
+
+    A missing measurement SKIPs (never a fabricated pass); a real measurement
+    PASSes only when BOTH percentiles clear their target, else FAILs naming the
+    breach — the 'answers in seconds' claim is graded from wall-clock evidence.
+    """
+    if p50 is None or p95 is None:
+        return "skipped", "no concurrent-latency measurement recorded"
+    if p50 < p50_target and p95 < p95_target:
+        return (
+            "passed",
+            f"senses answered during cortex load at p50={p50:.2f}s / p95={p95:.2f}s "
+            f"(target p50<{p50_target:.0f}s / p95<{p95_target:.0f}s)",
+        )
+    return (
+        "failed",
+        f"latency breached target: p50={p50:.2f}s / p95={p95:.2f}s "
+        f"(target p50<{p50_target:.0f}s / p95<{p95_target:.0f}s)",
+    )
+
+
+def classify_injection_reached_check(in_feed: bool, in_artifact: bool) -> tuple[str, str]:
+    """Grade the injection-awareness proof (t10 / spec h8): an APPLIED operator
+    injection must be reconstructable from BOTH the flight feed AND the artifact
+    record.
+
+    PASS only when the injection is present on both surfaces (the awareness
+    invariant); FAIL when either is missing (a silent injection). Never a
+    fabricated pass.
+    """
+    if in_feed and in_artifact:
+        return "passed", "injection present in BOTH the flight feed and the artifact record"
+    missing = [
+        name for name, present in (("feed", in_feed), ("artifact", in_artifact)) if not present
+    ]
+    return "failed", f"injection not reconstructable — missing from: {', '.join(missing)}"
+
+
+def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
+    """Grade an stt/tts voice-lane live proof (t10) from its recorded outcome.
+
+    ``outcome`` is ``"ok"`` (a verbatim transcript / a written wav),
+    ``"proxy_502"`` (the gateway speech proxy returned 502 / no audio — the
+    2026-07-03 rig state), or any other string (an unexpected error). A 502 SKIPs
+    honestly (naming the rig-side proxy); ``ok`` PASSes; anything else FAILs.
+    Written to flip to a real grade the day the proxy serves audio.
+    """
+    if outcome == "ok":
+        return "passed", f"{kind} lane round-tripped audio through the gateway"
+    if outcome == "proxy_502":
+        return "skipped", _SPEECH_PROXY_502_REASON
+    return "failed", f"{kind} lane failed unexpectedly: {outcome!r}"
+
+
 def _reachable(repo: str | Path) -> tuple[bool, str | None]:
     """Thin wrapper over :func:`probe_endpoint` returning ``(reachable, reason)``."""
     probe = probe_endpoint(repo)

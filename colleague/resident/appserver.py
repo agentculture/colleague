@@ -118,11 +118,72 @@ content. Only a path that clears BOTH the trust check and
 refusal at either stage drops just that one attachment — recorded as a note,
 never a crash, and the request still runs under whatever role
 :func:`~colleague.resident.trust.classify_request` already assigned.
+
+**Audio reply link (task t8).** When ``config.voice`` is armed with a
+``tts_model`` (senses live-presence + voice arc), a SUCCESSFUL dispatch's
+reply text is additionally synthesized to a ``.wav`` written beside that work
+item's artifact (:func:`colleague.voice.synthesize`, degrade-never-raise), and
+the reply gains one extra line — ``audio: <path>`` — naming that wav's path
+**relative to the repo root** (the same root the artifact's own ``.colleague/``
+directory lives under, so a mesh peer with a checkout of the same repo can
+resolve it directly; see :meth:`_synthesize_reply_audio`). A mic-less peer thus
+consumes the reply as a text-plus-file-link pair instead of needing real-time
+audio. On ``synthesize`` returning ``None`` (the documented honest limit: the
+reference rig's speech proxy currently 502s) the reply is **byte-identical**
+to a no-tts reply — no line, no crash; this feature is purely additive.
+Unarmed voice (``config.voice is None``) never calls ``synthesize`` at all.
+
+**Trust-gated relay (task t8).** A mesh message MAY address an
+ALREADY-RUNNING flight via a line-anchored convention: a message whose body
+contains a line ``relay <task-id>: <text>`` (case-insensitive ``relay``
+keyword; *task-id* is a single non-whitespace, non-colon token). Detecting
+this line is checked BEFORE the normal work-item dispatch path in
+:meth:`feed_message` — a relay message never spawns its own ``execute_work``
+call; it is a side-channel action against a *different*, already-running work
+item. :meth:`_handle_relay` owns the full contract:
+
+1. *task-id* is validated with :func:`colleague.flight.is_safe_task_id`
+   FIRST, for every requester (including the operator) — an unsafe id (path
+   traversal, an absolute path, ``..``) is refused before anything else runs,
+   so no requester can smuggle a filesystem escape through this convention.
+2. The relay text is ALWAYS routed through the senses live-presence talk lane
+   (:func:`colleague.senses.run_senses_talk`, via :meth:`_senses_talk` — the
+   SAME tools-off, degrade-never-raise seam :meth:`_senses_intake` /
+   :meth:`_speakback_and_finalize` already use) to produce a conversational
+   answer, when a senses model is resolved; with no senses model configured
+   at all this step is skipped (``talk is None``).
+3. **The trust gate.** Whether *this* request may actually append guidance
+   onto the addressed flight is decided by reusing the EXACT SAME verdict
+   :func:`~colleague.resident.trust.classify_request` already produced for
+   this message (``decision.outcome == colleague.resident.trust.ALLOW_WRITE``
+   — the identical check :func:`~colleague.resident.trust.RequestDecision`
+   encodes for "this sender is the confirmed operator"; this task invents NO
+   second trust-decision path). Only inside that ``is_operator`` branch does
+   :func:`colleague.flight.append_guidance` ever get called — structurally,
+   there is exactly ONE call site for it in this module, and it sits inside
+   that one conditional. A non-operator's relay attempt takes the sibling
+   branch, which can NEVER reach that call: it replies with the senses
+   answer when one was produced, or (senses unconfigured) a plain refusal
+   line naming the addressed task id and pointing the requester at the
+   operator — mirroring the wording :func:`classify_request` already uses for
+   its own REFUSE verdict, but never itself calling ``append_guidance``.
+4. An operator's relay is always visibly labeled in the reply with a
+   ``-> cortex(<task-id>): <text>`` line (in addition to any senses answer),
+   so the operator can see exactly what was injected and where; a
+   non-operator's reply never carries that label (nothing was injected).
+
+This is deliberately a DIFFERENT lane from the normal work-item dispatch:
+no ``Task``/``execute_work``/artifact is ever created for a relay message —
+only the two file-based flight-plane primitives (:func:`is_safe_task_id`,
+:func:`append_guidance`) and the senses talk lane are touched, exactly the
+primitives :mod:`colleague.flight` and :mod:`colleague.senses` already
+expose (no duplication).
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from collections.abc import AsyncIterator
 from dataclasses import replace as _dc_replace
@@ -136,9 +197,16 @@ from colleague import registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.contract import SensesBlock, Task
+from colleague.flight import append_guidance, feed_path, is_safe_task_id
 from colleague.media import validate_attachment
-from colleague.resident.trust import check_attachment_path, classify_request
-from colleague.senses import run_senses_intake, run_senses_speakback, senses_engine_config
+from colleague.resident.trust import ALLOW_WRITE, check_attachment_path, classify_request
+from colleague.senses import (
+    run_senses_intake,
+    run_senses_speakback,
+    run_senses_talk,
+    senses_engine_config,
+)
+from colleague.voice import synthesize
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from agent_lifecycle.runtime.transport import Transport
@@ -187,6 +255,29 @@ def _extract_attach_lines(text: str) -> tuple[str, list[str], int]:
         else:
             dropped += 1
     return "\n".join(kept_lines), candidates, dropped
+
+
+# t8: the mesh relay-addressing convention -- a line-anchored `relay <task-id>:
+# <text>` token (case-insensitive keyword; the task id is a single non-whitespace,
+# non-colon token). See the module docstring's "Trust-gated relay" section.
+_RELAY_LINE_RE = re.compile(r"^relay\s+([^\s:]+):\s*(\S.*)$", re.IGNORECASE)
+
+
+def _extract_relay_line(text: str) -> Optional[tuple[str, str]]:
+    """Return ``(task_id, relay_text)`` for the FIRST ``relay <task-id>: <text>``
+    line found in *text*, or ``None`` when no line matches the convention.
+
+    Unlike :func:`_extract_attach_lines` (which strips matched lines and lets
+    the REST of the message proceed as a normal work request), a matched relay
+    line takes the message down an entirely different path (see
+    :meth:`AppserverHarness._handle_relay`) — no work item is ever dispatched
+    for it, so there is nothing to "clean" and return alongside it.
+    """
+    for line in text.splitlines():
+        match = _RELAY_LINE_RE.match(line.strip())
+        if match:
+            return match.group(1), match.group(2).rstrip()
+    return None
 
 
 class AppserverHarness:
@@ -273,12 +364,20 @@ class AppserverHarness:
 
         Trust classification (:func:`colleague.resident.trust.classify_request`)
         happens FIRST, before any work is dispatched — a refused request never
-        reaches ``execute_work`` at all. An allowed request's ``attach:``
-        candidates are resolved by :meth:`_resolve_attachments` (t12: parses,
-        trust-checks, and validates each one — see that method's docstring),
-        then the work item is run and replied via :meth:`_dispatch_and_reply`
-        (which also owns the expected-vs-unexpected failure split described
-        below).
+        reaches ``execute_work`` at all.
+
+        A ``relay <task-id>: <text>`` line (t8, see the module docstring's
+        "Trust-gated relay" section) is checked next — BEFORE the normal
+        attach/dispatch pipeline — and takes over the ENTIRE handling of this
+        message via :meth:`_handle_relay`: no ``execute_work`` call, no new
+        artifact, just a trust-gated side-channel action against an
+        already-running flight.
+
+        Otherwise, the allowed request's ``attach:`` candidates are resolved
+        by :meth:`_resolve_attachments` (t12: parses, trust-checks, and
+        validates each one — see that method's docstring), then the work item
+        is run and replied via :meth:`_dispatch_and_reply` (which also owns
+        the expected-vs-unexpected failure split described below).
 
         An expected work-item failure (:class:`~colleague.cli._errors.CliError`
         — e.g. an unreachable engine) is caught and turned into an error reply.
@@ -309,6 +408,19 @@ class AppserverHarness:
             return
 
         raw_body = getattr(message, "body", "") or ""
+
+        relay = _extract_relay_line(raw_body)
+        if relay is not None:
+            relay_task_id, relay_text = relay
+            await self._handle_relay(
+                sender=sender,
+                target=target,
+                decision=decision,
+                task_id=relay_task_id,
+                relay_text=relay_text,
+            )
+            return
+
         body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
 
         # Cortex/senses (t9): with a senses model resolved, perceive the inbound
@@ -384,6 +496,126 @@ class AppserverHarness:
 
         return body, attachments, attachment_notes
 
+    # ── trust-gated relay (t8) ───────────────────────────────────────────────
+
+    async def _handle_relay(
+        self,
+        *,
+        sender: str,
+        target: str,
+        decision,
+        task_id: str,
+        relay_text: str,
+    ) -> None:
+        """Trust-gated relay dispatch — see the module docstring's "Trust-gated
+        relay" section for the full contract; this docstring covers only the
+        implementation shape.
+
+        *task_id* is validated with :func:`~colleague.flight.is_safe_task_id`
+        FIRST, for every requester (operator included) — an unsafe id is
+        refused before anything else runs. The relay text is then routed
+        through the senses talk lane (:meth:`_senses_talk`) for a
+        conversational answer when a senses model is resolved (``None``
+        otherwise). ``is_operator`` reuses the EXACT SAME verdict
+        :meth:`feed_message` already computed via
+        :func:`~colleague.resident.trust.classify_request` — no second trust
+        check. :func:`~colleague.flight.append_guidance` has exactly ONE call
+        site in this module, and it sits inside the ``if is_operator:``
+        branch below; the ``else`` branch structurally cannot reach it.
+        """
+        if not is_safe_task_id(task_id):
+            await self._reply_queue.put(
+                Message(
+                    sender=self._agent_nick,
+                    target=target,
+                    body=f"relay refused: {task_id!r} is not a valid flight id",
+                    kind="message",
+                    metadata={"relay": False, "reason": "unsafe_task_id"},
+                )
+            )
+            return
+
+        loop = asyncio.get_running_loop()
+        talk = await loop.run_in_executor(None, self._senses_talk, relay_text, task_id)
+
+        # The SAME verdict feed_message already computed -- ALLOW_WRITE is
+        # returned by classify_request ONLY for the confirmed operator identity
+        # (see colleague/resident/trust.py); no second trust-decision path.
+        is_operator = decision.outcome == ALLOW_WRITE
+        if is_operator:
+            # The ONE call site for append_guidance in this entire module.
+            try:
+                append_guidance(self._repo_path, task_id, relay_text)
+                label = f"-> cortex({task_id}): {relay_text}"
+                body = f"{label}\n{talk['answer']}" if talk is not None else label
+                meta: dict[str, Any] = {"relay": True, "relayed_to": task_id, "role": decision.role}
+            except (OSError, ValueError) as exc:
+                # Degrade-never-crash: a failed control-file write must not escape the
+                # resident message handler. Reply honestly with relay=False so a consumer
+                # never assumes the guidance was injected.
+                note = f"relay failed ({type(exc).__name__}) — could not write flight control file"
+                body = f"{note}\n{talk['answer']}" if talk is not None else note
+                meta = {
+                    "relay": False,
+                    "relayed_to": task_id,
+                    "role": decision.role,
+                    "relay_failed": True,
+                }
+        else:
+            if talk is not None:
+                body = talk["answer"]
+            else:
+                body = (
+                    f"{sender!r} is not the operator — I can't relay guidance into "
+                    f"{task_id}; ask the operator, or request a read-only "
+                    "explore/review instead."
+                )
+            meta = {"relay": False, "relay_attempted_task_id": task_id, "role": decision.role}
+
+        await self._reply_queue.put(
+            Message(
+                sender=self._agent_nick, target=target, body=body, kind="message", metadata=meta
+            )
+        )
+
+    def _senses_talk(self, message: str, task_id: str):
+        """Run ONE senses talk-lane turn grounded in *task_id*'s live flight feed.
+
+        Returns :func:`colleague.senses.run_senses_talk`'s advisory dict, or
+        ``None`` when no senses model is resolved at all (the SAME
+        None-signals-unarmed contract :meth:`_senses_engine` already uses).
+        Sync (executor-bound, mirrors :meth:`_senses_intake`).
+        """
+        pair = self._senses_engine()
+        if pair is None:
+            return None
+        senses_config, engine = pair
+        feed_tail = self._read_feed_tail(task_id)
+        return run_senses_talk(
+            message,
+            feed_tail=feed_tail,
+            packet=None,
+            task_state=None,
+            senses_config=senses_config,
+            make_complete=engine.make_complete,
+            make_count_tokens=engine.make_count_tokens(senses_config),
+        )
+
+    def _read_feed_tail(self, task_id: str, max_chars: int = 4000) -> str:
+        """Best-effort tail of *task_id*'s live flight feed (raw JSONL text).
+
+        Reuses :func:`colleague.flight.feed_path` — no new flight.py helper.
+        Returns ``""`` when the flight has no feed file yet (an unaddressed or
+        not-yet-armed task id) or on any read failure; never raises.
+        """
+        try:
+            path = feed_path(self._repo_path, task_id)
+            if not path.is_file():
+                return ""
+            return path.read_text(encoding="utf-8")[-max_chars:]
+        except (OSError, ValueError):
+            return ""
+
     # ── cortex/senses split (t9) ─────────────────────────────────────────────
 
     def _senses_engine(self):
@@ -432,6 +664,35 @@ class AppserverHarness:
         except Exception:  # nosec B110 - a re-save failure must never fail the reply
             pass
         return shaped
+
+    # ── audio reply link (t8) ────────────────────────────────────────────────
+
+    def _synthesize_reply_audio(self, text: str, artifact_path: Path) -> Optional[str]:
+        """Synthesize *text* to a wav beside *artifact_path*; return its path
+        RELATIVE TO THE REPO ROOT, or ``None`` when there is nothing to attach.
+
+        Returns ``None`` (never calling :func:`colleague.voice.synthesize` at
+        all) when ``config.voice`` is unarmed or carries no ``tts_model`` — the
+        additive-only contract. When armed, ``synthesize`` itself is
+        degrade-never-raise (see :mod:`colleague.voice`); its own ``None``
+        (e.g. the reference rig's speech proxy 502ing) propagates straight
+        through here, so a degraded synth leaves the reply byte-identical to a
+        no-tts reply — no line, no exception. Sync (executor-bound).
+        """
+        voice_config = self._config.voice
+        if voice_config is None or not voice_config.tts_model:
+            return None
+        wav_path = artifact_path.parent / f"{artifact_path.stem}.wav"
+        written = synthesize(
+            text,
+            tts_model=voice_config.tts_model,
+            base_url=voice_config.base_url,
+            out_path=wav_path,
+            api_key=voice_config.api_key,
+        )
+        if written is None:
+            return None
+        return os.path.relpath(str(written), start=self._repo_path)
 
     async def _dispatch_and_reply(
         self,
@@ -491,6 +752,15 @@ class AppserverHarness:
             )
             if shaped:
                 reply_body = shaped
+
+        # Audio reply link (t8): additive-only. With no tts_model armed this is a
+        # strict no-op (never even calls synthesize) -- see the module docstring's
+        # "Audio reply link" section.
+        audio_rel = await loop.run_in_executor(
+            None, self._synthesize_reply_audio, reply_body, artifact_path
+        )
+        if audio_rel is not None:
+            reply_body = f"{reply_body}\naudio: {audio_rel}"
 
         reply_meta: dict[str, Any] = {
             "task_id": result.task_id,

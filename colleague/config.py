@@ -221,6 +221,8 @@ _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 _DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
 # Recognised keys inside the NESTED "senses" section of .colleague/config.json.
 _SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
+
+_VOICE_CONFIG_KEYS = frozenset({"stt_model", "tts_model", "base_url", "api_key"})
 # Recognised key inside the NESTED "lobes" section of .colleague/config.json
 # (the lobes discovery rung, task t4). A bare string is also accepted as the
 # gateway URL directly (``{"lobes": "http://..."}``).
@@ -337,6 +339,34 @@ def _load_senses_overrides(repo_path: str | Path) -> dict[str, str]:
     }
 
 
+def _load_voice_overrides(repo_path: str | Path) -> dict[str, str]:
+    """Read the NESTED ``voice`` section of .colleague/config.json.
+
+    Mirrors :func:`_load_senses_overrides` field-for-field — reads a *nested*
+    object (``{"voice": {...}}``) for the recognised keys (``stt_model``,
+    ``tts_model``, ``base_url``, ``api_key``). A missing file, malformed JSON,
+    a non-dict payload, or an absent/non-dict ``voice`` section all yield an
+    empty dict and never raise.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    section = data.get("voice")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _VOICE_CONFIG_KEYS and value is not None
+    }
+
+
 def _load_lobes_override(repo_path: str | Path) -> str | None:
     """Read the lobes gateway URL from the ``lobes`` section of config.json.
 
@@ -434,6 +464,33 @@ def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "Sense
         api_key=api_key,
         context_budget=_senses_budget_from_window(int(getattr(role, "context", 0) or 0)),
         multimodal=False,
+    )
+
+
+def _voice_from_lobes_roles(roles: object, base_url: str, api_key: str) -> "VoiceConfig | None":
+    """Build a :class:`VoiceConfig` from the gateway's stt/tts roles (t1).
+
+    ``roles`` is the resolved :class:`~colleague.lobes.LobesRoles` (typed
+    ``object`` here to avoid a module-level ``lobes`` import — the same lazy
+    stance :func:`_resolve_lobes_rung` takes). Used only when voice is NOT
+    otherwise declared (env/config.json win). The base_url is the
+    gateway-derived value (NOT a role's ``endpoint`` field, which is not
+    client-reachable); api_key inherits the resolved MAIN endpoint's value.
+    Returns ``None`` when neither stt nor tts is armed on the gateway.
+    """
+    stt_role = getattr(roles, "stt", None)
+    tts_role = getattr(roles, "tts", None)
+    stt_model = (str(getattr(stt_role, "model", "") or "").strip()) or None
+    tts_model = (str(getattr(tts_role, "model", "") or "").strip()) or None
+
+    if stt_model is None and tts_model is None:
+        return None
+
+    return VoiceConfig(
+        stt_model=stt_model,
+        tts_model=tts_model,
+        base_url=base_url,
+        api_key=api_key,
     )
 
 
@@ -841,6 +898,57 @@ def _resolve_senses(
     )
 
 
+def _resolve_voice(
+    file_voice: dict[str, str],
+    main_base_url: str,
+    main_api_key: str,
+) -> "VoiceConfig | None":
+    """Resolve the optional voice (stt/tts) escalation target.
+
+    Mirrors :func:`_resolve_senses` field-for-field. Precedence per key:
+    ``COLLEAGUE_STT_MODEL``/``COLLEAGUE_TTS_MODEL``/``COLLEAGUE_VOICE_*`` env
+    > the ``voice`` section of .colleague/config.json > a default.
+
+    Voice is PRESENT iff at least one of ``stt_model`` or ``tts_model`` is a
+    non-empty, non-whitespace string; otherwise this returns ``None``.
+
+    ``base_url``/``api_key`` default to *main_base_url*/*main_api_key* — the
+    ALREADY-resolved main endpoint values. An empty file value for
+    ``base_url``/``api_key`` is treated as absent (falls through to the main
+    endpoint).
+    """
+    stt_model = _pick(
+        None,
+        "COLLEAGUE_STT_MODEL",
+        default=file_voice.get("stt_model", ""),
+    )
+    tts_model = _pick(
+        None,
+        "COLLEAGUE_TTS_MODEL",
+        default=file_voice.get("tts_model", ""),
+    )
+    stt_model = stt_model.strip() if stt_model else ""
+    tts_model = tts_model.strip() if tts_model else ""
+    if not stt_model and not tts_model:
+        return None
+    base_url = _pick(
+        None,
+        "COLLEAGUE_VOICE_BASE_URL",
+        default=file_voice.get("base_url") or main_base_url,
+    )
+    api_key = _pick(
+        None,
+        "COLLEAGUE_VOICE_API_KEY",
+        default=file_voice.get("api_key") or main_api_key,
+    )
+    return VoiceConfig(
+        stt_model=stt_model or None,
+        tts_model=tts_model or None,
+        base_url=base_url,
+        api_key=api_key,
+    )
+
+
 def _resolve_testintegrity_reviewer_model(
     explicit: str,
     deepthink: "DeepthinkConfig | None",
@@ -981,6 +1089,24 @@ class SensesConfig:
 
 
 @dataclass(frozen=True)
+class VoiceConfig:
+    """A resolved voice (stt/tts) escalation target.
+
+    Senses live-presence + voice arc. Optional: present on
+    :attr:`EngineConfig.voice` only when at least one of ``stt_model`` or
+    ``tts_model`` is resolved. Mirrors :class:`SensesConfig` field-for-field
+    (base_url/api_key default to the main endpoint). Precedence:
+    ``COLLEAGUE_STT_MODEL``/``COLLEAGUE_TTS_MODEL`` env > ``voice`` section of
+    .colleague/config.json > lobes discovery > absent (None).
+    """
+
+    stt_model: str | None
+    tts_model: str | None
+    base_url: str
+    api_key: str
+
+
+@dataclass(frozen=True)
 class ResolveOverrides:
     """Bundle of secondary numeric-knob explicit overrides for :meth:`EngineConfig.resolve`.
 
@@ -1064,6 +1190,10 @@ class EngineConfig:
     # task t3). ``None`` = no senses declared, byte-identical to today. See
     # :class:`SensesConfig` and :func:`_resolve_senses`.
     senses: Optional[SensesConfig] = None
+    # Voice (stt/tts) escalation target (senses live-presence + voice arc).
+    # ``None`` = no voice declared, byte-identical to today. See
+    # :class:`VoiceConfig` and :func:`_resolve_voice`.
+    voice: Optional[VoiceConfig] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -1162,6 +1292,7 @@ class EngineConfig:
         file_at_max_files: str | None = None
         file_deepthink: dict[str, str] = {}
         file_senses: dict[str, str] = {}
+        file_voice: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -1172,6 +1303,7 @@ class EngineConfig:
             )
             file_deepthink = _load_deepthink_overrides(repo_path)
             file_senses = _load_senses_overrides(repo_path)
+            file_voice = _load_voice_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -1226,6 +1358,14 @@ class EngineConfig:
             resolved_senses = _senses_from_lobes_role(
                 lobes_roles.senses, lobes_base_url, resolved_api_key
             )
+        # Voice (stt/tts) escalation target (senses live-presence + voice arc) —
+        # resolved once as a local, mirroring senses. Precedence: env >
+        # config.json > lobes discovery > absent. When voice is NOT declared via
+        # env/config.json but the lobes rung resolved, the gateway's stt/tts roles
+        # supply the VoiceConfig (gateway-origin base_url, main api_key).
+        resolved_voice = _resolve_voice(file_voice, resolved_base_url, resolved_api_key)
+        if resolved_voice is None and lobes_roles is not None:
+            resolved_voice = _voice_from_lobes_roles(lobes_roles, lobes_base_url, resolved_api_key)
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -1460,6 +1600,7 @@ class EngineConfig:
             # lobes discovery rung yet (t4); base_url/api_key default to the
             # resolved MAIN endpoint values computed above.
             senses=resolved_senses,
+            voice=resolved_voice,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -1513,6 +1654,15 @@ class EngineConfig:
                 "model": self.senses.model,
                 "base_url": self.senses.base_url,
                 "context_budget": self.senses.context_budget,
+            }
+        # Voice (stt/tts, senses live-presence + voice arc): present ONLY when
+        # configured (omit-when-None, same convention as senses/deepthink above).
+        # The voice api_key is absent from the sub-dict, never included.
+        if self.voice is not None:
+            data["voice"] = {
+                "stt_model": self.voice.stt_model,
+                "tts_model": self.voice.tts_model,
+                "base_url": self.voice.base_url,
             }
         return data
 

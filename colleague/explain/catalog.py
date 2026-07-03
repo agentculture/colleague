@@ -1038,6 +1038,45 @@ are applied at the running loop's next turn boundary.
     colleague flight overview
 """
 
+_TALK = """\
+# colleague talk
+
+Attach a live REPL to a RUNNING work item over the file-based flight plane
+(the senses live-presence + voice arc) and converse with senses while cortex
+drives. Cooperative, file-based — no daemon, no socket.
+
+Each typed message gets a senses answer, labeled `senses:`. An instruction can
+be relayed into the running cortex loop via the flight guidance channel — it
+echoes a visible `-> cortex:` line so the relay is never silent. `--audio
+FILE` (at startup) or `/say FILE` (mid-REPL) transcribes a spoken message via
+the configured stt model; a reply is synthesized to a `.wav` beside the flight
+files when tts is configured (`config.voice.tts_model`) — additive only, never
+blocking the text reply.
+
+**Degradation:** when senses is unarmed, `talk` degrades to a **watch +
+raw-guide** REPL — one notice is printed, and every subsequent typed line is
+relayed directly into the running loop (the same `-> cortex:` echo, no senses
+answer). Never crashes; the only hard failure is an invalid flight task id.
+
+## Usage
+
+    colleague talk <task_id> --repo .
+    colleague talk <task_id> --audio question.wav --repo .
+    colleague talk <task_id> --engine vllm-openai --model <name>
+
+## In the REPL
+
+- Type a message — senses answers it (`senses: ...`); an explicit `cortex:`
+  prefix always forces a relay regardless of senses' own judgment.
+- `/say <path>` — transcribe an audio file as the next message.
+- `/quit` or `/exit` (or EOF) — end the REPL cleanly.
+
+## See also
+
+- `colleague explain flight`
+- `colleague explain work`
+"""
+
 _PROMOTE = """\
 # colleague promote
 
@@ -1246,6 +1285,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("flight", "stop"): _FLIGHT,
     ("flight", "list"): _FLIGHT,
     ("flight", "overview"): _FLIGHT,
+    ("talk",): _TALK,
     ("plan",): _PLAN,
     ("plan", "run"): _PLAN,
     ("plan", "continue"): _PLAN,
