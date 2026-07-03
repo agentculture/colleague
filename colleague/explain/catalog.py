@@ -1068,9 +1068,9 @@ What it does:
    owns `#<nick>` by default; degrades cleanly to just the owned channel if the
    roster CLI is absent.
 3. **Go live (`--serve`)** — connects to IRC and runs the resident supervisor (the
-   bounded loop as a brain, via agent-lifecycle's Transport/Harness/Supervisor seam)
-   until interrupted. Without `--serve` it *prepares and reports* — the consequential
-   network step is explicit.
+   bounded loop as its driving engine, via agent-lifecycle's Transport/Harness/Supervisor
+   seam) until interrupted. Without `--serve` it *prepares and reports* — the
+   consequential network step is explicit.
 
 The bounded `colleague work` path is untouched: the resident is a SEPARATE, opt-in
 process; a bare work item never starts it.

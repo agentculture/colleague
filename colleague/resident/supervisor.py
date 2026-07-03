@@ -2,8 +2,8 @@
 
 :func:`build_resident_supervisor` constructs the :class:`IRCTransportAdapter`
 (over an injected IRC connection) and the :class:`ColleagueHarness` (colleague's
-bounded loop as a brain) and returns an ``agent_lifecycle`` ``Supervisor`` — the
-pump bridge — that wires them: inbound ``transport.receive()`` →
+bounded loop as its driving engine) and returns an ``agent_lifecycle``
+``Supervisor`` — the pump bridge — that wires them: inbound ``transport.receive()`` →
 ``harness.feed_message()``; outbound ``harness.replies()`` → ``transport.send()``,
 with drain-bounded shutdown.
 

@@ -3,7 +3,7 @@
 :class:`ColleagueHarness` adapts colleague's synchronous, bounded work-item loop
 (:meth:`colleague.engine.Engine.work`) onto agent-lifecycle's asyncio-native
 ``Harness`` Protocol (``start`` / ``feed_message`` / ``replies`` / ``stop``), so
-the *same* coder-agent brain that drives a bounded ``colleague work`` item can
+the *same* coder-agent engine that drives a bounded ``colleague work`` item can
 also serve as a resident Culture peer that answers messages over a long-lived
 session.
 

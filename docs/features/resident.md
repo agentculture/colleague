@@ -10,7 +10,7 @@ Colleague can live on the culture mesh as a **resident that accepts work
 requests** and runs them as ordinary work items — the "appserver" mode. The
 lifecycle core is **imported, not built**: colleague embeds
 `agent_lifecycle.runtime` (PyPI, ≥ 0.9) as a plain library and contributes
-only its own brain.
+only its own engine.
 
 ## The pieces
 

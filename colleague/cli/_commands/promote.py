@@ -12,9 +12,9 @@ mesh peer. The verb is the operator flow behind the ``/promote`` skill. It:
    and owns ``#<nick>`` by default
    (:func:`colleague.resident.channels.select_channels`, decision c19).
 3. **Starts the resident** when ``--serve`` is passed — connects to IRC and runs
-   the long-lived supervisor (the bounded loop as a brain) until interrupted.
-   Without ``--serve`` it *prepares and reports* (idempotent), so the consequential
-   network step is explicit.
+   the long-lived supervisor (the bounded loop as its driving engine) until
+   interrupted. Without ``--serve`` it *prepares and reports* (idempotent), so
+   the consequential network step is explicit.
 
 The resident deps ship only in the opt-in ``[culture]`` extra; an install without
 it fails cleanly with an install hint (never a traceback). This verb opens no
@@ -143,7 +143,7 @@ def _configure_promote_parser(p: argparse.ArgumentParser) -> None:
     """Add ``promote``'s flags to an already-created parser.
 
     Shared by the legacy :func:`register` and the host-command ``configure`` hook.
-    ``promote`` is a host command: it drives the engine (the resident's brain),
+    ``promote`` is a host command: it drives the resident's engine,
     can ``--serve`` a long-running IRC loop, and carries hyphenated flags
     (``--base-url`` / ``--roster-cli`` with choices / ``--no-signal`` / ``--irc-host``
     / ``--irc-port``) that don't map cleanly to signature-derived flags. ``func``
@@ -155,8 +155,8 @@ def _configure_promote_parser(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Mesh nick to mint (default: the resolved identity, else 'colleague').",
     )
-    p.add_argument("--engine", default=None, help="Backend the resident's brain runs on.")
-    p.add_argument("--model", default=None, help="Model override for the resident's brain.")
+    p.add_argument("--engine", default=None, help="Backend the resident's engine runs on.")
+    p.add_argument("--model", default=None, help="Model override for the resident's engine.")
     p.add_argument("--base-url", default=None, help="OpenAI-compatible base URL override.")
     p.add_argument("--api-key", default=None, help="API key override.")
     p.add_argument(
