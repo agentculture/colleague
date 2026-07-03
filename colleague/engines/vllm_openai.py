@@ -35,6 +35,7 @@ from colleague.loop import (
     resolve_role,
     run,
 )
+from colleague.senses import make_senses_run
 from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas
 
 
@@ -329,6 +330,10 @@ class VllmOpenAIEngine(Engine):
         # runtime escalation points) — None for a single-model config, which also
         # keeps the deepthink tool schema un-offered (byte-identical run).
         dt_run = make_deepthink_run(config, self.name)
+        # Cortex/senses media bridge (t6): the SAME binding every backend passes to
+        # ContextControls (all-engines rule); ``None`` for a config without senses
+        # keeps the senses bridge dormant (byte-identical).
+        senses_run = make_senses_run(config, self.name)
         offered_tools = curate_schemas(role, deepthink=dt_run is not None)
         return run(
             self._make_complete(config, tools=offered_tools),
@@ -359,5 +364,6 @@ class VllmOpenAIEngine(Engine):
                 config,
                 count_tokens=self._make_count_tokens(config),
                 deepthink_run=dt_run,
+                senses_run=senses_run,
             ),
         )

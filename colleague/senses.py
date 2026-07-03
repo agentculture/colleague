@@ -43,6 +43,7 @@ import dataclasses
 import time
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from colleague import media, registry
 from colleague.config import EngineConfig
 from colleague.contract import ContextPacket, SensesRecord
 from colleague.plan.cli_driver import _extract_json_object, robust_simple_complete
@@ -60,6 +61,7 @@ _TRUNCATION_NOTE = "[senses digest truncated to fit budget]"
 #: Fixed invocation-point labels recorded on each :class:`SensesRecord`.
 INTAKE_POINT = "senses-intake"
 SPEAKBACK_POINT = "senses-speakback"
+MEDIA_BRIDGE_POINT = "media-bridge"
 
 _INTAKE_SYSTEM_PROMPT = (
     "You are the senses lobe for colleague — the perception front door. Read the "
@@ -362,3 +364,110 @@ def run_senses_speakback(
     except Exception:
         latency = time.monotonic() - start
         return None, SensesRecord(point=point, latency=latency, tokens=None, degraded=True)
+
+
+def run_senses_media_bridge(
+    question: str,
+    media_parts: "list[dict[str, Any]]",
+    senses_config: EngineConfig,
+    engine: "Engine",
+    *,
+    point: str = MEDIA_BRIDGE_POINT,
+    count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+) -> "tuple[Optional[str], SensesRecord]":
+    """Describe attached media through the multimodal senses model (cortex/senses, t6).
+
+    The senses-lobe twin of :func:`colleague.deepthink.run_media_bridge`: the
+    operator declared the senses model multimodal, so the REAL media parts ride
+    ONE tools-off completion to the senses endpoint — and only that endpoint; the
+    text-only cortex wire never sees them (the loop flattens its copy). The
+    *question* text is windowed to the senses budget minus a per-part media
+    reserve, then the parts ride ONE appended user message.
+
+    Never raises (the :func:`run_senses_intake` contract): any failure —
+    unreachable endpoint, request error, overflow, empty content, or no media —
+    returns ``(None, degraded SensesRecord)`` so the loop falls back to the
+    (now text-only) cortex turn. On success returns ``(description, clean
+    record)`` with the exact summed tokens + measured latency.
+    """
+    start = time.monotonic()
+    if not media_parts:
+        return None, SensesRecord(
+            point=point, latency=time.monotonic() - start, tokens=None, degraded=True
+        )
+    meter = _TokenMeter()
+    try:
+        counter = (
+            count_tokens if count_tokens is not None else engine.make_count_tokens(senses_config)
+        )
+        # Reserve budget for the media parts themselves so windowed text + parts
+        # still fit the senses window (the deepthink.run_media_bridge currency).
+        reserve = media.IMAGE_TOKEN_ESTIMATE * len(media_parts)
+        text_budget = max(1, senses_config.context_budget_tokens - reserve)
+        user_prompt = _window_text(
+            question,
+            system_prompt="",
+            budget=text_budget,
+            count_tokens=counter,
+        )
+        # Tools-off ALWAYS: an explicit empty tool list — a senses completion
+        # structurally cannot carry a tool schema on the wire.
+        complete = meter.wrap(engine.make_complete(senses_config, tools=[]))
+        response = complete(
+            [
+                {"role": "user", "content": user_prompt},
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "The attached media:"}]
+                    + list(media_parts),
+                },
+            ]
+        )
+        text = getattr(response, "content", "") or ""
+        if not text.strip():
+            raise ValueError("empty senses media-bridge response")
+        latency = time.monotonic() - start
+        return text, SensesRecord(point=point, latency=latency, tokens=meter.value, degraded=False)
+    except Exception:
+        latency = time.monotonic() - start
+        return None, SensesRecord(point=point, latency=latency, tokens=None, degraded=True)
+
+
+#: The bound senses media-bridge callable the loop threads through
+#: :class:`~colleague.loop.ContextControls`. Signature:
+#: ``(question: str, media_parts: list[dict]) -> (description | None, SensesRecord)``.
+#: Built once per work item by :func:`make_senses_run`; never raises.
+SensesRun = Callable[..., "tuple[Optional[str], SensesRecord]"]
+
+
+def make_senses_run(config: EngineConfig, engine_name: str) -> "Optional[SensesRun]":
+    """Bind :func:`run_senses_media_bridge` to *config* + *engine_name* for the loop.
+
+    Returns ``None`` when no senses config is present (``config.senses`` is
+    ``None``) — the signal the loop keys off to leave the senses media bridge
+    dormant (byte-identical). The returned callable loads the engine + builds the
+    senses-pointed :class:`EngineConfig` on each call (mirroring
+    :func:`colleague.deepthink.make_deepthink_run`), and never raises: an unknown
+    engine name or a missing senses config degrades to ``(None, degraded record)``.
+    """
+    if config.senses is None:
+        return None
+
+    def bound(
+        question: str,
+        media_parts: "list[dict[str, Any]]",
+    ) -> "tuple[Optional[str], SensesRecord]":
+        start = time.monotonic()
+        try:
+            senses_config = senses_engine_config(config)
+            if senses_config is None:  # pragma: no cover - guarded by the None check above
+                raise RuntimeError("no senses config resolved")
+            engine = registry.load(engine_name)
+            return run_senses_media_bridge(question, media_parts, senses_config, engine)
+        except Exception:
+            latency = time.monotonic() - start
+            return None, SensesRecord(
+                point=MEDIA_BRIDGE_POINT, latency=latency, tokens=None, degraded=True
+            )
+
+    return bound

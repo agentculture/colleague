@@ -69,7 +69,10 @@ from colleague.contract import (
     NO_RESULT_PRODUCED,
     OK,
     CapacityDecision,
+    ContextPacket,
     HookFiring,
+    SensesBlock,
+    SensesRecord,
     Step,
     Task,
     TaskResult,
@@ -544,6 +547,14 @@ class _Work:
     # Media-comprehension bridge (t8, c24): armed only when the operator declared
     # the SECOND model multimodal (deepthink.multimodal). False = strict no-op.
     media_bridge: bool = False
+    # Cortex/senses media bridge (t6): the bound ``SensesRun`` seam
+    # (:func:`colleague.senses.make_senses_run`), ``None`` when no senses config is
+    # present. ``senses_media_bridge`` arms it — True only when the operator
+    # declared the senses model multimodal (config.senses.multimodal). When armed
+    # it is PREFERRED over the deepthink bridge (bridge point recorded under
+    # ``TaskResult.senses``); absent → the deepthink path is byte-identical.
+    senses_run: Callable[..., Any] | None = None
+    senses_media_bridge: bool = False
     # Reactive auto-split (#151): when armed (a positive ``context_budget`` AND a
     # positive ``autosplit_target``), an EXHAUSTED context-overflow injects ONE
     # split recommendation — pointing the model at the existing ``subagents`` tool
@@ -2187,6 +2198,13 @@ class ContextControls:
     # declared the second model multimodal (config.deepthink.multimodal); set by
     # from_config for every backend identically (all-engines rule).
     media_bridge: bool = False
+    # Cortex/senses media bridge (t6): the bound ``SensesRun`` seam every backend
+    # passes as ``make_senses_run(config, self.name)`` (the deepthink_run precedent),
+    # ``None`` for a config without senses. ``senses_media_bridge`` (derived in
+    # from_config from config.senses.multimodal) arms it; when armed it is PREFERRED
+    # over the deepthink bridge. compare=False: a closure, not comparable config.
+    senses_run: Callable[..., Any] | None = field(default=None, compare=False, repr=False)
+    senses_media_bridge: bool = False
     # Synthesis reserve (#197): steps held back from the reading budget so a
     # read-heavy run (a big-diff review) stops reading early and the forced-synthesis
     # verdict turn (#191) runs with fresher, less-windowed context instead of being
@@ -2246,7 +2264,9 @@ class ContextControls:
     affectedtests_override: str | None = None
 
     @classmethod
-    def from_config(cls, config, *, count_tokens=None, deepthink_run=None) -> "ContextControls":
+    def from_config(
+        cls, config, *, count_tokens=None, deepthink_run=None, senses_run=None
+    ) -> "ContextControls":
         """Build the controls a backend forwards from its :class:`EngineConfig`.
 
         Every backend forwards the *same* config fields here (the all-engines
@@ -2290,6 +2310,11 @@ class ContextControls:
             deepthink_run=deepthink_run,
             media_bridge=bool(
                 config.deepthink is not None and getattr(config.deepthink, "multimodal", False)
+            ),
+            senses_run=senses_run,
+            senses_media_bridge=bool(
+                getattr(config, "senses", None) is not None
+                and getattr(config.senses, "multimodal", False)
             ),
         )
 
@@ -2511,6 +2536,134 @@ def _maybe_record_media_delivery(ctx: _Work, resp: ModelResponse) -> None:
 
 _POINT_MEDIA_BRIDGE = "media-bridge"
 
+_MEDIA_BRIDGE_QUESTION = (
+    "You are the multimodal half of a dual-model rig. The MAIN model "
+    "driving this task is text-only and cannot see the attached media. "
+    "Describe the attached media precisely and completely as it relates "
+    "to the task below, so a text-only model can act on your description "
+    "alone.\n\nTask:\n"
+)
+
+#: The advisory companion message injected when a task carries a senses
+#: ContextPacket (t6). The operator's ORIGINAL text is already the first user
+#: message (cortex reads it verbatim); this adds the senses interpretation as ONE
+#: advisory turn — never a replacement (the recall-before precedent).
+_CONTEXT_PACKET_ADVISORY = (
+    "[senses] A senses model read the operator's request and interpreted it as "
+    "follows. This is ADVISORY: the operator's original request above is "
+    "authoritative and unmodified — defer to it on any disagreement.\n"
+)
+
+
+def _ensure_senses_block(
+    result: TaskResult, *, mode: str = "split", packet: "ContextPacket | None" = None
+) -> SensesBlock:
+    """Init-on-first the ``TaskResult.senses`` block (the senses twin of the
+    deepthink init in :func:`_record_deepthink`).
+
+    A run with no senses involvement never calls this, so ``result.senses``
+    stays ``None`` and the artifact key is omitted (byte-identical). The first
+    caller sets ``mode``/``packet``; a later caller (e.g. the media bridge after
+    the packet injection) keeps the existing block and only fills a still-absent
+    packet, so mode/packet are never clobbered.
+    """
+    if result.senses is None:
+        result.senses = SensesBlock(mode=mode, packet=packet, records=[])
+    elif packet is not None and result.senses.packet is None:
+        result.senses.packet = packet
+    return result.senses
+
+
+def _record_senses_call(
+    result: TaskResult,
+    record: SensesRecord,
+    *,
+    mode: str = "split",
+    packet: "ContextPacket | None" = None,
+) -> None:
+    """Append one :class:`SensesRecord` to ``result.senses`` (init-on-first)."""
+    _ensure_senses_block(result, mode=mode, packet=packet).records.append(record)
+
+
+def _maybe_inject_context_packet(ctx: _Work) -> None:
+    """Inject the senses :class:`ContextPacket` as ONE advisory companion (t6).
+
+    When the task carries a ``context_packet`` (the session/resident ran senses
+    intake), cortex's first user message is ALREADY the operator's verbatim
+    original (``_build_user_message`` uses ``task.instruction``) — the packet
+    never replaces it. This appends the senses model's interpretation as ONE
+    advisory user message (the recall-before precedent) and records the packet on
+    ``TaskResult.senses`` (mode ``split``). Strict no-op with no packet
+    (byte-identical): ``result.senses`` stays ``None``.
+    """
+    packet = getattr(ctx.task, "context_packet", None)
+    if packet is None:
+        return
+    lines = [_CONTEXT_PACKET_ADVISORY]
+    if packet.interpretation:
+        lines.append(f"Interpretation: {packet.interpretation}")
+    if packet.task_type:
+        lines.append(f"Task type: {packet.task_type}")
+    if packet.confidence:
+        lines.append(f"Confidence: {packet.confidence}")
+    if packet.omissions:
+        lines.append("Possible omissions: " + "; ".join(packet.omissions))
+    ctx.messages.append({"role": "user", "content": "\n".join(lines)})
+    _ensure_senses_block(ctx.result, mode="split", packet=packet)
+
+
+def _maybe_run_senses_media_bridge(ctx: _Work) -> bool:
+    """Run the cortex/senses media bridge if armed + PREFERRED (t6).
+
+    The senses-lobe twin of the deepthink bridge in :func:`_maybe_run_media_bridge`,
+    and PREFERRED over it: when the operator declared the senses model multimodal
+    (``senses_media_bridge``) the real media parts ride ONE tools-off completion to
+    the senses endpoint (the text-only cortex wire is flattened first), the record
+    lands on ``TaskResult.senses`` (never ``deepthink``), and the description folds
+    back as ONE advisory user message. Returns ``True`` when it HANDLED the bridge
+    (so the deepthink path is skipped — senses is preferred, a degraded senses run
+    does NOT fall back to deepthink), ``False`` to fall through (not armed, or no
+    media parts present) leaving the deepthink path byte-identical.
+    """
+    if not ctx.senses_media_bridge or ctx.senses_run is None or not ctx.task.attachments:
+        return False
+    initial = ctx.messages[1].get("content") if len(ctx.messages) > 1 else None
+    if not isinstance(initial, list):
+        return False
+    parts = [
+        p for p in initial if isinstance(p, dict) and p.get("type") in ("image_url", "input_audio")
+    ]
+    if not parts:
+        return False
+    # The cortex (main) wire is DECLARED text-only — flatten it so the parts ride
+    # ONLY the senses escalation (the deepthink-bridge invariant, t6/c24).
+    ctx.messages[1] = dict(ctx.messages[1], content=media.flatten_parts(initial))
+    question = _MEDIA_BRIDGE_QUESTION + (ctx.task.instruction or "")
+    text, record = ctx.senses_run(question, parts)
+    _record_senses_call(ctx.result, record)
+    if getattr(record, "degraded", False) or not (text or "").strip():
+        # Degraded senses bridge: nothing folds; the (now text-only) cortex turn
+        # proceeds. Senses is preferred — no deepthink fallback (handled=True).
+        return True
+    ctx.messages.append(
+        {
+            "role": "user",
+            "content": "[media bridge] A multimodal senses model examined the attached "
+            "media and reports:\n" + text,
+        }
+    )
+    # Delivery record (c25 vocabulary): cortex saw placeholders, the description
+    # was delivered via the senses model — recorded as "bridged", mirroring the
+    # deepthink bridge (the t9 verifier skips a set record).
+    ctx.result.media = {
+        "attachments": [
+            {"path": str(a.get("path", "?")), "status": "bridged"}
+            for a in ctx.task.attachments
+            if isinstance(a, dict)
+        ]
+    }
+    return True
+
 
 def _maybe_run_media_bridge(ctx: _Work) -> None:
     """Escalate attached media to the declared multimodal second model (t8, c24).
@@ -2524,7 +2677,15 @@ def _maybe_run_media_bridge(ctx: _Work) -> None:
     bridge records honestly on ``TaskResult.deepthink`` and folds nothing —
     the run continues from the text alone (h18: degrade, never raise; the
     delivered/dropped record is task t9's).
+
+    Cortex/senses (t6): a declared multimodal SENSES config is PREFERRED — the
+    senses bridge runs first and, when it handles the bridge, records under
+    ``TaskResult.senses`` and returns before the deepthink path below. When only
+    deepthink is declared the senses branch is a strict no-op and the deepthink
+    path is byte-identical to v1.34.0.
     """
+    if _maybe_run_senses_media_bridge(ctx):
+        return
     if not ctx.media_bridge or ctx.deepthink_run is None or not ctx.task.attachments:
         return
     initial = ctx.messages[1].get("content") if len(ctx.messages) > 1 else None
@@ -3295,6 +3456,8 @@ def run(
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
         media_bridge=_context.media_bridge,
+        senses_run=_context.senses_run,
+        senses_media_bridge=_context.senses_media_bridge,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         mapping_fanout_files=_context.fanout_files,
@@ -3332,10 +3495,16 @@ def run(
     # eidetic store as ONE advisory context message; a strict no-op unless armed.
     _maybe_recall_memory(ctx)
 
+    # Cortex/senses packet (t6): when the task carries a senses ContextPacket,
+    # inject the senses interpretation as ONE advisory companion message (cortex's
+    # first message is already the operator's verbatim original) and record the
+    # packet on TaskResult.senses; a strict no-op with no packet.
+    _maybe_inject_context_packet(ctx)
+
     # Media-comprehension bridge (t8, c24): with a text-only main + attached
     # media + an operator-declared multimodal second model, ONE tools-off
     # escalation describes the media and folds the answer back; strict no-op
-    # otherwise.
+    # otherwise. A declared multimodal senses config is preferred (t6).
     _maybe_run_media_bridge(ctx)
 
     # Drive timing (always-on): an ISO start stamp + a monotonic clock bracketing
