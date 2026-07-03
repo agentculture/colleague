@@ -467,27 +467,21 @@ def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "Sense
     )
 
 
-def _voice_from_lobes_roles(
-    roles: "LobesRoles", base_url: str, api_key: str
-) -> "VoiceConfig | None":
-    """Build a :class:`VoiceConfig` from the gateway's stt/tts roles.
+def _voice_from_lobes_roles(roles: object, base_url: str, api_key: str) -> "VoiceConfig | None":
+    """Build a :class:`VoiceConfig` from the gateway's stt/tts roles (t1).
 
-    Used only when voice is NOT otherwise declared (env/config.json win). The
-    base_url is the gateway-derived value (NOT the role's ``endpoint`` field);
-    api_key inherits the resolved MAIN endpoint's value. Returns ``None`` when
-    neither stt nor tts is armed on the gateway.
+    ``roles`` is the resolved :class:`~colleague.lobes.LobesRoles` (typed
+    ``object`` here to avoid a module-level ``lobes`` import — the same lazy
+    stance :func:`_resolve_lobes_rung` takes). Used only when voice is NOT
+    otherwise declared (env/config.json win). The base_url is the
+    gateway-derived value (NOT a role's ``endpoint`` field, which is not
+    client-reachable); api_key inherits the resolved MAIN endpoint's value.
+    Returns ``None`` when neither stt nor tts is armed on the gateway.
     """
-    stt_model: str | None = None
-    tts_model: str | None = None
-
-    if roles.stt is not None:
-        m = str(getattr(roles.stt, "model", "") or "").strip()
-        if m:
-            stt_model = m
-    if roles.tts is not None:
-        m = str(getattr(roles.tts, "model", "") or "").strip()
-        if m:
-            tts_model = m
+    stt_role = getattr(roles, "stt", None)
+    tts_role = getattr(roles, "tts", None)
+    stt_model = (str(getattr(stt_role, "model", "") or "").strip()) or None
+    tts_model = (str(getattr(tts_role, "model", "") or "").strip()) or None
 
     if stt_model is None and tts_model is None:
         return None
@@ -1298,6 +1292,7 @@ class EngineConfig:
         file_at_max_files: str | None = None
         file_deepthink: dict[str, str] = {}
         file_senses: dict[str, str] = {}
+        file_voice: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -1308,6 +1303,7 @@ class EngineConfig:
             )
             file_deepthink = _load_deepthink_overrides(repo_path)
             file_senses = _load_senses_overrides(repo_path)
+            file_voice = _load_voice_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -1362,6 +1358,14 @@ class EngineConfig:
             resolved_senses = _senses_from_lobes_role(
                 lobes_roles.senses, lobes_base_url, resolved_api_key
             )
+        # Voice (stt/tts) escalation target (senses live-presence + voice arc) —
+        # resolved once as a local, mirroring senses. Precedence: env >
+        # config.json > lobes discovery > absent. When voice is NOT declared via
+        # env/config.json but the lobes rung resolved, the gateway's stt/tts roles
+        # supply the VoiceConfig (gateway-origin base_url, main api_key).
+        resolved_voice = _resolve_voice(file_voice, resolved_base_url, resolved_api_key)
+        if resolved_voice is None and lobes_roles is not None:
+            resolved_voice = _voice_from_lobes_roles(lobes_roles, lobes_base_url, resolved_api_key)
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -1596,6 +1600,7 @@ class EngineConfig:
             # lobes discovery rung yet (t4); base_url/api_key default to the
             # resolved MAIN endpoint values computed above.
             senses=resolved_senses,
+            voice=resolved_voice,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -1649,6 +1654,15 @@ class EngineConfig:
                 "model": self.senses.model,
                 "base_url": self.senses.base_url,
                 "context_budget": self.senses.context_budget,
+            }
+        # Voice (stt/tts, senses live-presence + voice arc): present ONLY when
+        # configured (omit-when-None, same convention as senses/deepthink above).
+        # The voice api_key is absent from the sub-dict, never included.
+        if self.voice is not None:
+            data["voice"] = {
+                "stt_model": self.voice.stt_model,
+                "tts_model": self.voice.tts_model,
+                "base_url": self.voice.base_url,
             }
         return data
 

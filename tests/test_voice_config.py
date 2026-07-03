@@ -59,7 +59,6 @@ def _write_config(repo: Path, payload: dict) -> None:
 
 def test_resolve_roles_parses_stt_and_tts_from_fixture() -> None:
     """resolve_roles returns stt/tts RoleInfo when the /capabilities payload has them."""
-    import contextlib
     import http.server
     import threading
 
@@ -570,8 +569,10 @@ def test_voice_from_lobes_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.voice is not None
     assert cfg.voice.stt_model == "stt-from-gateway"
     assert cfg.voice.tts_model == "tts-from-gateway"
-    # base_url is the GATEWAY ORIGIN, NOT the role's endpoint
-    assert cfg.voice.base_url == "http://gateway:8001"
+    # base_url is derived from the GATEWAY ORIGIN (with the OpenAI /v1 suffix, the
+    # same convention as the senses lobes rung), NOT the role's non-reachable
+    # `endpoint` field (http://realtime:8080).
+    assert cfg.voice.base_url == "http://gateway:8001/v1"
 
 
 def test_voice_from_lobes_stt_only(monkeypatch: pytest.MonkeyPatch) -> None:

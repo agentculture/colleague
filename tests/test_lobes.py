@@ -240,17 +240,21 @@ def test_resolve_roles_hardcodes_no_model_id() -> None:
     assert "coolthor/gemma-4-12B-it-NVFP4A16" not in source
 
 
-def test_resolve_roles_tolerates_the_other_four_roles_present() -> None:
-    """The six-role payload (embedder/reranker/stt/tts alongside cortex/senses)
-    must not break resolution — those four are ignored, not errored on."""
+def test_resolve_roles_parses_voice_roles_and_ignores_embedder_reranker() -> None:
+    """The six-role payload must not break resolution. Since the senses
+    live-presence + voice arc (t1), stt/tts are parsed as OPTIONAL voice roles;
+    embedder/reranker stay ignored (not on the public surface)."""
     with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
         result = resolve_roles(url)
 
     assert result is not None
-    # No attribute for the ignored roles is asserted here on purpose — the
-    # public surface is exactly cortex + senses.
+    # embedder/reranker remain ignored — never on the public surface.
     assert not hasattr(result, "embedder")
-    assert not hasattr(result, "stt")
+    assert not hasattr(result, "reranker")
+    # stt/tts are now resolved as optional voice roles (their absence would still
+    # NOT fail resolution — cortex/senses stay the only mandatory roles).
+    assert result.stt is not None
+    assert result.tts is not None
 
 
 # ---------------------------------------------------------------------------
