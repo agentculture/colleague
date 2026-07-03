@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.1] - 2026-07-03
+
+### Added
+
+- 4 cortex/senses build lessons recorded to the shared eidetic store (lobes capabilities endpoint-not-reachable gotcha, the Sonar S107 hot-file param-bundle pattern, the do-not-fabricate-proof-evidence testing lesson, and the oilcheck-groups-stay-offline invariant) — recallable by both the claude and colleague backends.
+
 ## [1.35.0] - 2026-07-03
 
 ### Added
