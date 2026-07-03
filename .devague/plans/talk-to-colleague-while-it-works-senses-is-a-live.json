@@ -1,0 +1,429 @@
+{
+  "slug": "talk-to-colleague-while-it-works-senses-is-a-live",
+  "title": "Talk to colleague while it works: senses is a live conversational presence \u2014 it answers in seconds, keeps you aware of what cortex is doing, relays your words into the running work at the next tool-call boundary, and can hear and speak (lobes stt/tts).",
+  "frame_slug": "talk-to-colleague-while-it-works-senses-is-a-live",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-03T17:48:52Z",
+  "updated": "2026-07-03T17:53:02Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Talk to colleague while it works: senses is a live conversational presence \u2014 it answers in seconds, keeps you aware of what cortex is doing, relays your words into the running work at the next tool-call boundary, and can hear and speak (lobes stt/tts)."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The whole announcement is demonstrated in one live rig session: cortex working, operator chatting with senses concurrently, one relayed instruction landing at a turn boundary, and the voice lanes proven or honestly SKIPped per the degradation rule"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Operators in an interactive colleague session (human), and agent callers piloting a background or ask-colleague work item via the flight plane \u2014 anyone with a running work item, in every mode"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Both audiences are exercised in the proof: a human conversing in colleague session AND an agent caller attaching over the flight plane to the same running work item"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "While cortex drives a work item, the operator converses with senses concurrently: senses answers in seconds from live run context (flight feed + context packet), operator words become flight guidance injected at the next tool-call boundary, a spoken request arrives as an stt transcript, and replies can be spoken via tts \u2014 every injection visible"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Every after-state element is individually observable in the h10 live demo: concurrent senses answer, turn-boundary injection, verbatim transcript in, audio file (and play when rigged) out"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "Senses is synchronous-only \u2014 one intake before the run, one speak-back after; mid-run the operator can only watch the flight feed or hand-type 'colleague flight guide'; there is no audio in or speech out"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The before-state is code-verified: today's run_senses_intake/run_senses_speakback are invoked only before/after the loop \u2014 no mid-run senses entry point exists on main"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Delegation stops being silence: the operator stays aware and in control mid-run instead of waiting blind, guidance arrives through natural conversation instead of plumbing, and voice frees colleague from the keyboard"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Awareness is reconstructable from artifacts alone: a reviewer reading feed + artifact can tell exactly what the operator saw and injected mid-run, without the terminal scrollback"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Senses converses and relays but never acts: structurally tools-off, the task always goes to cortex, and senses never decides a task doesn't need cortex \u2014 #276 (senses-direct) stays parked with its own re-spec"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "A structural test pins the senses lane tools-off (no ToolExecutor import, no tool schema on the wire) and no code path returns a senses reply as the answer to the TASK without a cortex turn"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "No colleague-owned daemon, socket, or new thread surface: the live presence is an operator-side foreground process riding the existing file-based flight plane; injection is cooperative at turn boundaries, never preemptive"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Boundary tests pin: zero new socket/daemon code, threads stay confined to the sanctioned list, and the ONLY injection channel is the existing flight control file read at turn boundaries"
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "No audio-device code in the base install: mic capture and speaker playback stay operator-side (or behind an opt-in extra); colleague consumes stt/tts as lobes roles over HTTP only"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "test_zero_deps proves the base install carries no audio or device dependency; every capture/playback dep resolves only under the [voice] extra"
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "Third sanctioned increment at the router-exclusion line: fixed named-role consumption (stt in, tts out) added to the existing enumerated senses surface \u2014 no automatic task-to-model routing, no N-role generalization"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "CLAUDE.md's scope section records this increment with the same fixed-enumeration language as deepthink and cortex/senses, and no automatic task-to-model routing code path exists"
+    },
+    {
+      "id": "c10",
+      "kind": "success_signal",
+      "text": "Live-proven on the rig: during a real cortex work item, a typed operator message gets a senses answer within the responsiveness target AND the relayed guidance provably reaches cortex's next turn (visible in feed + artifact); a spoken request round-trips audio to transcript to cortex to spoken answer with per-stage latencies recorded"
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The live proof lands in docs/live-testing.md with per-stage wall-clock numbers; an unprovable lane (e.g. TTS while the rig 502s) records SKIP or FAIL honestly, never a synthesized pass"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A concurrent senses chat lane exists while a work item runs: in colleague session for the interactive operator, and as an attach surface over the flight plane for background and agent-caller runs"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A second terminal (or the session lane) holds a real conversation with senses during a REAL cortex work item on the live rig \u2014 proven end-to-end, not only in mock tests"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Operator input relays into the running cortex loop through the EXISTING flight guidance plane, applied at the next tool-call boundary \u2014 reuse of append_guidance / Control reads, no new injection plumbing, never interrupts a tool call mid-flight"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A loop-level test observes the injected guidance in cortex's very next turn prompt, and a mid-tool-call injection is deferred to the boundary \u2014 never spliced into an in-flight completion"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Senses answers from live run context \u2014 the flight feed tail, the context packet, and task state \u2014 so its answers reflect what cortex is actually doing right now, windowed to senses' own budget"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A senses answer about run state cites facts actually present in the feed tail it was given \u2014 a fabricated-status answer is a test failure, and the feed window given to senses respects senses' own context budget"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Audio in: a spoken request is transcribed by the lobes stt role; the verbatim transcript is the raw intent (the v1 verbatim invariant extends to transcripts; the audio file is provenance)"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The verbatim stt transcript survives untouched into ContextPacket.original and the artifact; a lossy or paraphrased transcript in the raw-intent position is a test failure"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Speech out: a senses reply can be rendered to audio by the lobes tts role, opt-in; tts failure or absence never blocks the text reply"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "With tts unreachable or undeclared, the text reply is byte-identical to a no-tts run and one visible notice fires \u2014 audio out is strictly additive"
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Awareness invariant in ALL modes: every senses-to-cortex injection produces a visible feed line and an artifact record, every senses answer is labeled as senses, nothing is silent \u2014 for humans in session AND for agent callers reading feed/artifact (ask-colleague, mesh)"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A deliberate injection test finds BOTH the feed line and the artifact record for every injected message, in session mode and in flight-attach mode; an unlabeled senses answer or an unrecorded injection is a test failure"
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Degradation: senses, stt, or tts absent or unreachable degrades to today's behavior (watch-only flight, text-only I/O) with one visible notice \u2014 never blocks, never fails the run; cortex-only stays byte-identical"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Killing senses/stt/tts mid-run leaves the work item completing exactly as a cortex-only run plus one notice; with no live lane armed the TaskResult is byte-identical to today's (pinned by the e2e shape test)"
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The artifact records the live lane: injected guidance, senses answer latencies, and voice per-stage latencies extend TaskResult.senses (omit-when-None \u2014 a run without the lane is byte-identical)"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The same task run with and without the live lane yields directly comparable artifacts \u2014 new keys are omit-when-None only, and recorded latencies are measured wall-clock, never estimated"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Voice role resolution: extend colleague/lobes.py resolve_roles to stt/tts + a VoiceConfig in colleague/config.py (SensesConfig-sibling: model/base_url per role) through the same precedence chain (flag > env > config.json > lobes discovery > absent); gateway-origin routing workaround for the non-resolvable endpoint field; absent config = strict no-op",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "resolve_roles returns stt/tts entries from a /capabilities fixture and VoiceConfig resolution follows the chain, degrading to None on any failure without raising",
+        "with no voice config armed, EngineConfig resolution is byte-identical (pinned by existing resolve tests)"
+      ],
+      "deps": [],
+      "covers": [
+        "c9"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "Voice wire clients in NEW colleague/voice.py: transcribe(path) POSTs multipart to the role-resolved stt endpoint returning the VERBATIM transcript; synthesize(text) POSTs to tts, writes the .wav beside the run, returns its path (file always; play is the [voice] extra's job); pure urllib, turn-based, degrade-never-raise",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "transcribe returns the exact server transcript (fixture asserts byte equality) and returns None with one stderr notice on 4xx/5xx/timeout",
+        "synthesize writes the wav and returns its path; a 502/'no audio' response degrades to None + one notice and the text reply is byte-identical to a no-tts run",
+        "voice.py imports no subprocess (boundary allow-list untouched)"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "c15",
+        "h4",
+        "h5"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "[voice] extra: mic capture + speaker playback in NEW colleague/voice_devices.py behind lazy imports; pyproject [voice] extra; play failure never loses the written wav; clean CliError naming pip install colleague[voice] when deps absent",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_zero_deps proves zero audio/device deps at base; voice_devices imports lazily and errors cleanly without the extra",
+        "play(path) failure leaves the wav on disk and the command exiting cleanly with a notice"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c8",
+        "h17"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "Senses talk lane in colleague/senses.py: run_senses_talk(message, feed_tail, packet, task_state) -> {answer, relay, relay_text} \u2014 tools-off via make_complete(senses_config, tools=[]), feed tail windowed to senses' OWN budget, degraded call returns an advisory record never raises; an explicit operator relay prefix (e.g. 'cortex:') forces relay=True regardless of model output",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the completion carries no tool schema and the feed window respects senses' context_budget (unit-pinned)",
+        "a grounding test fails an answer citing state absent from the provided feed tail; the explicit relay prefix always wins",
+        "senses unarmed -> run_senses_talk returns None cleanly (caller degrades to watch-only)"
+      ],
+      "deps": [],
+      "covers": [
+        "c13",
+        "h3"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "Injection + chat recording: colleague/flight.py gains chat-record JSONL append/read helpers; colleague/loop.py records every APPLIED guidance injection as a feed line + TaskResult.senses record and folds talk-lane chat records at finish; colleague/contract.py extends TaskResult.senses omit-when-None",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "guidance appended mid-tool-call is applied at the NEXT turn boundary and appears verbatim in the next turn's messages (loop test), with a feed line + artifact record",
+        "runs with and without the live lane yield identical TaskResult shapes except omit-when-None senses additions; latencies are wall-clock floats, never estimates",
+        "the existing #206 invariant holds: recording an injection never advances step_count or adds a phantom step"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "c18",
+        "h2",
+        "h8"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "NEW 'colleague talk <task-id>' attach verb (cli/_commands/talk.py host command): REPL over the flight plane \u2014 renders the feed tail, senses-answers each message labeled 'senses:', relays instructions via append_guidance echoing a visible '-> cortex:' line, --audio FILE routes through transcribe, replies synthesized per config",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "against a flight-dir fixture: a typed message yields a labeled senses answer; a relayed instruction lands in the control file guidance list with the visible -> cortex echo",
+        "senses unarmed degrades to a watch + raw-guide REPL with one notice; the verb registers via register_into(app) with an explain entry"
+      ],
+      "deps": [
+        "t2",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c2",
+        "c3",
+        "c11",
+        "c16"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Session concurrent lane: during a running work line, colleague session polls stdin non-blockingly at progress-sink boundaries (select with zero timeout in the existing raw reader \u2014 NO threads); typed input routes to run_senses_talk, answers render labeled in the cockpit, relays go through the same flight plane; /say FILE for audio-file input",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "input typed mid-run is answered by senses and an instruction reaches the loop as guidance at the next boundary (integration test on mock with a scripted sink)",
+        "off-TTY / --no-tui / piped behavior is byte-identical to today (no polling, plain input()); no new threads (boundary test)"
+      ],
+      "deps": [
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c11",
+        "c16"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "Mesh awareness + audio file-link surface: resident appserver replies carry the synthesized wav as a file link line when voice is armed; mid-run peer messages route through the talk lane under the c19 trust model \u2014 non-operator identities get answer-only, never relay",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a resident reply with synthesized audio includes the artifact-relative wav path (mic-less peers consume the file)",
+        "a non-operator message can never append guidance (trust test); every relay from an operator peer is visibly labeled in the reply"
+      ],
+      "deps": [
+        "t2",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c16"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "Structural proofs + degradation pins (tests only): senses talk lane tools-off (no ToolExecutor import, no tool schema on wire) and no code path returns a senses reply as the TASK answer; flight-file-only injection channel; threads/subprocess allow-lists unchanged; kill-senses/stt/tts-mid-run completes as cortex-only + one notice; no-lane TaskResult byte-identical (e2e shape); awareness reconstructable from feed + artifact alone",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "boundary tests pin: zero new socket/daemon code, threads confined to the sanctioned list, voice/talk modules subprocess-free (voice_devices' player path explicitly sanctioned if needed)",
+        "unarming senses/stt/tts mid-run leaves status unchanged plus exactly one notice; cortex-only TaskResult pinned byte-identical",
+        "a reconstruction test derives the operator's mid-run view (answers seen + injections made) from feed + artifact alone \u2014 an unlabeled answer or unrecorded injection fails"
+      ],
+      "deps": [
+        "t3",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c6",
+        "c7",
+        "c17",
+        "h6",
+        "h7",
+        "h14",
+        "h15",
+        "h16"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "Livecheck live proof: during a REAL cortex work item \u2014 concurrent senses chat latency measured against the confirmed target (p50<3s / p95<8s; probe baseline 1.3-1.6s), one injection provably reaching the next cortex turn, BOTH audiences exercised (session human + flight-attach caller), stt round-trip with verbatim transcript, tts proven or honest SKIP while the rig 502s; rows land in docs/live-testing.md",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "livecheck grades each lane from recorded evidence: wall-clock latencies vs target, feed evidence of the injection in-run, tts SKIPs honestly on 'no audio'",
+        "the full announcement demo passes or each failing lane records FAIL/SKIP with the reason \u2014 never a synthesized pass"
+      ],
+      "deps": [
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "c3",
+        "c10",
+        "h1",
+        "h10",
+        "h11",
+        "h12",
+        "h19"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "Docs + scope line: CLAUDE.md architecture part + third-sanctioned-increment scope language with non-goals (#276 stays parked, no streaming/wake-word, lane 2 embedder/reranker parked); docs/features/senses-live-presence.md incl. degrade paths + the rig's TTS 502 honest limit; before-state code-verification note; update #277 (lane 1 consumed) + file the lobes-cli issue (endpoint host not client-resolvable + speech proxy 502)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md scope section records the increment with the fixed-enumeration language and the drift-guard doc tests pass",
+        "the lobes-cli issue is filed and #277 is updated to lane-1-consumed with lane 2 still parked"
+      ],
+      "deps": [
+        "t8",
+        "t10"
+      ],
+      "covers": [
+        "c4",
+        "c5",
+        "h13",
+        "h18"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "The rig's TTS returns 'no audio' through the gateway (probed 2026-07-03) \u2014 the tts lane live proof depends on a rig-side fix; livecheck SKIPs honestly meanwhile",
+      "kind": "unknown_nonblocking",
+      "task_id": "t10"
+    },
+    {
+      "id": "r2",
+      "text": "Exact session-side non-blocking stdin mechanism must stay thread-free (select at sink boundaries); fallback if the raw reader can't multiplex cleanly: v1 session lane degrades to flight-attach-only with a notice",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7"
+    },
+    {
+      "id": "r3",
+      "text": "Senses relay-judgment quality on Gemma (question vs instruction misclassification) \u2014 the explicit 'cortex:' prefix is the guaranteed path; a misjudged relay is visible in feed+artifact, never silent",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r4",
+      "text": "File lobes-cli issue: /capabilities advertises stt/tts at http://realtime:8080 (not client-resolvable) and the gateway speech proxy 502s while transcriptions works",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
