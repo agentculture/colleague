@@ -117,7 +117,8 @@ class TestTalkRelaysInstruction:
 class TestTalkSensesUnarmed:
     def test_unarmed_degrades_to_watch_and_raw_guide(self, tmp_path):
         _seed_flight(tmp_path)
-        lines = []
+        out_lines = []
+        err_lines = []
 
         def stub_talk_fn(message, **kwargs):
             return None
@@ -127,13 +128,15 @@ class TestTalkSensesUnarmed:
             "tid",
             _config(),
             input_fn=iter(["what's happening?", "please add tests", "/quit"]),
-            out=lines.append,
+            out=out_lines.append,
+            err=err_lines.append,
             talk_fn=stub_talk_fn,
         )
         assert rc == 0
 
         # Exactly ONE unarmed notice, regardless of how many turns degrade.
-        notices = [line for line in lines if "senses not armed" in line]
+        # Notice goes to err (diagnostics), not out (interactive output).
+        notices = [line for line in err_lines if "senses not armed" in line]
         assert len(notices) == 1
 
         # Both typed lines are relayed RAW into the control file.
@@ -142,9 +145,9 @@ class TestTalkSensesUnarmed:
         assert "what's happening?" in control.guidance
         assert "please add tests" in control.guidance
 
-        # Each relay is echoed visibly.
-        assert any("-> cortex: what's happening?" in line for line in lines)
-        assert any("-> cortex: please add tests" in line for line in lines)
+        # Each relay is echoed visibly on out (interactive output, not diagnostics).
+        assert any("-> cortex: what's happening?" in line for line in out_lines)
+        assert any("-> cortex: please add tests" in line for line in out_lines)
 
     def test_eof_ends_the_repl_cleanly(self, tmp_path):
         _seed_flight(tmp_path)

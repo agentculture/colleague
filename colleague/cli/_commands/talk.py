@@ -30,6 +30,7 @@ the only hard failure is an unsafe/invalid flight task id (a clean
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -120,17 +121,17 @@ def default_engine_seam(config: EngineConfig, engine_name: str) -> "EngineSeam":
     try:
         engine = registry.load(engine_name)
         return senses_config, engine.make_complete, engine.make_count_tokens(senses_config)
-    except Exception:  # noqa: BLE001 - an unloadable engine degrades, never crashes
+    except Exception:  # noqa: BLE001
         return None
 
 
 def _maybe_transcribe(
-    path: str, config: EngineConfig, out: "Callable[..., None]"
+    path: str, config: EngineConfig, err: "Callable[..., None]"
 ) -> "Optional[str]":
     """Transcribe *path* via the configured stt model; ``None`` + a notice on failure."""
     voice_cfg = config.voice
     if voice_cfg is None or not voice_cfg.stt_model:
-        out(_VOICE_UNCONFIGURED_NOTICE)
+        err(_VOICE_UNCONFIGURED_NOTICE)
         return None
     transcript = voice.transcribe(
         path,
@@ -139,8 +140,109 @@ def _maybe_transcribe(
         api_key=voice_cfg.api_key or "",
     )
     if not transcript:
-        out(_NO_TRANSCRIPT_NOTICE)
+        err(_NO_TRANSCRIPT_NOTICE)
     return transcript
+
+
+def _maybe_synthesize(
+    answer: str, config: EngineConfig, repo: Path, task_id: str, out: "Callable[..., None]"
+) -> None:
+    """Synthesize *answer* to a WAV when TTS is configured. Additive only."""
+    voice_cfg = config.voice
+    if voice_cfg is None or not voice_cfg.tts_model:
+        return
+    wav_path = flight.flight_dir(repo) / f"{task_id}.talk-{int(time.time() * 1000)}.wav"
+    written = voice.synthesize(
+        answer,
+        tts_model=voice_cfg.tts_model,
+        base_url=voice_cfg.base_url,
+        out_path=wav_path,
+        api_key=voice_cfg.api_key or "",
+    )
+    if written is not None:
+        out(f"[voice] {written}")
+
+
+def _handle_talk_message(
+    message: str,
+    *,
+    repo: Path,
+    task_id: str,
+    config: EngineConfig,
+    senses_config: Any,
+    make_complete: Any,
+    make_count_tokens: Any,
+    talk_fn: TalkFn,
+    out: "Callable[..., None]",
+    err: "Callable[..., None]",
+    state: dict[str, object],
+) -> None:
+    """Process one talk message: senses answer, relay, chat-log, TTS."""
+    record = talk_fn(
+        message,
+        feed_tail=_tail_feed(repo, task_id),
+        packet=None,
+        task_state=_last_task_state(repo, task_id),
+        senses_config=senses_config,
+        make_complete=make_complete,
+        make_count_tokens=make_count_tokens,
+        relay_prefix=_RELAY_PREFIX,
+    )
+    if record is None:
+        if not state["unarmed_notice_shown"]:
+            err(_UNARMED_NOTICE)
+            state["unarmed_notice_shown"] = True
+        with contextlib.suppress(OSError, ValueError):
+            flight.append_guidance(repo, task_id, message)
+        out(f"-> cortex: {message}")
+        return
+
+    answer = record.get("answer", "")
+    out(f"senses: {answer}")
+    if record.get("relay"):
+        relay_text = record.get("relay_text") or message
+        with contextlib.suppress(OSError, ValueError):
+            flight.append_guidance(repo, task_id, relay_text)
+        out(f"-> cortex: {relay_text}")
+    with contextlib.suppress(OSError, ValueError):
+        flight.append_chat(
+            repo,
+            task_id,
+            {
+                "message": message,
+                "answer": answer,
+                "relay": bool(record.get("relay", False)),
+                "relay_text": record.get("relay_text", ""),
+                "latency": record.get("latency"),
+                "degraded": bool(record.get("degraded", False)),
+                "at": time.time(),
+            },
+        )
+    _maybe_synthesize(answer, config, repo, task_id, out)
+
+
+def _repl_loop(
+    input_fn: "Optional[Iterator[str]]",
+    config: EngineConfig,
+    err: "Callable[..., None]",
+    dispatch: "Callable[[str], None]",
+) -> None:
+    """Read lines until /quit /exit / EOF; dispatch each message."""
+    while True:
+        line = _read_line(input_fn)
+        if line is None:
+            return
+        stripped = line.strip()
+        if stripped in ("/quit", "/exit"):
+            return
+        if not stripped:
+            continue
+        if stripped.startswith("/say "):
+            transcript = _maybe_transcribe(stripped[len("/say ") :].strip(), config, err)
+            if transcript:
+                dispatch(transcript)
+            continue
+        dispatch(stripped)
 
 
 def run_talk_repl(
@@ -176,93 +278,36 @@ def run_talk_repl(
     if err is None:
         err = _eprint
     repo = Path(repo)
-
+    if not flight.is_safe_task_id(task_id):
+        raise CliError(EXIT_USER_ERROR, f"invalid flight task id: {task_id!r}")
     seam = resolve_engine_seam(config, engine_name)
     if seam is not None:
         senses_config, make_complete, make_count_tokens = seam
     else:
         senses_config, make_complete, make_count_tokens = None, None, None
+    state: dict[str, object] = {"unarmed_notice_shown": False}
 
-    state = {"unarmed_notice_shown": False}
-
-    def _maybe_synthesize(answer: str) -> None:
-        voice_cfg = config.voice
-        if voice_cfg is None or not voice_cfg.tts_model:
-            return
-        wav_path = flight.flight_dir(repo) / f"{task_id}.talk-{int(time.time() * 1000)}.wav"
-        written = voice.synthesize(
-            answer,
-            tts_model=voice_cfg.tts_model,
-            base_url=voice_cfg.base_url,
-            out_path=wav_path,
-            api_key=voice_cfg.api_key or "",
-        )
-        if written is not None:
-            out(f"[voice] {written}")
-
-    def _handle_message(message: str) -> None:
-        record = talk_fn(
+    def dispatch(message: str) -> None:
+        _handle_talk_message(
             message,
-            feed_tail=_tail_feed(repo, task_id),
-            packet=None,
-            task_state=_last_task_state(repo, task_id),
+            repo=repo,
+            task_id=task_id,
+            config=config,
             senses_config=senses_config,
             make_complete=make_complete,
             make_count_tokens=make_count_tokens,
-            relay_prefix=_RELAY_PREFIX,
+            talk_fn=talk_fn,
+            out=out,
+            err=err,
+            state=state,
         )
-        if record is None:
-            if not state["unarmed_notice_shown"]:
-                out(_UNARMED_NOTICE)
-                state["unarmed_notice_shown"] = True
-            flight.append_guidance(repo, task_id, message)
-            out(f"-> cortex: {message}")
-            return
-
-        answer = record.get("answer", "")
-        out(f"senses: {answer}")
-        if record.get("relay"):
-            relay_text = record.get("relay_text") or message
-            flight.append_guidance(repo, task_id, relay_text)
-            out(f"-> cortex: {relay_text}")
-        flight.append_chat(
-            repo,
-            task_id,
-            {
-                "message": message,
-                "answer": answer,
-                "relay": bool(record.get("relay", False)),
-                "relay_text": record.get("relay_text", ""),
-                "latency": record.get("latency"),
-                "degraded": bool(record.get("degraded", False)),
-                "at": time.time(),
-            },
-        )
-        _maybe_synthesize(answer)
 
     if audio_path:
-        transcript = _maybe_transcribe(audio_path, config, out)
+        transcript = _maybe_transcribe(audio_path, config, err)
         if transcript:
-            _handle_message(transcript)
-
-    while True:
-        line = _read_line(input_fn)
-        if line is None:
-            return 0
-        stripped = line.strip()
-        if stripped in ("/quit", "/exit"):
-            return 0
-        if not stripped:
-            continue
-        if stripped.startswith("/say "):
-            say_path = stripped[len("/say ") :].strip()
-            transcript = _maybe_transcribe(say_path, config, out)
-            if transcript:
-                _handle_message(transcript)
-            continue
-        _handle_message(stripped)
-
-    return 0  # pragma: no cover - unreachable (loop only returns above)
+            dispatch(transcript)
+    _repl_loop(input_fn, config, err, dispatch)
+    return 0
 
 
 def cmd_talk(args: argparse.Namespace) -> int:
