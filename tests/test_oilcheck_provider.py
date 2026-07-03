@@ -316,3 +316,26 @@ class TestCheckShape:
         except Exception as exc:
             pytest.fail(f"checks() raised unexpectedly: {exc}")
         assert isinstance(result, list)
+
+    def test_provider_group_makes_no_lobes_network_call_when_armed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The registered provider group is contractually OFFLINE: even with lobes
+        armed, it must NOT dial the gateway (`resolve()` runs with
+        discover_lobes=False here). Regression guard for the doctor network-leak
+        (cortex/senses review #1)."""
+        _clean_env(monkeypatch)
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", "http://localhost:8001")
+        import colleague.lobes as _lobes
+
+        called = {"n": 0}
+
+        def _spy(url):
+            called["n"] += 1
+            return None
+
+        monkeypatch.setattr(_lobes, "resolve_roles", _spy)
+        checks()  # the registered provider group — must stay offline
+        assert (
+            called["n"] == 0
+        ), "provider group dialed the lobes gateway (offline invariant broken)"

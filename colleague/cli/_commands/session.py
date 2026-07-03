@@ -1669,9 +1669,9 @@ def _configure_session_parser(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Bypass the senses front door for this session: run cortex-only (no "
-            "senses intake or speak-back shaping, no media bridge). The artifact "
-            "records mode=cortex-only. Byte-identical when no senses model is "
-            "resolved. (cortex/senses arc)"
+            "senses intake or speak-back shaping, no senses media bridge). The "
+            "artifact records mode=cortex-only. Byte-identical when no senses "
+            "model is resolved. (cortex/senses arc)"
         ),
     )
     p.add_argument(

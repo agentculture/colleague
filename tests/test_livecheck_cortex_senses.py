@@ -18,6 +18,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from colleague import livecheck
+from colleague.contract import ContextPacket
 from colleague.livecheck import (
     ProofResult,
     classify_cortex_senses_check,
@@ -143,3 +144,84 @@ class TestRunDegrades:
         )
         result = run_cortex_senses_check(".")
         assert result.status == "skipped" and "not up" in result.detail
+
+
+class _FakeConfig:
+    def __init__(self) -> None:
+        self.senses = object()
+
+    @classmethod
+    def resolve(cls, **kwargs):
+        return cls()
+
+
+def _fake_result(*, senses_dict, summary="cortex summary"):
+    """A stand-in TaskResult: ``.to_dict()`` + ``.summary`` + ``.senses``.
+
+    When ``senses_dict`` is set the ``.senses`` object carries a ``.records``
+    list (the runner folds session-side records into it before grading)."""
+    art = {"stats": {"duration_seconds": 1.0}}
+    senses_obj = None
+    if senses_dict is not None:
+        art["senses"] = senses_dict
+        senses_obj = SimpleNamespace(records=list(senses_dict.get("records", [])))
+    return SimpleNamespace(to_dict=lambda: art, summary=summary, senses=senses_obj)
+
+
+class _FakeEngine:
+    """Records nothing; returns a fixed fake result from ``work``."""
+
+    result = None
+
+    def work(self, task, config):
+        return type(self).result
+
+
+class TestRunOnServingRig:
+    """The serving-rig paths the honest-SKIP / no-fabrication fixes cover
+    (review findings #2 + #3) — mocked, no live rig required."""
+
+    def _arm(self, monkeypatch):
+        monkeypatch.setattr(livecheck, "_reachable", lambda repo: (True, None))
+        monkeypatch.setattr(livecheck, "probe_lobes_stack", lambda repo: (True, None))
+        monkeypatch.setattr(livecheck, "EngineConfig", _FakeConfig)
+        monkeypatch.setattr(livecheck, "senses_engine_config", lambda c: SimpleNamespace())
+        monkeypatch.setattr(livecheck, "VllmOpenAIEngine", _FakeEngine)
+        monkeypatch.setattr(
+            livecheck, "run_senses_speakback", lambda *a, **k: ("shaped", SimpleNamespace())
+        )
+
+    def test_intake_degrade_on_serving_rig_skips_not_fails(self, monkeypatch) -> None:
+        # A serving rig whose senses intake gracefully degrades (packet=None) is
+        # the designed degrade-to-raw path — SKIP, never a fabricated FAIL (#2).
+        self._arm(monkeypatch)
+        _FakeEngine.result = _fake_result(senses_dict=None)
+        monkeypatch.setattr(
+            livecheck, "run_senses_intake", lambda *a, **k: (None, SimpleNamespace(degraded=True))
+        )
+        result = run_cortex_senses_check(".")
+        assert result.status == "skipped"
+        assert "degrade" in result.detail.lower()
+
+    def test_loop_recorded_no_block_fails_not_fabricated(self, monkeypatch) -> None:
+        # Packet present but the LOOP recorded no senses block → the proof must
+        # FAIL (a real regression), NOT fabricate the block and pass (#3).
+        self._arm(monkeypatch)
+        _FakeEngine.result = _fake_result(senses_dict=None)  # loop recorded nothing
+        packet = ContextPacket(original=_INSTR, interpretation="i")
+        rec = SimpleNamespace(degraded=False)
+        monkeypatch.setattr(livecheck, "run_senses_intake", lambda *a, **k: (packet, rec))
+        result = run_cortex_senses_check(".")
+        assert result.status == "failed"  # not "passed" — no self-manufactured evidence
+
+    def test_loop_recorded_block_passes(self, monkeypatch) -> None:
+        # The healthy path: the loop recorded mode=split + the verbatim original.
+        self._arm(monkeypatch)
+        _FakeEngine.result = _fake_result(
+            senses_dict={"mode": "split", "packet": {"original": _INSTR}, "records": []}
+        )
+        packet = ContextPacket(original=_INSTR, interpretation="i")
+        rec = SimpleNamespace(degraded=False)
+        monkeypatch.setattr(livecheck, "run_senses_intake", lambda *a, **k: (packet, rec))
+        result = run_cortex_senses_check(".")
+        assert result.status == "passed"

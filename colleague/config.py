@@ -1018,6 +1018,7 @@ class EngineConfig:
         plan_offer_tokens: int | None = None,
         max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
+        discover_lobes: bool = True,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
 
@@ -1075,7 +1076,13 @@ class EngineConfig:
         # builtin default. Unreachable degrades to the next rung with ONE stderr
         # notice (never a hard-fail, h7); unarmed makes NO call and is
         # byte-identical to a pre-feature resolve (no notice, no network).
-        lobes_gateway_url = resolve_lobes_gateway_url(repo_path)
+        # ``discover_lobes=False`` skips the live gateway GET entirely (no
+        # resolve_roles call, no stderr notice) — the OFFLINE seam the
+        # contractually no-network ``doctor`` provider group needs so an armed
+        # lobes gateway doesn't leak a network call into a plain ``colleague
+        # doctor``. The default (True) is byte-identical: work/session/config-show
+        # still discover live per run.
+        lobes_gateway_url = resolve_lobes_gateway_url(repo_path) if discover_lobes else None
         lobes_base_url: str | None = None
         lobes_model: str | None = None
         lobes_roles = None

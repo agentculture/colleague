@@ -62,7 +62,13 @@ def checks(repo_path=None) -> list[dict]:
 
 
 def _checks(repo_path) -> list[dict]:
-    cfg = EngineConfig.resolve(repo_path=repo_path)
+    # ``discover_lobes=False`` keeps this registered group contractually OFFLINE:
+    # an armed lobes gateway would otherwise make ``resolve()`` dial the network
+    # (and emit a stderr notice) here, breaking the no-network invariant on a
+    # plain ``colleague doctor``. The armed state is still reported below via the
+    # no-network ``resolve_lobes_gateway_url``; the LIVE gateway consultation
+    # lives in the opt-in ``--probe`` reachability group.
+    cfg = EngineConfig.resolve(repo_path=repo_path, discover_lobes=False)
     out: list[dict] = []
 
     # 1. provider_config — always emitted; api_key is redacted.

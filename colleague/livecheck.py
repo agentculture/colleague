@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 from colleague import media
 from colleague.config import EngineConfig, resolve_lobes_gateway_url
-from colleague.contract import SensesBlock, Task
+from colleague.contract import Task
 from colleague.engines.vllm_openai import VllmOpenAIEngine
 from colleague.lobes import resolve_roles
 from colleague.oilcheck.reachability import _PROBE_TIMEOUT
@@ -535,20 +535,33 @@ def run_cortex_senses_check(repo: str | Path, *, model: str | None = None) -> Pr
                     detail="senses not resolved from config/lobes despite a serving stack",
                 )
             engine = VllmOpenAIEngine()
-            packet, intake_rec = run_senses_intake(_CORTEX_SENSES_INSTRUCTION, senses_cfg, engine)
+            packet, _intake_rec = run_senses_intake(_CORTEX_SENSES_INSTRUCTION, senses_cfg, engine)
+            if packet is None:
+                # Intake gracefully degraded on the serving rig (malformed/empty
+                # JSON, overflow) — the degrade-to-raw path is CORRECT behavior,
+                # not a regression, and there is no split to compare. SKIP
+                # honestly rather than grade a designed degradation as a failure.
+                return ProofResult(
+                    file="cortex_senses",
+                    status="skipped",
+                    detail="senses intake degraded live — no split to compare (correct degrade)",
+                )
             split_task = Task.new(tmp, _CORTEX_SENSES_INSTRUCTION, engine="vllm-openai")
-            if packet is not None:
-                split_task.context_packet = packet
+            split_task.context_packet = packet
             split_result = VllmOpenAIEngine().work(split_task, split_config)
             shaped, speak_rec = run_senses_speakback(split_result.summary, senses_cfg, engine)
             _ = shaped  # display shaping is not graded — only the runtime record is
-            if split_result.senses is None:
-                split_result.senses = SensesBlock(mode="split", packet=packet, records=[])
-            split_result.senses.records = (
-                ([intake_rec] if intake_rec is not None else [])
-                + list(split_result.senses.records)
-                + ([speak_rec] if speak_rec is not None else [])
-            )
+            # Fold the session-side records into the block the LOOP recorded. Do
+            # NOT fabricate a block: if the loop failed to record mode=split
+            # despite a packet on the task, classify() must SEE that (a real
+            # regression) — the proof verifies the loop, it never supplies the
+            # very evidence it is meant to check (review finding #3).
+            if split_result.senses is not None:
+                split_result.senses.records = (
+                    [_intake_rec]
+                    + list(split_result.senses.records)
+                    + ([speak_rec] if speak_rec is not None else [])
+                )
     except Exception as exc:  # a live proof degrades, it never crashes the caller
         return ProofResult(file="cortex_senses", status="skipped", detail=f"proof error: {exc}")
 
