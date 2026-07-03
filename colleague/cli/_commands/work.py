@@ -933,6 +933,12 @@ def cmd_work(args: argparse.Namespace) -> int:
 
     config.role = getattr(args, "role", None)
 
+    # Cortex/senses (t8): --cortex-only bypasses the senses front door for this run
+    # (a one-shot `work` never runs text intake anyway — q1 — so this suppresses
+    # the senses media bridge). A strict no-op when no senses model is resolved.
+    if getattr(args, "cortex_only", False):
+        config.senses = None
+
     # Mode validation (t3): a typo must fail loudly with the valid choices, not
     # silently no-op. Validated explicitly + early (the --algo idiom — a
     # value-carrying flag cannot take a parse-time choices= without colliding
@@ -1133,6 +1139,14 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--cortex-only",
+        action="store_true",
+        help=(
+            "Bypass the senses front door for this run (suppresses the senses media "
+            "bridge). A strict no-op when no senses model is resolved. (cortex/senses arc)"
+        ),
+    )
     p.add_argument(
         "--mode",
         default=None,
