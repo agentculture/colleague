@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.36.0] - 2026-07-03
+
+### Added
+
+- Senses live presence + voice (third sanctioned router-exclusion increment): while cortex drives a work item, the operator converses with senses concurrently — senses answers in seconds from live run context (flight feed + context packet), operator words become flight guidance injected at the next tool-call boundary, and audio rides in/out via new lobes stt/tts roles.
+- Senses talk lane colleague/senses.py run_senses_talk (tools-off, grounded, degrade-never-raise, explicit cortex: relay override).
+- stt/tts wire clients colleague/voice.py (pure urllib transcribe/synthesize) + opt-in [voice] extra colleague/voice_devices.py (mic capture + speaker playback behind lazy sounddevice/soundfile imports; base install carries no audio dep).
+- Voice role resolution: colleague/lobes.py resolve_roles parses optional stt/tts roles + VoiceConfig on EngineConfig through the senses precedence chain (absent = byte-identical).
+- colleague talk <task-id> attach verb (flight-plane senses REPL) + interactive session concurrent lane (thread-free select() stdin poll at progress-sink boundaries) + resident appserver synthesized-wav file-link replies with c19 trust-gated relay (non-operator can never inject guidance).
+- Awareness invariant: every applied injection produces a flight-feed line + TaskResult.senses.injections record; talk exchanges fold into TaskResult.senses.chat at finish (omit-when-empty; #206-safe).
+- Livecheck classifiers (classify_senses_latency_check / classify_injection_reached_check / classify_voice_lane_check) + docs/live-testing.md rows 19-23.
+
+### Changed
+
+- TaskResult.senses SensesBlock gains omit-when-empty injections/chat (a run with no live lane is byte-identical).
+- CLAUDE.md scope line updated from two to three sanctioned increments at the router-exclusion line; #277 voice lane (stt/tts) now consumed, embedder/reranker retrieval lane + #276 stay parked.
+
+### Fixed
+
+- Live rig honest limit: the gateway speech proxy 502s for both stt and tts (probed 2026-07-03) — voice.py degrades cleanly (None + one notice, text reply byte-identical) and the voice round-trip live proofs SKIP honestly, never a fabricated pass.
+
 ## [1.35.2] - 2026-07-03
 
 ### Added
