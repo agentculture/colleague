@@ -743,6 +743,52 @@ default. `OTEL_SDK_DISABLED=true` is honored as a kill-switch.
 """
 
 
+_LOBES = """\
+# colleague lobes
+
+Inspect colleague's connection to a **lobes gateway** — the cortex/senses arc's
+single upstream that serves multiple typed model roles behind one
+`/capabilities` endpoint. Colleague resolves exactly two of those roles:
+
+    cortex   the fast, wide-window reasoning mind that drives the tool loop
+    senses   the tools-off multimodal front door (intake / normalize /
+             classify_intent / prepare_context_packet / speak_back)
+
+The gateway may serve more roles (`embedder`, `reranker`, `stt`, `tts`); this
+noun reports only `cortex` + `senses` — colleague resolves nothing else today.
+
+## Armed state + degradation rung
+
+`lobes show` is read-only (one `GET /capabilities`, stdlib `urllib`, never
+raises) and reports exactly one of three rungs:
+
+- `not_configured` — `COLLEAGUE_LOBES_URL` is unset; a clean, honest message,
+  exit 0 (not an error).
+- `armed_reachable` — the gateway answered; the resolved `cortex`/`senses`
+  metadata is shown (model, context window, endpoint, ready flag,
+  responsibilities, forbidden_responsibilities).
+- `armed_unreachable` — a URL is set but the gateway did not answer (down,
+  timed out, non-200, or a malformed response); reported honestly, exit 0.
+
+**Scope note:** this noun's ONLY armed signal is `COLLEAGUE_LOBES_URL` env. It
+does not (yet) consult a `lobes` section in `.colleague/config.json` — that
+fuller precedence chain (explicit flag > env > config.json > builtin) is a
+separate, later config-resolution concern (the runtime's own lobes discovery
+rung), not this introspection noun's job.
+
+## Usage
+
+    colleague lobes show
+    colleague lobes show --json
+    colleague lobes overview
+
+## See also
+
+- `colleague explain roles`
+- `colleague explain config`
+"""
+
+
 _SUBAGENT = """\
 # colleague subagent
 
@@ -1174,6 +1220,9 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("telemetry",): _TELEMETRY,
     ("telemetry", "status"): _TELEMETRY,
     ("telemetry", "overview"): _TELEMETRY,
+    ("lobes",): _LOBES,
+    ("lobes", "show"): _LOBES,
+    ("lobes", "overview"): _LOBES,
     ("config",): _CONFIG,
     ("config", "show"): _CONFIG,
     ("config", "overview"): _CONFIG,
