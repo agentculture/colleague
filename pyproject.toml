@@ -58,6 +58,14 @@ tui = [
     "rich>=13",
     "textual>=0.50",
 ]
+# VOICE (senses live-presence + voice arc, task t3): operator-side mic capture +
+# speaker playback deps. Opt-in — a base install carries NO audio deps; colleague
+# consumes stt/tts over HTTP (colleague/voice.py) at base, and only `colleague
+# talk --audio` / spoken replies need this. Install: pip install "colleague[voice]".
+voice = [
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
+]
 # RESIDENT (appserver mode, plan task t13): colleague consumes
 # agent-lifecycle's runtime as a LIBRARY EMBED — colleague.resident.appserver
 # implements the Harness Protocol (start/feed_message/replies/stop) and wires
