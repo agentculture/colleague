@@ -132,9 +132,13 @@ from typing import TYPE_CHECKING, Any, Optional
 from agent_lifecycle.runtime.message import Message
 from agent_lifecycle.runtime.supervisor import Supervisor
 
-from colleague.contract import Task
+from colleague import registry
+from colleague.artifact import artifact_dir
+from colleague.artifact import write as _write_artifact
+from colleague.contract import SensesBlock, Task
 from colleague.media import validate_attachment
 from colleague.resident.trust import check_attachment_path, classify_request
+from colleague.senses import run_senses_intake, run_senses_speakback, senses_engine_config
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from agent_lifecycle.runtime.transport import Transport
@@ -307,12 +311,27 @@ class AppserverHarness:
         raw_body = getattr(message, "body", "") or ""
         body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
 
+        # Cortex/senses (t9): with a senses model resolved, perceive the inbound
+        # message through senses INTAKE first (→ a ContextPacket on the task, so the
+        # loop records mode=split), then shape the reply via SPEAK-BACK below. The
+        # c19 trust model is UNCHANGED — intake runs regardless of the request's
+        # trust tier (senses is tools-off; write authorization is decision.role's
+        # job, untouched here). A degraded intake attaches nothing and the raw
+        # message proceeds — the run never fails (senses unresolved = byte-identical).
+        senses_active = self._config.senses is not None
+        packet, intake_record = None, None
+        if senses_active:
+            loop = asyncio.get_running_loop()
+            packet, intake_record = await loop.run_in_executor(None, self._senses_intake, body)
+
         task = Task.new(
             self._repo_path,
             body,
             engine=self._engine_name,
             attachments=attachments or None,
         )
+        if packet is not None:
+            task.context_packet = packet
         req_config = _dc_replace(self._config, role=decision.role)
 
         await self._dispatch_and_reply(
@@ -321,6 +340,8 @@ class AppserverHarness:
             target=target,
             role=decision.role,
             attachment_notes=attachment_notes,
+            senses_active=senses_active,
+            intake_record=intake_record,
         )
 
     def _resolve_attachments(
@@ -363,6 +384,55 @@ class AppserverHarness:
 
         return body, attachments, attachment_notes
 
+    # ── cortex/senses split (t9) ─────────────────────────────────────────────
+
+    def _senses_engine(self):
+        """Return ``(senses_config, engine)`` for a senses call, or ``None`` — the
+        SAME seam intake and speak-back share. ``None`` when no senses model is
+        resolved (byte-identical) or the engine cannot be loaded (proceed raw).
+        Sync (runs in the executor); role-independent (senses is tools-off)."""
+        senses_config = senses_engine_config(self._config)
+        if senses_config is None:
+            return None
+        try:
+            engine = registry.load(self._engine_name)
+        except Exception:  # noqa: BLE001 - an unloadable engine → proceed cortex-only
+            return None
+        return senses_config, engine
+
+    def _senses_intake(self, text: str):
+        """Perceive *text* into a ContextPacket (+ record). ``(None, None)`` when
+        no senses engine; ``(None, degraded_record)`` when intake degrades — the
+        caller then proceeds with the raw text. Sync (executor)."""
+        pair = self._senses_engine()
+        if pair is None:
+            return None, None
+        senses_config, engine = pair
+        return run_senses_intake(text, senses_config, engine)
+
+    def _speakback_and_finalize(self, result, intake_record):
+        """Shape the reply via speak-back AND fold the session-side intake +
+        speak-back records onto ``result.senses``, re-saving the artifact.
+
+        Returns the shaped display string (or ``None`` to fall back to the raw
+        summary). ``result.summary`` is never mutated — the artifact keeps the raw
+        cortex summary; only the mesh reply body is shaped. Sync (executor)."""
+        shaped, speakback_record = None, None
+        pair = self._senses_engine()
+        if pair is not None:
+            senses_config, engine = pair
+            shaped, speakback_record = run_senses_speakback(result.summary, senses_config, engine)
+        if result.senses is None:
+            result.senses = SensesBlock(mode="split", packet=None, records=[])
+        pre = [intake_record] if intake_record is not None else []
+        post = [speakback_record] if speakback_record is not None else []
+        result.senses.records = pre + list(result.senses.records) + post
+        try:
+            _write_artifact(result, artifact_dir(self._repo_path))
+        except Exception:  # noqa: BLE001 - a re-save failure must never fail the reply
+            pass
+        return shaped
+
     async def _dispatch_and_reply(
         self,
         task: Task,
@@ -371,6 +441,8 @@ class AppserverHarness:
         target: str,
         role: Optional[str],
         attachment_notes: list[str],
+        senses_active: bool = False,
+        intake_record=None,
     ) -> None:
         """Run one work item via :meth:`_dispatch` and enqueue exactly one reply.
 
@@ -408,6 +480,18 @@ class AppserverHarness:
             )
             return
 
+        # Cortex/senses (t9): shape the mesh reply via speak-back + fold the
+        # intake/speak-back records onto TaskResult.senses (re-saving the
+        # artifact). The reply body is the shaped text; the artifact keeps the raw
+        # cortex summary. A strict no-op when senses is unresolved (byte-identical).
+        reply_body = result.summary or ""
+        if senses_active:
+            shaped = await loop.run_in_executor(
+                None, self._speakback_and_finalize, result, intake_record
+            )
+            if shaped:
+                reply_body = shaped
+
         reply_meta: dict[str, Any] = {
             "task_id": result.task_id,
             "status": result.status,
@@ -420,7 +504,7 @@ class AppserverHarness:
             Message(
                 sender=self._agent_nick,
                 target=target,
-                body=result.summary or "",
+                body=reply_body,
                 kind="message",
                 metadata=reply_meta,
             )
