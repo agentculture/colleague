@@ -22,7 +22,13 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from colleague.cli._commands.session import _HELP_TEXT, _SLASH_COMMANDS, _Session, run_session
+from colleague.cli._commands.session import (
+    _HELP_TEXT,
+    _SLASH_COMMANDS,
+    SessionIO,
+    _Session,
+    run_session,
+)
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
 from colleague.media import validate_attachment
@@ -71,8 +77,7 @@ def _make_session(repo: Path) -> _Session:
         config=EngineConfig.resolve(model="m"),
         json_mode=False,
         view="markdown",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=lambda **k: None,
     )
 
@@ -193,8 +198,10 @@ def test_attach_missing_file_reports_clean_error_and_stages_nothing(tmp_path: Pa
         config=EngineConfig.resolve(model="m"),
         json_mode=False,
         view="markdown",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: errors.append(" ".join(str(x) for x in a)),
+        io=SessionIO(
+            out=lambda *a, **k: None,
+            err=lambda *a, **k: errors.append(" ".join(str(x) for x in a)),
+        ),
         work_fn=lambda **k: None,
     )
     still_running = s._slash("/attach /nonexistent/path/nope.png")

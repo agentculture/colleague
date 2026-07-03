@@ -362,7 +362,7 @@ def test_supports_raw_mode_false_when_isatty_raises() -> None:
 def test_read_live_ansi_renders_popup_and_runs_fallback(tmp_path, monkeypatch) -> None:
     """Exercise the _render popup closure and the _fallback closure of the live read."""
     import colleague.cli._commands._session_input as si
-    from colleague.cli._commands.session import _Session
+    from colleague.cli._commands.session import SessionIO, _Session
     from colleague.config import EngineConfig
 
     sess = _Session(
@@ -373,8 +373,7 @@ def test_read_live_ansi_renders_popup_and_runs_fallback(tmp_path, monkeypatch) -
         config=EngineConfig.resolve(),
         json_mode=False,
         view="ansi",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=lambda **k: None,
     )
 
@@ -398,7 +397,7 @@ def test_read_live_ansi_renders_popup_and_runs_fallback(tmp_path, monkeypatch) -
 def test_read_live_ansi_fallback_returns_none_on_eof(tmp_path, monkeypatch) -> None:
     """The _fallback closure returns None when stdin hits EOF (Ctrl-D)."""
     import colleague.cli._commands._session_input as si
-    from colleague.cli._commands.session import _Session
+    from colleague.cli._commands.session import SessionIO, _Session
     from colleague.config import EngineConfig
 
     sess = _Session(
@@ -409,8 +408,7 @@ def test_read_live_ansi_fallback_returns_none_on_eof(tmp_path, monkeypatch) -> N
         config=EngineConfig.resolve(),
         json_mode=False,
         view="ansi",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=lambda **k: None,
     )
 
@@ -669,7 +667,7 @@ def test_render_places_popup_below_input(tmp_path, monkeypatch) -> None:
     from agentfront.taui.widgets.prompt_input import plain_prompt
 
     import colleague.cli._commands._session_input as si
-    from colleague.cli._commands.session import _Session
+    from colleague.cli._commands.session import SessionIO, _Session
     from colleague.config import EngineConfig
 
     sess = _Session(
@@ -680,8 +678,7 @@ def test_render_places_popup_below_input(tmp_path, monkeypatch) -> None:
         config=EngineConfig.resolve(),
         json_mode=False,
         view="ansi",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=lambda **k: None,
     )
 

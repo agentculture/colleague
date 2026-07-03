@@ -237,6 +237,22 @@ def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
     return default
 
 
+def _file_or_default(file_value: str | None, default: str) -> str:
+    """``file_value if file_value is not None else default`` as a plain helper.
+
+    Several of :meth:`EngineConfig.resolve`'s numeric-knob defaults (the lint /
+    test-integrity / affected-tests retry+depth+max-files knobs) share this
+    exact "config.json value, else the builtin default" shape. Calling a
+    helper instead of inlining the ternary keeps that branching cost off
+    ``resolve``'s own cognitive-complexity tally (SonarCloud S3776) — a
+    ternary/if-expression contributes to whichever function's body it lives
+    in, so extracting it here (mirroring :func:`_resolve_lobes_rung`'s
+    extraction for the same reason) is a pure extraction with no behavior
+    change.
+    """
+    return file_value if file_value is not None else default
+
+
 def load_config_file(repo_path: str | Path) -> dict[str, str]:
     """Load a persistent config file from .colleague/config.json.
 
@@ -432,6 +448,55 @@ def _emit_lobes_unreachable_notice(gateway_url: str) -> None:
         "the next config precedence rung (config.json / builtin default)",
         file=sys.stderr,
     )
+
+
+def _resolve_lobes_rung(
+    repo_path: str | Path | None,
+    discover_lobes: bool,
+) -> "tuple[str | None, str | None, object | None]":
+    """Consult the lobes gateway (task t4) and return its DEFAULTS-SOURCE trio.
+
+    Extracted from :meth:`EngineConfig.resolve` to hold its cognitive
+    complexity under the SonarCloud S3776 ceiling (15) — pure extraction, no
+    behavior change.
+
+    When armed (``COLLEAGUE_LOBES_URL`` env or a ``lobes`` section in
+    config.json), the gateway is consulted ONCE as a DEFAULTS SOURCE feeding
+    cortex → the main model id + base_url and senses → a SensesConfig.
+    Unreachable degrades to the next precedence rung with ONE stderr notice
+    (never a hard-fail, h7); unarmed (``discover_lobes=False``, or no gateway
+    URL resolved) makes NO network call and returns an all-``None`` triple —
+    byte-identical to a pre-lobes resolve. ``discover_lobes=False`` is the
+    OFFLINE seam the contractually no-network ``doctor`` provider group needs
+    so an armed lobes gateway doesn't leak a network call into a plain
+    ``colleague doctor``; the default (``True``) still discovers live per run.
+
+    Returns
+    -------
+    (lobes_base_url, lobes_model, lobes_roles)
+        ``lobes_base_url``/``lobes_model`` are the two values ``resolve()``
+        folds into its own base_url/model defaults; ``lobes_roles`` is the
+        raw resolved :class:`~colleague.lobes.LobesRoles` (or ``None``) that
+        the senses rung also consults.
+    """
+    if not discover_lobes:
+        return None, None, None
+    lobes_gateway_url = resolve_lobes_gateway_url(repo_path)
+    if lobes_gateway_url is None:
+        return None, None, None
+    # Lazy import keeps config's module import graph unchanged (the
+    # sanitize_model idiom) and lets tests monkeypatch resolve_roles.
+    from colleague import lobes as _lobes
+
+    lobes_roles = _lobes.resolve_roles(lobes_gateway_url)
+    if lobes_roles is None:
+        _emit_lobes_unreachable_notice(lobes_gateway_url)
+        return None, None, None
+    # Decision 2: BOTH roles dial the gateway origin, not the role's own
+    # (internal, non-client-reachable) ``endpoint`` field.
+    lobes_base_url = _lobes_base_url(lobes_gateway_url)
+    lobes_model = (lobes_roles.cortex.model or "").strip() or None
+    return lobes_base_url, lobes_model, lobes_roles
 
 
 def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
@@ -727,6 +792,17 @@ def _resolve_senses(
     )
     if not model.strip():
         return None
+    # INTENTIONAL (Qodo #2, cortex/senses PR #281): the ``or`` below treats an
+    # explicitly-empty config.json ``senses.base_url``/``api_key`` string the
+    # SAME as an absent key — both fall through to the main endpoint's already-
+    # resolved value. This is not a lost override: a JSON string field cannot
+    # distinguish "explicitly blank" from "omitted" any more usefully than
+    # "absent" does here, and this is the field-for-field mirror of
+    # ``_resolve_deepthink``'s identical ``file_x or main_x`` pattern a few
+    # functions above — changing it here without changing deepthink would
+    # split the two resolvers' behavior. See
+    # ``tests/test_config_senses.py::test_config_file_empty_base_url_and_api_key_fall_through_to_main``
+    # for the pinned regression test.
     base_url = _pick(
         None,
         "COLLEAGUE_SENSES_BASE_URL",
@@ -904,6 +980,34 @@ class SensesConfig:
     name; default ``False`` keeps a senses config byte-identical."""
 
 
+@dataclass(frozen=True)
+class ResolveOverrides:
+    """Bundle of secondary numeric-knob explicit overrides for :meth:`EngineConfig.resolve`.
+
+    Every knob here still resolves through the SAME ``COLLEAGUE_*`` env var >
+    ``.colleague/config.json`` > built-in-default precedence as before when
+    left ``None`` — nothing about resolution itself changed. The only thing
+    that moved is WHERE an explicit override is expressed: no production CLI
+    flow ever sets more than the six identity/sizing knobs that stayed
+    top-level params on ``resolve()`` (``base_url``, ``api_key``, ``model``,
+    ``max_steps``, ``repo_path``, ``discover_lobes``); these eight are
+    exercised ONLY by tests that pin one knob's own precedence in isolation
+    (e.g. "an explicit ``context_budget_tokens`` beats the env var"). Bundling
+    them here holds ``resolve()``'s parameter list under the SonarCloud S107
+    ceiling (13) without dropping that per-knob override capability. Pure
+    extraction — no behavior change.
+    """
+
+    context_budget_tokens: int | None = None
+    max_output_chars: int | None = None
+    subagent_concurrency: int | None = None
+    autosplit_target_tokens: int | None = None
+    fillline_threshold: float | None = None
+    fanout_files: int | None = None
+    plan_offer_tokens: int | None = None
+    max_continue_nudges: int | None = None
+
+
 @dataclass
 class EngineConfig:
     """Settings for an OpenAI-compatible engine driver."""
@@ -1009,16 +1113,9 @@ class EngineConfig:
         api_key: str | None = None,
         model: str | None = None,
         max_steps: int | None = None,
-        context_budget_tokens: int | None = None,
-        max_output_chars: int | None = None,
-        subagent_concurrency: int | None = None,
-        autosplit_target_tokens: int | None = None,
-        fillline_threshold: float | None = None,
-        fanout_files: int | None = None,
-        plan_offer_tokens: int | None = None,
-        max_continue_nudges: int | None = None,
         repo_path: str | Path | None = None,
         discover_lobes: bool = True,
+        overrides: "ResolveOverrides | None" = None,
     ) -> "EngineConfig":
         """Build a config from explicit args, env vars, config file, then defaults.
 
@@ -1039,7 +1136,18 @@ class EngineConfig:
         fields, and the ``COLLEAGUE_TEMPERATURE`` / ``COLLEAGUE_TIMEOUT`` /
         ``COLLEAGUE_SUBAGENT_DEPTH`` / ``COLLEAGUE_SUBAGENT_TOTAL`` env vars (with
         ``CONVERTIBLE_*`` fallbacks) override them as before.
+
+        *overrides* bundles eight secondary numeric-knob explicit-override slots
+        (``context_budget_tokens``, ``max_output_chars``, ``subagent_concurrency``,
+        ``autosplit_target_tokens``, ``fillline_threshold``, ``fanout_files``,
+        ``plan_offer_tokens``, ``max_continue_nudges`` — see
+        :class:`ResolveOverrides`) that used to be individual keyword params here;
+        each still resolves ``COLLEAGUE_*`` env > ``.colleague/config.json`` >
+        built-in default exactly as before when omitted from *overrides* (or when
+        *overrides* itself is ``None``) — this bundling changed nothing about
+        resolution, only how an explicit override is expressed.
         """
+        ov = overrides if overrides is not None else ResolveOverrides()
         # Load config-file values once (empty dict when repo_path is None or
         # the file is absent/malformed).
         file_cfg: dict[str, str] = {}
@@ -1069,57 +1177,37 @@ class EngineConfig:
         file_api_key: str | None = file_cfg.get("api_key")
         file_model: str | None = file_cfg.get("model")
 
-        # Lobes discovery rung (task t4): when armed (COLLEAGUE_LOBES_URL env or a
-        # ``lobes`` section in config.json), consult the gateway ONCE as a
-        # DEFAULTS SOURCE feeding cortex → the main model id + base_url and
-        # senses → a SensesConfig. It slots BELOW config.json and ABOVE the
-        # builtin default. Unreachable degrades to the next rung with ONE stderr
-        # notice (never a hard-fail, h7); unarmed makes NO call and is
-        # byte-identical to a pre-feature resolve (no notice, no network).
-        # ``discover_lobes=False`` skips the live gateway GET entirely (no
-        # resolve_roles call, no stderr notice) — the OFFLINE seam the
-        # contractually no-network ``doctor`` provider group needs so an armed
-        # lobes gateway doesn't leak a network call into a plain ``colleague
-        # doctor``. The default (True) is byte-identical: work/session/config-show
-        # still discover live per run.
-        lobes_gateway_url = resolve_lobes_gateway_url(repo_path) if discover_lobes else None
-        lobes_base_url: str | None = None
-        lobes_model: str | None = None
-        lobes_roles = None
-        if lobes_gateway_url is not None:
-            # Lazy import keeps config's module import graph unchanged (the
-            # sanitize_model idiom) and lets tests monkeypatch resolve_roles.
-            from colleague import lobes as _lobes
-
-            lobes_roles = _lobes.resolve_roles(lobes_gateway_url)
-            if lobes_roles is None:
-                _emit_lobes_unreachable_notice(lobes_gateway_url)
-            else:
-                # Decision 2: BOTH roles dial the gateway origin, not the role's
-                # own (internal, non-client-reachable) ``endpoint`` field.
-                lobes_base_url = _lobes_base_url(lobes_gateway_url)
-                lobes_model = (lobes_roles.cortex.model or "").strip() or None
+        # Lobes discovery rung (task t4): see :func:`_resolve_lobes_rung` for the
+        # full rationale (extracted to hold this method's cognitive complexity
+        # under the SonarCloud S3776 ceiling — pure extraction, no behavior
+        # change). It slots BELOW config.json and ABOVE the builtin default.
+        lobes_base_url, lobes_model, lobes_roles = _resolve_lobes_rung(repo_path, discover_lobes)
 
         # Resolved once as locals (not just inline in the ``cls(...)`` call
         # below) so the deepthink resolution can default ITS base_url/api_key
         # to the MAIN endpoint's already-resolved values (spec requirement).
+        # The default is a plain if/else (not a nested ternary, SonarCloud
+        # S3358) over the two DEFAULTS-SOURCE rungs below the explicit
+        # arg/env precedence: config.json, then the lobes discovery rung.
+        if file_base_url is not None:
+            base_url_default = file_base_url
+        elif lobes_base_url is not None:
+            base_url_default = lobes_base_url
+        else:
+            base_url_default = _DEFAULT_BASE_URL
         resolved_base_url = _pick(
             base_url,
             "COLLEAGUE_BASE_URL",
             "CONVERTIBLE_BASE_URL",
             "OPENAI_BASE_URL",
-            default=(
-                file_base_url
-                if file_base_url is not None
-                else (lobes_base_url if lobes_base_url is not None else _DEFAULT_BASE_URL)
-            ),
+            default=base_url_default,
         )
         resolved_api_key = _pick(
             api_key,
             "COLLEAGUE_API_KEY",
             "CONVERTIBLE_API_KEY",
             "OPENAI_API_KEY",
-            default=file_api_key if file_api_key is not None else _DEFAULT_API_KEY,
+            default=_file_or_default(file_api_key, _DEFAULT_API_KEY),
         )
 
         # Dual-model deepthink (t1) — resolved once as a local (like
@@ -1152,6 +1240,16 @@ class EngineConfig:
             resolved_base_url,
         )
 
+        # Lobes rung (t4): the gateway's cortex model is the default only for the
+        # main model id, below config.json and above the builtin. A plain if/else
+        # (not a nested ternary, SonarCloud S3358), mirroring base_url_default above.
+        if file_model is not None:
+            model_default = file_model
+        elif lobes_model is not None:
+            model_default = lobes_model
+        else:
+            model_default = _DEFAULT_MODEL
+
         return cls(
             base_url=resolved_base_url,
             api_key=resolved_api_key,
@@ -1159,13 +1257,7 @@ class EngineConfig:
                 model,
                 "COLLEAGUE_MODEL",
                 "CONVERTIBLE_MODEL",
-                # Lobes rung (t4): the gateway's cortex model is the default only
-                # for the main model id, below config.json and above the builtin.
-                default=(
-                    file_model
-                    if file_model is not None
-                    else (lobes_model if lobes_model is not None else _DEFAULT_MODEL)
-                ),
+                default=model_default,
             ),
             max_steps=int(
                 _pick(
@@ -1193,7 +1285,7 @@ class EngineConfig:
             ),
             context_budget_tokens=int(
                 _pick(
-                    _str(context_budget_tokens),
+                    _str(ov.context_budget_tokens),
                     "COLLEAGUE_CONTEXT_BUDGET",
                     "CONVERTIBLE_CONTEXT_BUDGET",
                     default=str(_DEFAULT_CONTEXT_BUDGET),
@@ -1201,7 +1293,7 @@ class EngineConfig:
             ),
             max_output_chars=int(
                 _pick(
-                    _str(max_output_chars),
+                    _str(ov.max_output_chars),
                     "COLLEAGUE_MAX_OUTPUT_CHARS",
                     "CONVERTIBLE_MAX_OUTPUT_CHARS",
                     default=str(_DEFAULT_MAX_OUTPUT_CHARS),
@@ -1209,7 +1301,7 @@ class EngineConfig:
             ),
             subagent_concurrency=_try_int(
                 _pick(
-                    _str(subagent_concurrency),
+                    _str(ov.subagent_concurrency),
                     "COLLEAGUE_SUBAGENT_CONCURRENCY",
                     "CONVERTIBLE_SUBAGENT_CONCURRENCY",
                     default=str(_DEFAULT_SUBAGENT_CONCURRENCY),
@@ -1236,7 +1328,7 @@ class EngineConfig:
             ),
             autosplit_target_tokens=int(
                 _pick(
-                    _str(autosplit_target_tokens),
+                    _str(ov.autosplit_target_tokens),
                     "COLLEAGUE_AUTOSPLIT_TARGET",
                     "CONVERTIBLE_AUTOSPLIT_TARGET",
                     default=str(_DEFAULT_AUTOSPLIT_TARGET_TOKENS),
@@ -1244,7 +1336,7 @@ class EngineConfig:
             ),
             fillline_threshold=_try_float(
                 _pick(
-                    _str(fillline_threshold),
+                    _str(ov.fillline_threshold),
                     "COLLEAGUE_FILLLINE_THRESHOLD",
                     "CONVERTIBLE_FILLLINE_THRESHOLD",
                     default=str(_DEFAULT_FILLLINE_THRESHOLD),
@@ -1253,7 +1345,7 @@ class EngineConfig:
             ),
             fanout_files=_try_int(
                 _pick(
-                    _str(fanout_files),
+                    _str(ov.fanout_files),
                     "COLLEAGUE_FANOUT_FILES",
                     "CONVERTIBLE_FANOUT_FILES",
                     default=str(_DEFAULT_FANOUT_FILES),
@@ -1270,7 +1362,7 @@ class EngineConfig:
             ),
             plan_offer_tokens=_try_int(
                 _pick(
-                    _str(plan_offer_tokens),
+                    _str(ov.plan_offer_tokens),
                     "COLLEAGUE_PLAN_OFFER_TOKENS",
                     "CONVERTIBLE_PLAN_OFFER_TOKENS",
                     default=str(_DEFAULT_PLAN_OFFER_TOKENS),
@@ -1279,7 +1371,7 @@ class EngineConfig:
             ),
             max_continue_nudges=_try_int(
                 _pick(
-                    _str(max_continue_nudges),
+                    _str(ov.max_continue_nudges),
                     "COLLEAGUE_MAX_CONTINUE_NUDGES",
                     "CONVERTIBLE_MAX_CONTINUE_NUDGES",
                     default=str(_DEFAULT_MAX_CONTINUE_NUDGES),
@@ -1307,11 +1399,7 @@ class EngineConfig:
                     None,
                     "COLLEAGUE_LINT_FIX_RETRIES",
                     "CONVERTIBLE_LINT_FIX_RETRIES",
-                    default=(
-                        file_lint_retries
-                        if file_lint_retries is not None
-                        else str(_DEFAULT_LINT_FIX_RETRIES)
-                    ),
+                    default=_file_or_default(file_lint_retries, str(_DEFAULT_LINT_FIX_RETRIES)),
                 ),
                 default=_DEFAULT_LINT_FIX_RETRIES,
             ),
@@ -1323,10 +1411,8 @@ class EngineConfig:
                     None,
                     "COLLEAGUE_TESTINTEGRITY_FIX_RETRIES",
                     "CONVERTIBLE_TESTINTEGRITY_FIX_RETRIES",
-                    default=(
-                        file_ti_retries
-                        if file_ti_retries is not None
-                        else str(_DEFAULT_TESTINTEGRITY_FIX_RETRIES)
+                    default=_file_or_default(
+                        file_ti_retries, str(_DEFAULT_TESTINTEGRITY_FIX_RETRIES)
                     ),
                 ),
                 default=_DEFAULT_TESTINTEGRITY_FIX_RETRIES,
@@ -1339,10 +1425,8 @@ class EngineConfig:
                 _pick(
                     None,
                     "COLLEAGUE_AFFECTED_TESTS_FIX_RETRIES",
-                    default=(
-                        file_at_retries
-                        if file_at_retries is not None
-                        else str(_DEFAULT_AFFECTED_TESTS_FIX_RETRIES)
+                    default=_file_or_default(
+                        file_at_retries, str(_DEFAULT_AFFECTED_TESTS_FIX_RETRIES)
                     ),
                 ),
                 default=_DEFAULT_AFFECTED_TESTS_FIX_RETRIES,
@@ -1351,11 +1435,7 @@ class EngineConfig:
                 _pick(
                     None,
                     "COLLEAGUE_AFFECTED_TESTS_DEPTH",
-                    default=(
-                        file_at_depth
-                        if file_at_depth is not None
-                        else str(_DEFAULT_AFFECTED_TESTS_DEPTH)
-                    ),
+                    default=_file_or_default(file_at_depth, str(_DEFAULT_AFFECTED_TESTS_DEPTH)),
                 ),
                 default=_DEFAULT_AFFECTED_TESTS_DEPTH,
             ),
@@ -1363,10 +1443,8 @@ class EngineConfig:
                 _pick(
                     None,
                     "COLLEAGUE_AFFECTED_TESTS_MAX_FILES",
-                    default=(
-                        file_at_max_files
-                        if file_at_max_files is not None
-                        else str(_DEFAULT_AFFECTED_TESTS_MAX_FILES)
+                    default=_file_or_default(
+                        file_at_max_files, str(_DEFAULT_AFFECTED_TESTS_MAX_FILES)
                     ),
                 ),
                 default=_DEFAULT_AFFECTED_TESTS_MAX_FILES,

@@ -366,6 +366,32 @@ def test_explicit_senses_base_url_beats_main_default(monkeypatch: pytest.MonkeyP
 
 
 # ---------------------------------------------------------------------------
+# INTENTIONAL: an explicitly-empty config.json base_url/api_key falls through
+# to the main endpoint (Qodo #2, cortex/senses PR #281) — pins the behavior
+# documented in ``_resolve_senses``'s docstring + the inline comment above
+# its base_url/api_key ``_pick`` calls. This mirrors ``_resolve_deepthink``'s
+# identical ``file_x or main_x`` pattern field-for-field; it is not a lost
+# override, since a JSON string field cannot express "explicitly blank"
+# differently from "key omitted" any more usefully than "absent" already does.
+# ---------------------------------------------------------------------------
+
+
+def test_config_file_empty_base_url_and_api_key_fall_through_to_main(tmp_path: Path) -> None:
+    _write_config(
+        tmp_path,
+        {"senses": {"model": "endpoint-omega-model", "base_url": "", "api_key": ""}},
+    )
+    cfg = EngineConfig.resolve(
+        repo_path=tmp_path,
+        base_url="http://main-endpoint/v1",
+        api_key="main-secret-key",
+    )
+    assert cfg.senses is not None
+    assert cfg.senses.base_url == "http://main-endpoint/v1"
+    assert cfg.senses.api_key == "main-secret-key"
+
+
+# ---------------------------------------------------------------------------
 # Malformed context_budget never raises; falls back to the default.
 # ---------------------------------------------------------------------------
 

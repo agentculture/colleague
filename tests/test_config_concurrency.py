@@ -2,7 +2,7 @@
 
 import os
 
-from colleague.config import EngineConfig, effective_concurrency
+from colleague.config import EngineConfig, ResolveOverrides, effective_concurrency
 
 
 class TestEngineConfigConcurrency:
@@ -49,7 +49,7 @@ class TestEngineConfigConcurrency:
 
     def test_subagent_concurrency_explicit_arg(self):
         """Explicit subagent_concurrency arg in resolve() takes highest precedence."""
-        config = EngineConfig.resolve(subagent_concurrency=5)
+        config = EngineConfig.resolve(overrides=ResolveOverrides(subagent_concurrency=5))
         assert config.subagent_concurrency == 5
 
     def test_subagent_concurrency_empty_env_defaults(self, monkeypatch):

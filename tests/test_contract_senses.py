@@ -95,6 +95,46 @@ def test_context_packet_from_dict_tolerates_bad_confidence() -> None:
     assert packet.task_type == "y"
 
 
+def test_context_packet_from_dict_tolerates_missing_omissions() -> None:
+    """No ``omissions`` key at all degrades to an empty list (the pre-existing
+    ``data.get("omissions", [])`` behavior), never raises."""
+    packet = ContextPacket.from_dict({"original": "x"})
+    assert packet.omissions == []
+
+
+def test_context_packet_from_dict_tolerates_none_omissions() -> None:
+    """A malformed artifact's ``omissions: null`` must not crash (Qodo #1,
+    cortex/senses PR #281): ``data.get("omissions", [])`` returns ``None``
+    (not the default ``[]``) when the key is PRESENT but ``null``, and the old
+    ``[str(o) for o in data.get(...)]`` would raise ``TypeError: 'NoneType'
+    object is not iterable``."""
+    packet = ContextPacket.from_dict({"original": "x", "omissions": None})
+    assert packet.omissions == []
+
+
+def test_context_packet_from_dict_tolerates_non_iterable_omissions() -> None:
+    """A malformed artifact's ``omissions`` as a bare int must not crash
+    (Qodo #1): the old comprehension would raise ``TypeError: 'int' object is
+    not iterable``."""
+    packet = ContextPacket.from_dict({"original": "x", "omissions": 5})
+    assert packet.omissions == []
+
+
+def test_context_packet_from_dict_wraps_bare_string_omissions() -> None:
+    """A malformed artifact's ``omissions`` as a bare string must not silently
+    iterate per-character (Qodo #1): the old ``[str(o) for o in "abc"]`` would
+    yield ``['a', 'b', 'c']`` instead of treating the string as one omission."""
+    packet = ContextPacket.from_dict({"original": "x", "omissions": "which file"})
+    assert packet.omissions == ["which file"]
+
+
+def test_context_packet_from_dict_stringifies_non_string_list_entries() -> None:
+    """A list of non-string entries is still coerced to strings, matching the
+    pre-fix comprehension's behavior for the well-formed list case."""
+    packet = ContextPacket.from_dict({"original": "x", "omissions": [1, 2.5, None]})
+    assert packet.omissions == ["1", "2.5", "None"]
+
+
 # ---------------------------------------------------------------------------
 # SensesRecord dataclass: mirrors DeepthinkCall {point, tokens, duration,
 # degraded} with `latency` in place of `duration`.

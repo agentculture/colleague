@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 from colleague import media, registry
 from colleague.config import EngineConfig
@@ -105,12 +105,18 @@ def senses_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
     sc = config.senses
     if sc is None:
         return None
-    return dataclasses.replace(
-        config,
-        model=sc.model,
-        base_url=sc.base_url,
-        api_key=sc.api_key,
-        context_budget_tokens=sc.context_budget,
+    # cast: dataclasses.replace()'s generic signature infers DataclassInstance,
+    # not EngineConfig specifically (SonarCloud S5886); mirrors
+    # colleague.deepthink.deepthink_engine_config's identical cast.
+    return cast(
+        EngineConfig,
+        dataclasses.replace(
+            config,
+            model=sc.model,
+            base_url=sc.base_url,
+            api_key=sc.api_key,
+            context_budget_tokens=sc.context_budget,
+        ),
     )
 
 

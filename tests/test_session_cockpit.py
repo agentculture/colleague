@@ -24,6 +24,7 @@ from colleague.cli._commands.session import (
     _HELP_TEXT,
     _HELP_VERBOSE,
     _SLASH_COMMANDS,
+    SessionIO,
     _Session,
     build_slash_panels,
     run_session,
@@ -73,8 +74,7 @@ def _make_session(repo: Path, *, open_pr: bool = False) -> _Session:
         config=EngineConfig.resolve(model="m"),
         json_mode=False,
         view="markdown",
-        out=lambda *a, **k: None,
-        err=lambda *a, **k: None,
+        io=SessionIO(out=lambda *a, **k: None, err=lambda *a, **k: None),
         work_fn=lambda **k: None,
     )
 

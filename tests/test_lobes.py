@@ -323,3 +323,43 @@ def test_resolve_roles_never_raises_on_garbage_url() -> None:
 def test_resolve_roles_never_raises_on_empty_url() -> None:
     result = resolve_roles("")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Scheme validation (Qodo #5, cortex/senses PR #281): a non-http(s) gateway
+# URL degrades to None BEFORE urlopen is ever called — never a local-file-read
+# / SSRF-shaped dial.
+# ---------------------------------------------------------------------------
+
+
+def _forbid_urlopen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail loudly if resolve_roles ever reaches urlopen — proves the scheme
+    check short-circuits BEFORE any network/file dial is attempted."""
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("urlopen must not be called for a disallowed scheme")
+
+    monkeypatch.setattr("urllib.request.urlopen", _boom)
+
+
+def test_resolve_roles_rejects_file_scheme_without_opening_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _forbid_urlopen(monkeypatch)
+    result = resolve_roles("file:///etc/passwd")
+    assert result is None
+
+
+def test_resolve_roles_rejects_ftp_scheme_without_opening_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _forbid_urlopen(monkeypatch)
+    result = resolve_roles("ftp://example.com/gateway")
+    assert result is None
+
+
+def test_resolve_roles_accepts_https_scheme() -> None:
+    """https, not just http, passes the scheme gate (only urlopen's own
+    reachability failure — a real connection refusal here — degrades it)."""
+    result = resolve_roles("https://127.0.0.1:1")
+    assert result is None  # unreachable, but NOT rejected for its scheme
