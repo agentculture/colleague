@@ -31,7 +31,12 @@ from __future__ import annotations
 
 import os
 
-from colleague.config import _DEFAULT_API_KEY, _DEFAULT_BASE_URL, EngineConfig
+from colleague.config import (
+    _DEFAULT_API_KEY,
+    _DEFAULT_BASE_URL,
+    EngineConfig,
+    resolve_lobes_gateway_url,
+)
 from colleague.oilcheck import make_check
 
 
@@ -92,6 +97,27 @@ def _checks(repo_path) -> list[dict]:
             ),
         )
     )
+
+    # 1c. provider_lobes — the lobes discovery rung (cortex/senses arc, t4).
+    # ARMED-state report only (no network — reads env / config.json via
+    # resolve_lobes_gateway_url); the LIVE gateway consultation + which rung is
+    # actually in effect belongs to the opt-in reachability probe (--probe).
+    # Emitted only when armed, so an unarmed rig's report is byte-identical.
+    gateway = resolve_lobes_gateway_url(repo_path)
+    if gateway is not None:
+        out.append(
+            make_check(
+                "provider_lobes",
+                True,
+                "info",
+                (
+                    f"lobes discovery armed (gateway={gateway!r}); resolved "
+                    f"model={cfg.model!r} — cortex/senses resolve by role from the "
+                    "gateway (below config.json, above the builtin default); run "
+                    "'doctor --probe' to check live reachability"
+                ),
+            )
+        )
 
     # For checks 2 and 3, only fire on a non-default (third-party) base_url.
     # A local vLLM rig (default base_url) needs no credentials or budget cap.

@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Collection, Optional
+from urllib.parse import urlsplit
 
 from colleague import configdir
 
@@ -189,9 +191,15 @@ _DEFAULT_DEEPTHINK_CONTEXT_BUDGET = 48000
 # deepthink uses for its own window. Override per environment with
 # COLLEAGUE_SENSES_MODEL / _BASE_URL / _API_KEY / _CONTEXT_BUDGET /
 # _MULTIMODAL, or a ``senses`` section in .colleague/config.json. This task
-# (t3) resolves ONLY env > config.json > absent — the lobes discovery rung is
-# a separate, later task (t4) and is not built here.
+# (t3) resolves env > config.json > absent; the lobes discovery rung (t4, below)
+# additionally feeds a SensesConfig from the gateway's senses role.
 _DEFAULT_SENSES_CONTEXT_BUDGET = 24000
+# The senses model window the 24000 default was sized for (the live senses
+# role's 32K window). A lobes-discovered senses role reports its OWN window; it
+# is scaled by the same headroom ratio (24000/32768 ≈ 0.73) so the live 32K role
+# reproduces the hand-tuned 24000 default and any other window scales
+# proportionally — never the raw window (which leaves no completion headroom).
+_SENSES_DEFAULT_WINDOW = 32768
 
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
@@ -213,6 +221,10 @@ _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 _DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
 # Recognised keys inside the NESTED "senses" section of .colleague/config.json.
 _SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
+# Recognised key inside the NESTED "lobes" section of .colleague/config.json
+# (the lobes discovery rung, task t4). A bare string is also accepted as the
+# gateway URL directly (``{"lobes": "http://..."}``).
+_LOBES_CONFIG_KEYS = frozenset({"url"})
 
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
@@ -307,6 +319,119 @@ def _load_senses_overrides(repo_path: str | Path) -> dict[str, str]:
         for key, value in section.items()
         if key in _SENSES_CONFIG_KEYS and value is not None
     }
+
+
+def _load_lobes_override(repo_path: str | Path) -> str | None:
+    """Read the lobes gateway URL from the ``lobes`` section of config.json.
+
+    Accepts either a bare string (``{"lobes": "http://host:8001"}``) or a nested
+    object with a ``url`` key (``{"lobes": {"url": "http://host:8001"}}``). A
+    missing file, malformed JSON, a non-dict payload, or an absent/blank section
+    yields ``None`` and never raises. NO network — this only reads the URL.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    section = data.get("lobes")
+    if isinstance(section, str):
+        return section.strip() or None
+    if isinstance(section, dict):
+        url = section.get("url")
+        if isinstance(url, str) and url.strip():
+            return url.strip()
+    return None
+
+
+def resolve_lobes_gateway_url(repo_path: str | Path | None = None) -> str | None:
+    """The armed lobes gateway URL, or ``None`` when the rung is unarmed. NO network.
+
+    Precedence: ``COLLEAGUE_LOBES_URL`` env (``CONVERTIBLE_LOBES_URL`` honored as
+    a deprecated fallback) > a ``lobes`` section in .colleague/config.json (only
+    when *repo_path* is given) > ``None``. Public so the doctor / ``config show``
+    surfaces can report the ARMED state without consulting the gateway.
+
+    ``None`` means the lobes discovery rung is not armed — resolution stays
+    byte-identical to a pre-feature run (no ``resolve_roles`` call, no notice).
+    """
+    for key in ("COLLEAGUE_LOBES_URL", "CONVERTIBLE_LOBES_URL"):
+        value = os.environ.get(key)
+        if value and value.strip():
+            return value.strip()
+    if repo_path is not None:
+        return _load_lobes_override(repo_path)
+    return None
+
+
+def _lobes_base_url(gateway_url: str) -> str:
+    """Derive the client-reachable OpenAI base_url from the lobes GATEWAY ORIGIN.
+
+    LOBES_LIVE_FINDINGS decision 2 (load-bearing): each role's own ``endpoint``
+    field reports an internal, non-client-reachable host (e.g.
+    ``http://localhost:8000``). The gateway ORIGIN that serves ``/capabilities``
+    (``COLLEAGUE_LOBES_URL``, e.g. ``http://localhost:8001``) is the reachable
+    OpenAI endpoint and routes by model id — so BOTH cortex and senses dial it,
+    never the role's self-reported ``endpoint``. We match the SHAPE of the
+    builtin default base_url: if :data:`_DEFAULT_BASE_URL` carries a path suffix
+    (``/v1``), append the same suffix to the gateway origin.
+    """
+    suffix = urlsplit(_DEFAULT_BASE_URL).path.rstrip("/")
+    return gateway_url.rstrip("/") + suffix
+
+
+def _senses_budget_from_window(window: int) -> int:
+    """A senses context_budget derived from a role's reported window.
+
+    Applies the same headroom ratio the built-in default encodes
+    (:data:`_DEFAULT_SENSES_CONTEXT_BUDGET` / :data:`_SENSES_DEFAULT_WINDOW`), so
+    the live 32K senses role reproduces the hand-tuned 24000 default and any
+    other window scales proportionally. Floored at 1; a non-positive window
+    falls back to the default (never zero — that would disable the budget path).
+    """
+    if window <= 0:
+        return _DEFAULT_SENSES_CONTEXT_BUDGET
+    ratio = _DEFAULT_SENSES_CONTEXT_BUDGET / _SENSES_DEFAULT_WINDOW
+    return max(1, int(window * ratio))
+
+
+def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "SensesConfig | None":
+    """Build a :class:`SensesConfig` from the gateway's senses role (t4).
+
+    Used only when senses is NOT otherwise declared (env/config.json win). The
+    base_url is the gateway-derived value (decision 2, NOT the role's ``endpoint``
+    field); api_key inherits the resolved MAIN endpoint's value. ``multimodal``
+    stays ``False`` — the t1 :class:`~colleague.lobes.RoleInfo` carries no ``mtp``
+    field, so an operator arms the media bridge by declaring senses explicitly
+    (env/config, which take precedence). Returns ``None`` on a blank model.
+    """
+    model = str(getattr(role, "model", "") or "").strip()
+    if not model:
+        return None
+    return SensesConfig(
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        context_budget=_senses_budget_from_window(int(getattr(role, "context", 0) or 0)),
+        multimodal=False,
+    )
+
+
+def _emit_lobes_unreachable_notice(gateway_url: str) -> None:
+    """Emit ONE stderr notice that an armed lobes gateway was unreachable.
+
+    Fires at most once per :meth:`EngineConfig.resolve` call (not once per field)
+    — resolution proceeds on the next precedence rung, never hard-fails (h7).
+    """
+    print(
+        f"colleague: lobes gateway {gateway_url!r} unreachable — proceeding on "
+        "the next config precedence rung (config.json / builtin default)",
+        file=sys.stderr,
+    )
 
 
 def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
@@ -943,6 +1068,31 @@ class EngineConfig:
         file_api_key: str | None = file_cfg.get("api_key")
         file_model: str | None = file_cfg.get("model")
 
+        # Lobes discovery rung (task t4): when armed (COLLEAGUE_LOBES_URL env or a
+        # ``lobes`` section in config.json), consult the gateway ONCE as a
+        # DEFAULTS SOURCE feeding cortex → the main model id + base_url and
+        # senses → a SensesConfig. It slots BELOW config.json and ABOVE the
+        # builtin default. Unreachable degrades to the next rung with ONE stderr
+        # notice (never a hard-fail, h7); unarmed makes NO call and is
+        # byte-identical to a pre-feature resolve (no notice, no network).
+        lobes_gateway_url = resolve_lobes_gateway_url(repo_path)
+        lobes_base_url: str | None = None
+        lobes_model: str | None = None
+        lobes_roles = None
+        if lobes_gateway_url is not None:
+            # Lazy import keeps config's module import graph unchanged (the
+            # sanitize_model idiom) and lets tests monkeypatch resolve_roles.
+            from colleague import lobes as _lobes
+
+            lobes_roles = _lobes.resolve_roles(lobes_gateway_url)
+            if lobes_roles is None:
+                _emit_lobes_unreachable_notice(lobes_gateway_url)
+            else:
+                # Decision 2: BOTH roles dial the gateway origin, not the role's
+                # own (internal, non-client-reachable) ``endpoint`` field.
+                lobes_base_url = _lobes_base_url(lobes_gateway_url)
+                lobes_model = (lobes_roles.cortex.model or "").strip() or None
+
         # Resolved once as locals (not just inline in the ``cls(...)`` call
         # below) so the deepthink resolution can default ITS base_url/api_key
         # to the MAIN endpoint's already-resolved values (spec requirement).
@@ -951,7 +1101,11 @@ class EngineConfig:
             "COLLEAGUE_BASE_URL",
             "CONVERTIBLE_BASE_URL",
             "OPENAI_BASE_URL",
-            default=file_base_url if file_base_url is not None else _DEFAULT_BASE_URL,
+            default=(
+                file_base_url
+                if file_base_url is not None
+                else (lobes_base_url if lobes_base_url is not None else _DEFAULT_BASE_URL)
+            ),
         )
         resolved_api_key = _pick(
             api_key,
@@ -966,11 +1120,17 @@ class EngineConfig:
         # reviewer default backfill (t7) below can inspect the resolved
         # DeepthinkConfig before EngineConfig itself is constructed.
         resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
-        # Senses (multimodal front-door) escalation target (cortex/senses arc,
-        # task t3) — resolved once as a local like resolved_deepthink above.
-        # Scope note: env > config.json > absent ONLY; the lobes discovery
-        # rung is a separate, later task (t4) and does not feed in here.
+        # Senses (multimodal front-door) escalation target — resolved once as a
+        # local like resolved_deepthink above. Precedence: env > config.json >
+        # lobes discovery (t4) > absent. When senses is NOT declared via
+        # env/config.json but the lobes rung resolved, the gateway's senses role
+        # supplies the SensesConfig (gateway-origin base_url per decision 2, main
+        # api_key, budget derived from the role's window).
         resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
+        if resolved_senses is None and lobes_roles is not None:
+            resolved_senses = _senses_from_lobes_role(
+                lobes_roles.senses, lobes_base_url, resolved_api_key
+            )
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -992,7 +1152,13 @@ class EngineConfig:
                 model,
                 "COLLEAGUE_MODEL",
                 "CONVERTIBLE_MODEL",
-                default=file_model if file_model is not None else _DEFAULT_MODEL,
+                # Lobes rung (t4): the gateway's cortex model is the default only
+                # for the main model id, below config.json and above the builtin.
+                default=(
+                    file_model
+                    if file_model is not None
+                    else (lobes_model if lobes_model is not None else _DEFAULT_MODEL)
+                ),
             ),
             max_steps=int(
                 _pick(
