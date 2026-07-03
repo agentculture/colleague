@@ -338,6 +338,47 @@ def test_relay_with_unsafe_task_id_is_refused_before_any_dispatch(
     assert reply.metadata["relay"] is False
 
 
+def test_operator_relay_degrades_gracefully_when_append_guidance_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When append_guidance raises OSError (e.g. disk full), the relay handler
+    degrades gracefully: no exception escapes, the reply body contains
+    'relay failed', metadata has relay=False and relay_failed=True, and the
+    resident continues to handle subsequent messages normally."""
+    repo = _init_repo(tmp_path)
+
+    def _boom_append_guidance(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(appserver_mod, "append_guidance", _boom_append_guidance)
+
+    transport, supervisor = _supervisor(repo, EngineConfig(), operator_identity="ori")
+
+    # First message: operator relay that triggers the OSError
+    inbound1 = Message(
+        sender="ori", target="#colleague", body="relay task-abc: focus on the config file"
+    )
+    sent1 = asyncio.run(_round_trip(transport, supervisor, inbound1))
+
+    reply1 = sent1[0]
+    # No exception escaped — the handler degraded gracefully.
+    assert "relay failed" in reply1.body
+    assert "OSError" in reply1.body
+    assert reply1.metadata["relay"] is False
+    assert reply1.metadata["relay_failed"] is True
+    assert reply1.metadata["relayed_to"] == "task-abc"
+    assert "-> cortex" not in reply1.body
+
+    # Second message: prove the resident continues to handle messages normally
+    # after the degraded relay (no crash, no stuck state).
+    inbound2 = Message(sender="ori", target="#colleague", body="relay task-def: another relay")
+    sent2 = asyncio.run(_round_trip(transport, supervisor, inbound2))
+
+    reply2 = sent2[0]
+    assert "relay failed" in reply2.body
+    assert reply2.metadata["relay"] is False
+
+
 def test_plain_message_with_no_relay_line_is_dispatched_as_normal_work_item(
     tmp_path: Path,
 ) -> None:

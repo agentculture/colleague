@@ -544,10 +544,23 @@ class AppserverHarness:
         is_operator = decision.outcome == ALLOW_WRITE
         if is_operator:
             # The ONE call site for append_guidance in this entire module.
-            append_guidance(self._repo_path, task_id, relay_text)
-            label = f"-> cortex({task_id}): {relay_text}"
-            body = f"{label}\n{talk['answer']}" if talk is not None else label
-            meta: dict[str, Any] = {"relay": True, "relayed_to": task_id, "role": decision.role}
+            try:
+                append_guidance(self._repo_path, task_id, relay_text)
+                label = f"-> cortex({task_id}): {relay_text}"
+                body = f"{label}\n{talk['answer']}" if talk is not None else label
+                meta: dict[str, Any] = {"relay": True, "relayed_to": task_id, "role": decision.role}
+            except (OSError, ValueError) as exc:
+                # Degrade-never-crash: a failed control-file write must not escape the
+                # resident message handler. Reply honestly with relay=False so a consumer
+                # never assumes the guidance was injected.
+                note = f"relay failed ({type(exc).__name__}) — could not write flight control file"
+                body = f"{note}\n{talk['answer']}" if talk is not None else note
+                meta = {
+                    "relay": False,
+                    "relayed_to": task_id,
+                    "role": decision.role,
+                    "relay_failed": True,
+                }
         else:
             if talk is not None:
                 body = talk["answer"]
