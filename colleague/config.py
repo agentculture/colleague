@@ -177,6 +177,22 @@ _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 # _CONTEXT_BUDGET, or a ``deepthink`` section in .colleague/config.json.
 _DEFAULT_DEEPTHINK_CONTEXT_BUDGET = 48000
 
+# Senses config (cortex/senses arc, spec
+# docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md,
+# claims c7/h2, plan task t3). Optional: a second OpenAI-compatible endpoint
+# declared as the multimodal front door (intake / speak-back on the
+# operator-facing surfaces) — mirrors DeepthinkConfig field-for-field.
+# Present iff the resolved model is a non-empty, non-whitespace string;
+# ``base_url``/``api_key`` then default to the MAIN resolved endpoint's own
+# values, exactly like deepthink. ``context_budget`` defaults to a
+# 32K-window-sized share (24000/32768 ≈ 0.73) — the same ~75% headroom ratio
+# deepthink uses for its own window. Override per environment with
+# COLLEAGUE_SENSES_MODEL / _BASE_URL / _API_KEY / _CONTEXT_BUDGET /
+# _MULTIMODAL, or a ``senses`` section in .colleague/config.json. This task
+# (t3) resolves ONLY env > config.json > absent — the lobes discovery rung is
+# a separate, later task (t4) and is not built here.
+_DEFAULT_SENSES_CONTEXT_BUDGET = 24000
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -195,6 +211,8 @@ _CONFIG_FILENAME = "config.json"
 _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 # Recognised keys inside the NESTED "deepthink" section of .colleague/config.json.
 _DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
+# Recognised keys inside the NESTED "senses" section of .colleague/config.json.
+_SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
 
 
 def _pick(explicit: str | None, *env_keys: str, default: str) -> str:
@@ -257,6 +275,37 @@ def _load_deepthink_overrides(repo_path: str | Path) -> dict[str, str]:
         key: str(value)
         for key, value in section.items()
         if key in _DEEPTHINK_CONFIG_KEYS and value is not None
+    }
+
+
+def _load_senses_overrides(repo_path: str | Path) -> dict[str, str]:
+    """Read the NESTED ``senses`` section of .colleague/config.json.
+
+    Mirrors :func:`_load_deepthink_overrides` field-for-field (cortex/senses
+    arc, task t3) — reads a *nested* object (``{"senses": {...}}``) instead of
+    top-level keys, so ``load_config_file``'s ``dict[str, str]`` endpoint
+    contract (base_url/api_key/model) stays unchanged. Returns a dict of
+    stringified values for the recognised keys (``model``, ``base_url``,
+    ``api_key``, ``context_budget``, ``multimodal``). A missing file,
+    malformed JSON, a non-dict payload, or an absent/non-dict ``senses``
+    section all yield an empty dict and never raise.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    section = data.get("senses")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _SENSES_CONFIG_KEYS and value is not None
     }
 
 
@@ -512,6 +561,85 @@ def _resolve_deepthink(
     )
 
 
+def _resolve_senses(
+    file_senses: dict[str, str],
+    main_base_url: str,
+    main_api_key: str,
+) -> "SensesConfig | None":
+    """Resolve the optional senses (multimodal front-door) escalation target.
+
+    Mirrors :func:`_resolve_deepthink` field-for-field (cortex/senses arc,
+    task t3). Precedence per key: ``COLLEAGUE_SENSES_*`` env
+    (``CONVERTIBLE_SENSES_*`` honored as a deprecated fallback, matching
+    every other knob in this module) > the ``senses`` section of
+    .colleague/config.json > a default.
+
+    Senses is PRESENT iff the resolved model is a non-empty, non-whitespace
+    string; otherwise this returns ``None`` regardless of the other keys —
+    an operator-set base_url/api_key/context_budget with no model is not a
+    senses declaration (the model IS the presence signal, same as deepthink).
+
+    ``base_url``/``api_key`` default to *main_base_url*/*main_api_key* — the
+    ALREADY-resolved main endpoint values — so declaring senses needs only a
+    model id unless senses truly lives at a different endpoint. An empty
+    file value for ``base_url``/``api_key`` is treated as absent (falls
+    through to the main endpoint), matching the env-var "empty is absent"
+    convention used throughout this module.
+
+    ``context_budget`` parses as an int; a malformed or absent value falls
+    back to :data:`_DEFAULT_SENSES_CONTEXT_BUDGET` and never raises,
+    mirroring every other numeric knob resolved via :func:`_try_int`.
+
+    Scope note (task t3): this resolves ONLY env > config.json > absent — the
+    lobes discovery rung (t4) is a separate, later task and is not consulted
+    here.
+    """
+    model = _pick(
+        None,
+        "COLLEAGUE_SENSES_MODEL",
+        "CONVERTIBLE_SENSES_MODEL",
+        default=file_senses.get("model", ""),
+    )
+    if not model.strip():
+        return None
+    base_url = _pick(
+        None,
+        "COLLEAGUE_SENSES_BASE_URL",
+        "CONVERTIBLE_SENSES_BASE_URL",
+        default=file_senses.get("base_url") or main_base_url,
+    )
+    api_key = _pick(
+        None,
+        "COLLEAGUE_SENSES_API_KEY",
+        "CONVERTIBLE_SENSES_API_KEY",
+        default=file_senses.get("api_key") or main_api_key,
+    )
+    context_budget = _try_int(
+        _pick(
+            None,
+            "COLLEAGUE_SENSES_CONTEXT_BUDGET",
+            "CONVERTIBLE_SENSES_CONTEXT_BUDGET",
+            default=file_senses.get("context_budget", ""),
+        ),
+        default=_DEFAULT_SENSES_CONTEXT_BUDGET,
+    )
+    # A declaration, never a probe — truthy strings arm it, anything else
+    # (absent, empty, junk) resolves False, mirroring deepthink.multimodal.
+    multimodal = _pick(
+        None,
+        "COLLEAGUE_SENSES_MULTIMODAL",
+        "CONVERTIBLE_SENSES_MULTIMODAL",
+        default=file_senses.get("multimodal", ""),
+    ).strip().lower() in ("1", "true", "yes")
+    return SensesConfig(
+        model=model.strip(),
+        base_url=base_url,
+        api_key=api_key,
+        context_budget=context_budget,
+        multimodal=multimodal,
+    )
+
+
 def _resolve_testintegrity_reviewer_model(
     explicit: str,
     deepthink: "DeepthinkConfig | None",
@@ -623,6 +751,34 @@ class DeepthinkConfig:
     model name; default ``False`` keeps a dual-model config byte-identical."""
 
 
+@dataclass(frozen=True)
+class SensesConfig:
+    """A resolved senses (multimodal front-door) escalation target.
+
+    Cortex/senses arc (spec
+    docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md,
+    plan task t3). Optional: present on :attr:`EngineConfig.senses` only when
+    the operator has declared a senses model (env var or a ``senses`` section
+    in .colleague/config.json) — see :func:`_resolve_senses`. Mirrors
+    :class:`DeepthinkConfig` field-for-field: the senses endpoint speaks the
+    same OpenAI surface as the main endpoint through the same
+    ``vllm-openai`` adapter, so retargeting stays a config change, never a
+    code change (h2 precedent). This task (t3) resolves ONLY
+    env > config.json > absent — the lobes discovery rung is a separate,
+    later task (t4).
+    """
+
+    model: str
+    base_url: str
+    api_key: str
+    context_budget: int
+    multimodal: bool = False
+    """Operator declaration that the senses model accepts media content
+    parts — senses is the natural multimodal front door (intake / speak-back
+    on the operator-facing surfaces). Never probed or inferred from a model
+    name; default ``False`` keeps a senses config byte-identical."""
+
+
 @dataclass
 class EngineConfig:
     """Settings for an OpenAI-compatible engine driver."""
@@ -675,6 +831,10 @@ class EngineConfig:
     # byte-identical to today (the pre-feature default). See
     # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
     deepthink: Optional[DeepthinkConfig] = None
+    # Senses (multimodal front-door) escalation target (cortex/senses arc,
+    # task t3). ``None`` = no senses declared, byte-identical to today. See
+    # :class:`SensesConfig` and :func:`_resolve_senses`.
+    senses: Optional[SensesConfig] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -767,6 +927,7 @@ class EngineConfig:
         file_at_depth: str | None = None
         file_at_max_files: str | None = None
         file_deepthink: dict[str, str] = {}
+        file_senses: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -776,6 +937,7 @@ class EngineConfig:
                 _load_affected_tests_overrides(repo_path)
             )
             file_deepthink = _load_deepthink_overrides(repo_path)
+            file_senses = _load_senses_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -804,6 +966,11 @@ class EngineConfig:
         # reviewer default backfill (t7) below can inspect the resolved
         # DeepthinkConfig before EngineConfig itself is constructed.
         resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
+        # Senses (multimodal front-door) escalation target (cortex/senses arc,
+        # task t3) — resolved once as a local like resolved_deepthink above.
+        # Scope note: env > config.json > absent ONLY; the lobes discovery
+        # rung is a separate, later task (t4) and does not feed in here.
+        resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -1037,6 +1204,11 @@ class EngineConfig:
             # absent (None). base_url/api_key default to the resolved MAIN
             # endpoint values computed above.
             deepthink=resolved_deepthink,
+            # Senses (multimodal front-door, cortex/senses arc task t3) —
+            # env > config.json `senses` section > absent (None). Scope: no
+            # lobes discovery rung yet (t4); base_url/api_key default to the
+            # resolved MAIN endpoint values computed above.
+            senses=resolved_senses,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -1079,6 +1251,17 @@ class EngineConfig:
                 "model": self.deepthink.model,
                 "base_url": self.deepthink.base_url,
                 "context_budget": self.deepthink.context_budget,
+            }
+        # Senses (multimodal front-door, cortex/senses arc task t3): present
+        # ONLY when configured, so an unconfigured snapshot is byte-identical
+        # to today (omit-when-None, same convention as deepthink above). The
+        # senses api_key is likewise simply absent from the sub-dict, never
+        # included.
+        if self.senses is not None:
+            data["senses"] = {
+                "model": self.senses.model,
+                "base_url": self.senses.base_url,
+                "context_budget": self.senses.context_budget,
             }
         return data
 
