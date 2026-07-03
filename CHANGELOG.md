@@ -13,7 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Senses talk lane colleague/senses.py run_senses_talk (tools-off, grounded, degrade-never-raise, explicit cortex: relay override).
 - stt/tts wire clients colleague/voice.py (pure urllib transcribe/synthesize) + opt-in [voice] extra colleague/voice_devices.py (mic capture + speaker playback behind lazy sounddevice/soundfile imports; base install carries no audio dep).
 - Voice role resolution: colleague/lobes.py resolve_roles parses optional stt/tts roles + VoiceConfig on EngineConfig through the senses precedence chain (absent = byte-identical).
-- colleague talk <task-id> attach verb (flight-plane senses REPL) + interactive session concurrent lane (thread-free select() stdin poll at progress-sink boundaries) + resident appserver synthesized-wav file-link replies with c19 trust-gated relay (non-operator can never inject guidance).
+- `colleague talk <task-id>` attach verb (flight-plane senses REPL) + interactive session concurrent lane (thread-free select() stdin poll at progress-sink boundaries) + resident appserver synthesized-wav file-link replies with c19 trust-gated relay (non-operator can never inject guidance).
 - Awareness invariant: every applied injection produces a flight-feed line + TaskResult.senses.injections record; talk exchanges fold into TaskResult.senses.chat at finish (omit-when-empty; #206-safe).
 - Livecheck classifiers (classify_senses_latency_check / classify_injection_reached_check / classify_voice_lane_check) + docs/live-testing.md rows 19-23.
 
