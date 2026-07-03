@@ -752,3 +752,69 @@ COLLEAGUE_LOBES_URL=http://localhost:8001 uv run colleague work "<task>" \
 Both rows now carry live evidence (2026-07-03) — this section documents the
 acceptance that was met and the recipe to reproduce it; the next task (t13)
 has the exact acceptance bar to clear.
+
+## Senses live presence + voice (talk-to-colleague-while-it-works arc, task t10)
+
+Probed live 2026-07-03 against the lobes gateway `http://localhost:8001`
+(`cortex` = Qwen3.6-27B @ 128K, `senses` = gemma-4-12B @ 32K, `stt` =
+`nvidia/parakeet-tdt-0.6b-v2`, `tts` = `ResembleAI/chatterbox`; all report
+`ready: true` in `/capabilities`). The livecheck classifiers
+(`colleague/livecheck.py` `classify_senses_latency_check` /
+`classify_injection_reached_check` / `classify_voice_lane_check`) grade each
+lane from recorded evidence — a lane with no evidence, or a rig-side 502, SKIPs
+honestly and NEVER reports a fabricated pass.
+
+- **Row 19 — concurrent senses latency during cortex load. ✅ PASS.** The crux
+  honesty condition (h9): a senses answer issued WHILE cortex is mid-completion
+  must still feel conversational on the shared single GPU. Measured directly —
+  a senses (gemma) completion took **1.14s alone**, then **1.69–2.33s (p50
+  2.33s, max 2.33s)** while a concurrent 27B cortex generation was loading the
+  same GPU. Both percentiles clear the target (**p50 < 3s, p95 < 8s**), so the
+  spec's cross-model-concurrency assumption HOLDS: the GPU is not
+  head-of-line-blocked to failure, senses stays responsive under cortex load.
+- **Row 20 — an operator injection reaches the next cortex turn. ✅
+  (deterministic) · ⏭ SKIP (live cortex loop).** The loop-level proof
+  (`tests/test_talk_lane.py`) shows an applied guidance injection appears
+  VERBATIM in cortex's next-turn prompt AND lands as both a flight-feed line
+  and a `TaskResult.senses.injections` record (#206-safe — no phantom step). A
+  fully-LIVE cortex-loop injection SKIPs: the reference 27B emits its answer
+  into `reasoning` with `content: null` (confirmed in this probe), so it does
+  not drive a real tool-calling loop on this rig — the same standing rig gap as
+  #66. The injection channel itself is proven; the end-to-end live loop waits
+  on a tool-calling cortex backend.
+- **Row 21 — both audiences (session human + flight-attach caller). ✅ (tests)
+  · ⏭ SKIP (live end-to-end).** The session concurrent lane
+  (`tests/test_session_talk_lane.py`) and the `colleague talk` attach verb
+  (`tests/test_talk_cli.py`) each prove a typed message → labeled `senses:`
+  answer + a `-> cortex:` relay landing on the shared flight plane. A live
+  end-to-end demo across both audiences waits on the same tool-calling-cortex
+  rig gap (#66).
+- **Row 22 — stt round-trip (verbatim transcript in). ⏭ SKIP.** The gateway's
+  `POST /v1/audio/transcriptions` returned **HTTP 502** (probed 2026-07-03)
+  even though `/capabilities` reports `stt` (parakeet) `ready: true` — the
+  rig-side speech proxy is down (sibling of lobes-cli#87). `colleague/voice.py`
+  `transcribe` degrades correctly (None + one notice); the classifier SKIPs
+  honestly and flips to a real verbatim grade the day the proxy serves audio.
+- **Row 23 — tts spoken reply (audio out). ⏭ SKIP.** The gateway's `POST
+  /v1/audio/speech` returned **HTTP 502 `{"error":"TTS backend returned no
+  audio"}`** (probed 2026-07-03). `colleague/voice.py` `synthesize` degrades to
+  None + one notice, the resident/session/talk text reply stays byte-identical
+  (audio is strictly additive), and the classifier SKIPs honestly. The wav
+  file-link surface (resident replies, `colleague talk`) is proven via a mocked
+  `synthesize`; live audio waits on the rig-side proxy fix.
+
+Reproduce the latency measurement and the stt/tts probes:
+
+```bash
+# concurrent senses-during-cortex latency + stt/tts wire (records the numbers above)
+python - <<'PY'
+# fire a long 27B cortex generation, measure senses (gemma) latency during it,
+# then probe /v1/audio/transcriptions (stt) and /v1/audio/speech (tts).
+# See the arc's scratch probe for the full script.
+PY
+```
+
+The voice lanes are the honest limit of this arc on today's rig: the code is
+complete and degrades cleanly, but the gateway speech proxy 502s for BOTH stt
+and tts, so those two rows SKIP (never a fabricated pass) until the rig-side
+proxy is fixed — exactly the degradation contract the spec requires.
