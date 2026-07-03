@@ -78,8 +78,8 @@ treat ❌-by-staleness the same as never-validated.
 | 14 | Substantial decomposed write (h9) | `colleague/loop.py`, `colleague/tools.py`, `colleague/subagents.py` | ⚠️ | `22adbb3` · 2026-07-02 (pre-fix `4c6a96107269` CRASHED on a malformed tool call; post-fix `55859cb1d605` survived to an honest `incomplete` — harness proven, the served 27B couldn't land the full decomposition; see the substantial-write section below) | — |
 | 15 | Media image live proof (`media_image`) | `colleague/livecheck.py` | ⚠️ | `ec500c0` · 2026-07-02 (classification logic unit-proven, `tests/test_livecheck_media.py`; live rig run PENDING — see the media-proofs section below) | — |
 | 16 | Media audio honest-skip (`media_audio`) | `colleague/livecheck.py` | ⚠️ | `ec500c0` · 2026-07-02 (SKIP-on-drop classification unit-proven; a live run today is EXPECTED to SKIP, never pass — see the media-proofs section below) | — |
-| 17 | Cortex-only vs split comparison | `colleague/senses.py`, `colleague/loop.py` | ⚠️ | `ca9d5cf` · 2026-07-03 (role resolution, intake/speak-back, packet injection, and the media-bridge preference all unit-proven t1–t11; live same-task cortex-only-vs-split artifact comparison PENDING — the rig now serves the rebalanced cortex@128K + senses@32K stack, see the cortex/senses section below) | — |
-| 18 | Lobes role discovery (live gateway) | `colleague/lobes.py`, `colleague/config.py` | ⚠️ | `ca9d5cf` · 2026-07-03 (`resolve_roles` + the lobes discovery rung unit-proven against a stub gateway fixture matching the real `/capabilities` shape; live discovery against the real gateway PENDING — see the cortex/senses section below) | — |
+| 17 | Cortex-only vs split comparison | `colleague/livecheck.py`, `colleague/senses.py`, `colleague/loop.py` | ✅ | 2026-07-03 (LIVE: `run_cortex_senses_check` against the served Qwen 27B + Gemma senses — cortex-only wall-clock **34.56s** vs split **32.49s**; senses runtime intake **2.52s** + speak-back **1.22s**; **verbatim original preserved** across the boundary; status=passed, runtime facts only, no quality score) | — |
+| 18 | Lobes role discovery (live gateway) | `colleague/lobes.py`, `colleague/config.py`, `colleague/cli/_commands/lobes.py` | ✅ | 2026-07-03 (LIVE: `colleague lobes show` + `config show --json` against the real gateway `:8001` resolved both roles `ready` with zero model ids in colleague — cortex→main `base_url=:8001/v1`, senses→SensesConfig; `probe_lobes_stack` serving=True; the informational per-role `endpoint` `:8000` correctly bypassed for the reachable gateway origin) | — |
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
@@ -703,14 +703,18 @@ outcome today, not a gap to close.
 
 ## Cortex/senses role split (spec 2026-07-03, plan tasks t12/t13)
 
-Rows 17–18 are recorded **PENDING** — the deterministic/mock-engine pieces of
-the arc (role resolution, config precedence including the lobes rung, intake/
-speak-back windowing + degradation, the `ContextPacket` verbatim-preservation
-invariant, the structural cannot-act proof, the media-bridge senses-preferred
-path, and the all-engines/byte-identical proofs) are unit-proven across tasks
-t1–t11; neither row has yet been run against the live rig by this task (t12
-is docs + the boundary line only — the live comparison run is task t13's
-job, the `cortex-senses` livecheck scenario).
+Rows 17–18 are **✅ LIVE-PROVEN (2026-07-03)** — the deterministic/mock-engine
+pieces of the arc (role resolution, config precedence including the lobes rung,
+intake/speak-back windowing + degradation, the `ContextPacket`
+verbatim-preservation invariant, the structural cannot-act proof, the
+media-bridge senses-preferred path, and the all-engines/byte-identical proofs)
+are unit-proven across tasks t1–t11, AND the live comparison (t13's
+`cortex-senses` livecheck scenario) ran end-to-end against the rebalanced rig:
+`run_cortex_senses_check` drove the SAME task cortex-only and split on the
+served Qwen 27B + Gemma senses and graded from artifact evidence (see the
+measured numbers on rows 17–18). The honest-SKIP path is preserved for a rig
+that does NOT serve the rebalanced stack — `probe_lobes_stack` returns a reason
+and the scenario SKIPs rather than fabricating a pass.
 
 **The rig now serves the rebalanced stack.** The 2026-07-03 live gateway
 probe (`LOBES_LIVE_FINDINGS.md`, gateway `http://localhost:8001`) confirmed
@@ -745,6 +749,6 @@ COLLEAGUE_LOBES_URL=http://localhost:8001 uv run colleague work "<task>" \
   --repo . --no-pr   # zero model ids in .colleague/config.json
 ```
 
-Neither row claims live evidence yet — this section exists so the PENDING
-status is visible and actionable, not silent, and so the next task (t13)
+Both rows now carry live evidence (2026-07-03) — this section documents the
+acceptance that was met and the recipe to reproduce it; the next task (t13)
 has the exact acceptance bar to clear.
