@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.1] - 2026-07-03
+
+### Added
+
+- Cortex/senses arc spec + build plan (#274): converged devague frame and 13-task/6-wave plan for the two-model redesign — cortex (Qwen @128K) owns the tool loop, senses (Gemma @32K) is a structurally tools-off front door (intake ContextPacket, media perception, speak-back), roles resolved by name from the lobes contract (lobes-cli#81) with zero hardcoded model ids; the second sanctioned increment at the router-exclusion boundary. Follow-ups tracked: #276 (senses-direct), #277 (voice + retrieval).
+
 ## [1.34.0] - 2026-07-02
 
 ### Added

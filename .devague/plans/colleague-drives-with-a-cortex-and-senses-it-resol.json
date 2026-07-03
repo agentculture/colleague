@@ -1,0 +1,414 @@
+{
+  "slug": "colleague-drives-with-a-cortex-and-senses-it-resol",
+  "title": "Colleague drives with a cortex and senses: it resolves its minds by role from lobes \u2014 cortex (Qwen 3.6 27B @128K) the authoritative tool-calling mind working behind the scenes, senses (Gemma 4 12B @32K) the multimodal front door the operator talks to and hears back from \u2014 with the raw request preserved verbatim across the boundary, a senses layer that structurally cannot act, and the split architecture measurable against cortex-only.",
+  "frame_slug": "colleague-drives-with-a-cortex-and-senses-it-resol",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-03T08:34:37Z",
+  "updated": "2026-07-03T08:41:20Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague drives with a cortex and senses: it resolves its minds by role from lobes \u2014 cortex (Qwen 3.6 27B @128K) the authoritative tool-calling mind working behind the scenes, senses (Gemma 4 12B @32K) the multimodal front door the operator talks to and hears back from \u2014 with the raw request preserved verbatim across the boundary, a senses layer that structurally cannot act, and the split architecture measurable against cortex-only."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "This is a role generalization of machinery colleague already has (dual-model tools-off completions, media bridge, mode profiles, TaskResult records) \u2014 not a rewrite: absent config stays byte-identical, all-engines rule holds, no new base dep/socket/daemon; and the live GB10 proof (senses intake + cortex tool loop end-to-end, split vs cortex-only numbers) is recorded in docs/live-testing.md or honestly marked PENDING, never claimed unproven."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The operator running colleague on a lobes rig (the GB10 spark duo) and mesh peers talking to a resident colleague; secondary: Claude-driven callers via ask-colleague. Colleague is the consuming client of lobes' role contract (lobes-cli#81)."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "lobes-cli#81's committed spec names Colleague as the primary client of the role contract (verifiable in lobes-cli docs/specs 2026-07-03), and every audience surface \u2014 session, mesh residency, ask-colleague callers \u2014 is explicitly addressed by the intake-scope decision (c19)."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today colleague's config carries concrete model ids and endpoints; the second model is framed as 'deepthink' (a stronger reasoner escalated to at judgment moments) even though the target rig's second model is Gemma \u2014 a perceiver, not a stronger mind; media understanding rides the c24 bridge bolted onto deepthink.multimodal; there is no role vocabulary, no intake/speak-back layer in front of the operator surface, and no way to measure a split architecture against single-model."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Verifiable today by grep: colleague's config resolution has no lobes/role rung; the second-model config section is named 'deepthink'; the media bridge keys off deepthink.multimodal; no cortex/senses vocabulary exists in colleague code."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "colleague resolves cortex and senses BY ROLE from lobes' machine-readable contract (zero hardcoded model ids in colleague config), drives the bounded tool loop on cortex, fronts the operator-facing surfaces (session, mesh residency) with senses for intake + media perception + speak-back, carries a debuggable ContextPacket that preserves the raw request verbatim, and records runtime measurements that let the operator compare split vs cortex-only."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "Demonstrable end-to-end, not aspirational: a real run's artifact JSON carries the mode, the packet, and senses runtime fields; the live rebalanced-rig proof is recorded in docs/live-testing.md or honestly marked PENDING (the deepthink convention)."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The split maps each mind to what it is actually good at on this rig: Qwen 27B is the only lobe that can tool-call (Gemma4's serving-side parser gap makes it structurally unable to drive the loop), and Gemma is the only multimodal + MTP-fast lobe \u2014 so cortex-owns-actions / senses-owns-perception is the honest division, and measurement answers whether the split makes colleague feel faster and more natural WITHOUT reducing correctness (the #274 question), instead of hardcoding one monolithic endpoint."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The hardware claims cite the recorded 2026-07 rig probes (27B tool-calls OK; Gemma4 image-capable but NO structured tool calls; Gemma MTP fast) \u2014 and if a serving-side parser fix later gives Gemma tool calling, the cortex-owns-actions division is re-documented as a design choice, never left standing as a stale hardware claim."
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "ROLE RESOLUTION FROM LOBES: colleague gains an opt-in lobes discovery source in its config resolution \u2014 when armed (e.g. COLLEAGUE_LOBES_URL / config.json lobes section), colleague resolves cortex and senses to {endpoint, model, context, ready, responsibilities} from the lobes contract (gateway GET /capabilities and/or 'lobes capabilities --json'), feeding the existing EngineConfig precedence as a defaults source: explicit flag > env > config.json > lobes discovery > builtin. Zero model ids needed in colleague's own config; an unreachable lobes degrades to the next precedence rung with a visible stderr notice, never a hard-fail."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A colleague config containing zero model ids resolves cortex+senses live from the lobes contract and completes a real work item; with lobes unreachable the same run degrades to the next precedence rung with a stderr notice and still runs (h7); a test pins the precedence order including the new lobes rung."
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "ROLE VOCABULARY, NOT MORE DEEPTHINK: the second-model plumbing (DeepthinkConfig, tools-off completions, per-endpoint token windowing, degrade-never-raise) generalizes to role-based two-model config \u2014 cortex is the main loop model, senses is a declared front/perception role. The 'deepthink' config keys keep working as back-compat aliases; the c24 media bridge becomes a native senses responsibility rather than a deepthink.multimodal bolt-on. 'brain' is forbidden as a name anywhere."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Absent lobes/senses config is byte-identical to today (existing tests + artifact shape unchanged); existing deepthink config keys and TaskResult.deepthink records keep working; grep shows no 'brain' vocabulary anywhere in code or docs."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "SENSES STRUCTURALLY CANNOT ACT: every senses invocation is a tools-off completion (no tool schema on the wire \u2014 the same structural guarantee the deepthink/acceptance-self-check surface already has), senses output is always advisory (a packet or a phrasing, never a decision the runtime enforces), and no senses code path can reach ToolExecutor writes, run_command, or the git handoff. Mirrors lobes' forbidden_responsibilities = [final_decision, repo_action, security_decision]."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "No senses request ever carries a tool schema on the wire (structural, like the acceptance self-check), and a test proves a senses code path cannot invoke ToolExecutor writes, run_command, or handoff even if the model emits tool-call-shaped output."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "CONTEXT PACKET WITH RAW-INTENT PRESERVATION: when senses does intake, it produces a ContextPacket {original text verbatim, interpretation, confidence, task_type, omissions-if-known} that rides ALONGSIDE the original \u2014 cortex's prompt always contains the operator's original words verbatim; the packet is advisory context, never a replacement. A debug mode surfaces the packet."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A test asserts cortex's prompt contains the operator's original text verbatim whenever a packet is present; the packet is inspectable via the debug flag and recorded in the artifact; a lossy or failed senses intake degrades to passing the raw text through untouched \u2014 intake can never lose the request."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "DECISION MODES: v1 ships cortex-only (the default \u2014 byte-identical to today when senses/lobes config is absent) and split mode (senses intake + optional speak-back on the operator-facing surfaces, cortex driving the loop), plus a debug-show-senses-packet flag. The senses layer is bypassable per run (a flag forces cortex-only for a high-value task)."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "cortex-only is the shipped default and byte-identical when nothing is configured; split mode is opt-in; a per-run bypass flag forces cortex-only; each mode is visible in the artifact (TaskResult.mode or sibling), never silent."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "MEASUREMENT HOOKS: TaskResult records the active mode and per-invocation senses runtime numbers (point, latency, tokens, degraded) the way deepthink escalations are recorded today \u2014 omit-when-None \u2014 plus session-level intake/speak-back timings, so the operator can run the same task in both modes and compare wall-clock, senses overhead, and cortex calls avoided; task QUALITY judgment stays with the feedback/ROI loop and the operator, never a synthesized score."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Senses runtime numbers (latency/tokens/degraded per point) are recorded omit-when-None and comparable across modes; NO field anywhere asserts answer correctness or task quality \u2014 quality stays with the operator feedback loop (mirrors lobes' runtime-only measurement line)."
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "This is the sanctioned re-spec at the router exclusion line, and it stays behind it: TWO operator-declared roles with a FIXED responsibility boundary (cortex acts, senses perceives/presents), resolved by name from lobes \u2014 no automatic task-to-model routing policy, no N-model generalization, no senses-decides-to-answer-itself. Senses sits only on operator-facing surfaces; the bounded tool loop, gates, and handoff are cortex territory untouched."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The spec and CLAUDE.md scope line document this as the second landed increment at the router-exclusion boundary (after deepthink): two declared roles, fixed responsibilities, no automatic routing \u2014 and senses-direct stays out with its rationale written down."
+    },
+    {
+      "id": "c17",
+      "kind": "success_signal",
+      "text": "A from-scratch .colleague config with zero model ids, pointed at lobes, runs a real work item: senses (Gemma@32K) does intake on the operator's message + screenshot and shapes the speak-back, cortex (Qwen@128K) drives every tool call \u2014 and the artifact shows the mode, the packet, verbatim raw intent, and comparable runtime numbers vs the same task run cortex-only."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The signal is proven through the real surfaces (--attach, a real session or mesh run) \u2014 not a synthetic harness; the same task run cortex-only and split yields directly comparable artifact numbers; SKIP/PENDING is recorded honestly if the rebalanced stack is not yet serving."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 lobes contract client: new colleague/lobes.py resolving roles from the gateway (urllib GET /capabilities), parsing {role: {endpoint, model, context, ready, responsibilities}}, degrade-to-None on any error \u2014 pure stdlib, no subprocess, no new dep. Plan decision: HTTP transport (not CLI shell-out), re-resolved per run, no disk cache in v1.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "resolve_roles(url) returns cortex+senses metadata from a stub gateway fixture matching the lobes-cli#81 shape, with zero model ids originating in colleague",
+        "unreachable gateway / malformed JSON / missing role each return None (or partial with absent roles) without raising; no subprocess import (boundary test untouched)"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h1"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "t2 contract additions: ContextPacket dataclass {original, interpretation, confidence, task_type, omissions} + optional Task.context_packet + omit-when-None TaskResult.senses block {mode, packet, records:[{point, latency, tokens, degraded}]} \u2014 the artifact shape for the whole arc.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a Task/TaskResult round-trip with no senses involvement serializes byte-identical to today (no new keys)",
+        "a populated senses block round-trips through the artifact JSON with the packet's original text preserved verbatim"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h4"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "t3 SensesConfig in colleague/config.py: mirror of DeepthinkConfig (model, base_url, api_key, context_budget default 24000 for the 32K window, multimodal declaration) resolved from COLLEAGUE_SENSES_* env > config.json senses section > absent; presence keyed solely on a resolved model. No lobes rung yet (t4).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "absent senses config resolves to None and EngineConfig serialization is byte-identical to today",
+        "env > config.json precedence pinned by test; deepthink section resolution untouched (existing tests pass unmodified)"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h2"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "t4 lobes discovery rung in config resolution: when armed (COLLEAGUE_LOBES_URL env or config.json lobes section), EngineConfig.resolve + SensesConfig resolution consume t1's resolved roles as a defaults source \u2014 precedence explicit flag > env > config.json > lobes discovery > builtin; unreachable lobes degrades to the next rung with ONE stderr notice, never a hard-fail.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a config with zero model ids + a stub lobes gateway resolves cortex as main model and senses as SensesConfig; the precedence order including the lobes rung is pinned by test",
+        "lobes armed but unreachable: run proceeds on the next precedence rung with a stderr notice; lobes absent entirely: resolution byte-identical to today"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c6",
+        "h1",
+        "c3",
+        "h10"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "t5 colleague/senses.py invocation layer: run_senses_intake(text, config) -> ContextPacket|None and run_senses_speakback(summary, config) -> str|None \u2014 ONE bounded tools-off completion each via Engine.make_complete(config, tools=[]), windowed to the senses model's OWN budget via make_count_tokens (the deepthink.py pattern), degrade-never-raise, each invocation returning a {point, latency, tokens, degraded} record. A failed/lossy intake returns None so callers pass raw text through untouched.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "no senses request ever carries a tool schema on the wire (asserted on the captured request payload)",
+        "an unreachable senses endpoint yields None + a degraded record; the caller's raw text is what proceeds (intake can never lose the request)",
+        "runtime records carry latency/tokens/degraded per point; no field asserts answer quality"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c8",
+        "h3",
+        "c11",
+        "h6"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "t6 loop + media-bridge integration (the hot-file task, solo wave): a Task carrying context_packet injects the ORIGINAL text verbatim as the user message with the packet as ONE advisory companion message; senses records fold onto TaskResult.senses; the c24 media bridge prefers a declared senses config (point recorded under senses) and falls back byte-identically to deepthink.multimodal when only deepthink is declared. All-engines: both backends inherit via ContextControls/make-bindings.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test asserts cortex's prompt contains the operator's original text verbatim whenever a packet is present, and the packet never replaces it",
+        "deepthink-only config: media bridge behavior + TaskResult.deepthink byte-identical to v1.34.0 (existing media tests pass unmodified)",
+        "senses-declared config: bridge point recorded under TaskResult.senses; mock engine records a degraded no-op identically (all-engines)"
+      ],
+      "deps": [
+        "t2",
+        "t5"
+      ],
+      "covers": [
+        "c9",
+        "h4",
+        "c7",
+        "h2",
+        "c11",
+        "h6"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "t7 structural cannot-act proof (tests-only): senses invocations offer no tool surface and cannot mutate \u2014 even when the senses model emits tool-call-shaped output (literal markup or OpenAI tool_calls), nothing routes to ToolExecutor writes, run_command, or handoff; the packet path is data-only. Mirrors lobes forbidden_responsibilities = [final_decision, repo_action, security_decision].",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a senses stub returning tool-call markup / tool_calls JSON produces a plain advisory packet or degraded record \u2014 repo tree provably untouched, zero ToolExecutor invocations",
+        "grep-level pin: colleague/senses.py imports neither tools.ToolExecutor nor subprocess (boundary-test style assertion)"
+      ],
+      "deps": [
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c8",
+        "h3"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "t8 session split-mode wiring: with senses resolved, session free-text runs senses intake (synchronous, v1 plan decision) -> ContextPacket -> execute_work with the packet on the Task; the final summary gets senses speak-back shaping for DISPLAY, with the raw cortex summary always retained in the artifact (plan decision: shaping is display-layer only). Per-run bypass --cortex-only flag on work/session; --debug-senses prints the packet to stderr; intake/speak-back timings recorded. cortex-only default: senses unresolved = byte-identical session.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with senses resolved, a session free-text line produces an artifact carrying mode=split + the packet + intake/speak-back timings; the displayed summary is shaped, the artifact summary is the raw cortex one",
+        "--cortex-only forces the unshaped path for one run and the artifact records mode=cortex-only; no senses config = byte-identical session (existing session tests pass)",
+        "--debug-senses surfaces the packet on stderr; intake degradation falls through to raw text with a visible notice, the run never fails"
+      ],
+      "deps": [
+        "t4",
+        "t6"
+      ],
+      "covers": [
+        "c10",
+        "h5",
+        "c2",
+        "h9"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "t9 mesh-resident split-mode wiring: the [resident] appserver harness runs inbound mesh messages through senses intake (packet onto the work item) and shapes the reply via speak-back, under the c19 trust model unchanged (non-operator = read-only explorer or refused); base install stays byte-identical (no agent-lifecycle import at base; zero-deps + boundary pins untouched).",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a resident-mode inbound message with senses resolved produces a work item whose artifact carries the packet + mode, and the mesh reply is the shaped speak-back",
+        "senses unresolved: resident behavior byte-identical to v1.34.0; test_zero_deps + test_boundary pass unmodified"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c2",
+        "h9",
+        "c10",
+        "h5"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "t10 lobes introspection verb: a read-only 'colleague lobes' noun (rendered tool: show/overview + --json) displaying the armed state, resolved roles with their metadata, and the degradation rung actually in effect \u2014 plus explain/learn catalog entries and cross-surface parity.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'colleague lobes show' against a stub gateway renders all resolved roles + ready state; unarmed prints a clean 'not configured' (exit 0), unreachable shows the degradation honestly",
+        "explain entry + cross-surface parity test (registry == MCP catalog == learn) pass"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c6",
+        "h1"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "t11 byte-identical + all-engines proofs (tests-only): the arc-wide no-op guarantee \u2014 absent lobes/senses config leaves the e2e mock artifact shape, session behavior, and config serialization byte-identical to v1.34.0; with senses declared, mock and vllm-openai produce the same TaskResult.senses shape (mock = degraded no-ops); the role generalization added no base dep, no socket, no daemon.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_e2e_mock passes unmodified with everything unset; a senses-armed mock run pins the full TaskResult.senses shape (all-engines)",
+        "test_zero_deps + test_boundary pass unmodified (lobes.py is urllib-only, senses.py subprocess-free)"
+      ],
+      "deps": [
+        "t6",
+        "t8"
+      ],
+      "covers": [
+        "c1",
+        "h8",
+        "c4",
+        "h11",
+        "c10",
+        "h5"
+      ]
+    },
+    {
+      "id": "t12",
+      "summary": "t12 docs + boundary line: feature doc docs/features/cortex-senses.md (architecture, config, modes, packet, measurement story, honest limits incl. the 32K intake window); CLAUDE.md architecture part + scope line recording this as the SECOND sanctioned increment at the router-exclusion boundary (senses-direct stays out -> #276, voice/retrieval -> #277); the why-it-matters hardware claims cite the 2026-07 rig probes; a no-'brain' vocabulary grep test; docs/live-testing.md rows added as PENDING.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "grep test fails the suite if 'brain' appears as role vocabulary in colleague code or docs (allow-listing historical/changelog text)",
+        "CLAUDE.md scope line names the boundary increment + the #276/#277 exclusions with rationale; feature doc's hardware claims cite the recorded probes"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c5",
+        "h12",
+        "c12",
+        "h7",
+        "c3",
+        "h10",
+        "c7",
+        "h2"
+      ]
+    },
+    {
+      "id": "t13",
+      "summary": "t13 livecheck + measurement comparison: a cortex-senses livecheck scenario running the SAME task cortex-only and split against the live rig (real session/--attach surfaces), grading from artifact evidence (mode, packet, verbatim original, comparable runtime numbers) and honestly SKIPping when the rebalanced stack (cortex@128K + senses@32K) is not serving; docs/live-testing.md rows filled or PENDING.",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "livecheck emits per-mode wall-clock + senses runtime numbers from the two artifacts side-by-side, asserting only runtime facts (no quality score anywhere)",
+        "on a rig without the rebalanced stack the scenario reports SKIP with the reason, never a failure or a fabricated pass"
+      ],
+      "deps": [
+        "t8",
+        "t11"
+      ],
+      "covers": [
+        "c17",
+        "h13",
+        "c4",
+        "h11",
+        "c11",
+        "h6"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "lobes-cli#81 is spec-only upstream (no plan/impl yet): the /capabilities contract shape could shift before it ships \u2014 t1 parses a fixture of the SPEC shape; if the shipped shape drifts, t1's fixture + parser update in one place",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "The rebalanced rig (cortex@128K + senses@32K co-resident) does not exist yet \u2014 lobes must land its REBALANCE requirement first; until then t13 livecheck rows stay PENDING/SKIP and the intake-latency plan decision (synchronous v1) rests on MTP numbers not yet measured",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r3",
+      "text": "Deepthink/senses coexistence: an operator declaring BOTH gets disjoint surfaces (deepthink keeps judgment points, senses takes perception/presentation); the media bridge prefers senses when both are multimodal-declared \u2014 pinned in t6, revisit if a real dual-declaration operator appears",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
