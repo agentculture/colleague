@@ -24,10 +24,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from colleague import media
-from colleague.config import EngineConfig
-from colleague.contract import Task
+from colleague.config import EngineConfig, resolve_lobes_gateway_url
+from colleague.contract import SensesBlock, Task
 from colleague.engines.vllm_openai import VllmOpenAIEngine
+from colleague.lobes import resolve_roles
 from colleague.oilcheck.reachability import _PROBE_TIMEOUT
+from colleague.senses import run_senses_intake, run_senses_speakback, senses_engine_config
 
 
 @dataclass
@@ -402,3 +404,155 @@ def run_media_audio_check(repo: str | Path, *, model: str | None = None) -> Proo
         classify=classify_media_audio_check,
         model=model,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cortex/senses measurement comparison (cortex/senses arc, t13)
+# ---------------------------------------------------------------------------
+
+#: A small, deterministic read task run identically cortex-only and split. The
+#: point is the MEASUREMENT (per-mode wall-clock + senses runtime), never the
+#: answer quality — so the instruction just has to be real work, not a puzzle.
+_CORTEX_SENSES_INSTRUCTION = (
+    "List the Python files at the top level of this repo and say how many there are."
+)
+
+
+def probe_lobes_stack(repo: str | Path) -> tuple[bool, str | None]:
+    """Probe whether the rebalanced cortex+senses stack is actually SERVING (t13).
+
+    Uses the lobes gateway (``COLLEAGUE_LOBES_URL`` / the config.json ``lobes``
+    section, via :func:`colleague.config.resolve_lobes_gateway_url`) and
+    :func:`colleague.lobes.resolve_roles`. Returns ``(serving, reason)``:
+    ``(True, None)`` only when both cortex and senses resolve AND report
+    ``ready``; otherwise ``(False, reason)`` — a gateway that is not configured,
+    unreachable, or not both-ready SKIPs the scenario honestly (never a
+    fabricated pass, spec h13). This is the gate the whole comparison hangs on:
+    the rebalanced stack (cortex@128K + senses@32K co-resident) may not be up.
+    """
+    url = resolve_lobes_gateway_url(repo)
+    if not url:
+        return (
+            False,
+            "no lobes gateway configured (COLLEAGUE_LOBES_URL) — cortex/senses stack not probed",
+        )
+    roles = resolve_roles(url)
+    if roles is None:
+        return (
+            False,
+            f"lobes gateway {url} unreachable or missing cortex/senses — rebalanced stack not up",
+        )
+    if not (roles.cortex.ready and roles.senses.ready):
+        return (
+            False,
+            f"cortex/senses not both ready at {url} (the rebalanced stack is still warming up)",
+        )
+    return True, None
+
+
+def classify_cortex_senses_check(
+    cortex_artifact: dict[str, Any] | None,
+    split_artifact: dict[str, Any] | None,
+    instruction: str,
+) -> tuple[str, str]:
+    """Grade the cortex-only vs split comparison from artifact EVIDENCE (t13).
+
+    Asserts ONLY runtime facts — NEVER a quality score (the two summaries are
+    never compared for "better"). PASSES when the split run recorded
+    ``mode=split`` AND preserved the operator's original request VERBATIM across
+    the cortex/senses boundary; the returned detail emits the per-mode wall-clock
+    (``stats.duration_seconds``) and the senses runtime (each record's
+    ``point=latency``) side by side, which is the measurable-against-cortex-only
+    deliverable. A split artifact missing the block, or whose packet dropped the
+    verbatim original, FAILS (a real regression); the runner SKIPs before this
+    when the stack is not serving.
+    """
+    split = split_artifact or {}
+    senses = split.get("senses")
+    if not senses or senses.get("mode") != "split":
+        return "failed", f"split run did not record mode=split (senses={senses!r})"
+    packet = senses.get("packet") or {}
+    if packet.get("original") != instruction:
+        return (
+            "failed",
+            f"packet.original not preserved verbatim: {packet.get('original')!r}",
+        )
+    cortex_secs = ((cortex_artifact or {}).get("stats") or {}).get("duration_seconds")
+    split_secs = (split.get("stats") or {}).get("duration_seconds")
+    records = senses.get("records") or []
+    senses_runtime = (
+        " · ".join(f"{r.get('point')}={r.get('latency')}s" for r in records) or "(none)"
+    )
+    detail = (
+        f"cortex-only wall-clock={cortex_secs}s vs split wall-clock={split_secs}s; "
+        f"senses runtime: {senses_runtime}; verbatim original preserved"
+    )
+    return "passed", detail
+
+
+def run_cortex_senses_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
+    """Live proof (t13): run the SAME task cortex-only and split, side by side.
+
+    Drives ``VllmOpenAIEngine().work()`` twice against the live rig — once
+    cortex-only (``config.senses`` nulled) and once split (senses intake →
+    ContextPacket on the task → the loop records mode=split; then speak-back +
+    intake/speak-back records folded in, mirroring the session/resident path) —
+    and grades the two artifacts via :func:`classify_cortex_senses_check`.
+
+    SKIPs honestly (never fails, never fabricates a pass) when the endpoint is
+    unreachable OR the rebalanced cortex+senses stack is not serving
+    (:func:`probe_lobes_stack`) OR the live calls error — the exact
+    degrade-to-skipped contract the media proofs use.
+    """
+    reachable, reason = _reachable(repo)
+    if not reachable:
+        return ProofResult(
+            file="cortex_senses", status="skipped", detail=f"endpoint unreachable: {reason}"
+        )
+    serving, sreason = probe_lobes_stack(repo)
+    if not serving:
+        return ProofResult(
+            file="cortex_senses", status="skipped", detail=sreason or "stack not serving"
+        )
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            # cortex-only: identical task, senses bypassed.
+            cortex_config = EngineConfig.resolve(repo_path=str(repo), model=model)
+            cortex_config.senses = None
+            cortex_result = VllmOpenAIEngine().work(
+                Task.new(tmp, _CORTEX_SENSES_INSTRUCTION, engine="vllm-openai"), cortex_config
+            )
+
+            # split: senses intake → packet → the loop records mode=split; then
+            # fold the session-style intake/speak-back records for the runtime story.
+            split_config = EngineConfig.resolve(repo_path=str(repo), model=model)
+            senses_cfg = senses_engine_config(split_config)
+            if senses_cfg is None:
+                return ProofResult(
+                    file="cortex_senses",
+                    status="skipped",
+                    detail="senses not resolved from config/lobes despite a serving stack",
+                )
+            engine = VllmOpenAIEngine()
+            packet, intake_rec = run_senses_intake(_CORTEX_SENSES_INSTRUCTION, senses_cfg, engine)
+            split_task = Task.new(tmp, _CORTEX_SENSES_INSTRUCTION, engine="vllm-openai")
+            if packet is not None:
+                split_task.context_packet = packet
+            split_result = VllmOpenAIEngine().work(split_task, split_config)
+            shaped, speak_rec = run_senses_speakback(split_result.summary, senses_cfg, engine)
+            _ = shaped  # display shaping is not graded — only the runtime record is
+            if split_result.senses is None:
+                split_result.senses = SensesBlock(mode="split", packet=packet, records=[])
+            split_result.senses.records = (
+                ([intake_rec] if intake_rec is not None else [])
+                + list(split_result.senses.records)
+                + ([speak_rec] if speak_rec is not None else [])
+            )
+    except Exception as exc:  # a live proof degrades, it never crashes the caller
+        return ProofResult(file="cortex_senses", status="skipped", detail=f"proof error: {exc}")
+
+    status, detail = classify_cortex_senses_check(
+        cortex_result.to_dict(), split_result.to_dict(), _CORTEX_SENSES_INSTRUCTION
+    )
+    return ProofResult(file="cortex_senses", status=status, detail=detail)

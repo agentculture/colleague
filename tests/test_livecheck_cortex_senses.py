@@ -1,0 +1,145 @@
+"""Cortex/senses measurement livecheck (cortex/senses arc, t13).
+
+Covers, with NO network / live rig required:
+
+- ``classify_cortex_senses_check``: grades from artifact EVIDENCE — PASS on a
+  split artifact recording mode=split + the verbatim original; the detail emits
+  per-mode wall-clock + senses runtime side by side; NEVER a quality score. A
+  missing block or a dropped verbatim original FAILS.
+- ``probe_lobes_stack``: (True, None) only when both cortex + senses resolve AND
+  report ready; not-configured / unreachable / not-both-ready → (False, reason).
+- ``run_cortex_senses_check`` degrades to "skipped" (never raises, never
+  fabricates a pass) when the endpoint is unreachable or the rebalanced stack is
+  not serving.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from colleague import livecheck
+from colleague.livecheck import (
+    ProofResult,
+    classify_cortex_senses_check,
+    probe_lobes_stack,
+    run_cortex_senses_check,
+)
+
+_INSTR = "List the Python files at the top level of this repo and say how many there are."
+
+
+def _split_artifact(*, original=_INSTR, mode="split", duration=4.5, records=None):
+    return {
+        "stats": {"duration_seconds": duration},
+        "senses": {
+            "mode": mode,
+            "packet": {"original": original},
+            "records": (
+                records
+                if records is not None
+                else [
+                    {"point": "senses-intake", "latency": 0.20, "tokens": 12, "degraded": False},
+                    {"point": "senses-speakback", "latency": 0.10, "tokens": 6, "degraded": False},
+                ]
+            ),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# classify — runtime facts only, never a quality score
+# ---------------------------------------------------------------------------
+
+
+class TestClassify:
+    def test_pass_emits_both_wall_clocks_and_senses_runtime(self) -> None:
+        cortex = {"stats": {"duration_seconds": 3.0}}
+        status, detail = classify_cortex_senses_check(cortex, _split_artifact(), _INSTR)
+        assert status == "passed"
+        # per-mode wall-clock side by side
+        assert "3.0" in detail and "4.5" in detail
+        # senses runtime (each record's point=latency)
+        assert "senses-intake" in detail and "senses-speakback" in detail
+        # NO quality score anywhere — the two summaries are never compared.
+        assert "better" not in detail.lower() and "quality" not in detail.lower()
+
+    def test_fail_when_split_missing_senses_block(self) -> None:
+        status, detail = classify_cortex_senses_check(
+            {}, {"stats": {"duration_seconds": 1.0}}, _INSTR
+        )
+        assert status == "failed"
+        assert "mode=split" in detail
+
+    def test_fail_when_mode_is_not_split(self) -> None:
+        art = _split_artifact(mode="cortex-only")
+        status, _detail = classify_cortex_senses_check({}, art, _INSTR)
+        assert status == "failed"
+
+    def test_fail_when_verbatim_original_not_preserved(self) -> None:
+        art = _split_artifact(original="the senses model paraphrased this")
+        status, detail = classify_cortex_senses_check({}, art, _INSTR)
+        assert status == "failed"
+        assert "verbatim" in detail.lower()
+
+    def test_pass_tolerates_missing_stats(self) -> None:
+        # A run that reported no stats still grades on the structural facts.
+        status, _detail = classify_cortex_senses_check(None, _split_artifact(), _INSTR)
+        assert status == "passed"
+
+
+# ---------------------------------------------------------------------------
+# probe_lobes_stack — the honest gate
+# ---------------------------------------------------------------------------
+
+
+def _roles(*, cortex_ready=True, senses_ready=True):
+    return SimpleNamespace(
+        cortex=SimpleNamespace(ready=cortex_ready),
+        senses=SimpleNamespace(ready=senses_ready),
+    )
+
+
+class TestProbeLobesStack:
+    def test_not_configured_skips(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck, "resolve_lobes_gateway_url", lambda repo: None)
+        serving, reason = probe_lobes_stack(".")
+        assert serving is False and "not probed" in reason
+
+    def test_unreachable_gateway_skips(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck, "resolve_lobes_gateway_url", lambda repo: "http://x:8001")
+        monkeypatch.setattr(livecheck, "resolve_roles", lambda url: None)
+        serving, reason = probe_lobes_stack(".")
+        assert serving is False and "not up" in reason
+
+    def test_not_both_ready_skips(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck, "resolve_lobes_gateway_url", lambda repo: "http://x:8001")
+        monkeypatch.setattr(livecheck, "resolve_roles", lambda url: _roles(senses_ready=False))
+        serving, reason = probe_lobes_stack(".")
+        assert serving is False and "ready" in reason
+
+    def test_both_ready_serves(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck, "resolve_lobes_gateway_url", lambda repo: "http://x:8001")
+        monkeypatch.setattr(livecheck, "resolve_roles", lambda url: _roles())
+        serving, reason = probe_lobes_stack(".")
+        assert serving is True and reason is None
+
+
+# ---------------------------------------------------------------------------
+# run — degrade to skipped, never raise / fabricate
+# ---------------------------------------------------------------------------
+
+
+class TestRunDegrades:
+    def test_unreachable_endpoint_skips(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck, "_reachable", lambda repo: (False, "connection refused"))
+        result = run_cortex_senses_check(".")
+        assert isinstance(result, ProofResult)
+        assert result.status == "skipped" and "unreachable" in result.detail
+
+    def test_stack_not_serving_skips(self, monkeypatch) -> None:
+        monkeypatch.setattr(livecheck, "_reachable", lambda repo: (True, None))
+        monkeypatch.setattr(
+            livecheck, "probe_lobes_stack", lambda repo: (False, "rebalanced stack not up")
+        )
+        result = run_cortex_senses_check(".")
+        assert result.status == "skipped" and "not up" in result.detail
