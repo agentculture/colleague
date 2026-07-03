@@ -612,13 +612,30 @@ class SensesBlock:
     mode: str
     packet: Optional[ContextPacket] = None
     records: list[SensesRecord] = field(default_factory=list)
+    # Live-presence arc (task t5), both omit-when-empty so a run that never used
+    # the live talk lane stays byte-identical (a cortex/senses split run today has
+    # neither key). ``injections`` records every APPLIED operator-to-cortex
+    # guidance injection (``{text, at, source}``, ``at`` a wall-clock float — never
+    # estimated); ``chat`` folds the talk-lane exchanges (``{message, answer,
+    # relay, relay_text, latency, degraded, at}``) read from the flight chat log at
+    # finish, so the operator's mid-run conversation + relays are reconstructable
+    # from the artifact alone (h8 awareness invariant).
+    injections: list[dict[str, Any]] = field(default_factory=list)
+    chat: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "mode": self.mode,
             "packet": self.packet.to_dict() if self.packet is not None else None,
             "records": [r.to_dict() for r in self.records],
         }
+        # Omit-when-empty: keeps a senses block with no live lane byte-identical to
+        # the pre-t5 shape (the e2e/cortex-senses artifact pins compare exact keys).
+        if self.injections:
+            out["injections"] = [dict(entry) for entry in self.injections]
+        if self.chat:
+            out["chat"] = [dict(entry) for entry in self.chat]
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SensesBlock":
@@ -638,6 +655,12 @@ class SensesBlock:
                 for entry in data.get("records", [])
                 if isinstance(entry, dict)
             ],
+            # Best-effort like ``records``: absent keys default to [] (a pre-t5
+            # artifact has neither), malformed non-dict entries are dropped.
+            injections=[
+                dict(entry) for entry in data.get("injections", []) if isinstance(entry, dict)
+            ],
+            chat=[dict(entry) for entry in data.get("chat", []) if isinstance(entry, dict)],
         )
 
 

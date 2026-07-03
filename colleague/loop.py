@@ -1674,7 +1674,49 @@ def _flight_stop_requested(ctx: _Work) -> bool:
     control = ctx.flight.read_control()
     for message in control.guidance:
         ctx.messages.append({"role": "user", "content": f"[pilot guidance] {message}"})
+        _record_applied_injection(ctx, message)
     return bool(control.stop)
+
+
+def _record_applied_injection(ctx: _Work, message: str) -> None:
+    """Record ONE applied operator-to-cortex guidance injection (live-presence, t5).
+
+    Every guidance message applied at a turn boundary — from the pilot
+    (``colleague flight guide``) or the senses talk lane's relay — is made visible
+    on BOTH the ephemeral feed and the durable artifact, so the operator's mid-run
+    steering is reconstructable from feed + artifact alone (h8 awareness invariant).
+
+    The #206 invariant holds: the feed line carries the CURRENT ``step_count`` and
+    adds no step (its ``tool`` is ``None`` — an injection marker, not a tool step),
+    and the ``SensesRecord``/``injections`` write never touches ``step_count``. The
+    ``at`` timestamp is a wall-clock float, never estimated.
+    """
+    with suppress(Exception):
+        ctx.flight.append_feed(
+            step_index=ctx.result.stats.step_count,
+            tool=None,
+            intent=f"[guidance applied] {message}",
+            stats=ctx.result.stats.to_dict(),
+        )
+    _record_senses_injection(ctx.result, {"text": message, "at": time.time(), "source": "guidance"})
+
+
+def _fold_flight_chat(ctx: _Work) -> None:
+    """Fold the talk-lane chat log into ``TaskResult.senses`` at finish (t5).
+
+    Reads the flight chat JSONL (written by the talk-lane clients — ``colleague
+    talk`` and the session concurrent lane) BEFORE the reap deletes it, and appends
+    each exchange onto ``result.senses.chat`` so the operator's mid-run conversation
+    survives in the artifact. A strict no-op when the work item was not a flight or
+    no talk lane was used (``read_chat`` -> ``[]``), so a run with no live lane stays
+    byte-identical. Never masks the task result.
+    """
+    if ctx.flight is None:
+        return
+    with suppress(Exception):
+        records = flightmod.read_chat(ctx.task.repo_path, ctx.task.id)
+        if records:
+            _ensure_senses_block(ctx.result, mode="cortex-only").chat.extend(records)
 
 
 def _flight_record(ctx: _Work, resp: ModelResponse) -> None:
@@ -2583,6 +2625,17 @@ def _record_senses_call(
 ) -> None:
     """Append one :class:`SensesRecord` to ``result.senses`` (init-on-first)."""
     _ensure_senses_block(result, mode=mode, packet=packet).records.append(record)
+
+
+def _record_senses_injection(result: TaskResult, entry: dict, *, mode: str = "cortex-only") -> None:
+    """Append one applied-injection entry to ``result.senses.injections`` (t5).
+
+    Mode defaults to ``cortex-only`` for the fresh-block case (an operator relayed
+    guidance into a cortex-only run); ``_ensure_senses_block`` keeps an existing
+    block's mode (e.g. ``split`` when senses also ran intake), so mode is never
+    clobbered. Init-on-first — a run with no injection never touches ``senses``.
+    """
+    _ensure_senses_block(result, mode=mode).injections.append(entry)
 
 
 def _maybe_inject_context_packet(ctx: _Work) -> None:
@@ -3541,7 +3594,12 @@ def run(
     with suppress(Exception):
         neighbours.cleanup()
 
-    # Flight cleanup — reap the live feed/control on finish so the plane stays
+    # Live talk-lane fold (t5) — read the flight chat log into TaskResult.senses
+    # BEFORE the reap deletes it, so the operator's mid-run conversation survives in
+    # the artifact. A strict no-op when not a flight / no talk lane was used.
+    _fold_flight_chat(ctx)
+
+    # Flight cleanup — reap the live feed/control/chat on finish so the plane stays
     # ephemeral (a no-op when the work item was not a flight).
     _reap_flight(ctx)
 

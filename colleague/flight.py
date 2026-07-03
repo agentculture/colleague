@@ -52,6 +52,58 @@ def control_path(repo_path, task_id):
     return flight_dir(repo_path) / f"{_segment(task_id)}.control.json"
 
 
+def chat_path(repo_path, task_id):
+    """Return <flight_dir>/<task_id>.chat.jsonl (rejects an unsafe task id).
+
+    The talk-lane chat log (senses live presence arc, task t5): one JSONL line per
+    senses talk-lane exchange (an operator message + the senses answer + whether it
+    was relayed into cortex). Written by the talk-lane clients (``colleague talk``
+    and the session concurrent lane) and folded into ``TaskResult.senses`` at loop
+    finish, so the operator's mid-run conversation is reconstructable from the
+    artifact alone. A sibling of the feed/control files — gitignored, ephemeral,
+    reaped with them.
+    """
+    return flight_dir(repo_path) / f"{_segment(task_id)}.chat.jsonl"
+
+
+def append_chat(repo_path, task_id, record: dict) -> None:
+    """Append exactly one JSONL line to the talk-lane chat log.
+
+    Creates the flight dir on demand so a talk-lane client can record an exchange
+    even before the loop first writes the feed. ``record`` is a plain dict (the
+    talk-lane exchange shape, e.g. ``{message, answer, relay, relay_text, latency,
+    degraded, at}``) — the caller owns the shape; this only serializes it.
+    """
+    cp = chat_path(repo_path, task_id)
+    cp.parent.mkdir(parents=True, exist_ok=True)
+    with open(cp, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def read_chat(repo_path, task_id) -> list[dict]:
+    """Return every talk-lane chat record in order; ``[]`` when absent.
+
+    Malformed lines are skipped (never raise) — the same best-effort stance as
+    ``read_control``. Absent file (no talk lane was used) reads back as ``[]``, so
+    folding at finish is a strict no-op on a run with no live conversation.
+    """
+    cp = chat_path(repo_path, task_id)
+    if not cp.exists():
+        return []
+    records: list[dict] = []
+    for line in cp.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:  # json.JSONDecodeError is a ValueError subclass
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
 @dataclass
 class Control:
     stop: bool
@@ -89,10 +141,11 @@ class FlightSession:
         return Control(stop=stop, guidance=new_guidance)
 
     def reap(self) -> None:
-        """Delete this flight's feed and control files if present."""
+        """Delete this flight's feed, control, and chat files if present."""
         fp = feed_path(self.repo_path, self.task_id)
         cp = control_path(self.repo_path, self.task_id)
-        for p in (fp, cp):
+        chat = chat_path(self.repo_path, self.task_id)
+        for p in (fp, cp, chat):
             if p.exists():
                 p.unlink()
 
