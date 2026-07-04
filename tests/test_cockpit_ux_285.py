@@ -136,6 +136,7 @@ def _run_and_capture(tmp_path: Path) -> dict:
     s._run_work(Task.new(str(tmp_path), "wire the cockpit running state"), None)
     captured["finished_panels"] = {p.id: p for p in s.state.panels}
     captured["finished_md"] = render_markdown(s.state)
+    captured["finished_status"] = s.state.status.message
     return captured
 
 
@@ -177,6 +178,12 @@ def test_finish_restores_idle_with_authoritative_last_run_ledger(tmp_path: Path)
     assert items["last.commands"] == "1"  # run_command count
     assert items["last.commits"] == "1"  # a committed branch → 1 commit
     assert items["last.publish"] == "local"  # committed, no PR
+
+    # the status line is reset to the idle status — the running line
+    # ("step N · [tool] …") must NOT linger on the restored idle frame (Qodo PR #288).
+    status = cap["finished_status"]
+    assert "step " not in status and "[run_command]" not in status
+    assert "colleague session" in status  # the idle status line is back
 
 
 # ── every new panel reaches the agent tiers through the generic walk ─────────

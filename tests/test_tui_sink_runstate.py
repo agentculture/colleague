@@ -127,14 +127,24 @@ class TestStatusLineOnRealSteps:
         sink = CockpitProgressSink("t1", "mock", stream=_Stream())
         sink(0, "write_file", "src/main.py", True)
 
-        expected_line = status_line(
+        # The message is the composed run line + an event-stamped elapsed segment
+        # appended last (` · <elapsed>`), so match the deterministic prefix; the
+        # elapsed itself is a monotonic-clock read and not asserted exactly.
+        expected_prefix = status_line(
             sink._run,
             step=sink._state.work_item.step_count,
             max_steps=None,
             elapsed_seconds=None,
         )
-        assert sink._state.status.message == expected_line
+        assert sink._state.status.message.startswith(expected_prefix)
         assert sink._state.status.severity == "info"
+
+    def test_real_step_status_includes_elapsed_for_cockpit_parity(self) -> None:
+        """`work --tui` shows elapsed just like the session cockpit (Qodo PR #288)."""
+        sink = CockpitProgressSink("t1", "mock", stream=_Stream())
+        sink(0, "read_file", "a.py", True)
+        # elapsed renders as a compact human string ending in 's' (e.g. '0s').
+        assert sink._state.status.message.rstrip().endswith("s")
 
     def test_status_line_contains_last_action(self) -> None:
         sink = CockpitProgressSink("t1", "mock", stream=_Stream())

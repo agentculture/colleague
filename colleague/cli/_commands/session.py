@@ -987,7 +987,10 @@ class _Session:
             panels.insert(0, next_panel)
         if last_panel is not None and not replaced_last:
             panels.append(last_panel)
-        self.state = replace(self.state, panels=panels)
+        # Reset the status line back to the idle status — otherwise the last
+        # running status line ("step N/max · current op · elapsed") composed by
+        # `_WorkSink` would linger on the restored idle frame (Qodo PR #288).
+        self.state = replace(self.state, panels=panels, status=self._status())
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""

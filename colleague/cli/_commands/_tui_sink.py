@@ -21,6 +21,7 @@ plain `_step_progress` sink and the ANSI renderer.
 from __future__ import annotations
 
 import sys
+import time
 from contextlib import suppress
 from dataclasses import replace
 from typing import Callable, Optional, TextIO
@@ -143,6 +144,10 @@ class CockpitProgressSink:
         self._writer = FrameWriter(stream)
         # Parallel run-state accumulator using the shared cockpit_run helpers.
         self._run = RunState()
+        # Event-stamp anchor for elapsed (no clock thread — stamped per step),
+        # so `work --tui`'s status line shows elapsed just like the session's
+        # `_WorkSink`, and the two live cockpits agree (Qodo PR #288 parity).
+        self._started = time.monotonic()
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         # Update the parallel run-state accumulator on every call (phase or step).
@@ -163,7 +168,7 @@ class CockpitProgressSink:
             self._run,
             step=self._state.work_item.step_count,
             max_steps=None,
-            elapsed_seconds=None,
+            elapsed_seconds=time.monotonic() - self._started,
             phase="",
         )
         self._state = replace(self._state, status=Status(severity="info", message=line))
