@@ -22,6 +22,7 @@ from colleague.cli._commands.session import (
     _HELP_TEXT,
     _INTROSPECT,
     _SLASH_COMMANDS,
+    _SLASH_GROUPS,
     filter_slash,
 )
 
@@ -104,8 +105,14 @@ def test_widget_has_no_termios_import() -> None:
 
 
 def test_widget_renders_group_headers_as_a_tree() -> None:
-    out = render_slash_autocomplete(filter_slash(""), 0)
-    assert "📁 Controls" in out and "📁 Inspect" in out and "📁 Session" in out
+    out = render_slash_autocomplete(filter_slash(""), 0, groups=_SLASH_GROUPS)
+    assert (
+        "📁 Runtime" in out
+        and "📁 Workspace" in out
+        and "📁 Git / publish" in out
+        and "📁 Inspect" in out
+        and "📁 Session" in out
+    )
 
 
 def test_widget_renders_text_tag_badges() -> None:
@@ -120,8 +127,8 @@ def test_widget_compact_mode_uses_icon_badges() -> None:
 
 def test_widget_filter_preserves_group_context() -> None:
     """Narrowing to one command keeps it under its group header (not flattened)."""
-    out = render_slash_autocomplete(filter_slash("pr"), 0)
-    assert "📁 Controls" in out and "/pr" in out
+    out = render_slash_autocomplete(filter_slash("pr"), 0, groups=_SLASH_GROUPS)
+    assert "📁 Git / publish" in out and "/pr" in out
     assert "📁 Inspect" not in out  # only the surviving group's header shows
 
 

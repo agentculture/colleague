@@ -1,0 +1,70 @@
+# colleague session — RUNNING mid-flight (cockpit snapshot)
+
+> Generated evidence for #285 — the `agentfront.taui` Markdown tier of the cockpit state, captured as a literal frame. Regenerable; the executable proof is `tests/test_cockpit_ux_285.py`.
+
+```text
+# colleague
+
+## Status
+info: step 3/40 · [run_command] uv run pytest tests/test_loop.py -q · 0s
+
+## ▶️ Active run
+- 🔤 goal (fix the off-by-one in the loop budget accounting)
+- 📖 changes so far (1 files · 1 commands)
+- 🕛 last action ([run_command] uv run pytest tests/test_loop.py -q)
+
+## 🛡️ Run policy
+- ⚠️ run_command (ungated (any command) · any shell command runs)
+- file edits (read + write within repo · the loop can create/modify any repo file)
+- ⏸️ push + PR (off · commits locally only — nothing leaves this machine)
+
+## 🟢 Context
+- repo (demo-repo)
+- branch (master)
+- working tree (clean)
+- AGENTS layers (none)
+- skills (none)
+- telemetry (off)
+- /feedback (no work recorded yet)
+
+## 🌡️ Capacity
+- context budget (48,000 tokens)
+- 🔤 mode (auto (auto))
+- execution profile (no fixed profile (resolves per input))
+- capacity signal (none yet)
+
+## Session
+- 🎯 goal (fix the off-by-one in the loop budget accounting)
+
+## 📁 Runtime
+- /engine <name> (available)
+- /model <name> (available)
+- /mode [name] (available)
+
+## 📁 Workspace
+- /base <branch> (available)
+- /attach [path] (available)
+- /learn-from <source> [name…] (available)
+
+## 📁 Git / publish
+- /pr (available)
+
+## 📁 Inspect
+- /commands (available)
+- /skills (available)
+- /agents (available)
+- /config (available)
+- /engines (available)
+- /telemetry (available)
+- /feedback (available)
+
+## 📁 Session
+- /help (available)
+- /quit (available)
+
+## Conversation
+
+- [read_file] colleague/loop.py
+- [edit_file] colleague/loop.py
+- [run_command] uv run pytest tests/test_loop.py -q
+```

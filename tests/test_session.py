@@ -362,14 +362,15 @@ def test_session_markdown_tier_is_the_non_tty_default(tmp_path: Path) -> None:
 
 def test_session_ansi_tier_redraws_in_place_on_a_colour_tty(tmp_path: Path) -> None:
     """With colour forced on, the cockpit is the dynamic ANSI frame: one
-    clear-home per render, the Work-templates section, and the identity."""
+    clear-home per render, the suggested-work section, and the identity."""
     _make_command_template(tmp_path, "setup", "Set up the project.\n")
     out = _CollectingOut()
     rc = run_session(_make_args(tmp_path), input_fn=iter(["q"]), out=out, _color=True)
     assert rc == 0
     text = out.text()
     assert "\x1b[H\x1b[2J" in text  # clear-home → redraw in place
-    assert "Work templates" in text and "setup" in text
+    # #285 t6 retitled 'Work templates' -> 'suggested work' (id stays "commands").
+    assert "suggested work" in text and "setup" in text
     # Each emitted frame carries exactly one clear-home — one render regime, no
     # double-clear/flicker from the palette and an in-drive sink fighting.
     for frame in out.lines:
@@ -572,12 +573,14 @@ def test_session_work_sink_skips_phase_events() -> None:
     assert sess.state.work_item.step_count == 1  # the phantom step was NOT folded
 
 
-def test_session_work_sink_folds_phase_into_status_and_clears_on_real_step() -> None:
-    """The #206 follow-up, resolved (spec R3 / plan t9 / #256): a phase notice's
+def test_session_work_sink_folds_phase_into_status_and_composes_run_line_on_real_step() -> None:
+    """The #206 follow-up (spec R3 / #256) extended by #285 t7: a phase notice's
     text becomes visible on the cockpit's STATUS surface instead of being
-    silently dropped, and a subsequent REAL step clears it back to the
-    baseline status active when the work item started — so the phase text
-    never lingers once the model resumes making tool calls."""
+    silently dropped, and a subsequent REAL step REPLACES it with the live run
+    status line ``phase · step N/max · current op · elapsed`` (composed from the
+    shared ``cockpit_run`` run-state) — so the phase text never lingers once the
+    model resumes making tool calls, and the operator sees live progress
+    instead of a static baseline."""
     import dataclasses
     from types import SimpleNamespace
 
@@ -601,7 +604,17 @@ def test_session_work_sink_folds_phase_into_status_and_clears_on_real_step() -> 
 
     sink(1, "read_file", "a.py", True)  # a real step
     assert sess.state.work_item.step_count == 1
-    assert sess.state.status.message == "colleague session · mock · local"  # cleared
+    # The phase text is gone, replaced by the composed run status line: step
+    # progress + the current operation (elapsed is event-stamped, so not matched
+    # exactly).
+    msg = sess.state.status.message
+    assert "thinking" not in msg
+    assert "step 1" in msg
+    assert "[read_file] a.py" in msg
+    # The tool step DOES land in the conversation feed — that is the #233 legible
+    # action feed, preserved (the separate ledger block is the Active-run panel,
+    # not a removal of the feed).
+    assert len(sess.state.conversation) == 1
 
 
 def test_session_unknown_slash_is_a_stderr_error(tmp_path: Path) -> None:

@@ -46,6 +46,7 @@ import json
 import os
 import select
 import sys
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence, TypeVar, cast
@@ -60,9 +61,9 @@ from agentfront.taui.state import Header, Panel, PanelItem, Status
 from agentfront.taui.state import TAUIState as CockpitState
 from agentfront.taui.state import WorkItem
 from agentfront.taui.widgets.prompt_input import plain_prompt
-from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
+from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, format_tags
 
-from colleague import cockpit, feedback, flight, handoff, layers, registry
+from colleague import cockpit, feedback, flight, handoff, icons, layers, registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.cli._banner import emit_banner
@@ -70,12 +71,12 @@ from colleague.cli._commands._session_input import CYCLE_MODE
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
+from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import SensesBlock, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
-from colleague.profiles import resolve_profile
 from colleague.senses import (
     run_senses_intake,
     run_senses_speakback,
@@ -85,7 +86,10 @@ from colleague.senses import (
 from colleague.session_intent import PLAN, classify_intent
 from colleague.session_modes import (
     DEFAULT_MODE,
+    ModeFacts,
     mode_affordance_line,
+    mode_facts,
+    mode_facts_fragment,
     next_mode,
     resolve_mode,
     route_for,
@@ -122,8 +126,27 @@ _GOAL_MAX_CHARS = 80
 #: Capacity panel item ids (spec R3 / plan t9 / #256).
 _CAPACITY_PANEL_ID = "capacity"
 _CAPACITY_BUDGET_ID = "cap.budget"
+#: The disambiguated behavior+source fact (#285 t6) — distinct from the
+#: execution-profile row below; together with it these replace the old single
+#: conflated "mode — steps≤N · timeout…" line.
+_CAPACITY_MODE_ID = "cap.mode"
 _CAPACITY_PROFILE_ID = "cap.mode_profile"
 _CAPACITY_SIGNAL_ID = "cap.signal"
+
+#: The Next panel (#285 t6) — the safest-next-move promoted from a status-text
+#: line buried in the Session panel's ``content_summary`` into a first-class
+#: panel + item, so every render tier (flat ANSI, Markdown, TAUI mirror) shows
+#: it as a distinct fact rather than prose.
+_NEXT_PANEL_ID = "next"
+_NEXT_ITEM_ID = "next.action"
+
+#: The running-state panels (#285 t7). ``active_run`` replaces the idle Next
+#: block while a work item runs (goal · changes-so-far · last action, live from
+#: the sink's fold events); ``last_run`` is the post-run mutation ledger
+#: reconciled from ``TaskResult.stats`` + handoff, shown on the restored idle
+#: layout (cumulative session totals are parked as a follow-up — spec v4).
+_ACTIVE_RUN_PANEL_ID = "active_run"
+_LAST_RUN_PANEL_ID = "last_run"
 
 
 def _goal_text(instruction: str) -> str:
@@ -138,20 +161,25 @@ def _goal_text(instruction: str) -> str:
     return first_line
 
 
-def _mode_profile_status(mode: str) -> str:
-    """Human status for *mode*'s constraint profile (spec R1's mode-profile
-    catalog, ``colleague.profiles``), or an honest 'no fixed profile' note when
-    the mode has none (``auto``, or an unprofiled/unknown name) — never a crash
-    or a stale-looking blank row."""
-    profile = resolve_profile(mode)
-    if profile is None:
-        return f"{mode} — no fixed profile (resolves per input)"
-    return (
-        f"{mode} — steps≤{profile.max_steps} · timeout {profile.timeout:.0f}s · "
-        f"budget×{profile.context_budget_fraction:g} · "
-        f"fill-line {profile.fillline_threshold:.0%} · "
-        f"synth-reserve {profile.synthesis_reserve_steps}"
-    )
+def _mode_status_text(facts: ModeFacts) -> str:
+    """One-line disambiguated 'behavior (source)' fact (#285 t6) — e.g.
+    ``explore (pinned)`` or ``auto→work (auto)`` — kept separate from the
+    execution-profile text below so an operator can tell WHICH behavior is
+    active from WHETHER it was auto-classified or pinned, without either fact
+    being blurred into the other."""
+    if facts.resolved_from:
+        return f"{facts.behavior}→{facts.resolved_from} ({facts.source})"
+    return f"{facts.behavior} ({facts.source})"
+
+
+def _mode_profile_text(facts: ModeFacts) -> str:
+    """One-line execution-profile fact (steps/timeout/budget/fill-line/
+    synthesis-reserve), or an honest 'no fixed profile' note when the mode has
+    none (``auto`` with no sample input) — never a crash or a stale-looking
+    blank row."""
+    if not facts.profile_rows:
+        return "no fixed profile (resolves per input)"
+    return " · ".join(f"{label} {value}" for label, value in facts.profile_rows)
 
 
 def _coerce_strs(value: object) -> list[str]:
@@ -253,6 +281,15 @@ class _WorkSink:
         # (a plain attribute read, not a call back into the session) so this
         # sink stays usable against a bare state-holder in tests.
         self._base_status = session.state.status
+        # The pure run-state (#285 t7): real steps are folded into it (activity
+        # ledger + last action) so the running status line and the Active-run
+        # panel derive from the shared `colleague.cockpit_run` helpers, never a
+        # second fold implementation. `_started` is the event-stamp anchor —
+        # elapsed is computed at each sink boundary (no clock thread; the UI
+        # thread blocks inside the completion), keeping the #285 "no ticking
+        # clock" decision.
+        self._run = RunState()
+        self._started = time.monotonic()
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
@@ -275,10 +312,40 @@ class _WorkSink:
             if sess.view == "ansi":
                 sess.emit()
             return
+        # Fold the step through the reducer — it advances ``work_item.step_count``,
+        # appends the ``[tool] target`` line to ``state.conversation`` with the #233
+        # ×N collapse, and opens the same error popup as `tui replay` on a failed
+        # step (composed around, never re-implemented). The tool feed STAYS in the
+        # conversation — that IS the #233 legible action feed; removing it would
+        # regress that shipped feature (#285 t7 decision). The "separate blocks" the
+        # spec asks for is delivered by the STRUCTURED Active-run ledger panel (goal
+        # · changes-so-far · last action), folded below and rendered as its own
+        # distinct block — a summary alongside the feed, not a second copy of it.
         sess.state = reduce(sess.state, work_step(tool, target, ok))
-        # A real step clears any phase text left showing — it must never
-        # linger once the model resumes making tool calls.
-        sess.state = replace(sess.state, status=self._base_status)
+        # Fold the real step into the shared run-state and compose the live
+        # status line ``phase · step N/max · current op · elapsed`` from it.
+        self._run = fold(self._run, tool, target, ok)
+        step = (
+            sess.state.work_item.step_count
+            if sess.state.work_item is not None
+            else self._run.step_count
+        )
+        max_steps = getattr(getattr(sess, "config", None), "max_steps", None)
+        line = status_line(
+            self._run,
+            step=step,
+            max_steps=max_steps,
+            elapsed_seconds=time.monotonic() - self._started,
+            phase="",  # a real step replaces any phase text — no phase segment here
+        )
+        sess.state = replace(sess.state, status=Status(severity="info", message=line))
+        # Update the live Active-run panel (goal · changes-so-far · last action)
+        # if the holder is a full session — guarded so the sink stays usable
+        # against the bare state-holder used in unit tests (its documented
+        # contract), exactly like the `_poll_talk_lane` guard above.
+        update_run = getattr(sess, "_update_active_run", None)
+        if update_run is not None:
+            update_run(self._run)
         if sess.view == "ansi":
             sess.emit()  # live redraw per step
 
@@ -394,6 +461,9 @@ class _Session:
         # `_dispatch_work` right after a result is obtained, before the caller's
         # `_refresh_context()` rebuilds the panel — never on the render path.
         self._last_capacity_warning: Optional[str] = None
+        # The running work item's goal, event-stamped at `_arm_run_view` and shown
+        # in the Active-run panel while a work item runs (#285 t7); "" at idle.
+        self._active_goal: str = ""
         # Media attachments staged by `/attach` (task t11), in staged order —
         # consumed (and cleared, one-shot) the next time a work line builds a
         # Task in `_work_line`. Empty by default, so a session that never
@@ -419,6 +489,12 @@ class _Session:
             (name, load_command(self.discovered[name]).description)
             for name in sorted(self.discovered)
         ]
+        # Icon vocabulary (#285 t6): resolved once (repo/env/config precedence,
+        # colleague.icons.resolve_icons) rather than per-frame, since it can only
+        # change via a repo config edit + a fresh session. Applied to every
+        # colleague-composed panel label via `icons.label`; a bare `"none"` mode
+        # degrades every such label to plain text with no glyph.
+        self._icons_mode = icons.resolve_icons(repo_path=repo)
         self.state = self._initial_state()
 
     # ── state construction / mutation ────────────────────────────────────────
@@ -437,15 +513,17 @@ class _Session:
             mode=self.mode,
             header=Header(title="colleague"),
             panels=[
+                # Next is the cockpit's "what do I do now?" answer — placed first
+                # so it reads before the facts that justify it (#285 t6).
+                self._next_panel(facts),
                 self._policy_panel(facts),
                 self._context_panel(facts),
                 self._capacity_panel(),
-                Panel(id="commands", title="Work templates", visible=True, items=items),
+                Panel(id="commands", title="suggested work", visible=True, items=items),
                 Panel(
                     id=_CONVERSATION_PANEL_ID,
                     title="Session",
                     visible=True,
-                    content_summary=self._suggested_action(facts),
                     items=[],
                 ),
                 *build_slash_panels(),
@@ -512,53 +590,83 @@ class _Session:
 
     @staticmethod
     def _run_command_status(runcfg: dict | None) -> tuple[str, str, bool]:
-        """``(status text, emoji, gated?)`` for the run_command line.
+        """``(state text, consequence text, gated?)`` for the run_command
+        capability — the ``label · state · consequence`` grammar (#285 t6).
 
         Honest labels mirror :meth:`~colleague.policy.Policy.check_run_command`:
         an allow-list only gates when non-empty; an empty allow-list with a
         deny-list is deny-only (all others allowed); both empty is effectively
         ungated. Both lists are coerced so a malformed ``approvals.json`` can't
-        crash render."""
+        crash render. The consequence text names only what the harness actually
+        enforces — never a "requires confirmation" claim the harness doesn't
+        make, and never "sandboxed"."""
         if runcfg is None:
-            return "ungated (any command)", "⚠️", False
+            return "ungated (any command)", "any shell command runs", False
         allow = _coerce_strs(runcfg.get("allow"))
         deny = _coerce_strs(runcfg.get("deny"))
         if allow:
             shown = ", ".join(allow[:3]) + ("…" if len(allow) > 3 else "")
-            return f"allow-list: {shown}", "🛡️", True
+            return f"allow-list: {shown}", "only listed programs run", True
         if deny:
             shown = ", ".join(deny[:3]) + ("…" if len(deny) > 3 else "")
-            return f"deny-list: {shown} (all others allowed)", "🛡️", True
-        return "present, no rules (effectively ungated)", "⚠️", False
+            return (
+                f"deny-list: {shown} (all others allowed)",
+                "listed programs are blocked; all others run",
+                True,
+            )
+        return "present, no rules (effectively ungated)", "any shell command runs", False
 
     def _policy_panel(self, facts: dict) -> Panel:
-        """The *Run policy* panel — the safety surface (AC #3). Honest labels: the
-        loop can write any repo file and run any command unless ``run_command`` is
-        gated; the only real outward gate is push/PR. No sandbox is claimed."""
-        run_status, run_emoji, gated = self._run_command_status(facts["runcfg"])
-        edits = "read + write within repo"
+        """The *Run policy* panel — the safety surface (AC #3), restructured as
+        an aligned ``label · state · consequence`` grammar (#285 t6): each item
+        names a capability, its current state, and the real consequence of that
+        state. Honest labels only: the loop can write any repo file and run any
+        command unless ``run_command`` is gated; the only real outward gate is
+        push/PR (plus the checksum/token approvals gate when configured). No
+        "requires confirmation" boundary is claimed — the harness enforces none
+        — and the tool is never described as sandboxed."""
+        run_state, run_consequence, gated = self._run_command_status(facts["runcfg"])
+        run_label = icons.label("run_command", "ok" if gated else "warn", self._icons_mode)
+
+        edits_state = "read + write within repo"
         if facts["hooks_gated"]:
-            edits += " · hooks/commands checksum-gated"
+            edits_state += " · hooks/commands checksum-gated"
+        edits_consequence = "the loop can create/modify any repo file"
+
         if self.open_pr:
-            handoff_status, handoff_emoji = f"on — push + open PR onto '{self.base}'", "🚀"
+            handoff_state = "on"
+            handoff_consequence = f"pushes a branch + opens a PR onto '{self.base}'"
+            handoff_key = "run"
         else:
-            handoff_status, handoff_emoji = "off (local commit only)", "🔒"
+            handoff_state = "off"
+            handoff_consequence = "commits locally only — nothing leaves this machine"
+            handoff_key = "idle"
+        handoff_label = icons.label("push + PR", handoff_key, self._icons_mode)
+
         summary = (
             f"run_command: {'gated' if gated else 'ungated'} · "
             f"edits: repo-local · push/PR: {'on' if self.open_pr else 'off'}"
         )
         return Panel(
             id="policy",
-            title="Run policy",
+            title=icons.label("Run policy", "policy", self._icons_mode),
             visible=True,
             content_summary=summary,
             items=[
                 PanelItem(
-                    id="pol.run_command", label=f"{run_emoji} run_command", status=run_status
+                    id="pol.run_command",
+                    label=run_label,
+                    status=f"{run_state} · {run_consequence}",
                 ),
-                PanelItem(id="pol.files", label="✏️ file edits", status=edits),
                 PanelItem(
-                    id="pol.handoff", label=f"{handoff_emoji} push + PR", status=handoff_status
+                    id="pol.files",
+                    label="file edits",
+                    status=f"{edits_state} · {edits_consequence}",
+                ),
+                PanelItem(
+                    id="pol.handoff",
+                    label=handoff_label,
+                    status=f"{handoff_state} · {handoff_consequence}",
                 ),
             ],
         )
@@ -586,27 +694,29 @@ class _Session:
         )
         return Panel(
             id="context",
-            title="Context",
+            title=icons.label("Context", "context", self._icons_mode),
             visible=True,
             content_summary=summary,
             items=[
-                PanelItem(id="ctx.repo", label="📁 repo", status=facts["ident"]),
-                PanelItem(id="ctx.branch", label="🌿 branch", status=facts["branch"]),
-                PanelItem(id="ctx.tree", label="🧭 working tree", status=tree_status),
-                PanelItem(id="ctx.agents", label="📋 AGENTS layers", status=agents_status),
-                PanelItem(id="ctx.skills", label="🧩 skills", status=skills_status),
+                PanelItem(id="ctx.repo", label="repo", status=facts["ident"]),
+                PanelItem(id="ctx.branch", label="branch", status=facts["branch"]),
+                PanelItem(id="ctx.tree", label="working tree", status=tree_status),
+                PanelItem(id="ctx.agents", label="AGENTS layers", status=agents_status),
+                PanelItem(id="ctx.skills", label="skills", status=skills_status),
                 PanelItem(
                     id="ctx.telemetry",
-                    label="📡 telemetry",
+                    label="telemetry",
                     status="on" if facts["telemetry"] else "off",
                 ),
-                PanelItem(id="ctx.feedback", label="⭐ /feedback", status=fb_status),
+                PanelItem(id="ctx.feedback", label="/feedback", status=fb_status),
             ],
         )
 
     def _capacity_panel(self) -> Panel:
-        """The *Capacity* panel (spec R3 / plan t9 / #256): context budget, the
-        active session mode's constraint profile, and the latest fill-line /
+        """The *Capacity* panel (spec R3 / plan t9 / #256; disambiguated #285
+        t6): context budget, the THREE distinct mode facts — behavior (which
+        mode), source (auto-classified vs pinned), and execution profile
+        (steps/timeout/budget/fill-line) — and the latest fill-line /
         backpressure signal a completed work item surfaced. Built from cheap
         in-memory state only (``self.config`` / ``self.mode`` /
         ``self._last_capacity_warning``) — no I/O, so it renders across every
@@ -614,34 +724,59 @@ class _Session:
         per-renderer code, exactly like Policy/Context. No agentfront schema
         change: this rides the existing ``Panel``/``PanelItem`` shape (the
         TAUIState `capacity` block itself is the separate, agentfront-side
-        upstream ask, agentfront#48 — out of scope here)."""
+        upstream ask, agentfront#48 — out of scope here).
+
+        The mode facts were previously blurred into one ``_mode_profile_status``
+        line naming the mode AND its profile together; ``colleague.session_modes
+        .mode_facts``/``mode_facts_fragment`` now separate behavior/source from
+        the execution profile so an operator can tell each fact apart — a
+        dedicated ``cap.mode`` item carries behavior+source, ``cap.mode_profile``
+        carries the execution profile alone."""
         tokens = self.config.context_budget_tokens
+        facts = mode_facts(self.mode)
+        # A genuine capacity warning gets the warn glyph; the neutral "nothing
+        # has happened yet" state must not look like a warning (#285 t6) — no
+        # glyph at all for the neutral case, reserving the warning glyph for a
+        # real fill-line/backpressure signal.
+        has_warning = bool(self._last_capacity_warning)
         signal = self._last_capacity_warning or "none yet"
+        signal_label = "capacity signal"
+        if has_warning:
+            signal_label = icons.label(signal_label, "warn", self._icons_mode)
         return Panel(
             id=_CAPACITY_PANEL_ID,
-            title="Capacity",
+            title=icons.label("Capacity", "capacity", self._icons_mode),
             visible=True,
-            content_summary=f"budget {tokens:,} tokens · mode {self.mode}",
+            content_summary=f"budget {tokens:,} tokens · {mode_facts_fragment(facts)}",
             items=[
                 PanelItem(
                     id=_CAPACITY_BUDGET_ID,
-                    label="🧮 context budget",
+                    label="context budget",
                     status=f"{tokens:,} tokens",
                 ),
                 PanelItem(
-                    id=_CAPACITY_PROFILE_ID,
-                    label="📐 mode profile",
-                    status=_mode_profile_status(self.mode),
+                    id=_CAPACITY_MODE_ID,
+                    label=icons.label("mode", "mode", self._icons_mode),
+                    status=_mode_status_text(facts),
                 ),
-                PanelItem(id=_CAPACITY_SIGNAL_ID, label="⚠️ capacity signal", status=signal),
+                PanelItem(
+                    id=_CAPACITY_PROFILE_ID,
+                    label="execution profile",
+                    status=_mode_profile_text(facts),
+                ),
+                PanelItem(id=_CAPACITY_SIGNAL_ID, label=signal_label, status=signal),
             ],
         )
 
     def _suggested_action(self, facts: dict) -> str:
-        """The safest/most-useful next move (AC #1) — always answers 'what now?'."""
+        """The safest/most-useful next move (AC #1) — always answers 'what
+        now?'. Returns plain text with no glyph prefix; the caller
+        (:meth:`_next_panel`) applies the icons vocabulary so a genuine caution
+        (a dirty tree) reads distinctly from the routine case, without a
+        hardcoded emoji baked into the message itself."""
         if facts["dirty"] and not self.allow_dirty:
             return (
-                "⚠ Safest next: commit or stash first (working tree is dirty), then "
+                "Safest next: commit or stash first (working tree is dirty), then "
                 "type a number to run a template — or /help."
             )
         if self.palette:
@@ -656,51 +791,51 @@ class _Session:
             "/help for commands."
         )
 
+    def _next_panel(self, facts: dict) -> Panel:
+        """The *Next* panel (#285 t6) — the safest/most-useful next move
+        (AC #1), promoted from a status-text line buried in the Session
+        panel's ``content_summary`` into a first-class panel + item, so every
+        render tier (flat ANSI, Markdown, TAUI mirror) carries it as a
+        distinct fact rather than prose. Reuses :meth:`_suggested_action`'s
+        dirty/clean/free-text judgment verbatim — only the rendering target
+        changed. A dirty-blocked tree earns the warning glyph (a genuine
+        caution); every other case gets the neutral 'next' glyph — a warning
+        is never shown where none is warranted."""
+        text = self._suggested_action(facts)
+        dirty_blocked = facts["dirty"] and not self.allow_dirty
+        key = "warn" if dirty_blocked else "next"
+        return Panel(
+            id=_NEXT_PANEL_ID,
+            title=icons.label("Next", "next", self._icons_mode),
+            visible=True,
+            items=[PanelItem(id=_NEXT_ITEM_ID, label=icons.label(text, key, self._icons_mode))],
+        )
+
     def _refresh_context(self) -> None:
-        """Rebuild the policy + context panels in place (preserving the running
-        conversation + work-templates panels) and refresh the Session panel's
-        suggested-action line. Called after a config change or a completed work
-        item — both can shift branch / dirty / policy / feedback, and the
-        suggested action depends on dirty-state + push/PR, so it must not go
-        stale (the cockpit promises to always answer 'what now?')."""
+        """Rebuild the next + policy + context + capacity panels in place
+        (preserving the running conversation + work-templates panels). Called
+        after a config change or a completed work item — both can shift
+        branch / dirty / policy / feedback / capacity, and the Next panel's
+        suggestion depends on dirty-state + push/PR, so it must not go stale
+        (the cockpit promises to always answer 'what now?')."""
         facts = self._facts()
-        suggested = self._suggested_action(facts)
         rebuilt = {
+            _NEXT_PANEL_ID: self._next_panel(facts),
             "policy": self._policy_panel(facts),
             "context": self._context_panel(facts),
             _CAPACITY_PANEL_ID: self._capacity_panel(),
         }
         self.state = replace(
             self.state,
-            panels=[
-                (
-                    self._with_suggestion(p, suggested)
-                    if p.id == _CONVERSATION_PANEL_ID
-                    else rebuilt.get(p.id, p)
-                )
-                for p in self.state.panels
-            ],
+            panels=[rebuilt.get(p.id, p) for p in self.state.panels],
         )
-
-    @staticmethod
-    def _with_suggestion(panel: Panel, suggested: str) -> Panel:
-        """Return the Session panel with its suggested-action line refreshed.
-
-        In the agentfront TAUI model the running conversation feed lives in
-        ``state.conversation`` (appended by the reducer on every ``UserInput`` /
-        ``WorkStep``); the Session panel now carries ONLY the suggested-action
-        line in ``content_summary``. Use ``dataclasses.replace`` so every other
-        Panel field is preserved verbatim (future-proof against a new agentfront
-        Panel field); the ``cast`` keeps the static type a concrete ``Panel``
-        rather than the generic ``DataclassInstance`` ``replace`` infers (the
-        same S5655 pattern used in ``_run_readonly``)."""
-        return cast(Panel, replace(panel, content_summary=suggested))
 
     def _with_goal(self, goal: str) -> None:
         """Set (or clear, with ``goal=""``) the Session panel's goal item —
         the running work item's instruction, so the operator always sees WHAT
         is being driven (spec R3 / plan t9 / #256). Mutates ``self.state`` via
-        the frozen ``dataclasses.replace`` idiom, mirroring ``_with_suggestion``.
+        the frozen ``dataclasses.replace`` idiom (the same pattern
+        ``_refresh_context`` uses to rebuild a panel in place).
         """
         goal_items = [PanelItem(id=_GOAL_ITEM_ID, label="🎯 goal", status=goal)] if goal else []
         self.state = replace(
@@ -710,6 +845,152 @@ class _Session:
                 for p in self.state.panels
             ],
         )
+
+    # ── running-state view (#285 t7) ─────────────────────────────────────────
+
+    def _active_run_panel(self, run: RunState) -> Panel:
+        """The *Active run* panel — replaces the idle Next block while a work
+        item runs (#285 t7). Shows the goal, the changes-so-far observed from the
+        sink's fold events (files touched · commands run — commits are
+        deliberately OMITTED mid-run, resolving parked v3: heuristic git-commit
+        detection from sink events is dishonest), and the last action. Built
+        purely from the shared ``colleague.cockpit_run`` run-state; no I/O."""
+        led = observed_ledger(run)
+        changes = f"{led.files_changed} files · {led.commands_run} commands"
+        return Panel(
+            id=_ACTIVE_RUN_PANEL_ID,
+            title=icons.label("Active run", "run", self._icons_mode),
+            visible=True,
+            content_summary=changes,
+            items=[
+                PanelItem(
+                    id="run.goal",
+                    label=icons.label("goal", "mode", self._icons_mode),
+                    status=self._active_goal or "(no goal)",
+                ),
+                PanelItem(
+                    id="run.changes",
+                    label=icons.label("changes so far", "ledger", self._icons_mode),
+                    status=changes,
+                ),
+                PanelItem(
+                    id="run.last",
+                    label=icons.label("last action", "activity", self._icons_mode),
+                    status=run.last_action or "—",
+                ),
+            ],
+        )
+
+    def _arm_run_view(self, goal: str) -> None:
+        """Switch the cockpit to the running layout (#285 t7): collapse the
+        'suggested work' templates panel, drop the idle Next block, and insert a
+        live Active-run panel. Called by :meth:`_dispatch_work` before the loop
+        starts; the sink then rebuilds the Active-run panel per step via
+        :meth:`_update_active_run`, and :meth:`_restore_idle_view` puts the idle
+        layout back afterwards. Frozen-dataclass ``replace`` idiom throughout."""
+        self._active_goal = _goal_text(goal)
+        active = self._active_run_panel(RunState())
+        panels: list[Panel] = [active]
+        for p in self.state.panels:
+            if p.id == _NEXT_PANEL_ID:
+                continue  # the Active-run panel takes the idle Next block's place
+            if p.id == "commands":
+                panels.append(cast(Panel, replace(p, visible=False)))  # templates collapse
+                continue
+            panels.append(p)
+        self.state = replace(self.state, panels=panels)
+
+    def _update_active_run(self, run: RunState) -> None:
+        """Rebuild the Active-run panel in place from the latest run-state — the
+        per-step hook :class:`_WorkSink` calls (guarded, so a bare test holder
+        without this method is a no-op). A strict no-op when the panel is absent
+        (the run view was never armed)."""
+        if not any(p.id == _ACTIVE_RUN_PANEL_ID for p in self.state.panels):
+            return
+        rebuilt = self._active_run_panel(run)
+        self.state = replace(
+            self.state,
+            panels=[rebuilt if p.id == _ACTIVE_RUN_PANEL_ID else p for p in self.state.panels],
+        )
+
+    def _last_run_panel(self, result: TaskResult) -> Panel:
+        """The *Last run* mutation ledger (#285 t7) — reconciled from
+        ``TaskResult.stats`` + handoff, so it is AUTHORITATIVE (files changed ·
+        commands run · commits · publish state), unlike the mid-run observed
+        ledger which omits commits. Shown on the restored idle layout so the
+        operator always sees what the just-finished work item actually changed
+        (cumulative session totals are parked as a follow-up — spec v4)."""
+        led = reconcile(result)
+        commits = "—" if led.commits is None else str(led.commits)
+        return Panel(
+            id=_LAST_RUN_PANEL_ID,
+            title=icons.label("Last run", "ledger", self._icons_mode),
+            visible=True,
+            content_summary=(
+                f"{led.files_changed} files · {led.commands_run} commands · "
+                f"{commits} commits · {led.publish_state}"
+            ),
+            items=[
+                PanelItem(
+                    id="last.files",
+                    label=icons.label("files changed", "ledger", self._icons_mode),
+                    status=str(led.files_changed),
+                ),
+                PanelItem(
+                    id="last.commands",
+                    label=icons.label("commands run", "activity", self._icons_mode),
+                    status=str(led.commands_run),
+                ),
+                PanelItem(
+                    id="last.commits",
+                    label=icons.label("commits", "ok", self._icons_mode),
+                    status=commits,
+                ),
+                PanelItem(
+                    id="last.publish",
+                    label=icons.label("publish", "run", self._icons_mode),
+                    status=led.publish_state or "none",
+                ),
+            ],
+        )
+
+    def _restore_idle_view(self, result: Optional[TaskResult]) -> None:
+        """Put the idle layout back after a work item (#285 t7): remove the
+        Active-run panel (its slot becomes the Next block again), un-collapse the
+        templates panel, and — when a result is available — add/replace the
+        Last-run ledger panel. The caller's :meth:`_refresh_context` then
+        refreshes Next/policy/context/capacity content; it preserves the
+        Last-run panel (not one of the ids it rebuilds), so the record survives
+        onto the idle frame."""
+        self._active_goal = ""
+        facts = self._facts()
+        next_panel = self._next_panel(facts)
+        last_panel = self._last_run_panel(result) if result is not None else None
+        panels: list[Panel] = []
+        restored_next = False
+        replaced_last = False
+        for p in self.state.panels:
+            if p.id in (_ACTIVE_RUN_PANEL_ID, _NEXT_PANEL_ID):
+                if not restored_next:
+                    panels.append(next_panel)  # the idle Next block returns
+                    restored_next = True
+                continue
+            if p.id == "commands":
+                panels.append(cast(Panel, replace(p, visible=True)))  # templates re-expand
+                continue
+            if p.id == _LAST_RUN_PANEL_ID and last_panel is not None:
+                panels.append(last_panel)  # replace a prior last-run record in place
+                replaced_last = True
+                continue
+            panels.append(p)
+        if not restored_next:
+            panels.insert(0, next_panel)
+        if last_panel is not None and not replaced_last:
+            panels.append(last_panel)
+        # Reset the status line back to the idle status — otherwise the last
+        # running status line ("step N/max · current op · elapsed") composed by
+        # `_WorkSink` would linger on the restored idle frame (Qodo PR #288).
+        self.state = replace(self.state, panels=panels, status=self._status())
 
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
@@ -786,7 +1067,12 @@ class _Session:
             popup = ""
             if matches:
                 popup = render_slash_autocomplete(
-                    matches, selected, width=detect_width(), style=_slash_tag_style()
+                    matches,
+                    selected,
+                    width=detect_width(),
+                    style=_slash_tag_style(),
+                    groups=_SLASH_GROUPS,
+                    default_group="session",
                 )
                 parts.append(popup)
             return "\n".join(parts) + _cursor_back_to_input(popup, prompt, buffer)
@@ -1015,7 +1301,14 @@ class _Session:
         single home for the ``work_fn`` call shared by ``_run_work`` and
         ``_run_readonly`` — the caller owns the feed rendering of the result.
         ``mode`` (t3/R1) names the constraint profile; it resolves inside
-        ``execute_work`` — the same code path the ``work --mode`` flag uses."""
+        ``execute_work`` — the same code path the ``work --mode`` flag uses.
+
+        The cockpit visibly changes state for the duration (#285 t7): the run
+        view is armed before the loop (templates collapse, a live Active-run
+        panel appears) and the idle layout is restored afterwards with a
+        Last-run ledger — on the success AND the error path, so the cockpit
+        never strands the operator in a half-running frame."""
+        self._arm_run_view(task.instruction)
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -1033,12 +1326,14 @@ class _Session:
             goal=task.instruction,
         )
         if pair is None:
+            self._restore_idle_view(None)  # error path — never leave the run view armed
             return None
         result, _artifact = pair
         # The Capacity panel's signal row (spec R3 / plan t9 / #256) surfaces the
         # latest fill-line/backpressure warning; captured here, BEFORE the
         # caller's `_refresh_context()` rebuilds the panel, so it is never stale.
         self._last_capacity_warning = result.capacity_warning
+        self._restore_idle_view(result)  # idle layout back + authoritative last-run ledger
         if self.json_mode:
             self.out(json.dumps(result.to_dict(), ensure_ascii=False))
         return result
@@ -1433,8 +1728,9 @@ class _Session:
 @dataclass(frozen=True)
 class SlashSpec:
     """One slash command: its name, an optional arg hint, a one-line help, the
-    intent ``group`` it belongs to (``controls`` / ``inspect`` / ``session``) so
-    ``/help`` and the popup can present a grouped tree, and ``tags`` — small
+    intent ``group`` it belongs to (one of the five keys in ``_SLASH_GROUPS`` —
+    ``runtime`` / ``workspace`` / ``git-publish`` / ``inspect`` / ``session``)
+    so ``/help`` and the popup can present a grouped tree, and ``tags`` — small
     capability/risk badges (``read-only`` / ``writes`` / ``git`` / ``pr`` …,
     issue #160) shown next to the command."""
 
@@ -1443,6 +1739,20 @@ class SlashSpec:
     description: str
     group: str = "session"
     tags: tuple[str, ...] = ()
+
+
+#: colleague's slash-command intent groups (#285 t9) — display order + heading.
+#: A LOCAL taxonomy (not agentfront's generic controls/inspect/session): the
+#: agentfront widget accepts a consumer group list via `groups=` / `default_group=`
+#: (no fork — the #249 rule). Every derived surface (/help, the popup, the slash
+#: panels) iterates THIS list, so they cannot drift.
+_SLASH_GROUPS: list[tuple[str, str]] = [
+    ("runtime", "Runtime"),
+    ("workspace", "Workspace"),
+    ("git-publish", "Git / publish"),
+    ("inspect", "Inspect"),
+    ("session", "Session"),
+]
 
 
 #: The single source of truth for every slash command — the ``/help`` text, the
@@ -1476,37 +1786,37 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "engine",
         "<name>",
         "switch the engine for the next work item",
-        "controls",
+        "runtime",
         ("model", "config"),
     ),
-    SlashSpec("model", "<name>", "switch the model", "controls", ("model", "config")),
+    SlashSpec("model", "<name>", "switch the model", "runtime", ("model", "config")),
     SlashSpec(
         "mode",
         "[name]",
         "show/cycle the session mode (auto|work|plan|explore|review) — shift-tab equivalent",
-        "controls",
+        "runtime",
         ("interactive",),
     ),
-    SlashSpec("base", "<branch>", "set the PR base branch", "controls", ("git", "config")),
+    SlashSpec("base", "<branch>", "set the PR base branch", "workspace", ("git", "config")),
     SlashSpec(
         "pr",
         "",
         "toggle push + open PR on each work item",
-        "controls",
+        "git-publish",
         ("git", "pr", "writes", "human-loop"),
     ),
     SlashSpec(
         "attach",
         "[path]",
         "stage a media attachment for the next work line (no arg lists staged)",
-        "controls",
+        "workspace",
         ("media", "config"),
     ),
     SlashSpec(
         "learn-from",
         "<source> [name…]",
         "learn skills from a peer (e.g. claude) into .colleague/skills/",
-        "controls",
+        "workspace",
         ("writes", "config"),
     ),
     SlashSpec("quit", "", "end the session", "session", ("safe",)),
@@ -1540,7 +1850,7 @@ def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
     commands`` is kept. *style* selects the tag form (``text`` | ``icons``)."""
     groups = _grouped(specs)
     rows = ["slash commands  (/help verbose for descriptions · /help compact for icons)"]
-    for key, title in SLASH_GROUPS:
+    for key, title in _SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue
@@ -1563,7 +1873,7 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
     and tag badges."""
     groups = _grouped(specs)
     rows = ["slash commands (verbose)"]
-    for key, title in SLASH_GROUPS:
+    for key, title in _SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue
@@ -1593,7 +1903,7 @@ def build_slash_panels() -> list[Panel]:
     these ``slash.*`` panels."""
     groups = _grouped(_SLASH_COMMANDS)
     panels: list[Panel] = []
-    for key, title in SLASH_GROUPS:
+    for key, title in _SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue

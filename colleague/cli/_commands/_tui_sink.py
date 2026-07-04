@@ -21,6 +21,7 @@ plain `_step_progress` sink and the ANSI renderer.
 from __future__ import annotations
 
 import sys
+import time
 from contextlib import suppress
 from dataclasses import replace
 from typing import Callable, Optional, TextIO
@@ -33,6 +34,13 @@ from agentfront.taui.state import Status
 from agentfront.taui.state import TAUIState as CockpitState
 from agentfront.taui.state import WorkItem
 
+from colleague.cockpit_run import (
+    Ledger,
+    RunState,
+    fold,
+    observed_ledger,
+    status_line,
+)
 from colleague.tui.from_work import work_step
 
 #: A progress callback: ``(step_index, tool, target, ok) -> None``.
@@ -134,8 +142,16 @@ class CockpitProgressSink:
         # resumes — see `fold_phase`'s docstring (#206).
         self._base_status = self._state.status
         self._writer = FrameWriter(stream)
+        # Parallel run-state accumulator using the shared cockpit_run helpers.
+        self._run = RunState()
+        # Event-stamp anchor for elapsed (no clock thread — stamped per step),
+        # so `work --tui`'s status line shows elapsed just like the session's
+        # `_WorkSink`, and the two live cockpits agree (Qodo PR #288 parity).
+        self._started = time.monotonic()
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        # Update the parallel run-state accumulator on every call (phase or step).
+        self._run = fold(self._run, tool, target, ok)
         if not tool:
             # A phase notice (#206) — fold it into the STATUS surface only,
             # never a step (see `fold_phase`).
@@ -143,9 +159,25 @@ class CockpitProgressSink:
             self._writer.write(self._state)
             return
         self._state = reduce(self._state, work_step(tool, target, ok))
-        # A real step clears any phase text left showing.
-        self._state = replace(self._state, status=self._base_status)
+        # Compose the status line from the shared run-state helpers. ``phase=""``
+        # so a real step CLEARS any lingering phase text (the prior phase notice
+        # folded ``self._run.phase``); the step/op replaces it — matching the
+        # session's ``_WorkSink`` exactly (#285 t7/t8), so both live cockpits
+        # render an identical running status line.
+        line = status_line(
+            self._run,
+            step=self._state.work_item.step_count,
+            max_steps=None,
+            elapsed_seconds=time.monotonic() - self._started,
+            phase="",
+        )
+        self._state = replace(self._state, status=Status(severity="info", message=line))
         self._writer.write(self._state)
+
+    @property
+    def ledger(self) -> Ledger:
+        """Return the observed ledger from the accumulated run-state."""
+        return observed_ledger(self._run)
 
     def close(self) -> None:
         """Mark the work item finished and render a final frame (with a trailing newline)."""

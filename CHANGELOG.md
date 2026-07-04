@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.0] - 2026-07-04
+
+### Added
+
+- Cockpit UX (#285): colleague session now reads like a real coder-agent cockpit in both states. Idle answers identity -> permissions -> workspace -> capacity -> next action with a first-class Next panel; running visibly changes the screen with a live status line (phase / step N/max / current op / event-stamped elapsed), an Active-run panel (goal / changes-so-far / last action), collapsed templates, and an authoritative Last-run mutation ledger on finish.
+- New pure colleague/cockpit_run.py (I/O-free, clock-free run-state + ledger: fold/RunState/observed_ledger/reconcile/status_line) shared identically by the session `_WorkSink` and the work --tui CockpitProgressSink.
+- New colleague/icons.py emoji|ascii|none vocabulary applied to colleague-composed cockpit labels (flag > COLLEAGUE_ICONS > config.json > default emoji).
+- Disambiguated mode facts (session_modes.mode_facts): behavior, source (auto vs pinned), and execution profile rendered as three distinct facts instead of one conflated line.
+
+### Changed
+
+- Run policy panel restructured into an aligned label-state-consequence grammar claiming ONLY enforced gates (push/PR + approvals.json when present); no invented confirmation gate, never described as sandboxed.
+- Session slash commands regrouped into runtime / workspace / git-publish / inspect / session (/pr under its own publish-boundary heading); the Work templates panel retitled suggested work; the capacity signal is neutral-empty (no warning glyph until a real warning).
+- Filed upstream agentfront asks #50 (renderer-level icon switch) and #51 (WorkItem.max_steps/started_at) rather than forking a renderer (#249 rule).
+
+### Fixed
+
+- Preserved the #233 legible action feed: the running-state transcript/ledger separation is delivered via the Active-run/Last-run ledger panels, keeping the tool-step ×N feed in the conversation (an early draft that removed it regressed test_agent_native_e2e).
+
 ## [1.36.1] - 2026-07-04
 
 ### Added

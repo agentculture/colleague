@@ -802,6 +802,39 @@ def test_colleague_tui_imports_only_the_surviving_adapter_and_driver() -> None:
     )
 
 
+def test_new_cockpit_helpers_are_not_under_colleague_tui_and_shadow_no_renderer() -> None:
+    """#285 t10: the new pure cockpit helpers (``cockpit_run.py`` / ``icons.py``)
+    live at the colleague top level, NOT under ``colleague/tui/`` (which keeps
+    ONLY its two #249 survivors), and ``cockpit_run.py`` imports nothing from the
+    ``agentfront`` render paths — so a cited run-state / ledger fact is
+    copy-derived from the shared pure helper, never a fork or shadow of an
+    agentfront renderer (the #249 rule)."""
+    pkg = _PACKAGE_DIR
+
+    # The new helpers exist at the top level and are NOT shadowed under colleague/tui/.
+    for name in ("cockpit_run.py", "icons.py"):
+        assert (pkg / name).is_file(), f"colleague/{name} must exist at the top level"
+        assert not (
+            pkg / "tui" / name
+        ).exists(), f"colleague/{name} must NOT live under colleague/tui/ (keeps the #249 boundary)"
+
+    # colleague/tui/ keeps ONLY its two #249 survivors (excluding package __init__.py).
+    tui_dir = pkg / "tui"
+    survivors = {
+        p.relative_to(tui_dir).as_posix() for p in tui_dir.rglob("*.py") if p.name != "__init__.py"
+    }
+    assert survivors == {"from_work.py", "render/driver.py"}, (
+        "colleague/tui/ must keep ONLY the two #249 survivors (from_work.py + "
+        f"render/driver.py); found: {sorted(survivors)}"
+    )
+
+    # cockpit_run.py imports nothing from agentfront (render-path independence).
+    src = (pkg / "cockpit_run.py").read_text(encoding="utf-8")
+    assert (
+        "import agentfront" not in src and "from agentfront" not in src
+    ), "colleague/cockpit_run.py must import nothing from agentfront render paths (#285 t1/t10)"
+
+
 # ---------------------------------------------------------------------------
 # STRUCTURAL — agent_lifecycle imports are confined to colleague/resident/
 # (plan task t13 / spec R4). This is the package-source-level companion to
