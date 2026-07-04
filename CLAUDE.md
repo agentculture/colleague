@@ -862,6 +862,47 @@ The architecture, part by part:
   snapshot` writes `<name>.taui.json` / `<name>.ansi` / `<name>.events.jsonl` /
   `<name>.md`. `tui diagnose` on a quad verifies render faithfulness across the
   captured views; zero findings = faithful. Legacy triples (no `.md`) still read fine.
+- **Cockpit UX — real coder-agent cockpit in both states (#285)** — `colleague
+  session`'s cockpit answers a fixed order of questions **idle** (identity →
+  permissions → workspace → capacity → next action) and **visibly changes the
+  screen** while a work item **runs**. Idle: a first-class **Next panel**
+  (`_next_panel`, the safest-next move promoted out of the Session panel's
+  status text), the **Run policy** panel in an aligned **`label · state ·
+  consequence`** grammar claiming ONLY enforced gates (push/PR + `approvals.json`
+  when present — the issue's suggested "requires confirmation" line was
+  **pushed back**; the harness enforces no such boundary, and the tool is never
+  called "sandboxed"), the **three distinct mode facts** (behavior · source ·
+  execution profile via `session_modes.mode_facts`, resolving the "mode means
+  three things" conflation), and a **neutral-empty** capacity signal (the `⚠`
+  glyph only for a real warning). Running: `_dispatch_work` arms a run view
+  (templates collapse, an **Active-run panel** — goal · changes-so-far · last
+  action — replaces the idle Next block) and restores the idle layout on finish
+  (success AND error path) with an authoritative **Last-run ledger** panel; the
+  status line composes `phase · step N/max · current op · elapsed`. The shared
+  pure core is **`colleague/cockpit_run.py`** (I/O-free, clock-free
+  `fold`/`RunState`/`observed_ledger`/`reconcile`/`status_line`) — used
+  identically by BOTH live cockpits (the session's `_WorkSink` and `work --tui`'s
+  `CockpitProgressSink`), plus **`colleague/icons.py`** (an `emoji|ascii|none`
+  vocabulary for colleague-composed labels). **Deliberate adaptations** (all
+  recorded, never silent): elapsed is **event-stamped at sink boundaries** (no
+  clock thread — the session is thread-free); the mid-run ledger **omits commits**
+  (heuristic detection is dishonest — parked v3, only the post-run `reconcile`
+  shows commits); the **#233 legible tool feed is PRESERVED** in the conversation
+  (the plan's literal "restore `state.conversation`" would have regressed it — the
+  transcript/ledger separation is delivered via the ledger PANELS, a distinct
+  block alongside the feed, not a removal of it). **Renderer/schema needs are
+  filed upstream, not forked** (the #249 rule): **agentfront#50** (renderer-level
+  icon switch for the glyphs colleague can't reach) and **agentfront#51**
+  (`WorkItem.max_steps`/`started_at` so `step N/max` + elapsed become
+  structural), referenced from `colleague/icons.py` and `cockpit_run.py`
+  `status_line`; the sibling **agentfront#48** (capacity/phase/goal on
+  `TAUIState`) is the #256 precedent. All colleague-side over the imported
+  `agentfront.taui` generic panel walk (zero per-renderer code); a boundary test
+  pins that the new pure helpers never shadow `agentfront.taui` and stay out of
+  `colleague/tui/`. Feature doc: `docs/features/cockpit-ux.md` (+ the committed
+  idle/mid-run snapshot pair `docs/features/cockpit-ux/{idle,running}.md`); spec
+  + plan: `docs/specs/2026-07-03-colleague-s-cockpit-now-reads-like-a-real-coder-ag.md`
+  and the matching `docs/plans/` file.
 - **TAUI imported from agentfront (cockpit-on-agentfront, #249)** — the generic
   cockpit (state model, events, reducer, TAUI mirror, the ANSI/flat/Markdown
   renderers, selectors, snapshot/diagnose, widgets, colors, layout) is **imported
