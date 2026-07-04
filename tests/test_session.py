@@ -573,12 +573,14 @@ def test_session_work_sink_skips_phase_events() -> None:
     assert sess.state.work_item.step_count == 1  # the phantom step was NOT folded
 
 
-def test_session_work_sink_folds_phase_into_status_and_clears_on_real_step() -> None:
-    """The #206 follow-up, resolved (spec R3 / plan t9 / #256): a phase notice's
+def test_session_work_sink_folds_phase_into_status_and_composes_run_line_on_real_step() -> None:
+    """The #206 follow-up (spec R3 / #256) extended by #285 t7: a phase notice's
     text becomes visible on the cockpit's STATUS surface instead of being
-    silently dropped, and a subsequent REAL step clears it back to the
-    baseline status active when the work item started — so the phase text
-    never lingers once the model resumes making tool calls."""
+    silently dropped, and a subsequent REAL step REPLACES it with the live run
+    status line ``phase · step N/max · current op · elapsed`` (composed from the
+    shared ``cockpit_run`` run-state) — so the phase text never lingers once the
+    model resumes making tool calls, and the operator sees live progress
+    instead of a static baseline."""
     import dataclasses
     from types import SimpleNamespace
 
@@ -602,7 +604,14 @@ def test_session_work_sink_folds_phase_into_status_and_clears_on_real_step() -> 
 
     sink(1, "read_file", "a.py", True)  # a real step
     assert sess.state.work_item.step_count == 1
-    assert sess.state.status.message == "colleague session · mock · local"  # cleared
+    # The phase text is gone, replaced by the composed run status line: step
+    # progress + the current operation (elapsed is event-stamped, so not matched
+    # exactly). A real step also does NOT land in the transcript (#285 t7 split).
+    msg = sess.state.status.message
+    assert "thinking" not in msg
+    assert "step 1" in msg
+    assert "[read_file] a.py" in msg
+    assert sess.state.conversation == []  # the tool step stays out of the transcript
 
 
 def test_session_unknown_slash_is_a_stderr_error(tmp_path: Path) -> None:

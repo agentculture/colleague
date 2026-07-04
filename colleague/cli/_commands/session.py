@@ -46,6 +46,7 @@ import json
 import os
 import select
 import sys
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence, TypeVar, cast
@@ -70,6 +71,7 @@ from colleague.cli._commands._session_input import CYCLE_MODE
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
+from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import SensesBlock, Task, TaskResult
@@ -137,6 +139,14 @@ _CAPACITY_SIGNAL_ID = "cap.signal"
 #: it as a distinct fact rather than prose.
 _NEXT_PANEL_ID = "next"
 _NEXT_ITEM_ID = "next.action"
+
+#: The running-state panels (#285 t7). ``active_run`` replaces the idle Next
+#: block while a work item runs (goal · changes-so-far · last action, live from
+#: the sink's fold events); ``last_run`` is the post-run mutation ledger
+#: reconciled from ``TaskResult.stats`` + handoff, shown on the restored idle
+#: layout (cumulative session totals are parked as a follow-up — spec v4).
+_ACTIVE_RUN_PANEL_ID = "active_run"
+_LAST_RUN_PANEL_ID = "last_run"
 
 
 def _goal_text(instruction: str) -> str:
@@ -271,6 +281,15 @@ class _WorkSink:
         # (a plain attribute read, not a call back into the session) so this
         # sink stays usable against a bare state-holder in tests.
         self._base_status = session.state.status
+        # The pure run-state (#285 t7): real steps are folded into it (activity
+        # ledger + last action) so the running status line and the Active-run
+        # panel derive from the shared `colleague.cockpit_run` helpers, never a
+        # second fold implementation. `_started` is the event-stamp anchor —
+        # elapsed is computed at each sink boundary (no clock thread; the UI
+        # thread blocks inside the completion), keeping the #285 "no ticking
+        # clock" decision.
+        self._run = RunState()
+        self._started = time.monotonic()
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
@@ -293,10 +312,39 @@ class _WorkSink:
             if sess.view == "ansi":
                 sess.emit()
             return
+        # Fold the step through the reducer FIRST — it advances
+        # ``work_item.step_count`` and opens the same error popup as `tui replay`
+        # on a failed step (composed around, never re-implemented). Then RESTORE
+        # ``state.conversation`` so the tool step does NOT land in the transcript
+        # (#285 t7): the conversation stays the user/agent transcript, and the
+        # tool ledger lives in the Active-run panel — two separate blocks.
+        before_conv = sess.state.conversation
         sess.state = reduce(sess.state, work_step(tool, target, ok))
-        # A real step clears any phase text left showing — it must never
-        # linger once the model resumes making tool calls.
-        sess.state = replace(sess.state, status=self._base_status)
+        sess.state = replace(sess.state, conversation=before_conv)
+        # Fold the real step into the shared run-state and compose the live
+        # status line ``phase · step N/max · current op · elapsed`` from it.
+        self._run = fold(self._run, tool, target, ok)
+        step = (
+            sess.state.work_item.step_count
+            if sess.state.work_item is not None
+            else self._run.step_count
+        )
+        max_steps = getattr(getattr(sess, "config", None), "max_steps", None)
+        line = status_line(
+            self._run,
+            step=step,
+            max_steps=max_steps,
+            elapsed_seconds=time.monotonic() - self._started,
+            phase="",  # a real step replaces any phase text — no phase segment here
+        )
+        sess.state = replace(sess.state, status=Status(severity="info", message=line))
+        # Update the live Active-run panel (goal · changes-so-far · last action)
+        # if the holder is a full session — guarded so the sink stays usable
+        # against the bare state-holder used in unit tests (its documented
+        # contract), exactly like the `_poll_talk_lane` guard above.
+        update_run = getattr(sess, "_update_active_run", None)
+        if update_run is not None:
+            update_run(self._run)
         if sess.view == "ansi":
             sess.emit()  # live redraw per step
 
@@ -412,6 +460,9 @@ class _Session:
         # `_dispatch_work` right after a result is obtained, before the caller's
         # `_refresh_context()` rebuilds the panel — never on the render path.
         self._last_capacity_warning: Optional[str] = None
+        # The running work item's goal, event-stamped at `_arm_run_view` and shown
+        # in the Active-run panel while a work item runs (#285 t7); "" at idle.
+        self._active_goal: str = ""
         # Media attachments staged by `/attach` (task t11), in staged order —
         # consumed (and cleared, one-shot) the next time a work line builds a
         # Task in `_work_line`. Empty by default, so a session that never
@@ -794,6 +845,149 @@ class _Session:
             ],
         )
 
+    # ── running-state view (#285 t7) ─────────────────────────────────────────
+
+    def _active_run_panel(self, run: RunState) -> Panel:
+        """The *Active run* panel — replaces the idle Next block while a work
+        item runs (#285 t7). Shows the goal, the changes-so-far observed from the
+        sink's fold events (files touched · commands run — commits are
+        deliberately OMITTED mid-run, resolving parked v3: heuristic git-commit
+        detection from sink events is dishonest), and the last action. Built
+        purely from the shared ``colleague.cockpit_run`` run-state; no I/O."""
+        led = observed_ledger(run)
+        changes = f"{led.files_changed} files · {led.commands_run} commands"
+        return Panel(
+            id=_ACTIVE_RUN_PANEL_ID,
+            title=icons.label("Active run", "run", self._icons_mode),
+            visible=True,
+            content_summary=changes,
+            items=[
+                PanelItem(
+                    id="run.goal",
+                    label=icons.label("goal", "mode", self._icons_mode),
+                    status=self._active_goal or "(no goal)",
+                ),
+                PanelItem(
+                    id="run.changes",
+                    label=icons.label("changes so far", "ledger", self._icons_mode),
+                    status=changes,
+                ),
+                PanelItem(
+                    id="run.last",
+                    label=icons.label("last action", "activity", self._icons_mode),
+                    status=run.last_action or "—",
+                ),
+            ],
+        )
+
+    def _arm_run_view(self, goal: str) -> None:
+        """Switch the cockpit to the running layout (#285 t7): collapse the
+        'suggested work' templates panel, drop the idle Next block, and insert a
+        live Active-run panel. Called by :meth:`_dispatch_work` before the loop
+        starts; the sink then rebuilds the Active-run panel per step via
+        :meth:`_update_active_run`, and :meth:`_restore_idle_view` puts the idle
+        layout back afterwards. Frozen-dataclass ``replace`` idiom throughout."""
+        self._active_goal = _goal_text(goal)
+        active = self._active_run_panel(RunState())
+        panels: list[Panel] = [active]
+        for p in self.state.panels:
+            if p.id == _NEXT_PANEL_ID:
+                continue  # the Active-run panel takes the idle Next block's place
+            if p.id == "commands":
+                panels.append(cast(Panel, replace(p, visible=False)))  # templates collapse
+                continue
+            panels.append(p)
+        self.state = replace(self.state, panels=panels)
+
+    def _update_active_run(self, run: RunState) -> None:
+        """Rebuild the Active-run panel in place from the latest run-state — the
+        per-step hook :class:`_WorkSink` calls (guarded, so a bare test holder
+        without this method is a no-op). A strict no-op when the panel is absent
+        (the run view was never armed)."""
+        if not any(p.id == _ACTIVE_RUN_PANEL_ID for p in self.state.panels):
+            return
+        rebuilt = self._active_run_panel(run)
+        self.state = replace(
+            self.state,
+            panels=[rebuilt if p.id == _ACTIVE_RUN_PANEL_ID else p for p in self.state.panels],
+        )
+
+    def _last_run_panel(self, result: TaskResult) -> Panel:
+        """The *Last run* mutation ledger (#285 t7) — reconciled from
+        ``TaskResult.stats`` + handoff, so it is AUTHORITATIVE (files changed ·
+        commands run · commits · publish state), unlike the mid-run observed
+        ledger which omits commits. Shown on the restored idle layout so the
+        operator always sees what the just-finished work item actually changed
+        (cumulative session totals are parked as a follow-up — spec v4)."""
+        led = reconcile(result)
+        commits = "—" if led.commits is None else str(led.commits)
+        return Panel(
+            id=_LAST_RUN_PANEL_ID,
+            title=icons.label("Last run", "ledger", self._icons_mode),
+            visible=True,
+            content_summary=(
+                f"{led.files_changed} files · {led.commands_run} commands · "
+                f"{commits} commits · {led.publish_state}"
+            ),
+            items=[
+                PanelItem(
+                    id="last.files",
+                    label=icons.label("files changed", "ledger", self._icons_mode),
+                    status=str(led.files_changed),
+                ),
+                PanelItem(
+                    id="last.commands",
+                    label=icons.label("commands run", "activity", self._icons_mode),
+                    status=str(led.commands_run),
+                ),
+                PanelItem(
+                    id="last.commits",
+                    label=icons.label("commits", "ok", self._icons_mode),
+                    status=commits,
+                ),
+                PanelItem(
+                    id="last.publish",
+                    label=icons.label("publish", "run", self._icons_mode),
+                    status=led.publish_state or "none",
+                ),
+            ],
+        )
+
+    def _restore_idle_view(self, result: Optional[TaskResult]) -> None:
+        """Put the idle layout back after a work item (#285 t7): remove the
+        Active-run panel (its slot becomes the Next block again), un-collapse the
+        templates panel, and — when a result is available — add/replace the
+        Last-run ledger panel. The caller's :meth:`_refresh_context` then
+        refreshes Next/policy/context/capacity content; it preserves the
+        Last-run panel (not one of the ids it rebuilds), so the record survives
+        onto the idle frame."""
+        self._active_goal = ""
+        facts = self._facts()
+        next_panel = self._next_panel(facts)
+        last_panel = self._last_run_panel(result) if result is not None else None
+        panels: list[Panel] = []
+        restored_next = False
+        replaced_last = False
+        for p in self.state.panels:
+            if p.id in (_ACTIVE_RUN_PANEL_ID, _NEXT_PANEL_ID):
+                if not restored_next:
+                    panels.append(next_panel)  # the idle Next block returns
+                    restored_next = True
+                continue
+            if p.id == "commands":
+                panels.append(cast(Panel, replace(p, visible=True)))  # templates re-expand
+                continue
+            if p.id == _LAST_RUN_PANEL_ID and last_panel is not None:
+                panels.append(last_panel)  # replace a prior last-run record in place
+                replaced_last = True
+                continue
+            panels.append(p)
+        if not restored_next:
+            panels.insert(0, next_panel)
+        if last_panel is not None and not replaced_last:
+            panels.append(last_panel)
+        self.state = replace(self.state, panels=panels)
+
     def _log(self, text: str) -> None:
         """Append a line (or block) to the conversation via the pure reducer."""
         self.state = reduce(self.state, UserInput(text=text))
@@ -1098,7 +1292,14 @@ class _Session:
         single home for the ``work_fn`` call shared by ``_run_work`` and
         ``_run_readonly`` — the caller owns the feed rendering of the result.
         ``mode`` (t3/R1) names the constraint profile; it resolves inside
-        ``execute_work`` — the same code path the ``work --mode`` flag uses."""
+        ``execute_work`` — the same code path the ``work --mode`` flag uses.
+
+        The cockpit visibly changes state for the duration (#285 t7): the run
+        view is armed before the loop (templates collapse, a live Active-run
+        panel appears) and the idle layout is restored afterwards with a
+        Last-run ledger — on the success AND the error path, so the cockpit
+        never strands the operator in a half-running frame."""
+        self._arm_run_view(task.instruction)
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -1116,12 +1317,14 @@ class _Session:
             goal=task.instruction,
         )
         if pair is None:
+            self._restore_idle_view(None)  # error path — never leave the run view armed
             return None
         result, _artifact = pair
         # The Capacity panel's signal row (spec R3 / plan t9 / #256) surfaces the
         # latest fill-line/backpressure warning; captured here, BEFORE the
         # caller's `_refresh_context()` rebuilds the panel, so it is never stale.
         self._last_capacity_warning = result.capacity_warning
+        self._restore_idle_view(result)  # idle layout back + authoritative last-run ledger
         if self.json_mode:
             self.out(json.dumps(result.to_dict(), ensure_ascii=False))
         return result

@@ -21,9 +21,12 @@ from agentfront.taui.state import WorkItem
 
 from colleague import icons
 from colleague.cli._commands.session import (
+    _ACTIVE_RUN_PANEL_ID,
     _HELP_COMPACT,
     _HELP_TEXT,
     _HELP_VERBOSE,
+    _LAST_RUN_PANEL_ID,
+    _NEXT_PANEL_ID,
     _SLASH_COMMANDS,
     SessionIO,
     _Session,
@@ -634,3 +637,93 @@ def test_live_ansi_render_uses_colleague_prompt(tmp_path: Path, monkeypatch) -> 
     frame = captured["render"]("hi", [], 0)  # buffer "hi", no popup matches
     assert "colleague ❯" in frame
     assert "agent ❯" not in frame
+
+
+# ── #285 t7: running-state switch (Active-run panel + last-run ledger) ────────
+
+
+def test_running_frame_differs_from_idle_and_restores_on_finish(tmp_path: Path) -> None:
+    """#285 t7: while a work item runs the cockpit visibly changes — the
+    'suggested work' templates panel collapses, the idle Next block is replaced
+    by a live Active-run panel, and the status line shows step N. On finish the
+    idle layout is restored (templates back, Active-run gone, Next back) plus a
+    Last-run ledger panel."""
+    from colleague.contract import OK, Task, TaskResult, WorkStats
+
+    captured: dict = {}
+
+    def _work_fn(*, progress_sink, **kwargs: object) -> tuple[TaskResult, Path]:
+        # Mid-run: drive real steps through the live sink, then snapshot the frame.
+        progress_sink(0, "write_file", "foo.py", True)
+        progress_sink(1, "run_command", "pytest", True)
+        captured["panels"] = {p.id: p for p in s.state.panels}
+        captured["status"] = s.state.status.message
+        return (
+            TaskResult(
+                task_id="x",
+                status=OK,
+                summary="done",
+                branch="colleague/x",
+                stats=WorkStats(files_changed=1, tool_counts={"run_command": 1, "write_file": 1}),
+            ),
+            tmp_path / "art.json",
+        )
+
+    s = _make_session(tmp_path)
+    s.work_fn = _work_fn
+    s._run_work(Task.new(str(tmp_path), "build the thing"), None)
+
+    # DURING the run — the running frame differs from idle.
+    run_panels = captured["panels"]
+    assert run_panels["commands"].visible is False  # templates collapsed
+    assert _ACTIVE_RUN_PANEL_ID in run_panels  # Active-run present
+    assert _NEXT_PANEL_ID not in run_panels  # idle Next replaced
+    assert "step 2" in captured["status"]  # status shows step N
+    assert "[run_command] pytest" in captured["status"]  # + current op
+    # Active-run panel shows the observed changes-so-far (commits omitted mid-run).
+    active = run_panels[_ACTIVE_RUN_PANEL_ID]
+    changes = next(i for i in active.items if i.id == "run.changes")
+    assert changes.status == "1 files · 1 commands"  # write_file → 1 file, run_command → 1 cmd
+
+    # AFTER finish — idle restored + a Last-run ledger.
+    idle = {p.id: p for p in s.state.panels}
+    assert idle["commands"].visible is True  # templates re-expanded
+    assert _ACTIVE_RUN_PANEL_ID not in idle  # Active-run removed
+    assert _NEXT_PANEL_ID in idle  # idle Next restored (refreshed suggestion)
+    assert _LAST_RUN_PANEL_ID in idle  # last-run ledger present
+
+
+def test_last_run_ledger_equals_taskresult_stats_verbatim(tmp_path: Path) -> None:
+    """#285 t7: the Last-run ledger is reconciled from ``TaskResult.stats`` +
+    handoff, so its files/commands equal the stats verbatim, commits reflects the
+    committed branch, and publish state is honest (local when no PR)."""
+    from colleague.cockpit_run import reconcile
+    from colleague.contract import OK, TaskResult, WorkStats
+
+    result = TaskResult(
+        task_id="x",
+        status=OK,
+        summary="done",
+        branch="colleague/x",
+        stats=WorkStats(files_changed=3, tool_counts={"run_command": 4, "edit_file": 2}),
+    )
+    s = _make_session(tmp_path)
+    s._restore_idle_view(result)
+    panel = next(p for p in s.state.panels if p.id == _LAST_RUN_PANEL_ID)
+    items = {i.id: i.status for i in panel.items}
+    led = reconcile(result)
+    assert items["last.files"] == str(led.files_changed) == "3"  # verbatim from stats
+    assert items["last.commands"] == str(led.commands_run) == "4"  # run_command count
+    assert items["last.commits"] == "1"  # a committed branch → 1
+    assert items["last.publish"] == "local"  # branch committed, no PR
+
+
+def test_running_frame_mirror_and_markdown_carry_active_run_panel(tmp_path: Path) -> None:
+    """#285 t7: the Active-run panel reaches the agent-facing tiers (TAUI mirror
+    + Markdown) through the generic panel walk — zero per-renderer code."""
+    s = _make_session(tmp_path)
+    s._arm_run_view("ship the cockpit")
+    ids = {p["id"] for p in serialize(s.state)["panels"]}
+    assert _ACTIVE_RUN_PANEL_ID in ids
+    active_title = icons.label("Active run", "run", "emoji")
+    assert f"## {active_title}" in render_markdown(s.state)
