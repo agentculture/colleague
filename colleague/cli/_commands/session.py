@@ -61,7 +61,7 @@ from agentfront.taui.state import Header, Panel, PanelItem, Status
 from agentfront.taui.state import TAUIState as CockpitState
 from agentfront.taui.state import WorkItem
 from agentfront.taui.widgets.prompt_input import plain_prompt
-from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
+from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, format_tags
 
 from colleague import cockpit, feedback, flight, handoff, icons, layers, registry
 from colleague.artifact import artifact_dir
@@ -1063,7 +1063,12 @@ class _Session:
             popup = ""
             if matches:
                 popup = render_slash_autocomplete(
-                    matches, selected, width=detect_width(), style=_slash_tag_style()
+                    matches,
+                    selected,
+                    width=detect_width(),
+                    style=_slash_tag_style(),
+                    groups=_SLASH_GROUPS,
+                    default_group="session",
                 )
                 parts.append(popup)
             return "\n".join(parts) + _cursor_back_to_input(popup, prompt, buffer)
@@ -1719,8 +1724,9 @@ class _Session:
 @dataclass(frozen=True)
 class SlashSpec:
     """One slash command: its name, an optional arg hint, a one-line help, the
-    intent ``group`` it belongs to (``controls`` / ``inspect`` / ``session``) so
-    ``/help`` and the popup can present a grouped tree, and ``tags`` — small
+    intent ``group`` it belongs to (one of the five keys in ``_SLASH_GROUPS`` —
+    ``runtime`` / ``workspace`` / ``git-publish`` / ``inspect`` / ``session``)
+    so ``/help`` and the popup can present a grouped tree, and ``tags`` — small
     capability/risk badges (``read-only`` / ``writes`` / ``git`` / ``pr`` …,
     issue #160) shown next to the command."""
 
@@ -1729,6 +1735,20 @@ class SlashSpec:
     description: str
     group: str = "session"
     tags: tuple[str, ...] = ()
+
+
+#: colleague's slash-command intent groups (#285 t9) — display order + heading.
+#: A LOCAL taxonomy (not agentfront's generic controls/inspect/session): the
+#: agentfront widget accepts a consumer group list via `groups=` / `default_group=`
+#: (no fork — the #249 rule). Every derived surface (/help, the popup, the slash
+#: panels) iterates THIS list, so they cannot drift.
+_SLASH_GROUPS: list[tuple[str, str]] = [
+    ("runtime", "Runtime"),
+    ("workspace", "Workspace"),
+    ("git-publish", "Git / publish"),
+    ("inspect", "Inspect"),
+    ("session", "Session"),
+]
 
 
 #: The single source of truth for every slash command — the ``/help`` text, the
@@ -1762,37 +1782,37 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "engine",
         "<name>",
         "switch the engine for the next work item",
-        "controls",
+        "runtime",
         ("model", "config"),
     ),
-    SlashSpec("model", "<name>", "switch the model", "controls", ("model", "config")),
+    SlashSpec("model", "<name>", "switch the model", "runtime", ("model", "config")),
     SlashSpec(
         "mode",
         "[name]",
         "show/cycle the session mode (auto|work|plan|explore|review) — shift-tab equivalent",
-        "controls",
+        "runtime",
         ("interactive",),
     ),
-    SlashSpec("base", "<branch>", "set the PR base branch", "controls", ("git", "config")),
+    SlashSpec("base", "<branch>", "set the PR base branch", "workspace", ("git", "config")),
     SlashSpec(
         "pr",
         "",
         "toggle push + open PR on each work item",
-        "controls",
+        "git-publish",
         ("git", "pr", "writes", "human-loop"),
     ),
     SlashSpec(
         "attach",
         "[path]",
         "stage a media attachment for the next work line (no arg lists staged)",
-        "controls",
+        "workspace",
         ("media", "config"),
     ),
     SlashSpec(
         "learn-from",
         "<source> [name…]",
         "learn skills from a peer (e.g. claude) into .colleague/skills/",
-        "controls",
+        "workspace",
         ("writes", "config"),
     ),
     SlashSpec("quit", "", "end the session", "session", ("safe",)),
@@ -1826,7 +1846,7 @@ def _format_help(specs: Sequence[SlashSpec], style: str = "text") -> str:
     commands`` is kept. *style* selects the tag form (``text`` | ``icons``)."""
     groups = _grouped(specs)
     rows = ["slash commands  (/help verbose for descriptions · /help compact for icons)"]
-    for key, title in SLASH_GROUPS:
+    for key, title in _SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue
@@ -1849,7 +1869,7 @@ def _format_help_verbose(specs: Sequence[SlashSpec], style: str = "text") -> str
     and tag badges."""
     groups = _grouped(specs)
     rows = ["slash commands (verbose)"]
-    for key, title in SLASH_GROUPS:
+    for key, title in _SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue
@@ -1879,7 +1899,7 @@ def build_slash_panels() -> list[Panel]:
     these ``slash.*`` panels."""
     groups = _grouped(_SLASH_COMMANDS)
     panels: list[Panel] = []
-    for key, title in SLASH_GROUPS:
+    for key, title in _SLASH_GROUPS:
         members = groups.get(key, [])
         if not members:
             continue

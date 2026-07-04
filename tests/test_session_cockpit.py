@@ -28,6 +28,7 @@ from colleague.cli._commands.session import (
     _LAST_RUN_PANEL_ID,
     _NEXT_PANEL_ID,
     _SLASH_COMMANDS,
+    _SLASH_GROUPS,
     SessionIO,
     _Session,
     build_slash_panels,
@@ -543,9 +544,36 @@ def test_policy_panel_names_the_approvals_gate_when_configured(tmp_path: Path) -
 
 def test_compact_help_is_grouped_and_lists_every_verb() -> None:
     assert "slash commands" in _HELP_TEXT
-    assert "Controls" in _HELP_TEXT and "Inspect" in _HELP_TEXT and "Session" in _HELP_TEXT
+    assert "Runtime" in _HELP_TEXT
+    assert "Workspace" in _HELP_TEXT
+    assert "Git / publish" in _HELP_TEXT
+    assert "Inspect" in _HELP_TEXT
+    assert "Session" in _HELP_TEXT
     for spec in _SLASH_COMMANDS:  # drift: every verb still appears
         assert f"/{spec.name}" in _HELP_TEXT
+
+
+def test_every_command_group_is_one_of_the_five_declared_groups() -> None:
+    """No stray/typo'd group value — every spec's group is a real _SLASH_GROUPS key."""
+    valid = {key for key, _ in _SLASH_GROUPS}
+    assert {s.group for s in _SLASH_COMMANDS} <= valid
+
+
+def test_pr_renders_under_the_publish_boundary_heading() -> None:
+    """/pr is the git-publish boundary command — it must render under its own
+    'Git / publish' heading, distinct from the other runtime/workspace controls."""
+    groups = {s.name: s.group for s in _SLASH_COMMANDS}
+    assert groups["pr"] == "git-publish"
+    pr_idx = _HELP_TEXT.index("/pr")
+    heading_idx = _HELP_TEXT.rindex("📁 Git / publish", 0, pr_idx)
+    assert heading_idx < pr_idx  # /pr appears after (under) its own group heading
+
+
+def test_engine_model_mode_are_under_runtime() -> None:
+    groups = {s.name: s.group for s in _SLASH_COMMANDS}
+    assert groups["engine"] == "runtime"
+    assert groups["model"] == "runtime"
+    assert groups["mode"] == "runtime"
 
 
 def test_verbose_help_differs_and_is_richer() -> None:
@@ -584,7 +612,13 @@ def test_help_compact_is_icon_mode_and_dispatches(tmp_path: Path) -> None:
 
 def test_slash_panels_present_in_session_state(tmp_path: Path) -> None:
     ids = {p.id for p in _make_session(tmp_path).state.panels}
-    assert {"slash.controls", "slash.inspect", "slash.session"} <= ids
+    assert {
+        "slash.runtime",
+        "slash.workspace",
+        "slash.git-publish",
+        "slash.inspect",
+        "slash.session",
+    } <= ids
     # The original cockpit panels are untouched.
     assert {"policy", "context", "commands", "panel.conversation"} <= ids
 
@@ -592,7 +626,9 @@ def test_slash_panels_present_in_session_state(tmp_path: Path) -> None:
 def test_slash_tree_with_tags_reaches_markdown_tier(tmp_path: Path) -> None:
     md = render_markdown(_make_session(tmp_path).state)
     # agentfront.taui.render.markdown uses H2 (##) for panels, not H3 (###).
-    assert "## 📁 Controls" in md and "## 📁 Inspect" in md
+    assert "## 📁 Runtime" in md
+    assert "## 📁 Git / publish" in md
+    assert "## 📁 Inspect" in md
     assert "/pr" in md  # the /pr command is listed in the Markdown
     # Tag badges are structured in the TAUI JSON mirror (see
     # test_slash_tree_tags_are_structured_in_taui) but not rendered inline in
@@ -601,14 +637,14 @@ def test_slash_tree_with_tags_reaches_markdown_tier(tmp_path: Path) -> None:
 
 def test_slash_tree_tags_are_structured_in_taui(tmp_path: Path) -> None:
     panels = {p["id"]: p for p in serialize(_make_session(tmp_path).state)["panels"]}
-    pr = next(i for i in panels["slash.controls"]["items"] if i["id"] == "slash.pr")
+    pr = next(i for i in panels["slash.git-publish"]["items"] if i["id"] == "slash.pr")
     assert pr["tags"] == ["git", "pr", "writes", "human-loop"]  # per-item tag field
 
 
 def test_live_flat_view_skips_the_slash_panels() -> None:
     # The borderless live session view leaves the slash tree to the `/` popup.
     flat = render_flat(CockpitState(panels=build_slash_panels()), include_prompt=False)
-    assert "Controls" not in flat and "/pr" not in flat
+    assert "Runtime" not in flat and "/pr" not in flat
 
 
 def test_live_ansi_render_uses_colleague_prompt(tmp_path: Path, monkeypatch) -> None:
