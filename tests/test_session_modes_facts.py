@@ -215,5 +215,5 @@ class TestModeFactsImmutability:
     def test_mode_facts_is_frozen(self) -> None:
         """ModeFacts cannot be mutated after creation."""
         facts = mode_facts("work")
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):  # frozen dataclass → FrozenInstanceError
             facts.behavior = "plan"  # type: ignore-unable-to-set-attribute

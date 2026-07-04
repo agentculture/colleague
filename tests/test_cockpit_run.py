@@ -51,7 +51,7 @@ class TestFoldImmutability:
 
     def test_activity_is_frozen(self) -> None:
         a = Activity("read_file", "x.py", True)
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):  # frozen dataclass → FrozenInstanceError
             a.tool = "other"  # type: ignore
 
 

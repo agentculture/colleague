@@ -118,16 +118,17 @@ class ModeFacts:
 
 
 def _profile_rows(profile: Optional[ModeProfile]) -> tuple[tuple[str, str], ...]:
-    """Render a ModeProfile as ordered (label, value) rows."""
-    if profile is None:
-        return ()
-    return (
-        ("steps", str(profile.max_steps)),
-        ("timeout", f"{profile.timeout:g}s"),
-        ("context budget", f"{int(profile.context_budget_fraction * 100)}%"),
-        ("fill-line", f"{int(profile.fillline_threshold * 100)}%"),
-        ("synthesis reserve", str(profile.synthesis_reserve_steps)),
-    )
+    """Render a ModeProfile as ordered (label, value) rows (empty when no profile)."""
+    rows: list[tuple[str, str]] = []
+    if profile is not None:
+        rows = [
+            ("steps", str(profile.max_steps)),
+            ("timeout", f"{profile.timeout:g}s"),
+            ("context budget", f"{int(profile.context_budget_fraction * 100)}%"),
+            ("fill-line", f"{int(profile.fillline_threshold * 100)}%"),
+            ("synthesis reserve", str(profile.synthesis_reserve_steps)),
+        ]
+    return tuple(rows)
 
 
 def mode_facts(mode: str, *, resolved_from: str = "") -> ModeFacts:
