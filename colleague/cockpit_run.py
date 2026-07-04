@@ -209,6 +209,13 @@ def status_line(
     - step: ``"step {step}/{max_steps}"`` or ``"step {step}"`` when max_steps is None
     - current op: ``state.last_action`` if non-empty
     - elapsed: compact human string from *elapsed_seconds*; omitted if None
+
+    NOTE (#285 / agentfront#51): ``step``, ``max_steps`` and ``elapsed_seconds``
+    are caller-INJECTED because agentfront's ``WorkItem`` carries only
+    ``step_count`` today — not the step cap nor a start stamp — and the session is
+    thread-free (elapsed is event-stamped at sink boundaries, never a clock
+    thread). Upstream ask to make ``step N/max`` + elapsed structural on
+    ``WorkItem``: https://github.com/agentculture/agentfront/issues/51
     """
     parts: list[str] = []
 

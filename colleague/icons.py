@@ -26,6 +26,13 @@ DEFAULT_ICON_MODE: str = "emoji"
 
 #: The vocabulary: a semantic key -> the glyph for each mode.
 #: Cover the semantic keys used by colleague-composed panels.
+#:
+#: NOTE (#285 / agentfront#50): this vocabulary switches only the glyphs in the
+#: labels colleague itself composes. The renderer-OWNED glyphs (the moon-phase
+#: state animation, the idle severity glyph, popup glyphs inside
+#: ``agentfront.taui``) cannot be switched consumer-side without forking a
+#: renderer (forbidden by the #249 "import, don't duplicate" rule). Upstream ask
+#: to make those switchable: https://github.com/agentculture/agentfront/issues/50
 ICONS: dict[str, dict[str, str]] = {
     "policy": {"emoji": "\U0001f6e1\ufe0f", "ascii": "[policy]", "none": ""},
     "context": {"emoji": "\U0001f7e2", "ascii": "[context]", "none": ""},
