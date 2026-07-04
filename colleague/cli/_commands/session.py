@@ -312,15 +312,16 @@ class _WorkSink:
             if sess.view == "ansi":
                 sess.emit()
             return
-        # Fold the step through the reducer FIRST — it advances
-        # ``work_item.step_count`` and opens the same error popup as `tui replay`
-        # on a failed step (composed around, never re-implemented). Then RESTORE
-        # ``state.conversation`` so the tool step does NOT land in the transcript
-        # (#285 t7): the conversation stays the user/agent transcript, and the
-        # tool ledger lives in the Active-run panel — two separate blocks.
-        before_conv = sess.state.conversation
+        # Fold the step through the reducer — it advances ``work_item.step_count``,
+        # appends the ``[tool] target`` line to ``state.conversation`` with the #233
+        # ×N collapse, and opens the same error popup as `tui replay` on a failed
+        # step (composed around, never re-implemented). The tool feed STAYS in the
+        # conversation — that IS the #233 legible action feed; removing it would
+        # regress that shipped feature (#285 t7 decision). The "separate blocks" the
+        # spec asks for is delivered by the STRUCTURED Active-run ledger panel (goal
+        # · changes-so-far · last action), folded below and rendered as its own
+        # distinct block — a summary alongside the feed, not a second copy of it.
         sess.state = reduce(sess.state, work_step(tool, target, ok))
-        sess.state = replace(sess.state, conversation=before_conv)
         # Fold the real step into the shared run-state and compose the live
         # status line ``phase · step N/max · current op · elapsed`` from it.
         self._run = fold(self._run, tool, target, ok)

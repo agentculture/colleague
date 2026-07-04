@@ -606,12 +606,15 @@ def test_session_work_sink_folds_phase_into_status_and_composes_run_line_on_real
     assert sess.state.work_item.step_count == 1
     # The phase text is gone, replaced by the composed run status line: step
     # progress + the current operation (elapsed is event-stamped, so not matched
-    # exactly). A real step also does NOT land in the transcript (#285 t7 split).
+    # exactly).
     msg = sess.state.status.message
     assert "thinking" not in msg
     assert "step 1" in msg
     assert "[read_file] a.py" in msg
-    assert sess.state.conversation == []  # the tool step stays out of the transcript
+    # The tool step DOES land in the conversation feed — that is the #233 legible
+    # action feed, preserved (the separate ledger block is the Active-run panel,
+    # not a removal of the feed).
+    assert len(sess.state.conversation) == 1
 
 
 def test_session_unknown_slash_is_a_stderr_error(tmp_path: Path) -> None:
