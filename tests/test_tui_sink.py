@@ -180,19 +180,23 @@ def test_fold_phase_sets_status_without_touching_work_item_or_conversation() -> 
     assert folded.conversation == []  # no feed line added
 
 
-def test_cockpit_sink_phase_notice_updates_status_and_clears_on_real_step() -> None:
-    """The #206 follow-up: a phase notice is folded into the cockpit's STATUS
-    surface (visible to the operator) instead of being dropped; a subsequent
-    REAL step clears it back to the sink's baseline status."""
+def test_cockpit_sink_phase_notice_updates_status_and_composes_run_line_on_real_step() -> None:
+    """The #206 follow-up extended by #285 t8: a phase notice is folded into the
+    cockpit's STATUS surface (visible to the operator) instead of being dropped;
+    a subsequent REAL step REPLACES it with the composed run status line
+    ``step N · current op`` — the phase text is cleared (``phase=""``), NOT kept
+    — matching the session's ``_WorkSink`` exactly so both live cockpits agree."""
     sink = CockpitProgressSink("t1", "mock", stream=_Stream(isatty=False))
-    base_message = sink._state.status.message
 
     sink(0, "", "thinking… (waiting on the model)", True)  # a phase notice
     assert sink._state.status.message == "thinking… (waiting on the model)"
     assert sink._state.work_item.step_count == 0  # still not a step
 
-    sink(1, "read_file", "a.py", True)  # a real step clears the phase text
-    assert sink._state.status.message == base_message
+    sink(1, "read_file", "a.py", True)  # a real step composes the run status line
+    msg = sink._state.status.message
+    assert "thinking" not in msg  # the phase text is cleared, never lingers
+    assert "step 1" in msg
+    assert "[read_file] a.py" in msg
     assert sink._state.work_item.step_count == 1
 
 
