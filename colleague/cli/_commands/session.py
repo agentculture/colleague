@@ -62,7 +62,7 @@ from agentfront.taui.state import WorkItem
 from agentfront.taui.widgets.prompt_input import plain_prompt
 from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, SLASH_GROUPS, format_tags
 
-from colleague import cockpit, feedback, flight, handoff, layers, registry
+from colleague import cockpit, feedback, flight, handoff, icons, layers, registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.cli._banner import emit_banner
@@ -75,7 +75,6 @@ from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import SensesBlock, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
-from colleague.profiles import resolve_profile
 from colleague.senses import (
     run_senses_intake,
     run_senses_speakback,
@@ -85,7 +84,10 @@ from colleague.senses import (
 from colleague.session_intent import PLAN, classify_intent
 from colleague.session_modes import (
     DEFAULT_MODE,
+    ModeFacts,
     mode_affordance_line,
+    mode_facts,
+    mode_facts_fragment,
     next_mode,
     resolve_mode,
     route_for,
@@ -122,8 +124,19 @@ _GOAL_MAX_CHARS = 80
 #: Capacity panel item ids (spec R3 / plan t9 / #256).
 _CAPACITY_PANEL_ID = "capacity"
 _CAPACITY_BUDGET_ID = "cap.budget"
+#: The disambiguated behavior+source fact (#285 t6) — distinct from the
+#: execution-profile row below; together with it these replace the old single
+#: conflated "mode — steps≤N · timeout…" line.
+_CAPACITY_MODE_ID = "cap.mode"
 _CAPACITY_PROFILE_ID = "cap.mode_profile"
 _CAPACITY_SIGNAL_ID = "cap.signal"
+
+#: The Next panel (#285 t6) — the safest-next-move promoted from a status-text
+#: line buried in the Session panel's ``content_summary`` into a first-class
+#: panel + item, so every render tier (flat ANSI, Markdown, TAUI mirror) shows
+#: it as a distinct fact rather than prose.
+_NEXT_PANEL_ID = "next"
+_NEXT_ITEM_ID = "next.action"
 
 
 def _goal_text(instruction: str) -> str:
@@ -138,20 +151,25 @@ def _goal_text(instruction: str) -> str:
     return first_line
 
 
-def _mode_profile_status(mode: str) -> str:
-    """Human status for *mode*'s constraint profile (spec R1's mode-profile
-    catalog, ``colleague.profiles``), or an honest 'no fixed profile' note when
-    the mode has none (``auto``, or an unprofiled/unknown name) — never a crash
-    or a stale-looking blank row."""
-    profile = resolve_profile(mode)
-    if profile is None:
-        return f"{mode} — no fixed profile (resolves per input)"
-    return (
-        f"{mode} — steps≤{profile.max_steps} · timeout {profile.timeout:.0f}s · "
-        f"budget×{profile.context_budget_fraction:g} · "
-        f"fill-line {profile.fillline_threshold:.0%} · "
-        f"synth-reserve {profile.synthesis_reserve_steps}"
-    )
+def _mode_status_text(facts: ModeFacts) -> str:
+    """One-line disambiguated 'behavior (source)' fact (#285 t6) — e.g.
+    ``explore (pinned)`` or ``auto→work (auto)`` — kept separate from the
+    execution-profile text below so an operator can tell WHICH behavior is
+    active from WHETHER it was auto-classified or pinned, without either fact
+    being blurred into the other."""
+    if facts.resolved_from:
+        return f"{facts.behavior}→{facts.resolved_from} ({facts.source})"
+    return f"{facts.behavior} ({facts.source})"
+
+
+def _mode_profile_text(facts: ModeFacts) -> str:
+    """One-line execution-profile fact (steps/timeout/budget/fill-line/
+    synthesis-reserve), or an honest 'no fixed profile' note when the mode has
+    none (``auto`` with no sample input) — never a crash or a stale-looking
+    blank row."""
+    if not facts.profile_rows:
+        return "no fixed profile (resolves per input)"
+    return " · ".join(f"{label} {value}" for label, value in facts.profile_rows)
 
 
 def _coerce_strs(value: object) -> list[str]:
@@ -419,6 +437,12 @@ class _Session:
             (name, load_command(self.discovered[name]).description)
             for name in sorted(self.discovered)
         ]
+        # Icon vocabulary (#285 t6): resolved once (repo/env/config precedence,
+        # colleague.icons.resolve_icons) rather than per-frame, since it can only
+        # change via a repo config edit + a fresh session. Applied to every
+        # colleague-composed panel label via `icons.label`; a bare `"none"` mode
+        # degrades every such label to plain text with no glyph.
+        self._icons_mode = icons.resolve_icons(repo_path=repo)
         self.state = self._initial_state()
 
     # ── state construction / mutation ────────────────────────────────────────
@@ -437,15 +461,17 @@ class _Session:
             mode=self.mode,
             header=Header(title="colleague"),
             panels=[
+                # Next is the cockpit's "what do I do now?" answer — placed first
+                # so it reads before the facts that justify it (#285 t6).
+                self._next_panel(facts),
                 self._policy_panel(facts),
                 self._context_panel(facts),
                 self._capacity_panel(),
-                Panel(id="commands", title="Work templates", visible=True, items=items),
+                Panel(id="commands", title="suggested work", visible=True, items=items),
                 Panel(
                     id=_CONVERSATION_PANEL_ID,
                     title="Session",
                     visible=True,
-                    content_summary=self._suggested_action(facts),
                     items=[],
                 ),
                 *build_slash_panels(),
@@ -512,53 +538,83 @@ class _Session:
 
     @staticmethod
     def _run_command_status(runcfg: dict | None) -> tuple[str, str, bool]:
-        """``(status text, emoji, gated?)`` for the run_command line.
+        """``(state text, consequence text, gated?)`` for the run_command
+        capability — the ``label · state · consequence`` grammar (#285 t6).
 
         Honest labels mirror :meth:`~colleague.policy.Policy.check_run_command`:
         an allow-list only gates when non-empty; an empty allow-list with a
         deny-list is deny-only (all others allowed); both empty is effectively
         ungated. Both lists are coerced so a malformed ``approvals.json`` can't
-        crash render."""
+        crash render. The consequence text names only what the harness actually
+        enforces — never a "requires confirmation" claim the harness doesn't
+        make, and never "sandboxed"."""
         if runcfg is None:
-            return "ungated (any command)", "⚠️", False
+            return "ungated (any command)", "any shell command runs", False
         allow = _coerce_strs(runcfg.get("allow"))
         deny = _coerce_strs(runcfg.get("deny"))
         if allow:
             shown = ", ".join(allow[:3]) + ("…" if len(allow) > 3 else "")
-            return f"allow-list: {shown}", "🛡️", True
+            return f"allow-list: {shown}", "only listed programs run", True
         if deny:
             shown = ", ".join(deny[:3]) + ("…" if len(deny) > 3 else "")
-            return f"deny-list: {shown} (all others allowed)", "🛡️", True
-        return "present, no rules (effectively ungated)", "⚠️", False
+            return (
+                f"deny-list: {shown} (all others allowed)",
+                "listed programs are blocked; all others run",
+                True,
+            )
+        return "present, no rules (effectively ungated)", "any shell command runs", False
 
     def _policy_panel(self, facts: dict) -> Panel:
-        """The *Run policy* panel — the safety surface (AC #3). Honest labels: the
-        loop can write any repo file and run any command unless ``run_command`` is
-        gated; the only real outward gate is push/PR. No sandbox is claimed."""
-        run_status, run_emoji, gated = self._run_command_status(facts["runcfg"])
-        edits = "read + write within repo"
+        """The *Run policy* panel — the safety surface (AC #3), restructured as
+        an aligned ``label · state · consequence`` grammar (#285 t6): each item
+        names a capability, its current state, and the real consequence of that
+        state. Honest labels only: the loop can write any repo file and run any
+        command unless ``run_command`` is gated; the only real outward gate is
+        push/PR (plus the checksum/token approvals gate when configured). No
+        "requires confirmation" boundary is claimed — the harness enforces none
+        — and the tool is never described as sandboxed."""
+        run_state, run_consequence, gated = self._run_command_status(facts["runcfg"])
+        run_label = icons.label("run_command", "ok" if gated else "warn", self._icons_mode)
+
+        edits_state = "read + write within repo"
         if facts["hooks_gated"]:
-            edits += " · hooks/commands checksum-gated"
+            edits_state += " · hooks/commands checksum-gated"
+        edits_consequence = "the loop can create/modify any repo file"
+
         if self.open_pr:
-            handoff_status, handoff_emoji = f"on — push + open PR onto '{self.base}'", "🚀"
+            handoff_state = "on"
+            handoff_consequence = f"pushes a branch + opens a PR onto '{self.base}'"
+            handoff_key = "run"
         else:
-            handoff_status, handoff_emoji = "off (local commit only)", "🔒"
+            handoff_state = "off"
+            handoff_consequence = "commits locally only — nothing leaves this machine"
+            handoff_key = "idle"
+        handoff_label = icons.label("push + PR", handoff_key, self._icons_mode)
+
         summary = (
             f"run_command: {'gated' if gated else 'ungated'} · "
             f"edits: repo-local · push/PR: {'on' if self.open_pr else 'off'}"
         )
         return Panel(
             id="policy",
-            title="Run policy",
+            title=icons.label("Run policy", "policy", self._icons_mode),
             visible=True,
             content_summary=summary,
             items=[
                 PanelItem(
-                    id="pol.run_command", label=f"{run_emoji} run_command", status=run_status
+                    id="pol.run_command",
+                    label=run_label,
+                    status=f"{run_state} · {run_consequence}",
                 ),
-                PanelItem(id="pol.files", label="✏️ file edits", status=edits),
                 PanelItem(
-                    id="pol.handoff", label=f"{handoff_emoji} push + PR", status=handoff_status
+                    id="pol.files",
+                    label="file edits",
+                    status=f"{edits_state} · {edits_consequence}",
+                ),
+                PanelItem(
+                    id="pol.handoff",
+                    label=handoff_label,
+                    status=f"{handoff_state} · {handoff_consequence}",
                 ),
             ],
         )
@@ -586,27 +642,29 @@ class _Session:
         )
         return Panel(
             id="context",
-            title="Context",
+            title=icons.label("Context", "context", self._icons_mode),
             visible=True,
             content_summary=summary,
             items=[
-                PanelItem(id="ctx.repo", label="📁 repo", status=facts["ident"]),
-                PanelItem(id="ctx.branch", label="🌿 branch", status=facts["branch"]),
-                PanelItem(id="ctx.tree", label="🧭 working tree", status=tree_status),
-                PanelItem(id="ctx.agents", label="📋 AGENTS layers", status=agents_status),
-                PanelItem(id="ctx.skills", label="🧩 skills", status=skills_status),
+                PanelItem(id="ctx.repo", label="repo", status=facts["ident"]),
+                PanelItem(id="ctx.branch", label="branch", status=facts["branch"]),
+                PanelItem(id="ctx.tree", label="working tree", status=tree_status),
+                PanelItem(id="ctx.agents", label="AGENTS layers", status=agents_status),
+                PanelItem(id="ctx.skills", label="skills", status=skills_status),
                 PanelItem(
                     id="ctx.telemetry",
-                    label="📡 telemetry",
+                    label="telemetry",
                     status="on" if facts["telemetry"] else "off",
                 ),
-                PanelItem(id="ctx.feedback", label="⭐ /feedback", status=fb_status),
+                PanelItem(id="ctx.feedback", label="/feedback", status=fb_status),
             ],
         )
 
     def _capacity_panel(self) -> Panel:
-        """The *Capacity* panel (spec R3 / plan t9 / #256): context budget, the
-        active session mode's constraint profile, and the latest fill-line /
+        """The *Capacity* panel (spec R3 / plan t9 / #256; disambiguated #285
+        t6): context budget, the THREE distinct mode facts — behavior (which
+        mode), source (auto-classified vs pinned), and execution profile
+        (steps/timeout/budget/fill-line) — and the latest fill-line /
         backpressure signal a completed work item surfaced. Built from cheap
         in-memory state only (``self.config`` / ``self.mode`` /
         ``self._last_capacity_warning``) — no I/O, so it renders across every
@@ -614,34 +672,59 @@ class _Session:
         per-renderer code, exactly like Policy/Context. No agentfront schema
         change: this rides the existing ``Panel``/``PanelItem`` shape (the
         TAUIState `capacity` block itself is the separate, agentfront-side
-        upstream ask, agentfront#48 — out of scope here)."""
+        upstream ask, agentfront#48 — out of scope here).
+
+        The mode facts were previously blurred into one ``_mode_profile_status``
+        line naming the mode AND its profile together; ``colleague.session_modes
+        .mode_facts``/``mode_facts_fragment`` now separate behavior/source from
+        the execution profile so an operator can tell each fact apart — a
+        dedicated ``cap.mode`` item carries behavior+source, ``cap.mode_profile``
+        carries the execution profile alone."""
         tokens = self.config.context_budget_tokens
+        facts = mode_facts(self.mode)
+        # A genuine capacity warning gets the warn glyph; the neutral "nothing
+        # has happened yet" state must not look like a warning (#285 t6) — no
+        # glyph at all for the neutral case, reserving the warning glyph for a
+        # real fill-line/backpressure signal.
+        has_warning = bool(self._last_capacity_warning)
         signal = self._last_capacity_warning or "none yet"
+        signal_label = "capacity signal"
+        if has_warning:
+            signal_label = icons.label(signal_label, "warn", self._icons_mode)
         return Panel(
             id=_CAPACITY_PANEL_ID,
-            title="Capacity",
+            title=icons.label("Capacity", "capacity", self._icons_mode),
             visible=True,
-            content_summary=f"budget {tokens:,} tokens · mode {self.mode}",
+            content_summary=f"budget {tokens:,} tokens · {mode_facts_fragment(facts)}",
             items=[
                 PanelItem(
                     id=_CAPACITY_BUDGET_ID,
-                    label="🧮 context budget",
+                    label="context budget",
                     status=f"{tokens:,} tokens",
                 ),
                 PanelItem(
-                    id=_CAPACITY_PROFILE_ID,
-                    label="📐 mode profile",
-                    status=_mode_profile_status(self.mode),
+                    id=_CAPACITY_MODE_ID,
+                    label=icons.label("mode", "mode", self._icons_mode),
+                    status=_mode_status_text(facts),
                 ),
-                PanelItem(id=_CAPACITY_SIGNAL_ID, label="⚠️ capacity signal", status=signal),
+                PanelItem(
+                    id=_CAPACITY_PROFILE_ID,
+                    label="execution profile",
+                    status=_mode_profile_text(facts),
+                ),
+                PanelItem(id=_CAPACITY_SIGNAL_ID, label=signal_label, status=signal),
             ],
         )
 
     def _suggested_action(self, facts: dict) -> str:
-        """The safest/most-useful next move (AC #1) — always answers 'what now?'."""
+        """The safest/most-useful next move (AC #1) — always answers 'what
+        now?'. Returns plain text with no glyph prefix; the caller
+        (:meth:`_next_panel`) applies the icons vocabulary so a genuine caution
+        (a dirty tree) reads distinctly from the routine case, without a
+        hardcoded emoji baked into the message itself."""
         if facts["dirty"] and not self.allow_dirty:
             return (
-                "⚠ Safest next: commit or stash first (working tree is dirty), then "
+                "Safest next: commit or stash first (working tree is dirty), then "
                 "type a number to run a template — or /help."
             )
         if self.palette:
@@ -656,51 +739,51 @@ class _Session:
             "/help for commands."
         )
 
+    def _next_panel(self, facts: dict) -> Panel:
+        """The *Next* panel (#285 t6) — the safest/most-useful next move
+        (AC #1), promoted from a status-text line buried in the Session
+        panel's ``content_summary`` into a first-class panel + item, so every
+        render tier (flat ANSI, Markdown, TAUI mirror) carries it as a
+        distinct fact rather than prose. Reuses :meth:`_suggested_action`'s
+        dirty/clean/free-text judgment verbatim — only the rendering target
+        changed. A dirty-blocked tree earns the warning glyph (a genuine
+        caution); every other case gets the neutral 'next' glyph — a warning
+        is never shown where none is warranted."""
+        text = self._suggested_action(facts)
+        dirty_blocked = facts["dirty"] and not self.allow_dirty
+        key = "warn" if dirty_blocked else "next"
+        return Panel(
+            id=_NEXT_PANEL_ID,
+            title=icons.label("Next", "next", self._icons_mode),
+            visible=True,
+            items=[PanelItem(id=_NEXT_ITEM_ID, label=icons.label(text, key, self._icons_mode))],
+        )
+
     def _refresh_context(self) -> None:
-        """Rebuild the policy + context panels in place (preserving the running
-        conversation + work-templates panels) and refresh the Session panel's
-        suggested-action line. Called after a config change or a completed work
-        item — both can shift branch / dirty / policy / feedback, and the
-        suggested action depends on dirty-state + push/PR, so it must not go
-        stale (the cockpit promises to always answer 'what now?')."""
+        """Rebuild the next + policy + context + capacity panels in place
+        (preserving the running conversation + work-templates panels). Called
+        after a config change or a completed work item — both can shift
+        branch / dirty / policy / feedback / capacity, and the Next panel's
+        suggestion depends on dirty-state + push/PR, so it must not go stale
+        (the cockpit promises to always answer 'what now?')."""
         facts = self._facts()
-        suggested = self._suggested_action(facts)
         rebuilt = {
+            _NEXT_PANEL_ID: self._next_panel(facts),
             "policy": self._policy_panel(facts),
             "context": self._context_panel(facts),
             _CAPACITY_PANEL_ID: self._capacity_panel(),
         }
         self.state = replace(
             self.state,
-            panels=[
-                (
-                    self._with_suggestion(p, suggested)
-                    if p.id == _CONVERSATION_PANEL_ID
-                    else rebuilt.get(p.id, p)
-                )
-                for p in self.state.panels
-            ],
+            panels=[rebuilt.get(p.id, p) for p in self.state.panels],
         )
-
-    @staticmethod
-    def _with_suggestion(panel: Panel, suggested: str) -> Panel:
-        """Return the Session panel with its suggested-action line refreshed.
-
-        In the agentfront TAUI model the running conversation feed lives in
-        ``state.conversation`` (appended by the reducer on every ``UserInput`` /
-        ``WorkStep``); the Session panel now carries ONLY the suggested-action
-        line in ``content_summary``. Use ``dataclasses.replace`` so every other
-        Panel field is preserved verbatim (future-proof against a new agentfront
-        Panel field); the ``cast`` keeps the static type a concrete ``Panel``
-        rather than the generic ``DataclassInstance`` ``replace`` infers (the
-        same S5655 pattern used in ``_run_readonly``)."""
-        return cast(Panel, replace(panel, content_summary=suggested))
 
     def _with_goal(self, goal: str) -> None:
         """Set (or clear, with ``goal=""``) the Session panel's goal item —
         the running work item's instruction, so the operator always sees WHAT
         is being driven (spec R3 / plan t9 / #256). Mutates ``self.state`` via
-        the frozen ``dataclasses.replace`` idiom, mirroring ``_with_suggestion``.
+        the frozen ``dataclasses.replace`` idiom (the same pattern
+        ``_refresh_context`` uses to rebuild a panel in place).
         """
         goal_items = [PanelItem(id=_GOAL_ITEM_ID, label="🎯 goal", status=goal)] if goal else []
         self.state = replace(
