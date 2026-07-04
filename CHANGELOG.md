@@ -10,7 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Cockpit UX (#285): colleague session now reads like a real coder-agent cockpit in both states. Idle answers identity -> permissions -> workspace -> capacity -> next action with a first-class Next panel; running visibly changes the screen with a live status line (phase / step N/max / current op / event-stamped elapsed), an Active-run panel (goal / changes-so-far / last action), collapsed templates, and an authoritative Last-run mutation ledger on finish.
-- New pure colleague/cockpit_run.py (I/O-free, clock-free run-state + ledger: fold/RunState/observed_ledger/reconcile/status_line) shared identically by the session _WorkSink and the work --tui CockpitProgressSink.
+- New pure colleague/cockpit_run.py (I/O-free, clock-free run-state + ledger: fold/RunState/observed_ledger/reconcile/status_line) shared identically by the session `_WorkSink` and the work --tui CockpitProgressSink.
 - New colleague/icons.py emoji|ascii|none vocabulary applied to colleague-composed cockpit labels (flag > COLLEAGUE_ICONS > config.json > default emoji).
 - Disambiguated mode facts (session_modes.mode_facts): behavior, source (auto vs pinned), and execution profile rendered as three distinct facts instead of one conflated line.
 

@@ -899,9 +899,9 @@ The architecture, part by part:
   `TAUIState`) is the #256 precedent. All colleague-side over the imported
   `agentfront.taui` generic panel walk (zero per-renderer code); a boundary test
   pins that the new pure helpers never shadow `agentfront.taui` and stay out of
-  `colleague/tui/`. Feature doc: `docs/features/cockpit-ux.md` (+ the committed
-  idle/mid-run snapshot pair `docs/features/cockpit-ux/{idle,running}.md`); spec
-  + plan: `docs/specs/2026-07-03-colleague-s-cockpit-now-reads-like-a-real-coder-ag.md`
+  `colleague/tui/`. Feature doc: `docs/features/cockpit-ux.md` (plus the committed
+  idle/mid-run snapshot pair `docs/features/cockpit-ux/{idle,running}.md`); spec +
+  plan: `docs/specs/2026-07-03-colleague-s-cockpit-now-reads-like-a-real-coder-ag.md`
   and the matching `docs/plans/` file.
 - **TAUI imported from agentfront (cockpit-on-agentfront, #249)** — the generic
   cockpit (state model, events, reducer, TAUI mirror, the ANSI/flat/Markdown
