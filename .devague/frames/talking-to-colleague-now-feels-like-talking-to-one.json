@@ -1,0 +1,303 @@
+{
+  "slug": "talking-to-colleague-now-feels-like-talking-to-one",
+  "title": "Talking to colleague now feels like talking to one person: senses. You speak with senses (Gemma) directly \u2014 it acknowledges your request in its own words, hands the work to cortex (Qwen), keeps you posted with proactive progress updates while cortex drives, relays your mid-run guidance, and delivers cortex's answer back conversationally. A middle manager with senses' emotional intelligence fronting cortex's logical intelligence \u2014 and the task itself is always done by cortex.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-05T18:01:16Z",
+  "updated": "2026-07-05T18:08:15Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Talking to colleague now feels like talking to one person: senses. You speak with senses (Gemma) directly \u2014 it acknowledges your request in its own words, hands the work to cortex (Qwen), keeps you posted with proactive progress updates while cortex drives, relays your mid-run guidance, and delivers cortex's answer back conversationally. A middle manager with senses' emotional intelligence fronting cortex's logical intelligence \u2014 and the task itself is always done by cortex.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "the SAME work line run cortex-only and split yields the same TaskResult core (summary/status/steps); the middle-manager layer changes what the operator EXPERIENCES, never what cortex does or reports",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "colleague operators using 'colleague session' interactively on a TTY (v1 surface), with the mesh-resident and 'colleague talk' surfaces as parity follow-ups",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "the v1 surface is the interactive session on a colour TTY; off-TTY / piped / --no-tui / --cortex-only stays byte-identical (pinned by test), and mesh-resident + 'colleague talk' parity is recorded as a NAMED follow-up in the spec, never implied as shipped",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "senses already brackets a work line (intake perceives, speak-back shapes, mid-run talk answers) but only REACTIVELY: no acknowledgment when a request lands, no unprompted progress updates (the operator watches raw cockpit feed lines), each talk exchange is stateless, and intake cannot ask a clarifying question back \u2014 it feels like watching a machine, not talking to a colleague",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "the before-state is cited to today's code, not asserted: intake/speak-back/talk exist in colleague/senses.py, no ack turn exists, no unprompted-update path exists, and run_senses_talk threads no chat history \u2014 each verifiable at spec time",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "one continuous conversation with senses: it acknowledges the request in its own words, dispatches to cortex, narrates progress proactively at honest boundaries, relays mid-run guidance, and presents cortex's answer conversationally \u2014 while cortex remains the only mind that acts on the task",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "every promised beat (ack, dispatch, proactive update, relay, conversational answer) is observable in ONE recorded proof run: the session transcript shows the lines and TaskResult.senses records each turn",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "the operator gets senses' emotional intelligence and cortex's logical intelligence through ONE smooth interface \u2014 informed and in control without parsing raw feed lines, and never blocked waiting in silence",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "smoothness is demonstrated, not asserted: the acceptance proof includes a long-run transcript where phase/progress is legible from senses lines alone \u2014 and the raw cockpit feed stays available (senses augments, never hides)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "senses NEVER answers the task itself and never decides cortex isn't needed \u2014 #276 (senses-direct) stays parked and no automatic task-to-model routing policy is introduced; senses converses about the run and relays, cortex acts. This deepens the EXISTING enumerated senses surface, it does not widen it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "a structural proof pins that the task instruction always reaches cortex and that no senses output is ever used as TaskResult.summary source \u2014 the relay path is the ONLY way senses influences the run",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "no threads, no clock, no daemon: acknowledgment and proactive updates fire only at existing thread-free boundaries (intake time, progress-sink boundaries); absent senses config stays byte-identical cortex-only, and every senses turn stays tools-off degrade-never-raise",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "a boundary test pins the constraint: no new threading/clock imports outside the sanctioned list, updates fire only from existing sink boundaries, and a session with senses unresolved is byte-identical to today (test-pinned)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "on a long work line the operator sees: a senses acknowledgment before cortex's first step, at least one unprompted grounded progress update mid-run, and a conversational answer at finish \u2014 every senses turn recorded on TaskResult.senses so the whole exchange is reconstructable from the artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "the success signal is machine-checkable from the artifact alone: a proof run's TaskResult.senses contains the ack record, at least one proactive-update record, and the folded chat \u2014 no human judgment required to verify",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "acknowledgment turn: on split-mode intake, senses speaks FIRST \u2014 a short grounded acknowledgment (what it understood + that it is handing to cortex) rendered before cortex's first step; a degraded intake degrades to a plain dispatch notice, never fabricated understanding",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "the acknowledgment is derived only from the intake packet (interpretation/task_type/confidence); when intake degrades, the ack degrades to a fixed dispatch notice \u2014 a test pins that no ack ever claims an understanding the packet doesn't contain",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "proactive interim updates: senses narrates progress unprompted at a bounded cadence (phase changes and/or every N steps), grounded strictly in the live feed tail \u2014 a fabricated-status update is a test failure; an update never advances step_count (the #206 invariant)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "every proactive update quotes or paraphrases real feed lines from the run it narrates; a grounding test feeds a fabricated-status reply and asserts it is rejected/flagged, mirroring the run_senses_talk grounding contract",
+          "status": "confirmed"
+        },
+        {
+          "id": "h4",
+          "text": "updates are bounded per run (a cadence cap, env-tunable) so a chatty senses can never dominate the feed or the senses budget; hitting the cap is recorded, never silent",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "conversation continuity: operator-senses exchanges within one session (ack, updates, talk, final answer) thread as rolling chat history into subsequent senses calls, windowed to senses' OWN budget; the operator's original request stays verbatim, and the history folds into TaskResult.senses.chat",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "chat continuity is windowed to senses' own context budget with the verbatim-original invariant intact; a session with senses absent writes NO chat history and stays byte-identical",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "assumption",
+      "text": "senses latency under cortex load stays conversational \u2014 the live-presence arc proved 1.14s alone / 2.33s p50 under load, so an ack + a few updates add seconds, not minutes, to a run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "decision",
+      "text": "this is a deepening of the third sanctioned router-exclusion increment (senses live presence), not a fourth surface: same fixed responsibility boundary (cortex acts, senses perceives/presents/converses), same named roles, no new model consumers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "non_goal",
+      "text": "not a chat UI rewrite: the cockpit/feed stays; senses lines join the existing conversation surface. Not voice-first: tts narration of updates is a follow-up on the existing [voice] extra, not v1",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "open_question",
+      "text": "should low-confidence intake let senses ask ONE clarifying question back before dispatching to cortex (a bounded ask-then-dispatch), or does v1 always dispatch immediately with omissions noted?",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "why_it_matters",
+      "text": "operator's own words: quick and rich responsiveness in front, with a deep and intelligent worker behind \u2014 the front's latency and warmth is the product; the worker's depth is the substance",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "quick is measured: the front responds in low-single-digit seconds (senses p50 under cortex load ~2.3s already proven); rich is grounded: every front line derives from the real packet/feed, never canned filler; deep is structural: the task always reaches cortex un-shortcut",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "ack shape (operator decision): the acknowledgment rides the ONE existing intake completion \u2014 intake returns the ContextPacket AND a senses-authored ack line in the same call, rendered before cortex's first step; zero extra latency, zero extra calls",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c18",
+      "kind": "decision",
+      "text": "update cadence (operator decision): phase changes + every N steps, env-tunable with a per-run cap; the concrete numbers stay parked (v1) pending live tuning",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "clarify-first (operator decision): on low-confidence intake senses MAY ask clarifying questions before dispatching \u2014 MORE THAN ONE allowed, senses judges 'as needed'; an explicit operator go-word always dispatches immediately",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "clarification can never withhold work: an explicit 'go' (or equivalent) dispatches unconditionally; consecutive questions are bounded by a generous env-tunable ceiling (loop-proofing, not a UX cap); every clarify exchange is recorded on TaskResult.senses.chat and the final dispatched instruction still carries the operator's verbatim words \u2014 clarify refines the packet, never rewrites the request",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "proactive-update cadence numbers (which phase changes, every-N-steps value, per-run cap) \u2014 conservative defaults pending live tuning on the rig",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "mesh-resident and 'colleague talk' surface parity for ack + proactive updates (session-first in v1)",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "tts voice narration of proactive updates over the existing [voice] extra",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
