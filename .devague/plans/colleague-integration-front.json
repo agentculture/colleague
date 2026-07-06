@@ -1,0 +1,665 @@
+{
+  "slug": "colleague-integration-front",
+  "title": "colleague-integration-front",
+  "frame_slug": "colleague-integration-front",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-06T17:46:27Z",
+  "updated": "2026-07-06T17:51:30Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Ask colleague, and one coherent AI-coworker system answers: behind colleague's single operator front, lobes serves its minds, eidetic remembers every run, coherence scores the work, unsloth trains the next local model, data-refinery curates the datasets, agent-lifecycle supervises the processes, and cultureagent embodies it on the Culture mesh \u2014 each organ behind a published contract, closing the flywheel from graded work items to a better local model"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The announcement claims only what ships: every organ named is reachable through a shipped colleague verb, gate, or config rung with a live-testing ledger row per flywheel leg \u2014 an organ integration without live proof is described as staged, never shipped"
+    },
+    {
+      "id": "c2",
+      "kind": "why_it_matters",
+      "text": "Colleague is the highest-ROI repo and the product; the surrounding repos are organs; the goal is not more tools but one coherent AI coworker operating system (issue #291, operator mandate)"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "One-coherent-system is measured by consumption, not existence: each organ contract gains at least one consumer-side drift-test in a sibling repo \u2014 prose-only integration does not count"
+    },
+    {
+      "id": "c3",
+      "kind": "boundary",
+      "text": "Every spec lands in 1-3 focused PRs; no broad rewrites unless a repo boundary is actively harmful; no specs that only create architecture without a clear implementation path (issue #291 constraints)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Every opened spec names its 1-3 PR split and a concrete first implementation step up front; a spec that cannot state its first step is not opened (issue #291 quality bar)"
+    },
+    {
+      "id": "c5",
+      "kind": "audience",
+      "text": "The operator driving a DGX Spark local-AI coworker through colleague session/work, plus sibling Culture agents and repos that consume colleague's artifacts and contracts"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The operator surface stays agent-first: every new verb ships --json and structured errors so sibling agents, not only the human, can drive the front"
+    },
+    {
+      "id": "c6",
+      "kind": "before_state",
+      "text": "Seven organ repos ship clean agent-first CLIs (--json everywhere, 0/1/2 exit codes, teken rubric CI) but near-zero wired integration: colleague consumes only lobes (against a stale pre-0.38 contract in colleague/lobes.py), eidetic (recall/remember allow-list), and agent-lifecycle (resident embed); coherence-cli, unsloth-cli, and data-refinery-cli are consumed by nobody; cross-repo contracts are prose or missing (surveyed all seven repos 2026-07-06)"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The before-state is cited, not assumed: every missing/unconsumed claim traces to a named file or grep result from the 2026-07-06 survey; anything that landed since gets the spec corrected, not forced"
+    },
+    {
+      "id": "c7",
+      "kind": "after_state",
+      "text": "One front: the operator asks colleague; organ capabilities (memory, evaluation, training, dataset curation, model serving, supervision, mesh presence) are reachable through colleague's three existing integration patterns \u2014 curated allow-listed shell-outs (culture/devague/memory precedent), the post-loop gate rack (lint/test-integrity/affected-tests precedent), and the lobes discovery rung \u2014 each behind a published owner-repo contract"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The three-pattern claim is falsifiable: if any S1-S10 build cannot mount on shell-out, gate rack, discovery rung, or resident embed, the frame is re-opened rather than a fourth pattern silently invented"
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "No dependency reversal: cultureagent already depends on colleague (backend-colleague extra wraps colleague.resident.harness.ColleagueHarness via the agent-lifecycle Supervisor seam); colleague must never import or depend on cultureagent \u2014 mesh embodiment stays cultureagent-side (cultureagent survey: pyproject extras + clients/colleague/runtime/wiring.py)"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "CI-testable: colleague's import graph and pyproject never reference cultureagent \u2014 a boundary test pins the absent edge"
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "The router-exclusion line holds: no automatic task-to-model routing policy anywhere \u2014 lobes stays a static role registry plus pressure-shed gateway (lobes/gateway/_routing.py; lobes route is advisory and does not feed the gateway), colleague keeps fixed named-role consumption; passing a lobes-resolved embedder URL into organ subprocess env is endpoint pass-through, not role consumption or routing"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "Pass-through is structural: colleague never issues a /v1/embeddings request itself (boundary-testable) and injected env never overrides an operator-set value"
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Colleague conventions hold: no second base dependency, no socket, no colleague-owned daemon; every new organ integration is a curated allow-listed subprocess shell-out or a stdlib urllib GET (colleague CLAUDE.md conventions; test_zero_deps.py / test_boundary.py pins)"
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "test_zero_deps.py stays an allow-list of exactly agentfront; every new organ integration joins _SUBPROCESS_ALLOWED with a stated reason or it does not merge"
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "Organ non-goals are respected: no in-eidetic summarization (explicit non-goal in eidetic specs), no hard-delete memory (sweep shadows/archives only), lobes never emits quality claims (enforced by test_colleague_contract.py), unsloth full fine-tuning stays hard-refused (sloth/tune/scope.py), no LLM calls inside the devague CLI (devague#20)"
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "Each respected organ non-goal cites the owning repo's own artifact (eidetic spec non-goal, lobes test_colleague_contract.py, sloth scope guard, devague#20) \u2014 colleague never documents an organ behavior the organ does not declare"
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "The flywheel demo passes end-to-end driven only through colleague verbs: a graded work item's artifact+feedback export feeds the dataset pipeline, sloth train --dry-run accepts the produced JSONL, a real LoRA run completes with the experiment recorded in eidetic and enumerable from the CLI, and the exported adapter appears in lobes /capabilities \u2014 with a live-testing ledger row per leg"
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "The demo is graded honestly: each flywheel leg gets its own live-testing row with evidence; a leg that cannot run live is recorded SKIP with the reason, never inferred to pass"
+    },
+    {
+      "id": "c15",
+      "kind": "success_signal",
+      "text": "One-front visibility: colleague doctor (or an organs noun) reports presence+version+armed-state for every organ with zero network calls by default (oilcheck no-network invariant), and colleague explain names each organ contract"
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "The organs check-group obeys the oilcheck no-network contract (test-enforced); a missing optional organ is a warning, never an unhealthy report"
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "R1 lobes re-sync (owner colleague; deps lobes-cli>=0.38): colleague/lobes.py drops the stale pre-0.38 assumptions \u2014 per-role endpoints are client-reachable now (#87 closed: Host-derived origin, GATEWAY_PUBLIC_URL), lobes capabilities/endpoint CLI verbs exist, stt/tts ready is live-probed (#89 closed: 503+Retry-After while warming) \u2014 dial role endpoints directly, honor ready semantics, refresh the docstring, and re-probe the voice round-trip that was skipping on the 502s"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A test proves the gateway-origin workaround is gone (role endpoints dialed directly from /capabilities) and a refreshed livecheck row exercises stt/tts ready semantics against a lobes>=0.38 rig; the voice round-trip proof no longer SKIPs on the old 502s"
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "R2 one embedder contract (owner colleague wiring; deps lobes-cli, eidetic-cli, coherence-cli): today three defaults disagree (eidetic code localhost:8101/v1 text-embedding-3-small vs its own skill wrappers localhost:8002/v1 Qwen3-Embedding-0.6B; coherence localhost:8002/v1; lobes serves the embedder role with a reachable endpoint) \u2014 colleague resolves the embedder endpoint from lobes /capabilities and injects EIDETIC_EMBED_URL/EIDETIC_EMBED_MODEL/COHERENCE_EMBED_URL/COHERENCE_EMBED_MODEL into its eidetic/coherence shell-out env; eidetic and coherence align their documented defaults; absent lobes = byte-identical behavior"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "With lobes armed, a test asserts the eidetic and coherence subprocess envs carry the SAME embedder endpoint colleague resolved; with lobes absent or unreachable, both shell-outs are byte-identical to today (no new hard dependency, degrade-never-raise)"
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "R3 coherence gate (owner colleague; dep coherence-cli): a fourth rack gate shells out to coherence meaning score on the work item's changed documentation/spec artifacts, recording TaskResult.coherence_report (omit-when-None) \u2014 advisory, non-blocking, default-on with opt-out like lint/testintegrity/affected-tests; configured-but-missing CLI degrades to skipped; subdimension diagnostics (missing_consequence/owner/next_action) surface as actionable hints"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "A run with no coherence finding, no changed doc artifacts, or no coherence CLI installed yields a byte-identical TaskResult (omit-when-None coherence_report, degrade-to-skipped) and the gate never blocks the git handoff"
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "R4 experiment operability (owner unsloth-cli): the verbs an agent needs around train/eval/export \u2014 standalone sloth validate; sloth config init (generate a starting TOML); a run registry (runs land with an index so sloth runs list/show enumerates past runs without directory walking); sloth summarize reading training_metadata.json + trainer_state.json into one JSON experiment summary; sloth compare across runs"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "An agent can enumerate, inspect, and summarize past training runs from CLI verbs alone (sloth runs list/show, sloth summarize --json) with no directory walking, and sloth validate accepts a dataset standalone before any container is pulled"
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "R5 experiment orchestration (owner colleague; deps unsloth-cli R4, eidetic-cli): a colleague experiment surface drives sloth via a curated allow-listed shell-out (culture-tool pattern) with the long-run problem solved job-shaped \u2014 launched detached with a job handle (the work --background session-leader-detach precedent), status queryable mid-run, and on completion the experiment summary is remembered to eidetic (scope convention from R9) and surfaced in colleague feedback for grading; colleague never imports torch/unsloth"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A training run driven through colleague survives the operator closing the session: launched detached with a machine-readable job handle, status queryable mid-run, and on completion the experiment summary lands in eidetic and is gradeable via colleague feedback; test_zero_deps/test_boundary pin that colleague imports no torch/unsloth and only the sanctioned subprocess module shells out"
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "R6 dataset pipeline v0 (owner per open question q1; deps colleague R7, unsloth-cli): the missing transcript-to-dataset stage \u2014 graded colleague work items (artifact + feedback rating) are refined into sloth-validatable train/eval JSONL with per-example provenance (task_id, grade, source hash); data-refinery's envelope store + quality primitives (validate/dedup/integrity/freshness) are the natural substrate; daria's pipeline.md stays the autonomous-driver vision, not the v0 implementation"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "sloth train --dry-run accepts the pipeline's produced train/eval JSONL verbatim, and every emitted example carries provenance naming the source work item (task_id, grade, content hash) \u2014 an ungraded or rejected work item never silently enters a dataset"
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "R7 artifact contract (owner colleague): the run report + feedback record schemas become a published, versioned docs/contract.md (data-refinery precedent) drift-tested against TaskResult.to_dict, plus a colleague feedback export --format jsonl verb emitting one line per graded work item \u2014 the input contract the dataset pipeline consumes"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The published artifact schema is versioned and drift-tested against TaskResult.to_dict (a shape change fails the test, not a downstream consumer), and feedback export emits exactly one JSONL line per graded work item with the grade attached"
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "R8 batch run contract (owner agent-lifecycle; consumers colleague, cultureagent): resolve the parked run-to-completion hard question (docs/colleague-embed.md) \u2014 define timeout semantics, artifact collection, and an exit-code contract for batch agents; colleague's resident/one-shot consumption pins the answer (restart-policy never vs a real batch mode) with a consumer drift-test"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The batch contract defines all three parked pieces \u2014 timeout semantics, artifact collection, exit-code mapping \u2014 and a colleague-side consumer test pins them (the restart-policy-never question is answered in the contract, not left implicit)"
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "R9 memory scope contract (owner eidetic-cli; consumers colleague, every organ repo): one documented scope+visibility convention \u2014 today colleague/memory.py hardcodes scope colleague/public while eidetic's own vendored wrappers default to the culture.yaml suffix with private visibility and the skill description claims public; the contract names the scope taxonomy conventions (agent/repo/experiment as scope-name patterns, not new primitives), fixes the wrapper divergence, and adds drift-tests on both sides"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "One contract doc names the scope+visibility convention; colleague/memory.py and the vendored recall/remember wrappers resolve to the SAME store for the same repo, and a drift-test on each side fails when the defaults diverge again"
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "R10 organism visibility (owner colleague): a doctor organs check-group (or organs noun) reporting each organ CLI's presence, version, and config/armed state with zero network by default \u2014 reachability probes only under --probe (oilcheck invariant); colleague explain gains one entry per organ naming its contract doc and seam"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A bare colleague doctor with every organ configured makes zero network calls (the oilcheck invariant test extends to the organs group); reachability appears only under --probe"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1 [colleague] S1 lobes 0.38 re-sync: dial per-role endpoints from /capabilities (gateway-origin only as empty-endpoint fallback), honor ready semantics (config-proxy vs live-probed audio), voice 503+Retry-After warming retry, refresh docstring + cortex-senses feature doc + livecheck voice rows",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "A /capabilities fixture with distinct per-role endpoints resolves each role to its own endpoint; empty endpoint falls back to gateway origin",
+        "Absent/unreachable lobes stays byte-identical (degrade-to-None, one stderr notice); voice livecheck row exercises ready-probing, SKIPs only when the rig is genuinely down"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "h1",
+        "c6",
+        "h15"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "t2 [colleague] S7 artifact contract: docs/contract.md v1 freezing TaskResult artifact + feedback record + last_work + exit codes, drift-test vs TaskResult.to_dict, and feedback export --min-rating --since --format jsonl joining artifact+grade",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "Drift-test enumerates TaskResult.to_dict keys from a maximal fixture against the checked-in contract table; a key change fails CI",
+        "feedback export emits exactly one JSONL line per graded work item (grade attached); ungraded excluded; empty store exits 0 with empty output"
+      ],
+      "deps": [],
+      "covers": [
+        "c24",
+        "h7"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "t3 [colleague] S10 organism visibility: oilcheck organs check-group (presence/version/armed, zero-network, advisory) + --probe reachability + organs list rendered tool + docs/organs.md index (per-organ contract doc + seam + cited organ non-goals + per-spec PR splits; note cultureagent 0.12.0 released) + explain catalog entries",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "Bare colleague doctor with organs configured makes zero network calls (no-network guard test extends to the organs group); missing optional organ is a warning with remediation, never unhealthy",
+        "organs list --json and the doctor group agree (one resolver, two views); docs/organs.md cites each respected organ non-goal to the owning repo's artifact"
+      ],
+      "deps": [],
+      "covers": [
+        "c27",
+        "h10",
+        "c15",
+        "h22",
+        "c5",
+        "c11",
+        "h20",
+        "c3",
+        "h13"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "t4 [unsloth-cli] S4a: standalone sloth validate (shared code path with train) + sloth config init writing a TOML that passes train --dry-run unedited",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "sloth validate --dataset <jsonl> --json exits 0/1 with the same validator rules train applies (shared code path, drift-proof)",
+        "sloth config init output passes sloth train --dry-run unedited"
+      ],
+      "deps": [],
+      "covers": [
+        "c21"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "t6 [agent-lifecycle] S8 batch run-to-completion contract: decide + document timeout semantics, artifact hand-back, BatchOutcome exit-code mapping (ok/failed/timeout/incomplete) aligned to colleague 0/1/2; runnable example extracted+executed by a test; colleague-embed.md batch question closed",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "docs define all three parked pieces and record the decision (restart-policy never + batch value types, or a real mode) with why",
+        "BatchOutcome classification is pure/deterministic/stdlib-only with a test-executed doc example; no scheduler, no registry"
+      ],
+      "deps": [],
+      "covers": [
+        "c25",
+        "h8"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "t7 [eidetic-cli] S9 memory scope contract: docs contract naming scope-naming convention (suffix scope; task/experiment as type/metadata facets) + visibility default public-in-repo; fix vendored recall/remember wrappers to --visibility public; eidetic-side test that wrapper and raw CLI land the same scope+visibility",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "The eidetic-side integration test shells the vendored wrapper and the raw CLI with no flags and asserts identical scope+visibility routing (fails before the fix, passes after)",
+        "Contract doc versions the store-resolution table (EIDETIC_DATA_DIR > public-in-repo > HOME); no store-format or routing-code changes"
+      ],
+      "deps": [],
+      "covers": [
+        "c26",
+        "h9"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "t11 [coherence-cli] S2-align: README + embed module doc name the lobes embedder role as the reference deployment for COHERENCE_EMBED_URL/MODEL (no behavior change)",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "README names lobes capabilities as the discovery source and the gateway embeddings endpoint as the reference COHERENCE_EMBED_URL; defaults unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c19"
+      ]
+    },
+    {
+      "id": "t8",
+      "summary": "t16 [colleague] boundary pins: test asserting no colleague module imports cultureagent (absent edge pinned) and test_zero_deps allow-list stays exactly agentfront",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "Import-graph test fails if any colleague module imports cultureagent; test_zero_deps asserts no third-party leak beyond agentfront both before and after this arc's tasks"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h17",
+        "c10",
+        "h19"
+      ]
+    },
+    {
+      "id": "t9",
+      "summary": "[colleague \u00b7 S1] lobes 0.38 re-sync: dial per-role endpoints from /capabilities (gateway-origin only as empty-endpoint fallback), honor ready semantics (config-proxy vs live-probed audio), voice 503+Retry-After warming retry, refresh docstring + cortex-senses feature doc + livecheck voice rows",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A /capabilities fixture with distinct per-role endpoints resolves each role to its own endpoint; empty endpoint falls back to gateway origin",
+        "Absent/unreachable lobes stays byte-identical (degrade-to-None, one stderr notice); voice livecheck row exercises ready-probing, SKIPs only when the rig is genuinely down"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "h1",
+        "c6",
+        "h15"
+      ]
+    },
+    {
+      "id": "t10",
+      "summary": "[colleague \u00b7 S7] artifact contract: docs/contract.md v1 freezing TaskResult artifact + feedback record + last_work + exit codes, drift-test vs TaskResult.to_dict, and feedback export --min-rating --since --format jsonl joining artifact+grade",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Drift-test enumerates TaskResult.to_dict keys from a maximal fixture against the checked-in contract table; a key change fails CI",
+        "feedback export emits exactly one JSONL line per graded work item (grade attached); ungraded excluded; empty store exits 0 with empty output"
+      ],
+      "deps": [],
+      "covers": [
+        "c24",
+        "h7"
+      ]
+    },
+    {
+      "id": "t11",
+      "summary": "[colleague \u00b7 S10] organism visibility: oilcheck organs check-group (presence/version/armed, zero-network, advisory) + --probe reachability + organs list rendered tool + docs/organs.md index (per-organ contract doc + seam + cited organ non-goals + per-spec PR splits; cultureagent 0.12.0 released) + explain catalog entries",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Bare colleague doctor with organs configured makes zero network calls (no-network guard test extends to the organs group); missing optional organ is a warning with remediation, never unhealthy",
+        "organs list --json and the doctor group agree (one resolver, two views); docs/organs.md cites each respected organ non-goal to the owning repo's artifact"
+      ],
+      "deps": [],
+      "covers": [
+        "c27",
+        "h10",
+        "c15",
+        "h22",
+        "c5",
+        "c11",
+        "h20",
+        "c3",
+        "h13"
+      ]
+    },
+    {
+      "id": "t12",
+      "summary": "[unsloth-cli \u00b7 S4a] standalone sloth validate (shared code path with train) + sloth config init writing a TOML that passes train --dry-run unedited",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "sloth validate --dataset <jsonl> --json exits 0/1 with the same validator rules train applies (shared code path, drift-proof)",
+        "sloth config init output passes sloth train --dry-run unedited"
+      ],
+      "deps": [],
+      "covers": [
+        "c21"
+      ]
+    },
+    {
+      "id": "t13",
+      "summary": "[agent-lifecycle \u00b7 S8] batch run-to-completion contract: decide + document timeout semantics, artifact hand-back, BatchOutcome exit-code mapping (ok/failed/timeout/incomplete) aligned to colleague 0/1/2; runnable example extracted+executed by a test; colleague-embed.md batch question closed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Docs define all three parked pieces and record the decision (restart-policy never + batch value types, or a real mode) with why",
+        "BatchOutcome classification is pure/deterministic/stdlib-only with a test-executed doc example; no scheduler, no registry"
+      ],
+      "deps": [],
+      "covers": [
+        "c25",
+        "h8"
+      ]
+    },
+    {
+      "id": "t14",
+      "summary": "[eidetic-cli \u00b7 S9] memory scope contract: docs contract naming scope-naming convention (suffix scope; task/experiment as type/metadata facets) + visibility default public-in-repo; fix vendored recall/remember wrappers to --visibility public; eidetic-side test that wrapper and raw CLI land the same scope+visibility",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The eidetic-side integration test shells the vendored wrapper and the raw CLI with no flags and asserts identical scope+visibility routing (fails before the fix, passes after)",
+        "Contract doc versions the store-resolution table (EIDETIC_DATA_DIR > public-in-repo > HOME); no store-format or routing-code changes"
+      ],
+      "deps": [],
+      "covers": [
+        "c26",
+        "h9"
+      ]
+    },
+    {
+      "id": "t15",
+      "summary": "[coherence-cli \u00b7 S2] align embedder docs: README + embed module doc name the lobes embedder role as the reference deployment for COHERENCE_EMBED_URL/MODEL (no behavior change)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "README names lobes capabilities as the discovery source and the gateway embeddings endpoint as the reference COHERENCE_EMBED_URL; defaults unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c19"
+      ]
+    },
+    {
+      "id": "t16",
+      "summary": "[colleague] boundary pins: test asserting no colleague module imports cultureagent (absent edge pinned) and test_zero_deps allow-list stays exactly agentfront",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Import-graph test fails if any colleague module imports cultureagent; test_zero_deps asserts no third-party leak beyond agentfront both before and after this arc's tasks"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h17",
+        "c10",
+        "h19"
+      ]
+    },
+    {
+      "id": "t17",
+      "summary": "[unsloth-cli \u00b7 S4b] run registry (train appends atomic runs.jsonl line: run_id/config_hash/output_dir/model/method/dataset sha+count/started/finished/status) + sloth runs list|show + sloth summarize (metadata + trainer_state loss) + sloth compare",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "An agent enumerates, inspects, and summarizes past runs from CLI verbs alone (runs list/show, summarize --json) with no directory walking",
+        "Registry append is atomic and crash-safe (killed train leaves status incomplete, not a corrupt line); missing registry degrades runs list to an honest empty list; existing verbs byte-identical when unused"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c21",
+        "h4"
+      ]
+    },
+    {
+      "id": "t18",
+      "summary": "[colleague \u00b7 S9-consumer] memory-convention drift-test: colleague-side test pinning memory.py scope/visibility flags to the eidetic contract doc convention (mismatch fails a test, not a user)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A colleague test asserts memory.py's hardcoded --scope/--visibility match the documented convention; diverging either side fails the respective repo's CI"
+      ],
+      "deps": [
+        "t14"
+      ],
+      "covers": [
+        "h9",
+        "h12"
+      ]
+    },
+    {
+      "id": "t19",
+      "summary": "[colleague \u00b7 S2] one embedder: parse optional embedder role in lobes.py (absence never fails resolution); inject EIDETIC_EMBED_URL/MODEL + COHERENCE_EMBED_URL/MODEL into organ shell-out envs when armed; operator-set env always wins; structural test colleague never issues /v1/embeddings itself",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "With lobes armed, tests assert eidetic and coherence subprocess envs carry the SAME embedder endpoint colleague resolved; with lobes absent both shell-outs are byte-identical to today",
+        "A caller-provided EIDETIC_EMBED_URL/COHERENCE_EMBED_URL is never overwritten; a structural test pins that colleague makes no /v1/embeddings request of its own"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c19",
+        "h2",
+        "c9",
+        "h18",
+        "c7"
+      ]
+    },
+    {
+      "id": "t20",
+      "summary": "[eidetic-cli \u00b7 S2-align] embedder default alignment: code default (embed.py) and wrapper/README default agree (one documented default, lobes embedder as reference); drift-test pins them together",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "eidetic's code default EIDETIC_EMBED_URL/MODEL equals the documented default (drift-test); wrappers and README name the same endpoint+model"
+      ],
+      "deps": [
+        "t14"
+      ],
+      "covers": [
+        "c19"
+      ]
+    },
+    {
+      "id": "t21",
+      "summary": "[data-refinery-cli \u00b7 S6] refine dataset + lineage: consume colleague feedback-export JSONL, map to sloth chat-schema examples, filter --min-rating, split train/eval disjoint-by-construction, per-example provenance (task_id/rating/content sha), refine lineage summary; contract.md v4; reuse dedup/integrity/validate primitives; no LLM, no network",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A 3-line graded.jsonl fixture (ratings 5,4,2; threshold 4) yields exactly 2 examples, each carrying task_id+rating provenance, the rating-2 item absent; splits share no content hash",
+        "Produced train/eval JSONL passes sloth validate / train --dry-run verbatim; refine contract frozen in docs/contract.md v4"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c23",
+        "h6"
+      ]
+    },
+    {
+      "id": "t22",
+      "summary": "[colleague \u00b7 S3] coherence gate: colleague/coherence.py + _maybe_run_coherence_gate on changed .md artifacts post-loop pre-handoff; curated allow-list exactly coherence; TaskResult.coherence_report omit-when-None; diagnostics as stderr hints; default-ON warn-only with --no-coherence/COLLEAGUE_COHERENCE=0/config opt-out; degrade-to-skipped; all-engines",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A run with no changed .md files, no findings, or no coherence CLI yields a byte-identical TaskResult (e2e mock shape test passes); the gate never blocks handoff",
+        "Offline (no embed endpoint) the gate still records coherence's lexical diagnostics; fires identically for mock and vllm-openai"
+      ],
+      "deps": [
+        "t19"
+      ],
+      "covers": [
+        "c20",
+        "h3",
+        "h16"
+      ]
+    },
+    {
+      "id": "t23",
+      "summary": "[colleague \u00b7 S5] experiment noun: experiment start (sloth validate then detached sloth train, background.py one-shot-detach precedent, machine-readable start payload) + status + summarize --remember (eidetic record per t14 convention) + list; clean reaps dead-pid experiment residue; allow-list exactly sloth; no torch/unsloth import",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "experiment start with a stubbed sloth writes the start payload and detaches (no .wait()/.poll() \u2014 background.py boundary-test pattern); status queryable mid-run; summary + eidetic record on completion; missing sloth degrades to a structured error with remediation",
+        "test_zero_deps/test_boundary pin no torch/unsloth import and experiment joins _SUBPROCESS_ALLOWED with a stated reason; every new verb ships --json + structured errors",
+        "An experiment is gradeable via colleague feedback record <exp-id> (the ROI loop covers experiments)"
+      ],
+      "deps": [
+        "t17",
+        "t18",
+        "t22"
+      ],
+      "covers": [
+        "c22",
+        "h5",
+        "h14"
+      ]
+    },
+    {
+      "id": "t24",
+      "summary": "[flywheel \u00b7 live proof] end-to-end demo + ledger: feedback export -> refine -> sloth validate/dry-run -> real smoke LoRA detached via colleague experiment -> summarize --remember -> adapter visible to lobes; one live-testing row per leg with evidence; legs that cannot run live are recorded SKIP with reason",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/live-testing.md gains one row per flywheel leg with evidence (command + observed output); a leg that cannot run live is SKIP with the reason, never inferred to pass",
+        "The demo drives only colleague/organ CLI verbs (no ad-hoc scripts beyond the documented commands)"
+      ],
+      "deps": [
+        "t21",
+        "t22",
+        "t23"
+      ],
+      "covers": [
+        "c1",
+        "h11",
+        "c2",
+        "c14",
+        "h21"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Live rig availability bounds t24: a real LoRA smoke needs free GPU memory and the NGC image; lobes serving the exported adapter needs a fleet restart \u2014 legs SKIP honestly when the rig cannot host them",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "Builder capability: colleague/27B nails NEW-file tasks with self-contained briefs but blows budget on large existing files (dogfood lesson) \u2014 hot-file tasks (loop.py, lobes.py, session-adjacent) route to Claude/sonnet; cap colleague fan-out at 2 with COLLEAGUE_TIMEOUT=300",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r3",
+      "text": "Sibling-repo merge latency: each repo's PR needs human merge + version-bump CI; cross-repo deps (t18 on t14, t21 on t10) build against local branches and note the upstream PR in the brief",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r4",
+      "text": "JSON Schema for lobes /capabilities is a lobes-cli ask, not in this plan (follow-up); colleague pins the shape with a consumer fixture test meanwhile",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r5",
+      "text": "Coherence calibration experiment stays upstream (coherence-cli phase-3); the t22 gate ships warn-only and never grows a threshold in this arc",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
