@@ -48,6 +48,26 @@ reasoning-channel / degradation-retry recovery) and ``_extract_json_object``
 
 Wiring this into the loop / the operator-facing surfaces is task t6 (a later
 wave); this module is the invocation layer only.
+
+Conversation continuity (talking-to-one arc, task t4): all four invocation
+functions above (:func:`run_senses_intake`, :func:`run_senses_speakback`,
+:func:`run_senses_talk`, :func:`run_senses_update`) accept an optional
+keyword-only ``history`` — a rolling list of ``{"role": "operator"|"senses",
+"text": "..."}`` entries (the session-side record of prior exchanges: ack,
+updates, talk, clarify). When present and non-empty, :func:`_fold_history`
+folds it into the USER message as a "Conversation so far" block (oldest
+first), positioned BEFORE the function's own existing payload (the request /
+feed tail / summary) so the model reads prior exchanges before the current
+turn. The block participates in the same :func:`_window_text`-style budget
+accounting: when the combined prompt would exceed the senses model's own
+``context_budget_tokens``, the OLDEST history entries are dropped first
+(whole entries, never sliced) until it fits — the function's own payload
+always wins, since it already fits the send budget alone before history is
+folded in. ``history=None``/``[]`` (or an entry :func:`_history_lines`
+defensively skips — an unrecognized role, missing/blank text) is a strict
+no-op: the prompt is byte-identical to the pre-t4 shape. This is orthogonal to
+the verbatim-original invariant above — history only ever touches the
+*prompt sent to the model*, never ``ContextPacket.original``.
 """
 
 from __future__ import annotations
@@ -264,6 +284,92 @@ def _window_text(
     return best
 
 
+#: The only two valid ``role`` values on a history entry (talking-to-one arc,
+#: task t4) — the session-side rolling record of prior senses exchanges.
+_VALID_HISTORY_ROLES = ("operator", "senses")
+
+
+def _history_lines(history: "Optional[list[dict[str, str]]]") -> "list[str]":
+    """Format *history* into ordered ``"role: text"`` lines (oldest first).
+
+    Defensive, never raises: an entry that is not a ``dict``, carries a
+    ``role`` other than ``"operator"``/``"senses"``, or has a missing/blank/
+    non-string ``text`` is silently skipped — a malformed history entry never
+    breaks a senses call. ``history`` being ``None`` or empty returns ``[]``,
+    the caller's byte-identical no-history signal.
+    """
+    if not history:
+        return []
+    lines: "list[str]" = []
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        role = entry.get("role")
+        if role not in _VALID_HISTORY_ROLES:
+            continue
+        text = entry.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        lines.append(f"{role}: {text.strip()}")
+    return lines
+
+
+def _fold_history(
+    primary_body: str,
+    history: "Optional[list[dict[str, str]]]",
+    *,
+    system_prompt: str,
+    budget: int,
+    count_tokens: "Callable[[list[dict[str, Any]]], int]",
+) -> str:
+    """Prefix *primary_body* with a windowed "Conversation so far" block (t4).
+
+    Folds *history* (oldest first) into a clearly-delimited "Conversation so
+    far" block placed BEFORE *primary_body* — the caller's already-assembled
+    request/feed/summary payload — so the model reads prior exchanges before
+    the current turn. Participates in the SAME budget accounting as
+    :func:`_window_text` (identical quarter-of-budget completion reserve):
+    when the combined ``[system, user=block+primary_body]`` prompt would
+    exceed the send budget, the OLDEST history entries are dropped first
+    (whole entries, never sliced mid-entry) until it fits.
+
+    *primary_body* is NEVER trimmed here — callers window it via
+    :func:`_window_text` first, so it already fits the send budget alone;
+    dropping every history entry always recovers that guarantee (the
+    function's existing payload always wins over history).
+
+    Returns *primary_body* completely UNCHANGED when *history* is ``None``,
+    empty, or every entry is defensively skipped by :func:`_history_lines` —
+    the byte-identical no-history path pinned by the existing senses tests.
+    """
+    lines = _history_lines(history)
+    if not lines:
+        return primary_body
+
+    reserve = max(1, budget // 4)
+    send_budget = max(1, budget - reserve)
+
+    def _messages(body: str) -> "list[dict[str, Any]]":
+        msgs: "list[dict[str, Any]]" = []
+        if system_prompt:
+            msgs.append({"role": "system", "content": system_prompt})
+        msgs.append({"role": "user", "content": body})
+        return msgs
+
+    def _combine(remaining: "list[str]") -> str:
+        if not remaining:
+            return primary_body
+        block = "Conversation so far:\n" + "\n".join(remaining)
+        return f"{block}\n\n{primary_body}"
+
+    remaining = list(lines)
+    candidate = _combine(remaining)
+    while remaining and count_tokens(_messages(candidate)) > send_budget:
+        remaining = remaining[1:]  # drop the OLDEST entry first.
+        candidate = _combine(remaining)
+    return candidate
+
+
 class _TokenMeter:
     """Accumulates exact prompt+completion tokens across a call's completions.
 
@@ -306,6 +412,7 @@ def run_senses_intake(
     *,
     point: str = INTAKE_POINT,
     count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+    history: "Optional[list[dict[str, str]]]" = None,
 ) -> "tuple[Optional[ContextPacket], SensesRecord]":
     """Perceive the operator's *text* into a structured :class:`ContextPacket`.
 
@@ -352,6 +459,13 @@ def run_senses_intake(
         Injectable token counter; defaults to
         ``engine.make_count_tokens(senses_config)`` (the engine's own exact-or-
         estimate counter). Tests inject a fake to avoid any real network call.
+    history:
+        Optional rolling chat history (talking-to-one arc, task t4) — a list
+        of ``{"role": "operator"|"senses", "text": "..."}`` entries, oldest
+        first. Folded into the user prompt BEFORE *text*, windowed to
+        *senses_config*'s own budget (oldest entries dropped first when it
+        doesn't fit); ``None``/``[]`` is byte-identical to before this
+        parameter existed. Never affects ``packet.original``.
 
     Returns
     -------
@@ -370,6 +484,13 @@ def run_senses_intake(
         )
         user_prompt = _window_text(
             text,
+            system_prompt=_INTAKE_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
+        )
+        user_prompt = _fold_history(
+            user_prompt,
+            history,
             system_prompt=_INTAKE_SYSTEM_PROMPT,
             budget=senses_config.context_budget_tokens,
             count_tokens=counter,
@@ -415,6 +536,7 @@ def run_senses_speakback(
     *,
     point: str = SPEAKBACK_POINT,
     count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+    history: "Optional[list[dict[str, str]]]" = None,
 ) -> "tuple[Optional[str], SensesRecord]":
     """Shape the cortex's raw *summary* into a conversational display string.
 
@@ -424,7 +546,9 @@ def run_senses_speakback(
     empty/unrecoverable content) returns ``(None, degraded SensesRecord)`` so the
     caller falls back to the raw *summary*.
 
-    Parameters mirror :func:`run_senses_intake`. Returns ``(display_text | None,
+    Parameters mirror :func:`run_senses_intake`, including the optional
+    ``history`` (talking-to-one arc, task t4) folded before *summary* and
+    windowed the same way. Returns ``(display_text | None,
     SensesRecord)``: on success the display string and a clean record; on
     degradation ``None`` plus a degraded record (``tokens=None``, ``latency``
     measured up to the failure).
@@ -437,6 +561,13 @@ def run_senses_speakback(
         )
         user_prompt = _window_text(
             summary,
+            system_prompt=_SPEAKBACK_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
+        )
+        user_prompt = _fold_history(
+            user_prompt,
+            history,
             system_prompt=_SPEAKBACK_SYSTEM_PROMPT,
             budget=senses_config.context_budget_tokens,
             count_tokens=counter,
@@ -575,6 +706,7 @@ def run_senses_talk(
     make_complete: "Callable[..., Callable[[list[dict[str, Any]]], Any]]",
     make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
     relay_prefix: str = "cortex:",
+    history: "Optional[list[dict[str, str]]]" = None,
 ) -> Optional[dict[str, Any]]:
     """Hold ONE live, tools-off conversational turn with the operator (t4).
 
@@ -614,6 +746,13 @@ def run_senses_talk(
     computed up front and applied on both the clean and the degraded return
     path, so the guaranteed relay path survives a dead senses endpoint too).
 
+    Conversation continuity: an optional *history* (talking-to-one arc, task
+    t4 — a list of ``{"role": "operator"|"senses", "text": "..."}`` entries,
+    oldest first) is folded into the user prompt BEFORE the fixed run
+    context + feed, windowed to *senses_config*'s own budget (oldest entries
+    dropped first when it doesn't fit; the fixed context + feed always win).
+    ``None``/``[]`` is byte-identical to before this parameter existed.
+
     Returns ``None`` when *senses_config* is ``None`` (senses unarmed) — the
     signal the caller uses to degrade to a watch-only view, no talk lane.
     Otherwise NEVER raises: any failure (unreachable endpoint, request error,
@@ -649,6 +788,13 @@ def run_senses_talk(
         user_prompt = (
             f"{fixed_context}\n\nRecent flight feed (most recent last):\n"
             f"{windowed_feed or '(no feed yet)'}"
+        )
+        user_prompt = _fold_history(
+            user_prompt,
+            history,
+            system_prompt=_TALK_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
         )
         # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
         # senses talk turn structurally cannot carry a tool schema on the wire.
@@ -696,6 +842,7 @@ def run_senses_update(
     *,
     point: str = UPDATE_POINT,
     count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+    history: "Optional[list[dict[str, str]]]" = None,
 ) -> Optional[dict[str, Any]]:
     """Issue ONE proactive progress narration (task t3).
 
@@ -731,6 +878,11 @@ def run_senses_update(
     count_tokens:
         Injectable token counter; defaults to
         ``engine.make_count_tokens(senses_config)``.
+    history:
+        Optional rolling chat history (talking-to-one arc, task t4) — folded
+        into the user prompt BEFORE the feed section, windowed the same way
+        as :func:`run_senses_intake`'s ``history``; ``None``/``[]`` is
+        byte-identical to before this parameter existed.
 
     Returns
     -------
@@ -763,6 +915,13 @@ def run_senses_update(
             about = f"The running work item is about: {packet.interpretation}\n\n"
         user_prompt = (
             f"{about}Recent flight feed (most recent last):\n" f"{windowed_feed or '(no feed yet)'}"
+        )
+        user_prompt = _fold_history(
+            user_prompt,
+            history,
+            system_prompt=_UPDATE_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
         )
         # Tools-off ALWAYS: an explicit empty tool list, never ``None``.
         complete = engine.make_complete(senses_config, tools=[])
