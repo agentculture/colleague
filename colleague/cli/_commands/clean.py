@@ -18,10 +18,19 @@ dir behind with no supervisor to clean it up; liveness is checked by holder
 PID (:func:`colleague.background.reap_background`), so a genuinely
 still-running background child is never touched.
 
+Also reaps stale ``colleague experiment`` residue (colleague#291 S5, task
+t23): a dead-pid ``.colleague/experiments/<id>/`` dir is reaped only once it
+has ALSO aged past a day (:func:`colleague.experiment.reap_experiments`) —
+stricter than the background reap because an experiment's start payload +
+log ARE its durable record (no separate artifact), so reaping the instant the
+pid exits would delete a finished-but-not-yet-summarized experiment. A
+genuinely live experiment is never touched.
+
 Thin presentation layer: the git-touching reap logic lives in
 :mod:`colleague.handoff` (the sanctioned subprocess consumer), the artifact
-reap in :mod:`colleague.artifact`, and the background reap in
-:mod:`colleague.background`; this module only orchestrates and renders. It
+reap in :mod:`colleague.artifact`, the background reap in
+:mod:`colleague.background`, and the experiment reap in
+:mod:`colleague.experiment`; this module only orchestrates and renders. It
 imports no ``subprocess`` (``tests/test_boundary.py``).
 """
 
@@ -30,7 +39,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from colleague import artifact, background, flight, handoff, worktrees
+from colleague import artifact, background, experiment, flight, handoff, worktrees
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP, emit_result
 
@@ -92,6 +101,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
     # 0)), not the flight mtime heuristic above, so a genuinely still-running
     # background child is never reaped out from under it.
     backgrounds = background.reap_background(repo, dry_run=dry_run)
+    # Reap stale `colleague experiment` residue (colleague#291 S5, t23): a
+    # dead-pid experiment dir is reaped only once it's ALSO aged past a day
+    # (see colleague/experiment.py's reap_experiments docstring for why this
+    # differs from the background reap's immediate-on-death rule) — a
+    # genuinely live experiment is never touched.
+    experiments = experiment.reap_experiments(repo, dry_run=dry_run)
     empty_objects = handoff.empty_loose_objects(repo)
 
     report = {
@@ -102,6 +117,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         "artifacts": artifacts,
         "flights": flights,
         "background": backgrounds,
+        "experiments": experiments,
         "empty_loose_objects": empty_objects,
     }
     emit_result(report if json_mode else _render(report), json_mode=json_mode)
@@ -136,16 +152,21 @@ def _render(report: dict) -> str:
     if reaped_backgrounds:
         lines.append(f"background runs ({verb}):")
         lines += [f"  - {b['background']}" for b in reaped_backgrounds]
+    reaped_experiments = [e for e in report.get("experiments", []) if e["action"] in _REAPED]
+    if reaped_experiments:
+        lines.append(f"experiments ({verb}):")
+        lines += [f"  - {e['experiment']}" for e in reaped_experiments]
     if (
         not reaped_branches
         and not reaped_arts
         and not reaped_flights
         and not reaped_backgrounds
+        and not reaped_experiments
         and not iso_worktrees
     ):
         lines.append(
             "nothing to reap — no stale colleague/* branches, orphaned .colleague/ "
-            "artifacts, isolation worktrees, or dead background runs"
+            "artifacts, isolation worktrees, dead background runs, or dead experiments"
         )
     if kept:
         lines.append(

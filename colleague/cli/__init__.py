@@ -105,6 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import commands as _commands_group
     from colleague.cli._commands import config as _config_group
     from colleague.cli._commands import doctor as _doctor_cmd
+    from colleague.cli._commands import experiment as _experiment_cmd
     from colleague.cli._commands import explain as _explain_cmd
     from colleague.cli._commands import feedback as _feedback_group
     from colleague.cli._commands import flight as _flight_cmd
@@ -178,6 +179,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _lobes_group.register(sub)
     # Organism visibility (#291/S10): the curated organ table (presence/version/armed).
     _organs_group.register(sub)
+    # Experiment orchestration (#291/S5): detached sloth training runs.
+    _experiment_cmd.register(sub)
     # Provider config: resolved engine/provider settings (api_key redacted).
     _config_group.register(sub)
     # Interactive foreground palette (c28/R8).

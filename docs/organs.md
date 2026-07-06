@@ -33,7 +33,7 @@ colleague, planned as **1 PR** — plan task t11).
 | [lobes](#lobes) | Serving + role discovery for colleague's minds | discovery rung | `GET /capabilities` `RoleInfo` shape | S1 [colleague#292](https://github.com/agentculture/colleague/issues/292); S2 [colleague#293](https://github.com/agentculture/colleague/issues/293) (owner colleague) |
 | [eidetic](#eidetic) | Perfect-recall agent memory | memory shell-out | eidetic conventions (README.md#storage) | S9 [eidetic-cli#28](https://github.com/agentculture/eidetic-cli/issues/28) (owner eidetic-cli) |
 | [coherence](#coherence) | Information-quality scoring | gate — planned, not yet built | `coherence meaning score --json` shape | S3 [colleague#294](https://github.com/agentculture/colleague/issues/294) (owner colleague) |
-| [sloth (unsloth-cli)](#sloth-unsloth-cli) | LoRA/QLoRA fine-tuning | experiment — planned, not yet built | run TOML config + `training_metadata.json` | S4 [unsloth-cli#12](https://github.com/agentculture/unsloth-cli/issues/12) (owner unsloth-cli); S5 [colleague#295](https://github.com/agentculture/colleague/issues/295) (owner colleague) |
+| [sloth (unsloth-cli)](#sloth-unsloth-cli) | LoRA/QLoRA fine-tuning | experiment noun (`colleague/experiment.py`; allow-list sloth) | run TOML config + `training_metadata.json` | S4 [unsloth-cli#12](https://github.com/agentculture/unsloth-cli/issues/12) (owner unsloth-cli); S5 [colleague#295](https://github.com/agentculture/colleague/issues/295) (owner colleague) |
 | [data-refinery](#data-refinery) | Dataset quality + the refine pipeline | dataset pipeline — planned, not yet built colleague-side | `docs/contract.md` v3 | S6 [data-refinery-cli#14](https://github.com/agentculture/data-refinery-cli/issues/14) (owner data-refinery-cli) |
 | [agtag](#agtag) | Agent-to-agent mesh messaging (issues) | culture tool | `agtag issue --json` shape | shipped — mesh-member re-spec (`colleague/culture.py`) |
 | [devex](#devex) | Agent-operated dev-experience briefings + PR lifecycle | culture tool | `devex explain`/`learn` catalog | shipped — mesh-member re-spec (`colleague/culture.py`) |
@@ -203,11 +203,25 @@ same convention as the other rack gates.
 export — plus the agent-operability verbs (`validate`, `config init`, a run
 registry, `summarize`, `compare`).
 
-**Seam:** **planned as a curated allow-listed shell-out** (colleague#295 /
-S5), following the culture-tool pattern, launched detached with a job handle
-(the `work --background` session-leader-detach precedent) — not yet built.
-Reported the same way as coherence: present iff `shutil.which("sloth")`
-succeeds, `armed=False` always today.
+**Seam:** the **experiment noun** (`colleague/experiment.py`, colleague#295 /
+S5) — a curated allow-listed shell-out (allow-list exactly `sloth`), following
+the culture-tool pattern, launched detached with a job handle (the `work
+--background` session-leader-detach precedent). `colleague experiment start`
+validates the dataset (`sloth validate --dataset … --json`) before spending
+any GPU time, then detaches `sloth train --config <toml>` exactly the way
+`colleague/background.py` detaches a background work item — no `.wait()`/
+`.poll()`, stdio redirected to a log file, a machine-readable start payload
+(`{id, pid, config, output_dir, log_dir, started}`). `experiment status`
+reports pid liveness + a log tail + a best-effort correlation against sloth's
+own run registry (`sloth runs list`/`show --json`); `experiment summarize
+[--remember]` joins `sloth summarize --json` and optionally upserts a compact
+record into eidetic (the same `--scope colleague --visibility public`
+convention as `colleague/memory.py`, reusing its `remember()` as-is);
+`colleague clean` reaps dead-pid experiment residue, never a live run. Present
+iff `shutil.which("sloth")` succeeds; `armed=True` unconditionally (like
+`agtag`/`devex`/`devague` — the noun is always wired in, no operator opt-out
+toggle to read; running a real experiment still needs the `sloth` binary
+installed).
 
 **Contract artifact:** a run's TOML config (e.g. `unsloth-cli/examples/lora-smoke.toml`)
 plus the `training_metadata.json` a completed run writes beside its output
@@ -220,15 +234,15 @@ directory (`runs/<name>/training_metadata.json`).
 pulled. S5 [colleague#295](https://github.com/agentculture/colleague/issues/295)
 (owner colleague) — the colleague-side `experiment` noun that drives sloth
 through those verbs, remembers the summary to eidetic, and surfaces it via
-`colleague feedback`.
+`colleague feedback` (an experiment id is a valid `feedback record` task_id).
 
 **Respected non-goal:** full parameter fine-tuning is **hard-refused**, not
 merely discouraged — `unsloth-cli/sloth/tune/scope.py`'s `check_scope` guard
 classifies any `method` in `FULL_FT_METHODS` as out-of-scope for a "large
 dense" model, returning a structured `ScopeResult(out_of_scope=True, ...)`
 with a `downgrade_to` suggestion (`lora`/`qlora`) rather than proceeding.
-colleague's planned `experiment` noun (S5) never bypasses this guard — it
-drives `sloth train` as-is and surfaces whatever `check_scope` decides.
+colleague's `experiment` noun (S5) never bypasses this guard — it drives
+`sloth train` as-is and surfaces whatever `check_scope` decides.
 
 ## data-refinery
 

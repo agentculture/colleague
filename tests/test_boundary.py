@@ -388,6 +388,62 @@ def test_deepthink_module_has_no_io_surface() -> None:
         ), f"deepthink.py must not use {forbidden!r} (no-daemon/no-socket)"
 
 
+def test_experiment_module_confined_to_one_shot_detach() -> None:
+    """The colleague#291 S5 experiment noun stays supervisor-free (plan t23).
+
+    Mirrors ``test_background_module_confined_to_one_shot_detach``:
+    ``subprocess`` IS expected (it is the sanctioned sloth shell-out — see
+    ``_SUBPROCESS_ALLOWED`` above) but no socket/asyncio/threading primitive
+    may appear, and the detached ``sloth train`` child is never
+    ``.wait()``/``.poll()``ed — a wait/poll loop would turn the one-shot
+    detach into a hidden supervisor.
+    """
+    experiment_src = _PACKAGE_DIR / "experiment.py"
+    assert (
+        experiment_src in _all_py_sources()
+    ), "experiment.py must be in the scanned package sources"
+    source = experiment_src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        ".wait(",
+        ".poll(",
+    ):
+        assert (
+            forbidden not in source
+        ), f"experiment.py must not use {forbidden!r} (one-shot, no supervisor)"
+
+
+_FORBIDDEN_TRAIN_IMPORT_RE = re.compile(
+    r"^\s*(?:import\s+(?:torch|unsloth)\b|from\s+(?:torch|unsloth)\b)", re.MULTILINE
+)
+
+
+def test_no_colleague_module_imports_torch_or_unsloth() -> None:
+    """colleague never imports torch/unsloth (colleague#291 S5, spec h5/h14).
+
+    The experiment noun drives ``sloth`` (unsloth-cli) purely as an
+    allow-listed subprocess — the heavy ML stack stays entirely on the other
+    side of that process boundary. A stray ``import torch`` / ``import
+    unsloth`` anywhere in colleague would silently pull the training
+    dependency into the harness itself.
+    """
+    violations: list[str] = []
+    for py_file in _all_py_sources():
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            if _FORBIDDEN_TRAIN_IMPORT_RE.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()!r}")
+
+    assert not violations, (
+        "torch/unsloth imported in colleague source — the experiment noun must "
+        "shell out to sloth, never import the training stack:\n" + "\n".join(violations)
+    )
+
+
 def test_background_module_confined_to_one_shot_detach() -> None:
     """The background one-shot detach primitive stays supervisor-free (plan t12).
 
@@ -451,6 +507,13 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   recall/remember; subprocess is the transport (plan t1)
 #   livecheck.py     — runs pytest on gated live-proof files; subprocess is the
 #                   transport
+#   experiment.py    — the colleague#291 S5 experiment noun: validates a
+#                   dataset then detaches a `sloth train` child, and shells
+#                   out to `sloth validate`/`runs list`/`runs show`/
+#                   `summarize` (allow-list exactly `sloth`); subprocess is
+#                   the ONE-SHOT detach transport for start (mirroring
+#                   background.py) plus the short synchronous calls for
+#                   status/summarize
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -467,6 +530,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/memory.py",
         "colleague/coherence.py",
         "colleague/livecheck.py",
+        "colleague/experiment.py",
     }
 )
 

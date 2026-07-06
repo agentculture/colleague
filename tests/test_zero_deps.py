@@ -274,6 +274,7 @@ def test_no_third_party_imports():
         import colleague.culture  # noqa: F401
         import colleague.deepthink  # noqa: F401
         import colleague.devague  # noqa: F401
+        import colleague.experiment  # noqa: F401
         import colleague.flight  # noqa: F401
         import colleague.hooks  # noqa: F401
         import colleague.layers  # noqa: F401
