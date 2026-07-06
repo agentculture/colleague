@@ -116,6 +116,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
     engines,
     environment,
     identity,
+    organs,
     otel,
     provider,
     stale_refs,
@@ -124,11 +125,11 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
 
 # Ordered registry of check-groups. Identity first (who am I), then the
 # backend/provider plumbing (provider config, usage-readiness, backend plugins),
-# then observability, then the broader environment. The order here is the report
-# order. Every group registered here is contractually read-only and opens no
-# socket / makes no network call (see the check-group contract above) — the
-# opt-in reachability probe (``diagnose(probe=True)``) is deliberately NOT a
-# registered group for exactly that reason.
+# then observability, then the broader environment, then the organism map. The
+# order here is the report order. Every group registered here is contractually
+# read-only and opens no socket / makes no network call (see the check-group
+# contract above) — the opt-in reachability probe (``diagnose(probe=True)``) is
+# deliberately NOT a registered group for exactly that reason.
 CHECK_GROUPS: List[CheckGroup] = [
     identity.checks,
     provider.checks,
@@ -137,7 +138,14 @@ CHECK_GROUPS: List[CheckGroup] = [
     otel.checks,
     environment.checks,
     stale_refs.checks,
+    organs.checks,
 ]
+
+#: Check-groups whose ``checks()`` accepts a ``repo_path=`` kwarg (they read
+#: ``.colleague/config.json`` / repo-relative state); every other group is a
+#: bare zero-arg callable. Kept as an explicit set (not a signature probe) so
+#: the aggregator's dispatch stays simple and testable.
+_REPO_AWARE_GROUPS = frozenset({provider.checks, organs.checks})
 
 
 def diagnose(probe: bool = False, repo_path=None) -> dict:
@@ -167,7 +175,7 @@ def diagnose(probe: bool = False, repo_path=None) -> dict:
     """
     checks: List[dict] = []
     for group in CHECK_GROUPS:
-        if group is provider.checks:
+        if group in _REPO_AWARE_GROUPS:
             checks.extend(group(repo_path=repo_path))
         else:
             checks.extend(group())
@@ -183,5 +191,8 @@ def diagnose(probe: bool = False, repo_path=None) -> dict:
         from colleague.oilcheck import tool_calling
 
         checks.extend(tool_calling.checks(repo_path=repo_path))
+        # Organism reachability (#291/S10): opt-in lobes /capabilities probe,
+        # never a registered group (see organs.probe_checks' own docstring).
+        checks.extend(organs.probe_checks(repo_path=repo_path))
     healthy = not any(c["severity"] == "error" and not c["passed"] for c in checks)
     return {"healthy": healthy, "checks": checks}
