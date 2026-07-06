@@ -247,6 +247,101 @@ def test_memory_field_round_trips() -> None:
     assert "memory" not in bare.to_dict()
 
 
+# ---------------------------------------------------------------------------
+# Embedder env overrides (one-embedder increment, S2, colleague#291/#292 t19):
+# ContextControls.embed_env reaches the eidetic subprocess env end-to-end,
+# threaded through the SAME recall-before/remember-after call sites.
+# ---------------------------------------------------------------------------
+
+
+def _fake_eidetic_capturing_env(bin_dir: Path, log: Path, env_var: str) -> None:
+    """Install a fake ``eidetic`` that logs argv + one named env var per call."""
+    script = bin_dir / "eidetic"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        f"open({str(log)!r}, 'a').write(json.dumps({{"
+        "'argv': sys.argv[1:], "
+        f"'env_value': os.environ.get({env_var!r})"
+        "}) + '\\n')\n"
+        "if sys.argv[1] == 'recall':\n"
+        "    print('[]')\n"
+        "sys.exit(0)\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+
+
+def test_embed_env_reaches_eidetic_subprocess_end_to_end(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """ContextControls.embed_env (S2) flows through _Work into BOTH the
+    recall-before and remember-after eidetic shell-outs — the SAME endpoint
+    colleague resolved reaches the child's environment."""
+    bin_dir = tmp_path / "bin_embed"
+    bin_dir.mkdir()
+    log = tmp_path / "embed.log"
+    monkeypatch.delenv("EIDETIC_EMBED_URL", raising=False)
+    _fake_eidetic_capturing_env(bin_dir, log, "EIDETIC_EMBED_URL")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    result = run(
+        scripted([_FINISH]),
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(
+            memory=True,
+            embed_env={"EIDETIC_EMBED_URL": "http://embed-host:9000/v1"},
+        ),
+    )
+
+    assert result.status == OK
+    lines = [json.loads(line) for line in log.read_text().splitlines()]
+    verbs = [line["argv"][0] for line in lines]
+    assert verbs == ["recall", "remember"]
+    assert all(line["env_value"] == "http://embed-host:9000/v1" for line in lines)
+
+
+def test_embed_env_operator_set_var_survives_end_to_end(
+    repo: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """An operator-exported EIDETIC_EMBED_URL is never overwritten by a
+    lobes-discovered embed_env override, even threaded through the full loop."""
+    bin_dir = tmp_path / "bin_embed2"
+    bin_dir.mkdir()
+    log = tmp_path / "embed2.log"
+    monkeypatch.setenv("EIDETIC_EMBED_URL", "http://operator-set:1234/v1")
+    _fake_eidetic_capturing_env(bin_dir, log, "EIDETIC_EMBED_URL")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    result = run(
+        scripted([_FINISH]),
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(
+            memory=True,
+            embed_env={"EIDETIC_EMBED_URL": "http://lobes-discovered:9000/v1"},
+        ),
+    )
+
+    assert result.status == OK
+    lines = [json.loads(line) for line in log.read_text().splitlines()]
+    assert all(line["env_value"] == "http://operator-set:1234/v1" for line in lines)
+
+
+def test_absent_embed_env_is_byte_identical(repo: Path, eidetic_log: Path) -> None:
+    """No embed_env set (the default) reproduces today's argv exactly — the
+    embedder wiring is a strict no-op when dormant."""
+    result = run(
+        scripted([_FINISH]),
+        Task.new(str(repo), "task"),
+        max_steps=5,
+        context=ContextControls(memory=True),
+    )
+    assert result.status == OK
+    calls = _calls(eidetic_log)
+    assert [c[0] for c in calls] == ["recall", "remember"]
+
+
 def test_eidetic_only_changes_do_not_read_as_dirty(tmp_path: Path) -> None:
     """Store reinforcement/lessons never block the next run (#149 stays for real WIP)."""
     import subprocess

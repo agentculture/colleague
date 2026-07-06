@@ -304,12 +304,14 @@ def test_voice_config_is_frozen_dataclass() -> None:
     vc = VoiceConfig(
         stt_model="stt-model",
         tts_model="tts-model",
-        base_url="http://gateway/v1",
+        stt_base_url="http://gateway/v1",
+        tts_base_url="http://gateway/v1",
         api_key="key-voice",
     )
     assert vc.stt_model == "stt-model"
     assert vc.tts_model == "tts-model"
-    assert vc.base_url == "http://gateway/v1"
+    assert vc.stt_base_url == "http://gateway/v1"
+    assert vc.tts_base_url == "http://gateway/v1"
     assert vc.api_key == "key-voice"
     with pytest.raises(FrozenInstanceError):
         vc.stt_model = "mutated"  # type: ignore[misc]
@@ -369,7 +371,8 @@ def test_env_all_voice_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.voice == VoiceConfig(
         stt_model="stt-model",
         tts_model="tts-model",
-        base_url="http://voice-endpoint/v1",
+        stt_base_url="http://voice-endpoint/v1",
+        tts_base_url="http://voice-endpoint/v1",
         api_key="key-voice",
     )
 
@@ -379,7 +382,8 @@ def test_env_base_url_defaults_to_main_endpoint(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("COLLEAGUE_BASE_URL", "http://main-endpoint/v1")
     cfg = EngineConfig.resolve()
     assert cfg.voice is not None
-    assert cfg.voice.base_url == "http://main-endpoint/v1"
+    assert cfg.voice.stt_base_url == "http://main-endpoint/v1"
+    assert cfg.voice.tts_base_url == "http://main-endpoint/v1"
 
 
 def test_env_api_key_defaults_to_main_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -411,7 +415,8 @@ def test_config_file_voice_section(tmp_path: Path) -> None:
     assert cfg.voice == VoiceConfig(
         stt_model="file-stt-model",
         tts_model="file-tts-model",
-        base_url="http://file-voice/v1",
+        stt_base_url="http://file-voice/v1",
+        tts_base_url="http://file-voice/v1",
         api_key="file-voice-key",
     )
 
@@ -456,7 +461,8 @@ def test_env_overrides_config_file_voice_base_url(
     monkeypatch.setenv("COLLEAGUE_VOICE_BASE_URL", "http://env-voice/v1")
     cfg = EngineConfig.resolve(repo_path=tmp_path)
     assert cfg.voice is not None
-    assert cfg.voice.base_url == "http://env-voice/v1"
+    assert cfg.voice.stt_base_url == "http://env-voice/v1"
+    assert cfg.voice.tts_base_url == "http://env-voice/v1"
 
 
 # ---------------------------------------------------------------------------
@@ -519,8 +525,10 @@ def test_to_dict_voice_only_present_when_configured() -> None:
 
 
 def test_voice_from_lobes_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When lobes returns stt/tts roles, VoiceConfig is built from the gateway
-    origin base_url (NOT role.endpoint)."""
+    """When lobes returns stt/tts roles, EACH role's VoiceConfig base_url is
+    resolved from ITS OWN advertised ``endpoint`` (lobes-cli#87, 0.38.0;
+    colleague#292 S1's follow-on / S2 — the gateway-origin-for-all workaround
+    is gone), not a blanket gateway-origin value."""
 
     def _fake_resolve_roles(gateway_url: str, *, timeout: float = 5.0) -> LobesRoles | None:
         return LobesRoles(
@@ -569,10 +577,80 @@ def test_voice_from_lobes_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.voice is not None
     assert cfg.voice.stt_model == "stt-from-gateway"
     assert cfg.voice.tts_model == "tts-from-gateway"
-    # base_url is derived from the GATEWAY ORIGIN (with the OpenAI /v1 suffix, the
-    # same convention as the senses lobes rung), NOT the role's non-reachable
-    # `endpoint` field (http://realtime:8080).
-    assert cfg.voice.base_url == "http://gateway:8001/v1"
+    # base_url is derived from EACH role's own reachable ``endpoint`` (with the
+    # OpenAI /v1 suffix), NOT the gateway origin (http://gateway:8001).
+    assert cfg.voice.stt_base_url == "http://realtime:8080/v1"
+    assert cfg.voice.tts_base_url == "http://realtime:8080/v1"
+
+
+def test_voice_from_lobes_stt_and_tts_dial_distinct_endpoints_independently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The h1 honesty condition, end-to-end: when stt and tts are served from
+    GENUINELY DIFFERENT origins, VoiceConfig resolves each independently — no
+    shared field forces one onto the other's endpoint (or the gateway's)."""
+
+    def _fake_resolve_roles(gateway_url: str, *, timeout: float = 5.0) -> LobesRoles | None:
+        return LobesRoles(
+            cortex=RoleInfo(
+                model="cortex-model",
+                endpoint="http://cortex-host:9001",
+                path="/v1/chat/completions",
+                context=131072,
+                ready=True,
+                responsibilities=("reasoning",),
+                forbidden_responsibilities=(),
+            ),
+            senses=RoleInfo(
+                model="senses-model",
+                endpoint="http://senses-host:9002",
+                path="/v1/chat/completions",
+                context=32768,
+                ready=True,
+                responsibilities=("intake",),
+                forbidden_responsibilities=(),
+            ),
+            stt=RoleInfo(
+                model="stt-model",
+                endpoint="http://stt-host:9003",
+                path="/v1/audio/transcriptions",
+                context=0,
+                ready=True,
+                responsibilities=("transcribe",),
+                forbidden_responsibilities=(),
+            ),
+            tts=RoleInfo(
+                model="tts-model",
+                endpoint="http://tts-host:9004",
+                path="/v1/audio/speech",
+                context=0,
+                ready=True,
+                responsibilities=("speech_output",),
+                forbidden_responsibilities=(),
+            ),
+        )
+
+    monkeypatch.setattr("colleague.lobes.resolve_roles", _fake_resolve_roles)
+    monkeypatch.setenv("COLLEAGUE_LOBES_URL", "http://gateway:8001")
+
+    cfg = EngineConfig.resolve()
+
+    # Four distinct endpoints in the fixture; four distinct base_urls out —
+    # not one, not the gateway origin.
+    assert cfg.base_url == "http://cortex-host:9001/v1"
+    assert cfg.senses is not None
+    assert cfg.senses.base_url == "http://senses-host:9002/v1"
+    assert cfg.voice is not None
+    assert cfg.voice.stt_base_url == "http://stt-host:9003/v1"
+    assert cfg.voice.tts_base_url == "http://tts-host:9004/v1"
+    gateway_origin = "http://gateway:8001"
+    for resolved in (
+        cfg.base_url,
+        cfg.senses.base_url,
+        cfg.voice.stt_base_url,
+        cfg.voice.tts_base_url,
+    ):
+        assert not resolved.startswith(gateway_origin)
 
 
 def test_voice_from_lobes_stt_only(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -18,6 +18,18 @@ path so the store resolves to the repo's ``.eidetic/memory``.  The CLI is
 When the ``eidetic`` CLI is absent (not found via ``shutil.which``), both
 functions are strict no-ops: ``recall`` returns ``[]`` and ``remember``
 returns ``False`` — no subprocess is attempted, no exception is raised.
+
+Embedder env overrides (one-embedder increment, S2, colleague#291/#292 task
+t19). Both functions accept an optional ``env_overrides`` mapping — the
+loop threads ``config.embed_env`` (built from the resolved lobes ``embedder``
+role, see :func:`colleague.lobes.embed_env`) through here so the eidetic CLI
+child inherits ``EIDETIC_EMBED_URL``/``EIDETIC_EMBED_MODEL`` when armed.
+**Operator wins**: the merge order is ``env_overrides`` first, then
+``os.environ`` (which shadows any override key already present in the
+caller's own environment), then :func:`identity_env` last (unchanged
+precedence) — an env var an operator already exported is NEVER overwritten
+by a lobes-discovered value. Absent *env_overrides* (the default, ``None``)
+is byte-identical to before this task.
 """
 
 from __future__ import annotations
@@ -45,6 +57,7 @@ def recall(
     *,
     top_k: int = 5,
     timeout: float = _TIMEOUT_SECONDS,
+    env_overrides: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Search the repo's eidetic memory store and return matching records.
 
@@ -52,6 +65,9 @@ def recall(
         repo_path: The repo root; the child runs with ``cwd`` pinned here.
         query: The search query to pass to ``eidetic recall``.
         top_k: Maximum number of results (default 5).
+        env_overrides: Optional env vars to merge in (e.g. the embedder's
+            ``EIDETIC_EMBED_URL``/``_MODEL``, S2 task t19) — an operator-set
+            env var of the SAME name always wins (see module docstring).
 
     Returns:
         A list of result dicts parsed from the CLI's JSON output.
@@ -63,7 +79,7 @@ def recall(
 
     root_path = Path(repo_path).resolve()
     identity = resolve_identity(root_path)
-    env = {**os.environ, **identity_env(identity)}
+    env = {**(env_overrides or {}), **os.environ, **identity_env(identity)}
 
     argv = [
         "eidetic",
@@ -105,12 +121,16 @@ def remember(
     record: dict[str, Any],
     *,
     timeout: float = _TIMEOUT_SECONDS,
+    env_overrides: dict[str, str] | None = None,
 ) -> bool:
     """Store a memory record in the repo's eidetic memory store.
 
     Args:
         repo_path: The repo root; the child runs with ``cwd`` pinned here.
         record: The record dict to store, serialized as JSON.
+        env_overrides: Optional env vars to merge in (e.g. the embedder's
+            ``EIDETIC_EMBED_URL``/``_MODEL``, S2 task t19) — an operator-set
+            env var of the SAME name always wins (see module docstring).
 
     Returns:
         ``True`` if the CLI succeeded (exit code 0), ``False`` otherwise.
@@ -122,7 +142,7 @@ def remember(
 
     root_path = Path(repo_path).resolve()
     identity = resolve_identity(root_path)
-    env = {**os.environ, **identity_env(identity)}
+    env = {**(env_overrides or {}), **os.environ, **identity_env(identity)}
 
     record_json = json.dumps(record)
     argv = [

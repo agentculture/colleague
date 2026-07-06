@@ -19,7 +19,7 @@ import os
 import stat
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import colleague.memory as memory_mod
 
@@ -300,6 +300,106 @@ class TestIdentityInjection:
         lines = log.read_text().splitlines()
         scope_line = lines[2]
         assert "SCOPE: test-agent" in scope_line
+
+
+# ---------------------------------------------------------------------------
+# Embedder env overrides (one-embedder increment, S2, colleague#291/#292 t19):
+# recall/remember merge env_overrides into the eidetic subprocess env, but an
+# operator-set env var of the SAME name always wins.
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedEnvOverrides:
+    def _capture_recall_env(self, tmp_path: Path, **kwargs) -> dict:
+        captured: dict = {}
+
+        def _fake_run(argv, **run_kwargs):
+            captured["env"] = run_kwargs.get("env")
+            result = Mock()
+            result.returncode = 0
+            result.stdout = "[]"
+            return result
+
+        with patch("colleague.memory.shutil") as mock_shutil:
+            mock_shutil.which.return_value = "/usr/bin/eidetic"
+            with patch.object(subprocess, "run", side_effect=_fake_run):
+                memory_mod.recall(tmp_path, "query", **kwargs)
+        return captured["env"]
+
+    def test_recall_merges_env_overrides_into_subprocess_env(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("EIDETIC_EMBED_URL", raising=False)
+        env = self._capture_recall_env(
+            tmp_path, env_overrides={"EIDETIC_EMBED_URL": "http://embed-host:9000/v1"}
+        )
+        assert env["EIDETIC_EMBED_URL"] == "http://embed-host:9000/v1"
+
+    def test_recall_operator_set_env_var_survives_injection(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """An operator-exported env var of the SAME name is NEVER overwritten
+        by a lobes-discovered override (operator wins)."""
+        monkeypatch.setenv("EIDETIC_EMBED_URL", "http://operator-set:1234/v1")
+        env = self._capture_recall_env(
+            tmp_path, env_overrides={"EIDETIC_EMBED_URL": "http://lobes-discovered:9000/v1"}
+        )
+        assert env["EIDETIC_EMBED_URL"] == "http://operator-set:1234/v1"
+
+    def test_recall_no_env_overrides_is_byte_identical(self, tmp_path: Path, monkeypatch) -> None:
+        """Absent env_overrides (lobes unarmed/no embedder) reproduces today's
+        env exactly — no new keys added."""
+        monkeypatch.delenv("EIDETIC_EMBED_URL", raising=False)
+        env_default = self._capture_recall_env(tmp_path)
+        env_explicit_empty = self._capture_recall_env(tmp_path, env_overrides={})
+        assert env_default == env_explicit_empty
+        assert "EIDETIC_EMBED_URL" not in env_default
+
+    def test_remember_merges_env_overrides_into_subprocess_env(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("EIDETIC_EMBED_MODEL", raising=False)
+        captured: dict = {}
+
+        def _fake_run(argv, **run_kwargs):
+            captured["env"] = run_kwargs.get("env")
+            result = Mock()
+            result.returncode = 0
+            result.stdout = "ok"
+            return result
+
+        with patch("colleague.memory.shutil") as mock_shutil:
+            mock_shutil.which.return_value = "/usr/bin/eidetic"
+            with patch.object(subprocess, "run", side_effect=_fake_run):
+                memory_mod.remember(
+                    tmp_path,
+                    {"key": "value"},
+                    env_overrides={"EIDETIC_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B"},
+                )
+        assert captured["env"]["EIDETIC_EMBED_MODEL"] == "Qwen/Qwen3-Embedding-0.6B"
+
+    def test_remember_operator_set_env_var_survives_injection(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("EIDETIC_EMBED_MODEL", "operator-chosen-model")
+        captured: dict = {}
+
+        def _fake_run(argv, **run_kwargs):
+            captured["env"] = run_kwargs.get("env")
+            result = Mock()
+            result.returncode = 0
+            result.stdout = "ok"
+            return result
+
+        with patch("colleague.memory.shutil") as mock_shutil:
+            mock_shutil.which.return_value = "/usr/bin/eidetic"
+            with patch.object(subprocess, "run", side_effect=_fake_run):
+                memory_mod.remember(
+                    tmp_path,
+                    {"key": "value"},
+                    env_overrides={"EIDETIC_EMBED_MODEL": "lobes-discovered-model"},
+                )
+        assert captured["env"]["EIDETIC_EMBED_MODEL"] == "operator-chosen-model"
 
 
 # ---------------------------------------------------------------------------

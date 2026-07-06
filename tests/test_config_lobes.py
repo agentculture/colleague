@@ -14,12 +14,22 @@ below config.json and above the builtin default::
 
 Two load-bearing decisions (LOBES_LIVE_FINDINGS.md):
 
-* **base_url = gateway ORIGIN, not the per-role ``endpoint`` field.** Every role
-  reports an internal ``http://localhost:8000`` that is NOT client-reachable;
-  the gateway that serves ``/capabilities`` (``COLLEAGUE_LOBES_URL``) is the
-  reachable OpenAI endpoint and routes by model id. So both cortex and senses
-  dial a base_url derived from the gateway origin (matching the shape of the
-  builtin default's ``/v1`` suffix).
+* **Per-role dialing (colleague#292/291 S1+S2, closing lobes-cli#87 end-to-end).**
+  Originally (pre-lobes-cli 0.38.0) every role reported an internal
+  ``http://localhost:8000`` that was NOT client-reachable, so BOTH cortex and
+  senses were forced to dial a base_url derived from the gateway ORIGIN
+  instead (the "gateway-origin-for-all" workaround, matching the shape of the
+  builtin default's ``/v1`` suffix). Since lobes-cli 0.38.0 made each role's own
+  ``endpoint`` genuinely client-reachable, ``EngineConfig.resolve()`` now dials
+  EACH role's OWN advertised endpoint via ``colleague.lobes.resolve_role_base_url``
+  — the gateway origin survives only as the documented fallback for an
+  unwired role (empty ``endpoint``) or a disallowed scheme, never the default
+  path for a normally-wired role. The fixture below happens to reuse the SAME
+  endpoint value for cortex/senses (a same-origin rig is a valid shape too);
+  ``test_voice_config.py``'s
+  ``test_voice_from_lobes_stt_and_tts_dial_distinct_endpoints_independently``
+  is the fixture with four GENUINELY DIFFERENT per-role endpoints proving
+  independent resolution end-to-end.
 * **Degrade, never hard-fail.** Armed-but-unreachable proceeds on the next
   precedence rung with exactly ONE stderr notice for the whole resolve; absent
   entirely is byte-identical to today (no ``resolve_roles`` call, no notice).
@@ -53,16 +63,18 @@ from colleague.config import (
 _CORTEX_MODEL = "lobes-cortex-sentinel-model"
 _SENSES_MODEL = "lobes-senses-sentinel-model"
 
-# The internal, NON-client-reachable endpoint every role self-reports (decision
-# 2). t4 must NEVER dial this — it dials the gateway origin instead.
-_ROLE_INTERNAL_ENDPOINT = "http://localhost:8000"
+# Every role in this fixture self-reports the SAME endpoint (a valid
+# same-origin rig shape). Since lobes-cli 0.38.0 (colleague#292/291 S1+S2,
+# closing lobes-cli#87) this IS the client-reachable per-role dial target —
+# resolve() now dials it directly, no longer forcing the gateway origin.
+_ROLE_ENDPOINT = "http://localhost:8000"
 
 LOBES_PAYLOAD: dict[str, object] = {
     "cortex": {
         "role": "cortex",
         "model": _CORTEX_MODEL,
         "runtime": "vllm",
-        "endpoint": _ROLE_INTERNAL_ENDPOINT,
+        "endpoint": _ROLE_ENDPOINT,
         "path": "/v1/chat/completions",
         "context": 131072,
         "quant": "modelopt",
@@ -76,7 +88,7 @@ LOBES_PAYLOAD: dict[str, object] = {
         "role": "senses",
         "model": _SENSES_MODEL,
         "runtime": "vllm",
-        "endpoint": _ROLE_INTERNAL_ENDPOINT,
+        "endpoint": _ROLE_ENDPOINT,
         "path": "/v1/chat/completions",
         "context": 32768,
         "quant": "compressed-tensors",
@@ -95,7 +107,7 @@ LOBES_PAYLOAD: dict[str, object] = {
         "role": "embedder",
         "model": "some/embedder",
         "runtime": "vllm",
-        "endpoint": _ROLE_INTERNAL_ENDPOINT,
+        "endpoint": _ROLE_ENDPOINT,
         "path": "/v1/embeddings",
         "context": 8192,
         "quant": "",
@@ -210,31 +222,55 @@ def test_armed_gateway_resolves_cortex_as_main_and_senses_as_config(
         # cortex → the MAIN model id (from the gateway, not the builtin).
         assert cfg.model == _CORTEX_MODEL
         assert cfg.model != _DEFAULT_MODEL
-        # base_url derived from the GATEWAY ORIGIN + the builtin's /v1 suffix.
-        assert cfg.base_url == gateway.rstrip("/") + "/v1"
+        # base_url derived from cortex's OWN advertised endpoint + the builtin's
+        # /v1 suffix (colleague#292/291 S1+S2, closing lobes-cli#87).
+        assert cfg.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
 
-        # senses → a resolved SensesConfig.
+        # senses → a resolved SensesConfig, dialing ITS OWN endpoint too.
         assert cfg.senses is not None
         assert isinstance(cfg.senses, SensesConfig)
         assert cfg.senses.model == _SENSES_MODEL
-        assert cfg.senses.base_url == gateway.rstrip("/") + "/v1"
+        assert cfg.senses.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
 
 
-def test_lobes_base_url_is_gateway_origin_not_role_endpoint(
+def test_lobes_base_url_dials_each_roles_own_endpoint_since_038(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decision 2: the per-role ``endpoint`` (internal :8000) is NEVER dialed —
-    both cortex and senses use a base_url derived from the gateway origin."""
+    """Updated deliberately (colleague#292/291 S1+S2, citing lobes-cli#87): the
+    OLD "decision 2" gateway-origin-for-all workaround is GONE. Since lobes-cli
+    0.38.0 made each role's own ``endpoint`` genuinely client-reachable, both
+    cortex and senses now dial THEIR OWN endpoint directly — the gateway
+    origin is only the documented fallback for an unwired role."""
     with _serving(LOBES_PAYLOAD) as gateway:
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
         cfg = EngineConfig.resolve()
 
-    assert _ROLE_INTERNAL_ENDPOINT not in cfg.base_url
     assert cfg.senses is not None
-    assert _ROLE_INTERNAL_ENDPOINT not in cfg.senses.base_url
-    # The reachable base_url is the gateway origin, not the role's :8000.
-    assert cfg.base_url.startswith(gateway.rstrip("/"))
-    assert cfg.senses.base_url.startswith(gateway.rstrip("/"))
+    # The reachable base_url IS the role's own endpoint now, not the gateway
+    # origin used to serve /capabilities (they differ in this test: the
+    # fixture's role endpoint is a fixed host:port, the stub gateway is an
+    # ephemeral 127.0.0.1 port).
+    assert cfg.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
+    assert cfg.senses.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
+    assert not cfg.base_url.startswith(gateway.rstrip("/"))
+    assert not cfg.senses.base_url.startswith(gateway.rstrip("/"))
+
+
+def test_lobes_base_url_falls_back_to_gateway_origin_when_role_endpoint_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unwired role (empty ``endpoint``) still falls back to the gateway
+    origin — the documented fallback, never a hard failure (h1)."""
+    payload = json.loads(json.dumps(LOBES_PAYLOAD))
+    payload["cortex"]["endpoint"] = ""
+    payload["senses"]["endpoint"] = ""
+    with _serving(payload) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        cfg = EngineConfig.resolve()
+
+    assert cfg.senses is not None
+    assert cfg.base_url == gateway.rstrip("/") + "/v1"
+    assert cfg.senses.base_url == gateway.rstrip("/") + "/v1"
 
 
 def test_senses_from_lobes_budget_derived_from_role_window(

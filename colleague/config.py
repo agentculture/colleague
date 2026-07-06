@@ -414,20 +414,43 @@ def resolve_lobes_gateway_url(repo_path: str | Path | None = None) -> str | None
     return None
 
 
-def _lobes_base_url(gateway_url: str) -> str:
-    """Derive the client-reachable OpenAI base_url from the lobes GATEWAY ORIGIN.
+def _lobes_base_url(origin_url: str) -> str:
+    """Append the builtin default's OpenAI path suffix (``/v1``) to *origin_url*.
 
-    LOBES_LIVE_FINDINGS decision 2 (load-bearing): each role's own ``endpoint``
-    field reports an internal, non-client-reachable host (e.g.
-    ``http://localhost:8000``). The gateway ORIGIN that serves ``/capabilities``
-    (``COLLEAGUE_LOBES_URL``, e.g. ``http://localhost:8001``) is the reachable
-    OpenAI endpoint and routes by model id — so BOTH cortex and senses dial it,
-    never the role's self-reported ``endpoint``. We match the SHAPE of the
-    builtin default base_url: if :data:`_DEFAULT_BASE_URL` carries a path suffix
-    (``/v1``), append the same suffix to the gateway origin.
+    A pure shape helper: match whatever :data:`_DEFAULT_BASE_URL` carries as a
+    path suffix so every lobes-derived base_url (gateway origin OR a per-role
+    dial target — see :func:`_role_dial_base_url`) has the same shape as the
+    builtin default. Historically this was applied to the gateway origin ONLY
+    (LOBES_LIVE_FINDINGS decision 2, pre-0.38: every role's own ``endpoint``
+    reported an internal, non-client-reachable host, e.g. ``http://localhost:8000``,
+    so both cortex and senses were forced to dial the gateway origin instead).
+    Since lobes-cli 0.38.0 closed lobes-cli#87, a role's own ``endpoint`` is
+    genuinely client-reachable, so :func:`_role_dial_base_url` now feeds this
+    helper the role's OWN resolved origin — the gateway origin is only the
+    documented fallback (see ``colleague/lobes.py``'s ``resolve_role_base_url``).
     """
     suffix = urlsplit(_DEFAULT_BASE_URL).path.rstrip("/")
-    return gateway_url.rstrip("/") + suffix
+    return origin_url.rstrip("/") + suffix
+
+
+def _role_dial_base_url(role: object, gateway_url: str) -> str:
+    """Resolve *role*'s own dial target and apply the ``/v1``-shape suffix (lobes-cli#87).
+
+    Delegates to :func:`colleague.lobes.resolve_role_base_url` for the
+    SSRF-guarded per-role origin — the role's own ``endpoint`` when it is a
+    non-empty, allowed-scheme URL, else *gateway_url* itself (an unwired role
+    or a disallowed scheme) — then applies :func:`_lobes_base_url`'s suffix so
+    every lobes-derived base_url shares one shape. This is the consumer switch
+    (colleague#292, S1's follow-on) closing lobes-cli#87 end-to-end: cortex,
+    senses, and voice (stt/tts) each dial THEIR OWN advertised endpoint instead
+    of the pre-0.38 gateway-origin-for-all workaround.
+    """
+    # Lazy import mirrors _resolve_lobes_rung's own lazy `colleague.lobes` import
+    # (keeps config's module import graph unchanged; lets tests monkeypatch it).
+    from colleague import lobes as _lobes
+
+    origin = _lobes.resolve_role_base_url(role, gateway_url)
+    return _lobes_base_url(origin)
 
 
 def _senses_budget_from_window(window: int) -> int:
@@ -448,10 +471,13 @@ def _senses_budget_from_window(window: int) -> int:
 def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "SensesConfig | None":
     """Build a :class:`SensesConfig` from the gateway's senses role (t4).
 
-    Used only when senses is NOT otherwise declared (env/config.json win). The
-    base_url is the gateway-derived value (decision 2, NOT the role's ``endpoint``
-    field); api_key inherits the resolved MAIN endpoint's value. ``multimodal``
-    stays ``False`` — the t1 :class:`~colleague.lobes.RoleInfo` carries no ``mtp``
+    Used only when senses is NOT otherwise declared (env/config.json win).
+    *base_url* is the senses role's OWN resolved dial target (colleague#292,
+    S1's follow-on: :func:`_role_dial_base_url` closes lobes-cli#87 — the
+    role's own ``endpoint`` when reachable, the gateway origin only as the
+    documented fallback; NOT a blanket gateway-origin-for-all as before);
+    api_key inherits the resolved MAIN endpoint's value. ``multimodal`` stays
+    ``False`` — the t1 :class:`~colleague.lobes.RoleInfo` carries no ``mtp``
     field, so an operator arms the media bridge by declaring senses explicitly
     (env/config, which take precedence). Returns ``None`` on a blank model.
     """
@@ -467,16 +493,20 @@ def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "Sense
     )
 
 
-def _voice_from_lobes_roles(roles: object, base_url: str, api_key: str) -> "VoiceConfig | None":
+def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "VoiceConfig | None":
     """Build a :class:`VoiceConfig` from the gateway's stt/tts roles (t1).
 
     ``roles`` is the resolved :class:`~colleague.lobes.LobesRoles` (typed
     ``object`` here to avoid a module-level ``lobes`` import — the same lazy
     stance :func:`_resolve_lobes_rung` takes). Used only when voice is NOT
-    otherwise declared (env/config.json win). The base_url is the
-    gateway-derived value (NOT a role's ``endpoint`` field, which is not
-    client-reachable); api_key inherits the resolved MAIN endpoint's value.
-    Returns ``None`` when neither stt nor tts is armed on the gateway.
+    otherwise declared (env/config.json win). ``stt_base_url``/``tts_base_url``
+    are EACH resolved independently via :func:`_role_dial_base_url` (colleague#292,
+    S1's follow-on: closes lobes-cli#87 — a role's own ``endpoint`` when
+    reachable, *gateway_url* only as the documented fallback) — no longer a
+    single blanket gateway-origin-for-all value, so a rig where stt/tts are
+    served from genuinely different origins dials each correctly. api_key
+    inherits the resolved MAIN endpoint's value. Returns ``None`` when neither
+    stt nor tts is armed on the gateway.
     """
     stt_role = getattr(roles, "stt", None)
     tts_role = getattr(roles, "tts", None)
@@ -486,10 +516,22 @@ def _voice_from_lobes_roles(roles: object, base_url: str, api_key: str) -> "Voic
     if stt_model is None and tts_model is None:
         return None
 
+    stt_base_url = (
+        _role_dial_base_url(stt_role, gateway_url)
+        if stt_role is not None
+        else _lobes_base_url(gateway_url)
+    )
+    tts_base_url = (
+        _role_dial_base_url(tts_role, gateway_url)
+        if tts_role is not None
+        else _lobes_base_url(gateway_url)
+    )
+
     return VoiceConfig(
         stt_model=stt_model,
         tts_model=tts_model,
-        base_url=base_url,
+        stt_base_url=stt_base_url,
+        tts_base_url=tts_base_url,
         api_key=api_key,
     )
 
@@ -510,8 +552,8 @@ def _emit_lobes_unreachable_notice(gateway_url: str) -> None:
 def _resolve_lobes_rung(
     repo_path: str | Path | None,
     discover_lobes: bool,
-) -> "tuple[str | None, str | None, object | None]":
-    """Consult the lobes gateway (task t4) and return its DEFAULTS-SOURCE trio.
+) -> "tuple[str | None, str | None, object | None, str | None, dict[str, str]]":
+    """Consult the lobes gateway (task t4) and return its DEFAULTS-SOURCE bundle.
 
     Extracted from :meth:`EngineConfig.resolve` to hold its cognitive
     complexity under the SonarCloud S3776 ceiling (15) — pure extraction, no
@@ -519,28 +561,42 @@ def _resolve_lobes_rung(
 
     When armed (``COLLEAGUE_LOBES_URL`` env or a ``lobes`` section in
     config.json), the gateway is consulted ONCE as a DEFAULTS SOURCE feeding
-    cortex → the main model id + base_url and senses → a SensesConfig.
+    cortex → the main model id + base_url, senses → a SensesConfig, voice →
+    a VoiceConfig, and the embedder → ``embed_env`` overrides (S2, task t19).
     Unreachable degrades to the next precedence rung with ONE stderr notice
     (never a hard-fail, h7); unarmed (``discover_lobes=False``, or no gateway
-    URL resolved) makes NO network call and returns an all-``None`` triple —
-    byte-identical to a pre-lobes resolve. ``discover_lobes=False`` is the
-    OFFLINE seam the contractually no-network ``doctor`` provider group needs
-    so an armed lobes gateway doesn't leak a network call into a plain
+    URL resolved) makes NO network call and returns an all-``None``/``{}``
+    bundle — byte-identical to a pre-lobes resolve. ``discover_lobes=False`` is
+    the OFFLINE seam the contractually no-network ``doctor`` provider group
+    needs so an armed lobes gateway doesn't leak a network call into a plain
     ``colleague doctor``; the default (``True``) still discovers live per run.
+
+    **Per-role dialing (colleague#292, S1's follow-on — closes lobes-cli#87
+    end-to-end).** ``lobes_base_url`` is CORTEX's own resolved dial target
+    (:func:`_role_dial_base_url`), not a blanket gateway-origin value — senses
+    and voice each resolve their OWN dial target independently from the
+    returned ``lobes_gateway_url``, below. The pre-0.38 "every role dials the
+    gateway origin" workaround is gone; the gateway origin survives only as
+    :func:`~colleague.lobes.resolve_role_base_url`'s documented per-role
+    fallback for an unwired role or a disallowed scheme.
 
     Returns
     -------
-    (lobes_base_url, lobes_model, lobes_roles)
+    (lobes_base_url, lobes_model, lobes_roles, lobes_gateway_url, lobes_embed_env)
         ``lobes_base_url``/``lobes_model`` are the two values ``resolve()``
         folds into its own base_url/model defaults; ``lobes_roles`` is the
-        raw resolved :class:`~colleague.lobes.LobesRoles` (or ``None``) that
-        the senses rung also consults.
+        raw resolved :class:`~colleague.lobes.LobesRoles` (or ``None``) the
+        senses/voice rungs also consult; ``lobes_gateway_url`` is the armed
+        gateway origin itself (needed by the senses/voice per-role resolution
+        below, and as the documented fallback); ``lobes_embed_env`` is the
+        embedder's env-var overrides (``{}`` when unarmed/unreachable/no
+        embedder — see :func:`colleague.lobes.embed_env`).
     """
     if not discover_lobes:
-        return None, None, None
+        return None, None, None, None, {}
     lobes_gateway_url = resolve_lobes_gateway_url(repo_path)
     if lobes_gateway_url is None:
-        return None, None, None
+        return None, None, None, None, {}
     # Lazy import keeps config's module import graph unchanged (the
     # sanitize_model idiom) and lets tests monkeypatch resolve_roles.
     from colleague import lobes as _lobes
@@ -548,12 +604,13 @@ def _resolve_lobes_rung(
     lobes_roles = _lobes.resolve_roles(lobes_gateway_url)
     if lobes_roles is None:
         _emit_lobes_unreachable_notice(lobes_gateway_url)
-        return None, None, None
-    # Decision 2: BOTH roles dial the gateway origin, not the role's own
-    # (internal, non-client-reachable) ``endpoint`` field.
-    lobes_base_url = _lobes_base_url(lobes_gateway_url)
+        return None, None, None, None, {}
+    # Per-role dialing (S1's follow-on, S2): cortex dials ITS OWN endpoint,
+    # falling back to the gateway origin only when unwired/disallowed.
+    lobes_base_url = _role_dial_base_url(lobes_roles.cortex, lobes_gateway_url)
     lobes_model = (lobes_roles.cortex.model or "").strip() or None
-    return lobes_base_url, lobes_model, lobes_roles
+    lobes_embed_env = _lobes.embed_env(lobes_roles, lobes_gateway_url)
+    return lobes_base_url, lobes_model, lobes_roles, lobes_gateway_url, lobes_embed_env
 
 
 def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
@@ -944,7 +1001,8 @@ def _resolve_voice(
     return VoiceConfig(
         stt_model=stt_model or None,
         tts_model=tts_model or None,
-        base_url=base_url,
+        stt_base_url=base_url,
+        tts_base_url=base_url,
         api_key=api_key,
     )
 
@@ -1098,11 +1156,22 @@ class VoiceConfig:
     (base_url/api_key default to the main endpoint). Precedence:
     ``COLLEAGUE_STT_MODEL``/``COLLEAGUE_TTS_MODEL`` env > ``voice`` section of
     .colleague/config.json > lobes discovery > absent (None).
+
+    ``stt_base_url``/``tts_base_url`` are SEPARATE fields (colleague#292, S1's
+    follow-on / S2): pre-0.38 both stt and tts were forced to dial a single
+    blanket gateway-origin value (there was no other reachable target), but
+    since lobes-cli 0.38.0 each role can report its OWN genuinely dialable
+    endpoint (lobes-cli#87) — a rig serving stt/tts from different origins
+    needs two independently-resolved dial targets, not one shared field. The
+    non-lobes env/config.json path (:func:`_resolve_voice`) still sets both to
+    the SAME value (there is only one declared voice base_url there), so this
+    split is byte-identical for every caller that isn't the lobes rung.
     """
 
     stt_model: str | None
     tts_model: str | None
-    base_url: str
+    stt_base_url: str
+    tts_base_url: str
     api_key: str
 
 
@@ -1235,6 +1304,17 @@ class EngineConfig:
     # eq/repr/to_dict.
     explicit_knobs: Collection[str] = field(default=(), compare=False, repr=False)
 
+    # Embedder env overrides (one-embedder increment, S2, colleague#291/#292
+    # task t19): built by :func:`_resolve_lobes_rung` from the gateway's
+    # OPTIONAL ``embedder`` role via :func:`colleague.lobes.embed_env` — ``{}``
+    # (the default) when lobes is unarmed/unreachable or the gateway doesn't
+    # advertise an embedder (never fails resolution, mirroring stt/tts).
+    # Threaded to the eidetic-CLI subprocess env in ``colleague/memory.py``
+    # (never overwriting an operator-set env var — operator wins). A
+    # runtime-derived plumbing value, not a declared override — excluded from
+    # eq/repr/to_dict like ``memory_root``/``role`` above.
+    embed_env: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,
@@ -1313,7 +1393,11 @@ class EngineConfig:
         # full rationale (extracted to hold this method's cognitive complexity
         # under the SonarCloud S3776 ceiling — pure extraction, no behavior
         # change). It slots BELOW config.json and ABOVE the builtin default.
-        lobes_base_url, lobes_model, lobes_roles = _resolve_lobes_rung(repo_path, discover_lobes)
+        # ``lobes_gateway_url`` (S1/S2 follow-on) lets the senses/voice rungs
+        # below resolve EACH role's own dial target independently of cortex's.
+        lobes_base_url, lobes_model, lobes_roles, lobes_gateway_url, lobes_embed_env = (
+            _resolve_lobes_rung(repo_path, discover_lobes)
+        )
 
         # Resolved once as locals (not just inline in the ``cls(...)`` call
         # below) so the deepthink resolution can default ITS base_url/api_key
@@ -1351,21 +1435,28 @@ class EngineConfig:
         # local like resolved_deepthink above. Precedence: env > config.json >
         # lobes discovery (t4) > absent. When senses is NOT declared via
         # env/config.json but the lobes rung resolved, the gateway's senses role
-        # supplies the SensesConfig (gateway-origin base_url per decision 2, main
-        # api_key, budget derived from the role's window).
+        # supplies the SensesConfig — its OWN resolved dial target (colleague#292,
+        # S1's follow-on: senses no longer reuses cortex's ``lobes_base_url``;
+        # closes lobes-cli#87 end-to-end), main api_key, budget from the role's
+        # window.
         resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
         if resolved_senses is None and lobes_roles is not None:
+            senses_base_url = _role_dial_base_url(lobes_roles.senses, lobes_gateway_url)
             resolved_senses = _senses_from_lobes_role(
-                lobes_roles.senses, lobes_base_url, resolved_api_key
+                lobes_roles.senses, senses_base_url, resolved_api_key
             )
         # Voice (stt/tts) escalation target (senses live-presence + voice arc) —
         # resolved once as a local, mirroring senses. Precedence: env >
         # config.json > lobes discovery > absent. When voice is NOT declared via
         # env/config.json but the lobes rung resolved, the gateway's stt/tts roles
-        # supply the VoiceConfig (gateway-origin base_url, main api_key).
+        # supply the VoiceConfig — EACH role's own resolved dial target
+        # (colleague#292, S1's follow-on: closes lobes-cli#87 end-to-end), main
+        # api_key.
         resolved_voice = _resolve_voice(file_voice, resolved_base_url, resolved_api_key)
         if resolved_voice is None and lobes_roles is not None:
-            resolved_voice = _voice_from_lobes_roles(lobes_roles, lobes_base_url, resolved_api_key)
+            resolved_voice = _voice_from_lobes_roles(
+                lobes_roles, lobes_gateway_url, resolved_api_key
+            )
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -1601,6 +1692,10 @@ class EngineConfig:
             # resolved MAIN endpoint values computed above.
             senses=resolved_senses,
             voice=resolved_voice,
+            # Embedder env overrides (S2, task t19) — {} when lobes is
+            # unarmed/unreachable or the gateway doesn't advertise an embedder
+            # (see :func:`_resolve_lobes_rung` / :func:`colleague.lobes.embed_env`).
+            embed_env=lobes_embed_env,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -1662,7 +1757,8 @@ class EngineConfig:
             data["voice"] = {
                 "stt_model": self.voice.stt_model,
                 "tts_model": self.voice.tts_model,
-                "base_url": self.voice.base_url,
+                "stt_base_url": self.voice.stt_base_url,
+                "tts_base_url": self.voice.tts_base_url,
             }
         return data
 

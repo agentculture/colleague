@@ -136,7 +136,7 @@ def _maybe_transcribe(
     transcript = voice.transcribe(
         path,
         stt_model=voice_cfg.stt_model,
-        base_url=voice_cfg.base_url,
+        base_url=voice_cfg.stt_base_url,
         api_key=voice_cfg.api_key or "",
     )
     if not transcript:
@@ -155,7 +155,7 @@ def _maybe_synthesize(
     written = voice.synthesize(
         answer,
         tts_model=voice_cfg.tts_model,
-        base_url=voice_cfg.base_url,
+        base_url=voice_cfg.tts_base_url,
         out_path=wav_path,
         api_key=voice_cfg.api_key or "",
     )

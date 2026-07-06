@@ -233,7 +233,11 @@ def test_poll_talk_lane_reads_line_and_answers(tmp_path: Path, monkeypatch) -> N
 def test_say_transcribes_audio_then_answers(tmp_path: Path, monkeypatch) -> None:
     config = _senses_config()
     config.voice = VoiceConfig(
-        stt_model="stt", tts_model=None, base_url="http://voice/v1", api_key="k"
+        stt_model="stt",
+        tts_model=None,
+        stt_base_url="http://voice/v1",
+        tts_base_url="http://voice/v1",
+        api_key="k",
     )
     sess, _o, _e = _session(tmp_path, view="ansi", config=config)
     sess._talk_active = True

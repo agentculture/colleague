@@ -1497,7 +1497,7 @@ class _Session:
         transcript = voicemod.transcribe(
             path,
             stt_model=voice_cfg.stt_model,
-            base_url=voice_cfg.base_url,
+            base_url=voice_cfg.stt_base_url,
             api_key=voice_cfg.api_key,
         )
         if not transcript:

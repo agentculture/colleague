@@ -677,6 +677,11 @@ class _Work:
     # strict no-op, byte-identical to the pre-memory loop.
     memory_enabled: bool = False
     memory_root: str | None = None
+    # Embedder env overrides (S2, task t19): forwarded from
+    # ``ContextControls.embed_env``; merged into the eidetic subprocess env by
+    # ``colleague/memory.py`` (operator-set env vars always win). ``{}``
+    # (the default) is a strict no-op — byte-identical to pre-S2 behavior.
+    embed_env: dict[str, str] = field(default_factory=dict)
     # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
     # mirror-detection heuristic on the work item's changed files after the loop and
     # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
@@ -1819,7 +1824,13 @@ def _maybe_recall_memory(ctx: _Work) -> None:
         return
     query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
     try:
-        records = _memorymod.recall(_memory_repo(ctx), query, top_k=5, timeout=_MEMORY_TIMEOUT)
+        records = _memorymod.recall(
+            _memory_repo(ctx),
+            query,
+            top_k=5,
+            timeout=_MEMORY_TIMEOUT,
+            env_overrides=ctx.embed_env,
+        )
     except Exception:  # noqa: BLE001
         # Advisory context only, never a precondition — a recall failure must
         # not block the run.
@@ -1873,7 +1884,12 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     )
     recorded = False
     with suppress(Exception):
-        recorded = _memorymod.remember(_memory_repo(ctx), record, timeout=_MEMORY_TIMEOUT)
+        recorded = _memorymod.remember(
+            _memory_repo(ctx),
+            record,
+            timeout=_MEMORY_TIMEOUT,
+            env_overrides=ctx.embed_env,
+        )
     if result.memory is None:
         result.memory = {}
     result.memory["lesson_recorded"] = bool(recorded)
@@ -2272,6 +2288,12 @@ class ContextControls:
     # the operator repo for isolated runs); ``None`` falls back to the task's
     # own repo_path (the in-place session path).
     memory_root: str | None = None
+    # Embedder env overrides (S2, task t19): forwarded from ``config.embed_env``
+    # (all-engines rule) so the loop's recall/remember calls can inject them
+    # into the eidetic subprocess env without ever overwriting an operator-set
+    # variable (see ``colleague/memory.py``). ``{}`` (the default) is a strict
+    # no-op — byte-identical to pre-S2 behavior.
+    embed_env: dict[str, str] = field(default_factory=dict)
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -2340,6 +2362,7 @@ class ContextControls:
             lint_fix_retries=config.lint_fix_retries,
             memory=config.memory,
             memory_root=getattr(config, "memory_root", None),
+            embed_env=dict(getattr(config, "embed_env", None) or {}),
             testintegrity=config.testintegrity,
             testintegrity_fix_retries=config.testintegrity_fix_retries,
             testintegrity_reviewer_model=config.testintegrity_reviewer_model,
@@ -3525,6 +3548,7 @@ def run(
         lint_fix_retries=_context.lint_fix_retries or 0,
         memory_enabled=bool(_context.memory),
         memory_root=_context.memory_root,
+        embed_env=dict(_context.embed_env or {}),
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
