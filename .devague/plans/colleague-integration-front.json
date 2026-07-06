@@ -5,7 +5,7 @@
   "schema_version": 1,
   "status": "exported",
   "created": "2026-07-06T17:46:27Z",
-  "updated": "2026-07-06T17:51:30Z",
+  "updated": "2026-07-06T17:53:07Z",
   "targets": [
     {
       "id": "c1",
@@ -460,7 +460,8 @@
       "origin": "llm",
       "status": "confirmed",
       "acceptance_criteria": [
-        "README names lobes capabilities as the discovery source and the gateway embeddings endpoint as the reference COHERENCE_EMBED_URL; defaults unchanged"
+        "README names lobes capabilities as the discovery source and the gateway embeddings endpoint as the reference COHERENCE_EMBED_URL; defaults unchanged",
+        "Doc wording slots into the coherence-cli#11 five-domain positioning (meaning as Layer 2) and #10's model-relative framing \u2014 it never re-asserts the old claims-only description"
       ],
       "deps": [],
       "covers": [
@@ -575,7 +576,8 @@
       "status": "confirmed",
       "acceptance_criteria": [
         "A run with no changed .md files, no findings, or no coherence CLI yields a byte-identical TaskResult (e2e mock shape test passes); the gate never blocks handoff",
-        "Offline (no embed endpoint) the gate still records coherence's lexical diagnostics; fires identically for mock and vllm-openai"
+        "Offline (no embed endpoint) the gate still records coherence's lexical diagnostics; fires identically for mock and vllm-openai",
+        "coherence_report records the measurement's frame provenance (embed model + endpoint that produced each score \u2014 the injected lobes embedder when armed), phrased model-relative per coherence-cli#10; the gate pins the meaning score --json shape with a consumer fixture so the coherence-cli#11 domain restructure (which keeps the meaning noun stable per its own decision) cannot silently break the seam"
       ],
       "deps": [
         "t19"
@@ -659,6 +661,12 @@
       "id": "r5",
       "text": "Coherence calibration experiment stays upstream (coherence-cli phase-3); the t22 gate ships warn-only and never grows a threshold in this arc",
       "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r6",
+      "text": "Upstream coherence-cli restructure (#11: quality/meaning/signal/investiture/frames domains; #10: frame provenance + gauge robustness) \u2014 the meaning noun and CLI behavior stay stable per #11's own decision; colleague's gate consumes meaning score --json behind a pinned fixture and passes through any future frame/provenance block verbatim",
+      "kind": "unknown_nonblocking",
       "task_id": null
     }
   ]

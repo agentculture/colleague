@@ -53,6 +53,7 @@ slug: `colleague-integration-front` · status: `exported` · from frame: `collea
 - covers: c19
 - acceptance:
   - README names lobes capabilities as the discovery source and the gateway embeddings endpoint as the reference COHERENCE_EMBED_URL; defaults unchanged
+  - Doc wording slots into the coherence-cli#11 five-domain positioning (meaning as Layer 2) and #10's model-relative framing — it never re-asserts the old claims-only description
 
 ### t16 — [colleague] boundary pins: test asserting no colleague module imports cultureagent (absent edge pinned) and test_zero_deps allow-list stays exactly agentfront
 
@@ -105,6 +106,7 @@ slug: `colleague-integration-front` · status: `exported` · from frame: `collea
 - acceptance:
   - A run with no changed .md files, no findings, or no coherence CLI yields a byte-identical TaskResult (e2e mock shape test passes); the gate never blocks handoff
   - Offline (no embed endpoint) the gate still records coherence's lexical diagnostics; fires identically for mock and vllm-openai
+  - coherence_report records the measurement's frame provenance (embed model + endpoint that produced each score — the injected lobes embedder when armed), phrased model-relative per coherence-cli#10; the gate pins the meaning score --json shape with a consumer fixture so the coherence-cli#11 domain restructure (which keeps the meaning noun stable per its own decision) cannot silently break the seam
 
 ### t23 — [colleague · S5] experiment noun: experiment start (sloth validate then detached sloth train, background.py one-shot-detach precedent, machine-readable start payload) + status + summarize --remember (eidetic record per t14 convention) + list; clean reaps dead-pid experiment residue; allow-list exactly sloth; no torch/unsloth import
 
@@ -130,3 +132,4 @@ slug: `colleague-integration-front` · status: `exported` · from frame: `collea
 - [unknown_nonblocking] Sibling-repo merge latency: each repo's PR needs human merge + version-bump CI; cross-repo deps (t18 on t14, t21 on t10) build against local branches and note the upstream PR in the brief
 - [follow_up] JSON Schema for lobes /capabilities is a lobes-cli ask, not in this plan (follow-up); colleague pins the shape with a consumer fixture test meanwhile
 - [follow_up] Coherence calibration experiment stays upstream (coherence-cli phase-3); the t22 gate ships warn-only and never grows a threshold in this arc
+- [unknown_nonblocking] Upstream coherence-cli restructure (#11: quality/meaning/signal/investiture/frames domains; #10: frame provenance + gauge robustness) — the meaning noun and CLI behavior stay stable per #11's own decision; colleague's gate consumes meaning score --json behind a pinned fixture and passes through any future frame/provenance block verbatim
