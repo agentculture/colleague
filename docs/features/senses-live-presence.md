@@ -69,12 +69,20 @@ returns `False` + one notice and **never loses the written wav**.
 `resolve_roles` now parses **optional** `stt`/`tts` roles from the gateway's
 `/capabilities` — their absence or a malformed shape leaves them `None` but never
 fails resolution (cortex/senses stay the only mandatory roles). A `VoiceConfig`
-(`stt_model`/`tts_model`/`base_url`/`api_key`) resolves through the SAME
-precedence chain as senses (flag > `COLLEAGUE_STT_MODEL`/`_TTS_MODEL`/`VOICE_*`
-env > `.colleague/config.json` `voice` section > lobes discovery > absent). The
-gateway-origin base_url (with the OpenAI `/v1` suffix) is used, never a role's
-self-reported `endpoint` (not client-reachable). **Absent voice config is
-byte-identical** — `EngineConfig.voice` is `None` and omitted from `to_dict`.
+(`stt_model`/`tts_model`/`stt_base_url`/`tts_base_url`/`api_key`) resolves
+through the SAME precedence chain as senses (flag >
+`COLLEAGUE_STT_MODEL`/`_TTS_MODEL`/`VOICE_*` env > `.colleague/config.json`
+`voice` section > lobes discovery > absent). **Per-role dialing (colleague#292,
+closing lobes-cli#87 end-to-end):** `stt_base_url`/`tts_base_url` each resolve
+INDEPENDENTLY via `colleague/lobes.py`'s `resolve_role_base_url` — the role's
+own advertised `endpoint` when it is a non-empty, allowed-scheme URL, falling
+back to the gateway origin (with the OpenAI `/v1` suffix) only for an unwired
+role or a disallowed scheme; a rig serving stt/tts from different origins now
+dials each correctly (before lobes-cli 0.38.0 both were forced onto one shared
+gateway-origin value, since no role's self-reported `endpoint` was
+client-reachable yet). The non-lobes env/config.json path sets both fields to
+the same declared value. **Absent voice config is byte-identical** —
+`EngineConfig.voice` is `None` and omitted from `to_dict`.
 
 ## Two audiences, one flight plane
 

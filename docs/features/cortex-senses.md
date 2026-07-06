@@ -101,9 +101,14 @@ makes ONE `GET /capabilities` call and:
 - feeds `senses`'s model id + window as a default `SensesConfig` **only when
   senses is not already declared** via env/config.json (env/config.json
   always win),
-- both roles dial the **gateway origin** (`COLLEAGUE_LOBES_URL` itself), never
-  each role's own self-reported `endpoint` field — see
-  [Honest limits](#honest-limits).
+- **each role dials its OWN advertised endpoint** (colleague#292/291 S1+S2,
+  closing lobes-cli#87 end-to-end) — `EngineConfig.resolve()` calls
+  `colleague/lobes.py`'s per-role `resolve_role_base_url` independently for
+  cortex, senses, and voice (stt/tts); the gateway origin
+  (`COLLEAGUE_LOBES_URL` itself) survives only as the documented fallback for
+  an unwired role (empty `endpoint`) or a disallowed scheme — the pre-0.38
+  "every role dials the gateway origin" workaround is gone. See
+  [Honest limits](#honest-limits) for what this does and doesn't cover.
 
 Inspect the armed state, the resolved roles, and the degradation rung with
 **`colleague lobes show`** (`not_configured` / `armed_reachable` /
@@ -292,19 +297,45 @@ router-boundary re-spec before it can land:
   it, so a long request is always preserved verbatim on the packet and in the
   cortex prompt, even when senses' own interpretation of it was formed from a
   truncated view.
-- **The lobes `endpoint` field is not client-reachable.** The live
-  `/capabilities` payload reports `endpoint: http://localhost:8000` for both
-  `cortex` and `senses` — an internal host that 404s on `/v1/*` and
-  `/capabilities`. Only the gateway origin (`:8001` on the reference rig)
-  actually answers OpenAI-compatible chat completions, routing internally by
-  model id. Colleague works around this: `_lobes_base_url` (in
-  `colleague/config.py`) deliberately dials the **gateway origin** for BOTH
-  roles and treats each role's self-reported `endpoint`/`path` as
-  informational metadata only, never a dial-string. This is a documented
-  client-side workaround, not a fix — a lobes-cli issue tracking the
-  unreachable `endpoint` field is a warranted follow-up (not filed by this
-  task; GitHub issue-creation on the sibling `lobes-cli` repo was outside
-  this task's sanctioned action set).
+- **The lobes `endpoint` field is now client-reachable (lobes-cli 0.38.0,
+  closing lobes-cli#87) — and `EngineConfig.resolve()` now dials it (colleague#292,
+  S1+S2 of the #291 lobes-0.38 re-sync, task t19).** The arc's original probe
+  found each role's `endpoint` reporting an internal host
+  (`http://localhost:8000`) that 404s from outside the gateway's own network —
+  only the gateway origin (`:8001` on the reference rig) actually answered.
+  Since lobes-cli 0.38.0, `/capabilities` advertises each role's `endpoint` as
+  a genuinely dialable, Host-derived origin (overridable via the gateway's
+  `GATEWAY_PUBLIC_URL`), empty when a role is unwired. `colleague/lobes.py`
+  exposes `resolve_role_base_url(role, gateway_url)`: dial the role's own
+  `endpoint` when it is a non-empty `http`/`https` URL (the same scheme guard
+  `resolve_roles` applies to the gateway URL itself), falling back to the
+  gateway origin only when `endpoint` is empty/missing. **Now wired into
+  `EngineConfig.resolve()` end-to-end**: `colleague/config.py`'s
+  `_role_dial_base_url`/`_resolve_lobes_rung` dial cortex's, senses', and
+  voice's (stt/tts, via two independent `VoiceConfig` fields
+  `stt_base_url`/`tts_base_url`) OWN advertised endpoints — the
+  gateway-origin-for-all workaround is gone; the gateway origin survives only
+  as the documented per-role fallback (unwired role or disallowed scheme).
+  This closes the S1 follow-on that this section previously tracked. The
+  `embedder` role is ALSO now resolved (S2): `colleague/lobes.py`'s `embed_env`
+  relays its dial target + model id as `EIDETIC_EMBED_URL`/`_MODEL` and
+  `COHERENCE_EMBED_URL`/`_MODEL` env vars into the eidetic-CLI shell-out
+  (`colleague/memory.py`) — colleague itself never issues an embeddings
+  request (spec boundary c9/h18); `reranker` stays ignored (#277's parked
+  retrieval lane).
+- **`ready` means two different things depending on the role.** For
+  `cortex`/`senses`/`embedder`/`reranker`, the gateway's `ready` is a CONFIG
+  PROXY — `ready == loaded` (the model is loaded into the serving process),
+  never an actual request-level liveness probe. For `stt`/`tts`, lobes-cli
+  0.38.0 (closing lobes-cli#89) made `ready` LIVE-PROBE-BACKED via the
+  realtime bridge's own health check; a warming audio backend now answers
+  HTTP 503 with `Retry-After` (never a bare 502) while it warms up.
+  `colleague/lobes.py`'s `ready_kind(role_name)` classifies which is which,
+  and `colleague lobes show` labels each role accordingly
+  (`config-proxy`/`live-probed`) so an operator never conflates the two.
+  `colleague/voice.py`'s `transcribe`/`synthesize` treat a 503+`Retry-After`
+  as "warming": wait `min(Retry-After, 10s)` and retry ONCE, then degrade
+  exactly as before (a 502 or any other failure is unaffected).
 - **A lobes-discovered senses is `multimodal=False`.** `RoleInfo` (the t1
   parsed shape) carries no `mtp`-to-`multimodal` mapping, so discovering
   senses off the wire never auto-arms the media-comprehension bridge — an

@@ -371,12 +371,16 @@ The architecture, part by part:
   now consumes `cortex`/`senses`/`stt`/`tts`. Honest limits: the
   senses intake window is windowed to the senses model's own budget, but
   `ContextPacket.original` is never touched by that windowing (always
-  verbatim); the lobes-reported per-role `endpoint` field is not
-  client-reachable on the reference rig, so colleague dials the gateway
-  origin for both roles instead (a documented workaround; a lobes-cli issue
-  is a warranted follow-up, not yet filed); a lobes-discovered senses is
-  `multimodal=False` (arming the media bridge needs an explicit operator
-  declaration, never inferred from the wire); intake is synchronous in v1.
+  verbatim); **the per-role gateway-origin-for-all workaround is RESOLVED**
+  (colleague#292/#291, S1+S2 lobes-0.38 re-sync, task t19) — lobes-cli 0.38.0
+  closed the filed lobes-cli#87 by making each role's own `endpoint` a
+  genuinely client-reachable, Host-derived origin, and `EngineConfig.resolve()`
+  now dials cortex, senses, and voice (stt/tts) each at THEIR OWN advertised
+  endpoint via `colleague/lobes.py`'s `resolve_role_base_url`, falling back to
+  the gateway origin only for an unwired role or a disallowed scheme; a
+  lobes-discovered senses is `multimodal=False` (arming the media bridge needs
+  an explicit operator declaration, never inferred from the wire); intake is
+  synchronous in v1.
   Feature doc: `docs/features/cortex-senses.md`; spec + plan:
   `docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`
   and `docs/plans/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`.
@@ -427,6 +431,32 @@ The architecture, part by part:
   (all-engines rule). Feature doc: `docs/features/media-input.md`; spec +
   plan: `docs/specs/2026-07-02-hand-colleague-a-screenshot-a-diagram-or-a-voice-n.md`
   and the matching `docs/plans/` file.
+- **Integration front (#291)** — colleague is the operator front of the
+  Culture.dev organism; the organs mount on the three existing patterns (curated
+  shell-out, gate rack, discovery rung) with published owner-repo contracts.
+  Landed in the 291 arc: **organs visibility** (`colleague organs list` + a
+  no-network `doctor` organs check-group + `docs/organs.md`, the organ index);
+  a **published artifact contract** (`docs/contract.md` v1, drift-tested against
+  `TaskResult.to_dict`, + `colleague feedback export --min-rating N` emitting one
+  JSONL line per graded work item — the dataset pipeline's input); the
+  **coherence gate** (fourth rack gate, `colleague/coherence.py` — advisory
+  warn-only scoring of changed `.md` files via the coherence CLI, frame
+  provenance per coherence-cli#10, configured-detection on an embedder endpoint,
+  default-ON with `--no-coherence`/`COLLEAGUE_COHERENCE=0`/config opt-outs; see
+  `docs/features/coherence-gate.md`); the **experiment noun**
+  (`colleague experiment start|status|list|summarize --remember`,
+  `colleague/experiment.py` — detached sloth training runs on the background.py
+  one-shot pattern, run summaries remembered to eidetic, reaped by `clean`; see
+  `docs/features/experiment.md`); **per-role lobes dialing + the one-embedder
+  pass-through** (`embed_env` injection into eidetic/coherence shell-outs —
+  endpoint relay, never consumption; the #277 retrieval lane stays parked).
+  Sibling contracts: unsloth-cli#12 (validate/config-init/runs/summarize/
+  compare), data-refinery-cli#14 (`refine` graded work → train/eval JSONL with
+  provenance), agent-lifecycle#34 (batch run-to-completion), eidetic-cli#28
+  (memory scope+visibility convention, drift-tested both sides). Flywheel
+  live-proven 2026-07-06 (`docs/live-testing.md` rows 19-23): real graded work
+  items → refine → validate → detached QLoRA (loss 3.24) → eidetic-remembered →
+  exported adapter; the lobes serve of the adapter stays operator-deferred.
 - **Senses live presence + voice** — while cortex drives a work item, the
   operator converses with **senses** concurrently instead of watching in
   silence: senses answers in seconds from the LIVE run context (flight-feed
@@ -508,7 +538,16 @@ The architecture, part by part:
   travel with the work). A model-callable **`memory` loop tool**
   (verb=recall|remember) is offered to every backend; read-only roles get
   recall only (remember is a write-capable shell-out, refused by the
-  role-aware executor). All-engines rule throughout.
+  role-aware executor). All-engines rule throughout. **One embedder (S2,
+  colleague#291/#292 task t19):** when a lobes gateway resolves an OPTIONAL
+  `embedder` role, `colleague/lobes.py`'s `embed_env(roles, gateway_url)`
+  relays its dial target + model id as `EIDETIC_EMBED_URL`/`_MODEL` and
+  `COHERENCE_EMBED_URL`/`_MODEL` (the sibling `coherence-cli` consumer named
+  in the #291 integration front) — merged into the eidetic subprocess env via
+  `EngineConfig.embed_env` → `ContextControls.embed_env`, NEVER overwriting an
+  operator-set env var of the same name. Colleague itself never issues an
+  embeddings request (a structural boundary test pins this); absence of an
+  embedder never fails resolution, mirroring stt/tts.
 - **Finish recovery + grounded reads (best-colleague arc, R2)** — a work
   item's findings always survive to the caller. The loop re-parses a finish
   the model emitted as literal tool-call markup in message content (#248 mode

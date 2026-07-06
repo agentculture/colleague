@@ -189,6 +189,17 @@ def _apply_lint_optout(args: argparse.Namespace, config: EngineConfig) -> None:
         config.lint = False
 
 
+def _apply_coherence_optout(args: argparse.Namespace, config: EngineConfig) -> None:
+    """Apply the ``--no-coherence`` opt-out — the highest-precedence switch (#294).
+
+    Applied AFTER ``EngineConfig.resolve`` (which handled env > config.json >
+    default-on for ``config.coherence``); the flag wins last — the exact
+    ``--no-lint`` precedent.
+    """
+    if getattr(args, "no_coherence", False):
+        config.coherence = False
+
+
 def _apply_affected_tests_optout(args: argparse.Namespace, config: EngineConfig) -> None:
     """Apply the ``--no-affected-tests`` and ``--test`` opt-outs (#213).
 
@@ -214,6 +225,20 @@ def _surface_lint_residual(result: TaskResult) -> None:
         emit_diagnostic(
             f"lint: {n} issue(s) not auto-fixed:\n" + "\n".join(result.lint_report.residual)
         )
+
+
+def _surface_coherence_hints(result: TaskResult) -> None:
+    """Surface coherence diagnostics/errors on stderr (#294) — advisory only.
+
+    A diagnostic, never the stdout result stream; the full report (with frame
+    provenance) is in the artifact (``result.coherence_report``).
+    """
+    if not result.coherence_report:
+        return
+    from colleague import coherence as _coherencemod
+
+    for line in _coherencemod.diagnostics_lines(result.coherence_report):
+        emit_diagnostic(line)
 
 
 def _setup_isolation(
@@ -782,6 +807,7 @@ _CHILD_FLAG_TABLE: tuple[tuple[str, str, str], ...] = (
     ("no_pr", "--no-pr", "bool"),
     ("allow_dirty", "--allow-dirty", "bool"),
     ("no_lint", "--no-lint", "bool"),
+    ("no_coherence", "--no-coherence", "bool"),
     ("no_affected_tests", "--no-affected-tests", "bool"),
     ("test", "--test", "value"),
     ("base", "--base", "value"),
@@ -950,6 +976,7 @@ def cmd_work(args: argparse.Namespace) -> int:
         config.explicit_knobs = frozenset({"max_steps"})
 
     _apply_lint_optout(args, config)
+    _apply_coherence_optout(args, config)
     _apply_affected_tests_optout(args, config)
 
     command_name: str | None = getattr(args, "command_name", None)
@@ -1036,6 +1063,7 @@ def _emit_work_outcome(result, engine: str, artifact_path, json_mode: bool) -> i
         emit_diagnostic(f"capacity warning: {result.capacity_warning}")
 
     _surface_lint_residual(result)
+    _surface_coherence_hints(result)
 
     if json_mode:
         emit_result(result.to_dict(), json_mode=True)
@@ -1108,6 +1136,15 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
             "Skip the pre-finish lint gate (by default the repo's configured "
             "linters are run + auto-fixed before handoff; this opts out). Also "
             'via COLLEAGUE_LINT=0 or .colleague/config.json {"lint": false}.'
+        ),
+    )
+    p.add_argument(
+        "--no-coherence",
+        action="store_true",
+        help=(
+            "Skip the coherence pre-finish gate (by default changed .md files "
+            "are scored via the coherence CLI, advisory/warn-only; this opts "
+            'out). Also via COLLEAGUE_COHERENCE=0 or config.json {"coherence": false}.'
         ),
     )
     p.add_argument(

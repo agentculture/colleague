@@ -142,18 +142,24 @@ _DOCTOR = """\
 Colleague's health check: a configuration-readiness diagnostic emitting a
 rubric-shaped report across ordered check-groups: **identity**, **provider**
 (config + budget), **usage** (which backend a bare work item actually picks),
-**engines** (all installed plugins), **otel-readiness**, and **environment**
-(repo config / layering / handoff prereqs / CLI integrity).
+**engines** (all installed plugins), **otel-readiness**, **environment**
+(repo config / layering / handoff prereqs / CLI integrity), **stale-refs**
+(a crashed work item's wedged `colleague/*` refs), and **organs** (the
+AI-coworker organism map — presence/version/armed for lobes, eidetic,
+coherence, sloth, data-refinery, agtag, devex, devague; see
+`colleague explain organs`).
 
 Exits 1 when unhealthy (when any error-severity check fails). Only
 error-severity failures make the report unhealthy; warnings and info are
 advisory — e.g. `usage_effective_engine` warns (but stays healthy) when a bare
-run would pick the no-op `mock` backend.
+run would pick the no-op `mock` backend, and a missing organ warns with a
+`uv tool install <distribution>` hint rather than failing the report.
 
-`--probe` adds an opt-in `provider_reachable` check that pings the provider
-server (`{base_url}/models`). It is the one check that opens a network
-connection, so it is off by default; an unreachable server is reported as a
-warning, not an error.
+`--probe` adds opt-in network checks, all off by default: `provider_reachable`
+(pings the provider server's `{base_url}/models`), a tool-calling round-trip,
+and the lobes gateway's live `GET /capabilities` reachability (the organs
+sibling — see `colleague explain organs`). An unreachable server/gateway is
+reported as a warning, not an error.
 
 ## Usage
 
@@ -786,6 +792,71 @@ rung), not this introspection noun's job.
 
 - `colleague explain roles`
 - `colleague explain config`
+- `colleague explain organs`
+"""
+
+
+_ORGANS = """\
+# colleague organs
+
+colleague is the operator front for a small **organism** of sibling CLIs — each
+an independent repo, each behind its own published contract
+(issue #291, requirement R10). `organs list` shows what is wired in, and
+whether it is actually here, with **zero network calls**.
+
+## The curated table
+
+A hand-maintained table (`colleague/oilcheck/organs.py`'s `ORGANS`) — NOT a
+dynamically discovered plugin registry:
+
+    lobes           discovery rung (colleague/lobes.py + config.py precedence)
+    eidetic         memory shell-out (colleague/memory.py)
+    coherence       gate — planned colleague#294 (S3); not yet built
+    sloth           experiment noun (colleague/experiment.py; allow-list sloth,
+                    colleague#295 S5)
+    data-refinery   dataset pipeline — planned data-refinery-cli#14 (S6); not
+                    yet built colleague-side
+    agtag           culture tool (colleague/culture.py allow-list)
+    devex           culture tool (colleague/culture.py allow-list)
+    devague         destination tool (colleague/devague.py allow-list)
+
+For each organ this reports **presence** (`shutil.which` on its binary),
+**version** (`importlib.metadata.version` on a curated binary→distribution
+mapping — many organs are installed as isolated CLI tools, e.g.
+`uv tool install`, so a present binary very often still reads `"unknown"`; that
+is the expected honest case, not a bug), and **armed** (read from colleague's
+own config resolution — env vars, `.colleague/config.json`, and for the memory
+organ a plain filesystem check for `.eidetic/`; never a network call).
+
+The full per-organ writeup — what it owns, its contract artifact, and its own
+respected non-goals — lives in [`docs/organs.md`](../../docs/organs.md).
+
+## One resolver, two views
+
+`colleague doctor`'s organs check-group and `colleague organs list` render the
+SAME resolver (`resolve_organs`), so they can never disagree: `doctor` turns
+each entry into a pass/fail health check (a missing/not-yet-wired organ is
+always a `warning` with a `uv tool install <distribution>` remediation hint,
+**never** unhealthy); `organs list` shows the full table.
+
+`doctor --probe` additionally probes the lobes gateway's live
+`GET /capabilities` reachability (reusing `colleague.lobes.resolve_roles`) —
+probe-only, never part of the zero-network registered group.
+
+## Usage
+
+    colleague organs list
+    colleague organs list --repo PATH
+    colleague organs list --json
+    colleague organs overview
+    colleague doctor              # organs appear as organ_<name> checks
+    colleague doctor --probe      # + lobes gateway reachability
+
+## See also
+
+- `colleague explain doctor`
+- `colleague explain lobes`
+- `colleague explain config`
 """
 
 
@@ -1038,6 +1109,70 @@ are applied at the running loop's next turn boundary.
     colleague flight overview
 """
 
+_EXPERIMENT = """\
+# colleague experiment
+
+Detached `sloth` (unsloth-cli) training runs, driven from the operator front
+(colleague#291, requirement R5 / S5). A curated allow-listed shell-out —
+allow-list exactly `sloth` — following the culture-tool pattern, with the
+long-run problem solved job-shaped: `experiment start` validates the dataset
+first (`sloth validate --dataset … --json`, before any GPU work), then
+detaches `sloth train --config <toml>` exactly the `work --background` way
+(`subprocess.Popen(..., start_new_session=True)`, stdio to a log file, no
+`.wait()`/`.poll()`), and returns immediately with a machine-readable start
+payload.
+
+## Verbs
+
+- `experiment start --config <toml>` — validate then detach `sloth train`
+- `experiment status <id>` — pid liveness + a log tail + best-effort
+  correlation against sloth's own run registry (`sloth runs list`/`show`)
+- `experiment list` — every detached experiment, newest-first
+- `experiment summarize <id> [--remember]` — join `sloth summarize --json`;
+  with `--remember`, upsert a compact record into eidetic memory (the same
+  `--scope colleague --visibility public` convention `colleague/memory.py`
+  uses — reused as-is, never re-implemented)
+- `experiment overview` — this description
+
+## Storage
+
+- `<repo>/.colleague/experiments/<id>/start.json` — the start payload
+  (`{id, pid, config, output_dir, log_dir, started}`)
+- `<repo>/.colleague/experiments/<id>/train.log` — combined stdout+stderr of
+  the detached `sloth train` child
+
+## Grading
+
+An experiment id is a valid feedback `task_id`:
+`colleague feedback record <exp-id> --rating N`.
+
+`colleague clean` reaps dead-pid experiment residue (pid gone AND the
+start payload older than a day); a genuinely live pid is never touched.
+
+## Honest limits
+
+- Missing `sloth` (unsloth-cli) degrades to a structured error with
+  remediation (`uv tool install unsloth-cli`), never a traceback.
+- `experiment status`'s `sloth_run` correlation is best-effort: it degrades to
+  `None` when sloth is unreachable or the registry hasn't been written yet
+  (training hasn't reached that point) — never blocks the status query.
+- Job-shaped, never a scheduler: one detached child per experiment, no
+  daemon, no polling loop of colleague's own.
+
+## Usage
+
+    colleague experiment start --config run.toml --repo .
+    colleague experiment status <id> --repo .
+    colleague experiment list --repo .
+    colleague experiment summarize <id> --remember --repo .
+
+## See also
+
+- `colleague explain flight`
+- `colleague explain organs`
+- `colleague explain feedback`
+"""
+
 _TALK = """\
 # colleague talk
 
@@ -1262,6 +1397,9 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("lobes",): _LOBES,
     ("lobes", "show"): _LOBES,
     ("lobes", "overview"): _LOBES,
+    ("organs",): _ORGANS,
+    ("organs", "list"): _ORGANS,
+    ("organs", "overview"): _ORGANS,
     ("config",): _CONFIG,
     ("config", "show"): _CONFIG,
     ("config", "overview"): _CONFIG,
@@ -1285,6 +1423,12 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("flight", "stop"): _FLIGHT,
     ("flight", "list"): _FLIGHT,
     ("flight", "overview"): _FLIGHT,
+    ("experiment",): _EXPERIMENT,
+    ("experiment", "start"): _EXPERIMENT,
+    ("experiment", "status"): _EXPERIMENT,
+    ("experiment", "list"): _EXPERIMENT,
+    ("experiment", "summarize"): _EXPERIMENT,
+    ("experiment", "overview"): _EXPERIMENT,
     ("talk",): _TALK,
     ("plan",): _PLAN,
     ("plan", "run"): _PLAN,

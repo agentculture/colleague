@@ -61,7 +61,11 @@ def _init_repo(tmp_path: Path) -> Path:
 def _voice_config() -> EngineConfig:
     config = EngineConfig()
     config.voice = VoiceConfig(
-        stt_model=None, tts_model="tts-model", base_url="http://voice", api_key="k"
+        stt_model=None,
+        tts_model="tts-model",
+        stt_base_url="http://voice",
+        tts_base_url="http://voice",
+        api_key="k",
     )
     return config
 

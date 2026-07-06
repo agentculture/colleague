@@ -348,6 +348,50 @@ class CapacityDecision:
 
 
 @dataclass
+class CoherenceReport:
+    """Report from the coherence pre-finish gate (#294, colleague#291 S3).
+
+    ``status`` is ``"scored"`` (the gate ran; per-file records in ``files``)
+    or ``"skipped"`` (the coherence CLI is not installed — ``reason`` says so).
+    ``embed_url``/``embed_model`` record the measurement's **frame provenance**
+    (coherence-cli#10): the embedding endpoint + model the subprocess saw —
+    a meaning score is a model-relative, anchor-defined measurement, never
+    universal meaning. Each ``files`` record carries ``path`` plus either the
+    CLI's payload (``meaning_score``/``subdimensions``/``diagnostics`` and any
+    future keys verbatim) or an ``error`` string. Advisory only: nothing here
+    ever blocks the handoff or flips a run's status.
+    """
+
+    status: str = "scored"
+    reason: Optional[str] = None
+    embed_url: Optional[str] = None
+    embed_model: Optional[str] = None
+    files: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"status": self.status}
+        if self.reason is not None:
+            d["reason"] = self.reason
+        if self.embed_url is not None:
+            d["embed_url"] = self.embed_url
+        if self.embed_model is not None:
+            d["embed_model"] = self.embed_model
+        if self.files:
+            d["files"] = [dict(f) for f in self.files]
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CoherenceReport":
+        return cls(
+            status=str(data.get("status", "scored")),
+            reason=data.get("reason"),
+            embed_url=data.get("embed_url"),
+            embed_model=data.get("embed_model"),
+            files=[dict(f) for f in data.get("files", [])],
+        )
+
+
+@dataclass
 class LintReport:
     """Report from the lint pre-finish gate.
 
@@ -919,6 +963,11 @@ class TaskResult:
     (disabled, or no linters configured). Like destination/capacity_decision,
     the serialized key is OMITTED (not null) when ``None``, so a work item that
     ran no lint gate is byte-identical to today."""
+    coherence_report: Optional[CoherenceReport] = None
+    """The coherence pre-finish gate's report (#294), or ``None`` when the gate
+    did not run (disabled, or no changed ``.md`` files). Like lint_report, the
+    serialized key is OMITTED (not null) when ``None``, so a run with no
+    coherence finding is byte-identical."""
     test_integrity_report: Optional["TestIntegrityReport"] = None
     """The test-integrity mirror-detection report, or ``None`` when the gate
     produced no findings. Like lint_report, the serialized key is OMITTED
@@ -1063,6 +1112,8 @@ class TaskResult:
             d["capacity_warning"] = self.capacity_warning
         if self.lint_report is not None:
             d["lint_report"] = self.lint_report.to_dict()
+        if self.coherence_report is not None:
+            d["coherence_report"] = self.coherence_report.to_dict()
         if self.test_integrity_report is not None:
             d["test_integrity_report"] = self.test_integrity_report.to_dict()
         # role gets the same omit-when-None treatment (#t4): a role-less work item
@@ -1154,6 +1205,11 @@ class TaskResult:
             capacity_warning=data.get("capacity_warning"),
             lint_report=(
                 LintReport.from_dict(data["lint_report"]) if data.get("lint_report") else None
+            ),
+            coherence_report=(
+                CoherenceReport.from_dict(data["coherence_report"])
+                if data.get("coherence_report")
+                else None
             ),
             test_integrity_report=(
                 _get_test_integrity_report_class().from_dict(data["test_integrity_report"])

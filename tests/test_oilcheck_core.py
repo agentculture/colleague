@@ -184,6 +184,7 @@ def test_check_groups_registered_in_order() -> None:
         engines,
         environment,
         identity,
+        organs,
         otel,
         provider,
         stale_refs,
@@ -198,6 +199,7 @@ def test_check_groups_registered_in_order() -> None:
         otel.checks,
         environment.checks,
         stale_refs.checks,
+        organs.checks,
     ]
 
 

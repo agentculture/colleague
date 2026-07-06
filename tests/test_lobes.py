@@ -26,7 +26,7 @@ from typing import Iterator
 
 import pytest
 
-from colleague.lobes import resolve_roles
+from colleague.lobes import RoleInfo, embed_env, ready_kind, resolve_role_base_url, resolve_roles
 
 # ---------------------------------------------------------------------------
 # The real, live-probed /capabilities payload (six roles). Kept in ONE place
@@ -240,21 +240,33 @@ def test_resolve_roles_hardcodes_no_model_id() -> None:
     assert "coolthor/gemma-4-12B-it-NVFP4A16" not in source
 
 
-def test_resolve_roles_parses_voice_roles_and_ignores_embedder_reranker() -> None:
-    """The six-role payload must not break resolution. Since the senses
-    live-presence + voice arc (t1), stt/tts are parsed as OPTIONAL voice roles;
-    embedder/reranker stay ignored (not on the public surface)."""
+def test_resolve_roles_parses_voice_and_embedder_roles_and_ignores_reranker() -> None:
+    """The six-role payload must not break resolution. stt/tts are parsed as
+    OPTIONAL voice roles (senses live-presence + voice arc, t1); embedder is
+    now ALSO parsed as an optional role (one-embedder increment, S2, t19) —
+    only reranker stays ignored (not on the public surface, #277's parked
+    retrieval lane)."""
     with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
         result = resolve_roles(url)
 
     assert result is not None
-    # embedder/reranker remain ignored — never on the public surface.
-    assert not hasattr(result, "embedder")
+    # reranker remains ignored — never on the public surface.
     assert not hasattr(result, "reranker")
-    # stt/tts are now resolved as optional voice roles (their absence would still
+    # stt/tts/embedder are resolved as optional roles (their absence would still
     # NOT fail resolution — cortex/senses stay the only mandatory roles).
     assert result.stt is not None
     assert result.tts is not None
+    assert result.embedder is not None
+    assert result.embedder.model == "Qwen/Qwen3-Embedding-0.6B"
+
+
+def test_resolve_roles_keeps_embedder_none_when_fixture_omits_it() -> None:
+    """Absence of the embedder role never fails resolution (mirrors stt/tts)."""
+    partial = {k: v for k, v in REAL_CAPABILITIES_PAYLOAD.items() if k != "embedder"}
+    with _serving(_payload_bytes(partial)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.embedder is None
 
 
 # ---------------------------------------------------------------------------
@@ -367,3 +379,156 @@ def test_resolve_roles_accepts_https_scheme() -> None:
     reachability failure — a real connection refusal here — degrades it)."""
     result = resolve_roles("https://127.0.0.1:1")
     assert result is None  # unreachable, but NOT rejected for its scheme
+
+
+# ---------------------------------------------------------------------------
+# Per-role dial target (lobes-cli#87, 0.38.0 — colleague#292/291 S1): each
+# role's own ``endpoint`` is now a client-reachable origin (Host-derived,
+# ``GATEWAY_PUBLIC_URL`` override on the gateway side), not internal-only
+# metadata. :func:`resolve_role_base_url` dials it directly when non-empty;
+# an empty/missing endpoint falls back to the gateway origin — the
+# pre-0.38 workaround, kept only as the documented fallback now.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_role_base_url_uses_each_roles_own_endpoint_when_present() -> None:
+    """The gateway-origin-for-all workaround is gone: every resolved role
+    dials its OWN advertised endpoint, not the gateway origin used to serve
+    /capabilities (colleague#292, closing lobes-cli#87)."""
+    with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+
+    # cortex/senses report a DIFFERENT origin than the test gateway url —
+    # proving the role's own endpoint is dialed, not the gateway url.
+    assert resolve_role_base_url(result.cortex, url) == "http://localhost:8000"
+    assert resolve_role_base_url(result.senses, url) == "http://localhost:8000"
+    # stt/tts report a genuinely distinct origin (the realtime bridge).
+    assert result.stt is not None and result.tts is not None
+    assert resolve_role_base_url(result.stt, url) == "http://realtime:8080"
+    assert resolve_role_base_url(result.tts, url) == "http://realtime:8080"
+
+
+def test_resolve_role_base_url_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
+    """An empty/missing ``endpoint`` (an unwired role) falls back to the
+    gateway origin — the documented fallback, never a hard failure."""
+    payload = json.loads(json.dumps(REAL_CAPABILITIES_PAYLOAD))
+    payload["stt"]["endpoint"] = ""
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.stt is not None
+    assert resolve_role_base_url(result.stt, url) == url
+
+
+def test_resolve_role_base_url_rejects_disallowed_scheme_and_falls_back() -> None:
+    """A role endpoint with a non-http(s) scheme is never dialed directly —
+    the same SSRF guard :func:`resolve_roles` applies to the gateway URL
+    itself also applies here (degrade to the gateway origin, never raise)."""
+    role = RoleInfo(
+        model="m",
+        endpoint="file:///etc/passwd",
+        path="/v1/chat/completions",
+        context=0,
+        ready=True,
+        responsibilities=(),
+        forbidden_responsibilities=(),
+    )
+    assert resolve_role_base_url(role, "http://gateway:8001") == "http://gateway:8001"
+
+
+def test_resolve_role_base_url_strips_missing_endpoint_whitespace() -> None:
+    """A whitespace-only endpoint is treated as empty, not a malformed URL."""
+    role = RoleInfo(
+        model="m",
+        endpoint="   ",
+        path="/v1/chat/completions",
+        context=0,
+        ready=True,
+        responsibilities=(),
+        forbidden_responsibilities=(),
+    )
+    assert resolve_role_base_url(role, "http://gateway:8001") == "http://gateway:8001"
+
+
+# ---------------------------------------------------------------------------
+# ready semantics (lobes-cli#89, 0.38.0 — colleague#292/291 S1): ``ready`` is
+# a CONFIG PROXY (``ready == loaded``) for cortex/senses/embedder/reranker,
+# but LIVE-PROBE-BACKED (via the realtime bridge) for stt/tts.
+# ---------------------------------------------------------------------------
+
+
+def test_ready_kind_is_config_proxy_for_cortex_and_senses() -> None:
+    assert ready_kind("cortex") == "config-proxy"
+    assert ready_kind("senses") == "config-proxy"
+
+
+def test_ready_kind_is_config_proxy_for_embedder_and_reranker() -> None:
+    assert ready_kind("embedder") == "config-proxy"
+    assert ready_kind("reranker") == "config-proxy"
+
+
+def test_ready_kind_is_live_probed_for_stt_and_tts() -> None:
+    assert ready_kind("stt") == "live-probed"
+    assert ready_kind("tts") == "live-probed"
+
+
+# ---------------------------------------------------------------------------
+# embed_env (one-embedder increment, S2, colleague#291/#292 task t19): a pure
+# helper relaying the embedder's dial target as env vars for OTHER tools
+# (eidetic CLI, coherence-cli) to consume — colleague itself never dials it.
+# ---------------------------------------------------------------------------
+
+
+def test_embed_env_builds_eidetic_and_coherence_vars_from_resolved_embedder() -> None:
+    with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.embedder is not None
+
+    env = embed_env(result, url)
+
+    # The embedder's own endpoint (a distinct origin from the gateway url,
+    # like cortex/senses above) is what gets relayed — not the gateway origin.
+    assert env == {
+        "EIDETIC_EMBED_URL": "http://localhost:8000",
+        "EIDETIC_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B",
+        "COHERENCE_EMBED_URL": "http://localhost:8000",
+        "COHERENCE_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B",
+    }
+
+
+def test_embed_env_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
+    """Empty/missing embedder endpoint falls back to the gateway origin — the
+    same SSRF-guarded fallback every other role gets."""
+    payload = json.loads(json.dumps(REAL_CAPABILITIES_PAYLOAD))
+    payload["embedder"]["endpoint"] = ""
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.embedder is not None
+
+    env = embed_env(result, url)
+    assert env["EIDETIC_EMBED_URL"] == url
+    assert env["COHERENCE_EMBED_URL"] == url
+
+
+def test_embed_env_is_empty_when_no_embedder_resolved() -> None:
+    partial = {k: v for k, v in REAL_CAPABILITIES_PAYLOAD.items() if k != "embedder"}
+    with _serving(_payload_bytes(partial)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.embedder is None
+
+    assert embed_env(result, url) == {}
+
+
+def test_embed_env_issues_no_network_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """embed_env is pure — it must never call urlopen itself."""
+    with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+
+    # Arm the guard AFTER resolve_roles (which legitimately dialed once) —
+    # embed_env itself must never reach urlopen.
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("embed_env must not open a network connection")
+
+    monkeypatch.setattr("urllib.request.urlopen", _boom)
+    embed_env(result, url)

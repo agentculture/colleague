@@ -46,6 +46,7 @@ from typing import Any, Callable
 from colleague import affectedtests as _affectedtests
 from colleague import autosplit as _autosplit
 from colleague import backpressure
+from colleague import coherence as _coherencemod
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
@@ -671,12 +672,22 @@ class _Work:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint_enabled: bool = False
     lint_fix_retries: int = 0
+    # Coherence pre-finish gate (#294, colleague#291 S3): score the changed .md
+    # files with the coherence CLI and record result.coherence_report. Advisory
+    # + warn-only (no fix-turn); default OFF so a direct ``run`` caller is
+    # byte-identical; the backends forward ``config.coherence`` (all-engines).
+    coherence_enabled: bool = False
     # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after
     # via the eidetic CLI adapter. Armed only when True AND the repo has a
     # .eidetic/ store AND the CLI is installed (see _memory_armed) — otherwise a
     # strict no-op, byte-identical to the pre-memory loop.
     memory_enabled: bool = False
     memory_root: str | None = None
+    # Embedder env overrides (S2, task t19): forwarded from
+    # ``ContextControls.embed_env``; merged into the eidetic subprocess env by
+    # ``colleague/memory.py`` (operator-set env vars always win). ``{}``
+    # (the default) is a strict no-op — byte-identical to pre-S2 behavior.
+    embed_env: dict[str, str] = field(default_factory=dict)
     # Test-integrity gate (#203): when ``testintegrity_enabled`` the runtime runs the
     # mirror-detection heuristic on the work item's changed files after the loop and
     # records any findings on ``result.test_integrity_report``. Defaults ON — unlike
@@ -1819,7 +1830,13 @@ def _maybe_recall_memory(ctx: _Work) -> None:
         return
     query = (ctx.task.goal or ctx.task.instruction or "").strip()[:200]
     try:
-        records = _memorymod.recall(_memory_repo(ctx), query, top_k=5, timeout=_MEMORY_TIMEOUT)
+        records = _memorymod.recall(
+            _memory_repo(ctx),
+            query,
+            top_k=5,
+            timeout=_MEMORY_TIMEOUT,
+            env_overrides=ctx.embed_env,
+        )
     except Exception:  # noqa: BLE001
         # Advisory context only, never a precondition — a recall failure must
         # not block the run.
@@ -1873,7 +1890,12 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     )
     recorded = False
     with suppress(Exception):
-        recorded = _memorymod.remember(_memory_repo(ctx), record, timeout=_MEMORY_TIMEOUT)
+        recorded = _memorymod.remember(
+            _memory_repo(ctx),
+            record,
+            timeout=_MEMORY_TIMEOUT,
+            env_overrides=ctx.embed_env,
+        )
     if result.memory is None:
         result.memory = {}
     result.memory["lesson_recorded"] = bool(recorded)
@@ -2263,6 +2285,12 @@ class ContextControls:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint: bool | None = None
     lint_fix_retries: int | None = None
+    # Coherence pre-finish gate (#294, colleague#291 S3): when truthy the runtime
+    # scores the work item's changed .md files via the coherence CLI and records
+    # ``result.coherence_report``. Advisory + warn-only, never blocks the handoff.
+    # ``None`` (the default) leaves the gate OFF for direct ``run`` callers;
+    # every backend forwards ``config.coherence`` (all-engines rule).
+    coherence: bool | None = None
     # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after.
     # ``None``/False = dormant (strict no-op). Forwarded by every backend from
     # ``config.memory`` (all-engines rule); the loop additionally requires the
@@ -2272,6 +2300,12 @@ class ContextControls:
     # the operator repo for isolated runs); ``None`` falls back to the task's
     # own repo_path (the in-place session path).
     memory_root: str | None = None
+    # Embedder env overrides (S2, task t19): forwarded from ``config.embed_env``
+    # (all-engines rule) so the loop's recall/remember calls can inject them
+    # into the eidetic subprocess env without ever overwriting an operator-set
+    # variable (see ``colleague/memory.py``). ``{}`` (the default) is a strict
+    # no-op — byte-identical to pre-S2 behavior.
+    embed_env: dict[str, str] = field(default_factory=dict)
     # Test-integrity gate (#203): when truthy (the default) the runtime runs the
     # mirror-detection heuristic on the changed files after the loop and records the
     # findings on ``result.test_integrity_report``. Advisory + non-blocking — never
@@ -2338,8 +2372,10 @@ class ContextControls:
             escalate_timeout=_make_timeout_escalator(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
+            coherence=bool(getattr(config, "coherence", True)),
             memory=config.memory,
             memory_root=getattr(config, "memory_root", None),
+            embed_env=dict(getattr(config, "embed_env", None) or {}),
             testintegrity=config.testintegrity,
             testintegrity_fix_retries=config.testintegrity_fix_retries,
             testintegrity_reviewer_model=config.testintegrity_reviewer_model,
@@ -2939,6 +2975,32 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
     ) = saved
 
 
+def _maybe_run_coherence_gate(ctx: _Work, aborted: Exception | None) -> None:
+    """Run the coherence pre-finish gate on the changed docs (#294, #291 S3).
+
+    Shells ``coherence meaning score <file> --json`` per changed ``.md`` file
+    (:func:`colleague.coherence.run_coherence_gate`), recording the result on
+    ``result.coherence_report`` with the measurement's frame provenance (the
+    embedder env the subprocess saw — the lobes-injected one when armed,
+    ``ctx.embed_env``). Advisory + warn-only: no fix-turn, never blocks the
+    handoff, and a run with no changed docs / no CLI / the gate disabled is
+    byte-identical (omit-when-None). Best-effort + fail-safe like the lint
+    gate: the body is wrapped so it can never abort ``run()``.
+    """
+    if aborted is not None or not ctx.coherence_enabled:
+        return
+    with suppress(Exception):
+        changed = sorted(ctx.executor.changed)
+        if not changed:
+            return
+        report = _coherencemod.run_coherence_gate(
+            ctx.task.repo_path, changed, env_overrides=ctx.embed_env
+        )
+        if report is None:
+            return
+        ctx.result.coherence_report = report
+
+
 _ACCEPTANCE_CHECK_PROMPT = (
     "Before this work item closes: for EACH acceptance criterion listed below, state "
     "whether the work you just did meets it. Respond with ONLY a JSON array of "
@@ -3373,6 +3435,27 @@ def _affectedtests_controls(controls: "ContextControls") -> dict[str, Any]:
     }
 
 
+def _resolve_runtime_defaults(
+    task: Task,
+    model: str | None,
+    hooks: HookConfig | None,
+    telemetry: Telemetry | None,
+    policy: Policy | None,
+) -> tuple[HookConfig, Telemetry, Policy]:
+    """Default the three repo-resolved collaborators (hooks/telemetry/policy) when
+    a caller didn't inject them. Kept out of ``run()`` so the per-field
+    ``is not None`` ternaries don't inflate its cognitive complexity (mirrors
+    ``_affectedtests_controls``). Byte-identical to the inline defaulting:
+    hooks/policy resolve from ``task.repo_path`` (+ per-model overlay when
+    ``model`` is given); telemetry resolves from the environment (a no-op
+    unless ``COLLEAGUE_OTEL_ENABLED`` is set)."""
+    return (
+        hooks if hooks is not None else load_hooks(task.repo_path, model=model),
+        telemetry if telemetry is not None else load_telemetry(),
+        policy if policy is not None else load_policy(task.repo_path, model=model),
+    )
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -3456,15 +3539,10 @@ def run(
     executor = executor or ToolExecutor(
         task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
     )
-    hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
-    # Telemetry defaults like hooks do: resolved from the environment, a no-op
-    # unless explicitly enabled. Tool spans auto-nest under the work item span the
-    # shared work path opens (via the SDK's context propagation).
-    telemetry = telemetry if telemetry is not None else load_telemetry()
-    # Policy defaults like hooks: loaded from task.repo_path when not injected.
-    # An absent or malformed approvals.json returns an empty Policy (no-op), so
-    # callers that never set policy= keep byte-identical behavior.
-    policy = policy if policy is not None else load_policy(task.repo_path, model=model)
+    # hooks/telemetry/policy each default from the repo (or the environment, for
+    # telemetry) when not injected — see _resolve_runtime_defaults for the
+    # per-field contract (byte-identical to the prior inline defaulting).
+    hooks, telemetry, policy = _resolve_runtime_defaults(task, model, hooks, telemetry, policy)
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt or _DEFAULT_SYSTEM},
@@ -3523,8 +3601,10 @@ def run(
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
+        coherence_enabled=bool(_context.coherence),
         memory_enabled=bool(_context.memory),
         memory_root=_context.memory_root,
+        embed_env=dict(_context.embed_env or {}),
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
@@ -3611,6 +3691,14 @@ def run(
     # aborted guard + the best-effort wrapping live in the helper (so it can never
     # abort run(), #209 review) — call it unconditionally to keep run() flat.
     _maybe_run_lint_gate(ctx, complete, outcome, aborted)
+
+    # Pre-finish coherence gate (#294, colleague#291 S3): on a NON-aborted exit,
+    # score the changed .md files via the coherence CLI and record the result on
+    # result.coherence_report (omit-when-None). Advisory + warn-only — no fix-turn,
+    # never blocks the handoff; runs after the lint gate so it sees the lint-fixed
+    # changed set. The aborted guard + best-effort wrapping live in the helper so
+    # it can never abort run().
+    _maybe_run_coherence_gate(ctx, aborted)
 
     # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
     # signature on the changed files and record it on result.test_integrity_report.

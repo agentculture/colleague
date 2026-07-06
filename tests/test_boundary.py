@@ -388,6 +388,62 @@ def test_deepthink_module_has_no_io_surface() -> None:
         ), f"deepthink.py must not use {forbidden!r} (no-daemon/no-socket)"
 
 
+def test_experiment_module_confined_to_one_shot_detach() -> None:
+    """The colleague#291 S5 experiment noun stays supervisor-free (plan t23).
+
+    Mirrors ``test_background_module_confined_to_one_shot_detach``:
+    ``subprocess`` IS expected (it is the sanctioned sloth shell-out — see
+    ``_SUBPROCESS_ALLOWED`` above) but no socket/asyncio/threading primitive
+    may appear, and the detached ``sloth train`` child is never
+    ``.wait()``/``.poll()``ed — a wait/poll loop would turn the one-shot
+    detach into a hidden supervisor.
+    """
+    experiment_src = _PACKAGE_DIR / "experiment.py"
+    assert (
+        experiment_src in _all_py_sources()
+    ), "experiment.py must be in the scanned package sources"
+    source = experiment_src.read_text(encoding="utf-8")
+    for forbidden in (
+        "import socket",
+        "import asyncio",
+        "import threading",
+        "concurrent.futures",
+        ".wait(",
+        ".poll(",
+    ):
+        assert (
+            forbidden not in source
+        ), f"experiment.py must not use {forbidden!r} (one-shot, no supervisor)"
+
+
+_FORBIDDEN_TRAIN_IMPORT_RE = re.compile(
+    r"^\s*(?:import\s+(?:torch|unsloth)\b|from\s+(?:torch|unsloth)\b)", re.MULTILINE
+)
+
+
+def test_no_colleague_module_imports_torch_or_unsloth() -> None:
+    """colleague never imports torch/unsloth (colleague#291 S5, spec h5/h14).
+
+    The experiment noun drives ``sloth`` (unsloth-cli) purely as an
+    allow-listed subprocess — the heavy ML stack stays entirely on the other
+    side of that process boundary. A stray ``import torch`` / ``import
+    unsloth`` anywhere in colleague would silently pull the training
+    dependency into the harness itself.
+    """
+    violations: list[str] = []
+    for py_file in _all_py_sources():
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            if _FORBIDDEN_TRAIN_IMPORT_RE.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()!r}")
+
+    assert not violations, (
+        "torch/unsloth imported in colleague source — the experiment noun must "
+        "shell out to sloth, never import the training stack:\n" + "\n".join(violations)
+    )
+
+
 def test_background_module_confined_to_one_shot_detach() -> None:
     """The background one-shot detach primitive stays supervisor-free (plan t12).
 
@@ -451,6 +507,13 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   recall/remember; subprocess is the transport (plan t1)
 #   livecheck.py     — runs pytest on gated live-proof files; subprocess is the
 #                   transport
+#   experiment.py    — the colleague#291 S5 experiment noun: validates a
+#                   dataset then detaches a `sloth train` child, and shells
+#                   out to `sloth validate`/`runs list`/`runs show`/
+#                   `summarize` (allow-list exactly `sloth`); subprocess is
+#                   the ONE-SHOT detach transport for start (mirroring
+#                   background.py) plus the short synchronous calls for
+#                   status/summarize
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -465,7 +528,9 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/affectedtests.py",
         "colleague/background.py",
         "colleague/memory.py",
+        "colleague/coherence.py",
         "colleague/livecheck.py",
+        "colleague/experiment.py",
     }
 )
 
@@ -601,6 +666,68 @@ class TestNoMcpJsonReference:
             "colleague reads no mcp.json (v0 scope); re-spec before adding MCP support:\n"
             + "\n".join(violations)
         )
+
+
+# ---------------------------------------------------------------------------
+# Structural check — colleague relays the embedder role, never consumes it
+# (one-embedder increment, S2, colleague#291/#292 task t19 — router-exclusion
+# boundary, spec c9/h18). ``colleague/lobes.py``'s ``embed_env`` passes the
+# resolved embedder's dial target + model id through as env vars for OTHER
+# sanctioned tools (the eidetic CLI, coherence-cli) to consume; colleague
+# itself never issues an embeddings request.
+# ---------------------------------------------------------------------------
+
+#: The ONE file allowed to reference the embedder's ``/v1/embeddings`` wire
+#: path (documentary only — it never builds a request to it).
+_EMBEDDINGS_PATH_ALLOWED_FILE = "colleague/lobes.py"
+
+
+class TestNoEmbeddingsConsumption:
+    """colleague discovers + relays the embedder's connection info; it never
+    becomes an embeddings retrieval client itself."""
+
+    @pytest.mark.parametrize(
+        "py_file",
+        _all_py_sources(),
+        ids=lambda p: str(p.relative_to(_PACKAGE_DIR.parent)),
+    )
+    def test_embeddings_path_string_confined_to_lobes(self, py_file: Path) -> None:
+        """The literal ``/v1/embeddings`` string may appear ONLY in
+        ``colleague/lobes.py`` (documentary, describing the wire shape) —
+        nowhere else in the package, and never as a request path colleague
+        itself dials."""
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        if "/v1/embeddings" not in source:
+            return
+        assert rel == _EMBEDDINGS_PATH_ALLOWED_FILE, (
+            f"'/v1/embeddings' found in {rel} — colleague never dials the "
+            "embedder's request path itself (it only relays the resolved "
+            f"origin via env vars); confine any reference to "
+            f"{_EMBEDDINGS_PATH_ALLOWED_FILE}."
+        )
+
+    def test_lobes_module_issues_no_post_request(self) -> None:
+        """``colleague/lobes.py`` only ever GETs ``/capabilities`` — it never
+        POSTs (an embeddings/completions request would be a POST), proving
+        the embedder role is relayed, never consumed, by this module."""
+        source = (_PACKAGE_DIR / "lobes.py").read_text(encoding="utf-8")
+        assert "POST" not in source, (
+            "colleague/lobes.py must never issue a POST request — it only "
+            "GETs /capabilities and relays role endpoints via env vars; a "
+            "POST here would mean colleague itself is consuming an "
+            "embeddings/completions endpoint, breaching the router-exclusion "
+            "boundary (spec c9/h18)."
+        )
+
+    def test_memory_module_issues_no_embeddings_request(self) -> None:
+        """``colleague/memory.py`` (the sanctioned eidetic-CLI shell-out) never
+        builds an embeddings request itself — it only merges env vars (built
+        elsewhere, in ``colleague/lobes.py``) into the CLI subprocess's
+        environment for the CLI to consume by its own convention."""
+        source = (_PACKAGE_DIR / "memory.py").read_text(encoding="utf-8")
+        assert "/v1/embeddings" not in source
+        assert "POST" not in source
 
 
 # ---------------------------------------------------------------------------
@@ -876,3 +1003,37 @@ class TestAgentLifecycleConfinement:
             "must stay dep-free (the [resident]/[culture] extras are opt-in):\n"
             + "\n".join(violations)
         )
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURAL — no colleague module imports cultureagent (colleague#291 c8/h17).
+# cultureagent depends on colleague (wraps ColleagueHarness as its backend);
+# a reverse import would create a cycle — this test pins the boundary.
+# ---------------------------------------------------------------------------
+
+_CULTUREAGENT_IMPORT_RE = re.compile(
+    r"^\s*(?:import\s+cultureagent\b|from\s+cultureagent\b)", re.MULTILINE
+)
+
+
+def test_no_colleague_module_imports_cultureagent() -> None:
+    """No colleague module imports cultureagent — colleague#291 boundary c8.
+
+    cultureagent depends on colleague (wraps ColleagueHarness as its 5th
+    backend); a reverse import would create a cycle.  This test statically
+    walks every colleague source file's import statements and asserts NONE
+    imports cultureagent (any form: ``import cultureagent``,
+    ``from cultureagent...``).  Spec: colleague#291 boundary c8/h17.
+    """
+    violations: list[str] = []
+    for py_file in _all_py_sources():
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            if _CULTUREAGENT_IMPORT_RE.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()!r}")
+
+    assert not violations, (
+        "cultureagent imported in colleague source — this creates a cycle since "
+        "cultureagent depends on colleague (colleague#291 boundary c8):\n" + "\n".join(violations)
+    )

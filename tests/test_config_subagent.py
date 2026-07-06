@@ -68,6 +68,7 @@ def test_to_dict_has_expected_keys() -> None:
         "subagent_depth",
         "subagent_total",
         "lint",
+        "coherence",  # the coherence gate flag (#294)
         "memory",
         "lint_fix_retries",
         "testintegrity",

@@ -40,6 +40,7 @@ _HOST_COMMANDS = {
     "clean",
     "learn-from",
     "promote",
+    "experiment",
 }
 
 

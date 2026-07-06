@@ -1,12 +1,19 @@
-"""``colleague lobes`` — inspect the lobes gateway (cortex/senses arc, task t10).
+"""``colleague lobes`` — inspect the lobes gateway (cortex/senses arc, task t10;
+re-synced to lobes-cli 0.38.0's ready semantics by colleague#292/291 S1).
 
 ``lobes show`` reports the ARMED state of colleague's connection to a lobes
 gateway (``colleague/lobes.py``'s :func:`~colleague.lobes.resolve_roles`), the
-resolved ``cortex``/``senses`` role metadata when reachable (model, context,
-endpoint, ready, responsibilities), and the degradation rung actually in
-effect: ``not_configured`` (unarmed), ``armed_reachable``, or
-``armed_unreachable``. ``lobes overview`` describes the noun (satisfying the
-agent-first rubric: any noun with action-verbs must also expose ``overview``).
+resolved ``cortex``/``senses`` (and, when the gateway serves them, ``stt``/
+``tts``) role metadata when reachable (model, context, endpoint, ready,
+responsibilities), and the degradation rung actually in effect:
+``not_configured`` (unarmed), ``armed_reachable``, or ``armed_unreachable``.
+Each role's ``ready`` is labeled with its ``ready_kind`` (``colleague/lobes.py``'s
+:func:`~colleague.lobes.ready_kind`) — ``"config-proxy"`` for cortex/senses
+(``ready == loaded``, never an actual liveness probe) vs ``"live-probed"`` for
+stt/tts (lobes-cli#89, 0.38.0: the gateway's realtime bridge health-checks the
+audio backend itself) — so an operator never conflates the two. ``lobes
+overview`` describes the noun (satisfying the agent-first rubric: any noun
+with action-verbs must also expose ``overview``).
 
 **Scope note (deliberately narrow):** this noun's armed signal is *only*
 ``COLLEAGUE_LOBES_URL`` env — task t10 depends solely on t1
@@ -28,7 +35,7 @@ import os
 
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
-from colleague.lobes import RoleInfo, resolve_roles
+from colleague.lobes import RoleInfo, ready_kind, resolve_roles
 
 #: The sole armed signal this noun consults (see the scope note above).
 _GATEWAY_URL_ENV = "COLLEAGUE_LOBES_URL"
@@ -70,13 +77,14 @@ def _lobes_sections() -> list[dict[str, object]]:
     ]
 
 
-def _role_info_to_dict(info: RoleInfo) -> dict[str, object]:
+def _role_info_to_dict(name: str, info: RoleInfo) -> dict[str, object]:
     return {
         "model": info.model,
         "endpoint": info.endpoint,
         "path": info.path,
         "context": info.context,
         "ready": info.ready,
+        "ready_kind": ready_kind(name),
         "responsibilities": list(info.responsibilities),
         "forbidden_responsibilities": list(info.forbidden_responsibilities),
     }
@@ -84,9 +92,10 @@ def _role_info_to_dict(info: RoleInfo) -> dict[str, object]:
 
 def _role_lines(name: str, info: RoleInfo) -> list[str]:
     ready = "ready" if info.ready else "not ready"
+    kind = ready_kind(name)
     lines = [
         "",
-        f"{name}\t{info.model}\t[{ready}]",
+        f"{name}\t{info.model}\t[{ready} ({kind})]",
         f"  context:  {info.context}",
         f"  endpoint: {info.endpoint}{info.path}",
         f"  responsibilities: {', '.join(info.responsibilities) or '(none)'}",
@@ -150,13 +159,19 @@ def _lobes_show() -> object:
         "rung": _RUNG_ARMED_REACHABLE,
         "gateway_url": url,
         "roles": {
-            "cortex": _role_info_to_dict(roles.cortex),
-            "senses": _role_info_to_dict(roles.senses),
+            "cortex": _role_info_to_dict("cortex", roles.cortex),
+            "senses": _role_info_to_dict("senses", roles.senses),
         },
     }
     lines = [f"lobes: armed at {url} — reachable"]
     lines += _role_lines("cortex", roles.cortex)
     lines += _role_lines("senses", roles.senses)
+    # stt/tts are OPTIONAL voice roles (senses live-presence + voice arc) — show
+    # them, live-probed ready label and all, only when the gateway serves them.
+    for voice_name, voice_role in (("stt", roles.stt), ("tts", roles.tts)):
+        if voice_role is not None:
+            payload["roles"][voice_name] = _role_info_to_dict(voice_name, voice_role)
+            lines += _role_lines(voice_name, voice_role)
     return rendered(payload, "\n".join(lines))
 
 
