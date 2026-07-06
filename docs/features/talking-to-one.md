@@ -197,9 +197,9 @@ Recorded live on the real rig, 2026-07-06 (`docs/live-testing.md` rows 24-25):
 
 ## Named follow-ups
 
-Recorded here so they are named, not implied shipped. The integrator files the
-corresponding issues; the text below is written to be pasted directly into
-one.
+Recorded here so they are named, not implied shipped. Filed: items 1-2 as
+[colleague#300](https://github.com/agentculture/colleague/issues/300), item 3
+as [lobes-cli#92](https://github.com/agentculture/lobes-cli/issues/92).
 
 1. **Mesh-resident + `colleague talk` surface parity for ack + proactive
    updates.** The v1 middle-manager lane (ack before dispatch, cadence-gated
