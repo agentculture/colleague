@@ -204,3 +204,75 @@ class TestNoForbiddenImports:
                 if node.module:
                     top = node.module.split(".")[0]
                     assert top not in forbidden, f"Forbidden from-import: {node.module}"
+
+
+class TestClarifyPolicy:
+    """Clarify-first policy (talking-to-one arc, t7 / c19 / h8)."""
+
+    def test_defaults(self):
+        from colleague.presence import ClarifyPolicy
+
+        policy = ClarifyPolicy()
+        assert policy.confidence_floor == 0.45
+        assert policy.max_questions == 3
+
+    def test_from_env_defaults_and_overrides(self):
+        from colleague.presence import clarify_from_env
+
+        assert clarify_from_env({}).confidence_floor == 0.45
+        assert clarify_from_env({}).max_questions == 3
+        policy = clarify_from_env(
+            {"COLLEAGUE_SENSES_CLARIFY_CONFIDENCE": "0.7", "COLLEAGUE_SENSES_CLARIFY_MAX": "5"}
+        )
+        assert policy.confidence_floor == 0.7
+        assert policy.max_questions == 5
+
+    def test_from_env_malformed_never_raises(self):
+        from colleague.presence import clarify_from_env
+
+        policy = clarify_from_env(
+            {"COLLEAGUE_SENSES_CLARIFY_CONFIDENCE": "high", "COLLEAGUE_SENSES_CLARIFY_MAX": "-3"}
+        )
+        assert policy.confidence_floor == 0.45
+        assert policy.max_questions == 3
+        # Out-of-range confidence falls back too.
+        assert (
+            clarify_from_env({"COLLEAGUE_SENSES_CLARIFY_CONFIDENCE": "7"}).confidence_floor == 0.45
+        )
+
+    def test_zero_max_disables_clarify_entirely(self):
+        from colleague.presence import ClarifyPolicy, should_clarify
+
+        policy = ClarifyPolicy(max_questions=0)
+        assert (
+            should_clarify(policy, confidence=0.0, has_omissions=True, questions_asked=0) is False
+        )
+
+    def test_fires_only_below_floor_with_omissions_under_ceiling(self):
+        from colleague.presence import ClarifyPolicy, should_clarify
+
+        policy = ClarifyPolicy(confidence_floor=0.5, max_questions=2)
+        fire = lambda conf, om, asked: should_clarify(  # noqa: E731
+            policy, confidence=conf, has_omissions=om, questions_asked=asked
+        )
+        assert fire(0.3, True, 0) is True
+        assert fire(0.3, True, 1) is True
+        assert fire(0.3, True, 2) is False  # ceiling reached
+        assert fire(0.6, True, 0) is False  # confident enough
+        assert fire(0.3, False, 0) is False  # nothing grounded to ask
+
+
+class TestGoWord:
+    """An explicit operator go-word always dispatches (h8)."""
+
+    def test_go_words_match_case_and_punct_insensitively(self):
+        from colleague.presence import is_go_word
+
+        for text in ("go", "Go", "GO!", " go ahead ", "Proceed.", "just go", "ship it"):
+            assert is_go_word(text) is True, text
+
+    def test_non_go_words_do_not_match(self):
+        from colleague.presence import is_go_word
+
+        for text in ("gopher", "going", "use the parser module", "", "go west"):
+            assert is_go_word(text) is False, text

@@ -1,8 +1,10 @@
-"""Cadence policy for senses proactive updates.
+"""Cadence + clarify policy for the senses middle-manager lane.
 
-Arc: 'talking to colleague feels like talking to one person' (task t2).
-Clock-free, thread-free decision helper that determines when a proactive
-status update should fire during a work loop.
+Arc: 'talking to colleague feels like talking to one person' (tasks t2 + t7).
+Clock-free, thread-free decision helpers: when a proactive status update
+should fire during a work loop (t2), and when a low-confidence intake may ask
+the operator a clarifying question before dispatching to cortex (t7). Pure
+policy only — no I/O, no model calls, no clock.
 """
 
 from __future__ import annotations
@@ -89,3 +91,83 @@ def should_update(
         return (False, "cap")
 
     return (True, reason)
+
+
+@dataclass(frozen=True)
+class ClarifyPolicy:
+    """When a low-confidence intake may ask before dispatching (t7 / c19).
+
+    ``confidence_floor`` — intake confidence below this MAY trigger a clarify
+    question (senses' own judgment rides the packet: its confidence + its
+    omissions). ``max_questions`` — the consecutive-question ceiling, a
+    generous loop-proofing bound, not a UX cap (h8); ``0`` disables clarify
+    entirely (always dispatch immediately).
+    """
+
+    confidence_floor: float = 0.45
+    max_questions: int = 3
+
+
+def clarify_from_env(env: Mapping[str, str]) -> ClarifyPolicy:
+    """Build a :class:`ClarifyPolicy` from environment variables.
+
+    Reads ``COLLEAGUE_SENSES_CLARIFY_CONFIDENCE`` (float in [0.0, 1.0]; absent
+    or invalid falls back to 0.45) and ``COLLEAGUE_SENSES_CLARIFY_MAX``
+    (int >= 0; 0 disables clarify entirely; absent or invalid falls back
+    to 3). Never raises on malformed values.
+    """
+    confidence_floor = 0.45
+    raw_floor = env.get("COLLEAGUE_SENSES_CLARIFY_CONFIDENCE")
+    if raw_floor is not None:
+        try:
+            val = float(raw_floor)
+            if 0.0 <= val <= 1.0:
+                confidence_floor = val
+        except (ValueError, OverflowError):
+            pass
+
+    max_questions = 3
+    raw_max = env.get("COLLEAGUE_SENSES_CLARIFY_MAX")
+    if raw_max is not None:
+        try:
+            ival = int(raw_max)
+            if ival >= 0:
+                max_questions = ival
+        except (ValueError, OverflowError):
+            pass
+
+    return ClarifyPolicy(confidence_floor=confidence_floor, max_questions=max_questions)
+
+
+def should_clarify(
+    policy: ClarifyPolicy,
+    *,
+    confidence: float,
+    has_omissions: bool,
+    questions_asked: int,
+) -> bool:
+    """Decide whether senses may ask (another) clarifying question (t7).
+
+    True only while ALL hold: clarify is enabled (``max_questions > 0``), the
+    ceiling is not reached, the intake confidence sits below the floor, and
+    the packet actually lists omissions — a question must be grounded in what
+    intake itself said was left unspecified, never canned filler.
+    """
+    return (
+        policy.max_questions > 0
+        and questions_asked < policy.max_questions
+        and confidence < policy.confidence_floor
+        and has_omissions
+    )
+
+
+#: Normalized operator go-words: any of these dispatches IMMEDIATELY and
+#: unconditionally — clarification can never withhold work (h8).
+GO_WORDS = frozenset(
+    {"go", "go ahead", "proceed", "dispatch", "just go", "run it", "ship it", "do it"}
+)
+
+
+def is_go_word(text: str) -> bool:
+    """True iff *text* is an explicit operator go-word (case/punct-insensitive)."""
+    return text.strip().strip(".!,").strip().lower() in GO_WORDS

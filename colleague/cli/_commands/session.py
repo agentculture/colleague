@@ -77,7 +77,13 @@ from colleague.config import EngineConfig, resolve_session_engine
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
-from colleague.presence import cadence_from_env, should_update
+from colleague.presence import (
+    cadence_from_env,
+    clarify_from_env,
+    is_go_word,
+    should_clarify,
+    should_update,
+)
 from colleague.senses import (
     UPDATE_POINT,
     run_senses_intake,
@@ -510,6 +516,18 @@ class _Session:
         self._update_last_step = 0
         self._update_last_phase = ""
         self._update_cap_recorded = False
+        # Clarify-first + conversation continuity (t7): the SESSION-lifetime
+        # rolling operator↔senses history (c11 — threaded into every senses
+        # call, windowed senses-side at call time, t4; appends gated on the
+        # presence lane so an unarmed session never accumulates history), the
+        # per-work-line clarify re-intake records, the clarify policy, and the
+        # input seam the clarify loop pulls the operator's answer from (set by
+        # ``run()``; ``None`` — e.g. under direct construction in tests —
+        # dispatches immediately, clarify never fires).
+        self._history: list[dict] = []
+        self._clarify_records: list[SensesRecord] = []
+        self._clarify_policy = clarify_from_env(os.environ)
+        self._read_next: Optional[Callable[[], object]] = None
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -1115,6 +1133,9 @@ class _Session:
     def run(self, input_fn: Optional[Iterator[str]]) -> int:
         emit_banner(self.err, json_mode=self.json_mode)
         live_ansi = input_fn is None and self.view == "ansi"
+        # The clarify loop's input seam (t7): pull ONE more operator line from
+        # the SAME source this loop reads — the live raw reader or the iterator.
+        self._read_next = self._read_live_ansi if live_ansi else (lambda: _read_line(input_fn))
         while True:
             if live_ansi:
                 raw = self._read_live_ansi()
@@ -1429,7 +1450,10 @@ class _Session:
         if pair is None:
             return "cortex-only", None
         senses_config, engine = pair
-        packet, record = run_senses_intake(task.instruction, senses_config, engine)
+        self._history_append("operator", task.instruction)
+        packet, record = run_senses_intake(
+            task.instruction, senses_config, engine, history=list(self._history) or None
+        )
         if packet is None:
             self._log("senses: intake degraded — using the raw request")
             self._render_ack(None)
@@ -1441,21 +1465,128 @@ class _Session:
             )
             if self.debug_senses:
                 self.err(f"[debug-senses] {packet.to_dict()}")
+            # Clarify-first (t7): ask BEFORE acknowledging, so the ack speaks
+            # from the FINAL (possibly refined) packet at dispatch time.
+            packet = self._maybe_clarify(task, packet, senses_config, engine)
             self._render_ack(packet.ack)
         return "split", record
 
     # ── middle-manager presence lane (talking-to-one arc, t6) ────────────────
 
     def _reset_presence_lane(self) -> None:
-        """Reset the per-work-line middle-manager state (ack/update exchanges +
-        cadence counters) at intake time, so one line's exchanges never leak
-        into the next work item's artifact."""
+        """Reset the per-work-line middle-manager state (ack/update/clarify
+        exchanges + cadence counters) at intake time, so one line's exchanges
+        never leak into the next work item's artifact. The session-lifetime
+        rolling ``_history`` deliberately survives (c11 — continuity spans work
+        lines within one session)."""
         self._senses_chat = []
         self._update_records = []
+        self._clarify_records = []
         self._updates_sent = 0
         self._update_last_step = 0
         self._update_last_phase = ""
         self._update_cap_recorded = False
+
+    def _history_append(self, role: str, text: str) -> None:
+        """Append one exchange to the session-lifetime rolling history (t7/c11).
+
+        Gated on the presence lane — an unarmed session (off-TTY / --no-tui /
+        piped / --cortex-only / no senses) NEVER accumulates history, so every
+        senses call it makes stays byte-identical (h5/h9). Capped to the last
+        50 entries as a memory bound; windowing to senses' own budget happens
+        senses-side at call time (t4), dropping oldest whole entries first."""
+        if not self._presence_enabled() or not text:
+            return
+        self._history.append({"role": role, "text": text})
+        if len(self._history) > 50:
+            del self._history[: len(self._history) - 50]
+
+    def _read_clarify_answer(self) -> Optional[str]:
+        """Pull ONE operator line for a clarify question from the session's own
+        input source. ``None`` (EOF / no source / a read error) means dispatch
+        — clarification can never withhold work (h8). A shift-tab CYCLE_MODE
+        sentinel re-reads; it is never an answer."""
+        if self._read_next is None:
+            return None
+        try:
+            raw = self._read_next()
+            while raw is CYCLE_MODE:
+                raw = self._read_next()
+        except Exception:  # noqa: BLE001 — a broken input source dispatches
+            return None
+        if raw is None:
+            return None
+        return str(raw).strip()
+
+    def _maybe_clarify(self, task: Task, packet, senses_config, engine):
+        """Clarify-first (t7 / c19): on a low-confidence intake senses MAY ask
+        the operator before dispatching — more than one question allowed
+        (senses judges via the packet it authored: confidence + omissions),
+        bounded by the generous env-tunable ceiling (loop-proofing, h8).
+
+        Returns the FINAL packet. Dispatch is never withheld: an explicit
+        go-word, an empty answer, EOF, or a missing input source all dispatch
+        immediately. Every exchange is recorded on the per-line chat (kind=
+        "clarify") AND the rolling history; each answer re-runs intake over the
+        instruction + the operator's verbatim clarification, so clarify refines
+        the packet — the dispatched instruction always still CONTAINS the
+        operator's original verbatim words plus their own answers, never a
+        rewrite (h8)."""
+        if not self._presence_enabled() or self._read_next is None:
+            return packet
+        asked = 0
+        while should_clarify(
+            self._clarify_policy,
+            confidence=packet.confidence,
+            has_omissions=bool(packet.omissions),
+            questions_asked=asked,
+        ):
+            gap = packet.omissions[0]
+            question = (
+                f"before I hand this to cortex — your request left '{gap}' "
+                "unspecified. Add details, or say 'go' to dispatch as-is."
+            )
+            self._log(f"senses: {question}")
+            self._senses_chat.append(
+                {"kind": "clarify", "role": "senses", "text": question, "at": time.time()}
+            )
+            self._history_append("senses", question)
+            if self.view == "ansi":
+                self.emit()
+            answer = self._read_clarify_answer()
+            asked += 1
+            if not answer or is_go_word(answer):
+                if answer:
+                    self._log(answer)
+                    self._senses_chat.append(
+                        {
+                            "kind": "clarify",
+                            "role": "operator",
+                            "text": answer,
+                            "go": True,
+                            "at": time.time(),
+                        }
+                    )
+                    self._history_append("operator", answer)
+                break
+            self._log(answer)
+            self._senses_chat.append(
+                {"kind": "clarify", "role": "operator", "text": answer, "at": time.time()}
+            )
+            self._history_append("operator", answer)
+            # The operator's verbatim answer joins the instruction (their words,
+            # appended — never a rewrite of the original request, h8) and intake
+            # re-perceives the refined whole with the conversation threaded.
+            composed = f"{task.instruction}\n\nOperator clarification: {answer}"
+            refined, refine_record = run_senses_intake(
+                composed, senses_config, engine, history=list(self._history) or None
+            )
+            self._clarify_records.append(refine_record)
+            task.instruction = composed
+            if refined is not None:
+                packet = refined
+                task.context_packet = refined
+        return packet
 
     def _presence_enabled(self) -> bool:
         """True iff the middle-manager lane (ack + proactive updates) speaks.
@@ -1485,6 +1616,7 @@ class _Session:
                 "at": time.time(),
             }
         )
+        self._history_append("senses", text)
         if self.view == "ansi":
             self.emit()
 
@@ -1536,7 +1668,13 @@ class _Session:
                 return
             senses_config, engine = pair
             feed_lines = self._talk_feed_tail().splitlines()
-            record = run_senses_update(feed_lines, self._talk_packet, senses_config, engine)
+            record = run_senses_update(
+                feed_lines,
+                self._talk_packet,
+                senses_config,
+                engine,
+                history=list(self._history) or None,
+            )
             # A fired attempt consumes senses budget whether or not it produced
             # text — count it toward the cap either way (honest accounting).
             self._updates_sent += 1
@@ -1563,6 +1701,7 @@ class _Session:
                         "at": time.time(),
                     }
                 )
+                self._history_append("senses", text)
                 if self.view == "ansi":
                     self.emit()
         except Exception:  # noqa: BLE001 — narration must never disturb the run
@@ -1682,9 +1821,12 @@ class _Session:
             senses_config=senses_config,
             make_complete=engine.make_complete,
             make_count_tokens=engine.make_count_tokens(senses_config),
+            history=list(self._history) or None,
         )
         if record is None:
             return
+        self._history_append("operator", text)
+        self._history_append("senses", record["answer"])
         self._log(f"senses: {record['answer']}")
         with contextlib.suppress(Exception):
             flight.append_chat(
@@ -1748,21 +1890,30 @@ class _Session:
         pair = self._senses_engine()
         if pair is not None:
             senses_config, engine = pair
-            shaped, speakback_record = run_senses_speakback(result.summary, senses_config, engine)
+            shaped, speakback_record = run_senses_speakback(
+                result.summary, senses_config, engine, history=list(self._history) or None
+            )
         if result.senses is None:
             result.senses = SensesBlock(mode="split", packet=None, records=[])
         pre = [intake_record] if intake_record is not None else []
         post = [speakback_record] if speakback_record is not None else []
-        # Middle-manager fold (t6): the proactive-update records slot between the
-        # loop's own records and speak-back; the ack/update chat entries append
-        # after any flight-folded talk exchanges — so the whole operator-senses
-        # exchange is reconstructable from the artifact alone (h14). Empty lists
-        # when the lane never armed → byte-identical.
+        # Middle-manager fold (t6/t7): clarify re-intake records slot after the
+        # intake (they happened pre-run), proactive-update records between the
+        # loop's own records and speak-back; the ack/update/clarify chat entries
+        # append after any flight-folded talk exchanges — so the whole
+        # operator-senses exchange is reconstructable from the artifact alone
+        # (h14). Empty lists when the lane never armed → byte-identical.
         result.senses.records = (
-            pre + list(result.senses.records) + list(self._update_records) + post
+            pre
+            + list(self._clarify_records)
+            + list(result.senses.records)
+            + list(self._update_records)
+            + post
         )
         if self._senses_chat:
             result.senses.chat = list(result.senses.chat) + list(self._senses_chat)
+        if shaped:
+            self._history_append("senses", shaped)
         self._resave_artifact(result)
         return shaped
 

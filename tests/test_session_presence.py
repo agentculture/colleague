@@ -302,3 +302,201 @@ def test_reset_presence_lane_clears_prior_line_state(tmp_path: Path) -> None:
     assert sess._update_records == []
     assert sess._updates_sent == 0
     assert sess._update_cap_recorded is False
+
+
+# --- clarify-first + continuity (t7: c19/h8, c11/h5) ---------------------------
+
+
+def _low_confidence_packet(**over):
+    defaults = dict(
+        original="make it better",
+        interpretation="improve something unspecified",
+        confidence=0.2,
+        task_type="feature",
+        omissions=["which area to improve"],
+        ack="on it — improving the area you named.",
+    )
+    defaults.update(over)
+    return ContextPacket(**defaults)
+
+
+def _stub_reintake(monkeypatch, refined_packet):
+    calls: list[dict] = []
+
+    def _intake(text, senses_config, engine, **kw):
+        calls.append({"text": text, "history": kw.get("history")})
+        return refined_packet, SensesRecord(point="senses-intake", latency=0.1, degraded=False)
+
+    monkeypatch.setattr(session_mod, "run_senses_intake", _intake)
+    return calls
+
+
+def _scripted_input(sess, answers: list[str]) -> None:
+    it = iter(answers)
+    sess._read_next = lambda: next(it, None)
+
+
+class _EngineStub:
+    def make_complete(self, config, tools=None):
+        return lambda messages: None
+
+    def make_count_tokens(self, config):
+        return lambda messages: 0
+
+
+def _clarify_env(sess, packet, monkeypatch, refined=None):
+    from colleague.presence import ClarifyPolicy
+
+    sess._clarify_policy = ClarifyPolicy(confidence_floor=0.5, max_questions=3)
+    refined_packet = (
+        refined if refined is not None else _low_confidence_packet(confidence=0.9, omissions=[])
+    )
+    calls = _stub_reintake(monkeypatch, refined_packet)
+    from colleague.contract import Task
+
+    task = Task.new(".", packet.original)
+    return task, calls
+
+
+def test_clarify_asks_grounded_question_and_refines_packet(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    packet = _low_confidence_packet()
+    task, calls = _clarify_env(sess, packet, monkeypatch)
+    _scripted_input(sess, ["focus on the parser error messages"])
+
+    final = sess._maybe_clarify(task, packet, sess.config, _EngineStub())
+
+    # The question is grounded in the packet's OWN omission — never canned filler.
+    lines = _conversation_lines(sess)
+    assert any("which area to improve" in ln for ln in lines if ln.startswith("senses:"))
+    # The operator's verbatim words joined the instruction; the original survives.
+    assert task.instruction.startswith("make it better")
+    assert "focus on the parser error messages" in task.instruction
+    # Re-intake ran once over the composed text with the history threaded.
+    assert len(calls) == 1
+    assert calls[0]["text"] == task.instruction
+    assert calls[0]["history"]  # non-empty rolling history
+    # The refined packet won.
+    assert final.confidence == 0.9
+    assert task.context_packet is final
+    # Both sides of the exchange are on the per-line chat, and a re-intake record folded.
+    kinds_roles = [(e["kind"], e.get("role")) for e in sess._senses_chat]
+    assert ("clarify", "senses") in kinds_roles
+    assert ("clarify", "operator") in kinds_roles
+    assert len(sess._clarify_records) == 1
+
+
+def test_clarify_go_word_dispatches_immediately(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    packet = _low_confidence_packet()
+    task, calls = _clarify_env(sess, packet, monkeypatch)
+    _scripted_input(sess, ["go"])
+
+    final = sess._maybe_clarify(task, packet, sess.config, _EngineStub())
+
+    assert calls == []  # no re-intake: go dispatches as-is
+    assert final is packet
+    assert task.instruction == "make it better"  # untouched
+    go_entries = [e for e in sess._senses_chat if e.get("go")]
+    assert len(go_entries) == 1  # the go itself is recorded (h8)
+
+
+def test_clarify_eof_dispatches_immediately(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    packet = _low_confidence_packet()
+    task, calls = _clarify_env(sess, packet, monkeypatch)
+    _scripted_input(sess, [])  # immediate EOF
+
+    final = sess._maybe_clarify(task, packet, sess.config, _EngineStub())
+
+    assert calls == []
+    assert final is packet
+
+
+def test_clarify_never_fires_on_confident_intake(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    packet = _low_confidence_packet(confidence=0.9)
+    task, calls = _clarify_env(sess, packet, monkeypatch)
+    reads: list[str] = []
+    sess._read_next = lambda: reads.append("read") or "never"
+
+    final = sess._maybe_clarify(task, packet, sess.config, _EngineStub())
+
+    assert reads == []  # the input source was never touched
+    assert final is packet
+
+
+def test_clarify_never_fires_without_input_source(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    packet = _low_confidence_packet()
+    task, calls = _clarify_env(sess, packet, monkeypatch)
+    sess._read_next = None  # direct construction (no run()) — dispatch immediately
+
+    final = sess._maybe_clarify(task, packet, sess.config, _EngineStub())
+
+    assert calls == []
+    assert final is packet
+
+
+def test_clarify_ceiling_bounds_consecutive_questions(tmp_path: Path, monkeypatch) -> None:
+    from colleague.presence import ClarifyPolicy
+
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    packet = _low_confidence_packet()
+    # Re-intake keeps returning a still-low-confidence packet with omissions.
+    task, calls = _clarify_env(sess, packet, monkeypatch, refined=_low_confidence_packet())
+    sess._clarify_policy = ClarifyPolicy(confidence_floor=0.5, max_questions=2)
+    _scripted_input(sess, ["answer one", "answer two", "answer three"])
+
+    sess._maybe_clarify(task, packet, sess.config, _EngineStub())
+
+    questions = [
+        e for e in sess._senses_chat if e["kind"] == "clarify" and e.get("role") == "senses"
+    ]
+    assert len(questions) == 2  # the ceiling held (loop-proofing, h8)
+    assert len(calls) == 2
+    # Both operator answers up to the ceiling joined the instruction verbatim.
+    assert "answer one" in task.instruction and "answer two" in task.instruction
+    assert "answer three" not in task.instruction
+
+
+def test_history_threads_into_subsequent_senses_calls(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    _arm(sess, cadence=UpdateCadence(every_steps=100, max_updates=4))
+    sess._render_ack("on it.")
+    assert sess._history == [{"role": "senses", "text": "on it."}]
+
+    seen: list = []
+
+    def _update(feed_tail, packet, senses_config, engine, **kw):
+        seen.append(kw.get("history"))
+        return {"update": "still working", "latency": 0.1, "tokens": 1, "degraded": False}
+
+    monkeypatch.setattr(session_mod, "run_senses_update", _update)
+    sess._maybe_proactive_update("", "synthesizing…")
+
+    assert seen == [[{"role": "senses", "text": "on it."}]]
+    # And the spoken update itself joined the rolling history.
+    assert sess._history[-1] == {"role": "senses", "text": "still working"}
+
+
+def test_unarmed_session_accumulates_no_history(tmp_path: Path) -> None:
+    sess, _o, _e = _session(tmp_path, view="markdown")
+    sess._render_ack("hello")
+    sess._history_append("operator", "typed something")
+    assert sess._history == []  # h5/h9: senses-absent/off-TTY writes NO chat history
+
+
+def test_history_survives_reset_between_work_lines(tmp_path: Path) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    sess._history_append("operator", "first line")
+    sess._reset_presence_lane()
+    assert sess._history == [{"role": "operator", "text": "first line"}]  # c11: continuity
+
+
+def test_history_is_capped(tmp_path: Path) -> None:
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    for i in range(60):
+        sess._history_append("operator", f"line {i}")
+    assert len(sess._history) == 50
+    assert sess._history[0] == {"role": "operator", "text": "line 10"}  # oldest dropped
