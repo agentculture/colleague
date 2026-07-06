@@ -74,13 +74,16 @@ from colleague.cli._errors import CliError
 from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_session_engine
-from colleague.contract import SensesBlock, Task, TaskResult
+from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
+from colleague.presence import cadence_from_env, should_update
 from colleague.senses import (
+    UPDATE_POINT,
     run_senses_intake,
     run_senses_speakback,
     run_senses_talk,
+    run_senses_update,
     senses_engine_config,
 )
 from colleague.session_intent import PLAN, classify_intent
@@ -116,6 +119,11 @@ _CLEAR_HOME = "\x1b[H\x1b[2J"
 #: Leading-line markers identifying a previously-rendered suggested action, so a
 #: refresh replaces it in place rather than stacking duplicates in the Session panel.
 _SUGGESTION_PREFIXES = ("Safest next:", "⚠ Safest next:")
+
+#: The FIXED dispatch notice the middle-manager lane speaks when intake carries
+#: no usable ack (talking-to-one arc, t6 / h2): it acknowledges receipt and the
+#: hand-off to cortex ONLY — never a fabricated understanding of the request.
+_ACK_DISPATCH_NOTICE = "taking your request to cortex now."
 
 #: The Session panel's goal item id (spec R3 / plan t9 / #256) — the running
 #: work item's instruction, so the operator always sees WHAT is being driven.
@@ -302,6 +310,14 @@ class _WorkSink:
         poll = getattr(sess, "_poll_talk_lane", None)
         if poll is not None:
             poll()
+        # Middle-manager proactive narration (talking-to-one arc, t6): the SAME
+        # existing sink boundary the talk lane polls at — cadence-gated in the
+        # session helper, a strict no-op unless the lane is armed. ``getattr``
+        # keeps the sink usable against a bare state-holder (its documented
+        # contract), like the poll guard above.
+        update = getattr(sess, "_maybe_proactive_update", None)
+        if update is not None:
+            update(tool, target)
         if not tool:
             # A phase notice (#206) — fold it into the STATUS surface only;
             # never a step (work_item.step_count untouched, no feed line). Shares
@@ -479,6 +495,21 @@ class _Session:
         self._talk_active = False
         self._talk_task_id: Optional[str] = None
         self._talk_packet = None
+
+        # Middle-manager presence lane (talking-to-one arc, t6): the session-side
+        # record of this work line's ack/update exchanges (folded onto
+        # ``TaskResult.senses`` at finalize) plus the proactive-update cadence
+        # state (colleague.presence — clock-free, env-tunable, capped per run).
+        # All reset per work line by ``_reset_presence_lane``; when the lane never
+        # arms (off-TTY / --no-tui / piped / --cortex-only / no senses) nothing
+        # here is ever written, so those paths stay byte-identical (h9).
+        self._senses_chat: list[dict] = []
+        self._update_records: list[SensesRecord] = []
+        self._update_cadence = cadence_from_env(os.environ)
+        self._updates_sent = 0
+        self._update_last_step = 0
+        self._update_last_phase = ""
+        self._update_cap_recorded = False
 
         # ``user_home`` overrides the home dir command discovery scans (default
         # ``Path.home()``). Real sessions leave it ``None`` (scan the user's home);
@@ -1389,6 +1420,7 @@ class _Session:
         *task* so the loop (t6) injects it + records mode=split; a degraded intake
         attaches nothing and the raw request proceeds — the run never fails
         (spec q1 / acceptance 3)."""
+        self._reset_presence_lane()
         if self.config.senses is None:
             return None, None
         if self.cortex_only or not is_free_text:
@@ -1400,6 +1432,7 @@ class _Session:
         packet, record = run_senses_intake(task.instruction, senses_config, engine)
         if packet is None:
             self._log("senses: intake degraded — using the raw request")
+            self._render_ack(None)
         else:
             task.context_packet = packet
             self._log(
@@ -1408,7 +1441,132 @@ class _Session:
             )
             if self.debug_senses:
                 self.err(f"[debug-senses] {packet.to_dict()}")
+            self._render_ack(packet.ack)
         return "split", record
+
+    # ── middle-manager presence lane (talking-to-one arc, t6) ────────────────
+
+    def _reset_presence_lane(self) -> None:
+        """Reset the per-work-line middle-manager state (ack/update exchanges +
+        cadence counters) at intake time, so one line's exchanges never leak
+        into the next work item's artifact."""
+        self._senses_chat = []
+        self._update_records = []
+        self._updates_sent = 0
+        self._update_last_step = 0
+        self._update_last_phase = ""
+        self._update_cap_recorded = False
+
+    def _presence_enabled(self) -> bool:
+        """True iff the middle-manager lane (ack + proactive updates) speaks.
+
+        Exactly the talk lane's gate — an interactive colour TTY with senses
+        resolved and no ``--cortex-only`` bypass — so off-TTY / piped /
+        ``--no-tui`` sessions stay byte-identical to today (h9)."""
+        return self._talk_lane_enabled()
+
+    def _render_ack(self, ack: Optional[str]) -> None:
+        """Speak the acknowledgment BEFORE cortex's first step (t6 / c9).
+
+        The ack text is senses' own line riding the intake completion
+        (``packet.ack``, task t1); a missing or degraded ack renders the FIXED
+        dispatch notice — never fabricated understanding (h2). Every spoken ack
+        is recorded as a ``kind="ack"`` chat entry for the artifact fold, so the
+        exchange is reconstructable from the artifact alone (h14)."""
+        if not self._presence_enabled():
+            return
+        text = (ack or "").strip() or _ACK_DISPATCH_NOTICE
+        self._log(f"senses: {text}")
+        self._senses_chat.append(
+            {
+                "kind": "ack",
+                "text": text,
+                "fixed": not (ack or "").strip(),
+                "at": time.time(),
+            }
+        )
+        if self.view == "ansi":
+            self.emit()
+
+    def _maybe_proactive_update(self, tool: str, target: str) -> None:
+        """Proactive middle-manager narration at a progress-sink boundary (t6).
+
+        Cadence-gated (:mod:`colleague.presence`): fires on a phase CHANGE or
+        every N steps, capped per run — a strict no-op unless the talk lane
+        armed this work line, so unarmed sessions never poll, call, or render.
+        A fired update renders as a labeled ``senses:`` conversation line (the
+        raw feed stays — senses augments, never hides) and is recorded (a
+        ``senses-update`` record + a ``kind="update"`` chat entry) for the
+        artifact fold at finalize. Hitting the cap is recorded ONCE, never
+        silent (h4). A degraded call still counts toward the cap and still
+        records — diagnosable, never silent. Never raises, and never advances
+        ``step_count`` (the #206 invariant: narration is presentation, not
+        work — only the reducer's real-step fold advances the count)."""
+        if not self._talk_active:
+            return
+        try:
+            phase_changed = False
+            if not tool:
+                # A phase notice (#206) — its target is the phase label; only a
+                # CHANGED label counts (thinking… → thinking… is not a change).
+                phase_changed = target != self._update_last_phase
+                self._update_last_phase = target
+            wi = self.state.work_item
+            step_count = wi.step_count if wi is not None else 0
+            fire, reason = should_update(
+                self._update_cadence,
+                step_count=step_count,
+                last_update_step=self._update_last_step,
+                phase_changed=phase_changed,
+                updates_sent=self._updates_sent,
+            )
+            if reason == "cap":
+                if not self._update_cap_recorded:
+                    self._update_cap_recorded = True
+                    self._log(
+                        "senses: (update cap reached — staying quiet now; "
+                        "COLLEAGUE_SENSES_UPDATE_CAP raises it)"
+                    )
+                    self._senses_chat.append({"kind": "update", "capped": True, "at": time.time()})
+                return
+            if not fire:
+                return
+            pair = self._senses_engine()
+            if pair is None:
+                return
+            senses_config, engine = pair
+            feed_lines = self._talk_feed_tail().splitlines()
+            record = run_senses_update(feed_lines, self._talk_packet, senses_config, engine)
+            # A fired attempt consumes senses budget whether or not it produced
+            # text — count it toward the cap either way (honest accounting).
+            self._updates_sent += 1
+            self._update_last_step = step_count
+            if record is None:
+                return
+            self._update_records.append(
+                SensesRecord(
+                    point=UPDATE_POINT,
+                    latency=record["latency"],
+                    tokens=record.get("tokens"),
+                    degraded=record["degraded"],
+                )
+            )
+            text = record.get("update")
+            if text:
+                self._log(f"senses: {text}")
+                self._senses_chat.append(
+                    {
+                        "kind": "update",
+                        "text": text,
+                        "latency": record["latency"],
+                        "degraded": record["degraded"],
+                        "at": time.time(),
+                    }
+                )
+                if self.view == "ansi":
+                    self.emit()
+        except Exception:  # noqa: BLE001 — narration must never disturb the run
+            return
 
     # ── concurrent senses talk lane (senses live-presence arc, task t7) ──────
 
@@ -1595,7 +1753,16 @@ class _Session:
             result.senses = SensesBlock(mode="split", packet=None, records=[])
         pre = [intake_record] if intake_record is not None else []
         post = [speakback_record] if speakback_record is not None else []
-        result.senses.records = pre + list(result.senses.records) + post
+        # Middle-manager fold (t6): the proactive-update records slot between the
+        # loop's own records and speak-back; the ack/update chat entries append
+        # after any flight-folded talk exchanges — so the whole operator-senses
+        # exchange is reconstructable from the artifact alone (h14). Empty lists
+        # when the lane never armed → byte-identical.
+        result.senses.records = (
+            pre + list(result.senses.records) + list(self._update_records) + post
+        )
+        if self._senses_chat:
+            result.senses.chat = list(result.senses.chat) + list(self._senses_chat)
         self._resave_artifact(result)
         return shaped
 
