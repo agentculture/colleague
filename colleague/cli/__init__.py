@@ -113,6 +113,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import learn_from as _learn_from_cmd
     from colleague.cli._commands import lobes as _lobes_group
     from colleague.cli._commands import mcp as _mcp_group
+    from colleague.cli._commands import organs as _organs_group
     from colleague.cli._commands import overview as _overview_cmd
     from colleague.cli._commands import plan as _plan_cmd
     from colleague.cli._commands import promote as _promote_cmd
@@ -175,6 +176,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _telemetry_group.register(sub)
     # Cortex/senses arc: inspect the lobes gateway armed state + resolved roles.
     _lobes_group.register(sub)
+    # Organism visibility (#291/S10): the curated organ table (presence/version/armed).
+    _organs_group.register(sub)
     # Provider config: resolved engine/provider settings (api_key redacted).
     _config_group.register(sub)
     # Interactive foreground palette (c28/R8).
