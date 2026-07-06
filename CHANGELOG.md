@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.0] - 2026-07-06
+
+### Added
+
+- **Integration-front arc (#291)** — colleague becomes the operator front of the
+  Culture.dev toolchain: `colleague organs list` + a no-network `doctor` organs
+  check-group + `docs/organs.md` (#297); the published artifact + feedback
+  contract `docs/contract.md` v1 with `feedback export` (#296); the **coherence
+  gate** — fourth rack gate scoring changed docs via the coherence CLI with
+  frame provenance and configured-detection, default-ON warn-only (#294); the
+  **experiment noun** — detached sloth training runs with status/list/summarize
+  `--remember` to eidetic and `clean` reaping (#295); per-role lobes dialing
+  end-to-end (closes the #292 follow-on) and the one-embedder `embed_env`
+  pass-through into eidetic/coherence shell-outs (#293); a colleague-side
+  memory-convention drift-test (eidetic-cli#28) and boundary pins (no
+  cultureagent import; `/v1/embeddings` never consumed). Flywheel live-proven
+  (`docs/live-testing.md` rows 19-23).
+
+### Changed
+
+- `colleague/lobes.py` speaks the lobes >= 0.38 contract: per-role reachable
+  endpoints (lobes-cli#87 closed), live-probed stt/tts readiness with a bounded
+  503+Retry-After warming retry (lobes-cli#89 closed); `VoiceConfig` gained
+  independent `stt_base_url`/`tts_base_url` (#292).
+
 ## [1.37.0] - 2026-07-04
 
 ### Added
