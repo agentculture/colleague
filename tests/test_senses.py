@@ -29,6 +29,7 @@ from colleague.senses import (
     SPEAKBACK_POINT,
     run_senses_intake,
     run_senses_speakback,
+    run_senses_update,
     senses_engine_config,
 )
 
@@ -467,3 +468,148 @@ def test_senses_module_has_no_io_surface() -> None:
         "import subprocess",
     ):
         assert forbidden not in source, f"senses.py must not use {forbidden!r}"
+
+
+# ---------------------------------------------------------------------------
+# run_senses_update — proactive progress narration (task t3)
+# ---------------------------------------------------------------------------
+
+
+class TestSensesUpdate:
+    """Tests for :func:`run_senses_update` — proactive progress narration."""
+
+    def test_exactly_one_completion_no_tool_schema(self) -> None:
+        """A senses update request NEVER carries a tool schema — make_complete gets []."""
+        reply = '{"update": "I am currently running the test suite."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=3, completion_tokens=5))
+
+        result = run_senses_update(
+            ["ran pytest: 42 tests passed"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert fake.make_complete_calls == [[]]
+        assert fake.complete_call_count == 1
+        assert result is not None
+        assert result["degraded"] is False
+
+    def test_prompt_contains_feed_tail_and_respects_budget(self) -> None:
+        """The prompt carries the provided feed-tail lines and windowing respects
+        senses' context_budget."""
+        reply = '{"update": "Processing feed lines."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=4))
+        budget = 2000
+        config = _senses_config(context_budget_tokens=budget)
+
+        result = run_senses_update(
+            ["step 1: wrote foo.py", "step 2: ran tests"],
+            None,
+            config,
+            fake,
+        )
+
+        assert result is not None
+        assert result["degraded"] is False
+        sent = fake.captured_messages
+        assert sent is not None
+        user_content = sent[-1]["content"]
+        # The feed lines must appear in the prompt.
+        assert "step 1: wrote foo.py" in user_content
+        assert "step 2: ran tests" in user_content
+        # Windowing respects the send budget.
+        send_budget = budget - budget // 4
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+
+    def test_stub_reply_returned_verbatim_as_update(self) -> None:
+        """A stub reply is returned verbatim as 'update' (modulo strip)."""
+        exact = "I just finished linting three files and all checks passed."
+        reply = f'{{"update": "{exact}"}}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=6))
+
+        result = run_senses_update(
+            ["linted file_a.py, file_b.py, file_c.py"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["update"] == exact
+        assert result["degraded"] is False
+
+    def test_error_stub_degrades_without_raising(self) -> None:
+        """Error/empty-content stub degrades to {'update': None, 'degraded': True}."""
+        fake = _FakeEngine(raise_on_complete=ConnectionError("connection refused"))
+
+        result = run_senses_update(
+            ["some feed line"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["update"] is None
+        assert result["degraded"] is True
+        assert result["tokens"] is None
+        assert result["latency"] is not None and result["latency"] >= 0
+
+    def test_empty_content_degrades(self) -> None:
+        """Empty content from the model degrades gracefully."""
+        fake = _FakeEngine(ModelResponse(content="", reasoning=""))
+
+        result = run_senses_update(
+            ["some feed line"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["update"] is None
+        assert result["degraded"] is True
+
+    def test_empty_feed_tail_still_completes(self) -> None:
+        """Empty feed_tail still completes with the prompt instructing nothing-new honesty."""
+        reply = '{"update": "There is nothing new in the feed."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=4))
+
+        result = run_senses_update(
+            [],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["degraded"] is False
+        assert result["update"] == "There is nothing new in the feed."
+        sent = fake.captured_messages
+        assert sent is not None
+        user_content = sent[-1]["content"]
+        assert "(no feed yet)" in user_content
+
+    def test_none_senses_config_returns_none(self) -> None:
+        """When senses_config is None, run_senses_update returns None cleanly."""
+        result = run_senses_update(
+            ["some line"],
+            None,
+            None,
+            _FakeEngine(),
+        )
+
+        assert result is None
+
+    def test_none_engine_returns_none(self) -> None:
+        """When engine is None, run_senses_update returns None cleanly."""
+        result = run_senses_update(
+            ["some line"],
+            None,
+            _senses_config(),
+            None,
+        )
+
+        assert result is None
