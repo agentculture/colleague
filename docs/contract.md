@@ -67,6 +67,7 @@ serialized as `[]`).
 | `capacity_decision` | CapacityDecision | The fill-line threshold was crossed — see [`capacity_decision`](#capacitydecision-capacity_decision). |
 | `capacity_warning` | string | The up-front complexity assessment exceeded in-repo split capacity. |
 | `lint_report` | LintReport | The lint pre-finish gate ran — see [`lint_report`](#lintreport-lint_report). |
+| `coherence_report` | CoherenceReport | The coherence pre-finish gate ran on changed docs — see [`coherence_report`](#coherencereport-coherence_report). |
 | `test_integrity_report` | TestIntegrityReport | The mirror-detection gate found something — see [`test_integrity_report`](#testintegrityreport-test_integrity_report). |
 | `role` | string | The work item ran as a typed subagent role (e.g. `"writer"`, `"explorer"`). |
 | `sub_results` | SubResult[] | At least one `subagent`/`subagents` delegation completed — see [`sub_result`](#subresult-sub_results-item). |
@@ -97,6 +98,7 @@ capacity_decision
 capacity_warning
 changed_files
 command
+coherence_report
 deepthink
 destination
 error
@@ -237,6 +239,27 @@ skipped
 
 Each list holds human-readable notes (e.g. `"black reformatted 2 file(s)"`),
 not structured findings.
+
+#### `CoherenceReport` (`coherence_report`)
+
+<!-- contract:keys:coherence_report -->
+```text
+status
+reason
+embed_url
+embed_model
+files
+```
+
+`status` is `"scored"` or `"skipped"` (`reason` says why). `embed_url` /
+`embed_model` record the measurement's frame provenance (coherence-cli#10):
+the embedding endpoint + model the scorer used — a meaning score is a
+model-relative, anchor-defined measurement, never universal meaning. `files`
+is a list of per-file records: `path` plus either the coherence CLI's payload
+(`meaning_score`, `subdimensions`, `diagnostics`, and any future keys
+verbatim) or an `error` string. `reason`/`embed_url`/`embed_model`/`files`
+are omit-when-absent inside the report. Advisory only — never blocks the
+handoff (#294).
 
 #### `TestIntegrityReport` (`test_integrity_report`)
 

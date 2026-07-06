@@ -89,6 +89,28 @@ def _eidetic_armed(repo_path: Optional[str]) -> bool:
     return (_repo_root(repo_path) / ".eidetic").is_dir()
 
 
+def _coherence_armed(repo_path: Optional[str]) -> bool:
+    """Coherence gate armed — ``config.coherence`` (default-ON, #294).
+
+    Mirrors ``_eidetic_armed``'s config read (no network: ``discover_lobes=False``);
+    CLI presence is reported separately as this organ's own ``present`` column.
+    """
+    cfg = EngineConfig.resolve(repo_path=repo_path, discover_lobes=False)
+    if not getattr(cfg, "coherence", False):
+        return False
+    # Configured-detection (the lint precedent): the gate actually fires only
+    # with an embedder endpoint colleague knows about. This no-network check
+    # (discover_lobes=False) cannot see a lobes-injected embedder — an armed
+    # lobes gateway may still arm the gate at run time (honest limit; the
+    # --probe path reports lobes reachability separately).
+    import os as _os
+
+    return bool(
+        _os.environ.get("COHERENCE_EMBED_URL")
+        or (getattr(cfg, "embed_env", None) or {}).get("COHERENCE_EMBED_URL")
+    )
+
+
 def _culture_tool_armed(_repo_path: Optional[str]) -> bool:
     """agtag / devex / devague are unconditional curated tools.
 
@@ -155,9 +177,9 @@ ORGANS: tuple[Organ, ...] = (
         name="coherence",
         binary="coherence",
         distribution="coherence-cli",
-        seam="gate — planned colleague#294 (S3); not yet built",
+        seam="pre-finish gate on changed docs (colleague/coherence.py, #294)",
         contract="coherence meaning score --json shape — docs/organs.md#coherence",
-        armed_check=_not_yet_wired,
+        armed_check=_coherence_armed,
     ),
     Organ(
         name="sloth",

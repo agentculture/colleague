@@ -22,6 +22,7 @@ from colleague.affectedtests import AffectedTestsReport
 from colleague.contract import (
     OK,
     CapacityDecision,
+    CoherenceReport,
     ContextPacket,
     DeepthinkCall,
     HookFiring,
@@ -122,6 +123,13 @@ def _maximal_task_result() -> TaskResult:
         capacity_decision=CapacityDecision(kind="compact", reason="full"),
         capacity_warning="too big",
         lint_report=LintReport(fixed=["black"], residual=["flake8 x"], skipped=["ruff: missing"]),
+        coherence_report=CoherenceReport(
+            status="scored",
+            reason="n/a",
+            embed_url="http://localhost:8001/v1",
+            embed_model="Qwen/Qwen3-Embedding-0.6B",
+            files=[{"path": "docs/x.md", "meaning_score": 0.5}],
+        ),
         test_integrity_report=TestIntegrityReport(
             findings=[
                 MirrorFinding(symbol="x", kind="attribute", test_file="t.py", impl_file="i.py")
@@ -213,6 +221,11 @@ def test_capacity_decision_keys_match_doc(doc_blocks: dict[str, set[str]]) -> No
 def test_lint_report_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
     result = _maximal_task_result()
     assert set(result.to_dict()["lint_report"].keys()) == doc_blocks["lint_report"]
+
+
+def test_coherence_report_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
+    result = _maximal_task_result()
+    assert set(result.to_dict()["coherence_report"].keys()) == doc_blocks["coherence_report"]
 
 
 def test_test_integrity_report_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:

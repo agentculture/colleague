@@ -46,6 +46,7 @@ from typing import Any, Callable
 from colleague import affectedtests as _affectedtests
 from colleague import autosplit as _autosplit
 from colleague import backpressure
+from colleague import coherence as _coherencemod
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
@@ -671,6 +672,11 @@ class _Work:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint_enabled: bool = False
     lint_fix_retries: int = 0
+    # Coherence pre-finish gate (#294, colleague#291 S3): score the changed .md
+    # files with the coherence CLI and record result.coherence_report. Advisory
+    # + warn-only (no fix-turn); default OFF so a direct ``run`` caller is
+    # byte-identical; the backends forward ``config.coherence`` (all-engines).
+    coherence_enabled: bool = False
     # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after
     # via the eidetic CLI adapter. Armed only when True AND the repo has a
     # .eidetic/ store AND the CLI is installed (see _memory_armed) — otherwise a
@@ -2279,6 +2285,12 @@ class ContextControls:
     # ``config.lint_fix_retries`` (all-engines rule).
     lint: bool | None = None
     lint_fix_retries: int | None = None
+    # Coherence pre-finish gate (#294, colleague#291 S3): when truthy the runtime
+    # scores the work item's changed .md files via the coherence CLI and records
+    # ``result.coherence_report``. Advisory + warn-only, never blocks the handoff.
+    # ``None`` (the default) leaves the gate OFF for direct ``run`` callers;
+    # every backend forwards ``config.coherence`` (all-engines rule).
+    coherence: bool | None = None
     # Memory-informed runtime (spec R1 / plan t2): recall-before + remember-after.
     # ``None``/False = dormant (strict no-op). Forwarded by every backend from
     # ``config.memory`` (all-engines rule); the loop additionally requires the
@@ -2360,6 +2372,7 @@ class ContextControls:
             escalate_timeout=_make_timeout_escalator(config),
             lint=config.lint,
             lint_fix_retries=config.lint_fix_retries,
+            coherence=bool(getattr(config, "coherence", True)),
             memory=config.memory,
             memory_root=getattr(config, "memory_root", None),
             embed_env=dict(getattr(config, "embed_env", None) or {}),
@@ -2962,6 +2975,32 @@ def _run_lint_fix_turn(ctx: _Work, complete: CompleteFn, residual: list[str]) ->
     ) = saved
 
 
+def _maybe_run_coherence_gate(ctx: _Work, aborted: Exception | None) -> None:
+    """Run the coherence pre-finish gate on the changed docs (#294, #291 S3).
+
+    Shells ``coherence meaning score <file> --json`` per changed ``.md`` file
+    (:func:`colleague.coherence.run_coherence_gate`), recording the result on
+    ``result.coherence_report`` with the measurement's frame provenance (the
+    embedder env the subprocess saw — the lobes-injected one when armed,
+    ``ctx.embed_env``). Advisory + warn-only: no fix-turn, never blocks the
+    handoff, and a run with no changed docs / no CLI / the gate disabled is
+    byte-identical (omit-when-None). Best-effort + fail-safe like the lint
+    gate: the body is wrapped so it can never abort ``run()``.
+    """
+    if aborted is not None or not ctx.coherence_enabled:
+        return
+    with suppress(Exception):
+        changed = sorted(ctx.executor.changed)
+        if not changed:
+            return
+        report = _coherencemod.run_coherence_gate(
+            ctx.task.repo_path, changed, env_overrides=ctx.embed_env
+        )
+        if report is None:
+            return
+        ctx.result.coherence_report = report
+
+
 _ACCEPTANCE_CHECK_PROMPT = (
     "Before this work item closes: for EACH acceptance criterion listed below, state "
     "whether the work you just did meets it. Respond with ONLY a JSON array of "
@@ -3546,6 +3585,7 @@ def run(
         flight=flight_session,
         lint_enabled=bool(_context.lint),
         lint_fix_retries=_context.lint_fix_retries or 0,
+        coherence_enabled=bool(_context.coherence),
         memory_enabled=bool(_context.memory),
         memory_root=_context.memory_root,
         embed_env=dict(_context.embed_env or {}),
@@ -3635,6 +3675,14 @@ def run(
     # aborted guard + the best-effort wrapping live in the helper (so it can never
     # abort run(), #209 review) — call it unconditionally to keep run() flat.
     _maybe_run_lint_gate(ctx, complete, outcome, aborted)
+
+    # Pre-finish coherence gate (#294, colleague#291 S3): on a NON-aborted exit,
+    # score the changed .md files via the coherence CLI and record the result on
+    # result.coherence_report (omit-when-None). Advisory + warn-only — no fix-turn,
+    # never blocks the handoff; runs after the lint gate so it sees the lint-fixed
+    # changed set. The aborted guard + best-effort wrapping live in the helper so
+    # it can never abort run().
+    _maybe_run_coherence_gate(ctx, aborted)
 
     # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
     # signature on the changed files and record it on result.test_integrity_report.

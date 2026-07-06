@@ -231,6 +231,7 @@ class TestNoFinishResultFidelity:
             "capacity_decision",
             "capacity_warning",
             "lint_report",
+            "coherence_report",  # the coherence gate report (#294)
             "test_integrity_report",
             "affected_tests_report",
             "not_finished",

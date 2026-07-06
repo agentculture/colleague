@@ -465,6 +465,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/affectedtests.py",
         "colleague/background.py",
         "colleague/memory.py",
+        "colleague/coherence.py",
         "colleague/livecheck.py",
     }
 )

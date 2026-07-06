@@ -127,6 +127,7 @@ def test_absent_to_dict_matches_pre_senses_keys() -> None:
         "subagent_depth",
         "subagent_total",
         "lint",
+        "coherence",  # the coherence gate flag (#294)
         "memory",
         "lint_fix_retries",
         "testintegrity",
