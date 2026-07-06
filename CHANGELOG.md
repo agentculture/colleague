@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.1] - 2026-07-07
+
+### Added
+
+- Two eidetic memory records to the shared public store: a `sonar-s7632-noqa-inline-prose-gotcha` reference (SonarCloud python:S7632 flags the `# noqa: CODE - inline prose` form as malformed suppression syntax; use canonical `# noqa: CODE` + a preceding reason line) and the `colleague-291-arc-built-2026-07-06` note (the #291 integration-front arc built + flywheel live-proof, ledger rows 19-23).
+
 ## [1.38.0] - 2026-07-06
 
 ### Added
