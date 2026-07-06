@@ -876,3 +876,37 @@ class TestAgentLifecycleConfinement:
             "must stay dep-free (the [resident]/[culture] extras are opt-in):\n"
             + "\n".join(violations)
         )
+
+
+# ---------------------------------------------------------------------------
+# STRUCTURAL — no colleague module imports cultureagent (colleague#291 c8/h17).
+# cultureagent depends on colleague (wraps ColleagueHarness as its backend);
+# a reverse import would create a cycle — this test pins the boundary.
+# ---------------------------------------------------------------------------
+
+_CULTUREAGENT_IMPORT_RE = re.compile(
+    r"^\s*(?:import\s+cultureagent\b|from\s+cultureagent\b)", re.MULTILINE
+)
+
+
+def test_no_colleague_module_imports_cultureagent() -> None:
+    """No colleague module imports cultureagent — colleague#291 boundary c8.
+
+    cultureagent depends on colleague (wraps ColleagueHarness as its 5th
+    backend); a reverse import would create a cycle.  This test statically
+    walks every colleague source file's import statements and asserts NONE
+    imports cultureagent (any form: ``import cultureagent``,
+    ``from cultureagent...``).  Spec: colleague#291 boundary c8/h17.
+    """
+    violations: list[str] = []
+    for py_file in _all_py_sources():
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(source.splitlines(), start=1):
+            if _CULTUREAGENT_IMPORT_RE.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()!r}")
+
+    assert not violations, (
+        "cultureagent imported in colleague source — this creates a cycle since "
+        "cultureagent depends on colleague (colleague#291 boundary c8):\n" + "\n".join(violations)
+    )
