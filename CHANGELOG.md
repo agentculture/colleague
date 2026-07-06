@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.0] - 2026-07-07
+
+### Added
+
+- Talking-to-one middle-manager presence (spec 2026-07-05, plan 2026-07-06): talking to colleague in the interactive session now feels like talking to one person — senses (Gemma) fronts, cortex (Qwen) works
+- Acknowledgment turn: senses speaks FIRST on split-mode intake — a senses-authored ack rides the ONE existing intake completion (ContextPacket.ack, zero extra calls); a degraded/missing ack renders a FIXED dispatch notice, never fabricated understanding
+- Proactive interim updates: colleague/senses.py run_senses_update (tools-off, grounded strictly in the live feed tail) fired at existing progress-sink boundaries, cadence-gated by the new pure colleague/presence.py (phase-change / every-N steps / per-run cap via COLLEAGUE_SENSES_UPDATE_STEPS/_PHASE/_CAP; cap hit recorded once, never silent)
+- Clarify-first: on low-confidence intake WITH omissions senses may ask before dispatching (COLLEAGUE_SENSES_CLARIFY_CONFIDENCE/_MAX; a go-word/EOF always dispatches — clarification can never withhold work); answers join the instruction verbatim and intake re-perceives the refined whole
+- Conversation continuity: a session-lifetime rolling operator/senses history threads into every senses call (intake, clarify, updates, talk, speak-back), windowed to senses OWN budget senses-side, dropping oldest whole entries first; ack/update/clarify exchanges fold onto TaskResult.senses (kind-ed chat entries + senses-update records) so the whole exchange is reconstructable from the artifact alone
+- Livecheck lane: classify_middle_manager_check + classify_front_latency_check grade every announcement beat from artifact + transcript evidence; gated live proof tests/test_vllm_live_talking_to_one.py LIVE-PASSED 2026-07-06 (ack in senses own words, 1/1 update rendered, conversational answer; median senses turn 0.83s, target <3s) — docs/live-testing.md rows 24-26
+- Feature doc docs/features/talking-to-one.md + CLAUDE.md architecture bullet (a DEEPENING of the third sanctioned router-exclusion increment — cortex acts, senses converses; #276 stays parked); follow-ups filed as colleague#300 and lobes-cli#92
+
+### Changed
+
+- run_senses_intake/speakback/talk/update accept an optional rolling history kwarg (absent = byte-identical); the update prompt grounds in the packet interpretation
+- Session presence lane is gated on the talk lane predicate: off-TTY / piped / --no-tui / --cortex-only / senses-unarmed stay byte-identical (test-pinned), and recording an ack/update/clarify never advances step_count (the #206 invariant)
+
+### Fixed
+
+- Stale uv.lock (colleague 1.38.1 bump from #299 had not refreshed the lock, tripping the #149 dirty-tree guard on the first colleague work run)
+
 ## [1.38.1] - 2026-07-07
 
 ### Added
