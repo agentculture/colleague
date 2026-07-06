@@ -77,6 +77,7 @@ INTAKE_POINT = "senses-intake"
 SPEAKBACK_POINT = "senses-speakback"
 MEDIA_BRIDGE_POINT = "media-bridge"
 TALK_POINT = "senses-talk"
+UPDATE_POINT = "senses-update"
 
 _INTAKE_SYSTEM_PROMPT = (
     "You are the senses lobe for colleague — the perception front door. Read the "
@@ -119,6 +120,16 @@ _TALK_SYSTEM_PROMPT = (
     'running work item, false otherwise; "relay_text" is the exact text to '
     "inject into cortex when relay is true (default to the operator's own "
     "message). No prose outside the JSON."
+)
+
+_UPDATE_SYSTEM_PROMPT = (
+    "You are the senses lobe for colleague — narrating progress to the operator "
+    "WHILE the cortex model drives a running work item. Read the recent flight-feed "
+    "lines below and narrate in 1–2 first-person sentences what the run is doing "
+    "RIGHT NOW. Quote or paraphrase real feed lines; if the feed shows nothing new, "
+    "say exactly that. NEVER invent progress, files, or results not present in the "
+    'feed. Reply with ONLY a JSON object of the form: {"update": "..."}. '
+    "No prose outside the JSON."
 )
 
 
@@ -674,6 +685,101 @@ def run_senses_talk(
             "latency": latency,
             "degraded": True,
             "tokens": None,
+        }
+
+
+def run_senses_update(
+    feed_tail: list[str],
+    packet: Optional[ContextPacket],
+    senses_config: Optional[EngineConfig],
+    engine: "Engine",
+    *,
+    point: str = UPDATE_POINT,
+    count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+) -> Optional[dict[str, Any]]:
+    """Issue ONE proactive progress narration (task t3).
+
+    The structural sibling of :func:`run_senses_talk` for *proactive* progress
+    narration — the "talking to colleague feels like talking to one person" arc.
+    Issues exactly ONE tools-off completion, windowed to senses' OWN context
+    budget via :func:`_window_text`, and returns an advisory
+    ``{update, latency, tokens, degraded}`` record.
+
+    Grounded: the system prompt instructs senses to narrate in 1–2 first-person
+    sentences what the run is doing RIGHT NOW, derived ONLY from the given feed
+    lines — quote or paraphrase real lines; if the feed shows nothing new, say
+    exactly that; NEVER invent progress, files, or results not present in the
+    feed. The same grounding contract as :data:`_TALK_SYSTEM_PROMPT`.
+
+    Returns ``None`` when *senses_config* or *engine* is unusable (``None`` or
+    missing). Otherwise NEVER raises: any failure (unreachable endpoint, request
+    error, empty content) degrades to a record with ``update=None`` and
+    ``degraded=True``.
+
+    Parameters
+    ----------
+    feed_tail:
+        Recent flight-feed lines (most recent last).
+    packet:
+        The run's :class:`~colleague.contract.ContextPacket`, or ``None``.
+    senses_config:
+        The senses-pointed :class:`EngineConfig`, or ``None`` (unarmed).
+    engine:
+        The :class:`~colleague.engine.Engine` instance.
+    point:
+        The invocation-point label (default :data:`UPDATE_POINT`).
+    count_tokens:
+        Injectable token counter; defaults to
+        ``engine.make_count_tokens(senses_config)``.
+
+    Returns
+    -------
+    dict | None
+        ``None`` when unarmed. Otherwise
+        ``{"update": str | None, "latency": float, "tokens": int | None,
+        "degraded": bool}``.
+    """
+    if senses_config is None or engine is None:
+        return None
+
+    start = time.monotonic()
+    meter = _TokenMeter()
+    try:
+        counter = (
+            count_tokens if count_tokens is not None else engine.make_count_tokens(senses_config)
+        )
+        feed_text = "\n".join(feed_tail) if feed_tail else ""
+        windowed_feed = _window_text(
+            feed_text,
+            system_prompt=_UPDATE_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
+        )
+        user_prompt = (
+            f"Recent flight feed (most recent last):\n" f"{windowed_feed or '(no feed yet)'}"
+        )
+        # Tools-off ALWAYS: an explicit empty tool list, never ``None``.
+        complete = engine.make_complete(senses_config, tools=[])
+        simple = robust_simple_complete(meter.wrap(complete))
+        raw = simple(_UPDATE_SYSTEM_PROMPT, user_prompt)
+        if not raw.strip():
+            raise ValueError("empty senses update response")
+        data = _extract_json_object(raw, required_key="update")
+        update_text = str(data.get("update", "")).strip()
+        latency = time.monotonic() - start
+        return {
+            "update": update_text if update_text else None,
+            "latency": latency,
+            "tokens": meter.value,
+            "degraded": False,
+        }
+    except Exception:
+        latency = time.monotonic() - start
+        return {
+            "update": None,
+            "latency": latency,
+            "tokens": None,
+            "degraded": True,
         }
 
 
