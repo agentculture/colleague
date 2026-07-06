@@ -514,7 +514,71 @@ The architecture, part by part:
   cortex backend (#66). Feature doc: `docs/features/senses-live-presence.md`;
   spec + plan:
   `docs/specs/2026-07-03-talk-to-colleague-while-it-works-senses-is-a-live.md`
-  and the matching `docs/plans/` file.
+  and the matching `docs/plans/` file. **Deepened by the talking-to-one arc**
+  (below): the same talk lane now fronts a full middle-manager conversation on
+  the interactive session surface.
+- **Talking to one (middle-manager presence)** — in `colleague session`,
+  senses becomes a middle manager: it acknowledges the operator's request in
+  its own words, dispatches to cortex, narrates progress proactively while
+  cortex drives, asks a clarifying question first when warranted, and
+  delivers cortex's answer conversationally — cortex still does the entire
+  task. The **acknowledgment** rides the ONE existing intake completion
+  (`colleague/senses.py` `run_senses_intake` returns an `ack` JSON field
+  alongside the packet — zero extra calls, zero extra latency), coerced and
+  hard-capped by `_coerce_ack`, recorded on `ContextPacket.ack`
+  (`colleague/contract.py`); the session renders it before cortex's first step
+  (`colleague/cli/_commands/session.py` `_render_ack`), falling back to the
+  FIXED dispatch notice `"taking your request to cortex now."` on a
+  missing/degraded ack — never a fabricated understanding. **Proactive
+  updates** fire at existing progress-sink boundaries with NO new thread and
+  NO clock, cadence-gated by the pure policy module `colleague/presence.py`
+  (`should_update`/`UpdateCadence`, env-tunable via
+  `COLLEAGUE_SENSES_UPDATE_STEPS`/`_PHASE`/`_CAP`, default every 8 steps
+  and/or on phase change, capped at 4 per run) and narrated by
+  `colleague/senses.py` `run_senses_update` — the tools-off structural sibling
+  of `run_senses_talk`, grounded STRICTLY in the live flight-feed tail (a
+  fabricated-status reply is a test failure), never advancing `step_count`
+  (the #206 invariant); hitting the cap is recorded once, never silent, and a
+  degraded update still counts toward the cap. **Clarify-first**
+  (`colleague/presence.py` `should_clarify`/`ClarifyPolicy`, wired in
+  `_maybe_clarify`) lets a low-confidence intake WITH omissions ask before
+  dispatching (env-tunable `COLLEAGUE_SENSES_CLARIFY_CONFIDENCE`/`_MAX`,
+  default floor 0.45 / ceiling 3 consecutive questions); an explicit operator
+  go-word (`is_go_word`/`GO_WORDS`) ALWAYS dispatches immediately, and so does
+  an empty answer or EOF — clarification can never withhold work — while the
+  dispatched instruction always still carries the operator's verbatim words
+  (clarify refines the packet, never rewrites the request). A
+  session-lifetime **rolling history** (`_history_append`, capped at 50
+  entries) threads into every senses call — intake, updates, clarify, talk,
+  speak-back — windowed to senses' OWN budget senses-side; only a session
+  with the presence lane enabled ever accumulates it. Every beat is recorded
+  on `TaskResult.senses` (`colleague/contract.py` `SensesBlock`): `packet.ack`,
+  `senses-update` records alongside the existing record points, and `chat`
+  entries carrying an optional `kind` of `"ack"`/`"update"`/`"clarify"`
+  (absent `kind` implies the pre-existing `"talk"` shape) — so the whole
+  exchange is reconstructable from the artifact alone. **This is a DEEPENING
+  of the THIRD sanctioned router-exclusion increment, not a new surface**:
+  the same fixed boundary holds (cortex acts; senses perceives, presents, and
+  now converses proactively), no new model consumers are added, #276
+  (senses-direct) STAYS parked, and there is still no automatic task→model
+  routing. **Byte-identical guarantees**: an unarmed session (no senses
+  resolved), an off-TTY/piped/`--no-tui` session, and `--cortex-only` all
+  leave the middle-manager lane a strict no-op — no ack, no updates, no
+  clarify, no history — and a run that never triggers the lane leaves
+  `TaskResult.senses` at its pre-arc shape. **Honesty rails**: an ack never
+  claims understanding absent from the packet (degrading to the fixed notice
+  instead); an update is grounded strictly in the real feed, so a
+  fabricated-status reply is a test failure; a cadence-cap hit is always
+  recorded, never silent; clarify can never withhold work (the go-word/EOF
+  path always dispatches); and the dispatched instruction always carries the
+  operator's verbatim words. Live-proven 2026-07-06
+  (`docs/live-testing.md` rows 24-25): every beat passed on the real rig via
+  `colleague/livecheck.py` `classify_middle_manager_check` (median senses
+  turn 0.83s over 3 turns, max 3.52s, full run 15.69s). Feature doc:
+  `docs/features/talking-to-one.md`; spec + plan:
+  `docs/specs/2026-07-05-talking-to-colleague-now-feels-like-talking-to-one.md`
+  and
+  `docs/plans/2026-07-06-talking-to-colleague-now-feels-like-talking-to-one.md`.
 - **Memory (best-colleague arc, R1)** — colleague remembers and learns from
   every run. `colleague/memory.py` shells out to the operator-installed
   **eidetic** CLI (the SAME store + scope the operator's remember/recall
