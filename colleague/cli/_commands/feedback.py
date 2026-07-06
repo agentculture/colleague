@@ -27,7 +27,10 @@ the live entry is flipped to the rendered CLI; ``register(sub)`` stays until the
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+
+from agentfront._registry import Flag
 
 from colleague import feedback as fb
 from colleague.artifact import read_request
@@ -55,6 +58,8 @@ def _feedback_sections() -> list[dict[str, object]]:
                 "feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]",
                 "feedback show <id|last> [--repo P] [--json] — read a work item's feedback",
                 "feedback list [--repo P] [--json] — every work item by request + grade",
+                "feedback export [--min-rating N] [--since ISO-DATE] [--format jsonl] "
+                "[--repo P] — one JSONL line per GRADED work item (the ROI ledger)",
                 "feedback overview — describe the feedback surface (this command)",
             ],
         },
@@ -184,6 +189,43 @@ def _list_items(repo: str = ".") -> object:
     return rendered([r.to_dict() for r in rows], _render_listing(rows))
 
 
+_SUPPORTED_EXPORT_FORMATS = ("jsonl",)
+
+
+def _export(
+    min_rating: int = 0,
+    since: str = "",
+    format: str = "jsonl",
+    repo: str = ".",
+) -> object:
+    """Export every GRADED work item as one JSONL line each (the ROI ledger).
+
+    Ungraded work items are excluded entirely — see docs/contract.md's
+    "feedback export" section for the exact line shape. Text mode (the
+    default) IS the JSONL: one compact JSON object per line, newline
+    terminated, nothing else on stdout. ``--json`` renders the same rows as
+    a single JSON array for parity with the other list-shaped verbs.
+    """
+    if format not in _SUPPORTED_EXPORT_FORMATS:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"unsupported --format {format!r}",
+            f"only {_SUPPORTED_EXPORT_FORMATS[0]!r} is supported in v1 (also the default)",
+        )
+    since_arg = since or None
+    if since_arg is not None and fb.parse_since(since_arg) is None:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"invalid --since value {since!r}: expected an ISO-8601 date or datetime",
+            "e.g. --since 2026-07-01 or --since 2026-07-01T00:00:00+00:00",
+        )
+    repo_path = Path(repo).expanduser()
+    rows = fb.export_work_items(repo_path, min_rating=min_rating or None, since=since_arg)
+    lines = [json.dumps(row, ensure_ascii=False) for row in rows]
+    text = ("\n".join(lines) + "\n") if lines else ""
+    return rendered(rows, text)
+
+
 def register_into(app) -> None:
     """Register the feedback noun group onto the agentfront App registry."""
     g = app.group("feedback")
@@ -217,6 +259,27 @@ def register_into(app) -> None:
         doc="# feedback list [--repo P] [--json]\n"
         "List every recorded work item, newest first, by request + status + grade.",
     )
+    g.tool(
+        _export,
+        name="export",
+        description="Export graded work items as JSONL (the ROI ledger).",
+        doc="# feedback export [--min-rating N] [--since ISO-DATE] [--format jsonl] "
+        "[--repo P]\nOne JSON line per GRADED work item, newest first; an ungraded "
+        "work item is excluded entirely. See docs/contract.md for the exact line "
+        "shape. An empty/all-ungraded store exits 0 with no output lines.",
+        # `min_rating` needs an explicit Flag so the CLI-facing option is the
+        # hyphenated `--min-rating` (a Python identifier can't contain a hyphen);
+        # `--since`/`--format` derive directly from their param names.
+        flags=(
+            Flag(
+                names=("--min-rating",),
+                type=int,
+                dest="min_rating",
+                default=0,
+                help="Only include work items rated at least N (1-5).",
+            ),
+        ),
+    )
 
 
 # --- legacy argparse path (pre-flip) ----------------------------------------
@@ -244,6 +307,14 @@ def cmd_feedback_show(args: argparse.Namespace) -> int:
 
 def cmd_feedback_list(args: argparse.Namespace) -> int:
     emit_result(_list_items(args.repo), json_mode=bool(getattr(args, "json", False)))
+    return 0
+
+
+def cmd_feedback_export(args: argparse.Namespace) -> int:
+    emit_result(
+        _export(args.min_rating, args.since, args.format, args.repo),
+        json_mode=bool(getattr(args, "json", False)),
+    )
     return 0
 
 
@@ -288,6 +359,27 @@ def register(sub: argparse._SubParsersAction) -> None:
     _add_repo(ls)
     ls.add_argument("--json", action="store_true", help=JSON_HELP)
     ls.set_defaults(func=cmd_feedback_list)
+
+    ex = noun_sub.add_parser("export", help="Export graded work items as JSONL (the ROI ledger).")
+    ex.add_argument(
+        "--min-rating",
+        dest="min_rating",
+        type=int,
+        default=0,
+        help="Only include work items rated at least N (1-5).",
+    )
+    ex.add_argument(
+        "--since", default="", help="Only include work items on/after this ISO-8601 date."
+    )
+    ex.add_argument(
+        "--format",
+        dest="format",
+        default="jsonl",
+        help="Export line format (only 'jsonl' is supported in v1).",
+    )
+    _add_repo(ex)
+    ex.add_argument("--json", action="store_true", help=JSON_HELP)
+    ex.set_defaults(func=cmd_feedback_export)
 
     ov = noun_sub.add_parser("overview", help="Describe the feedback surface.")
     ov.add_argument("--json", action="store_true", help=JSON_HELP)
