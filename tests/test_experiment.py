@@ -371,6 +371,32 @@ def test_status_unknown_id_raises_clean_error(tmp_path, monkeypatch):
     assert excinfo.value.code == 1
 
 
+@pytest.mark.parametrize("bad_id", ["../x", "..", "a/../../etc/passwd", "/etc/passwd", "a/b"])
+def test_status_rejects_path_traversal_id(tmp_path, bad_id):
+    """A '/'-, '..'-, or leading-'/'-carrying id can never escape
+    ``.colleague/experiments/`` — the single ``experiment_dir`` chokepoint
+    rejects it before any filesystem path is even built."""
+    repo = _init_repo(tmp_path)
+    # A secret file living just outside the experiments root — proves the
+    # rejection, not merely a missing-file 404.
+    secret = repo / "secret.txt"
+    secret.write_text("do-not-read\n", encoding="utf-8")
+
+    with pytest.raises(experiment_mod.ExperimentError) as excinfo:
+        experiment_mod.experiment_status(repo, bad_id)
+    assert excinfo.value.code == 1
+    assert "invalid experiment id" in excinfo.value.message
+
+
+def test_summarize_rejects_path_traversal_id(tmp_path, monkeypatch):
+    repo = _init_repo(tmp_path)
+    _install_sloth_stub(tmp_path, monkeypatch)
+    with pytest.raises(experiment_mod.ExperimentError) as excinfo:
+        experiment_mod.summarize_experiment(repo, "../escape")
+    assert excinfo.value.code == 1
+    assert "invalid experiment id" in excinfo.value.message
+
+
 def test_list_experiments_newest_first_and_alive_flag(tmp_path, monkeypatch):
     repo = _init_repo(tmp_path)
     _install_sloth_stub(tmp_path, monkeypatch)

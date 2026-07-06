@@ -3435,6 +3435,27 @@ def _affectedtests_controls(controls: "ContextControls") -> dict[str, Any]:
     }
 
 
+def _resolve_runtime_defaults(
+    task: Task,
+    model: str | None,
+    hooks: HookConfig | None,
+    telemetry: Telemetry | None,
+    policy: Policy | None,
+) -> tuple[HookConfig, Telemetry, Policy]:
+    """Default the three repo-resolved collaborators (hooks/telemetry/policy) when
+    a caller didn't inject them. Kept out of ``run()`` so the per-field
+    ``is not None`` ternaries don't inflate its cognitive complexity (mirrors
+    ``_affectedtests_controls``). Byte-identical to the inline defaulting:
+    hooks/policy resolve from ``task.repo_path`` (+ per-model overlay when
+    ``model`` is given); telemetry resolves from the environment (a no-op
+    unless ``COLLEAGUE_OTEL_ENABLED`` is set)."""
+    return (
+        hooks if hooks is not None else load_hooks(task.repo_path, model=model),
+        telemetry if telemetry is not None else load_telemetry(),
+        policy if policy is not None else load_policy(task.repo_path, model=model),
+    )
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -3518,15 +3539,10 @@ def run(
     executor = executor or ToolExecutor(
         task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
     )
-    hooks = hooks if hooks is not None else load_hooks(task.repo_path, model=model)
-    # Telemetry defaults like hooks do: resolved from the environment, a no-op
-    # unless explicitly enabled. Tool spans auto-nest under the work item span the
-    # shared work path opens (via the SDK's context propagation).
-    telemetry = telemetry if telemetry is not None else load_telemetry()
-    # Policy defaults like hooks: loaded from task.repo_path when not injected.
-    # An absent or malformed approvals.json returns an empty Policy (no-op), so
-    # callers that never set policy= keep byte-identical behavior.
-    policy = policy if policy is not None else load_policy(task.repo_path, model=model)
+    # hooks/telemetry/policy each default from the repo (or the environment, for
+    # telemetry) when not injected — see _resolve_runtime_defaults for the
+    # per-field contract (byte-identical to the prior inline defaulting).
+    hooks, telemetry, policy = _resolve_runtime_defaults(task, model, hooks, telemetry, policy)
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt or _DEFAULT_SYSTEM},

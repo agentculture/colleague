@@ -426,7 +426,8 @@ def _embedder_endpoint(gateway: str) -> Optional[str]:
             request, timeout=_PROBE_TIMEOUT
         ) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except Exception:  # noqa: BLE001 - a best-effort informational extra, never raises
+    # a best-effort informational extra, never raises
+    except Exception:  # noqa: BLE001
         return None
     embedder = payload.get("embedder") if isinstance(payload, dict) else None
     if not isinstance(embedder, dict):

@@ -172,20 +172,17 @@ def cmd_experiment_list(args: argparse.Namespace) -> int:
 
     if json_mode:
         emit_result(entries, json_mode=True)
-        return 0
-
-    if not entries:
+    elif not entries:
         emit_result(f"no experiments found under {repo}/.colleague/experiments/", json_mode=False)
-        return 0
-
-    header = f"{'id':<28} {'pid':<8} {'alive':<6} started"
-    lines = [header, "-" * len(header)]
-    for entry in entries:
-        lines.append(
-            f"{str(entry.get('id', '?')):<28} {str(entry.get('pid', '?')):<8} "
-            f"{str(entry.get('alive', '?')):<6} {entry.get('started', '?')}"
-        )
-    emit_result("\n".join(lines), json_mode=False)
+    else:
+        header = f"{'id':<28} {'pid':<8} {'alive':<6} started"
+        lines = [header, "-" * len(header)]
+        for entry in entries:
+            lines.append(
+                f"{str(entry.get('id', '?')):<28} {str(entry.get('pid', '?')):<8} "
+                f"{str(entry.get('alive', '?')):<6} {entry.get('started', '?')}"
+            )
+        emit_result("\n".join(lines), json_mode=False)
     return 0
 
 
@@ -205,23 +202,22 @@ def cmd_experiment_summarize(args: argparse.Namespace) -> int:
 
     if json_mode:
         emit_result(summary, json_mode=True)
-        return 0
-
-    lines = [f"output_dir: {summary.get('output_dir')}"]
-    metadata = summary.get("metadata")
-    if metadata:
-        lines.append(f"model:      {metadata.get('model')}")
-        lines.append(f"method:     {metadata.get('method')}")
-        lines.append(f"dataset:    {metadata.get('dataset')}")
-    training = summary.get("training")
-    if training:
-        lines.append(f"checkpoint:  {training.get('checkpoint')}")
-        lines.append(f"final_step:  {training.get('final_step')}")
-        lines.append(f"final_loss:  {training.get('final_loss')}")
-    for note in summary.get("notes") or []:
-        lines.append(f"note: {note}")
-    lines.append(f"remembered: {summary.get('remembered')}")
-    emit_result("\n".join(lines), json_mode=False)
+    else:
+        lines = [f"output_dir: {summary.get('output_dir')}"]
+        metadata = summary.get("metadata")
+        if metadata:
+            lines.append(f"model:      {metadata.get('model')}")
+            lines.append(f"method:     {metadata.get('method')}")
+            lines.append(f"dataset:    {metadata.get('dataset')}")
+        training = summary.get("training")
+        if training:
+            lines.append(f"checkpoint:  {training.get('checkpoint')}")
+            lines.append(f"final_step:  {training.get('final_step')}")
+            lines.append(f"final_loss:  {training.get('final_loss')}")
+        for note in summary.get("notes") or []:
+            lines.append(f"note: {note}")
+        lines.append(f"remembered: {summary.get('remembered')}")
+        emit_result("\n".join(lines), json_mode=False)
     return 0
 
 

@@ -119,9 +119,29 @@ def experiments_root(repo_path: str | Path) -> Path:
     return Path(repo_path) / ".colleague" / EXPERIMENTS_DIR_NAME
 
 
+def _validate_exp_id(exp_id: str) -> str:
+    """Reject an experiment id that is not a single safe path segment (guards
+    ``status``/``summarize`` against path traversal). Minted ids
+    (:func:`new_experiment_id`) and ordinary dir names always pass."""
+    if (
+        not isinstance(exp_id, str)
+        or not exp_id
+        or exp_id in (".", "..")
+        or "/" in exp_id
+        or "\\" in exp_id
+        or "\x00" in exp_id
+    ):
+        raise ExperimentError(
+            f"invalid experiment id: {exp_id!r}",
+            remediation="an experiment id is a single path segment (no '/', '..', or leading '/')",
+            code=1,
+        )
+    return exp_id
+
+
 def experiment_dir(repo_path: str | Path, exp_id: str) -> Path:
     """``<repo_path>/.colleague/experiments/<exp_id>/`` — one experiment's directory."""
-    return experiments_root(repo_path) / exp_id
+    return experiments_root(repo_path) / _validate_exp_id(exp_id)
 
 
 def relative_log_dir(exp_id: str) -> str:
@@ -662,6 +682,46 @@ def summarize_experiment(
 # ---------------------------------------------------------------------------
 
 
+def _classify_reap_dir(
+    d: Path, now: float, min_age_seconds: float, dry_run: bool
+) -> Optional[dict[str, Any]]:
+    """Classify one experiment dir for reaping.
+
+    Returns the ``{"experiment": <id>, "action": ...}`` result to record, or
+    ``None`` to skip silently (a live pid, or a dead-but-too-recent one —
+    :func:`reap_experiments`'s own ``continue`` cases).
+    """
+    start_path = d / START_FILENAME
+    if not start_path.is_file():
+        return None
+    try:
+        payload = json.loads(start_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # No readable liveness signal: a child may still be alive behind
+        # a corrupt/missing payload — NEVER delete (PR #267 precedent).
+        return {"experiment": d.name, "action": "kept-unknown"}
+    pid = payload.get("pid")
+    if not isinstance(pid, int):
+        return {"experiment": d.name, "action": "kept-unknown"}
+    if _pid_alive(pid):
+        return None  # a live holder -> never reap a run still in progress
+
+    try:
+        age = now - start_path.stat().st_mtime
+    except OSError:
+        return {"experiment": d.name, "action": "kept-unknown"}
+    if age < min_age_seconds:
+        return None  # dead, but recent -> give the operator time to summarize
+
+    if dry_run:
+        return {"experiment": d.name, "action": "would-reap"}
+    try:
+        shutil.rmtree(d)
+        return {"experiment": d.name, "action": "reaped"}
+    except OSError:
+        return {"experiment": d.name, "action": "failed"}
+
+
 def reap_experiments(
     repo_path: str | Path,
     *,
@@ -688,37 +748,7 @@ def reap_experiments(
 
     now = time.time()
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
-        start_path = d / START_FILENAME
-        if not start_path.is_file():
-            continue
-        try:
-            payload = json.loads(start_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            # No readable liveness signal: a child may still be alive behind
-            # a corrupt/missing payload — NEVER delete (PR #267 precedent).
-            results.append({"experiment": d.name, "action": "kept-unknown"})
-            continue
-        pid = payload.get("pid")
-        if not isinstance(pid, int):
-            results.append({"experiment": d.name, "action": "kept-unknown"})
-            continue
-        if _pid_alive(pid):
-            continue  # a live holder -> never reap a run still in progress
-
-        try:
-            age = now - start_path.stat().st_mtime
-        except OSError:
-            results.append({"experiment": d.name, "action": "kept-unknown"})
-            continue
-        if age < min_age_seconds:
-            continue  # dead, but recent -> give the operator time to summarize
-
-        if dry_run:
-            results.append({"experiment": d.name, "action": "would-reap"})
-            continue
-        try:
-            shutil.rmtree(d)
-            results.append({"experiment": d.name, "action": "reaped"})
-        except OSError:
-            results.append({"experiment": d.name, "action": "failed"})
+        entry = _classify_reap_dir(d, now, min_age_seconds, dry_run)
+        if entry is not None:
+            results.append(entry)
     return results

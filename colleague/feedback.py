@@ -348,6 +348,14 @@ def parse_since(value: str) -> Optional[datetime.datetime]:
     return parsed
 
 
+def _safe_int(value: Any) -> int:
+    """Coerce to int, returning 0 on any non-int-coercible value (best-effort)."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _read_work_stats_slim(repo_path: str | Path, task_id: str) -> dict[str, int]:
     """The export line's slim ``stats`` sub-shape for ``task_id``'s artifact.
 
@@ -363,12 +371,35 @@ def _read_work_stats_slim(repo_path: str | Path, task_id: str) -> dict[str, int]
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return zero
-    stats = data.get("stats") or {}
+    if not isinstance(data, dict):
+        return zero
+    stats = data.get("stats")
+    if not isinstance(stats, dict):
+        return zero
     return {
-        "steps": int(stats.get("step_count") or 0),
-        "files_changed": int(stats.get("files_changed") or 0),
-        "bytes_written": int(stats.get("bytes_written") or 0),
+        "steps": _safe_int(stats.get("step_count")),
+        "files_changed": _safe_int(stats.get("files_changed")),
+        "bytes_written": _safe_int(stats.get("bytes_written")),
     }
+
+
+def _export_row_excluded(
+    item: WorkSummary,
+    *,
+    min_rating: Optional[int],
+    since_dt: Optional[datetime.datetime],
+) -> bool:
+    """True if this work item is filtered OUT of the export (ungraded / below
+    min_rating / before `since` / unparseable timestamp under an active filter)."""
+    if item.rating is None:
+        return True  # ungraded — excluded from the ROI ledger
+    if min_rating is not None and min_rating > 0 and item.rating < min_rating:
+        return True
+    if since_dt is not None:
+        started = parse_since(item.started_at) if item.started_at else None
+        if started is None or started < since_dt:
+            return True
+    return False
 
 
 def export_work_items(
@@ -395,14 +426,8 @@ def export_work_items(
     since_dt = parse_since(since) if since else None
     rows: list[dict[str, Any]] = []
     for item in list_work_items(repo_path):
-        if item.rating is None:
-            continue  # ungraded — excluded from the ROI ledger
-        if min_rating is not None and min_rating > 0 and item.rating < min_rating:
+        if _export_row_excluded(item, min_rating=min_rating, since_dt=since_dt):
             continue
-        if since_dt is not None:
-            started = parse_since(item.started_at) if item.started_at else None
-            if started is None or started < since_dt:
-                continue
         record = _work_feedback_record(repo_path, item.task_id)
         rows.append(
             {

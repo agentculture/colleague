@@ -150,6 +150,41 @@ def test_parse_since_accepts_bare_date_and_full_timestamp() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _read_work_stats_slim malformed-artifact robustness (Qodo bug #2): a
+# parseable-but-malformed artifact must yield the documented all-zero shape
+# rather than raising.
+# ---------------------------------------------------------------------------
+
+
+def _write_raw_artifact(repo: Path, task_id: str, payload: object) -> None:
+    """Write literal (possibly malformed) JSON as ``<task_id>.json``, bypassing
+    ``colleague.artifact.write`` so a truly malformed shape can be tested."""
+    out = repo / ".colleague"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{task_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_read_work_stats_slim_malformed_artifact_returns_zero(tmp_path: Path) -> None:
+    zero = {"steps": 0, "files_changed": 0, "bytes_written": 0}
+
+    _write_raw_artifact(tmp_path, "stats-is-list", {"task_id": "stats-is-list", "stats": [1, 2, 3]})
+    assert fb._read_work_stats_slim(tmp_path, "stats-is-list") == zero
+
+    _write_raw_artifact(
+        tmp_path,
+        "bad-fields",
+        {
+            "task_id": "bad-fields",
+            "stats": {"step_count": "not-a-number", "files_changed": None, "bytes_written": [1]},
+        },
+    )
+    assert fb._read_work_stats_slim(tmp_path, "bad-fields") == zero
+
+    _write_raw_artifact(tmp_path, "top-level-list", [1, 2, 3])
+    assert fb._read_work_stats_slim(tmp_path, "top-level-list") == zero
+
+
+# ---------------------------------------------------------------------------
 # legacy argparse CLI: colleague.cli.main(["feedback", "export", ...])
 # ---------------------------------------------------------------------------
 
