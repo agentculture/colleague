@@ -4,8 +4,12 @@ The classifiers turn recorded rig evidence into pass/fail/skip WITHOUT ever
 fabricating a pass: the concurrent-senses-latency proof passes only when the
 measured percentiles clear the target; the injection-awareness proof passes only
 when the injection is reconstructable from BOTH the feed and the artifact; and the
-stt/tts voice lanes SKIP honestly while the rig's speech proxy 502s (probed
-2026-07-03), flipping to a real grade the day the proxy serves audio.
+stt/tts voice lanes SKIP only when the gateway's live readiness probe reports the
+role genuinely down/unready (lobes-cli#89, 0.38.0 — colleague#292/291 S1). Since
+``ready`` is now live-probe-backed for stt/tts (a warming backend answers
+503+Retry-After via ``colleague/voice.py``'s bounded retry, never a bare 502), an
+unexpected failure despite a ready report is graded as a real regression
+(FAILED), not silently skipped the way the old bare-502 workaround used to.
 """
 
 from __future__ import annotations
@@ -62,14 +66,17 @@ def test_injection_fails_when_unrecorded_in_artifact() -> None:
     assert "artifact" in detail
 
 
-# --- stt/tts voice lanes: honest SKIP while the gateway proxy 502s -----------
+# --- stt/tts voice lanes: honest SKIP only when genuinely not ready ---------
 
 
-def test_voice_lane_skips_on_proxy_502() -> None:
+def test_voice_lane_skips_on_not_ready() -> None:
+    """lobes-cli#89 (0.38.0): stt/tts readiness is now LIVE-PROBED via the
+    gateway's realtime bridge — a genuinely down/unready role is the only
+    case this SKIPs on, and the reason names that (not a bare "502")."""
     for kind in ("stt", "tts"):
-        status, detail = classify_voice_lane_check(kind, "proxy_502")
+        status, detail = classify_voice_lane_check(kind, "not_ready")
         assert status == "skipped"
-        assert "502" in detail  # names the rig-side reason, never a fabricated pass
+        assert "not ready" in detail  # names the rig-side reason, never a fabricated pass
 
 
 def test_voice_lane_passes_on_ok() -> None:
@@ -80,4 +87,12 @@ def test_voice_lane_passes_on_ok() -> None:
 
 def test_voice_lane_fails_on_unexpected_error() -> None:
     status, _ = classify_voice_lane_check("tts", "timeout")
+    assert status == "failed"
+
+
+def test_voice_lane_fails_on_bare_502_now_that_ready_is_live_probed() -> None:
+    """The OLD workaround SKIPped on a bare 502; now that ``ready`` is
+    live-probed (lobes-cli#89), a round-trip failure despite a ready report
+    is a genuine regression and must FAIL, never SKIP a fabricated pass."""
+    status, _ = classify_voice_lane_check("stt", "proxy_502")
     assert status == "failed"

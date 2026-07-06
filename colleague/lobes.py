@@ -1,20 +1,24 @@
-"""Role-resolution client for the lobes gateway (cortex/senses arc, task t1).
+"""Role-resolution client for the lobes gateway (cortex/senses arc, task t1;
+re-synced to the lobes-cli 0.38.0 contract by colleague#292/291 S1).
 
 Colleague drives with two minds served behind one gateway: a **cortex** (the
 fast, wide-window reasoner that drives the tool loop) and **senses** (a
 tools-off front door — intake, normalization, intent classification). The
 gateway also serves four more roles today (``embedder``, ``reranker``,
-``stt``, ``tts``) that are future follow-up territory (#276/#277); colleague
-resolves only ``cortex`` + ``senses`` and ignores the rest.
+``stt``, ``tts``); colleague resolves ``cortex`` + ``senses`` (mandatory) and
+``stt``/``tts`` (optional, voice-arc consumers) and ignores ``embedder``/
+``reranker`` (future follow-up territory, #276/#277).
 
-:func:`resolve_roles` is a plain ``urllib`` GET of ``{gateway_url}/capabilities``
-— the gateway's one live surface today (the ``lobes`` CLI ships no
-``capabilities`` verb yet, lobes-cli#81). It degrades to ``None`` on ANY
-failure — unreachable gateway, connect/read timeout, a non-200 status,
-malformed/invalid JSON, or a missing expected role/field — and **never
-raises**. There is no disk cache: every call re-resolves against the live
-gateway (v1 decision — the gateway is cheap to ask and roles can flip
-``ready``/``loaded`` between calls).
+:func:`resolve_roles` is a plain ``urllib`` GET of ``{gateway_url}/capabilities``.
+The ``lobes`` CLI itself shipped ``lobes capabilities`` / ``lobes endpoint
+<role>`` verbs in 0.36.0 (colleague never shells out to lobes-cli — no
+subprocess dependency added here; this module hand-rolls its own stdlib GET
+against the same live HTTP surface those verbs also read). It degrades to
+``None`` on ANY failure — unreachable gateway, connect/read timeout, a
+non-200 status, malformed/invalid JSON, or a missing expected role/field —
+and **never raises**. There is no disk cache: every call re-resolves against
+the live gateway (v1 decision — the gateway is cheap to ask and roles can
+flip ``ready``/``loaded`` between calls).
 
 Drift resilience: the served ``/capabilities`` shape is a superset of what
 colleague needs (``role, model, runtime, endpoint, path, context, quant, mtp,
@@ -23,11 +27,30 @@ the live-probe findings this module was built from). All parsing lives in
 :func:`_parse_role`, the one place a future shape drift gets fixed. Colleague
 hardcodes no model id here — every id comes from the gateway's response.
 
-Honest limit (decision, see the cortex/senses spec): each role's own
-``endpoint``/``path`` fields are reported here **faithfully**, exactly as
-served, but are informational metadata only — a later task (config
-resolution) decides the actual dial-string (the gateway origin routes by
-model id; a role's self-reported ``endpoint`` is not reachable directly).
+**Per-role dial target (lobes-cli#87, closed in 0.38.0).** Before 0.38, a
+role's own ``endpoint`` field reported an internal, non-client-reachable host
+(the arc's original "gateway-origin-for-all" workaround, still applied by
+``colleague/config.py``'s ``EngineConfig`` resolution — see that module's
+docstrings). Since 0.38.0 each role's ``endpoint`` is a client-reachable
+origin (Host-derived, overridable via the gateway's ``GATEWAY_PUBLIC_URL``),
+so :func:`resolve_role_base_url` now dials it directly when non-empty,
+falling back to the gateway origin only when ``endpoint`` is empty/missing
+(an unwired role) or carries a scheme outside the same ``http``/``https``
+guard :func:`resolve_roles` applies to the gateway URL itself. **Scope note:**
+this module provides the resolution primitive; whether
+``colleague/config.py``'s ``EngineConfig`` resolution consumes it for the
+actual cortex/senses/stt/tts dial (replacing its own gateway-origin default)
+is a separate, later integration step — not part of this change.
+
+**``ready`` semantics differ by role (lobes-cli#89, closed in 0.38.0).** For
+``cortex``/``senses``/``embedder``/``reranker``, the gateway's ``ready`` is a
+CONFIG PROXY: ``ready == loaded`` (the model is loaded into the serving
+process), never an actual per-request liveness probe. For ``stt``/``tts``,
+0.38.0 made ``ready`` LIVE-PROBE-BACKED via the realtime bridge's own health
+check — a warming audio backend now answers HTTP 503 with a ``Retry-After``
+header instead of a bare 502 (see ``colleague/voice.py``'s bounded warming
+retry). :func:`ready_kind` classifies which is which so a caller never
+conflates a config proxy with real liveness.
 """
 
 from __future__ import annotations
@@ -57,6 +80,12 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 #: reranker, stt, tts as of the 2026-07-03 live probe) — those are read and
 #: discarded, never an error.
 _RESOLVED_ROLES = ("cortex", "senses")
+
+#: Roles whose ``ready`` is LIVE-PROBE-BACKED (lobes-cli#89, 0.38.0) — the
+#: gateway's realtime bridge health-checks the audio backend itself. Every
+#: other role's ``ready`` is a CONFIG PROXY (``ready == loaded``): see
+#: :func:`ready_kind`.
+_LIVE_PROBED_READY_ROLES = frozenset({"stt", "tts"})
 
 
 @dataclass(frozen=True)
@@ -195,3 +224,37 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
         stt=stt_role,
         tts=tts_role,
     )
+
+
+def resolve_role_base_url(role: RoleInfo, gateway_url: str) -> str:
+    """Resolve the client-reachable dial target for *role* (lobes-cli#87, 0.38.0).
+
+    Dials *role*'s own ``endpoint`` directly when it is a non-empty
+    ``http``/``https`` URL — the fixed pre-0.38 gap (an internal,
+    non-reachable host) that 0.38.0 closed by making ``endpoint``
+    Host-derived and genuinely dialable. Falls back to *gateway_url* (the
+    gateway origin used to serve ``/capabilities``) when ``endpoint`` is
+    empty/missing (an unwired role) or carries a scheme outside
+    :data:`_ALLOWED_SCHEMES` — the same SSRF guard :func:`resolve_roles`
+    applies to the gateway URL itself. Never raises; a malformed/disallowed
+    endpoint degrades to the documented fallback, not an exception.
+    """
+    endpoint = (role.endpoint or "").strip()
+    if endpoint and urlsplit(endpoint).scheme in _ALLOWED_SCHEMES:
+        return endpoint
+    return gateway_url
+
+
+def ready_kind(role_name: str) -> str:
+    """Classify *role_name*'s ``ready`` semantics (lobes-cli#89, 0.38.0).
+
+    Returns ``"live-probed"`` for ``stt``/``tts`` — the gateway's realtime
+    bridge health-checks the audio backend itself, so ``ready`` reflects
+    actual reachability (a warming backend answers 503 + ``Retry-After``
+    instead, see ``colleague/voice.py``). Returns ``"config-proxy"`` for every
+    other role (``cortex``, ``senses``, ``embedder``, ``reranker``, or any
+    future/unknown name): ``ready == loaded``, true once the model is loaded
+    into the serving process — never an actual per-request liveness probe.
+    Never conflate the two when surfacing ``ready`` to an operator.
+    """
+    return "live-probed" if role_name in _LIVE_PROBED_READY_ROLES else "config-proxy"

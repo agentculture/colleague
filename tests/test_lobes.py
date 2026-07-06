@@ -26,7 +26,7 @@ from typing import Iterator
 
 import pytest
 
-from colleague.lobes import resolve_roles
+from colleague.lobes import RoleInfo, ready_kind, resolve_role_base_url, resolve_roles
 
 # ---------------------------------------------------------------------------
 # The real, live-probed /capabilities payload (six roles). Kept in ONE place
@@ -367,3 +367,94 @@ def test_resolve_roles_accepts_https_scheme() -> None:
     reachability failure — a real connection refusal here — degrades it)."""
     result = resolve_roles("https://127.0.0.1:1")
     assert result is None  # unreachable, but NOT rejected for its scheme
+
+
+# ---------------------------------------------------------------------------
+# Per-role dial target (lobes-cli#87, 0.38.0 — colleague#292/291 S1): each
+# role's own ``endpoint`` is now a client-reachable origin (Host-derived,
+# ``GATEWAY_PUBLIC_URL`` override on the gateway side), not internal-only
+# metadata. :func:`resolve_role_base_url` dials it directly when non-empty;
+# an empty/missing endpoint falls back to the gateway origin — the
+# pre-0.38 workaround, kept only as the documented fallback now.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_role_base_url_uses_each_roles_own_endpoint_when_present() -> None:
+    """The gateway-origin-for-all workaround is gone: every resolved role
+    dials its OWN advertised endpoint, not the gateway origin used to serve
+    /capabilities (colleague#292, closing lobes-cli#87)."""
+    with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+
+    # cortex/senses report a DIFFERENT origin than the test gateway url —
+    # proving the role's own endpoint is dialed, not the gateway url.
+    assert resolve_role_base_url(result.cortex, url) == "http://localhost:8000"
+    assert resolve_role_base_url(result.senses, url) == "http://localhost:8000"
+    # stt/tts report a genuinely distinct origin (the realtime bridge).
+    assert result.stt is not None and result.tts is not None
+    assert resolve_role_base_url(result.stt, url) == "http://realtime:8080"
+    assert resolve_role_base_url(result.tts, url) == "http://realtime:8080"
+
+
+def test_resolve_role_base_url_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
+    """An empty/missing ``endpoint`` (an unwired role) falls back to the
+    gateway origin — the documented fallback, never a hard failure."""
+    payload = json.loads(json.dumps(REAL_CAPABILITIES_PAYLOAD))
+    payload["stt"]["endpoint"] = ""
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.stt is not None
+    assert resolve_role_base_url(result.stt, url) == url
+
+
+def test_resolve_role_base_url_rejects_disallowed_scheme_and_falls_back() -> None:
+    """A role endpoint with a non-http(s) scheme is never dialed directly —
+    the same SSRF guard :func:`resolve_roles` applies to the gateway URL
+    itself also applies here (degrade to the gateway origin, never raise)."""
+    role = RoleInfo(
+        model="m",
+        endpoint="file:///etc/passwd",
+        path="/v1/chat/completions",
+        context=0,
+        ready=True,
+        responsibilities=(),
+        forbidden_responsibilities=(),
+    )
+    assert resolve_role_base_url(role, "http://gateway:8001") == "http://gateway:8001"
+
+
+def test_resolve_role_base_url_strips_missing_endpoint_whitespace() -> None:
+    """A whitespace-only endpoint is treated as empty, not a malformed URL."""
+    role = RoleInfo(
+        model="m",
+        endpoint="   ",
+        path="/v1/chat/completions",
+        context=0,
+        ready=True,
+        responsibilities=(),
+        forbidden_responsibilities=(),
+    )
+    assert resolve_role_base_url(role, "http://gateway:8001") == "http://gateway:8001"
+
+
+# ---------------------------------------------------------------------------
+# ready semantics (lobes-cli#89, 0.38.0 — colleague#292/291 S1): ``ready`` is
+# a CONFIG PROXY (``ready == loaded``) for cortex/senses/embedder/reranker,
+# but LIVE-PROBE-BACKED (via the realtime bridge) for stt/tts.
+# ---------------------------------------------------------------------------
+
+
+def test_ready_kind_is_config_proxy_for_cortex_and_senses() -> None:
+    assert ready_kind("cortex") == "config-proxy"
+    assert ready_kind("senses") == "config-proxy"
+
+
+def test_ready_kind_is_config_proxy_for_embedder_and_reranker() -> None:
+    assert ready_kind("embedder") == "config-proxy"
+    assert ready_kind("reranker") == "config-proxy"
+
+
+def test_ready_kind_is_live_probed_for_stt_and_tts() -> None:
+    assert ready_kind("stt") == "live-probed"
+    assert ready_kind("tts") == "live-probed"
