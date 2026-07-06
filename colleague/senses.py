@@ -14,6 +14,9 @@ model — the structural sibling of :func:`colleague.deepthink.run_deepthink`:
   :class:`~colleague.contract.ContextPacket`. The packet's ``original`` field is
   set to the caller's input **verbatim** — never from the model output — so the
   operator's exact request survives byte-for-byte (the arc's core invariant).
+  The SAME completion also carries a senses-authored ``ack`` line onto
+  ``packet.ack`` (talking-to-one arc, task t1) — zero extra calls, zero extra
+  latency; a degraded intake carries no ack (the packet is ``None``).
 - :func:`run_senses_speakback` shapes the cortex's raw work summary into a
   conversational display string.
 - :func:`run_senses_talk` holds ONE live, tools-off conversational turn with
@@ -80,12 +83,17 @@ _INTAKE_SYSTEM_PROMPT = (
     "operator's request below and perceive what it means BEFORE the cortex model "
     "acts on it. Reply with ONLY a JSON object of the form: "
     '{"interpretation": "...", "confidence": 0.0, "task_type": "...", '
-    '"omissions": ["..."]}. '
+    '"omissions": ["..."], "ack": "..."}. '
     '"interpretation" is a normalized restatement of what the operator wants; '
     '"confidence" is your confidence in that reading as a number from 0.0 to 1.0; '
     '"task_type" is a short classification (e.g. bugfix, feature, docs, refactor, '
     'question); "omissions" lists, one short string each, what the request left '
-    "implicit or unspecified. Do NOT echo the original request text back. No prose "
+    'implicit or unspecified; "ack" is a short, one- or two-sentence, '
+    "first-person acknowledgment — in your own words — of what you understood "
+    'and that you are handing the work to cortex now. "ack" may ONLY restate '
+    'what "interpretation"/"task_type"/"omissions" above already say: no new '
+    "claim, no promise about the outcome, nothing the rest of this reply doesn't "
+    "already assert. Do NOT echo the original request text back. No prose "
     "outside the JSON."
 )
 
@@ -175,6 +183,29 @@ def _coerce_omissions(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(x) for x in value]
     return []
+
+
+#: Hard cap on ``ContextPacket.ack`` length (talking-to-one arc, task t1). A
+#: one/two-sentence acknowledgment never needs more; an over-long reply is
+#: hard-truncated in place — never a second completion, never invented filler.
+_MAX_ACK_LEN = 500
+
+
+def _coerce_ack(value: Any) -> Optional[str]:
+    """Best-effort extraction of the model's ``ack`` field (task t1).
+
+    A non-empty string is stripped of surrounding whitespace and hard-capped to
+    :data:`_MAX_ACK_LEN` characters. Anything else — missing, ``None``, an
+    empty/whitespace-only string, or a non-string value (a number, list, dict)
+    from a hallucinating model — degrades to ``None``: a reply with no usable
+    ack is simply absent, never fabricated.
+    """
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return stripped[:_MAX_ACK_LEN]
 
 
 def _window_text(
@@ -269,13 +300,24 @@ def run_senses_intake(
 
     Issues exactly ONE tools-off completion against the senses model, windowed
     to the senses model's own budget, and parses a structured
-    ``{interpretation, confidence, task_type, omissions}`` JSON reply via the
-    solved recovery path (:func:`robust_simple_complete` + ``_extract_json_object``).
+    ``{interpretation, confidence, task_type, omissions, ack}`` JSON reply via
+    the solved recovery path (:func:`robust_simple_complete` +
+    ``_extract_json_object``).
 
     The returned packet's ``original`` is set to *text* **VERBATIM** — the model
     supplies only the derived interpretation/confidence/task_type/omissions; the
     operator's exact request never comes from the model output. That invariant is
     the whole point of the senses front door.
+
+    The reply's ``ack`` field — a short, senses-authored acknowledgment of what
+    it understood and that it is handing the work to cortex — rides this SAME
+    completion onto ``packet.ack`` (talking-to-one arc, task t1; the spec's
+    ack-shape decision: zero extra calls, zero extra latency). ``_coerce_ack``
+    strips and hard-caps it; a missing, empty, or non-string ``ack`` leaves
+    ``packet.ack`` at its default ``None`` — never fabricated. This module never
+    synthesizes a substitute ack on degradation: a degraded intake returns
+    ``(None, ...)``, so there is structurally no ack anywhere; a caller-side
+    fixed dispatch notice for that case belongs to a LATER task, not here.
 
     Never raises. On ANY failure — an unreachable endpoint, a request error, an
     overflow, empty content that cannot be recovered, or bad/lossy JSON — returns
@@ -337,6 +379,11 @@ def run_senses_intake(
             confidence=_coerce_confidence(data.get("confidence")),
             task_type=str(data.get("task_type", "")),
             omissions=_coerce_omissions(data.get("omissions")),
+            # The ack rides this SAME completion — zero extra calls, zero extra
+            # latency (talking-to-one arc, task t1, the spec's ack-shape
+            # decision). A missing/non-string/empty value degrades to ``None``,
+            # never fabricated; there is no separate ack turn to retry.
+            ack=_coerce_ack(data.get("ack")),
         )
         latency = time.monotonic() - start
         return packet, SensesRecord(

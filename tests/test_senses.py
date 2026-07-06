@@ -205,6 +205,93 @@ class TestIntakeToolsOffAndVerbatimOriginal:
 
 
 # ---------------------------------------------------------------------------
+# ack rides the SAME intake completion (talking-to-one arc, task t1)
+# ---------------------------------------------------------------------------
+
+
+class TestIntakeAck:
+    """``run_senses_intake`` returns a senses-authored ``ack`` alongside the
+    packet, sourced from the SAME single completion (zero extra calls, zero
+    extra latency — the spec's ack-shape decision)."""
+
+    def test_ack_parsed_from_the_same_completion_zero_extra_calls(self) -> None:
+        reply = (
+            '{"interpretation": "add a retry to the uploader", "confidence": 0.8, '
+            '"task_type": "feature", "omissions": ["which backoff"], '
+            '"ack": "Got it — you want a retry added to the uploader; handing this '
+            'to cortex now."}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=5, completion_tokens=9))
+
+        packet, record = run_senses_intake("add a retry to the uploader", _senses_config(), fake)
+
+        # exactly ONE completion issued — the ack rides it, no second call.
+        assert fake.make_complete_calls == [[]]
+        assert fake.complete_call_count == 1
+        assert packet is not None
+        assert record.degraded is False
+        assert (
+            packet.ack
+            == "Got it — you want a retry added to the uploader; handing this to cortex now."
+        )
+
+    def test_ack_taken_verbatim_from_the_model_reply(self) -> None:
+        """h2 grounding pin: the ack is exactly the model's own wording (modulo
+        strip/cap) — no code path invents ack content absent from the reply."""
+        exact_wording = "Understood — deflaking the widget test; cortex is on it."
+        reply = (
+            '{"interpretation": "deflake a test", "confidence": 0.7, '
+            f'"task_type": "bugfix", "omissions": [], "ack": "{exact_wording}"}}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=3))
+
+        packet, _ = run_senses_intake("fix the flaky test", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.ack == exact_wording
+
+    def test_ack_missing_defaults_to_none_back_compat(self) -> None:
+        """A reply with no ``ack`` key (today's shape) leaves ``packet.ack``
+        ``None`` — byte-identical to before this field existed."""
+        fake = _FakeEngine()  # _INTAKE_JSON module fixture carries no "ack" key
+        packet, record = run_senses_intake("add a retry to the uploader", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.ack is None
+        assert record.degraded is False
+
+    def test_ack_is_stripped_and_hard_capped(self) -> None:
+        overlong = "x" * 800
+        reply = (
+            '{"interpretation": "i", "confidence": 0.5, "task_type": "feature", '
+            f'"omissions": [], "ack": "   {overlong}   "}}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+        packet, _ = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.ack is not None
+        assert len(packet.ack) <= 500
+        assert not packet.ack.startswith(" ") and not packet.ack.endswith(" ")
+        assert packet.ack == "x" * 500
+
+    def test_non_string_ack_is_ignored(self) -> None:
+        for bogus_ack in ('"ack": 3.14', '"ack": ["a", "b"]', '"ack": null'):
+            reply = (
+                '{"interpretation": "i", "confidence": 0.5, "task_type": "feature", '
+                f'"omissions": [], {bogus_ack}}}'
+            )
+            fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+            packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+            assert packet is not None
+            assert packet.ack is None
+            assert record.degraded is False
+
+
+# ---------------------------------------------------------------------------
 # (3) degrade-never-raise — intake keeps the raw request
 # ---------------------------------------------------------------------------
 
@@ -249,6 +336,42 @@ class TestIntakeDegrades:
         assert record.degraded is True
         assert record.point == INTAKE_POINT
         assert record.latency is not None and record.latency >= 0
+
+    def test_degraded_intake_never_carries_an_ack(self) -> None:
+        """No ack from anywhere on a degraded intake (talking-to-one, task t1).
+
+        The packet is None on every degradation path, so there is structurally
+        no ``packet.ack`` to inspect — senses.py never synthesizes a fallback
+        ack itself; a caller-side fixed dispatch notice is a LATER task's job
+        (t6), not this module's.
+        """
+        for fake in (
+            _FakeEngine(raise_on_complete=ConnectionError("refused")),
+            _FakeEngine(ModelResponse(content="no JSON here at all", prompt_tokens=1)),
+            _FakeEngine(ModelResponse(content="", reasoning="")),
+        ):
+            packet, record = run_senses_intake("do it", _senses_config(), fake)
+            assert packet is None
+            assert record.degraded is True
+
+    def test_ack_present_but_interpretation_missing_degrades_exactly_as_today(self) -> None:
+        """An ``ack`` alongside a reply with no ``interpretation`` key behaves
+        exactly like today's no-``ack`` case: no required-key is enforced on
+        ``interpretation`` (unchanged by this task), so the packet still comes
+        back clean with an empty interpretation — ``ack`` parsing is additive,
+        never a new failure mode."""
+        reply = (
+            '{"confidence": 0.4, "task_type": "docs", "omissions": [], '
+            '"ack": "Got it, handing this to cortex now."}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+        packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is not None
+        assert record.degraded is False
+        assert packet.interpretation == ""  # unchanged from today's default
+        assert packet.ack == "Got it, handing this to cortex now."
 
 
 # ---------------------------------------------------------------------------
