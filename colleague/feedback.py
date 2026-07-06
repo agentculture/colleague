@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from colleague.artifact import artifact_dir, artifact_read_dirs
+from colleague.artifact import artifact_dir, artifact_read_dirs, find_artifact
 
 #: Per-repo pointer file (in the artifact dir) naming the most recent work item.
 LAST_WORK_FILENAME = "last_work"
@@ -321,3 +321,107 @@ def list_work_items(repo_path: str | Path) -> list[WorkSummary]:
                 rows.append(_work_summary(repo_path, data))
     rows.sort(key=lambda r: r.started_at, reverse=True)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# `feedback export` — the ROI ledger line (docs/contract.md)
+# ---------------------------------------------------------------------------
+
+
+def parse_since(value: str) -> Optional[datetime.datetime]:
+    """Best-effort ISO-8601 date/datetime parse, coerced to UTC-aware.
+
+    Accepts a bare date (``2026-07-01``) or a full ISO-8601 timestamp, with or
+    without a timezone offset. A naive value is assumed UTC (matching
+    ``_now_iso``'s own UTC-aware stamps and ``stats.started_at``) so a
+    bare-date ``--since`` compares correctly. Returns ``None`` on anything
+    unparseable rather than raising — the CLI layer decides whether that is a
+    hard error (a malformed ``--since`` flag) or a soft skip (a malformed
+    ``started_at`` read back from a stray artifact).
+    """
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed
+
+
+def _read_work_stats_slim(repo_path: str | Path, task_id: str) -> dict[str, int]:
+    """The export line's slim ``stats`` sub-shape for ``task_id``'s artifact.
+
+    Best-effort: a missing or corrupt artifact yields all-zero counts rather
+    than raising — the export is a reporting convenience over an already
+    graded work item, never a hard dependency on artifact health.
+    """
+    zero = {"steps": 0, "files_changed": 0, "bytes_written": 0}
+    path = find_artifact(repo_path, task_id)
+    if path is None:
+        return zero
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return zero
+    stats = data.get("stats") or {}
+    return {
+        "steps": int(stats.get("step_count") or 0),
+        "files_changed": int(stats.get("files_changed") or 0),
+        "bytes_written": int(stats.get("bytes_written") or 0),
+    }
+
+
+def export_work_items(
+    repo_path: str | Path,
+    *,
+    min_rating: Optional[int] = None,
+    since: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Every **graded** work item, newest-first, as one export-line dict each.
+
+    Joins :func:`list_work_items` (scan + dedup + ordering) with each work
+    item's :class:`Feedback` record and a slim stats read — no new storage,
+    no new file format. An **ungraded** work item (no feedback record) is
+    excluded entirely (docs/contract.md's "ROI ledger, not a work-item
+    inventory" distinction from ``feedback list``).
+
+    ``min_rating`` keeps only rows with ``rating >= min_rating`` (``None`` /
+    non-positive is a no-op — every rating is already ``>= 1``). ``since`` is
+    an ISO-8601 date/datetime string; only rows whose ``stats.started_at`` is
+    on or after it are kept. A row whose ``started_at`` cannot be parsed is
+    excluded when a ``since`` filter is active (conservative — an
+    unparseable timestamp can't be proven to satisfy the filter).
+    """
+    since_dt = parse_since(since) if since else None
+    rows: list[dict[str, Any]] = []
+    for item in list_work_items(repo_path):
+        if item.rating is None:
+            continue  # ungraded — excluded from the ROI ledger
+        if min_rating is not None and min_rating > 0 and item.rating < min_rating:
+            continue
+        if since_dt is not None:
+            started = parse_since(item.started_at) if item.started_at else None
+            if started is None or started < since_dt:
+                continue
+        record = _work_feedback_record(repo_path, item.task_id)
+        rows.append(
+            {
+                "task_id": item.task_id,
+                "request": item.request,
+                "summary": item.summary,
+                "rating": item.rating,
+                "notes": record.notes if record is not None else "",
+                "status": item.status,
+                "at": record.at if record is not None else "",
+                "stats": _read_work_stats_slim(repo_path, item.task_id),
+            }
+        )
+    return rows
+
+
+def _work_feedback_record(repo_path: str | Path, task_id: str) -> Optional[Feedback]:
+    """The feedback record for ``task_id``, or ``None`` (corrupt/missing -> None)."""
+    try:
+        return read_feedback(repo_path, task_id)
+    except FeedbackError:
+        return None
