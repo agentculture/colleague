@@ -371,12 +371,16 @@ The architecture, part by part:
   now consumes `cortex`/`senses`/`stt`/`tts`. Honest limits: the
   senses intake window is windowed to the senses model's own budget, but
   `ContextPacket.original` is never touched by that windowing (always
-  verbatim); the lobes-reported per-role `endpoint` field is not
-  client-reachable on the reference rig, so colleague dials the gateway
-  origin for both roles instead (a documented workaround; a lobes-cli issue
-  is a warranted follow-up, not yet filed); a lobes-discovered senses is
-  `multimodal=False` (arming the media bridge needs an explicit operator
-  declaration, never inferred from the wire); intake is synchronous in v1.
+  verbatim); **the per-role gateway-origin-for-all workaround is RESOLVED**
+  (colleague#292/#291, S1+S2 lobes-0.38 re-sync, task t19) — lobes-cli 0.38.0
+  closed the filed lobes-cli#87 by making each role's own `endpoint` a
+  genuinely client-reachable, Host-derived origin, and `EngineConfig.resolve()`
+  now dials cortex, senses, and voice (stt/tts) each at THEIR OWN advertised
+  endpoint via `colleague/lobes.py`'s `resolve_role_base_url`, falling back to
+  the gateway origin only for an unwired role or a disallowed scheme; a
+  lobes-discovered senses is `multimodal=False` (arming the media bridge needs
+  an explicit operator declaration, never inferred from the wire); intake is
+  synchronous in v1.
   Feature doc: `docs/features/cortex-senses.md`; spec + plan:
   `docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`
   and `docs/plans/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md`.
@@ -508,7 +512,16 @@ The architecture, part by part:
   travel with the work). A model-callable **`memory` loop tool**
   (verb=recall|remember) is offered to every backend; read-only roles get
   recall only (remember is a write-capable shell-out, refused by the
-  role-aware executor). All-engines rule throughout.
+  role-aware executor). All-engines rule throughout. **One embedder (S2,
+  colleague#291/#292 task t19):** when a lobes gateway resolves an OPTIONAL
+  `embedder` role, `colleague/lobes.py`'s `embed_env(roles, gateway_url)`
+  relays its dial target + model id as `EIDETIC_EMBED_URL`/`_MODEL` and
+  `COHERENCE_EMBED_URL`/`_MODEL` (the sibling `coherence-cli` consumer named
+  in the #291 integration front) — merged into the eidetic subprocess env via
+  `EngineConfig.embed_env` → `ContextControls.embed_env`, NEVER overwriting an
+  operator-set env var of the same name. Colleague itself never issues an
+  embeddings request (a structural boundary test pins this); absence of an
+  embedder never fails resolution, mirroring stt/tts.
 - **Finish recovery + grounded reads (best-colleague arc, R2)** — a work
   item's findings always survive to the caller. The loop re-parses a finish
   the model emitted as literal tool-call markup in message content (#248 mode

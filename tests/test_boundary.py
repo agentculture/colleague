@@ -604,6 +604,68 @@ class TestNoMcpJsonReference:
 
 
 # ---------------------------------------------------------------------------
+# Structural check — colleague relays the embedder role, never consumes it
+# (one-embedder increment, S2, colleague#291/#292 task t19 — router-exclusion
+# boundary, spec c9/h18). ``colleague/lobes.py``'s ``embed_env`` passes the
+# resolved embedder's dial target + model id through as env vars for OTHER
+# sanctioned tools (the eidetic CLI, coherence-cli) to consume; colleague
+# itself never issues an embeddings request.
+# ---------------------------------------------------------------------------
+
+#: The ONE file allowed to reference the embedder's ``/v1/embeddings`` wire
+#: path (documentary only — it never builds a request to it).
+_EMBEDDINGS_PATH_ALLOWED_FILE = "colleague/lobes.py"
+
+
+class TestNoEmbeddingsConsumption:
+    """colleague discovers + relays the embedder's connection info; it never
+    becomes an embeddings retrieval client itself."""
+
+    @pytest.mark.parametrize(
+        "py_file",
+        _all_py_sources(),
+        ids=lambda p: str(p.relative_to(_PACKAGE_DIR.parent)),
+    )
+    def test_embeddings_path_string_confined_to_lobes(self, py_file: Path) -> None:
+        """The literal ``/v1/embeddings`` string may appear ONLY in
+        ``colleague/lobes.py`` (documentary, describing the wire shape) —
+        nowhere else in the package, and never as a request path colleague
+        itself dials."""
+        rel = str(py_file.relative_to(_PACKAGE_DIR.parent))
+        source = py_file.read_text(encoding="utf-8")
+        if "/v1/embeddings" not in source:
+            return
+        assert rel == _EMBEDDINGS_PATH_ALLOWED_FILE, (
+            f"'/v1/embeddings' found in {rel} — colleague never dials the "
+            "embedder's request path itself (it only relays the resolved "
+            f"origin via env vars); confine any reference to "
+            f"{_EMBEDDINGS_PATH_ALLOWED_FILE}."
+        )
+
+    def test_lobes_module_issues_no_post_request(self) -> None:
+        """``colleague/lobes.py`` only ever GETs ``/capabilities`` — it never
+        POSTs (an embeddings/completions request would be a POST), proving
+        the embedder role is relayed, never consumed, by this module."""
+        source = (_PACKAGE_DIR / "lobes.py").read_text(encoding="utf-8")
+        assert "POST" not in source, (
+            "colleague/lobes.py must never issue a POST request — it only "
+            "GETs /capabilities and relays role endpoints via env vars; a "
+            "POST here would mean colleague itself is consuming an "
+            "embeddings/completions endpoint, breaching the router-exclusion "
+            "boundary (spec c9/h18)."
+        )
+
+    def test_memory_module_issues_no_embeddings_request(self) -> None:
+        """``colleague/memory.py`` (the sanctioned eidetic-CLI shell-out) never
+        builds an embeddings request itself — it only merges env vars (built
+        elsewhere, in ``colleague/lobes.py``) into the CLI subprocess's
+        environment for the CLI to consume by its own convention."""
+        source = (_PACKAGE_DIR / "memory.py").read_text(encoding="utf-8")
+        assert "/v1/embeddings" not in source
+        assert "POST" not in source
+
+
+# ---------------------------------------------------------------------------
 # Structural check 7 — threading / concurrent.futures confined to subagents.py
 # ---------------------------------------------------------------------------
 

@@ -5,9 +5,20 @@ Colleague drives with two minds served behind one gateway: a **cortex** (the
 fast, wide-window reasoner that drives the tool loop) and **senses** (a
 tools-off front door — intake, normalization, intent classification). The
 gateway also serves four more roles today (``embedder``, ``reranker``,
-``stt``, ``tts``); colleague resolves ``cortex`` + ``senses`` (mandatory) and
-``stt``/``tts`` (optional, voice-arc consumers) and ignores ``embedder``/
-``reranker`` (future follow-up territory, #276/#277).
+``stt``, ``tts``); colleague resolves ``cortex`` + ``senses`` (mandatory),
+``stt``/``tts`` (optional, voice-arc consumers), and, since the one-embedder
+increment (colleague#291/#292, task t19/S2), ``embedder`` (optional too) —
+``reranker`` stays ignored (future follow-up territory, #277's retrieval lane).
+
+**The embedder is relayed, never consumed (S2).** Colleague itself never
+issues an embeddings request — :func:`embed_env` only relays the resolved
+embedder role's dial target + model id as environment variables for OTHER
+sanctioned tools (the ``eidetic`` CLI colleague already shells out to in
+``colleague/memory.py``, and the sibling ``coherence-cli`` named in the #291
+integration front) to consume by their own convention. This keeps colleague on
+the router-exclusion side of the boundary: it discovers and relays connection
+info, it does not become a retrieval client (spec boundary c9/h18; see
+``tests/test_boundary.py``'s embeddings-consumption pin).
 
 :func:`resolve_roles` is a plain ``urllib`` GET of ``{gateway_url}/capabilities``.
 The ``lobes`` CLI itself shipped ``lobes capabilities`` / ``lobes endpoint
@@ -112,15 +123,18 @@ class RoleInfo:
 class LobesRoles:
     """The cortex + senses metadata resolved from one gateway ``/capabilities`` call.
 
-    ``stt`` and ``tts`` are OPTIONAL voice roles: their absence or malformed
-    shape leaves them ``None`` but does NOT cause :func:`resolve_roles` to
-    return ``None`` (unlike cortex/senses which are mandatory).
+    ``stt``, ``tts``, and ``embedder`` are OPTIONAL roles: their absence or
+    malformed shape leaves them ``None`` but does NOT cause :func:`resolve_roles`
+    to return ``None`` (unlike cortex/senses which are mandatory). ``embedder``
+    is parsed (S2, colleague#291/#292 task t19) but colleague never dials it
+    directly — see :func:`embed_env`.
     """
 
     cortex: RoleInfo
     senses: RoleInfo
     stt: RoleInfo | None = None
     tts: RoleInfo | None = None
+    embedder: RoleInfo | None = None
 
 
 def _parse_role(raw: object) -> RoleInfo | None:
@@ -214,15 +228,18 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
             return None
         resolved[name] = role
 
-    # Voice roles (stt/tts) are OPTIONAL: parse them but never fail resolution.
+    # Voice roles (stt/tts) and the embedder are OPTIONAL: parse them but
+    # never fail resolution (the same rule for all three).
     stt_role = _parse_role(payload.get("stt"))
     tts_role = _parse_role(payload.get("tts"))
+    embedder_role = _parse_role(payload.get("embedder"))
 
     return LobesRoles(
         cortex=resolved["cortex"],
         senses=resolved["senses"],
         stt=stt_role,
         tts=tts_role,
+        embedder=embedder_role,
     )
 
 
@@ -243,6 +260,44 @@ def resolve_role_base_url(role: RoleInfo, gateway_url: str) -> str:
     if endpoint and urlsplit(endpoint).scheme in _ALLOWED_SCHEMES:
         return endpoint
     return gateway_url
+
+
+def embed_env(roles: "LobesRoles", gateway_url: str) -> dict[str, str]:
+    """Build the eidetic/coherence embedder env overrides from *roles* (S2, t19).
+
+    Returns ``{}`` when *roles* carries no ``embedder`` — the gateway simply
+    didn't advertise one, and absence NEVER fails resolution (the same rule
+    :func:`resolve_roles` applies to stt/tts). When present, the embedder's
+    dial target is resolved via :func:`resolve_role_base_url` — the role's OWN
+    advertised ``endpoint`` when it is a non-empty, allowed-scheme URL, else
+    the gateway origin fallback (the identical SSRF-guarded semantics every
+    other role gets, lobes-cli#87).
+
+    The result carries the SAME ``(base_url, model)`` pair under two
+    consumer-name prefixes so both sanctioned downstream shell-outs pick it up
+    by their own convention: ``EIDETIC_EMBED_URL``/``EIDETIC_EMBED_MODEL`` (the
+    eidetic CLI ``colleague/memory.py`` already shells out to) and
+    ``COHERENCE_EMBED_URL``/``COHERENCE_EMBED_MODEL`` (the sibling
+    ``coherence-cli`` consumer named in the #291 integration front).
+
+    Pure — issues no request of its own (:func:`resolve_role_base_url` is
+    network-free too). Colleague never dials the embedder's own
+    ``/v1/embeddings`` path here or anywhere else; it only relays the resolved
+    connection info for another tool to consume (spec boundary c9/h18, the
+    router-exclusion line — see ``tests/test_boundary.py``'s
+    embeddings-consumption pin).
+    """
+    embedder = roles.embedder
+    if embedder is None:
+        return {}
+    base_url = resolve_role_base_url(embedder, gateway_url)
+    model = embedder.model
+    return {
+        "EIDETIC_EMBED_URL": base_url,
+        "EIDETIC_EMBED_MODEL": model,
+        "COHERENCE_EMBED_URL": base_url,
+        "COHERENCE_EMBED_MODEL": model,
+    }
 
 
 def ready_kind(role_name: str) -> str:

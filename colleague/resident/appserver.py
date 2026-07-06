@@ -686,7 +686,7 @@ class AppserverHarness:
         written = synthesize(
             text,
             tts_model=voice_config.tts_model,
-            base_url=voice_config.base_url,
+            base_url=voice_config.tts_base_url,
             out_path=wav_path,
             api_key=voice_config.api_key,
         )
