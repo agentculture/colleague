@@ -314,14 +314,14 @@ def classify_media_audio_check(media_record: dict[str, Any] | None, answer: str)
     return "skipped", f"attachment status {status!r} — cannot confirm the rig consumed the audio"
 
 
-# The lobes gateway's speech proxy returns 502 for BOTH /v1/audio/transcriptions
-# and /v1/audio/speech (probed 2026-07-03: tts → {"error":"TTS backend returned no
-# audio"}, stt → HTTP 502). The stt/tts round-trip live proofs SKIP honestly until
-# the rig-side proxy is fixed (sibling of lobes-cli#87). The classification flips to
-# a real grade the day the proxy serves audio — never a fabricated pass.
-_SPEECH_PROXY_502_REASON = (
-    "lobes gateway speech proxy 502s (stt /audio/transcriptions + tts /audio/speech, "
-    "probed 2026-07-03) — graded from evidence, never a fabricated pass"
+# lobes-cli#89 (0.38.0 — colleague#292/291 S1): stt/tts readiness is now
+# LIVE-PROBED via the gateway's realtime bridge (see colleague/lobes.py's
+# ready_kind + colleague/voice.py's bounded 503+Retry-After warming retry).
+# The round-trip proof checks readiness FIRST: a genuinely down/unready role
+# SKIPs honestly, naming the rig state — never the old bare-"502" workaround.
+_VOICE_LANE_NOT_READY_REASON = (
+    "gateway reports the role not ready (live-probed via the realtime bridge, "
+    "lobes-cli#89) — graded from evidence, never a fabricated pass"
 )
 
 
@@ -376,16 +376,22 @@ def classify_injection_reached_check(in_feed: bool, in_artifact: bool) -> tuple[
 def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
     """Grade an stt/tts voice-lane live proof (t10) from its recorded outcome.
 
-    ``outcome`` is ``"ok"`` (a verbatim transcript / a written wav),
-    ``"proxy_502"`` (the gateway speech proxy returned 502 / no audio — the
-    2026-07-03 rig state), or any other string (an unexpected error). A 502 SKIPs
-    honestly (naming the rig-side proxy); ``ok`` PASSes; anything else FAILs.
-    Written to flip to a real grade the day the proxy serves audio.
+    Since lobes-cli#89 (0.38.0), stt/tts ``ready`` is LIVE-PROBED via the
+    gateway's realtime bridge — a warming backend answers 503+Retry-After
+    (``colleague/voice.py`` bounds one retry on that), never a bare 502. The
+    round-trip proof now checks readiness FIRST, so ``outcome`` is ``"ok"``
+    (a verbatim transcript / a written wav — possibly after one bounded
+    warming retry), ``"not_ready"`` (the live readiness probe itself reports
+    the role down/unready — the ONLY case this SKIPs on, honestly naming the
+    rig state), or any other string (an unexpected failure). Because
+    ``ready`` is now live-probe-backed, a round-trip that still fails despite
+    a ready report is a genuine regression and FAILs — never silently
+    SKIPped the way the old bare-502 workaround used to.
     """
     if outcome == "ok":
         return "passed", f"{kind} lane round-tripped audio through the gateway"
-    if outcome == "proxy_502":
-        return "skipped", _SPEECH_PROXY_502_REASON
+    if outcome == "not_ready":
+        return "skipped", f"{kind}: {_VOICE_LANE_NOT_READY_REASON}"
     return "failed", f"{kind} lane failed unexpectedly: {outcome!r}"
 
 

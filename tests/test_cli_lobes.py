@@ -50,6 +50,26 @@ _SENSES = RoleInfo(
     forbidden_responsibilities=("final_decision", "repo_action"),
 )
 
+_STT = RoleInfo(
+    model="nvidia/parakeet-tdt-0.6b-v2",
+    endpoint="http://realtime:8080",
+    path="/v1/audio/transcriptions",
+    context=0,
+    ready=True,
+    responsibilities=("transcribe", "audio_input_to_text"),
+    forbidden_responsibilities=(),
+)
+
+_TTS = RoleInfo(
+    model="ResembleAI/chatterbox",
+    endpoint="http://realtime:8080",
+    path="/v1/audio/speech",
+    context=0,
+    ready=True,
+    responsibilities=("speech_output", "synthesize"),
+    forbidden_responsibilities=(),
+)
+
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,6 +146,64 @@ def test_lobes_show_armed_reachable_json_shape(
     assert set(roles["cortex"]["responsibilities"]) == set(_CORTEX.responsibilities)
     assert roles["senses"]["model"] == _SENSES.model
     assert roles["senses"]["forbidden_responsibilities"] == list(_SENSES.forbidden_responsibilities)
+
+
+# ---------------------------------------------------------------------------
+# ready semantics (lobes-cli#89, 0.38.0 — colleague#292/291 S1): cortex/senses
+# report a CONFIG-PROXY ready; stt/tts (when present) report a LIVE-PROBED
+# ready. `lobes show` must distinguish the two, never conflate them.
+# ---------------------------------------------------------------------------
+
+
+def test_lobes_show_labels_cortex_senses_ready_as_config_proxy(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(_ENV_VAR, "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "colleague.cli._commands.lobes.resolve_roles",
+        lambda url, **kwargs: LobesRoles(cortex=_CORTEX, senses=_SENSES),
+    )
+    rc = main(["lobes", "show", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    roles = payload["roles"]
+    assert roles["cortex"]["ready_kind"] == "config-proxy"
+    assert roles["senses"]["ready_kind"] == "config-proxy"
+    assert "stt" not in roles
+    assert "tts" not in roles
+
+
+def test_lobes_show_labels_stt_tts_ready_as_live_probed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(_ENV_VAR, "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "colleague.cli._commands.lobes.resolve_roles",
+        lambda url, **kwargs: LobesRoles(cortex=_CORTEX, senses=_SENSES, stt=_STT, tts=_TTS),
+    )
+    rc = main(["lobes", "show", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    roles = payload["roles"]
+    assert roles["stt"]["ready_kind"] == "live-probed"
+    assert roles["tts"]["ready_kind"] == "live-probed"
+    assert roles["stt"]["endpoint"] == "http://realtime:8080"
+    assert roles["tts"]["model"] == _TTS.model
+
+
+def test_lobes_show_text_names_ready_kind_when_voice_roles_present(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(_ENV_VAR, "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "colleague.cli._commands.lobes.resolve_roles",
+        lambda url, **kwargs: LobesRoles(cortex=_CORTEX, senses=_SENSES, stt=_STT, tts=_TTS),
+    )
+    rc = main(["lobes", "show"])
+    assert rc == 0
+    out = capsys.readouterr().out.lower()
+    assert "live-probed" in out
+    assert "config-proxy" in out
 
 
 # ---------------------------------------------------------------------------
