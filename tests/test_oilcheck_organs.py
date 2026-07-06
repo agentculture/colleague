@@ -236,10 +236,14 @@ def test_eidetic_armed_respects_memory_opt_out(tmp_path, monkeypatch: pytest.Mon
 
 def test_planned_organs_report_unarmed(tmp_path) -> None:
     entries = {e["organ"]: e for e in organs.resolve_organs(str(tmp_path))}
-    for name in ("coherence", "sloth", "data-refinery"):
+    for name in ("coherence", "data-refinery"):
         assert entries[name]["armed"] is False
     for name in ("agtag", "devex", "devague"):
         assert entries[name]["armed"] is True  # unconditional curated tools
+    # sloth's `experiment` noun (colleague#291 S5) is a built, unconditional CLI
+    # verb — always armed, distinct from the culture-tool "offered to the model"
+    # semantics (there is no operator opt-out toggle to read either way).
+    assert entries["sloth"]["armed"] is True
 
 
 # --- probe-only reachability -------------------------------------------------

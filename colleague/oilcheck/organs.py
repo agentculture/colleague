@@ -124,12 +124,31 @@ def _culture_tool_armed(_repo_path: Optional[str]) -> bool:
 
 
 def _not_yet_wired(_repo_path: Optional[str]) -> bool:
-    """coherence / sloth / data-refinery: no colleague-side integration yet.
+    """data-refinery: no colleague-side integration yet.
 
-    Tracked as planned specs (see ``docs/organs.md``); reported honestly as
+    Tracked as a planned spec (see ``docs/organs.md``); reported honestly as
     never armed today rather than omitted from the table.
     """
     return False
+
+
+def _experiment_armed(_repo_path: Optional[str]) -> bool:
+    """The ``experiment`` noun (colleague/experiment.py, colleague#291 S5) is
+    an unconditional CLI verb, always wired in.
+
+    Unlike ``_culture_tool_armed`` (which answers "is this loop TOOL offered
+    to the model this run" — agtag/devex/devague), ``experiment`` is a
+    standalone operator-invoked CLI noun, like ``clean``/``flight`` — there is
+    no operator opt-out toggle to read and no per-run model decision, so
+    "armed" here means exactly "the noun is registered and ready to drive
+    sloth", which is always true once colleague itself is installed. A fresh
+    repo with no ``.colleague/experiments/`` dir yet (nothing started) is
+    still armed — checking for that dir would conflate "has run once" with
+    "is ready", the same trap ``_culture_tool_armed`` avoids. The sloth
+    binary's actual presence is the separate ``present`` column; running a
+    real experiment still needs the CLI installed (and a GPU rig).
+    """
+    return True
 
 
 @dataclass(frozen=True)
@@ -185,9 +204,9 @@ ORGANS: tuple[Organ, ...] = (
         name="sloth",
         binary="sloth",
         distribution="unsloth-cli",
-        seam="experiment — planned colleague#295 (S5); not yet built",
+        seam="experiment noun (colleague/experiment.py; allow-list sloth, colleague#295 S5)",
         contract="run TOML config + training_metadata.json — docs/organs.md#sloth",
-        armed_check=_not_yet_wired,
+        armed_check=_experiment_armed,
     ),
     Organ(
         name="data-refinery",

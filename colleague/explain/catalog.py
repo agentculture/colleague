@@ -812,7 +812,8 @@ dynamically discovered plugin registry:
     lobes           discovery rung (colleague/lobes.py + config.py precedence)
     eidetic         memory shell-out (colleague/memory.py)
     coherence       gate — planned colleague#294 (S3); not yet built
-    sloth           experiment — planned colleague#295 (S5); not yet built
+    sloth           experiment noun (colleague/experiment.py; allow-list sloth,
+                    colleague#295 S5)
     data-refinery   dataset pipeline — planned data-refinery-cli#14 (S6); not
                     yet built colleague-side
     agtag           culture tool (colleague/culture.py allow-list)
@@ -1108,6 +1109,70 @@ are applied at the running loop's next turn boundary.
     colleague flight overview
 """
 
+_EXPERIMENT = """\
+# colleague experiment
+
+Detached `sloth` (unsloth-cli) training runs, driven from the operator front
+(colleague#291, requirement R5 / S5). A curated allow-listed shell-out —
+allow-list exactly `sloth` — following the culture-tool pattern, with the
+long-run problem solved job-shaped: `experiment start` validates the dataset
+first (`sloth validate --dataset … --json`, before any GPU work), then
+detaches `sloth train --config <toml>` exactly the `work --background` way
+(`subprocess.Popen(..., start_new_session=True)`, stdio to a log file, no
+`.wait()`/`.poll()`), and returns immediately with a machine-readable start
+payload.
+
+## Verbs
+
+- `experiment start --config <toml>` — validate then detach `sloth train`
+- `experiment status <id>` — pid liveness + a log tail + best-effort
+  correlation against sloth's own run registry (`sloth runs list`/`show`)
+- `experiment list` — every detached experiment, newest-first
+- `experiment summarize <id> [--remember]` — join `sloth summarize --json`;
+  with `--remember`, upsert a compact record into eidetic memory (the same
+  `--scope colleague --visibility public` convention `colleague/memory.py`
+  uses — reused as-is, never re-implemented)
+- `experiment overview` — this description
+
+## Storage
+
+- `<repo>/.colleague/experiments/<id>/start.json` — the start payload
+  (`{id, pid, config, output_dir, log_dir, started}`)
+- `<repo>/.colleague/experiments/<id>/train.log` — combined stdout+stderr of
+  the detached `sloth train` child
+
+## Grading
+
+An experiment id is a valid feedback `task_id`:
+`colleague feedback record <exp-id> --rating N`.
+
+`colleague clean` reaps dead-pid experiment residue (pid gone AND the
+start payload older than a day); a genuinely live pid is never touched.
+
+## Honest limits
+
+- Missing `sloth` (unsloth-cli) degrades to a structured error with
+  remediation (`uv tool install unsloth-cli`), never a traceback.
+- `experiment status`'s `sloth_run` correlation is best-effort: it degrades to
+  `None` when sloth is unreachable or the registry hasn't been written yet
+  (training hasn't reached that point) — never blocks the status query.
+- Job-shaped, never a scheduler: one detached child per experiment, no
+  daemon, no polling loop of colleague's own.
+
+## Usage
+
+    colleague experiment start --config run.toml --repo .
+    colleague experiment status <id> --repo .
+    colleague experiment list --repo .
+    colleague experiment summarize <id> --remember --repo .
+
+## See also
+
+- `colleague explain flight`
+- `colleague explain organs`
+- `colleague explain feedback`
+"""
+
 _TALK = """\
 # colleague talk
 
@@ -1358,6 +1423,12 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("flight", "stop"): _FLIGHT,
     ("flight", "list"): _FLIGHT,
     ("flight", "overview"): _FLIGHT,
+    ("experiment",): _EXPERIMENT,
+    ("experiment", "start"): _EXPERIMENT,
+    ("experiment", "status"): _EXPERIMENT,
+    ("experiment", "list"): _EXPERIMENT,
+    ("experiment", "summarize"): _EXPERIMENT,
+    ("experiment", "overview"): _EXPERIMENT,
     ("talk",): _TALK,
     ("plan",): _PLAN,
     ("plan", "run"): _PLAN,
