@@ -755,8 +755,14 @@ def run_senses_update(
             budget=senses_config.context_budget_tokens,
             count_tokens=counter,
         )
+        # Ground the narration in what the run is ABOUT (the intake packet's
+        # interpretation) so a status line names the goal, not just raw feed —
+        # the packet augments the feed, it never substitutes for it.
+        about = ""
+        if packet is not None and packet.interpretation:
+            about = f"The running work item is about: {packet.interpretation}\n\n"
         user_prompt = (
-            f"Recent flight feed (most recent last):\n" f"{windowed_feed or '(no feed yet)'}"
+            f"{about}Recent flight feed (most recent last):\n" f"{windowed_feed or '(no feed yet)'}"
         )
         # Tools-off ALWAYS: an explicit empty tool list, never ``None``.
         complete = engine.make_complete(senses_config, tools=[])

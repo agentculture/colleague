@@ -523,6 +523,28 @@ class TestSensesUpdate:
         total_chars = sum(len(m.get("content") or "") for m in sent)
         assert total_chars <= send_budget
 
+    def test_prompt_carries_packet_interpretation_when_present(self) -> None:
+        """With a packet, the prompt names what the run is ABOUT (integrator pin):
+        the interpretation augments the feed, it never substitutes for it."""
+        reply = '{"update": "Still reading the config module."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=4))
+        packet = ContextPacket(
+            original="tidy the config module",
+            interpretation="refactor config loading for clarity",
+        )
+
+        result = run_senses_update(
+            ["step 3: read config.py"],
+            packet,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        user_content = fake.captured_messages[-1]["content"]
+        assert "refactor config loading for clarity" in user_content
+        assert "step 3: read config.py" in user_content
+
     def test_stub_reply_returned_verbatim_as_update(self) -> None:
         """A stub reply is returned verbatim as 'update' (modulo strip)."""
         exact = "I just finished linting three files and all checks passed."
