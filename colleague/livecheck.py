@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import os
+import statistics
 import struct
 import subprocess
 import sys
@@ -87,6 +88,7 @@ _KNOWN_PROOFS: list[tuple[str, str]] = [
     ("tests/test_vllm_live_subagents.py", "subagents"),
     ("tests/test_vllm_live_telemetry.py", "telemetry"),
     ("tests/test_dual_live.py", "dual live"),
+    ("tests/test_vllm_live_talking_to_one.py", "talking to one (middle-manager)"),
 ]
 
 
@@ -393,6 +395,108 @@ def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
     if outcome == "not_ready":
         return "skipped", f"{kind}: {_VOICE_LANE_NOT_READY_REASON}"
     return "failed", f"{kind} lane failed unexpectedly: {outcome!r}"
+
+
+# ---------------------------------------------------------------------------
+# Talking-to-one middle-manager proof (task t9): every announcement beat —
+# ack → dispatch → grounded update → conversational answer — graded from the
+# recorded evidence alone (the session transcript + TaskResult.senses), plus
+# the front-latency measurement. Pure classifiers (unit-testable, no I/O);
+# the live drive lives in tests/test_vllm_live_talking_to_one.py (gated).
+# ---------------------------------------------------------------------------
+
+
+def front_latencies(senses: dict[str, Any] | None) -> list[float]:
+    """Collect every senses-turn wall-clock latency from a ``senses`` payload.
+
+    One entry per :class:`~colleague.contract.SensesRecord` carrying a numeric
+    ``latency`` — intake (the ack rides it, zero extra calls), clarify
+    re-intakes, proactive updates, speak-back. These are recorded wall-clock
+    floats, never estimates; an absent/empty block yields ``[]``.
+    """
+    if not senses:
+        return []
+    out: list[float] = []
+    for record in senses.get("records", []):
+        latency = record.get("latency")
+        if isinstance(latency, (int, float)):
+            out.append(float(latency))
+    return out
+
+
+def classify_front_latency_check(latencies: list[float], *, target: float = 3.0) -> tuple[str, str]:
+    """Grade 'quick is measured' (t9 / spec h7): the senses front must answer in
+    low-single-digit seconds — the MEDIAN senses-turn latency clears *target*.
+
+    No recorded latencies SKIPs (never a fabricated pass); a real measurement
+    PASSes on median < target, else FAILs naming the numbers.
+    """
+    if not latencies:
+        return "skipped", "no senses-turn latencies recorded"
+    med = statistics.median(latencies)
+    detail = (
+        f"median senses turn {med:.2f}s over {len(latencies)} turn(s) "
+        f"(max {max(latencies):.2f}s, target median<{target:.0f}s)"
+    )
+    if med < target:
+        return "passed", detail
+    return "failed", f"front latency breached target: {detail}"
+
+
+def classify_middle_manager_check(
+    senses: dict[str, Any] | None, conversation: list[str]
+) -> tuple[str, str]:
+    """Grade the middle-manager proof (t9 / spec h11+h14) from evidence alone.
+
+    Machine-checkable from the artifact + transcript, no human judgment: the
+    ``senses`` payload must contain the ACK chat entry (rendered as its
+    ``senses:`` transcript line), at least one PROACTIVE-UPDATE record with a
+    rendered non-degraded update line, the folded chat, and a non-degraded
+    SPEAK-BACK record (the conversational answer). A fixed-notice ack still
+    passes — that is the honest degrade path (h2) — but is named in the
+    detail. Anything missing FAILs naming the absent beat; never a fabricated
+    pass.
+    """
+    if not senses:
+        return "failed", "no senses block recorded — the middle-manager lane never armed"
+    chat = senses.get("chat", [])
+    records = senses.get("records", [])
+    senses_lines = [line for line in conversation if line.startswith("senses: ")]
+
+    acks = [e for e in chat if e.get("kind") == "ack"]
+    if not acks:
+        return "failed", "beat missing: no ack chat entry recorded (c9)"
+    ack_text = acks[0].get("text", "")
+    if f"senses: {ack_text}" not in conversation:
+        return "failed", "beat missing: ack recorded but never rendered in the transcript"
+
+    update_records = [r for r in records if r.get("point") == "senses-update"]
+    if not update_records:
+        return "failed", "beat missing: no proactive-update record (c10)"
+    rendered_updates = [
+        e
+        for e in chat
+        if e.get("kind") == "update" and e.get("text") and f"senses: {e['text']}" in conversation
+    ]
+    if not rendered_updates:
+        return (
+            "failed",
+            "beat missing: updates fired but none rendered a transcript line "
+            "(all degraded or capped)",
+        )
+
+    speakbacks = [r for r in records if r.get("point") == "senses-speakback"]
+    if not speakbacks or all(r.get("degraded") for r in speakbacks):
+        return "failed", "beat missing: no non-degraded speak-back (conversational answer)"
+
+    ack_note = " (fixed dispatch notice)" if acks[0].get("fixed") else " (senses' own words)"
+    return (
+        "passed",
+        f"all beats observed: ack{ack_note}, {len(rendered_updates)} rendered "
+        f"update(s) of {len(update_records)} fired, conversational answer; "
+        f"{len(senses_lines)} senses: transcript line(s), chat folded "
+        f"({len(chat)} entr(ies))",
+    )
 
 
 def _reachable(repo: str | Path) -> tuple[bool, str | None]:

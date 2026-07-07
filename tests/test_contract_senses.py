@@ -136,6 +136,83 @@ def test_context_packet_from_dict_stringifies_non_string_list_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ContextPacket.ack: the senses-authored acknowledgment line riding the SAME
+# intake completion (talking-to-one arc, task t5). Optional, omit-when-None.
+# ---------------------------------------------------------------------------
+
+
+def test_context_packet_ack_defaults_to_none() -> None:
+    packet = ContextPacket(original="fix the bug")
+    assert packet.ack is None
+
+
+def test_context_packet_to_dict_omits_ack_when_none() -> None:
+    """A packet without an ack serializes with no 'ack' key — byte-identical
+    to before this field existed."""
+    packet = ContextPacket(original="fix the bug", interpretation="fix it", confidence=0.5)
+    serialized = packet.to_dict()
+    assert "ack" not in serialized
+
+
+def test_context_packet_to_dict_includes_ack_when_set() -> None:
+    packet = ContextPacket(
+        original="fix the bug",
+        interpretation="fix the off-by-one",
+        confidence=0.8,
+        ack="Got it — fixing the off-by-one in the paginator. Handing this to cortex now.",
+    )
+    serialized = packet.to_dict()
+    assert serialized["ack"] == (
+        "Got it — fixing the off-by-one in the paginator. Handing this to cortex now."
+    )
+
+
+def test_context_packet_round_trips_with_ack() -> None:
+    packet = ContextPacket(
+        original="ship it",
+        interpretation="ship the release",
+        confidence=0.7,
+        task_type="chore",
+        omissions=["target env"],
+        ack="On it — shipping the release, cortex is taking over.",
+    )
+    reloaded = ContextPacket.from_dict(json.loads(json.dumps(packet.to_dict())))
+    assert reloaded == packet
+    assert reloaded.ack == packet.ack
+
+
+def test_context_packet_from_dict_tolerates_missing_ack() -> None:
+    """A pre-arc artifact with no 'ack' key at all loads with ack=None."""
+    packet = ContextPacket.from_dict({"original": "x"})
+    assert packet.ack is None
+
+
+def test_context_packet_from_dict_reads_none_ack() -> None:
+    """An explicit 'ack': null loads back as None, never raises."""
+    packet = ContextPacket.from_dict({"original": "x", "ack": None})
+    assert packet.ack is None
+
+
+def test_context_packet_from_dict_coerces_ack() -> None:
+    """A malformed artifact's 'ack' must not crash downstream.
+
+    ``session.py``'s ``_render_ack`` does ``(ack or "").strip()``, which
+    raises ``AttributeError`` on a truthy non-string ack (e.g. a number or
+    dict) — ``from_dict`` must defensively coerce ``ack`` the same way it
+    already coerces ``confidence`` and ``omissions``."""
+    assert ContextPacket.from_dict({"original": "x", "ack": 123}).ack is None
+    assert ContextPacket.from_dict({"original": "x", "ack": {"a": 1}}).ack is None
+    assert ContextPacket.from_dict({"original": "x", "ack": ""}).ack is None
+    assert ContextPacket.from_dict({"original": "x", "ack": "  hi  "}).ack == "hi"
+    assert ContextPacket.from_dict({"original": "x", "ack": "on it"}).ack == "on it"
+
+    long_ack = "z" * 600
+    truncated = ContextPacket.from_dict({"original": "x", "ack": long_ack}).ack
+    assert truncated is not None
+    assert len(truncated) == 500
+
+
+# ---------------------------------------------------------------------------
 # SensesRecord dataclass: mirrors DeepthinkCall {point, tokens, duration,
 # degraded} with `latency` in place of `duration`.
 # ---------------------------------------------------------------------------
@@ -181,6 +258,16 @@ def test_senses_record_from_dict_tolerates_unparseable_numbers() -> None:
     assert rec == SensesRecord(point="interpret", latency=None, tokens=None, degraded=True)
 
 
+def test_senses_record_point_proactive_update_round_trips() -> None:
+    """``point`` is free-form (talking-to-one arc, task t5): a proactive
+    progress-update invocation is recorded with ``point="proactive-update"``
+    and round-trips like any other point label — no field changes needed."""
+    rec = SensesRecord(point="proactive-update", latency=1.1, tokens=88, degraded=False)
+    reloaded = SensesRecord.from_dict(json.loads(json.dumps(rec.to_dict())))
+    assert reloaded == rec
+    assert reloaded.point == "proactive-update"
+
+
 # ---------------------------------------------------------------------------
 # SensesBlock dataclass: {mode, packet, records}.
 # ---------------------------------------------------------------------------
@@ -207,6 +294,202 @@ def test_senses_block_round_trips_through_json() -> None:
     )
     reloaded = SensesBlock.from_dict(json.loads(json.dumps(block.to_dict())))
     assert reloaded == block
+
+
+# ---------------------------------------------------------------------------
+# SensesBlock.chat entry `kind` convention (talking-to-one arc, task t5):
+# a chat entry MAY carry "kind" — "talk" (implied when absent, today's
+# entries), "ack", "update", "clarify" — so ack/update/clarify exchanges fold
+# into the SAME chat list as talk-lane exchanges. `chat` stays a list of plain
+# dicts; serialization passes every entry through verbatim regardless of
+# whether it carries "kind" — this is a documented convention, not a schema
+# change, so these tests pin the round-trip, not new (de)serialization code.
+# ---------------------------------------------------------------------------
+
+
+def test_senses_block_chat_entry_without_kind_round_trips_unchanged() -> None:
+    """Today's talk-lane shape (no explicit "kind") is untouched — "talk" is
+    only ever IMPLIED, never injected by serialization."""
+    block = SensesBlock(
+        mode="split",
+        packet=_packet(),
+        chat=[
+            {
+                "message": "how's it going?",
+                "answer": "still reading the paginator module.",
+                "relay": False,
+                "relay_text": None,
+                "latency": 0.8,
+                "degraded": False,
+                "at": 12.5,
+            }
+        ],
+    )
+    reloaded = SensesBlock.from_dict(json.loads(json.dumps(block.to_dict())))
+    assert reloaded == block
+    assert "kind" not in reloaded.chat[0]
+
+
+def test_senses_block_chat_entry_kind_ack_round_trips() -> None:
+    block = SensesBlock(
+        mode="split",
+        packet=_packet(),
+        chat=[
+            {
+                "kind": "ack",
+                "message": "fix the paginator bug",
+                "answer": "Got it — fixing the off-by-one. Handing this to cortex now.",
+                "at": 0.1,
+            }
+        ],
+    )
+    reloaded = SensesBlock.from_dict(json.loads(json.dumps(block.to_dict())))
+    assert reloaded == block
+    assert reloaded.chat[0]["kind"] == "ack"
+    assert reloaded.chat[0]["answer"] == (
+        "Got it — fixing the off-by-one. Handing this to cortex now."
+    )
+
+
+def test_senses_block_chat_entry_kind_update_round_trips() -> None:
+    block = SensesBlock(
+        mode="split",
+        packet=_packet(),
+        chat=[
+            {
+                "kind": "update",
+                "answer": "Still working through the paginator tests — 3 of 5 files edited.",
+                "latency": 1.2,
+                "degraded": False,
+                "at": 40.0,
+            }
+        ],
+    )
+    reloaded = SensesBlock.from_dict(json.loads(json.dumps(block.to_dict())))
+    assert reloaded == block
+    assert reloaded.chat[0]["kind"] == "update"
+
+
+def test_senses_block_chat_entry_kind_clarify_round_trips() -> None:
+    block = SensesBlock(
+        mode="split",
+        packet=_packet(),
+        chat=[
+            {
+                "kind": "clarify",
+                "message": "Which module should I touch?",
+                "answer": "the paginator module",
+                "at": 0.2,
+            }
+        ],
+    )
+    reloaded = SensesBlock.from_dict(json.loads(json.dumps(block.to_dict())))
+    assert reloaded == block
+    assert reloaded.chat[0]["kind"] == "clarify"
+
+
+def test_senses_block_chat_mixes_kinds_and_preserves_order() -> None:
+    """A single chat list folds ack/update/clarify/talk entries together, in
+    the order they occurred — the whole exchange reconstructable from one list."""
+    block = SensesBlock(
+        mode="split",
+        packet=_packet(),
+        chat=[
+            {"kind": "ack", "answer": "Got it, handing to cortex.", "at": 0.1},
+            {"kind": "update", "answer": "2 of 5 files done.", "at": 30.0},
+            {
+                "message": "how's it going?",
+                "answer": "still going.",
+                "relay": False,
+                "at": 45.0,
+            },
+            {"kind": "update", "answer": "4 of 5 files done.", "at": 60.0},
+        ],
+    )
+    reloaded = SensesBlock.from_dict(json.loads(json.dumps(block.to_dict())))
+    assert reloaded == block
+    assert [entry.get("kind", "talk") for entry in reloaded.chat] == [
+        "ack",
+        "update",
+        "talk",
+        "update",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# h14 proof-shaped fixture: the whole operator-senses exchange (ack,
+# proactive updates, folded chat) is reconstructable from the artifact alone,
+# machine-checkable with no human judgment (talking-to-one arc, task t5,
+# covers c8 + h14).
+# ---------------------------------------------------------------------------
+
+
+def test_h14_proof_shaped_artifact_is_machine_checkable_end_to_end() -> None:
+    ack_text = "Got it — fixing the paginator off-by-one. Handing this to cortex now."
+    packet = ContextPacket(
+        original="fix the paginator off-by-one bug",
+        interpretation="fix the off-by-one error in the paginator",
+        confidence=0.85,
+        task_type="bugfix",
+        omissions=["which test file"],
+        ack=ack_text,
+    )
+    block = SensesBlock(
+        mode="split",
+        packet=packet,
+        records=[
+            SensesRecord(point="interpret", latency=0.4, tokens=210, degraded=False),
+            SensesRecord(point="proactive-update", latency=1.1, tokens=64, degraded=False),
+            SensesRecord(point="proactive-update", latency=0.9, tokens=58, degraded=False),
+        ],
+        chat=[
+            {"kind": "ack", "answer": ack_text, "at": 0.1},
+            {
+                "kind": "update",
+                "answer": "2 of 4 files edited so far, tests still to run.",
+                "latency": 1.1,
+                "degraded": False,
+                "at": 25.0,
+            },
+            {
+                "kind": "update",
+                "answer": "All 4 files edited, running the affected tests now.",
+                "latency": 0.9,
+                "degraded": False,
+                "at": 55.0,
+            },
+        ],
+    )
+    result = TaskResult(
+        task_id="h14-proof",
+        status=OK,
+        summary="fixed the paginator off-by-one",
+        senses=block,
+    )
+
+    serialized = result.to_dict()
+
+    # The ack text is readable straight from the artifact.
+    assert serialized["senses"]["packet"]["ack"] == ack_text
+
+    # At least one proactive-update record is present and machine-selectable.
+    update_records = [
+        r for r in serialized["senses"]["records"] if r["point"] == "proactive-update"
+    ]
+    assert len(update_records) == 2
+
+    # The folded chat carries both the ack and the update exchanges, in order,
+    # each machine-selectable by "kind".
+    chat_kinds = [entry["kind"] for entry in serialized["senses"]["chat"]]
+    assert chat_kinds == ["ack", "update", "update"]
+    assert serialized["senses"]["chat"][0]["answer"] == ack_text
+
+    # The whole exchange round-trips byte-for-byte through JSON.
+    reloaded = TaskResult.from_dict(json.loads(json.dumps(serialized)))
+    assert reloaded == result
+    assert reloaded.senses.packet.ack == ack_text
+    assert [r.point for r in reloaded.senses.records].count("proactive-update") == 2
+    assert [entry["kind"] for entry in reloaded.senses.chat] == ["ack", "update", "update"]
 
 
 # ---------------------------------------------------------------------------

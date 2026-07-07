@@ -525,6 +525,15 @@ class ContextPacket:
     omissions:
         What the senses model judged the request left implicit or omitted —
         one short string per gap (e.g. ``"which file"``, ``"acceptance criteria"``).
+    ack:
+        The senses-authored acknowledgment line for this request — produced in
+        the SAME intake completion as the rest of the packet (talking-to-one
+        arc, task t5; the spec's ack-shape decision: zero extra calls, zero
+        extra latency), rendered before cortex's first step. ``None`` when no
+        ack was produced (a degraded intake, or a run that predates this
+        field) — omitted from ``to_dict`` so a packet without an
+        acknowledgment serializes byte-identically to before this field
+        existed.
     """
 
     original: str
@@ -532,15 +541,23 @@ class ContextPacket:
     confidence: float = 0.0
     task_type: str = ""
     omissions: list[str] = field(default_factory=list)
+    ack: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "original": self.original,
             "interpretation": self.interpretation,
             "confidence": self.confidence,
             "task_type": self.task_type,
             "omissions": list(self.omissions),
         }
+        # ack gets the same omit-when-None treatment as the rest of the
+        # contract's optional fields (talking-to-one arc, task t5): a packet
+        # without an acknowledgment serializes byte-identically to before
+        # this field existed.
+        if self.ack is not None:
+            data["ack"] = self.ack
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ContextPacket":
@@ -552,7 +569,13 @@ class ContextPacket:
         coercion — a value that cannot be parsed as ``float`` (e.g. a malformed
         artifact entry) falls back to ``0.0`` rather than raising, matching the
         codebase's best-effort stance on optional structured payloads read back
-        from JSON (see :class:`DeepthinkCall`).
+        from JSON (see :class:`DeepthinkCall`). ``ack`` is defensively coerced
+        via :func:`_coerce_ack` (talking-to-one arc, task t5): a non-string
+        value (absent, explicit ``null``, a number, or a dict from a
+        malformed artifact) degrades to ``None``; a string is stripped of
+        surrounding whitespace (an empty/whitespace-only result also
+        degrading to ``None``) and hard-capped to :data:`_MAX_ACK_LEN`
+        characters.
         """
         raw_confidence = data.get("confidence")
         try:
@@ -565,6 +588,7 @@ class ContextPacket:
             confidence=confidence,
             task_type=str(data.get("task_type", "")),
             omissions=_coerce_omissions(data.get("omissions")),
+            ack=_coerce_ack(data.get("ack")),
         )
 
 
@@ -664,6 +688,20 @@ class SensesBlock:
     # relay, relay_text, latency, degraded, at}``) read from the flight chat log at
     # finish, so the operator's mid-run conversation + relays are reconstructable
     # from the artifact alone (h8 awareness invariant).
+    #
+    # Talking-to-one arc, task t5 (a LATER arc, distinct from the "task t5"
+    # label above): each ``chat`` entry MAY also carry an optional ``"kind"``
+    # key naming which exchange produced it — ``"talk"`` (the live-presence
+    # shape just described; IMPLIED when ``kind`` is absent, so every
+    # pre-existing entry keeps its meaning unchanged), ``"ack"`` (the intake
+    # acknowledgment), ``"update"`` (a proactive progress narration), or
+    # ``"clarify"`` (a clarifying question/answer exchange before dispatch).
+    # This folds ack/update/clarify exchanges into the SAME ordered list as
+    # talk-lane exchanges so the whole operator-senses conversation is
+    # reconstructable from one place. It is a documented convention pinned by
+    # round-trip tests, not a schema change: ``chat`` stays a list of plain
+    # dicts and (de)serialization passes every entry through verbatim
+    # regardless of whether it carries ``kind``.
     injections: list[dict[str, Any]] = field(default_factory=list)
     chat: list[dict[str, Any]] = field(default_factory=list)
 
@@ -1257,6 +1295,34 @@ def _coerce_omissions(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(x) for x in value]
     return []
+
+
+#: Hard cap on ``ContextPacket.ack`` length, mirroring
+#: :data:`colleague.senses._MAX_ACK_LEN` (kept as a standalone literal, not an
+#: import, for the same circular-import reason as :func:`_coerce_ack` below).
+_MAX_ACK_LEN = 500
+
+
+def _coerce_ack(value: Any) -> Optional[str]:
+    """Coerce a raw ``ack`` payload read back from an artifact.
+
+    Mirrors :func:`colleague.senses._coerce_ack` (kept as a standalone copy,
+    not an import, to avoid a circular import: ``colleague.senses`` already
+    imports :class:`ContextPacket` from this module). A non-string value
+    (e.g. a number or dict from a malformed artifact) degrades to ``None``
+    rather than raising downstream — ``session.py``'s ``_render_ack`` does
+    ``(ack or "").strip()``, which would raise ``AttributeError`` on a
+    truthy non-string ack. A string is stripped of surrounding whitespace
+    and hard-capped to :data:`_MAX_ACK_LEN` characters; an empty/whitespace-only
+    result degrades to ``None`` (matching :func:`colleague.senses._coerce_ack`'s
+    "no usable ack is simply absent" stance).
+    """
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return stripped[:_MAX_ACK_LEN]
 
 
 def _coerce_acceptance_outcomes(

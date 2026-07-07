@@ -29,6 +29,8 @@ from colleague.senses import (
     SPEAKBACK_POINT,
     run_senses_intake,
     run_senses_speakback,
+    run_senses_talk,
+    run_senses_update,
     senses_engine_config,
 )
 
@@ -205,6 +207,93 @@ class TestIntakeToolsOffAndVerbatimOriginal:
 
 
 # ---------------------------------------------------------------------------
+# ack rides the SAME intake completion (talking-to-one arc, task t1)
+# ---------------------------------------------------------------------------
+
+
+class TestIntakeAck:
+    """``run_senses_intake`` returns a senses-authored ``ack`` alongside the
+    packet, sourced from the SAME single completion (zero extra calls, zero
+    extra latency — the spec's ack-shape decision)."""
+
+    def test_ack_parsed_from_the_same_completion_zero_extra_calls(self) -> None:
+        reply = (
+            '{"interpretation": "add a retry to the uploader", "confidence": 0.8, '
+            '"task_type": "feature", "omissions": ["which backoff"], '
+            '"ack": "Got it — you want a retry added to the uploader; handing this '
+            'to cortex now."}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=5, completion_tokens=9))
+
+        packet, record = run_senses_intake("add a retry to the uploader", _senses_config(), fake)
+
+        # exactly ONE completion issued — the ack rides it, no second call.
+        assert fake.make_complete_calls == [[]]
+        assert fake.complete_call_count == 1
+        assert packet is not None
+        assert record.degraded is False
+        assert (
+            packet.ack
+            == "Got it — you want a retry added to the uploader; handing this to cortex now."
+        )
+
+    def test_ack_taken_verbatim_from_the_model_reply(self) -> None:
+        """h2 grounding pin: the ack is exactly the model's own wording (modulo
+        strip/cap) — no code path invents ack content absent from the reply."""
+        exact_wording = "Understood — deflaking the widget test; cortex is on it."
+        reply = (
+            '{"interpretation": "deflake a test", "confidence": 0.7, '
+            f'"task_type": "bugfix", "omissions": [], "ack": "{exact_wording}"}}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=3))
+
+        packet, _ = run_senses_intake("fix the flaky test", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.ack == exact_wording
+
+    def test_ack_missing_defaults_to_none_back_compat(self) -> None:
+        """A reply with no ``ack`` key (today's shape) leaves ``packet.ack``
+        ``None`` — byte-identical to before this field existed."""
+        fake = _FakeEngine()  # _INTAKE_JSON module fixture carries no "ack" key
+        packet, record = run_senses_intake("add a retry to the uploader", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.ack is None
+        assert record.degraded is False
+
+    def test_ack_is_stripped_and_hard_capped(self) -> None:
+        overlong = "x" * 800
+        reply = (
+            '{"interpretation": "i", "confidence": 0.5, "task_type": "feature", '
+            f'"omissions": [], "ack": "   {overlong}   "}}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+        packet, _ = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is not None
+        assert packet.ack is not None
+        assert len(packet.ack) <= 500
+        assert not packet.ack.startswith(" ") and not packet.ack.endswith(" ")
+        assert packet.ack == "x" * 500
+
+    def test_non_string_ack_is_ignored(self) -> None:
+        for bogus_ack in ('"ack": 3.14', '"ack": ["a", "b"]', '"ack": null'):
+            reply = (
+                '{"interpretation": "i", "confidence": 0.5, "task_type": "feature", '
+                f'"omissions": [], {bogus_ack}}}'
+            )
+            fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+            packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+            assert packet is not None
+            assert packet.ack is None
+            assert record.degraded is False
+
+
+# ---------------------------------------------------------------------------
 # (3) degrade-never-raise — intake keeps the raw request
 # ---------------------------------------------------------------------------
 
@@ -249,6 +338,42 @@ class TestIntakeDegrades:
         assert record.degraded is True
         assert record.point == INTAKE_POINT
         assert record.latency is not None and record.latency >= 0
+
+    def test_degraded_intake_never_carries_an_ack(self) -> None:
+        """No ack from anywhere on a degraded intake (talking-to-one, task t1).
+
+        The packet is None on every degradation path, so there is structurally
+        no ``packet.ack`` to inspect — senses.py never synthesizes a fallback
+        ack itself; a caller-side fixed dispatch notice is a LATER task's job
+        (t6), not this module's.
+        """
+        for fake in (
+            _FakeEngine(raise_on_complete=ConnectionError("refused")),
+            _FakeEngine(ModelResponse(content="no JSON here at all", prompt_tokens=1)),
+            _FakeEngine(ModelResponse(content="", reasoning="")),
+        ):
+            packet, record = run_senses_intake("do it", _senses_config(), fake)
+            assert packet is None
+            assert record.degraded is True
+
+    def test_ack_present_but_interpretation_missing_degrades_exactly_as_today(self) -> None:
+        """An ``ack`` alongside a reply with no ``interpretation`` key behaves
+        exactly like today's no-``ack`` case: no required-key is enforced on
+        ``interpretation`` (unchanged by this task), so the packet still comes
+        back clean with an empty interpretation — ``ack`` parsing is additive,
+        never a new failure mode."""
+        reply = (
+            '{"confidence": 0.4, "task_type": "docs", "omissions": [], '
+            '"ack": "Got it, handing this to cortex now."}'
+        )
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+        packet, record = run_senses_intake("do it", _senses_config(), fake)
+
+        assert packet is not None
+        assert record.degraded is False
+        assert packet.interpretation == ""  # unchanged from today's default
+        assert packet.ack == "Got it, handing this to cortex now."
 
 
 # ---------------------------------------------------------------------------
@@ -344,3 +469,473 @@ def test_senses_module_has_no_io_surface() -> None:
         "import subprocess",
     ):
         assert forbidden not in source, f"senses.py must not use {forbidden!r}"
+
+
+# ---------------------------------------------------------------------------
+# run_senses_update — proactive progress narration (task t3)
+# ---------------------------------------------------------------------------
+
+
+class TestSensesUpdate:
+    """Tests for :func:`run_senses_update` — proactive progress narration."""
+
+    def test_exactly_one_completion_no_tool_schema(self) -> None:
+        """A senses update request NEVER carries a tool schema — make_complete gets []."""
+        reply = '{"update": "I am currently running the test suite."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=3, completion_tokens=5))
+
+        result = run_senses_update(
+            ["ran pytest: 42 tests passed"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert fake.make_complete_calls == [[]]
+        assert fake.complete_call_count == 1
+        assert result is not None
+        assert result["degraded"] is False
+
+    def test_prompt_contains_feed_tail_and_respects_budget(self) -> None:
+        """The prompt carries the provided feed-tail lines and windowing respects
+        senses' context_budget."""
+        reply = '{"update": "Processing feed lines."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=4))
+        budget = 2000
+        config = _senses_config(context_budget_tokens=budget)
+
+        result = run_senses_update(
+            ["step 1: wrote foo.py", "step 2: ran tests"],
+            None,
+            config,
+            fake,
+        )
+
+        assert result is not None
+        assert result["degraded"] is False
+        sent = fake.captured_messages
+        assert sent is not None
+        user_content = sent[-1]["content"]
+        # The feed lines must appear in the prompt.
+        assert "step 1: wrote foo.py" in user_content
+        assert "step 2: ran tests" in user_content
+        # Windowing respects the send budget.
+        send_budget = budget - budget // 4
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+
+    def test_prompt_carries_packet_interpretation_when_present(self) -> None:
+        """With a packet, the prompt names what the run is ABOUT (integrator pin):
+        the interpretation augments the feed, it never substitutes for it."""
+        reply = '{"update": "Still reading the config module."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=4))
+        packet = ContextPacket(
+            original="tidy the config module",
+            interpretation="refactor config loading for clarity",
+        )
+
+        result = run_senses_update(
+            ["step 3: read config.py"],
+            packet,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        user_content = fake.captured_messages[-1]["content"]
+        assert "refactor config loading for clarity" in user_content
+        assert "step 3: read config.py" in user_content
+
+    def test_large_packet_interpretation_stays_within_send_budget(self) -> None:
+        """Regression: the ``about`` line built from ``packet.interpretation``
+        is UNBOUNDED, so a long-winded interpretation must not push the
+        assembled prompt over the send budget. The whole prompt (about +
+        feed header + feed) is windowed as ONE unit before history folding —
+        never the feed alone with ``about`` appended afterward — so a huge
+        interpretation can't sneak the prompt past budget."""
+        reply = '{"update": "still going."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+        packet = ContextPacket(
+            original="tidy the config module",
+            interpretation="refactor config loading for clarity, " * 200,
+        )
+        budget = 2000
+        config = _senses_config(context_budget_tokens=budget)
+
+        result = run_senses_update(
+            ["step 1: wrote foo.py", "step 2: ran tests"],
+            packet,
+            config,
+            fake,
+        )
+
+        assert result is not None
+        assert result["degraded"] is False
+        sent = fake.captured_messages
+        assert sent is not None
+        send_budget = budget - budget // 4
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+
+    def test_stub_reply_returned_verbatim_as_update(self) -> None:
+        """A stub reply is returned verbatim as 'update' (modulo strip)."""
+        exact = "I just finished linting three files and all checks passed."
+        reply = f'{{"update": "{exact}"}}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=6))
+
+        result = run_senses_update(
+            ["linted file_a.py, file_b.py, file_c.py"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["update"] == exact
+        assert result["degraded"] is False
+
+    def test_error_stub_degrades_without_raising(self) -> None:
+        """Error/empty-content stub degrades to {'update': None, 'degraded': True}."""
+        fake = _FakeEngine(raise_on_complete=ConnectionError("connection refused"))
+
+        result = run_senses_update(
+            ["some feed line"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["update"] is None
+        assert result["degraded"] is True
+        assert result["tokens"] is None
+        assert result["latency"] is not None and result["latency"] >= 0
+
+    def test_empty_content_degrades(self) -> None:
+        """Empty content from the model degrades gracefully."""
+        fake = _FakeEngine(ModelResponse(content="", reasoning=""))
+
+        result = run_senses_update(
+            ["some feed line"],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["update"] is None
+        assert result["degraded"] is True
+
+    def test_empty_feed_tail_still_completes(self) -> None:
+        """Empty feed_tail still completes with the prompt instructing nothing-new honesty."""
+        reply = '{"update": "There is nothing new in the feed."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=2, completion_tokens=4))
+
+        result = run_senses_update(
+            [],
+            None,
+            _senses_config(),
+            fake,
+        )
+
+        assert result is not None
+        assert result["degraded"] is False
+        assert result["update"] == "There is nothing new in the feed."
+        sent = fake.captured_messages
+        assert sent is not None
+        user_content = sent[-1]["content"]
+        assert "(no feed yet)" in user_content
+
+    def test_none_senses_config_returns_none(self) -> None:
+        """When senses_config is None, run_senses_update returns None cleanly."""
+        result = run_senses_update(
+            ["some line"],
+            None,
+            None,
+            _FakeEngine(),
+        )
+
+        assert result is None
+
+    def test_none_engine_returns_none(self) -> None:
+        """When engine is None, run_senses_update returns None cleanly."""
+        result = run_senses_update(
+            ["some line"],
+            None,
+            _senses_config(),
+            None,
+        )
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# conversation continuity — rolling history threaded into every senses call
+# (talking-to-one arc, task t4)
+# ---------------------------------------------------------------------------
+
+
+class TestSensesHistory:
+    """All four invocation functions (:func:`run_senses_intake`,
+    :func:`run_senses_speakback`, :func:`run_senses_talk`,
+    :func:`run_senses_update`) accept an optional keyword-only ``history`` —
+    a rolling record of prior operator/senses exchanges — folded into the
+    user prompt BEFORE the function's own existing payload, windowed
+    (oldest-entries-dropped-first) to the senses model's own budget. Absent
+    or empty history produces a byte-identical prompt to before this
+    parameter existed."""
+
+    _HISTORY = [
+        {"role": "operator", "text": "please fix the flaky test"},
+        {"role": "senses", "text": "Got it, handing this to cortex."},
+        {"role": "operator", "text": "also check the timeout"},
+    ]
+
+    # -- (a) history lines appear oldest-first, labeled, for all four fns --
+
+    def test_intake_prompt_carries_history_oldest_first_before_payload(self) -> None:
+        fake = _FakeEngine()
+
+        run_senses_intake(
+            "add a retry to the uploader", _senses_config(), fake, history=self._HISTORY
+        )
+
+        user_content = fake.captured_messages[-1]["content"]
+        assert "operator: please fix the flaky test" in user_content
+        assert "senses: Got it, handing this to cortex." in user_content
+        assert "operator: also check the timeout" in user_content
+        # oldest first ...
+        assert user_content.index("please fix the flaky test") < user_content.index(
+            "also check the timeout"
+        )
+        # ... and history precedes the function's own payload (the request text).
+        assert user_content.index("also check the timeout") < user_content.index(
+            "add a retry to the uploader"
+        )
+
+    def test_speakback_prompt_carries_history_oldest_first_before_payload(self) -> None:
+        fake = _FakeEngine(
+            ModelResponse(content="Done! Added a retry.", prompt_tokens=1, completion_tokens=1)
+        )
+
+        run_senses_speakback(
+            "wrote uploader.py; added retry", _senses_config(), fake, history=self._HISTORY
+        )
+
+        user_content = fake.captured_messages[-1]["content"]
+        assert "operator: please fix the flaky test" in user_content
+        assert "operator: also check the timeout" in user_content
+        assert user_content.index("please fix the flaky test") < user_content.index(
+            "also check the timeout"
+        )
+        assert user_content.index("also check the timeout") < user_content.index(
+            "wrote uploader.py"
+        )
+
+    def test_talk_prompt_carries_history_oldest_first_before_payload(self) -> None:
+        reply = '{"answer": "ok", "relay": false, "relay_text": ""}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+        config = _senses_config()
+
+        record = run_senses_talk(
+            "how's it going?",
+            feed_tail="[edit_file] uploader.py",
+            packet=None,
+            task_state=None,
+            senses_config=config,
+            make_complete=fake.make_complete,
+            make_count_tokens=fake.make_count_tokens(config),
+            history=self._HISTORY,
+        )
+
+        assert record is not None
+        assert record["degraded"] is False
+        user_content = fake.captured_messages[-1]["content"]
+        assert "operator: please fix the flaky test" in user_content
+        assert "operator: also check the timeout" in user_content
+        assert user_content.index("please fix the flaky test") < user_content.index(
+            "also check the timeout"
+        )
+        assert user_content.index("also check the timeout") < user_content.index("how's it going?")
+
+    def test_update_prompt_carries_history_oldest_first_before_payload(self) -> None:
+        reply = '{"update": "still working on it."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+
+        run_senses_update(
+            ["step 1: wrote foo.py"],
+            None,
+            _senses_config(),
+            fake,
+            history=self._HISTORY,
+        )
+
+        user_content = fake.captured_messages[-1]["content"]
+        assert "operator: please fix the flaky test" in user_content
+        assert "operator: also check the timeout" in user_content
+        assert user_content.index("please fix the flaky test") < user_content.index(
+            "also check the timeout"
+        )
+        assert user_content.index("also check the timeout") < user_content.index(
+            "step 1: wrote foo.py"
+        )
+
+    # -- (b) oldest-first dropping under a tight budget ---------------------
+
+    def test_intake_drops_oldest_history_first_under_tight_budget(self) -> None:
+        """Newest entry survives; oldest dropped; the primary payload (the
+        operator's request) always survives — mirrors the send-budget
+        arithmetic ``_window_text`` already uses elsewhere in this module."""
+        history = [
+            {"role": "operator", "text": "OLDEST-MARKER-" + "a" * 200},
+            {"role": "senses", "text": "MIDDLE-MARKER-" + "b" * 200},
+            {"role": "operator", "text": "NEWEST-MARKER-" + "c" * 200},
+        ]
+        fake = _FakeEngine()
+        # Room for the system prompt + "do it" comfortably, but not enough
+        # left over for all three history entries.
+        budget = 1800
+        config = _senses_config(context_budget_tokens=budget)
+
+        packet, record = run_senses_intake("do it", config, fake, history=history)
+
+        assert record.degraded is False
+        sent = fake.captured_messages
+        user_content = sent[-1]["content"]
+        assert "do it" in user_content  # the primary payload always survives
+        assert "NEWEST-MARKER" in user_content  # newest entry survives
+        assert "OLDEST-MARKER" not in user_content  # oldest entry dropped first
+        send_budget = budget - budget // 4
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+
+    def test_update_drops_oldest_history_first_under_tight_budget(self) -> None:
+        """Same oldest-first drop contract on run_senses_update's feed-shaped
+        primary payload (a list of lines, not a single text blob)."""
+        history = [
+            {"role": "operator", "text": "OLDEST-MARKER-" + "a" * 200},
+            {"role": "senses", "text": "MIDDLE-MARKER-" + "b" * 200},
+            {"role": "operator", "text": "NEWEST-MARKER-" + "c" * 200},
+        ]
+        reply = '{"update": "still going."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+        budget = 1500
+        config = _senses_config(context_budget_tokens=budget)
+
+        result = run_senses_update(["step 1: wrote foo.py"], None, config, fake, history=history)
+
+        assert result is not None
+        assert result["degraded"] is False
+        sent = fake.captured_messages
+        user_content = sent[-1]["content"]
+        assert "step 1: wrote foo.py" in user_content  # primary payload survives
+        assert "NEWEST-MARKER" in user_content  # newest entry survives
+        assert "OLDEST-MARKER" not in user_content  # oldest entry dropped first
+        send_budget = budget - budget // 4
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+
+    # -- (c) history=None/[] byte-identical pin, for all four functions -----
+
+    def test_intake_history_none_or_empty_is_byte_identical(self) -> None:
+        baseline = _FakeEngine()
+        run_senses_intake("add a retry to the uploader", _senses_config(), baseline)
+
+        without_kwarg = baseline.captured_messages
+
+        for history in (None, []):
+            fake = _FakeEngine()
+            run_senses_intake(
+                "add a retry to the uploader", _senses_config(), fake, history=history
+            )
+            assert fake.captured_messages == without_kwarg
+
+    def test_speakback_history_none_or_empty_is_byte_identical(self) -> None:
+        def _response():
+            return ModelResponse(content="Done!", prompt_tokens=1, completion_tokens=1)
+
+        baseline = _FakeEngine(_response())
+        run_senses_speakback("wrote uploader.py; added retry", _senses_config(), baseline)
+        without_kwarg = baseline.captured_messages
+
+        for history in (None, []):
+            fake = _FakeEngine(_response())
+            run_senses_speakback(
+                "wrote uploader.py; added retry", _senses_config(), fake, history=history
+            )
+            assert fake.captured_messages == without_kwarg
+
+    def test_talk_history_none_or_empty_is_byte_identical(self) -> None:
+        reply = '{"answer": "ok", "relay": false, "relay_text": ""}'
+        config = _senses_config()
+
+        def _response():
+            return ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1)
+
+        baseline = _FakeEngine(_response())
+        run_senses_talk(
+            "how's it going?",
+            feed_tail="[edit_file] uploader.py",
+            packet=None,
+            task_state=None,
+            senses_config=config,
+            make_complete=baseline.make_complete,
+            make_count_tokens=baseline.make_count_tokens(config),
+        )
+        without_kwarg = baseline.captured_messages
+
+        for history in (None, []):
+            fake = _FakeEngine(_response())
+            run_senses_talk(
+                "how's it going?",
+                feed_tail="[edit_file] uploader.py",
+                packet=None,
+                task_state=None,
+                senses_config=config,
+                make_complete=fake.make_complete,
+                make_count_tokens=fake.make_count_tokens(config),
+                history=history,
+            )
+            assert fake.captured_messages == without_kwarg
+
+    def test_update_history_none_or_empty_is_byte_identical(self) -> None:
+        def _response():
+            return ModelResponse(content='{"update": "ok"}', prompt_tokens=1, completion_tokens=1)
+
+        baseline = _FakeEngine(_response())
+        run_senses_update(["step 1: wrote foo.py"], None, _senses_config(), baseline)
+        without_kwarg = baseline.captured_messages
+
+        for history in (None, []):
+            fake = _FakeEngine(_response())
+            run_senses_update(
+                ["step 1: wrote foo.py"], None, _senses_config(), fake, history=history
+            )
+            assert fake.captured_messages == without_kwarg
+
+    # -- (d) a malformed history entry is skipped defensively, never raises -
+
+    def test_malformed_history_entries_are_skipped_defensively(self) -> None:
+        malformed_history = [
+            {"role": "operator", "text": "valid oldest entry"},
+            {"role": "narrator", "text": "unknown role, must be skipped"},
+            {"role": "operator"},  # missing "text"
+            {"role": "senses", "text": ""},  # blank text
+            {"role": "senses", "text": "   "},  # whitespace-only text
+            "not-even-a-dict",
+            {"role": "senses", "text": 42},  # non-string text
+            {"role": "senses", "text": "valid newest entry"},
+        ]
+        fake = _FakeEngine()
+
+        # Must not raise despite the garbage entries mixed in.
+        packet, record = run_senses_intake(
+            "do it", _senses_config(), fake, history=malformed_history
+        )
+
+        assert record.degraded is False
+        user_content = fake.captured_messages[-1]["content"]
+        assert "operator: valid oldest entry" in user_content
+        assert "senses: valid newest entry" in user_content
+        assert "unknown role, must be skipped" not in user_content
+        assert "narrator:" not in user_content
