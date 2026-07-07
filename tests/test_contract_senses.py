@@ -193,6 +193,25 @@ def test_context_packet_from_dict_reads_none_ack() -> None:
     assert packet.ack is None
 
 
+def test_context_packet_from_dict_coerces_ack() -> None:
+    """A malformed artifact's 'ack' must not crash downstream.
+
+    ``session.py``'s ``_render_ack`` does ``(ack or "").strip()``, which
+    raises ``AttributeError`` on a truthy non-string ack (e.g. a number or
+    dict) — ``from_dict`` must defensively coerce ``ack`` the same way it
+    already coerces ``confidence`` and ``omissions``."""
+    assert ContextPacket.from_dict({"original": "x", "ack": 123}).ack is None
+    assert ContextPacket.from_dict({"original": "x", "ack": {"a": 1}}).ack is None
+    assert ContextPacket.from_dict({"original": "x", "ack": ""}).ack is None
+    assert ContextPacket.from_dict({"original": "x", "ack": "  hi  "}).ack == "hi"
+    assert ContextPacket.from_dict({"original": "x", "ack": "on it"}).ack == "on it"
+
+    long_ack = "z" * 600
+    truncated = ContextPacket.from_dict({"original": "x", "ack": long_ack}).ack
+    assert truncated is not None
+    assert len(truncated) == 500
+
+
 # ---------------------------------------------------------------------------
 # SensesRecord dataclass: mirrors DeepthinkCall {point, tokens, duration,
 # degraded} with `latency` in place of `duration`.

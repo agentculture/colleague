@@ -200,6 +200,27 @@ def test_update_fires_every_n_steps(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_cap_hit_is_recorded_once_never_silent(tmp_path: Path, monkeypatch) -> None:
+    # A POSITIVE cap: the first fire runs a real update, then the cap is reached
+    # mid-run and recorded exactly once — never repeated, never silent (h4).
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    _arm(sess, cadence=UpdateCadence(every_steps=100, max_updates=1))
+    calls = _stub_update(monkeypatch)
+
+    sess._maybe_proactive_update("", "thinking…")  # phase change → fires (under cap)
+    sess._maybe_proactive_update("", "synthesizing…")  # phase change → cap reached, recorded
+    sess._maybe_proactive_update("", "compacting…")  # phase change → cap again, stays silent
+
+    assert len(calls) == 1  # exactly one real senses call before the cap
+    cap_lines = [ln for ln in _conversation_lines(sess) if "update cap reached" in ln]
+    assert len(cap_lines) == 1  # once, never repeated
+    capped_entries = [c for c in sess._senses_chat if c.get("capped")]
+    assert len(capped_entries) == 1  # exactly one capped chat entry
+
+
+def test_cap_zero_hard_disables_updates_no_call_no_cap_line(tmp_path: Path, monkeypatch) -> None:
+    # COLLEAGUE_SENSES_UPDATE_CAP=0 (max_updates=0) is a HARD DISABLE: no senses
+    # call AND no "cap reached" chatter — updates are off entirely, not merely
+    # capped-at-zero-with-a-notice (talking-to-one review fix, Qodo #2).
     sess, _o, _e = _session(tmp_path, view="ansi")
     _arm(sess, cadence=UpdateCadence(every_steps=100, max_updates=0))
     calls = _stub_update(monkeypatch)
@@ -207,12 +228,9 @@ def test_cap_hit_is_recorded_once_never_silent(tmp_path: Path, monkeypatch) -> N
     sess._maybe_proactive_update("", "thinking…")
     sess._maybe_proactive_update("", "synthesizing…")
 
-    assert calls == []  # capped before any senses call
-    cap_lines = [ln for ln in _conversation_lines(sess) if "update cap reached" in ln]
-    assert len(cap_lines) == 1  # once, never repeated
-    assert sess._senses_chat == [
-        {"kind": "update", "capped": True, "at": sess._senses_chat[0]["at"]}
-    ]
+    assert calls == []  # no senses call
+    assert not any("update cap reached" in ln for ln in _conversation_lines(sess))
+    assert sess._senses_chat == []  # no cap chatter recorded at all
 
 
 def test_degraded_update_counts_toward_cap_and_records(tmp_path: Path, monkeypatch) -> None:

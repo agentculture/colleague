@@ -569,10 +569,13 @@ class ContextPacket:
         coercion — a value that cannot be parsed as ``float`` (e.g. a malformed
         artifact entry) falls back to ``0.0`` rather than raising, matching the
         codebase's best-effort stance on optional structured payloads read back
-        from JSON (see :class:`DeepthinkCall`). ``ack`` is read back as-is
-        (absent or explicit ``null`` both degrade to ``None``, matching
-        ``Task.goal``'s ``data.get("goal")`` treatment) — talking-to-one arc,
-        task t5.
+        from JSON (see :class:`DeepthinkCall`). ``ack`` is defensively coerced
+        via :func:`_coerce_ack` (talking-to-one arc, task t5): a non-string
+        value (absent, explicit ``null``, a number, or a dict from a
+        malformed artifact) degrades to ``None``; a string is stripped of
+        surrounding whitespace (an empty/whitespace-only result also
+        degrading to ``None``) and hard-capped to :data:`_MAX_ACK_LEN`
+        characters.
         """
         raw_confidence = data.get("confidence")
         try:
@@ -585,7 +588,7 @@ class ContextPacket:
             confidence=confidence,
             task_type=str(data.get("task_type", "")),
             omissions=_coerce_omissions(data.get("omissions")),
-            ack=data.get("ack"),
+            ack=_coerce_ack(data.get("ack")),
         )
 
 
@@ -1292,6 +1295,34 @@ def _coerce_omissions(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(x) for x in value]
     return []
+
+
+#: Hard cap on ``ContextPacket.ack`` length, mirroring
+#: :data:`colleague.senses._MAX_ACK_LEN` (kept as a standalone literal, not an
+#: import, for the same circular-import reason as :func:`_coerce_ack` below).
+_MAX_ACK_LEN = 500
+
+
+def _coerce_ack(value: Any) -> Optional[str]:
+    """Coerce a raw ``ack`` payload read back from an artifact.
+
+    Mirrors :func:`colleague.senses._coerce_ack` (kept as a standalone copy,
+    not an import, to avoid a circular import: ``colleague.senses`` already
+    imports :class:`ContextPacket` from this module). A non-string value
+    (e.g. a number or dict from a malformed artifact) degrades to ``None``
+    rather than raising downstream — ``session.py``'s ``_render_ack`` does
+    ``(ack or "").strip()``, which would raise ``AttributeError`` on a
+    truthy non-string ack. A string is stripped of surrounding whitespace
+    and hard-capped to :data:`_MAX_ACK_LEN` characters; an empty/whitespace-only
+    result degrades to ``None`` (matching :func:`colleague.senses._coerce_ack`'s
+    "no usable ack is simply absent" stance).
+    """
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return stripped[:_MAX_ACK_LEN]
 
 
 def _coerce_acceptance_outcomes(

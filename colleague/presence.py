@@ -9,6 +9,7 @@ policy only — no I/O, no model calls, no clock.
 
 from __future__ import annotations
 
+import string
 from dataclasses import dataclass
 from typing import Mapping, Tuple
 
@@ -75,9 +76,15 @@ def should_update(
     """Decide whether a proactive update fires at this progress boundary.
 
     Returns ``(True, reason)`` when an update should fire, ``(False, 'cap')``
-    when a fire would have happened but the cap is reached, or ``(False, '')``
-    when no fire condition is met.
+    when a fire would have happened but a positive cap is reached, or
+    ``(False, '')`` when no fire condition is met OR ``cadence.max_updates``
+    is ``<= 0`` — a hard disable (updates turned off entirely) that never
+    emits the ``"cap"`` reason, distinct from reaching a positive cap
+    mid-run.
     """
+    if cadence.max_updates <= 0:
+        return (False, "")
+
     # Determine whether a fire *would* happen and why.
     if phase_changed and cadence.on_phase_change:
         reason: str = "phase-change"
@@ -169,5 +176,12 @@ GO_WORDS = frozenset(
 
 
 def is_go_word(text: str) -> bool:
-    """True iff *text* is an explicit operator go-word (case/punct-insensitive)."""
-    return text.strip().strip(".!,").strip().lower() in GO_WORDS
+    """True iff *text* is an explicit operator go-word (case/punct-insensitive).
+
+    Leading and trailing punctuation (any of ``string.punctuation`` — not
+    just ``.!,``) is stripped from both ends before matching, so ``"go?"``,
+    ``"go ahead?"``, ``"go."``, and ``"  proceed! "`` all match; only the
+    ends are trimmed, so the internal space in a multi-word go-word like
+    ``"go ahead"`` is preserved.
+    """
+    return text.strip().lower().strip(string.punctuation).strip() in GO_WORDS

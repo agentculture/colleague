@@ -546,6 +546,37 @@ class TestSensesUpdate:
         assert "refactor config loading for clarity" in user_content
         assert "step 3: read config.py" in user_content
 
+    def test_large_packet_interpretation_stays_within_send_budget(self) -> None:
+        """Regression: the ``about`` line built from ``packet.interpretation``
+        is UNBOUNDED, so a long-winded interpretation must not push the
+        assembled prompt over the send budget. The whole prompt (about +
+        feed header + feed) is windowed as ONE unit before history folding —
+        never the feed alone with ``about`` appended afterward — so a huge
+        interpretation can't sneak the prompt past budget."""
+        reply = '{"update": "still going."}'
+        fake = _FakeEngine(ModelResponse(content=reply, prompt_tokens=1, completion_tokens=1))
+        packet = ContextPacket(
+            original="tidy the config module",
+            interpretation="refactor config loading for clarity, " * 200,
+        )
+        budget = 2000
+        config = _senses_config(context_budget_tokens=budget)
+
+        result = run_senses_update(
+            ["step 1: wrote foo.py", "step 2: ran tests"],
+            packet,
+            config,
+            fake,
+        )
+
+        assert result is not None
+        assert result["degraded"] is False
+        sent = fake.captured_messages
+        assert sent is not None
+        send_budget = budget - budget // 4
+        total_chars = sum(len(m.get("content") or "") for m in sent)
+        assert total_chars <= send_budget
+
     def test_stub_reply_returned_verbatim_as_update(self) -> None:
         """A stub reply is returned verbatim as 'update' (modulo strip)."""
         exact = "I just finished linting three files and all checks passed."

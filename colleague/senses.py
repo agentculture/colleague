@@ -840,7 +840,6 @@ def run_senses_update(
     senses_config: Optional[EngineConfig],
     engine: "Engine",
     *,
-    point: str = UPDATE_POINT,
     count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
     history: "Optional[list[dict[str, str]]]" = None,
 ) -> Optional[dict[str, Any]]:
@@ -873,8 +872,6 @@ def run_senses_update(
         The senses-pointed :class:`EngineConfig`, or ``None`` (unarmed).
     engine:
         The :class:`~colleague.engine.Engine` instance.
-    point:
-        The invocation-point label (default :data:`UPDATE_POINT`).
     count_tokens:
         Injectable token counter; defaults to
         ``engine.make_count_tokens(senses_config)``.
@@ -901,20 +898,28 @@ def run_senses_update(
             count_tokens if count_tokens is not None else engine.make_count_tokens(senses_config)
         )
         feed_text = "\n".join(feed_tail) if feed_tail else ""
-        windowed_feed = _window_text(
-            feed_text,
-            system_prompt=_UPDATE_SYSTEM_PROMPT,
-            budget=senses_config.context_budget_tokens,
-            count_tokens=counter,
-        )
         # Ground the narration in what the run is ABOUT (the intake packet's
         # interpretation) so a status line names the goal, not just raw feed —
-        # the packet augments the feed, it never substitutes for it.
+        # the packet augments the feed, it never substitutes for it. This
+        # ``about`` line is UNBOUNDED (a model-authored interpretation can run
+        # long), so it must be windowed together with the feed below — never
+        # windowed alone, and never appended after windowing.
         about = ""
         if packet is not None and packet.interpretation:
             about = f"The running work item is about: {packet.interpretation}\n\n"
         user_prompt = (
-            f"{about}Recent flight feed (most recent last):\n" f"{windowed_feed or '(no feed yet)'}"
+            f"{about}Recent flight feed (most recent last):\n{feed_text or '(no feed yet)'}"
+        )
+        # Window the WHOLE assembled prompt (about + header + feed) BEFORE
+        # folding history: ``_fold_history`` only ever drops history entries,
+        # it never trims ``primary_body`` (see its docstring) — so the primary
+        # body must already fit the send budget on its own, or an unbounded
+        # ``about`` line could push the assembled prompt over budget.
+        user_prompt = _window_text(
+            user_prompt,
+            system_prompt=_UPDATE_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
         )
         user_prompt = _fold_history(
             user_prompt,

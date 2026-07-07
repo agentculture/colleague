@@ -25,6 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Stale uv.lock (colleague 1.38.1 bump from #299 had not refreshed the lock, tripping the #149 dirty-tree guard on the first colleague work run)
+- Review fixes (PR #301): `COLLEAGUE_SENSES_UPDATE_CAP=0` is now a true hard disable — `should_update()` returns no "cap" reason and the session emits no "cap reached" chatter (was documented as "disabled entirely" but still logged a one-time cap line); `is_go_word()` strips all trailing/leading punctuation via `string.punctuation` so `go?` / `go ahead?` dispatch immediately (was only `.!,`); `run_senses_update()` windows the WHOLE assembled prompt (goal `about` line + header + feed) before folding history, so an unbounded `packet.interpretation` can no longer push the prompt over the senses budget; `ContextPacket.from_dict()` defensively coerces `ack` (non-string → None, stripped, empty → None, capped at 500 chars) so a malformed artifact never crashes `_render_ack`
+- Lint (SonarCloud): merged implicitly-concatenated strings in `run_senses_update` (S5799), removed the unused `point` parameter from `run_senses_update` (S1172), and narrowed a broad `pytest.raises(Exception)` to `dataclasses.FrozenInstanceError` in `test_presence.py` (S5958)
 
 ## [1.38.1] - 2026-07-07
 

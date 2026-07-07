@@ -4,6 +4,7 @@ Arc: 'talking to colleague feels like talking to one person' (task t2).
 """
 
 import ast
+import dataclasses
 
 import pytest
 
@@ -23,7 +24,7 @@ class TestUpdateCadenceDefaults:
 
     def test_frozen(self):
         c = UpdateCadence()
-        with pytest.raises(Exception):  # dataclasses frozen raises FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             c.every_steps = 1
 
 
@@ -139,21 +140,25 @@ class TestShouldUpdate:
         assert ok is False
         assert reason == "cap"
 
-    def test_cap_zero_blocks_every_fire(self):
+    def test_cap_zero_hard_disables_every_n_with_no_cap_reason(self):
+        # max_updates=0 is a HARD disable — no "cap" chatter, even though an
+        # every-n fire condition is met.
         c = UpdateCadence(max_updates=0)
         ok, reason = should_update(
             c, step_count=8, last_update_step=0, phase_changed=False, updates_sent=0
         )
         assert ok is False
-        assert reason == "cap"
+        assert reason == ""
 
-    def test_cap_zero_blocks_phase_change(self):
+    def test_cap_zero_hard_disables_phase_change_with_no_cap_reason(self):
+        # max_updates=0 is a HARD disable — no "cap" chatter, even though a
+        # phase-change fire condition is met.
         c = UpdateCadence(max_updates=0)
         ok, reason = should_update(
             c, step_count=1, last_update_step=0, phase_changed=True, updates_sent=0
         )
         assert ok is False
-        assert reason == "cap"
+        assert reason == ""
 
     def test_no_fire_no_cap_signal(self):
         c = UpdateCadence(every_steps=8, on_phase_change=False, max_updates=0)
@@ -276,3 +281,14 @@ class TestGoWord:
 
         for text in ("gopher", "going", "use the parser module", "", "go west"):
             assert is_go_word(text) is False, text
+
+    def test_go_words_match_with_question_marks_and_extra_punct(self):
+        from colleague.presence import is_go_word
+
+        for text in ("go?", "go ahead?", "GO.", "  proceed! "):
+            assert is_go_word(text) is True, text
+
+    def test_realistic_clarification_answer_is_not_a_go_word(self):
+        from colleague.presence import is_go_word
+
+        assert is_go_word("auth.py") is False
