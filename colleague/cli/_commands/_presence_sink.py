@@ -58,6 +58,20 @@ find the live feed/chat files during the run (they are nested one level
 down) — a gap in the flight-piloting <-> write-isolation interaction that
 predates this task and is not fixed here (out of scope for t9); see the
 task-t9 report for the concrete repro.
+
+Sibling for the UN-watched foreground case (task t10): :func:`build_foreground_presence`
+is the mirror image for a plain ``colleague work "<task>"`` invocation — no
+``--watch``, no session — which has no flight plane at all to render onto
+(there is nothing for ``colleague flight``/``colleague talk`` to attach to). It
+shares the senses-armed gate above but is invoked only when ``task.watch`` is
+``False`` (the exact inverse of :func:`build_watch_presence`'s gate, so the two
+builders are mutually exclusive by construction — a work item is never
+double-presenced), and renders every ack/update line through a caller-supplied
+callback straight to stderr (``colleague/cli/_commands/work.py`` wires
+``emit_diagnostic``) instead of the flight chat log. Because presence rides
+stderr and a work item's machine-parseable result always rides stdout
+(``colleague/cli/_output.py``'s stdout/stderr split), a ``--json`` invocation's
+stdout stays byte-for-byte parseable regardless of whether this lane fires.
 """
 
 from __future__ import annotations
@@ -67,7 +81,7 @@ import os
 import time
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from colleague import flight
 from colleague.cli._commands._tui_sink import ProgressSink, make_fanout
@@ -216,6 +230,69 @@ def build_watch_presence(
         poll_operator_input=lambda: None,
         feed_tail=lambda: _feed_tail(repo_path, task_id),
         task_state=lambda: _last_task_state(repo_path, task_id),
+    )
+    driver = SensesLoopDriver(
+        senses_config=senses_config,
+        make_complete=engine.make_complete,
+        executor=build_presence_executor(io),
+        make_count_tokens=engine.make_count_tokens(senses_config),
+        initial_rung=RUNG_LOOP,
+    )
+    cadence: UpdateCadence = cadence_from_env(os.environ)
+    return PresenceEngine(driver=driver, io=io, cadence=cadence)
+
+
+def build_foreground_presence(
+    *, task: Task, config: EngineConfig, engine: Any, render: Callable[[str], None]
+) -> Optional[PresenceEngine]:
+    """Build the presence engine for a plain, non-watched foreground work item (t10).
+
+    ``colleague work "<task>"`` with no ``--watch`` and no session — the
+    ordinary one-shot invocation — has no flight plane at all (the loop's
+    ``_arm_flight`` only arms one for ``task.watch``), so this is the SIBLING to
+    :func:`build_watch_presence` for the un-watched case: same two gates
+    (senses armed, not disarmed) MINUS the "is a flight" requirement (inverted:
+    only builds when the task is **not** watched — a watched run stays on the
+    flight-plane path above, never doubled), and an IO that renders straight to
+    the caller-supplied *render* callback (``colleague/cli/_commands/work.py``
+    passes ``emit_diagnostic``, so every beat is a labeled ``senses:`` line on
+    **stderr** — never stdout, so ``--json``'s machine-parseable result stays
+    untouched regardless of this lane).
+
+    A one-shot foreground run has no flight file to read/guide/dispatch through
+    (there is no attached pilot, no local operator stdin to poll mid-turn), so
+    every :class:`~colleague.presence_engine.PresenceIO` callback besides
+    ``render`` is a genuine no-op: ``dispatch_to_cortex``/``append_guidance`` do
+    nothing (cortex is already being driven by the surrounding
+    ``execute_work`` call, same as the watched case), ``poll_operator_input``
+    always returns ``None`` (no live stdin to poll), and ``read_flight``/
+    ``feed_tail``/``task_state`` return empty — there is no feed to read.
+
+    Returns ``None`` (byte-identical) when the run IS a flight (``task.watch``)
+    — that case is :func:`build_watch_presence`'s — or when senses is
+    unarmed/disarmed (``resolve_presence_rung`` resolves to ``"off"``, which
+    covers ``config.senses is None``, ``COLLEAGUE_PRESENCE=off``, and
+    ``--cortex-only``).
+    """
+    if task.watch:
+        return None
+    if resolve_presence_rung(config, repo_path=task.repo_path) == "off":
+        return None
+    senses_config = senses_engine_config(config)
+    if senses_config is None:  # defensive: resolve_presence_rung already implies this
+        return None
+
+    io = PresenceIO(
+        # Cortex is already being driven by the surrounding execute_work call —
+        # nothing left to "dispatch"; the ack chat entry still renders regardless.
+        dispatch_to_cortex=lambda _instruction: None,
+        append_guidance=lambda _text: None,
+        read_flight=lambda: "",
+        render=render,
+        # No local operator stdin for a one-shot foreground run.
+        poll_operator_input=lambda: None,
+        feed_tail=lambda: "",
+        task_state=lambda: None,
     )
     driver = SensesLoopDriver(
         senses_config=senses_config,

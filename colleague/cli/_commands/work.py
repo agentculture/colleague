@@ -35,6 +35,7 @@ from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._presence_sink import (
     ack_packet_for_task,
+    build_foreground_presence,
     build_watch_presence,
     compose_presence_sink,
     fold_presence_snapshot,
@@ -618,10 +619,25 @@ def execute_work(
             # itself is a strict no-op (returns None, byte-identical) when
             # senses is unarmed/disarmed (incl. --cortex-only) or the task is
             # not a flight. Wrapped in suppress: narration must never break cortex.
+            # One-shot foreground presence (presence-default-everywhere arc,
+            # task t10): the sibling for a plain `colleague work "<task>"` —
+            # NOT `--watch`, NOT a session — which has no flight plane at all
+            # for `build_watch_presence` to render onto. `build_foreground_presence`
+            # is gated the other way round (`task.watch` False), so at most one
+            # of the two builders ever returns non-None for a given work item —
+            # never a doubled ack/update. Renders straight to stderr via
+            # `emit_diagnostic` as labeled `senses:` lines; stdout (the `--json`
+            # result stream) is never touched, so presence can never corrupt the
+            # machine-parseable contract.
             presence = None
             if progress_sink is None:
                 with suppress(Exception):
                     presence = build_watch_presence(task=task, config=config, engine=engine)
+                if presence is None:
+                    with suppress(Exception):
+                        presence = build_foreground_presence(
+                            task=task, config=config, engine=engine, render=emit_diagnostic
+                        )
             if presence is not None:
                 with suppress(Exception):
                     presence.acknowledge(ack_packet_for_task(task))
