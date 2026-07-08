@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.1] - 2026-07-08
+
+### Changed
+
+- Preserve eidetic recall reinforcement in the in-repo public memory store
+  (`.eidetic/memory/colleague__public.jsonl`): passive `recall_count` /
+  `last_recall` bumps on three records after the talking-to-one arc (PR #301)
+  merged. Memory-only change — no code touched.
+
 ## [1.39.0] - 2026-07-07
 
 ### Added
