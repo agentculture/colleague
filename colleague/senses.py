@@ -98,6 +98,7 @@ SPEAKBACK_POINT = "senses-speakback"
 MEDIA_BRIDGE_POINT = "media-bridge"
 TALK_POINT = "senses-talk"
 UPDATE_POINT = "senses-update"
+FRONTDOOR_POINT = "senses-frontdoor"
 
 _INTAKE_SYSTEM_PROMPT = (
     "You are the senses lobe for colleague — the perception front door. Read the "
@@ -150,6 +151,20 @@ _UPDATE_SYSTEM_PROMPT = (
     "say exactly that. NEVER invent progress, files, or results not present in the "
     'feed. Reply with ONLY a JSON object of the form: {"update": "..."}. '
     "No prose outside the JSON."
+)
+
+
+_FRONTDOOR_SYSTEM_PROMPT = (
+    "You are the senses lobe for colleague — the front door the operator talks "
+    "to first. Answer the operator's greeting or question about colleague "
+    'itself directly, conversationally, and in the FIRST person ("I" / '
+    '"colleague"), using ONLY the architecture facts given below and the '
+    "operator's own words. Do NOT invent, guess, or assume any architecture or "
+    "identity detail that is not stated in those facts — if the facts don't "
+    "say, say PLAINLY that you don't know and that cortex can check, rather "
+    "than fabricating an answer. This is a front-door answer only: you do not "
+    "act, read, or write anything — cortex does the repo work. Reply with ONLY "
+    'a JSON object of the form: {"answer": "..."}. No prose outside the JSON.'
 )
 
 
@@ -991,3 +1006,134 @@ def make_senses_run(config: EngineConfig, engine_name: str) -> "Optional[SensesR
             )
 
     return bound
+
+
+def run_senses_frontdoor(
+    text: str,
+    *,
+    facts: str,
+    senses_config: Optional[EngineConfig],
+    make_complete: "Callable[..., Callable[[list[dict[str, Any]]], Any]]",
+    make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+    history: "Optional[list[dict[str, str]]]" = None,
+) -> Optional[dict[str, Any]]:
+    """Answer ONE senses-direct turn — a greeting or question about colleague
+    itself — WITHOUT waking cortex (talking-to-one-teammate arc, task t3).
+
+    The structural sibling of :func:`run_senses_talk` for a front-door turn
+    that never touches a running work item: no flight feed, no task state, no
+    relay judgment — just the operator's words grounded against a caller-
+    supplied curated fact-set (:func:`colleague.architecture_facts.
+    load_architecture_facts`, though any string works — this function does
+    not import or depend on that module). Issues exactly ONE tools-off
+    completion against the senses model.
+
+    Tools-off ALWAYS: *make_complete* is invoked as
+    ``make_complete(senses_config, tools=[])`` — an explicit empty tool list,
+    never ``None`` — mirroring :func:`run_senses_talk`. *make_complete* is
+    passed in directly (not a full engine), the same shape as
+    :func:`run_senses_talk`.
+
+    Grounded: the user prompt carries *facts* + *text* verbatim (never
+    trimmed independently — the whole assembled body is windowed together),
+    windowed to *senses_config*'s OWN ``context_budget_tokens`` via
+    :func:`_window_text`, counted via *make_count_tokens* when given, else the
+    zero-dep :func:`~colleague.context.count_tokens_chars` fallback (there is
+    no engine object here to fall back to its own counter — the same
+    ``make_count_tokens if make_count_tokens is not None else
+    count_tokens_chars`` convention as :func:`run_senses_talk`).
+    :data:`_FRONTDOOR_SYSTEM_PROMPT` instructs senses to answer ONLY from the
+    given facts + the operator's words and to say plainly that it doesn't
+    know (deferring to cortex) rather than invent an architecture/identity
+    detail not present in *facts*.
+
+    Conversation continuity: an optional *history* (a list of
+    ``{"role": "operator"|"senses", "text": "..."}`` entries, oldest first)
+    is folded into the user prompt via :func:`_fold_history` the same way as
+    every other senses invocation function; ``None``/``[]`` is byte-identical
+    to omitting it.
+
+    Returns ``None`` when *senses_config* is ``None`` (senses unarmed) — the
+    signal the caller uses to fall back to waking cortex directly. Otherwise
+    NEVER raises: any failure (unreachable endpoint, request error, overflow,
+    empty or unrecoverable content, an empty ``answer`` field) degrades to a
+    record with ``degraded=True`` and a safe, non-fabricated ``answer``.
+
+    Parameters
+    ----------
+    text:
+        The operator's verbatim message (a greeting or a question about
+        colleague itself).
+    facts:
+        The curated architecture/identity fact-set to ground the answer in
+        (typically :func:`colleague.architecture_facts.load_architecture_facts`).
+    senses_config:
+        The senses-pointed :class:`EngineConfig`, or ``None`` (unarmed).
+    make_complete:
+        The ``(config, tools=...) -> CompleteFn`` seam, bound once per turn by
+        the caller (mirrors :func:`run_senses_talk`).
+    make_count_tokens:
+        Injectable token counter; defaults to
+        :func:`~colleague.context.count_tokens_chars`.
+    history:
+        Optional rolling chat history, folded in before the facts+message
+        body via :func:`_fold_history`; ``None``/``[]`` is a strict no-op.
+
+    Returns
+    -------
+    dict | None
+        ``None`` when unarmed. Otherwise
+        ``{"answer": str, "latency": float, "degraded": bool,
+        "tokens": int | None}`` — a plain advisory dict (NOT a
+        :class:`~colleague.contract.SensesRecord`; a caller wraps this into
+        one, tagged :data:`FRONTDOOR_POINT`, for the artifact). ``tokens`` is
+        the exact summed prompt+completion tokens on success, ``None`` on
+        degradation (never estimated).
+    """
+    if senses_config is None:
+        return None
+
+    start = time.monotonic()
+    meter = _TokenMeter()
+    try:
+        counter = make_count_tokens if make_count_tokens is not None else count_tokens_chars
+        primary_body = f"Architecture facts:\n{facts}\n\nOperator's message: {text}"
+        user_prompt = _window_text(
+            primary_body,
+            system_prompt=_FRONTDOOR_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
+        )
+        user_prompt = _fold_history(
+            user_prompt,
+            history,
+            system_prompt=_FRONTDOOR_SYSTEM_PROMPT,
+            budget=senses_config.context_budget_tokens,
+            count_tokens=counter,
+        )
+        # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
+        # front-door answer structurally cannot carry a tool schema on the wire.
+        complete = make_complete(senses_config, tools=[])
+        simple = robust_simple_complete(meter.wrap(complete))
+        raw = simple(_FRONTDOOR_SYSTEM_PROMPT, user_prompt)
+        if not raw.strip():
+            raise ValueError("empty senses frontdoor response")
+        data = _extract_json_object(raw, required_key="answer")
+        answer = str(data.get("answer", "")).strip()
+        if not answer:
+            raise ValueError("empty senses frontdoor answer")
+        latency = time.monotonic() - start
+        return {
+            "answer": answer,
+            "latency": latency,
+            "degraded": False,
+            "tokens": meter.value,
+        }
+    except Exception:
+        latency = time.monotonic() - start
+        return {
+            "answer": "senses can't answer that right now — cortex can.",
+            "latency": latency,
+            "degraded": True,
+            "tokens": None,
+        }
