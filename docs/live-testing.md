@@ -826,3 +826,68 @@ The voice lanes are the honest limit of this arc on today's rig: the code is
 complete and degrades cleanly, but the gateway speech proxy 502s for BOTH stt
 and tts, so those two rows SKIP (never a fabricated pass) until the rig-side
 proxy is fixed — exactly the degradation contract the spec requires.
+
+## Presence default everywhere (spec 2026-07-08, the fourth increment)
+
+**✅ LIVE-PROVEN 2026-07-08 on the real rig — and it closes the #66 gap.** The
+gateway (`http://localhost:8001`) now serves a **tool-calling cortex**:
+`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` returns real `tool_calls`
+(`finish_reason: "tool_calls"`) for a `list_dir`/`edit_file` request — the
+standing #66 "rig has no tool-calling backend" gap that made prior cortex-loop
+proofs SKIP is **closed**. Senses is `coolthor/gemma-4-12B-it-NVFP4A16`. Both
+dial the gateway origin `:8001/v1` (the advertised `:8000` 404s — lobes-cli#92).
+
+- **Presence is the DEFAULT.** With senses armed, `resolve_presence_rung`
+  resolves to `loop` — no flag. A plain one-shot `colleague work "add a
+  docstring…" --json` ran presence default-on.
+- **Cortex (Qwen) did real repo work.** `list_dir → read_file → edit_file →
+  read_file → finish`, and committed the docstring edit. Not a mock — the real
+  27B drove the bounded tool loop end to end.
+- **Senses (Gemma) narrated real progress, grounded in the feed.** Labeled
+  `senses:` lines on stderr: *"Cortex has completed step 2 and successfully read
+  the contents of greet.py."*, *"Cortex is currently at step 4, reading greet.py
+  to verify the recent edits."* — the actual cortex progress, not a canned line.
+- **`--json` stdout stayed machine-parseable** (presence rides stderr); the
+  ack/update chat folded onto `TaskResult.senses` (`['ack','talk','talk']`); the
+  loop-turn records landed (`senses-loop:dispatch_to_cortex`,
+  `senses-loop:reply_to_operator`).
+- **Machine-graded PASS.** `colleague/livecheck.py`
+  `classify_work_presence_check` graded the run **PASSED** from the artifact +
+  rendered lines alone: *"ack + narration observed; 5 record(s), 3 chat
+  entr(ies)"* — no human judgment.
+
+**Bugs the live proof surfaced (and fixed before the PR — commit `50fd6c2`):**
+the first live run showed Gemma only ever emitting the fixed dispatch notice and
+an empty `senses.chat`. Root causes: (1) a one-shot foreground engine has no
+flight plane, so senses had an EMPTY feed and nothing to narrate — it re-picked
+`dispatch_to_cortex` every boundary; (2) the loop prompt did not distinguish a
+cadence tick (cortex already working → narrate) from an operator message
+(→ dispatch); (3) the foreground chat had no flight log to fold from, so it was
+lost from the artifact. Fixes: the progress sink now feeds real step/tool
+progress into the engine's buffer, the loop prompt is boundary-aware, and
+`fold_presence_snapshot(fold_chat=True)` carries the foreground chat onto the
+artifact. The re-run (above) passed.
+
+**Honest limits on today's rig:**
+
+- A 12B senses model occasionally emits a near-miss move name at an early
+  empty-feed boundary; the executor refuses it (recorded `senses-loop:refused`,
+  no-op) and the loop self-corrects once feed accumulates. Honest, not silent.
+- The dispatch-ack in senses' OWN words is best-effort — an empty `ack` field
+  degrades to the fixed dispatch notice (never a fabricated understanding).
+- tts narration of updates still SKIPs (the gateway speech proxy 502s —
+  lobes-cli#89/#92); the text lane is byte-identical.
+- The interactive "keep talking to senses while cortex works" session lane and
+  the resident reply-to-origin lane are unit- + boundary-proven; a fully
+  interactive live capture (typing mid-run over a TTY) is left to hands-on use.
+
+Reproduce:
+
+```bash
+RIG=http://localhost:8001/v1
+COLLEAGUE_BASE_URL=$RIG COLLEAGUE_MODEL=sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP \
+COLLEAGUE_SENSES_BASE_URL=$RIG COLLEAGUE_SENSES_MODEL=coolthor/gemma-4-12B-it-NVFP4A16 \
+COLLEAGUE_ENGINE=vllm-openai COLLEAGUE_SENSES_UPDATE_STEPS=2 \
+  uv run colleague work "Add a docstring to the greet function." --repo <repo> --no-pr --json
+# stdout = JSON result; stderr = gemma's `senses:` ack + progress lines.
+```
