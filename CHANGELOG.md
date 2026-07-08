@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.41.0] - 2026-07-09
+
+### Added
+
+- **Talking to one teammate (the senses front door)** — the FIFTH sanctioned router-exclusion increment, landing the previously-parked #276 (senses-direct) as a fixed, enumerated, repo-untouching surface. Senses now fronts the interactive session and the resident/talk front: a deterministic classifier (`colleague/frontdoor.py` `classify_frontdoor`, ambiguous->cortex) lets senses answer a confidently non-repo turn (greeting / question about colleague itself / general non-repo conversation) DIRECTLY with NO cortex work item (no branch, no eidetic record), grounded in a curated fact-set (`colleague/architecture_facts.py`); anything touching the repo always dispatches to cortex. The intake ack now renders BEFORE the routing line (ack-first), and a `cortex working` hand-off line (`colleague/attribution.py`) makes the two lobes unmistakable. Shared `run_frontdoor`/`FrontDoorOutcome` decision; c19-safe on the resident. Live proof `colleague/livecheck.py` `classify_one_teammate_check` (SKIPs honestly when senses is unarmed). Feature doc `docs/features/talking-to-one-teammate.md`.
+
+### Changed
+
+- `colleague session` free-text WORK lines now consult the senses front door first when senses is armed; unarmed / --cortex-only / off-colour-TTY sessions are byte-identical.
+- CLAUDE.md scope reconciled: #276 (senses-direct) moves from parked to landed as the fifth bounded increment.
+
 ## [1.40.0] - 2026-07-08
 
 ### Added
