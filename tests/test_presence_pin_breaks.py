@@ -50,7 +50,9 @@ def test_work_json_stdout_stays_parseable_with_senses_armed(
     monkeypatch.setenv("COLLEAGUE_SENSES_MODEL", "senses-model")
     monkeypatch.setenv("COLLEAGUE_SENSES_BASE_URL", "http://senses")
 
-    rc = main(["work", "leave a note", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"])
+    rc = main(
+        ["work", "leave a note", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"]
+    )
     captured = capsys.readouterr()
     assert rc == 0
     # The load itself is the assertion — a single senses line leaking onto stdout
@@ -66,7 +68,9 @@ def test_work_json_byte_identical_when_senses_unarmed(
 ) -> None:
     # With no senses resolved the whole lane is a strict no-op: stdout is the
     # JSON result, and no `senses:` line appears anywhere (byte-identical).
-    rc = main(["work", "leave a note", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"])
+    rc = main(
+        ["work", "leave a note", "--repo", str(tmp_path), "--engine", "mock", "--no-pr", "--json"]
+    )
     captured = capsys.readouterr()
     assert rc == 0
     result = json.loads(captured.out)
