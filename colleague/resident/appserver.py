@@ -289,6 +289,11 @@ class _ResidentPresenceSink:
         phase_changed = False
         if tool:
             line = f"step {step_index}: {tool} {target}".strip()
+            if not ok:
+                # Ground a FAILED step in the narration too — senses can only
+                # narrate a failure honestly if the feed actually says one
+                # happened (h4: never silent).
+                line = f"{line} [failed]"
             self._feed_lines.append(line)
         else:
             # A phase notice (#206): its target is the phase label; only a CHANGE

@@ -403,6 +403,31 @@ def _handle_talk_message(
     _maybe_synthesize(answer, config, repo, task_id, out)
 
 
+def _fire_boundary(on_boundary: "Optional[Callable[[], None]]") -> None:
+    """Call *on_boundary*, if given — the shared post-iteration presence pump.
+
+    Extracted so ``_repl_loop`` states the "fire the boundary" intent once
+    instead of repeating the same guard at each of its three exit points
+    (pure refactor for cognitive complexity, no behaviour change)."""
+    if on_boundary is not None:
+        on_boundary()
+
+
+def _handle_say_line(
+    stripped: str,
+    config: EngineConfig,
+    err: "Callable[..., None]",
+    dispatch: "Callable[[str], None]",
+) -> None:
+    """Transcribe a ``/say <path>`` line and dispatch the transcript, if any.
+
+    A failed/empty transcription dispatches nothing — mirrors the inline
+    behaviour this replaces in ``_repl_loop`` exactly."""
+    transcript = _maybe_transcribe(stripped[len("/say ") :].strip(), config, err)
+    if transcript:
+        dispatch(transcript)
+
+
 def _repl_loop(
     input_fn: "Optional[Iterator[str]]",
     config: EngineConfig,
@@ -428,19 +453,14 @@ def _repl_loop(
         if stripped in ("/quit", "/exit"):
             return
         if not stripped:
-            if on_boundary is not None:
-                on_boundary()
+            _fire_boundary(on_boundary)
             continue
         if stripped.startswith("/say "):
-            transcript = _maybe_transcribe(stripped[len("/say ") :].strip(), config, err)
-            if transcript:
-                dispatch(transcript)
-            if on_boundary is not None:
-                on_boundary()
+            _handle_say_line(stripped, config, err, dispatch)
+            _fire_boundary(on_boundary)
             continue
         dispatch(stripped)
-        if on_boundary is not None:
-            on_boundary()
+        _fire_boundary(on_boundary)
 
 
 def run_talk_repl(

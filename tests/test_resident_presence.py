@@ -79,6 +79,30 @@ def test_resident_presence_sink_never_raises_on_degraded_update(monkeypatch) -> 
     assert [r.degraded for r in sink.records] == [True]
 
 
+def test_resident_presence_sink_marks_failed_step_in_feed(monkeypatch) -> None:
+    captured: list[list[str]] = []
+
+    def _update(feed_tail, packet, senses_config, engine, **kw):
+        captured.append(list(feed_tail))
+        return {"update": "noted", "latency": 0.1, "tokens": 5, "degraded": False}
+
+    monkeypatch.setattr(appserver_mod, "run_senses_update", _update)
+    sink = _ResidentPresenceSink(
+        senses_config=object(),
+        engine=object(),
+        cadence=UpdateCadence(every_steps=1, on_phase_change=False, max_updates=2),
+        emit=lambda _t: None,
+    )
+    sink(1, "run_command", "pytest", False)  # a FAILED step (ok=False)
+    # The failed step is visible in the feed senses narrates from — grounds a
+    # failure in the actual progress record instead of reading as a plain
+    # success (h4: never silent).
+    assert any(line.endswith("[failed]") for line in captured[0])
+
+    sink(2, "read_file", "a.py", True)  # a SUCCESSFUL step (ok=True)
+    assert not any(line.endswith("[failed]") for line in captured[1] if "a.py" in line)
+
+
 def test_resident_presence_sink_close_is_safe() -> None:
     sink = _ResidentPresenceSink(
         senses_config=object(), engine=object(), cadence=UpdateCadence(), emit=lambda _t: None
