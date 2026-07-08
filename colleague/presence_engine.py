@@ -52,6 +52,10 @@ def _noop_poll() -> Optional[str]:  # pragma: no cover - trivial default
     return None
 
 
+def _noop_narrate(_line: str) -> None:  # pragma: no cover - trivial default
+    return None
+
+
 @dataclass
 class PresenceIO:
     """The injected I/O surface a front supplies to the engine.
@@ -72,6 +76,17 @@ class PresenceIO:
       else ``None``.
     - ``feed_tail()`` — the recent flight-feed tail to ground a boundary.
     - ``task_state()`` — a short run snapshot (step / phase / last tool).
+    - ``narrate(line)`` — OPTIONAL text-to-speech narration of a rendered
+      presence line (ack / update / reply — task t12, decision c17). The
+      default is a no-op, so an unwired front stays byte-identical. A front
+      that wants voice builds this callable via
+      :func:`colleague.voice.build_presence_narrator` (or its own thin
+      wrapper — e.g. the resident's file-link variant) and passes it in; the
+      ENGINE is the only thing that ever calls it, right after ``render``, so
+      no front needs its own "narrate after render" glue. Narration is
+      STRICTLY ADDITIVE: the engine swallows any exception this raises, so a
+      failed/absent synthesis (the reference rig's tts proxy currently 502s)
+      can never alter the rendered text path.
     """
 
     dispatch_to_cortex: Callable[[str], Any] = lambda _instruction: None
@@ -81,6 +96,7 @@ class PresenceIO:
     poll_operator_input: Callable[[], Optional[str]] = _noop_poll
     feed_tail: Callable[[], Any] = lambda: ""
     task_state: Callable[[], Any] = lambda: None
+    narrate: Callable[[str], None] = _noop_narrate
 
 
 def build_presence_executor(io: PresenceIO) -> SensesMoveExecutor:
@@ -265,7 +281,25 @@ class PresenceEngine:
             text = str(entry.get("text") or entry.get("answer") or "").strip()
             if text:
                 self._io.render(f"senses: {text}")
+                self._narrate(text)
         if turn.injection is not None:
             relay = str(turn.injection.get("text") or "").strip()
             if relay:
                 self._io.render(f"→ cortex: {relay}")
+
+    def _narrate(self, text: str) -> None:
+        """Best-effort tts narration of one rendered presence line (task t12).
+
+        Runs strictly AFTER ``render`` and is deliberately over-defensive: any
+        exception the injected ``narrate`` callback raises is swallowed here,
+        on top of whatever degrade-never-raise contract the callback itself
+        already carries (e.g. :func:`colleague.voice.synthesize`'s own
+        never-raise guarantee) — so a failed/absent synthesis (the reference
+        rig's tts proxy currently 502s) can NEVER disturb the text path this
+        narrates, and the default no-op keeps every front that hasn't wired
+        voice byte-identical.
+        """
+        try:
+            self._io.narrate(text)
+        except Exception:  # noqa: BLE001 - narration must never disturb the run
+            pass
