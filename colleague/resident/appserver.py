@@ -198,8 +198,10 @@ from agent_lifecycle.runtime.supervisor import Supervisor
 from colleague import registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
+from colleague.attribution import senses_line
 from colleague.contract import ContextPacket, SensesBlock, SensesRecord, Task
 from colleague.flight import append_guidance, feed_path, is_safe_task_id
+from colleague.frontdoor import run_frontdoor
 from colleague.media import validate_attachment
 from colleague.presence import cadence_from_env, clarify_from_env, should_clarify, should_update
 from colleague.resident.trust import ALLOW_WRITE, check_attachment_path, classify_request
@@ -555,6 +557,20 @@ class AppserverHarness:
 
         body, attachments, attachment_notes = self._resolve_attachments(sender, raw_body)
 
+        # Front door (t7, talking-to-one-teammate arc, all-fronts): a confidently
+        # non-repo message ("what are you?", a greeting, ...) gets a direct senses
+        # answer with NO cortex work item at all -- no Task, no execute_work, no
+        # artifact, no intake/ack. Skipped entirely (byte-identical to before this
+        # feature) when senses is unarmed OR the message carries attachments (media
+        # is always cortex work) -- the SAME guard shape the other senses beats in
+        # this method use. Safe for BOTH an operator and a non-operator: the answer
+        # is grounded ONLY in architecture facts + the message text (tools-off,
+        # facts-only, see colleague.frontdoor.run_frontdoor / colleague.senses.
+        # run_senses_frontdoor), so it exposes no repo state and performs no write.
+        if self._config.senses is not None and not attachments:
+            if await self._maybe_answer_at_front_door(body, target):
+                return
+
         # Cortex/senses (t9): with a senses model resolved, perceive the inbound
         # message through senses INTAKE first (→ a ContextPacket on the task, so the
         # loop records mode=split), then shape the reply via SPEAK-BACK below. The
@@ -604,6 +620,56 @@ class AppserverHarness:
             presence_sink=presence_sink,
             ack_chat=ack_chat,
         )
+
+    async def _maybe_answer_at_front_door(self, body: str, target: str) -> bool:
+        """Try the shared front door (t7); reply + return ``True`` on a direct
+        senses answer, or return ``False`` to fall through to the normal
+        cortex dispatch (intake -> ack -> Task -> execute_work, unchanged).
+
+        Resolves the senses engine via the SAME :meth:`_senses_engine` seam
+        every other senses beat in this class uses; when it cannot resolve
+        one (unarmed or unloadable engine) this returns ``False`` WITHOUT
+        calling :func:`~colleague.frontdoor.run_frontdoor` at all -- the
+        caller's guard already checked ``config.senses is not None``, but a
+        registry load failure is still handled the same way every other
+        senses call site here handles it: proceed as if senses were absent.
+
+        :func:`~colleague.frontdoor.run_frontdoor` runs in the executor (it
+        may issue one tools-off senses completion, mirroring
+        :meth:`_senses_intake`). It never raises. Only a CLEAN
+        ``answered_directly`` outcome replies here and returns ``True``; a
+        cortex-routed or degraded-senses-direct outcome returns ``False`` so
+        the caller proceeds to the existing pipeline unchanged (no reply is
+        sent here in that case -- the normal dispatch path produces the
+        eventual reply).
+        """
+        pair = self._senses_engine()
+        if pair is None:
+            return False
+        senses_config, engine = pair
+        loop = asyncio.get_running_loop()
+        outcome = await loop.run_in_executor(
+            None,
+            lambda: run_frontdoor(
+                body,
+                senses_config=senses_config,
+                make_complete=engine.make_complete,
+                make_count_tokens=engine.make_count_tokens(senses_config),
+            ),
+        )
+        if not outcome.answered_directly:
+            return False
+
+        await self._reply_queue.put(
+            Message(
+                sender=self._agent_nick,
+                target=target,
+                body=senses_line(outcome.answer or ""),
+                kind="message",
+                metadata={"phase": "senses"},
+            )
+        )
+        return True
 
     async def _send_operator_ack(
         self, packet: "Optional[ContextPacket]", target: str
