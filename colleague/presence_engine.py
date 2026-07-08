@@ -301,5 +301,5 @@ class PresenceEngine:
         """
         try:
             self._io.narrate(text)
-        except Exception:  # noqa: BLE001 - narration must never disturb the run
+        except Exception:  # nosec B110 # noqa: BLE001 - narration must never disturb the run
             pass

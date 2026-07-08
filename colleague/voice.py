@@ -238,7 +238,7 @@ def build_presence_narrator(
                 api_key=api_key,
                 voice=tts_voice,
             )
-        except Exception:  # noqa: BLE001 - narration must never disturb the run
+        except Exception:  # nosec B110 # noqa: BLE001 - narration must never disturb the run
             pass
 
     return narrate

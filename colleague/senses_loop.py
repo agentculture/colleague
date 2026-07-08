@@ -269,7 +269,7 @@ class SensesLoopDriver:
         if self._on_rung_change is not None:
             try:
                 self._on_rung_change(old, new_rung, reason)
-            except Exception:  # a notice hook must never disturb the run
+            except Exception:  # nosec B110 - a notice hook must never disturb the run
                 pass
 
     # ── entry point ──────────────────────────────────────────────────────────
