@@ -33,6 +33,12 @@ from typing import Callable
 from colleague import background, flight, media, registry, rig, worktrees
 from colleague.artifact import artifact_dir, failed_result, write
 from colleague.cli._banner import emit_banner
+from colleague.cli._commands._presence_sink import (
+    ack_packet_for_task,
+    build_watch_presence,
+    compose_presence_sink,
+    fold_presence_snapshot,
+)
 from colleague.cli._commands._tui_sink import CockpitProgressSink, build_progress
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
@@ -369,6 +375,7 @@ def _engine_failure_error(
     mode: str | None,
     work_span,
     worktree_path: str | None = None,
+    presence: "object | None" = None,
 ) -> CliError:
     """Turn an engine raise into the failure artifact + a diagnosable CliError.
 
@@ -386,7 +393,10 @@ def _engine_failure_error(
     bare (#269: ``KeyError: 'path'`` instead of ``'path'``). With a
     *worktree_path*, the iso worktree's uncommitted progress is swept onto the
     ``colleague/<id>`` branch and the hint names the surviving branch (#268
-    ask 3 — the #222 sweep extended to the exception path).
+    ask 3 — the #222 sweep extended to the exception path). With a *presence*
+    (t9 — background presence), any accumulated cost/injection records still
+    fold onto the failure artifact before it is written, so an engine crash
+    never silently drops the senses cost the run already incurred.
     """
     partial = getattr(exc, "result", None)
     if isinstance(partial, TaskResult):
@@ -405,6 +415,8 @@ def _engine_failure_error(
     # Mode (t7 / spec R3 / #256): recorded on the failure path too — a moded run
     # that raises still carries the mode that drove it.
     result.mode = mode
+    if presence is not None:
+        fold_presence_snapshot(result, presence)
     work_span.set(status=result.status)
     write(result, artifact_dir(repo))
     # Best-effort: never mask the error.
@@ -595,6 +607,25 @@ def execute_work(
                 diag=emit_diagnostic,
                 external_sink=progress_sink,
             )
+            # Background presence (presence-default-everywhere arc, task t9):
+            # wire the front-agnostic PresenceEngine onto this SAME progress-sink
+            # boundary for a watched, non-session work item — a background
+            # child (auto-armed --watch) or a plain `colleague work --watch`.
+            # Skipped when an external `progress_sink` was supplied (the
+            # interactive `session`, which already runs its own middle-manager
+            # lane — colleague/cli/_commands/session.py — so wiring a second
+            # engine here would double every ack/update). `build_watch_presence`
+            # itself is a strict no-op (returns None, byte-identical) when
+            # senses is unarmed/disarmed (incl. --cortex-only) or the task is
+            # not a flight. Wrapped in suppress: narration must never break cortex.
+            presence = None
+            if progress_sink is None:
+                with suppress(Exception):
+                    presence = build_watch_presence(task=task, config=config, engine=engine)
+            if presence is not None:
+                with suppress(Exception):
+                    presence.acknowledge(ack_packet_for_task(task))
+                config.progress = compose_presence_sink(config.progress, presence)
             # Subagent delegation (t6) — the top-level spawn callback is built here
             # so both `work` and `session`, and every backend (which forwards
             # `config.subagent_spawn`), can delegate identically. depth defaults to
@@ -643,6 +674,7 @@ def execute_work(
                     mode=mode,
                     work_span=work_span,
                     worktree_path=worktree_path,
+                    presence=presence,
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine
@@ -651,6 +683,13 @@ def execute_work(
                 if cockpit_sink is not None:
                     with suppress(Exception):
                         cockpit_sink.close()
+
+            # Fold the presence engine's cost/injection records onto the artifact
+            # (t9) — every non-raising exit (OK/INCOMPLETE/ERROR), so an
+            # unattended watched run still records what it cost regardless of
+            # whether an operator ever attaches via `colleague talk`.
+            if presence is not None:
+                fold_presence_snapshot(result, presence)
 
             if result.status == OK and not read_only_role:
                 _handoff_result(
