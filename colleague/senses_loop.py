@@ -12,7 +12,7 @@ processes ONE boundary's worth of senses turns and records them.
 The loop is "agentic" WITHOUT ever touching a tool schema on the wire: each turn
 is one tools-off completion (``make_complete(senses_config, tools=[])``) whose
 reply is a prompted-JSON coordination move (:mod:`colleague.senses_moves`).
-Because the reference rig's Gemma has no server-side tool parser, "calling a
+Because the reference rig's served model has no server-side tool parser, "calling a
 move" means the model writes a small JSON object — nothing tool-shaped ever goes
 on the wire, preserving the structural pin every other senses call upholds.
 

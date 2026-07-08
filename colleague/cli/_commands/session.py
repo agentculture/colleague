@@ -73,7 +73,7 @@ from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
-from colleague.config import EngineConfig, resolve_session_engine
+from colleague.config import EngineConfig, resolve_presence_rung, resolve_session_engine
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
@@ -84,6 +84,7 @@ from colleague.presence import (
     should_clarify,
     should_update,
 )
+from colleague.presence_engine import PresenceEngine, PresenceIO, build_presence_executor
 from colleague.senses import (
     UPDATE_POINT,
     run_senses_intake,
@@ -92,6 +93,7 @@ from colleague.senses import (
     run_senses_update,
     senses_engine_config,
 )
+from colleague.senses_loop import SensesLoopDriver
 from colleague.session_intent import PLAN, classify_intent
 from colleague.session_modes import (
     DEFAULT_MODE,
@@ -511,6 +513,14 @@ class _Session:
         # here is ever written, so those paths stay byte-identical (h9).
         self._senses_chat: list[dict] = []
         self._update_records: list[SensesRecord] = []
+        # The senses agentic loop (presence-default-everywhere arc, t7): built per
+        # work line when the presence rung resolves to ``loop`` and the live talk
+        # lane arms (an interactive TTY). Live operator talk then rides the loop —
+        # senses drives the conversation as an agent — while ack + proactive
+        # updates stay on the (live-proven) fixed-beat methods below, which now
+        # also fire off-TTY (the c19 pin-break). ``None`` for the beats/off rung
+        # and every unarmed surface → byte-identical.
+        self._presence_engine: Optional[PresenceEngine] = None
         self._update_cadence = cadence_from_env(os.environ)
         self._updates_sent = 0
         self._update_last_step = 0
@@ -1486,6 +1496,9 @@ class _Session:
         self._update_last_step = 0
         self._update_last_phase = ""
         self._update_cap_recorded = False
+        # The senses agentic loop is rebuilt per work line in _begin_talk_lane
+        # (loop rung) and cleared here so one line's loop never leaks to the next.
+        self._presence_engine = None
 
     def _history_append(self, role: str, text: str) -> None:
         """Append one exchange to the session-lifetime rolling history (t7/c11).
@@ -1588,13 +1601,27 @@ class _Session:
                 task.context_packet = refined
         return packet
 
-    def _presence_enabled(self) -> bool:
-        """True iff the middle-manager lane (ack + proactive updates) speaks.
+    def _presence_rung(self) -> str:
+        """The resolved presence rung for this session: ``loop`` / ``beats`` /
+        ``off`` (:func:`colleague.config.resolve_presence_rung`).
 
-        Exactly the talk lane's gate — an interactive colour TTY with senses
-        resolved and no ``--cortex-only`` bypass — so off-TTY / piped /
-        ``--no-tui`` sessions stay byte-identical to today (h9)."""
-        return self._talk_lane_enabled()
+        ``off`` whenever senses is unresolved or ``--cortex-only`` is set — those
+        stay byte-identical. Otherwise the operator's request (default ``loop``)
+        selects the senses-loop lane or the fixed-beat opt-down."""
+        return resolve_presence_rung(self.config, cortex_only=self.cortex_only, repo_path=self.repo)
+
+    def _presence_enabled(self) -> bool:
+        """True iff the middle-manager lane (ack + proactive updates + clarify)
+        speaks for this session.
+
+        Armed whenever the presence rung is not ``off`` — presence-default-
+        everywhere (t7): unlike the pre-arc gate, this NO LONGER requires an
+        interactive colour TTY, so off-TTY / piped / ``--no-tui`` sessions now
+        carry labeled ``senses:`` ack + update lines too (the deliberate c19
+        pin-break). ``--cortex-only`` / no senses still resolve to ``off`` →
+        byte-identical. The live *concurrent talk* lane (a non-blocking stdin
+        poll) still requires a real TTY — see :meth:`_talk_lane_enabled`."""
+        return self._presence_rung() != "off"
 
     def _render_ack(self, ack: Optional[str]) -> None:
         """Speak the acknowledgment BEFORE cortex's first step (t6 / c9).
@@ -1633,8 +1660,14 @@ class _Session:
         silent (h4). A degraded call still counts toward the cap and still
         records — diagnosable, never silent. Never raises, and never advances
         ``step_count`` (the #206 invariant: narration is presentation, not
-        work — only the reducer's real-step fold advances the count)."""
-        if not self._talk_active:
+        work — only the reducer's real-step fold advances the count).
+
+        Presence-default-everywhere (t7): gated on :meth:`_presence_enabled`
+        (the rung, not the TTY talk lane), so proactive updates now also fire
+        off-TTY / piped — the c19 pin-break. On the ``loop`` rung the session's
+        live talk rides the senses agentic loop; proactive narration stays on
+        this (live-proven) fixed-beat path either way."""
+        if not self._presence_enabled():
             return
         try:
             phase_changed = False
@@ -1734,6 +1767,55 @@ class _Session:
         task.watch = True
         self._talk_task_id = task.id
         self._talk_packet = getattr(task, "context_packet", None)
+        self._maybe_build_presence_engine()
+
+    def _maybe_build_presence_engine(self) -> None:
+        """Build the senses agentic loop for this work line on the ``loop`` rung.
+
+        Live operator talk then rides the loop (:meth:`_talk_senses`) — senses
+        drives the conversation as an agent, choosing coordination moves — while
+        ack + proactive updates stay on the fixed-beat methods. A no-op (leaves
+        ``_presence_engine`` at ``None``, byte-identical) on the ``beats`` rung,
+        when senses is unresolved, or on any build failure — the run always
+        proceeds."""
+        self._presence_engine = None
+        if self._presence_rung() != "loop":
+            return
+        pair = self._senses_engine()
+        if pair is None:
+            return
+        senses_config, engine = pair
+
+        def _relay(text: str) -> None:
+            if self._talk_task_id is not None:
+                with contextlib.suppress(Exception):
+                    flight.append_guidance(self.repo, self._talk_task_id, text)
+
+        try:
+            io = PresenceIO(
+                render=self._log,
+                append_guidance=_relay,
+                read_flight=self._talk_feed_tail,
+                feed_tail=self._talk_feed_tail,
+                task_state=self._talk_task_state,
+                dispatch_to_cortex=lambda _i: None,  # the session runs cortex itself
+                poll_operator_input=lambda: None,  # the session polls stdin itself
+            )
+            driver = SensesLoopDriver(
+                senses_config=senses_config,
+                make_complete=engine.make_complete,
+                executor=build_presence_executor(io),
+                make_count_tokens=engine.make_count_tokens(senses_config),
+                initial_rung="loop",
+            )
+            self._presence_engine = PresenceEngine(
+                driver=driver,
+                io=io,
+                cadence=self._update_cadence,
+                history_provider=lambda: list(self._history) or None,
+            )
+        except Exception:  # noqa: BLE001 — a build failure degrades to the fixed-beat lane
+            self._presence_engine = None
 
     def _end_talk_lane(self) -> None:
         """Disarm the talk lane on work-item exit (always cleared)."""
@@ -1808,7 +1890,19 @@ class _Session:
         context, and relay into cortex when senses judges it (or an explicit
         ``cortex:`` prefix forces it). Every answer is labeled ``senses:``, every
         relay echoes ``-> cortex:`` and records a flight chat line (folded into the
-        artifact at finish, t5) — nothing silent (the awareness invariant)."""
+        artifact at finish, t5) — nothing silent (the awareness invariant).
+
+        On the ``loop`` rung the message rides the senses agentic loop
+        (:class:`~colleague.presence_engine.PresenceEngine`) — senses chooses a
+        coordination move (reply / guide-cortex / read-flight …) rather than a
+        single fixed talk turn — with the loop enforcing the verbatim-to-cortex
+        invariant on any relay. The engine renders + records; the exchange folds
+        onto the artifact at finalize (:meth:`_finalize_split_run`)."""
+        if self._presence_engine is not None:
+            self._presence_engine.on_operator_message(text)
+            if self.view == "ansi":
+                self.emit()
+            return
         pair = self._senses_engine()
         if pair is None:
             return
@@ -1912,6 +2006,17 @@ class _Session:
         )
         if self._senses_chat:
             result.senses.chat = list(result.senses.chat) + list(self._senses_chat)
+        # Presence-default-everywhere (t7): fold the senses agentic loop's own
+        # records / chat / injections onto the artifact when the loop ran this
+        # line, so the loop-driven conversation is reconstructable from the
+        # artifact alone (h6). A no-op (byte-identical) when the loop never armed.
+        if self._presence_engine is not None:
+            snap = self._presence_engine.snapshot()
+            result.senses.records = list(result.senses.records) + list(snap["records"])
+            if snap["chat"]:
+                result.senses.chat = list(result.senses.chat) + list(snap["chat"])
+            if snap["injections"]:
+                result.senses.injections = list(result.senses.injections) + list(snap["injections"])
         if shaped:
             self._history_append("senses", shaped)
         self._resave_artifact(result)

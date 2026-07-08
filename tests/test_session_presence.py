@@ -127,11 +127,19 @@ def test_missing_ack_renders_fixed_dispatch_notice_never_fabricated(tmp_path: Pa
     assert sess._senses_chat[0]["text"] == _ACK_DISPATCH_NOTICE
 
 
-def test_ack_is_silent_when_lane_disabled_off_tty(tmp_path: Path) -> None:
+def test_ack_speaks_off_tty_when_senses_armed(tmp_path: Path) -> None:
+    # c19 PIN-BREAK (presence-default-everywhere, t7): a deliberate, recorded
+    # convention change. An off-TTY / piped / --no-tui session with senses ARMED
+    # now DOES carry labeled 'senses:' ack lines — presence is the default on
+    # every front, no longer TTY-only. (Was: test_ack_is_silent_when_lane_
+    # disabled_off_tty, which encoded the pre-arc TTY-only assumption.) The
+    # genuinely-unarmed (no senses) and --cortex-only paths stay byte-identical
+    # — see test_ack_is_silent_when_cortex_only + test_no_senses_off_tty_is_
+    # byte_identical below.
     sess, _o, _e = _session(tmp_path, view="markdown")
     sess._render_ack("understood — on it.")
-    assert sess._senses_chat == []
-    assert not any("senses: understood" in ln for ln in _conversation_lines(sess))
+    assert sess._senses_chat and sess._senses_chat[-1]["kind"] == "ack"
+    assert any("senses: understood" in ln for ln in _conversation_lines(sess))
 
 
 def test_ack_is_silent_when_cortex_only(tmp_path: Path) -> None:
@@ -247,14 +255,16 @@ def test_degraded_update_counts_toward_cap_and_records(tmp_path: Path, monkeypat
     assert not any("senses: reading" in ln for ln in _conversation_lines(sess))
 
 
-def test_update_noop_when_lane_unarmed(tmp_path: Path, monkeypatch) -> None:
+def test_update_fires_off_tty_when_senses_armed(tmp_path: Path, monkeypatch) -> None:
+    # c19 PIN-BREAK (t7): proactive updates now fire off-TTY / piped with senses
+    # armed (was test_update_noop_when_lane_unarmed, which asserted the pre-arc
+    # TTY-only no-op). A phase change fires the first update. Genuinely-unarmed
+    # sessions still no-op — see test_no_senses_off_tty_is_byte_identical.
     sess, _o, _e = _session(tmp_path, view="markdown")
     calls = _stub_update(monkeypatch)
-    sess._maybe_proactive_update("", "thinking…")
-    sess._maybe_proactive_update("read_file", "x.py")
-    assert calls == []
-    assert sess._senses_chat == []
-    assert sess._update_records == []
+    sess._maybe_proactive_update("", "thinking…")  # phase change → fires
+    assert calls  # now fires off-TTY
+    assert sess._update_records
 
 
 def test_sink_tolerates_bare_state_holder_without_presence(tmp_path: Path) -> None:
@@ -498,11 +508,94 @@ def test_history_threads_into_subsequent_senses_calls(tmp_path: Path, monkeypatc
     assert sess._history[-1] == {"role": "senses", "text": "still working"}
 
 
-def test_unarmed_session_accumulates_no_history(tmp_path: Path) -> None:
+def test_off_tty_session_accumulates_history_when_senses_armed(tmp_path: Path) -> None:
+    # c19 PIN-BREAK (t7): an off-TTY session with senses armed now accumulates
+    # rolling history (was test_unarmed_session_accumulates_no_history, which
+    # asserted the pre-arc off-TTY no-history). Continuity is default everywhere.
     sess, _o, _e = _session(tmp_path, view="markdown")
     sess._render_ack("hello")
     sess._history_append("operator", "typed something")
-    assert sess._history == []  # h5/h9: senses-absent/off-TTY writes NO chat history
+    assert sess._history  # now accumulates off-TTY when armed
+
+
+def test_no_senses_off_tty_is_byte_identical(tmp_path: Path) -> None:
+    # h1 (default never becomes forced): a genuinely-unarmed session — senses
+    # NOT resolved — stays byte-identical on every surface, including off-TTY.
+    # This pins the OTHER side of the c19 pin-break: the default arms only when
+    # senses actually resolves; nothing to talk to = pre-arc silence.
+    unarmed = EngineConfig.resolve(model="cortex-model")  # config.senses stays None
+    sess, _o, _e = _session(tmp_path, view="markdown", config=unarmed)
+    assert sess._presence_enabled() is False
+    sess._render_ack("hello")
+    sess._history_append("operator", "typed something")
+    assert sess._senses_chat == []
+    assert sess._history == []
+    assert not any("senses:" in ln for ln in _conversation_lines(sess))
+
+
+class _FakeLoopEngine:
+    """A minimal engine whose completions are scripted coordination moves."""
+
+    def __init__(self, replies: list[str]) -> None:
+        self._replies = list(replies)
+        self._i = 0
+
+    def make_complete(self, config, *, tools):  # noqa: ANN001
+        assert tools == []
+
+        def complete(messages):  # noqa: ANN001
+            import json as _json
+            from types import SimpleNamespace
+
+            i, self._i = self._i, self._i + 1
+            content = self._replies[i] if i < len(self._replies) else _json.dumps({"move": "wait"})
+            return SimpleNamespace(
+                content=content, reasoning="", prompt_tokens=1, completion_tokens=1
+            )
+
+        return complete
+
+    def make_count_tokens(self, config):  # noqa: ANN001
+        return None
+
+
+def test_session_loop_rung_routes_live_talk_through_the_engine(tmp_path: Path, monkeypatch) -> None:
+    # presence-default-everywhere (t7): on the loop rung + interactive TTY, live
+    # operator talk rides the senses AGENTIC LOOP (PresenceEngine) — senses picks
+    # a coordination move — not the single-turn fixed-beat run_senses_talk.
+    import json
+
+    from colleague.contract import Task
+    from colleague.senses import senses_engine_config
+
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    senses_config = senses_engine_config(sess.config)
+    fake = _FakeLoopEngine([json.dumps({"move": "reply_to_operator", "text": "on it"})])
+    monkeypatch.setattr(sess, "_senses_engine", lambda: (senses_config, fake))
+    talk_called: list[int] = []
+    monkeypatch.setattr(session_mod, "run_senses_talk", lambda *a, **k: talk_called.append(1))
+
+    task = Task(id="tid", repo_path=str(tmp_path), instruction="do it")
+    sess._begin_talk_lane(task)
+    assert sess._presence_engine is not None  # loop rung built the agentic loop
+
+    sess._talk_senses("how's it going?")
+    assert talk_called == []  # routed through the engine, not the fixed-beat lane
+    assert any("senses: on it" in ln for ln in _conversation_lines(sess))
+    assert sess._presence_engine.snapshot()["chat"]  # recorded for the artifact fold
+
+
+def test_session_beats_rung_keeps_the_fixed_beat_talk(tmp_path: Path, monkeypatch) -> None:
+    # The COLLEAGUE_PRESENCE=beats opt-down keeps the live-proven fixed-beat talk
+    # lane (no engine built), so the ladder's middle rung is byte-identical to the
+    # pre-loop behavior.
+    from colleague.contract import Task
+
+    monkeypatch.setenv("COLLEAGUE_PRESENCE", "beats")
+    sess, _o, _e = _session(tmp_path, view="ansi")
+    task = Task(id="tid", repo_path=str(tmp_path), instruction="do it")
+    sess._begin_talk_lane(task)
+    assert sess._presence_engine is None  # beats rung → no agentic loop
 
 
 def test_history_survives_reset_between_work_lines(tmp_path: Path) -> None:

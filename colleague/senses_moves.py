@@ -22,8 +22,8 @@ Two pieces:
   form a caller feeds to a tools-off completion — mirroring
   :mod:`colleague.senses`'s ``tools=[]`` completions, which this module never
   issues itself); :func:`parse_move` recovers a move object from the raw
-  completion text a served model returns. Because the reference rig's Gemma
-  has no server-side tool parser, "calling a move" here means the model
+  completion text a served model returns. Because the reference rig's served
+  model has no server-side tool parser, "calling a move" here means the model
   writes a small JSON object — nothing tool-shaped ever goes on the wire.
 - The **executor** — :class:`SensesMoveExecutor` routes a parsed move to an
   injected coordination callback (dispatch-to-cortex, guide-cortex,
