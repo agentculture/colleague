@@ -953,3 +953,58 @@ def classify_resident_presence_check(senses, reply_bodies):  # noqa: ANN001
 def classify_work_presence_check(senses, stderr_lines):  # noqa: ANN001
     """One-shot work front: graded from the stderr `senses:` lines."""
     return classify_front_presence_check(senses, stderr_lines, front="work")
+
+
+# ---------------------------------------------------------------------------
+# "One teammate" proof (talking-to-one-teammate arc, task t8): a non-repo
+# turn ("hi" / "what are you?") must be answered by senses DIRECTLY, with NO
+# cortex work item spawned — the exact pain the front door removes (a bare
+# greeting used to cost a git branch + an eidetic remember). Pure classifier
+# (unit-testable, no I/O); the live drive lives wherever the front door is
+# wired (when armed) and passes its recorded evidence in here.
+# ---------------------------------------------------------------------------
+
+
+def classify_one_teammate_check(
+    *,
+    senses_reachable: bool,
+    answered_by: str | None,
+    branch_created: bool,
+    record_created: bool,
+) -> tuple[str, str]:
+    """Grade the 'one teammate' front-door proof from evidence alone.
+
+    SKIPs (never a fabricated PASS) when senses itself was unarmed or
+    unreachable, so the front door could not run at all — the reference-rig
+    reality today. FAILs when a non-repo turn nonetheless spawned a git
+    branch and/or an eidetic record (naming which) — that is exactly the
+    pain this feature removes. FAILs when cortex, not senses, answered the
+    turn (naming what answered). PASSes only when senses answered directly
+    with no branch and no record: no cortex work item at all.
+    """
+    if not senses_reachable:
+        return (
+            "skipped",
+            "senses unarmed/unreachable — the front door could not run",
+        )
+
+    spawned = []
+    if branch_created:
+        spawned.append("a git branch")
+    if record_created:
+        spawned.append("an eidetic record")
+    if spawned:
+        return (
+            "failed",
+            f"non-repo turn spawned {' and '.join(spawned)} — exactly the "
+            "pain this feature removes",
+        )
+
+    if answered_by != "senses":
+        return (
+            "failed",
+            "cortex answered a turn senses should have handled directly "
+            f"(answered_by={answered_by!r})",
+        )
+
+    return "passed", "senses answered directly; no cortex work item"
