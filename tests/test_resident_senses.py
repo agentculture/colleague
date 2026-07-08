@@ -81,9 +81,21 @@ async def _round_trip(transport, supervisor, message, *, timeout: float = 30.0):
         transport.inject(message)
         loop = asyncio.get_event_loop()
         deadline = loop.time() + timeout
-        while not transport.sent:
+
+        def _terminal() -> bool:
+            # t11: an operator now gets an ack (and maybe update) reply BEFORE the
+            # terminal result reply; wait for the terminal reply (it carries a
+            # ``status``, or is the ``refused`` reply) so the run isn't stopped
+            # after the ack.
+            for m in transport.sent:
+                meta = getattr(m, "metadata", {}) or {}
+                if meta.get("status") is not None or meta.get("phase") == "refused":
+                    return True
+            return False
+
+        while not _terminal():
             if loop.time() > deadline:
-                raise AssertionError("no reply arrived within the timeout")
+                raise AssertionError("no terminal reply arrived within the timeout")
             await asyncio.sleep(0.02)
     finally:
         await supervisor.stop()
@@ -118,19 +130,29 @@ def test_operator_split_run_records_packet_mode_and_shapes_reply(tmp_path, monke
     inbound = Message(sender="ori", target="#colleague", body="write a mock file")
     sent = asyncio.run(_round_trip(transport, supervisor, inbound))
 
-    assert len(sent) == 1
-    reply = sent[0]
-    # The mesh reply is the SHAPED speak-back...
+    # t11 (presence-default-everywhere): the operator lane now gets an ack reply
+    # BEFORE cortex's first step; the terminal result reply is last.
+    ack = sent[0]
+    assert ack.metadata.get("phase") == "ack"
+    assert ack.body.startswith("senses: ")
+    reply = sent[-1]
+    # The terminal mesh reply is the SHAPED speak-back...
     assert reply.body == "Done — wrote the mock file, in plain words."
     assert reply.metadata["status"] == "ok"
 
     # ...while the artifact carries mode=split + the packet + intake/speak-back
-    # timings, and keeps the RAW cortex summary (never the shaped text).
+    # timings, and keeps the RAW cortex summary (never the shaped text). The
+    # operator ack chat entry folds onto the artifact too (t11 h6).
     data = json.loads(Path(reply.metadata["artifact"]).read_text(encoding="utf-8"))
     assert data["senses"]["mode"] == "split"
     assert data["senses"]["packet"]["original"] == "write a mock file"  # verbatim
+    # intake + speak-back are always present; a short mock run MAY also fold a
+    # degraded proactive-update record (run_senses_update degrades on mock), so
+    # assert the anchor points are present and in order rather than exact-equal.
     points = [r["point"] for r in data["senses"]["records"]]
-    assert points == ["senses-intake", "senses-speakback"]
+    assert points[0] == "senses-intake" and points[-1] == "senses-speakback"
+    assert all(p in ("senses-intake", "senses-speakback", "senses-update") for p in points)
+    assert any(c.get("kind") == "ack" for c in data["senses"].get("chat", []))
     assert "mock wrote colleague-mock.md" in data["summary"]  # raw cortex summary
     assert data["summary"] != reply.body  # display shaped, artifact raw
 

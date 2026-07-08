@@ -25,6 +25,34 @@ the running loop via :func:`colleague.flight.append_guidance` with the same
 ``-> cortex:`` echo (no senses answer). The REPL never raises on a bad turn;
 the only hard failure is an unsafe/invalid flight task id (a clean
 :class:`~colleague.cli._errors.CliError`, never a traceback).
+
+**Middle-manager parity (presence-default-everywhere, task t8):** attaching to
+an ARMED run (:func:`colleague.config.resolve_presence_rung` != ``"off"``)
+gets two beats on top of the reactive lane above, both pumped through the SAME
+:class:`~colleague.presence_engine.PresenceEngine` every other front uses —
+never a bespoke reimplementation:
+
+1. **Attach context.** Before the first prompt, the REPL renders whatever the
+   flight plane already recorded — the most recent ``kind="ack"`` chat entry
+   (:func:`colleague.flight.read_chat`) and a one-line factual snapshot of
+   cortex's last recorded step/tool (:func:`_last_task_state`) — so an
+   attaching operator sees context immediately instead of a cold prompt. This
+   is a pure READ of already-recorded state (no model call), so it degrades
+   silently to nothing when the flight has recorded nothing yet (never a
+   fabricated status line).
+2. **Proactive updates.** At each REPL loop iteration (after a message is
+   handled, a ``/say`` transcription, or even a blank line — "between operator
+   turns"), :meth:`~colleague.presence_engine.PresenceEngine.on_progress_boundary`
+   is polled with the flight's current step/tool; the cadence policy
+   (:mod:`colleague.presence`) decides whether a proactive update actually
+   fires. A boundary where nothing fired renders NOTHING.
+
+The reactive per-message answer (``talk_fn``/:func:`_handle_talk_message`,
+including the guaranteed ``cortex:`` relay-prefix override) is UNCHANGED by
+this — the presence engine is additive, not a replacement, so the reactive
+lane's existing tests keep holding. Senses-unarmed (``config.senses is None``,
+which also always yields ``rung == "off"``) is BYTE-IDENTICAL to before this
+task: no presence engine is built, so nothing new renders or is written.
 """
 
 from __future__ import annotations
@@ -32,6 +60,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -40,8 +69,11 @@ from typing import Any, Callable, Iterator, Optional
 from colleague import flight, registry, voice
 from colleague.cli._errors import EXIT_USER_ERROR, CliError
 from colleague.cli._output import JSON_HELP
-from colleague.config import EngineConfig, resolve_engine
+from colleague.config import EngineConfig, resolve_engine, resolve_presence_rung
+from colleague.presence import cadence_from_env
+from colleague.presence_engine import PresenceEngine, PresenceIO, build_presence_executor
 from colleague.senses import run_senses_talk, senses_engine_config
+from colleague.senses_loop import SensesLoopDriver
 
 _TASK_ID_HELP = "Task id of the running flight (printed by 'colleague work --watch')."
 _RELAY_PREFIX = "cortex:"
@@ -106,6 +138,160 @@ def _last_task_state(repo: "Path | str", task_id: str) -> "Optional[dict[str, An
         if isinstance(record, dict):
             return {"step_index": record.get("step_index"), "tool": record.get("tool")}
     return None
+
+
+def _last_ack_text(repo: "Path | str", task_id: str) -> "Optional[str]":
+    """Return the most recent ``kind="ack"`` flight chat entry's text, or ``None``.
+
+    A pure read of :func:`colleague.flight.read_chat` — no model call, so it
+    works even when senses itself is currently unreachable. ``None`` when no
+    ack has been recorded (yet, or ever) for this run.
+    """
+    for record in reversed(flight.read_chat(repo, task_id)):
+        if record.get("kind") == "ack":
+            text = str(record.get("text") or "").strip()
+            if text:
+                return text
+    return None
+
+
+def _render_attach_context(repo: "Path | str", task_id: str, out: "Callable[..., None]") -> None:
+    """Render the run's ack + a factual state snapshot before the first prompt.
+
+    So an attaching operator sees what senses has already acknowledged and
+    where cortex currently stands, instead of a cold prompt (t8, bullet 1).
+    Purely reads already-recorded flight-plane state — never a model call, and
+    never a fabrication: a run with nothing recorded yet renders nothing.
+    """
+    ack_text = _last_ack_text(repo, task_id)
+    if ack_text:
+        out(f"senses: {ack_text}")
+    state = _last_task_state(repo, task_id)
+    if state and (state.get("tool") is not None or state.get("step_index") is not None):
+        out(f"[flight] cortex last recorded: step {state.get('step_index')} - {state.get('tool')}")
+
+
+def _seed_presence_state(repo: "Path | str", task_id: str, state: "dict[str, object]") -> None:
+    """Seed the boundary-tracking state from the flight's CURRENT snapshot.
+
+    Called once at attach, before the first REPL turn, so the first
+    cadence-gated update is driven by genuine cadence (step deltas / a phase
+    change AFTER attach) rather than a "free" phase-change fire from a
+    None -> <current tool> comparison.
+    """
+    current = _last_task_state(repo, task_id)
+    state["presence_last_tool"] = current.get("tool") if current else None
+    step = current.get("step_index") if current else None
+    state["presence_last_step"] = step if isinstance(step, int) else 0
+
+
+def _persist_presence_turns(repo: "Path | str", task_id: str, turns: "list[Any]") -> None:
+    """Persist each turn's chat entry to the flight chat log (the artifact fold-in seam).
+
+    The work-loop's own finish-time fold-in reads this log and extends the
+    result's senses chat with whatever it finds — this is how a beat generated
+    in TALK's own process (a separate process from the one that will write the
+    final result) survives into the record. Rendering already happened inside
+    :meth:`~colleague.presence_engine.PresenceEngine`'s turn dispatch; this
+    only makes the fact durable. Never raises.
+    """
+    for turn in turns:
+        entry = getattr(turn, "chat_entry", None)
+        if entry is not None:
+            with contextlib.suppress(OSError, ValueError):
+                flight.append_chat(repo, task_id, entry)
+
+
+def _build_presence_engine_for_talk(
+    repo: Path,
+    task_id: str,
+    config: EngineConfig,
+    senses_config: Any,
+    make_complete: Any,
+    make_count_tokens: Any,
+    out: "Callable[..., None]",
+) -> "Optional[PresenceEngine]":
+    """Construct talk's own :class:`PresenceEngine` when the presence lane is armed.
+
+    Returns ``None`` when the resolved seam has no senses config, OR
+    :func:`colleague.config.resolve_presence_rung` resolves ``"off"`` (senses
+    unarmed, ``COLLEAGUE_PRESENCE=off``, or a repo-config disarm) — the caller
+    then behaves exactly as before this task (byte-identical, t8 bullet 3).
+
+    Talk cannot START cortex (a run it attaches to is already driving in
+    another process) — it can only RELAY, so both ``dispatch_to_cortex`` and
+    ``guide_cortex`` bind to the SAME :func:`colleague.flight.append_guidance`
+    sink, echoed visibly with the existing ``-> cortex:`` convention (mirroring
+    :func:`_handle_talk_message`'s relay echo). ``poll_operator_input`` always
+    returns ``None`` here: a typed line is already fully handled by the
+    existing reactive lane in the SAME REPL iteration before the boundary
+    check runs, so there is never a separately-pending message for the engine
+    to discover.
+    """
+    if senses_config is None or make_complete is None:
+        return None
+    rung = resolve_presence_rung(config, repo_path=repo)
+    if rung == "off":
+        return None
+
+    def _relay(text: str) -> None:
+        with contextlib.suppress(OSError, ValueError):
+            flight.append_guidance(repo, task_id, text)
+        out(f"-> cortex: {text}")
+
+    io = PresenceIO(
+        dispatch_to_cortex=_relay,
+        append_guidance=_relay,
+        read_flight=lambda: _tail_feed(repo, task_id),
+        render=out,
+        poll_operator_input=lambda: None,
+        feed_tail=lambda: _tail_feed(repo, task_id),
+        task_state=lambda: _last_task_state(repo, task_id),
+    )
+    driver = SensesLoopDriver(
+        senses_config=senses_config,
+        make_complete=make_complete,
+        executor=build_presence_executor(io),
+        make_count_tokens=make_count_tokens,
+        initial_rung=rung,
+    )
+    return PresenceEngine(driver=driver, io=io, cadence=cadence_from_env(os.environ))
+
+
+def _make_progress_boundary(
+    presence_engine: PresenceEngine,
+    repo: "Path | str",
+    task_id: str,
+    state: "dict[str, object]",
+) -> "Callable[[], None]":
+    """Build the per-REPL-iteration boundary check (t8 bullet 2).
+
+    Reads the flight's current step/tool, computes a ``phase_changed`` flag
+    relative to what was true at the LAST boundary (seeded at attach by
+    :func:`_seed_presence_state`), fires ``on_progress_boundary``, and persists
+    any resulting chat entries. A boundary with nothing to say renders and
+    persists NOTHING — :meth:`PresenceEngine.on_progress_boundary` already
+    guarantees that.
+    """
+
+    def boundary() -> None:
+        current = _last_task_state(repo, task_id)
+        tool = current.get("tool") if current else None
+        step = current.get("step_index") if current else None
+        step_count = step if isinstance(step, int) else state.get("presence_last_step", 0)
+        # A talk attach reads the flight feed, which records only REAL steps
+        # (step_index/tool) — NOT the loop's empty-tool phase notices (#206). A
+        # tool-name change is therefore not a reliable phase-change proxy (Qodo):
+        # firing the phase-change path off it would skew the cadence and burn the
+        # update cap early. Talk boundaries rely solely on the step cadence
+        # (every_steps); phase_changed is always False here. presence_last_tool
+        # is still tracked for context but no longer drives the cadence.
+        state["presence_last_tool"] = tool
+        state["presence_last_step"] = step_count
+        turns = presence_engine.on_progress_boundary(step_count=step_count, phase_changed=False)
+        _persist_presence_turns(repo, task_id, turns)
+
+    return boundary
 
 
 def default_engine_seam(config: EngineConfig, engine_name: str) -> "EngineSeam":
@@ -221,13 +407,48 @@ def _handle_talk_message(
     _maybe_synthesize(answer, config, repo, task_id, out)
 
 
+def _fire_boundary(on_boundary: "Optional[Callable[[], None]]") -> None:
+    """Call *on_boundary*, if given — the shared post-iteration presence pump.
+
+    Extracted so ``_repl_loop`` states the "fire the boundary" intent once
+    instead of repeating the same guard at each of its three exit points
+    (pure refactor for cognitive complexity, no behaviour change)."""
+    if on_boundary is not None:
+        on_boundary()
+
+
+def _handle_say_line(
+    stripped: str,
+    config: EngineConfig,
+    err: "Callable[..., None]",
+    dispatch: "Callable[[str], None]",
+) -> None:
+    """Transcribe a ``/say <path>`` line and dispatch the transcript, if any.
+
+    A failed/empty transcription dispatches nothing — mirrors the inline
+    behaviour this replaces in ``_repl_loop`` exactly."""
+    transcript = _maybe_transcribe(stripped[len("/say ") :].strip(), config, err)
+    if transcript:
+        dispatch(transcript)
+
+
 def _repl_loop(
     input_fn: "Optional[Iterator[str]]",
     config: EngineConfig,
     err: "Callable[..., None]",
     dispatch: "Callable[[str], None]",
+    *,
+    on_boundary: "Optional[Callable[[], None]]" = None,
 ) -> None:
-    """Read lines until /quit /exit / EOF; dispatch each message."""
+    """Read lines until /quit /exit / EOF; dispatch each message.
+
+    *on_boundary*, when given, is called once per iteration AFTER the line is
+    fully handled (dispatch, ``/say`` transcription, or a blank line) — "each
+    REPL loop iteration / between typed lines" (t8 bullet 2), the presence
+    engine's cadence-gated proactive-update check. ``None`` (the default, and
+    always the case when the presence lane is unarmed) leaves this function
+    byte-identical to before task t8.
+    """
     while True:
         line = _read_line(input_fn)
         if line is None:
@@ -236,13 +457,14 @@ def _repl_loop(
         if stripped in ("/quit", "/exit"):
             return
         if not stripped:
+            _fire_boundary(on_boundary)
             continue
         if stripped.startswith("/say "):
-            transcript = _maybe_transcribe(stripped[len("/say ") :].strip(), config, err)
-            if transcript:
-                dispatch(transcript)
+            _handle_say_line(stripped, config, err, dispatch)
+            _fire_boundary(on_boundary)
             continue
         dispatch(stripped)
+        _fire_boundary(on_boundary)
 
 
 def run_talk_repl(
@@ -274,6 +496,18 @@ def run_talk_repl(
     when it returns ``None`` (senses unarmed) the REPL degrades to relaying the
     raw message via :func:`colleague.flight.append_guidance` with a visible
     ``-> cortex:`` echo — printing the unarmed notice exactly once.
+
+    **Middle-manager parity (t8):** when the presence lane is armed
+    (:func:`colleague.config.resolve_presence_rung` resolves something other
+    than ``"off"`` for *config*), a :class:`~colleague.presence_engine.PresenceEngine`
+    is built from the SAME resolved seam (see :func:`_build_presence_engine_for_talk`)
+    and: (1) renders the run's ack/context from the flight plane once, before
+    the first prompt (:func:`_render_attach_context`); (2) fires a
+    cadence-gated proactive-update check after every REPL iteration
+    (:func:`_make_progress_boundary`). Both are ADDITIVE to the reactive lane
+    above — unarmed (``config.senses is None``, which always resolves
+    ``"off"``) leaves this function's behaviour byte-identical to before task
+    t8: no presence engine is built, nothing new renders or is persisted.
     """
     if err is None:
         err = _eprint
@@ -302,11 +536,22 @@ def run_talk_repl(
             state=state,
         )
 
+    presence_engine = _build_presence_engine_for_talk(
+        repo, task_id, config, senses_config, make_complete, make_count_tokens, out
+    )
+    on_boundary = None
+    if presence_engine is not None:
+        _render_attach_context(repo, task_id, out)
+        _seed_presence_state(repo, task_id, state)
+        on_boundary = _make_progress_boundary(presence_engine, repo, task_id, state)
+
     if audio_path:
         transcript = _maybe_transcribe(audio_path, config, err)
         if transcript:
             dispatch(transcript)
-    _repl_loop(input_fn, config, err, dispatch)
+        if on_boundary is not None:
+            on_boundary()
+    _repl_loop(input_fn, config, err, dispatch, on_boundary=on_boundary)
     return 0
 
 

@@ -14,6 +14,13 @@ then fall through to the unchanged degrade-never-raise path exactly as
 before. A 502, a 503 with no/invalid ``Retry-After``, or any other failure
 (including the retry's own failure) is NOT treated as warming — it degrades
 immediately, byte-identical to pre-0.38 behavior.
+
+**Presence narration (presence-default-everywhere arc, task t12, decision
+c17).** :func:`build_presence_narrator` binds :func:`synthesize` into a
+``narrate(line)`` callable for
+:class:`colleague.presence_engine.PresenceIO` — every front's ack/update/reply
+beats get synthesized to a ``.wav`` beside the run, additively, with no
+per-front voice glue. Still pure stdlib; no new base dependency.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 #: Cap on the bounded warming wait — never sleep the full advertised
 #: Retry-After, however large (a defensive ceiling, not a rig expectation).
@@ -95,7 +102,15 @@ def transcribe(
     to None + one stderr notice. Never raises."""
     try:
         path = Path(audio_path)
-        raw = path.read_bytes()
+        # NOSONAR(S8707) - path containment is the CALLER's responsibility under
+        # colleague's c19 trust model and deliberately cannot live here: an
+        # OPERATOR legitimately points --audio / `/say` at an arbitrary LOCAL
+        # audio file (trusted, decision D2), so restricting the path here would
+        # break that supported use; a NON-operator's path is contained upstream
+        # by colleague.resident.trust.check_attachment_path (the anti-exfiltration
+        # rule) BEFORE it ever reaches this low-level wire client. This is a
+        # pre-existing sink, unchanged by the presence-default-everywhere arc.
+        raw = path.read_bytes()  # NOSONAR(S8707)
         boundary = "----colleague" + uuid.uuid4().hex
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         pre = (
@@ -175,3 +190,63 @@ def synthesize(
     except Exception as exc:  # noqa: BLE001 - degrade-never-raise
         _notice(f"tts synthesize failed ({type(exc).__name__}) — text reply unchanged")
         return None
+
+
+def build_presence_narrator(
+    voice_config: Any,
+    out_dir: str | Path,
+    *,
+    prefix: str = "presence",
+    tts_voice: Optional[str] = None,
+) -> Optional[Callable[[str], None]]:
+    """Build a ``narrate(line)`` callable for
+    :class:`colleague.presence_engine.PresenceIO` (presence-default-everywhere
+    arc, task t12, decision c17).
+
+    Writes one ``.wav`` per rendered presence beat (ack / update / reply)
+    beside *out_dir* via :func:`synthesize` — the SAME degrade-never-raise
+    contract *synthesize* already carries: a failed/absent synth (the
+    reference rig's tts proxy currently 502s) writes no file and is swallowed
+    here too, so the text this narrates is NEVER affected. This is belt-and-
+    suspenders on top of the presence engine's own defensive
+    ``PresenceEngine._narrate`` wrapper — narration must be additive at every
+    layer, not just the outermost one.
+
+    Returns ``None`` (no callable at all, so a front never wires narration
+    for nothing) when *voice_config* is unarmed or carries no ``tts_model`` —
+    duck-typed on ``tts_model``/``tts_base_url``/``api_key`` rather than
+    importing :class:`colleague.config.VoiceConfig`, matching how
+    ``colleague/cli/_commands/talk.py`` and
+    ``colleague/resident/appserver.py`` already consume it (avoids a
+    voice.py -> config.py import for a narrow duck-typed use).
+
+    Only stdlib is touched here (``pathlib``) — :func:`synthesize` itself is
+    pure ``urllib``, so wiring this hook adds NO base-install audio
+    dependency; the ``[voice]`` extra (mic capture / speaker playback, in
+    :mod:`colleague.voice_devices`) is unrelated and untouched by narration.
+    """
+    tts_model = getattr(voice_config, "tts_model", None) if voice_config is not None else None
+    if not tts_model:
+        return None
+    out_dir_path = Path(out_dir)
+    tts_base_url = getattr(voice_config, "tts_base_url", "") or ""
+    api_key = getattr(voice_config, "api_key", "") or ""
+    counter = {"n": 0}
+
+    def narrate(line: str) -> None:
+        try:
+            counter["n"] += 1
+            out_dir_path.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir_path / f"{prefix}-{counter['n']:04d}.wav"
+            synthesize(
+                line,
+                tts_model=tts_model,
+                base_url=tts_base_url,
+                out_path=out_path,
+                api_key=api_key,
+                voice=tts_voice,
+            )
+        except Exception:  # nosec B110 # noqa: BLE001 - narration must never disturb the run
+            pass
+
+    return narrate

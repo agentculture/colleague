@@ -1566,7 +1566,7 @@ agent-lifecycle behind an opt-in extra, and background execution is a one-shot
 detached child).
 
 **Out of scope for v0** — do not add without re-speccing: a multi-backend
-router / routing policy. Three sanctioned increments have landed
+router / routing policy. Four sanctioned increments have landed
 at this line, each a re-spec'd, fixed, enumerated surface — never a routing
 policy: (1) the **dual-model deepthink escalation** — ONE operator-declared
 second model, a fixed enumerated escalation surface, no automatic
@@ -1584,8 +1584,25 @@ join the enumerated senses surface: `stt` (audio in → verbatim transcript) and
 `tts` (text reply → audio out), operator-declared and consumed BY NAME — no
 automatic task→model routing, no N-role generalization, and STILL no
 senses-decides-to-answer-itself (the task always goes to cortex; senses
-converses and relays but never acts, structurally tools-off). Anything beyond
-those three is still
+converses and relays but never acts, structurally tools-off); and (4) the
+**presence-default-everywhere** arc (the **Presence default everywhere** part
+above; feature doc `docs/features/presence-default-everywhere.md`) — senses
+gains its OWN bounded *agentic loop* (`colleague/senses_loop.py`) whose "tools"
+are a CURATED, coordination-only move surface (`dispatch_to_cortex`,
+`guide_cortex`, `read_flight`, `reply_to_operator`, `clarify`, `wait` —
+enumerated in `colleague/senses_moves.py`, expressed as prompted-JSON over the
+SAME tools-off completion, so nothing tool-shaped ever reaches the wire and
+cortex stays the ONLY repo actor), and the middle-manager presence becomes the
+DEFAULT on ALL fronts (session, `colleague talk`, background, mesh resident
+reply-to-origin, one-shot `colleague work`) — a fixed enumerated move surface,
+no automatic task→model routing, no N-agent generalization, and STILL no
+senses-decides-to-answer-itself. Closes colleague#300. The one deliberate,
+recorded convention break: an off-TTY / piped session with senses armed now
+carries labeled `senses:` lines (presence is default everywhere, no longer
+colour-TTY-only) — the broken byte-identical tests are enumerated in
+`tests/test_presence_pin_breaks.py`, and `--json` stdout stays machine-parseable
+(presence rides stderr). Anything beyond
+those four is still
 the excluded router; document the distinction honestly. Explicitly still OUT,
 each parked pending its own router-boundary re-spec:
 **senses-direct-for-cheap-tasks** — senses answering without cortex at all,

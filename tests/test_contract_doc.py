@@ -21,6 +21,8 @@ from colleague import feedback as fb
 from colleague.affectedtests import AffectedTestsReport
 from colleague.contract import (
     OK,
+    SENSES_CHAT_KINDS,
+    SENSES_LOOP_POINT_PREFIX,
     CapacityDecision,
     CoherenceReport,
     ContextPacket,
@@ -272,6 +274,23 @@ def test_senses_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
     assert set(d["senses"].keys()) == doc_blocks["senses"]
     assert set(d["senses"]["packet"].keys()) == doc_blocks["context_packet"]
     assert set(d["senses"]["records"][0].keys()) == doc_blocks["senses_record"]
+
+
+def test_senses_chat_kind_vocabulary_matches_doc(doc_blocks: dict[str, set[str]]) -> None:
+    """The documented ``chat[].kind`` vocabulary (presence-default-everywhere
+    arc, task t3) matches the code's own closed set exactly — the SAME
+    vocabulary every front (session, talk attach, background, resident, the
+    senses coordination loop) must reuse, never a front-specific kind."""
+    assert set(SENSES_CHAT_KINDS) == doc_blocks["senses_chat_kind"]
+
+
+def test_senses_loop_point_prefix_is_documented(doc_blocks: dict[str, set[str]]) -> None:
+    """``docs/contract.md`` names the exact ``SENSES_LOOP_POINT_PREFIX`` string
+    (not just the constant's existence) so a reader of the published contract
+    can recognise a senses-loop turn's ``records[].point`` without reading the
+    source."""
+    text = CONTRACT_DOC.read_text(encoding="utf-8")
+    assert SENSES_LOOP_POINT_PREFIX in text
 
 
 def test_feedback_record_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:

@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 import wave
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -398,6 +398,72 @@ def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Presence-beat narration proof (presence-default-everywhere arc, task t12,
+# decision c17): does a rendered ack/update/reply beat actually produce a
+# companion .wav? Grades from the SAME evidence discipline as the media/voice
+# checks above — never a fabricated pass. Reuses colleague.voice.synthesize's
+# own degrade-never-raise contract (a 502/no-audio body writes no file), so
+# "no wav landed" and "the rig's tts proxy is down" are indistinguishable from
+# here — exactly the honest limit classify_media_audio_check already
+# documents for the sibling audio-drop case, and it flips to a real pass the
+# day the rig actually serves audio.
+# ---------------------------------------------------------------------------
+
+
+def classify_presence_narration_check(narrated: bool) -> tuple[str, str]:
+    """Grade the presence-narration live proof (t12) from whether a real wav landed.
+
+    PASSes only when a rendered presence beat produced an actual, non-empty
+    ``.wav`` file; SKIPs (never FAILs) when it did not — the reference rig's
+    tts proxy currently 502s (colleague#292/291, lobes-cli#89/#92), and a
+    failed synth is indistinguishable here from any other "no audio" outcome
+    (:func:`colleague.voice.synthesize` degrades both to the same ``None``).
+    Never a fabricated pass.
+    """
+    if narrated:
+        return "passed", "a rendered presence beat was narrated to a real .wav file"
+    return (
+        "skipped",
+        f"presence narration produced no audio — {_VOICE_LANE_NOT_READY_REASON}",
+    )
+
+
+def run_presence_narration_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
+    """Live proof (t12): wire a rendered presence beat through to a real wav.
+
+    Resolves the repo's ``VoiceConfig`` (``config.voice``, optionally
+    overridden with an explicit ``model`` as the tts model) and, when a
+    ``tts_model`` is present, drives one
+    :func:`colleague.voice.build_presence_narrator` call with a short
+    presence-beat line into a throwaway directory. SKIPs honestly — never a
+    fabricated pass — when voice isn't configured at all, or when the
+    synthesis degrades (the reference rig's tts proxy currently 502s; see
+    :func:`classify_presence_narration_check`).
+    """
+    from colleague.voice import build_presence_narrator
+
+    repo_path = str(repo)
+    config = EngineConfig.resolve(repo_path=repo_path)
+    voice_config = config.voice
+    if voice_config is None or not getattr(voice_config, "tts_model", None):
+        return ProofResult(
+            file="presence_narration",
+            status="skipped",
+            detail="tts not configured (config.voice/tts_model absent) — nothing to narrate",
+        )
+    if model:
+        voice_config = replace(voice_config, tts_model=model)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        narrate = build_presence_narrator(voice_config, tmp_dir)
+        assert narrate is not None  # a tts_model was just confirmed present
+        narrate("colleague: cortex is working on your request now.")
+        wav_path = Path(tmp_dir) / "presence-0001.wav"
+        narrated = wav_path.is_file() and wav_path.stat().st_size > 0
+    status, detail = classify_presence_narration_check(narrated)
+    return ProofResult(file="presence_narration", status=status, detail=detail)
+
+
+# ---------------------------------------------------------------------------
 # Talking-to-one middle-manager proof (task t9): every announcement beat —
 # ack → dispatch → grounded update → conversational answer — graded from the
 # recorded evidence alone (the session transcript + TaskResult.senses), plus
@@ -768,3 +834,122 @@ def run_cortex_senses_check(repo: str | Path, *, model: str | None = None) -> Pr
         cortex_result.to_dict(), split_result.to_dict(), _CORTEX_SENSES_INSTRUCTION
     )
     return ProofResult(file="cortex_senses", status=status, detail=detail)
+
+
+# ---------------------------------------------------------------------------
+# Per-front presence classifiers (presence-default-everywhere, task t14): each
+# front's full middle-manager beat sequence — ack → grounded update/reply →
+# (optional) guidance relay — graded from the SHARED SensesBlock (t3) + that
+# front's own rendered lines, machine-checkable, no human judgment. The SAME
+# beats are graded on every front (h6 / c4 / c15): a front missing a beat FAILS
+# its check; a front the rig could not exercise SKIPs (never a fabricated pass).
+# ---------------------------------------------------------------------------
+
+#: The fronts the presence lane serves. Each grades the SAME SensesBlock shape
+#: from its own rendered-line source: session → the cockpit transcript, talk →
+#: the flight chat log, background → the flight chat log, resident → the origin
+#: reply bodies, work → the stderr lines.
+PRESENCE_FRONTS = ("session", "talk", "background", "resident", "work")
+
+
+def _has_ack_beat(chat: list[dict[str, Any]], records: list[dict[str, Any]]) -> bool:
+    """An ack beat is a kind='ack' chat entry OR a senses-loop dispatch record."""
+    if any(e.get("kind") == "ack" for e in chat):
+        return True
+    return any(str(r.get("point", "")).endswith("dispatch_to_cortex") for r in records)
+
+
+def _has_narration_beat(chat: list[dict[str, Any]], records: list[dict[str, Any]]) -> bool:
+    """A narration beat is a proactive update OR a conversational reply.
+
+    Covers BOTH lanes: the fixed-beat lane (a ``senses-update`` /
+    ``senses-speakback`` record, or a kind='update' chat entry with text) and the
+    senses-loop lane (a ``senses-loop:reply_to_operator`` record, or a talk-shaped
+    chat entry — kind absent — carrying an ``answer``).
+    """
+    for r in records:
+        point = str(r.get("point", ""))
+        if point in ("senses-update", "senses-speakback") and not r.get("degraded"):
+            return True
+        if point.endswith("reply_to_operator"):
+            return True
+    for e in chat:
+        if e.get("kind") == "update" and e.get("text"):
+            return True
+        if "kind" not in e and str(e.get("answer") or "").strip():
+            return True
+    return False
+
+
+def _has_relay_beat(injections: list[dict[str, Any]], records: list[dict[str, Any]]) -> bool:
+    """A relay beat is a recorded guidance injection OR a guide_cortex loop record.
+
+    Optional: a run where the operator never spoke has no relay — its absence is
+    reported, never a failure.
+    """
+    if injections:
+        return True
+    return any(str(r.get("point", "")).endswith("guide_cortex") for r in records)
+
+
+def classify_front_presence_check(
+    senses: dict[str, Any] | None,
+    rendered_lines: list[str],
+    *,
+    front: str = "front",
+) -> tuple[str, str]:
+    """Grade one front's middle-manager beats from evidence alone (t14).
+
+    REQUIRED beats: an ACK and at least one grounded NARRATION (a proactive
+    update or a conversational reply). The guidance RELAY is reported when
+    present but never required (not every run relays). Returns ``("skipped",
+    reason)`` when the front was not exercised at all (no senses block AND no
+    rendered lines); ``("failed", reason)`` when a block exists but a required
+    beat is missing (a real regression); ``("passed", detail)`` otherwise —
+    never a fabricated pass.
+    """
+    if not senses and not rendered_lines:
+        return "skipped", f"{front}: not exercised (no senses block, no rendered lines)"
+    if not senses:
+        return "failed", f"{front}: rendered senses lines but no SensesBlock — not reconstructable"
+
+    chat = senses.get("chat", []) or []
+    records = senses.get("records", []) or []
+    injections = senses.get("injections", []) or []
+
+    if not _has_ack_beat(chat, records):
+        return "failed", f"{front}: beat missing — no ack (kind='ack' chat or dispatch record)"
+    if not _has_narration_beat(chat, records):
+        return "failed", f"{front}: beat missing — no grounded update/reply narration"
+
+    relay = "with a guidance relay" if _has_relay_beat(injections, records) else "no relay this run"
+    return (
+        "passed",
+        f"{front}: ack + narration observed, {relay}; "
+        f"{len(records)} record(s), {len(chat)} chat entr(ies), {len(injections)} injection(s)",
+    )
+
+
+def classify_session_presence_check(senses, transcript):  # noqa: ANN001
+    """Session-loop front: graded from the cockpit transcript (`senses:` lines)."""
+    return classify_front_presence_check(senses, transcript, front="session")
+
+
+def classify_talk_presence_check(senses, flight_chat_lines):  # noqa: ANN001
+    """Talk-attach front: graded from the flight chat log lines."""
+    return classify_front_presence_check(senses, flight_chat_lines, front="talk")
+
+
+def classify_background_presence_check(senses, flight_chat_lines):  # noqa: ANN001
+    """Background front: graded from the flight chat log lines."""
+    return classify_front_presence_check(senses, flight_chat_lines, front="background")
+
+
+def classify_resident_presence_check(senses, reply_bodies):  # noqa: ANN001
+    """Resident front: graded from the origin reply bodies (ack/update messages)."""
+    return classify_front_presence_check(senses, reply_bodies, front="resident")
+
+
+def classify_work_presence_check(senses, stderr_lines):  # noqa: ANN001
+    """One-shot work front: graded from the stderr `senses:` lines."""
+    return classify_front_presence_check(senses, stderr_lines, front="work")
