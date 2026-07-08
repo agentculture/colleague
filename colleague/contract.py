@@ -592,6 +592,35 @@ class ContextPacket:
         )
 
 
+# Conventional ``chat[]`` entry ``"kind"`` values (talking-to-one arc, task t5;
+# reaffirmed by the presence-default-everywhere arc, task t3): the ONE closed
+# vocabulary every front draws from — ``"talk"`` (implied when the key is
+# absent, today's pre-arc shape), ``"ack"`` (the intake acknowledgment),
+# ``"update"`` (a proactive progress narration), and ``"clarify"`` (a
+# clarifying question/answer exchange before dispatch). The senses
+# coordination loop (``colleague/senses_moves.py``, tasks t1/t5) reuses this
+# SAME set for its operator-facing moves — ``reply_to_operator`` folds as
+# ``"talk"``, ``dispatch_to_cortex`` as ``"ack"``, ``clarify`` as
+# ``"clarify"`` — rather than inventing a fifth kind. Its ``guide_cortex``
+# move (a guidance relay) is NOT a chat entry at all; it folds into
+# ``SensesBlock.injections`` instead, matching how the live-presence talk
+# lane already records applied guidance. Its ``read_flight``/``wait`` moves
+# are internal bookkeeping only — a ``SensesRecord`` (below), no chat entry.
+# No front may grow its own record schema; import this constant rather than
+# re-typing the literal strings.
+SENSES_CHAT_KINDS: tuple[str, ...] = ("talk", "ack", "update", "clarify")
+
+# Point-label prefix for the senses coordination loop's per-turn records
+# (presence-default-everywhere arc, task t3, for tasks t1/t5 to consume): each
+# loop turn is recorded as one ``SensesRecord`` with
+# ``point=f"{SENSES_LOOP_POINT_PREFIX}{move}"`` (e.g.
+# ``"senses-loop:dispatch_to_cortex"``) — no new field, no new record shape,
+# just a naming convention that keeps per-move loop turns distinguishable from
+# the fixed-beat points (``"senses-intake"``, ``"senses-update"``,
+# ``"senses-talk"``, ...) sharing this SAME ``SensesRecord`` shape.
+SENSES_LOOP_POINT_PREFIX = "senses-loop:"
+
+
 @dataclass
 class SensesRecord:
     """One senses-model invocation record (cortex/senses, t2).
@@ -675,6 +704,17 @@ class SensesBlock:
     omit-when-None payload whose nested records mirror :class:`DeepthinkCall`.
     A run with no senses involvement leaves ``TaskResult.senses`` at ``None``,
     so the key is omitted entirely and the artifact is byte-identical to today.
+
+    ONE SHARED SHAPE ACROSS EVERY FRONT (presence-default-everywhere arc, task
+    t3): the interactive session, the ``colleague talk`` attach, a background
+    run, the mesh resident, and one-shot ``colleague work`` all record their
+    middle-manager beats (ack, proactive updates, clarify, guidance relay, the
+    senses coordination loop's turns) into this SAME dataclass — the SAME
+    ``records``/``chat``/``injections`` fields, the SAME :data:`SENSES_CHAT_KINDS`
+    vocabulary, the SAME :data:`SENSES_LOOP_POINT_PREFIX` point convention. No
+    front defines its own record type or its own chat/point shape; a front that
+    needs a genuinely new beat extends THIS shape (and this drift-tested doc),
+    never a parallel one.
     """
 
     mode: str
@@ -701,7 +741,10 @@ class SensesBlock:
     # reconstructable from one place. It is a documented convention pinned by
     # round-trip tests, not a schema change: ``chat`` stays a list of plain
     # dicts and (de)serialization passes every entry through verbatim
-    # regardless of whether it carries ``kind``.
+    # regardless of whether it carries ``kind`` — see :data:`SENSES_CHAT_KINDS`
+    # for the closed vocabulary (reused identically by every front, presence-
+    # default-everywhere arc, task t3) and :data:`SENSES_LOOP_POINT_PREFIX` for
+    # the senses coordination loop's ``records[].point`` naming convention.
     injections: list[dict[str, Any]] = field(default_factory=list)
     chat: list[dict[str, Any]] = field(default_factory=list)
 
