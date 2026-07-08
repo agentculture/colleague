@@ -27,7 +27,7 @@ import os
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Collection, Optional
+from typing import Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit
 
 from colleague import configdir
@@ -1133,6 +1133,147 @@ def resolve_session_engine(explicit: str | None) -> str:
     if session_env and session_env.strip():
         return session_env.strip()
     return resolve_engine(None)
+
+
+# ---------------------------------------------------------------------------
+# Presence-lane ladder rung resolution (presence-default-everywhere arc,
+# spec docs/specs/2026-07-08-colleague-s-middle-manager-presence-is-now-its-def.md,
+# plan task t4).
+# ---------------------------------------------------------------------------
+
+# The presence lane's bounded degradation ladder, highest-fidelity rung first:
+# "loop" is the senses agentic loop (t5, the DEFAULT rung whenever senses is
+# armed); "beats" is today's fixed-beat lane (intake/ack/updates/talk, an
+# explicit operator opt-down); "off" is cortex-only — no middle-manager
+# presence at all, either because no senses model is resolved (nothing to
+# talk to) or because the operator disarmed the lane. Downstream front tasks
+# (t7-t11) consult :func:`resolve_presence_rung` to learn which rung to drive;
+# this module only decides the rung, it never wires a front.
+PRESENCE_RUNGS = ("loop", "beats", "off")
+
+# Values that normalize to the "off" rung for COLLEAGUE_PRESENCE / the
+# top-level "presence" config.json key — mirrors ``_parse_bool``'s falsy
+# vocabulary so ``COLLEAGUE_PRESENCE=0`` behaves the same way every other
+# boolean-shaped knob in this module does.
+_PRESENCE_OFF_VALUES = frozenset({"off", "0", "false", "no"})
+
+
+def _load_presence_override(repo_path: str | Path) -> str | None:
+    """Read the top-level ``presence`` key from .colleague/config.json.
+
+    Mirrors :func:`_load_memory_override` (kept separate from
+    :func:`load_config_file`, whose endpoint-string contract must not change):
+    a scalar knob, not the nested-section shape ``deepthink``/``senses``/
+    ``voice`` use. Returns the stringified value or ``None`` when absent; a
+    missing/malformed file yields ``None`` and never raises.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("presence")
+    return None if value is None else str(value)
+
+
+def _normalize_presence_value(value: str) -> str | None:
+    """Map a raw ``presence`` string to a canonical rung name, or ``None``.
+
+    Case-insensitive and whitespace-tolerant, matching every other knob's
+    parsing style in this module. ``"off"``/``"0"``/``"false"``/``"no"`` all
+    normalize to ``"off"``; ``"beats"``/``"loop"`` pass straight through. A
+    blank or unrecognised value (a typo, e.g. ``"loops"``) returns ``None`` so
+    the caller falls through to the NEXT precedence rung instead of silently
+    trusting a malformed value — never raises.
+    """
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized in _PRESENCE_OFF_VALUES:
+        return "off"
+    if normalized in ("beats", "loop"):
+        return normalized
+    return None
+
+
+def resolve_presence_rung(
+    config: "EngineConfig",
+    *,
+    cortex_only: bool = False,
+    env: Optional[Mapping[str, str]] = None,
+    repo_path: str | Path | None = None,
+) -> str:
+    """Resolve which presence-lane ladder rung is active for this work item.
+
+    Returns one of :data:`PRESENCE_RUNGS` (``"loop"`` | ``"beats"`` | ``"off"``).
+    *config* is an already-resolved :class:`EngineConfig` (any front — session,
+    talk, background, resident, or a one-shot ``work`` item — resolves through
+    the SAME ``EngineConfig``, so this one function serves every front).
+
+    Precedence, highest first:
+
+    1. *cortex_only* — the front's own ``--cortex-only`` bypass (a session-wide
+       flag in ``colleague session``, a per-run flag in ``colleague work``,
+       etc.) always forces ``"off"``, regardless of anything else below.
+    2. ``config.senses is None`` — senses was never resolved at all (no
+       operator-declared model, no lobes discovery). There is nothing to talk
+       to, so the rung is ``"off"`` — byte-identical to pre-arc behaviour
+       (honesty h1: an install with no senses resolved stays byte-identical on
+       every front).
+    3. ``COLLEAGUE_PRESENCE`` env var (``CONVERTIBLE_PRESENCE`` honored as a
+       deprecated fallback, matching every other knob in this module) —
+       ``"loop"``, ``"beats"``, or an off-shaped value (``"off"``/``"0"``/
+       ``"false"``/``"no"``).
+    4. a top-level ``presence`` key in ``.colleague/config.json`` (only
+       consulted when *repo_path* is given) — same three values.
+    5. the built-in default: ``"loop"`` — the senses agentic loop is the
+       DEFAULT rung whenever senses is armed and not disarmed (the arc's
+       "default state" requirement).
+
+    Never raises: a malformed or unrecognised env/config value (a typo) is
+    treated as absent and falls through to the next precedence rung, exactly
+    like every other knob resolved in this module — it never silently wins
+    with a nonsensical value, but it also never blocks resolution.
+
+    This is a PURE function over its arguments (no I/O beyond the optional
+    config-file read) — it does not mutate *config*, and it is not baked into
+    :meth:`EngineConfig.resolve` or ``to_dict()``: a field would have to be
+    included/omitted from the artifact snapshot, and *cortex_only* is a
+    per-front, post-resolve decision (fronts apply it by nulling
+    ``config.senses`` today) rather than a value known at ``resolve()`` time.
+    Keeping this a standalone resolver keeps a senses-less or cortex-only
+    config's ``to_dict()`` untouched (byte-identical, sacred per this repo's
+    conventions) while still giving downstream tasks (the artifact/debug
+    surface, t5-t11) one authoritative call to learn the active rung.
+    """
+    if env is None:
+        env = os.environ
+
+    if cortex_only:
+        return "off"
+
+    if config.senses is None:
+        return "off"
+
+    for env_key in ("COLLEAGUE_PRESENCE", "CONVERTIBLE_PRESENCE"):
+        raw = env.get(env_key)
+        if raw is not None:
+            normalized = _normalize_presence_value(raw)
+            if normalized is not None:
+                return normalized
+
+    if repo_path is not None:
+        file_value = _load_presence_override(repo_path)
+        if file_value is not None:
+            normalized = _normalize_presence_value(file_value)
+            if normalized is not None:
+                return normalized
+
+    return "loop"
 
 
 @dataclass(frozen=True)
