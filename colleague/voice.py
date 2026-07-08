@@ -102,7 +102,15 @@ def transcribe(
     to None + one stderr notice. Never raises."""
     try:
         path = Path(audio_path)
-        raw = path.read_bytes()
+        # NOSONAR(S8707) - path containment is the CALLER's responsibility under
+        # colleague's c19 trust model and deliberately cannot live here: an
+        # OPERATOR legitimately points --audio / `/say` at an arbitrary LOCAL
+        # audio file (trusted, decision D2), so restricting the path here would
+        # break that supported use; a NON-operator's path is contained upstream
+        # by colleague.resident.trust.check_attachment_path (the anti-exfiltration
+        # rule) BEFORE it ever reaches this low-level wire client. This is a
+        # pre-existing sink, unchanged by the presence-default-everywhere arc.
+        raw = path.read_bytes()  # NOSONAR(S8707)
         boundary = "----colleague" + uuid.uuid4().hex
         ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         pre = (

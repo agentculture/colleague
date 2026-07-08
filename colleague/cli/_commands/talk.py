@@ -279,12 +279,16 @@ def _make_progress_boundary(
         tool = current.get("tool") if current else None
         step = current.get("step_index") if current else None
         step_count = step if isinstance(step, int) else state.get("presence_last_step", 0)
-        phase_changed = tool is not None and tool != state.get("presence_last_tool")
+        # A talk attach reads the flight feed, which records only REAL steps
+        # (step_index/tool) — NOT the loop's empty-tool phase notices (#206). A
+        # tool-name change is therefore not a reliable phase-change proxy (Qodo):
+        # firing the phase-change path off it would skew the cadence and burn the
+        # update cap early. Talk boundaries rely solely on the step cadence
+        # (every_steps); phase_changed is always False here. presence_last_tool
+        # is still tracked for context but no longer drives the cadence.
         state["presence_last_tool"] = tool
         state["presence_last_step"] = step_count
-        turns = presence_engine.on_progress_boundary(
-            step_count=step_count, phase_changed=phase_changed
-        )
+        turns = presence_engine.on_progress_boundary(step_count=step_count, phase_changed=False)
         _persist_presence_turns(repo, task_id, turns)
 
     return boundary

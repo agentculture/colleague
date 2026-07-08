@@ -422,18 +422,22 @@ class SensesLoopDriver:
             parts.append(f"Moves you already took this turn: {taken}")
         fixed_context = "\n".join(parts)
 
-        # Only the feed grows unbounded over a long run, so it (never the fixed
-        # context) is the part windowed to the senses budget — mirroring
-        # run_senses_talk.
-        windowed_feed = _window_text(
-            _feed_to_text(boundary.feed_tail),
-            system_prompt=f"{_LOOP_SYSTEM_PROMPT}\n\n{fixed_context}",
+        # Window the WHOLE assembled body (fixed_context + feed) to the senses
+        # budget, not just the feed: fixed_context can carry a large operator
+        # message / interpretation / scratch, and _fold_history never trims the
+        # primary body — so budgeting only the feed can't stop an oversized
+        # prompt. This mirrors run_senses_update (which windows about+feed
+        # together) and the #301 "budget the full prompt, not just the feed"
+        # fix. Then fold history (which drops old history entries to fit).
+        assembled = (
+            f"{fixed_context}\n\nRecent flight feed (most recent last):\n"
+            f"{_feed_to_text(boundary.feed_tail) or '(no feed yet)'}"
+        )
+        user_prompt = _window_text(
+            assembled,
+            system_prompt=_LOOP_SYSTEM_PROMPT,
             budget=budget,
             count_tokens=counter,
-        )
-        user_prompt = (
-            f"{fixed_context}\n\nRecent flight feed (most recent last):\n"
-            f"{windowed_feed or '(no feed yet)'}"
         )
         user_prompt = _fold_history(
             user_prompt,

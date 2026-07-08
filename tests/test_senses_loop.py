@@ -202,6 +202,19 @@ def test_feed_is_windowed_to_budget_via_the_count_tokens_seam() -> None:
     assert len(sent_user) < len(huge_feed) / 5
 
 
+def test_large_fixed_context_is_also_windowed_not_just_the_feed() -> None:
+    # Qodo (loop-prompt overflow): the WHOLE assembled body — not just the feed —
+    # is windowed to budget. A huge operator message (fixed_context) with an empty
+    # feed must still be bounded, or it would overflow the senses budget and force
+    # an avoidable degraded completion.
+    prompts: list = []
+    huge_operator_msg = "please " + "x" * 40000
+    d = _driver([json.dumps({"move": "wait"})], prompts=prompts, budget=40)
+    d.process_boundary(_op(huge_operator_msg))
+    sent_user = prompts[0][1]["content"]
+    assert len(sent_user) < len(huge_operator_msg) / 5  # bounded, not passed through raw
+
+
 # ── 2. degradation ladder ─────────────────────────────────────────────────────
 def test_unarmed_senses_pins_off_and_is_byte_identical() -> None:
     d = SensesLoopDriver(

@@ -341,3 +341,34 @@ class TestUnarmedByteIdentical:
         assert rc == 0
         assert out_lines == ["-> cortex: what's happening?"]
         assert err_lines == [_UNARMED_NOTICE]
+
+
+def test_talk_boundary_never_fires_phase_change_off_a_tool_change(tmp_path, monkeypatch):
+    # Qodo (talk phase_changed wrong): the flight feed records only real steps,
+    # not the loop's empty-tool phase notices, so a tool-name change is NOT a
+    # phase change. The talk boundary must always pass phase_changed=False and
+    # rely on the step cadence — else it burns the update cap early.
+    from types import SimpleNamespace
+
+    from colleague.cli._commands import talk as talk_mod
+
+    seen: list = []
+    presence = SimpleNamespace(
+        on_progress_boundary=lambda *, step_count, phase_changed: seen.append(
+            (step_count, phase_changed)
+        )
+        or []
+    )
+    # Two boundaries with DIFFERENT tool names (would be a "phase change" under
+    # the old tool-name heuristic).
+    states = iter(
+        [{"step_index": 1, "tool": "read_file"}, {"step_index": 2, "tool": "run_command"}]
+    )
+    monkeypatch.setattr(talk_mod, "_last_task_state", lambda repo, task_id: next(states))
+    monkeypatch.setattr(talk_mod, "_persist_presence_turns", lambda *a, **k: None)
+
+    state: dict = {}
+    boundary = talk_mod._make_progress_boundary(presence, tmp_path, "tid", state)
+    boundary()
+    boundary()
+    assert seen == [(1, False), (2, False)]  # never a phase-change fire off a tool change
