@@ -38,6 +38,14 @@ Classification rubric (evaluated in this order — repo signals win)
 from __future__ import annotations
 
 import re
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+from colleague.contract import SensesRecord
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from colleague.config import EngineConfig
 
 #: Front-door routing constants returned by :func:`classify_frontdoor`.
 SENSES_DIRECT = "senses_direct"
@@ -122,3 +130,167 @@ def classify_frontdoor(text: str) -> str:
             return SENSES_DIRECT
 
     return CORTEX
+
+
+@dataclass(frozen=True)
+class FrontDoorOutcome:
+    """The unified decide-and-answer outcome of :func:`run_frontdoor`.
+
+    Composes the deterministic :func:`classify_frontdoor` verdict with the
+    senses-direct answer (:func:`colleague.senses.run_senses_frontdoor`, when
+    consulted) into ONE result shape a front (the interactive session or the
+    mesh resident) can act on without re-deriving any of this logic itself.
+
+    Fields
+    ------
+    route:
+        :data:`SENSES_DIRECT` or :data:`CORTEX` — the classifier's verdict.
+    dispatch:
+        ``True`` iff the front should still run the cortex work item. ``True``
+        for every path except a clean senses-direct answer.
+    answered_directly:
+        ``True`` iff senses produced a real (non-degraded) answer and no
+        dispatch should happen — the front can show ``answer`` and stop.
+    answer:
+        The senses-direct answer text, or the degraded-fallback text when
+        senses could not answer. ``None`` on the unarmed/cortex paths (senses
+        was never consulted).
+    degraded:
+        ``True`` iff a senses-direct attempt was made but fell back /
+        degraded (the caller should dispatch to cortex despite the
+        ``senses_direct`` route).
+    record:
+        A :class:`~colleague.contract.SensesRecord` for
+        ``TaskResult.senses.records``, or ``None`` when senses was never
+        consulted (the unarmed path).
+    chat_entry:
+        A ``{"kind": "talk", "message", "answer", "at"}`` dict for
+        ``TaskResult.senses.chat`` — the existing "talk" chat-entry shape,
+        no new vocabulary — set only on a clean senses-direct answer.
+    """
+
+    route: str
+    dispatch: bool
+    answered_directly: bool
+    answer: Optional[str] = None
+    degraded: bool = False
+    record: Optional[SensesRecord] = None
+    chat_entry: Optional[dict[str, Any]] = None
+
+
+def run_frontdoor(
+    text: str,
+    *,
+    senses_config: "Optional[EngineConfig]",
+    make_complete: "Callable[..., Callable[[list[dict[str, Any]]], Any]]",
+    facts: Optional[str] = None,
+    make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
+    history: "Optional[list[dict[str, str]]]" = None,
+) -> FrontDoorOutcome:
+    """The ONE shared front-agnostic front-door entry.
+
+    Composes the deterministic :func:`classify_frontdoor` with the senses
+    answer (:func:`colleague.senses.run_senses_frontdoor`) so BOTH the
+    interactive session and the mesh resident can decide-and-answer through
+    one call, instead of each re-implementing the classify → consult-senses →
+    fall-back-to-cortex sequence.
+
+    Never raises: :func:`~colleague.senses.run_senses_frontdoor` already
+    degrades internally on any completion failure; this function just maps
+    its result onto a :class:`FrontDoorOutcome`.
+
+    Parameters
+    ----------
+    text:
+        The operator's verbatim message.
+    senses_config:
+        The senses-pointed :class:`~colleague.config.EngineConfig`, or
+        ``None`` when senses is unarmed. Unarmed is BYTE-IDENTICAL to
+        pre-arc colleague: never classifies, never consults senses, never
+        records — ``make_complete`` is never called.
+    make_complete:
+        The ``(config, tools=...) -> CompleteFn`` seam, forwarded verbatim to
+        :func:`~colleague.senses.run_senses_frontdoor`.
+    facts:
+        The curated architecture/identity fact-set to ground a senses-direct
+        answer in. Defaults to
+        :func:`colleague.architecture_facts.load_architecture_facts` when
+        omitted.
+    make_count_tokens:
+        Injectable token counter, forwarded verbatim.
+    history:
+        Optional rolling chat history, forwarded verbatim.
+
+    Returns
+    -------
+    FrontDoorOutcome
+        See the field docs above. ``route == CORTEX`` never consults senses
+        (``make_complete`` is never called) — only ``route == SENSES_DIRECT``
+        reaches the wire, and only when senses is armed.
+    """
+    if senses_config is None:
+        # Unarmed: never classify, never consult senses, never record.
+        return FrontDoorOutcome(route=CORTEX, dispatch=True, answered_directly=False, record=None)
+
+    route = classify_frontdoor(text)
+
+    if route == CORTEX:
+        from colleague.senses import FRONTDOOR_POINT
+
+        return FrontDoorOutcome(
+            route=CORTEX,
+            dispatch=True,
+            answered_directly=False,
+            record=SensesRecord(point=f"{FRONTDOOR_POINT}:cortex"),
+        )
+
+    # route == SENSES_DIRECT
+    from colleague.architecture_facts import load_architecture_facts
+    from colleague.senses import FRONTDOOR_POINT, run_senses_frontdoor
+
+    res = run_senses_frontdoor(
+        text,
+        facts=facts if facts is not None else load_architecture_facts(),
+        senses_config=senses_config,
+        make_complete=make_complete,
+        make_count_tokens=make_count_tokens,
+        history=history,
+    )
+    if res is None:  # pragma: no cover - structurally unreachable
+        # run_senses_frontdoor only returns None when senses_config is None,
+        # and we already returned early above in that case.
+        return FrontDoorOutcome(route=CORTEX, dispatch=True, answered_directly=False, record=None)
+
+    rec = SensesRecord(
+        point=f"{FRONTDOOR_POINT}:senses_direct",
+        latency=res["latency"],
+        tokens=res["tokens"],
+        degraded=res["degraded"],
+    )
+
+    if res["degraded"]:
+        # senses could not answer -> fall back to cortex.
+        return FrontDoorOutcome(
+            route=SENSES_DIRECT,
+            dispatch=True,
+            answered_directly=False,
+            answer=res["answer"],
+            degraded=True,
+            record=rec,
+            chat_entry=None,
+        )
+
+    return FrontDoorOutcome(
+        route=SENSES_DIRECT,
+        dispatch=False,
+        answered_directly=True,
+        answer=res["answer"],
+        degraded=False,
+        record=rec,
+        chat_entry={
+            "kind": "talk",
+            "message": text,
+            "answer": res["answer"],
+            "at": time.time(),
+        },
+    )
