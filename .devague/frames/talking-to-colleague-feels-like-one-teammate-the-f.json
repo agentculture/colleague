@@ -1,0 +1,291 @@
+{
+  "slug": "talking-to-colleague-feels-like-one-teammate-the-f",
+  "title": "Talking to colleague feels like one teammate: the front model (senses) answers you first \u2014 in its own words, instantly \u2014 and only wakes cortex for real repo work, visibly handing off; greetings and 'what/how are you' get a self-aware reply from the front door, not a vague cortex detour that spawns a branch and a memory record.",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-08T20:53:10Z",
+  "updated": "2026-07-08T21:03:59Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Talking to colleague feels like one teammate: the front model (senses) answers you first \u2014 in its own words, instantly \u2014 and only wakes cortex for real repo work, visibly handing off; greetings and 'what/how are you' get a self-aware reply from the front door, not a vague cortex detour that spawns a branch and a memory record.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "In a real armed session, the operator's FIRST response to 'hi' comes from senses (the front model), not cortex, and that turn creates NO git branch and NO eidetic record",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "the operator driving 'colleague session' interactively at the prompt (a human typing free text), and \u2014 by the presence-default-everywhere all-fronts rule \u2014 anyone conversing with a colleague resident/talk surface where senses fronts cortex",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "The change is felt on BOTH the interactive session prompt and the resident/talk fronts (all-fronts presence rule), not a single surface",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "senses answers FIRST in its own words; a social/greeting turn ('hi') and a question about colleague itself ('what model are you', 'how do you work') are answered by senses directly with NO cortex work item \u2014 no branch, no eidetic record; a real repo task gets a senses ack, then a visibly-labeled cortex-is-working indicator, then cortex's result presented conversationally; senses' self-answers are grounded in a real colleague-architecture fact-set",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "every free-text line is classify_intent->work->a full cortex work item: 'hi' spawns colleague/<id>-hi + a memory record, and 'what model are you?' is answered by cortex (vaguely: 'no visibility into which backend'); the front model, if armed, only rides as a one-line intake-ack + a concurrent narrator layered on top of a cortex dispatch that ALWAYS happens \u2014 so the operator cannot tell a distinct, faster front mind is even involved",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The pain is real today: a bare 'hi' in a live armed session currently produces a colleague/<id>-hi branch AND an eidetic record \u2014 reproducible before the change",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "the two-model split (fast wide front + strong back) only pays off if the operator FEELS one coherent, responsive teammate; otherwise it is just cortex plus extra latency, and burning a full work item (git branch + memory write) on 'hi' is both slow and litters the repo/store",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "With senses-direct, a non-repo turn's latency is the fast front model's alone (no cortex round-trip), measurably quicker than routing through cortex",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "NOT a general task->model routing policy: senses does not learn or freely decide arbitrary routing; the senses-direct surface is FIXED + enumerated (social turns + colleague-self-description, expressed only through senses' EXISTING reply_to_operator/clarify moves \u2014 no new capability, no repo tool reachable). Any request that would TOUCH THE REPO (read or write) ALWAYS dispatches to cortex. Cortex stays the ONLY mind that acts on the repo. Not changing plan/explore/review verbs; not a new GUI",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "in a live session: 'hi' returns an instant senses reply and creates NO branch and NO eidetic record; 'what model are you / how do you work' returns a correct colleague-architecture-grounded answer from senses with no cortex dispatch; a real task shows senses-ack -> a distinct labeled cortex-working indicator -> cortex result; and every operator-facing line is unmistakably attributable to senses vs cortex",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Every success signal is observable by an operator in one live session at the prompt / in the artifact, without reading code",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Ack-first ordering: when senses is armed, senses perceives the operator's line and its acknowledgment is the FIRST operator-facing output for that turn \u2014 before any mechanical routing/dispatch line; a cortex-only / unarmed session stays byte-identical (no ack, same output as today)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "The senses ack renders before the mechanical routing/dispatch line on every armed front (session/talk/resident); a cortex-only or unarmed run emits no ack and is byte-identical to today's output \u2014 test-pinned",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Enumerated senses-direct surface: senses may CONCLUDE a turn without cortex ONLY through its already-enumerated coordination moves (reply_to_operator / clarify) \u2014 no new answer capability, no repo tool reachable from senses \u2014 and only for the fixed class {social/greeting turns, questions about colleague itself}; any turn that would read or write the repo provably still dispatches to cortex",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Senses concluding a turn without cortex happens ONLY via reply_to_operator/clarify, and a repo-touching request (e.g. 'fix the bug in X' or 'what does file Y do') provably STILL dispatches to cortex; senses has no reachable repo tool (existing structural pin holds)",
+          "status": "proposed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Grounded self-knowledge: senses answers 'what/how are you' from a CURATED colleague architecture/identity fact-set and defers ('I don't know / cortex can check') beyond it; a fabricated architecture claim is a test failure, mirroring the existing grounded-narration honesty rail",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "Senses' self-answer draws only on the curated architecture fact-set; asked something outside it, senses defers to cortex rather than inventing, and a fabricated architecture claim is a test failure",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Visible hand-off: on a real dispatch the operator sees a distinct, labeled indicator that cortex (the back model) is now working, visually separable from senses' own lines; the senses-vs-cortex attribution is reconstructable from TaskResult.senses in the artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "An operator can tell at a glance which line is senses vs cortex-working, and both the attribution and the senses-direct-vs-dispatch decision are recorded on TaskResult.senses so the turn is reconstructable from the artifact alone",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c12",
+      "kind": "decision",
+      "text": "Land this as the FIFTH sanctioned router-exclusion increment via re-spec: senses-direct (#276) becomes a fixed, enumerated, repo-untouching surface rather than a general routing policy \u2014 documented with the #276 relationship stated explicitly (closes or re-scopes #276)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The shipped spec/docs state the FIXED enumerated senses-direct surface + the repo-untouching invariant and reconcile #276 explicitly \u2014 it is provably not a learned/general task->model router",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Does the user sanction landing #276 (senses answers some turns without cortex) as a fifth fixed/enumerated router-exclusion increment \u2014 or must senses ALWAYS dispatch (keeping #276 parked), making this spec only ack-first + visible-handoff + architecture-informed-context-to-cortex?",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": []
+    },
+    {
+      "id": "c13",
+      "kind": "assumption",
+      "text": "Senses actually ARMS in the operator's live setup \u2014 the lobes gateway resolves gemma4 as the senses role and qwen as cortex and the senses endpoint is reachable (cf. the known lobes dead-endpoint workaround); if senses does not arm, that is a config prerequisite, out of scope for this behavior spec",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "If senses fails to arm, the session degrades to today's cortex-only behavior with a diagnosable notice, never a hard failure",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c14",
+      "kind": "after_state",
+      "text": "senses answers FIRST in its own words; ANY non-repo turn \u2014 greetings/social, questions about colleague itself, and general conversation/advice needing no repo access \u2014 is answered by senses directly with NO cortex work item (no branch, no eidetic record); the moment a turn needs to read/write the repo, run a command, or produce a work artifact, it gets a senses ack, then a distinct labeled cortex-is-working indicator, then cortex's result presented conversationally; senses' self-answers are grounded in a real colleague-architecture fact-set",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "Given the repo-touching invariant, the senses-direct-vs-cortex split is deterministic \u2014 the same input yields the same routing every run, no per-input drift",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c15",
+      "kind": "boundary",
+      "text": "NOT a general task->model routing policy. Bright-line invariant: any turn that TOUCHES THE REPO (reads/writes files, runs a command, produces a work artifact) ALWAYS dispatches to cortex \u2014 cortex stays the ONLY mind that acts on the repo. Senses-direct is the NON-REPO complement, expressed ONLY through senses' EXISTING reply_to_operator/clarify moves (no new capability, no repo tool reachable). Not changing plan/explore/review verbs; not a new GUI",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "A reviewer can point to the fixed enumerated surface + repo-touching invariant in the shipped spec/docs and confirm it is not a learned/general router",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Enumerated senses-direct surface: senses may CONCLUDE a turn without cortex ONLY via reply_to_operator/clarify, and ONLY for non-repo turns (social, about-colleague, general non-repo conversation); a turn that would read/write the repo, run a command, or produce a work artifact provably STILL dispatches to cortex, and senses has no reachable repo tool",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "A repo-touching request (reads/writes files, runs a command, or produces a work artifact) provably STILL dispatches to cortex \u2014 test-pinned; senses concludes a turn without cortex ONLY via reply_to_operator/clarify and has no reachable repo tool (existing structural pin holds)",
+          "status": "confirmed"
+        }
+      ],
+      "hard_questions": [],
+      "links": []
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "Attribution style: senses lines carry a 'senses:' prefix and cortex operation shows a 'cortex \u25b8 working\u2026' status line, with distinct colours on a colour TTY (senses one hue, cortex another); off a colour TTY it degrades to plain labels \u2014 machine-parseable stdout preserved, presence rides stderr, --json unaffected",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Trigger mechanism for senses-direct: senses' own loop judgment (reply_to_operator vs dispatch_to_cortex \u2014 the move surface already supports this) versus a deterministic pre-classifier gating what senses may self-answer",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Whether suppressing the branch + eidetic record for a senses-answered turn falls out automatically (no cortex dispatch = no handoff) or needs an explicit work-path guard",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Where the curated colleague-architecture fact-set lives and how it stays current (a dedicated doc/prompt fragment vs derived from CLAUDE.md/docs) \u2014 drift risk",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ]
+}
