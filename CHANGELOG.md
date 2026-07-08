@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.0] - 2026-07-08
+
+### Added
+
+- **Presence default everywhere (the fourth sanctioned router-exclusion
+  increment).** Colleague's middle-manager presence — senses (Gemma)
+  acknowledges, proactively updates, relays your words to cortex, and answers
+  conversationally while cortex (Qwen) does the repo work — is now the DEFAULT
+  state on every front: the interactive session, the `colleague talk` attach, a
+  background run, the mesh resident (reply-to-origin, c19-safe), and a one-shot
+  `colleague work` (beats to stderr; `--json` stays parseable). Senses gets its
+  own bounded *agentic loop* (`colleague/senses_loop.py`) whose "tools" are a
+  curated, coordination-only move surface (`colleague/senses_moves.py`:
+  dispatch_to_cortex, guide_cortex, read_flight, reply_to_operator, clarify,
+  wait) expressed as prompted-JSON over the tools-off completion — nothing
+  tool-shaped reaches the wire, cortex stays the only repo actor, and #276 stays
+  parked. One front-agnostic pump (`colleague/presence_engine.py`), a bounded
+  degradation ladder (loop → beats → off), the shared `SensesBlock` artifact
+  contract across all fronts, and per-front livecheck classifiers
+  (`colleague/livecheck.py`). Closes #300. Live-proven 2026-07-08 on the real
+  rig (the rig now serves a tool-calling cortex, closing the #66 gap). Feature
+  doc: `docs/features/presence-default-everywhere.md`.
+
+### Changed
+
+- **Deliberate, recorded convention break (c19):** an off-TTY / piped session
+  with senses armed now carries labeled `senses:` presence lines (presence is
+  the default on every front, no longer colour-TTY-only). The broken
+  byte-identical tests are enumerated in `tests/test_presence_pin_breaks.py`;
+  `--json` stdout stays machine-parseable (presence rides stderr). Senses
+  unarmed and `--cortex-only` remain byte-identical on every front.
+
 ## [1.39.1] - 2026-07-08
 
 ### Changed
