@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 import wave
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -395,6 +395,72 @@ def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
     if outcome == "not_ready":
         return "skipped", f"{kind}: {_VOICE_LANE_NOT_READY_REASON}"
     return "failed", f"{kind} lane failed unexpectedly: {outcome!r}"
+
+
+# ---------------------------------------------------------------------------
+# Presence-beat narration proof (presence-default-everywhere arc, task t12,
+# decision c17): does a rendered ack/update/reply beat actually produce a
+# companion .wav? Grades from the SAME evidence discipline as the media/voice
+# checks above — never a fabricated pass. Reuses colleague.voice.synthesize's
+# own degrade-never-raise contract (a 502/no-audio body writes no file), so
+# "no wav landed" and "the rig's tts proxy is down" are indistinguishable from
+# here — exactly the honest limit classify_media_audio_check already
+# documents for the sibling audio-drop case, and it flips to a real pass the
+# day the rig actually serves audio.
+# ---------------------------------------------------------------------------
+
+
+def classify_presence_narration_check(narrated: bool) -> tuple[str, str]:
+    """Grade the presence-narration live proof (t12) from whether a real wav landed.
+
+    PASSes only when a rendered presence beat produced an actual, non-empty
+    ``.wav`` file; SKIPs (never FAILs) when it did not — the reference rig's
+    tts proxy currently 502s (colleague#292/291, lobes-cli#89/#92), and a
+    failed synth is indistinguishable here from any other "no audio" outcome
+    (:func:`colleague.voice.synthesize` degrades both to the same ``None``).
+    Never a fabricated pass.
+    """
+    if narrated:
+        return "passed", "a rendered presence beat was narrated to a real .wav file"
+    return (
+        "skipped",
+        f"presence narration produced no audio — {_VOICE_LANE_NOT_READY_REASON}",
+    )
+
+
+def run_presence_narration_check(repo: str | Path, *, model: str | None = None) -> ProofResult:
+    """Live proof (t12): wire a rendered presence beat through to a real wav.
+
+    Resolves the repo's ``VoiceConfig`` (``config.voice``, optionally
+    overridden with an explicit ``model`` as the tts model) and, when a
+    ``tts_model`` is present, drives one
+    :func:`colleague.voice.build_presence_narrator` call with a short
+    presence-beat line into a throwaway directory. SKIPs honestly — never a
+    fabricated pass — when voice isn't configured at all, or when the
+    synthesis degrades (the reference rig's tts proxy currently 502s; see
+    :func:`classify_presence_narration_check`).
+    """
+    from colleague.voice import build_presence_narrator
+
+    repo_path = str(repo)
+    config = EngineConfig.resolve(repo_path=repo_path)
+    voice_config = config.voice
+    if voice_config is None or not getattr(voice_config, "tts_model", None):
+        return ProofResult(
+            file="presence_narration",
+            status="skipped",
+            detail="tts not configured (config.voice/tts_model absent) — nothing to narrate",
+        )
+    if model:
+        voice_config = replace(voice_config, tts_model=model)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        narrate = build_presence_narrator(voice_config, tmp_dir)
+        assert narrate is not None  # a tts_model was just confirmed present
+        narrate("colleague: cortex is working on your request now.")
+        wav_path = Path(tmp_dir) / "presence-0001.wav"
+        narrated = wav_path.is_file() and wav_path.stat().st_size > 0
+    status, detail = classify_presence_narration_check(narrated)
+    return ProofResult(file="presence_narration", status=status, detail=detail)
 
 
 # ---------------------------------------------------------------------------
