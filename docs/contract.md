@@ -360,6 +360,14 @@ omit-when-**empty** within this block (a split run with no live-presence talk
 lane carries neither key) — the block below is the maximal shape (both
 present).
 
+**One shared shape serves every front** (presence-default-everywhere arc):
+the interactive session, the `colleague talk` attach, a background run, the
+mesh resident, and one-shot `colleague work` all record their middle-manager
+beats (ack, proactive updates, clarify, guidance relay, the senses
+coordination loop's turns) into this SAME `SensesBlock` shape — the same
+fields below, the same `chat[].kind` vocabulary, the same `records[].point`
+convention. No front defines its own record schema.
+
 <!-- contract:keys:senses -->
 ```text
 chat
@@ -374,6 +382,45 @@ conventional (not dataclass-enforced) `{text, at, source}` shape — one per
 applied operator-to-cortex guidance injection. `chat[]` items are a
 conventional `{message, answer, relay, relay_text, latency, degraded, at}`
 shape — one per live-presence talk-lane exchange.
+
+##### `chat[]` entry `kind` values (`senses.chat[].kind`)
+
+Every `chat[]` entry MAY carry an optional `kind` key; when it is **absent**
+the entry is a `"talk"` exchange (today's pre-arc shape, unchanged — `kind`
+is never injected by serialization, only ever implied). This is the ONE
+closed vocabulary (`colleague.contract.SENSES_CHAT_KINDS`) every front draws
+from:
+
+<!-- contract:keys:senses_chat_kind -->
+```text
+ack
+clarify
+talk
+update
+```
+
+- `"ack"` — the intake acknowledgment, rendered before cortex's first step.
+- `"update"` — a cadence-gated proactive progress narration, grounded in the
+  live flight-feed tail.
+- `"clarify"` — a clarifying question/answer exchange before dispatch.
+- `"talk"` — a reactive operator-initiated exchange (implied when `kind` is
+  absent).
+
+The senses coordination loop's operator-facing moves reuse this SAME
+vocabulary rather than inventing a fifth kind: `reply_to_operator` folds as
+`"talk"`, `dispatch_to_cortex` as `"ack"`, `clarify` as `"clarify"`. Its
+`guide_cortex` move (a guidance relay) is **not** a `chat` entry at all — it
+folds into `injections` instead, exactly like the live-presence talk lane's
+own applied guidance. Its `read_flight` / `wait` moves are internal
+bookkeeping only: a `records[]` entry (below), no `chat` entry.
+
+`records[].point` stays free-form (e.g. `"senses-intake"`, `"senses-update"`,
+`"senses-talk"`); the senses coordination loop's turns are additionally
+recorded with the `"senses-loop:<move>"` prefix
+(`colleague.contract.SENSES_LOOP_POINT_PREFIX`, e.g.
+`"senses-loop:dispatch_to_cortex"`) so per-move loop turns stay
+distinguishable from the fixed-beat points above — no new field, no new
+record shape.
 
 ##### `ContextPacket` (`senses.packet`)
 

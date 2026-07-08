@@ -27,6 +27,8 @@ import json
 
 from colleague.contract import (
     OK,
+    SENSES_CHAT_KINDS,
+    SENSES_LOOP_POINT_PREFIX,
     ContextPacket,
     SensesBlock,
     SensesRecord,
@@ -414,6 +416,169 @@ def test_senses_block_chat_mixes_kinds_and_preserves_order() -> None:
         "talk",
         "update",
     ]
+
+
+# ---------------------------------------------------------------------------
+# Presence-default-everywhere arc, task t3: ONE shared SensesBlock shape must
+# serve every front (session, `colleague talk` attach, background runs, the
+# mesh resident, one-shot `colleague work`, and the senses coordination loop
+# itself). These tests pin the closed `chat[].kind` vocabulary + the
+# `records[].point` "senses-loop:<move>" convention, that a run with no
+# presence lane stays byte-identical, and that two different fronts populating
+# the SAME beats produce structurally identical (not just similar) blocks.
+# ---------------------------------------------------------------------------
+
+
+def test_senses_chat_kinds_is_the_closed_four_value_vocabulary() -> None:
+    """No fifth kind exists — `SENSES_CHAT_KINDS` is the complete, closed set
+    every front (and the senses coordination loop, tasks t1/t5) must reuse."""
+    assert set(SENSES_CHAT_KINDS) == {"talk", "ack", "update", "clarify"}
+
+
+def test_senses_loop_point_prefix_value() -> None:
+    """The senses coordination loop's per-turn `SensesRecord.point` convention
+    is `f"{SENSES_LOOP_POINT_PREFIX}{move}"` — e.g.
+    `"senses-loop:dispatch_to_cortex"` — distinguishing loop turns from the
+    fixed-beat points (`"senses-intake"`, `"senses-update"`, ...) that share
+    this SAME `SensesRecord` shape (no new field, no new record type)."""
+    assert SENSES_LOOP_POINT_PREFIX == "senses-loop:"
+    rec = SensesRecord(point=f"{SENSES_LOOP_POINT_PREFIX}dispatch_to_cortex")
+    assert rec.point == "senses-loop:dispatch_to_cortex"
+    reloaded = SensesRecord.from_dict(json.loads(json.dumps(rec.to_dict())))
+    assert reloaded == rec
+
+
+def test_senses_block_with_no_presence_lane_omits_chat_and_injections() -> None:
+    """A cortex/senses split run where the presence lane (ack/updates/clarify/
+    the senses loop) never fired keeps `chat`/`injections` omitted — only
+    `mode`/`packet`/`records` appear, byte-identical to the pre-presence-lane
+    cortex/senses shape. This is the "no presence lane" byte-identical pin
+    (distinct from "no senses at all", already pinned by
+    `test_default_taskresult_omits_senses_key`)."""
+    block = SensesBlock(
+        mode="split",
+        packet=_packet(),
+        records=[SensesRecord(point="senses-intake", latency=0.4, tokens=120, degraded=False)],
+    )
+    serialized = block.to_dict()
+    assert set(serialized.keys()) == {"mode", "packet", "records"}
+    assert "chat" not in serialized
+    assert "injections" not in serialized
+
+    result = TaskResult(task_id="no-presence", status=OK, summary="cortex-only work", senses=block)
+    result_serialized = result.to_dict()
+    assert "chat" not in result_serialized["senses"]
+    assert "injections" not in result_serialized["senses"]
+
+    reloaded = TaskResult.from_dict(json.loads(json.dumps(result_serialized)))
+    assert reloaded == result
+    assert reloaded.senses.chat == []
+    assert reloaded.senses.injections == []
+
+
+def _session_style_block() -> SensesBlock:
+    """A SensesBlock populated the way `colleague/cli/_commands/session.py`'s
+    existing `_render_ack` / `_maybe_proactive_update` / `_maybe_clarify` beats
+    populate one today (talking-to-one arc)."""
+    return SensesBlock(
+        mode="split",
+        packet=_packet(),
+        records=[
+            SensesRecord(point="senses-intake", latency=0.3, tokens=120, degraded=False),
+            SensesRecord(point="senses-update", latency=0.9, tokens=64, degraded=False),
+        ],
+        injections=[{"text": "check the other file too", "at": 12.0, "source": "operator"}],
+        chat=[
+            {"kind": "ack", "text": "Got it, handing to cortex.", "fixed": False, "at": 0.1},
+            {
+                "kind": "update",
+                "text": "2 of 5 files done.",
+                "latency": 0.9,
+                "degraded": False,
+                "at": 30.0,
+            },
+            {"kind": "clarify", "role": "senses", "text": "which module?", "at": 5.0},
+        ],
+    )
+
+
+def _senses_loop_style_block() -> SensesBlock:
+    """A SensesBlock populated the way the senses coordination loop (tasks
+    t1/t5, a DIFFERENT front from the session) would populate one: each turn
+    records a `SensesRecord` with `point="senses-loop:<move>"`, and an
+    operator-facing move reuses the SAME `SENSES_CHAT_KINDS` vocabulary —
+    `guide_cortex` folds into `injections` instead of `chat`."""
+    return SensesBlock(
+        mode="split",
+        packet=_packet(),
+        records=[
+            SensesRecord(
+                point=f"{SENSES_LOOP_POINT_PREFIX}dispatch_to_cortex",
+                latency=0.2,
+                tokens=90,
+                degraded=False,
+            ),
+            SensesRecord(
+                point=f"{SENSES_LOOP_POINT_PREFIX}guide_cortex",
+                latency=0.4,
+                tokens=70,
+                degraded=False,
+            ),
+        ],
+        injections=[{"text": "look at the paginator tests", "at": 20.0, "source": "operator"}],
+        chat=[
+            {"kind": "ack", "text": "On it, dispatching to cortex.", "fixed": False, "at": 0.05},
+            {"kind": "clarify", "role": "senses", "text": "which environment?", "at": 2.0},
+        ],
+    )
+
+
+def test_shape_equality_across_two_fronts() -> None:
+    """The same beats (ack, update/clarify, a guidance relay) reached via two
+    DIFFERENT fronts (session-style vs. senses-loop-style) yield SensesBlocks
+    with IDENTICAL schema — same top-level fields, same `records[]` item
+    shape, same `chat[].kind` vocabulary, same per-kind entry key-shape —
+    differing only in values. No front may grow its own record schema (t3
+    acceptance criterion 3)."""
+    session_block = _session_style_block()
+    loop_block = _senses_loop_style_block()
+
+    session_dict = session_block.to_dict()
+    loop_dict = loop_block.to_dict()
+
+    # 1. Same top-level SensesBlock field shape.
+    assert set(session_dict.keys()) == set(loop_dict.keys())
+
+    # 2. Same `records[]` item shape ({point, latency, tokens, degraded}).
+    assert set(session_dict["records"][0].keys()) == set(loop_dict["records"][0].keys())
+    assert set(session_dict["records"][0].keys()) == {"point", "latency", "tokens", "degraded"}
+
+    # 3. Both fronts' `injections[]` items share the same conventional shape.
+    assert set(session_dict["injections"][0].keys()) == set(loop_dict["injections"][0].keys())
+
+    # 4. The chat `kind` vocabulary used by both fronts is the SAME closed
+    #    set (colleague.contract.SENSES_CHAT_KINDS) — no front invents a
+    #    fifth kind.
+    session_kinds = {entry["kind"] for entry in session_dict["chat"]}
+    loop_kinds = {entry["kind"] for entry in loop_dict["chat"]}
+    assert session_kinds <= set(SENSES_CHAT_KINDS)
+    assert loop_kinds <= set(SENSES_CHAT_KINDS)
+
+    # 5. For every kind BOTH fronts use, the entry key-shape matches exactly
+    #    — the whole point: no front-specific record schema.
+    shared_kinds = session_kinds & loop_kinds
+    assert shared_kinds, "fixture must exercise at least one shared kind"
+    for kind in shared_kinds:
+        session_entry = next(e for e in session_dict["chat"] if e["kind"] == kind)
+        loop_entry = next(e for e in loop_dict["chat"] if e["kind"] == kind)
+        assert set(session_entry.keys()) == set(
+            loop_entry.keys()
+        ), f"kind={kind!r} entry shape diverged between fronts"
+
+    # 6. Both round-trip losslessly and reconstruct equal objects — the
+    #    schema equality above isn't an artifact of a lossy comparison.
+    assert SensesBlock.from_dict(json.loads(json.dumps(session_dict))) == session_block
+    assert SensesBlock.from_dict(json.loads(json.dumps(loop_dict))) == loop_block
 
 
 # ---------------------------------------------------------------------------
