@@ -230,7 +230,9 @@ def test_unexpected_exception_surfaces_via_supervisor_failure(
         str(repo), EngineConfig(), engine_name="mock", operator_identity="ori"
     )
 
-    def _boom(self, task, config):  # noqa: ANN001 - matches the bound-method shape
+    def _boom(
+        self, task, config, presence_sink=None
+    ):  # noqa: ANN001 - matches the bound-method shape
         raise RuntimeError("boom - not a CliError, must not be swallowed")
 
     monkeypatch.setattr(AppserverHarness, "_dispatch", _boom)

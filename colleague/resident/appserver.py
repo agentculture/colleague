@@ -183,12 +183,14 @@ expose (no duplication).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import replace as _dc_replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from agent_lifecycle.runtime.message import Message
 from agent_lifecycle.runtime.supervisor import Supervisor
@@ -196,14 +198,17 @@ from agent_lifecycle.runtime.supervisor import Supervisor
 from colleague import registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
-from colleague.contract import SensesBlock, Task
+from colleague.contract import ContextPacket, SensesBlock, SensesRecord, Task
 from colleague.flight import append_guidance, feed_path, is_safe_task_id
 from colleague.media import validate_attachment
+from colleague.presence import cadence_from_env, clarify_from_env, should_clarify, should_update
 from colleague.resident.trust import ALLOW_WRITE, check_attachment_path, classify_request
 from colleague.senses import (
+    UPDATE_POINT,
     run_senses_intake,
     run_senses_speakback,
     run_senses_talk,
+    run_senses_update,
     senses_engine_config,
 )
 from colleague.voice import synthesize
@@ -222,6 +227,128 @@ _STOP: object = object()
 # and reported, never silently dropped.
 _MAX_ATTACHMENTS = 4
 _ATTACH_LINE_RE = re.compile(r"^attach:\s*(\S.*)$")
+
+# Presence-default-everywhere (t11): the fixed acknowledgment when senses'
+# intake carried no ack line (a degraded intake) — an honest plain fact, never a
+# fabricated understanding (mirrors the session's ``_ACK_DISPATCH_NOTICE``).
+_ACK_DISPATCH_NOTICE = "taking your request to cortex now."
+
+
+class _ResidentPresenceSink:
+    """Cadence-gated proactive-update progress sink for an OPERATOR's resident run.
+
+    Presence-default-everywhere (t11 / c10 / h17). A ``CockpitProgressSink``-shaped
+    duck (``__call__(step_index, tool, target, ok)`` + ``close()``) that
+    ``execute_work`` drives at each progress boundary WHILE the operator's work
+    item runs. When the cadence fires (and the per-run cap is not yet hit), it
+    narrates ONE senses update grounded strictly in the accumulated progress
+    lines (:func:`colleague.senses.run_senses_update`) and emits it via the
+    injected *emit* callback — the caller wires *emit* to a threadsafe
+    reply-to-origin mesh enqueue, so the operator is kept posted where they asked.
+
+    Cap-bounded by the update cadence (``COLLEAGUE_SENSES_UPDATE_CAP``) so senses
+    can never flood a mesh channel (h17); hitting the cap is recorded ONCE, never
+    silent (h4). Built ONLY for the operator (never a non-operator — the c19
+    boundary): the appserver constructs it inside the ``ALLOW_WRITE`` branch, so a
+    non-operator request never gets one. Every fired update lands on
+    ``records``/``chat`` for the artifact fold. Never raises — a narration failure
+    can never disturb the cortex work item (the #206 invariant: a beat never
+    advances the real step count)."""
+
+    def __init__(
+        self,
+        *,
+        senses_config: Any,
+        engine: Any,
+        cadence: Any,
+        emit: "Callable[[str], None]",
+        packet: "Optional[ContextPacket]" = None,
+        history: "Optional[list[dict[str, str]]]" = None,
+    ) -> None:
+        self._senses_config = senses_config
+        self._engine = engine
+        self._cadence = cadence
+        self._emit = emit
+        self._packet = packet
+        self._history = history
+        self._feed_lines: list[str] = []
+        self._updates_sent = 0
+        self._last_update_step = 0
+        self._last_phase = ""
+        self._cap_recorded = False
+        self.records: list[SensesRecord] = []
+        self.chat: list[dict[str, Any]] = []
+
+    def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        try:
+            self._observe(step_index, tool, target, ok)
+        except Exception:  # noqa: BLE001 — narration must never disturb the run
+            return
+
+    def _observe(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        phase_changed = False
+        if tool:
+            line = f"step {step_index}: {tool} {target}".strip()
+            self._feed_lines.append(line)
+        else:
+            # A phase notice (#206): its target is the phase label; only a CHANGE
+            # counts toward a cadence fire.
+            phase_changed = target != self._last_phase
+            self._last_phase = target
+
+        fire, reason = should_update(
+            self._cadence,
+            step_count=step_index,
+            last_update_step=self._last_update_step,
+            phase_changed=phase_changed,
+            updates_sent=self._updates_sent,
+        )
+        if reason == "cap":
+            if not self._cap_recorded:
+                self._cap_recorded = True
+                self.chat.append({"kind": "update", "capped": True, "at": time.time()})
+            return
+        if not fire:
+            return
+
+        # A fired attempt consumes senses budget whether or not it produces text
+        # — count it toward the cap either way (honest accounting, h4).
+        self._updates_sent += 1
+        self._last_update_step = step_index
+        record = run_senses_update(
+            list(self._feed_lines[-40:]),
+            self._packet,
+            self._senses_config,
+            self._engine,
+            history=self._history,
+        )
+        if record is None:
+            return
+        self.records.append(
+            SensesRecord(
+                point=UPDATE_POINT,
+                latency=record["latency"],
+                tokens=record.get("tokens"),
+                degraded=record["degraded"],
+            )
+        )
+        text = record.get("update")
+        if text:
+            self.chat.append(
+                {
+                    "kind": "update",
+                    "text": text,
+                    "latency": record["latency"],
+                    "degraded": record["degraded"],
+                    "at": time.time(),
+                }
+            )
+            with contextlib.suppress(Exception):
+                self._emit(text)
+
+    def close(self) -> None:
+        """Satisfy the CockpitProgressSink duck — nothing to tear down."""
+        return None
 
 
 def _extract_attach_lines(text: str) -> tuple[str, list[str], int]:
@@ -436,6 +563,21 @@ class AppserverHarness:
             loop = asyncio.get_running_loop()
             packet, intake_record = await loop.run_in_executor(None, self._senses_intake, body)
 
+        # Middle-manager presence (t11 / c10 / c19): the OPERATOR lane gains the
+        # beats — an ack replied-to-origin BEFORE cortex's first step (+ a
+        # clarify question on a low-confidence intake) and cadence-gated proactive
+        # updates pushed reply-to-origin WHILE the work item runs. Gated on the
+        # confirmed operator (``ALLOW_WRITE``): a non-operator NEVER gets these
+        # beats (the c19 boundary — its request stays the read-only reactive lane
+        # and can never reach ``append_guidance``, unchanged). A strict no-op when
+        # senses is unresolved (byte-identical).
+        is_operator = decision.outcome == ALLOW_WRITE
+        presence_sink: Optional[_ResidentPresenceSink] = None
+        ack_chat: list[dict[str, Any]] = []
+        if senses_active and is_operator:
+            ack_chat = await self._send_operator_ack(packet, target)
+            presence_sink = self._build_presence_sink(packet, target)
+
         task = Task.new(
             self._repo_path,
             body,
@@ -454,6 +596,100 @@ class AppserverHarness:
             attachment_notes=attachment_notes,
             senses_active=senses_active,
             intake_record=intake_record,
+            presence_sink=presence_sink,
+            ack_chat=ack_chat,
+        )
+
+    async def _send_operator_ack(
+        self, packet: "Optional[ContextPacket]", target: str
+    ) -> list[dict[str, Any]]:
+        """Reply-to-origin with senses' acknowledgment BEFORE cortex's first step.
+
+        The ack is senses' own line (``packet.ack``) when intake carried one, else
+        the FIXED dispatch notice — never a fabricated understanding (h2). On a
+        low-confidence intake WITH omissions the ack also carries ONE clarifying
+        question (clarify-first). Clarification can NEVER withhold work: the work
+        item is dispatched immediately regardless (the v1 timeout-to-dispatch
+        default degenerates to immediate dispatch under the resident's async
+        transport — a later answer arrives as its own request). Returns the ack
+        chat entries for the artifact fold (h6)."""
+        ack_text = ""
+        if packet is not None and getattr(packet, "ack", None):
+            ack_text = str(packet.ack).strip()
+        ack_text = ack_text or _ACK_DISPATCH_NOTICE
+        entries: list[dict[str, Any]] = [
+            {
+                "kind": "ack",
+                "text": ack_text,
+                "fixed": ack_text == _ACK_DISPATCH_NOTICE,
+                "at": time.time(),
+            }
+        ]
+
+        clarify_q: Optional[str] = None
+        if packet is not None and should_clarify(
+            clarify_from_env(os.environ),
+            confidence=getattr(packet, "confidence", 1.0),
+            has_omissions=bool(getattr(packet, "omissions", None)),
+            questions_asked=0,
+        ):
+            gap = packet.omissions[0]
+            clarify_q = (
+                f"one thing before cortex digs in — your request left '{gap}' "
+                "unspecified. Reply with more detail any time; I'm dispatching now."
+            )
+            entries.append(
+                {"kind": "clarify", "role": "senses", "text": clarify_q, "at": time.time()}
+            )
+
+        body = f"senses: {ack_text}"
+        if clarify_q:
+            body = f"{body}\nsenses: {clarify_q}"
+        await self._reply_queue.put(
+            Message(
+                sender=self._agent_nick,
+                target=target,
+                body=body,
+                kind="message",
+                metadata={"phase": "ack"},
+            )
+        )
+        return entries
+
+    def _build_presence_sink(
+        self, packet: "Optional[ContextPacket]", target: str
+    ) -> Optional[_ResidentPresenceSink]:
+        """Build the cap-bounded proactive-update sink for an operator's run.
+
+        Reply-to-origin: the sink's ``emit`` enqueues each update onto the SAME
+        reply queue, threadsafe (it fires inside ``execute_work``'s worker
+        thread), so the operator is kept posted in the channel/DM they asked from
+        (c20). ``None`` when no senses engine resolves — the run proceeds with no
+        proactive updates (never a failure)."""
+        pair = self._senses_engine()
+        if pair is None:
+            return None
+        senses_config, engine = pair
+        loop = asyncio.get_running_loop()
+
+        def emit(text: str) -> None:
+            loop.call_soon_threadsafe(
+                self._reply_queue.put_nowait,
+                Message(
+                    sender=self._agent_nick,
+                    target=target,
+                    body=f"senses: {text}",
+                    kind="message",
+                    metadata={"phase": "update"},
+                ),
+            )
+
+        return _ResidentPresenceSink(
+            senses_config=senses_config,
+            engine=engine,
+            cadence=cadence_from_env(os.environ),
+            emit=emit,
+            packet=packet,
         )
 
     def _resolve_attachments(
@@ -642,9 +878,10 @@ class AppserverHarness:
         senses_config, engine = pair
         return run_senses_intake(text, senses_config, engine)
 
-    def _speakback_and_finalize(self, result, intake_record):
+    def _speakback_and_finalize(self, result, intake_record, ack_chat=None, presence_sink=None):
         """Shape the reply via speak-back AND fold the session-side intake +
-        speak-back records onto ``result.senses``, re-saving the artifact.
+        speak-back records (+ the t11 operator-lane presence beats) onto
+        ``result.senses``, re-saving the artifact.
 
         Returns the shaped display string (or ``None`` to fall back to the raw
         summary). ``result.summary`` is never mutated — the artifact keeps the raw
@@ -658,7 +895,19 @@ class AppserverHarness:
             result.senses = SensesBlock(mode="split", packet=None, records=[])
         pre = [intake_record] if intake_record is not None else []
         post = [speakback_record] if speakback_record is not None else []
-        result.senses.records = pre + list(result.senses.records) + post
+        # Presence-default-everywhere (t11): fold the operator-lane beats — the
+        # ack (+ clarify) chat entries and the cadence-gated proactive-update
+        # records/chat — onto the artifact so the whole reply-to-origin exchange
+        # is reconstructable (h6). The proactive-update records slot chronologically
+        # (during the run, so BEFORE the terminal speak-back); a no-op ([]/None)
+        # for a non-operator or an unarmed run → byte-identical.
+        update_records = list(presence_sink.records) if presence_sink is not None else []
+        result.senses.records = pre + list(result.senses.records) + update_records + post
+        chat_add = list(ack_chat or [])
+        if presence_sink is not None:
+            chat_add += list(presence_sink.chat)
+        if chat_add:
+            result.senses.chat = list(result.senses.chat) + chat_add
         try:
             _write_artifact(result, artifact_dir(self._repo_path))
         except Exception:  # nosec B110 - a re-save failure must never fail the reply
@@ -704,6 +953,8 @@ class AppserverHarness:
         attachment_notes: list[str],
         senses_active: bool = False,
         intake_record=None,
+        presence_sink: "Optional[_ResidentPresenceSink]" = None,
+        ack_chat: "Optional[list[dict[str, Any]]]" = None,
     ) -> None:
         """Run one work item via :meth:`_dispatch` and enqueue exactly one reply.
 
@@ -717,7 +968,7 @@ class AppserverHarness:
         loop = asyncio.get_running_loop()
         try:
             result, artifact_path = await loop.run_in_executor(
-                None, self._dispatch, task, req_config
+                None, self._dispatch, task, req_config, presence_sink
             )
         except Exception as exc:  # noqa: BLE001 - narrowed to CliError below
             from colleague.cli._errors import CliError
@@ -748,7 +999,7 @@ class AppserverHarness:
         reply_body = result.summary or ""
         if senses_active:
             shaped = await loop.run_in_executor(
-                None, self._speakback_and_finalize, result, intake_record
+                None, self._speakback_and_finalize, result, intake_record, ack_chat, presence_sink
             )
             if shaped:
                 reply_body = shaped
@@ -780,8 +1031,18 @@ class AppserverHarness:
             )
         )
 
-    def _dispatch(self, task: Task, config: "EngineConfig") -> tuple[Any, Path]:
-        """Run one full colleague work item to completion (blocking; executor-bound)."""
+    def _dispatch(
+        self,
+        task: Task,
+        config: "EngineConfig",
+        presence_sink: "Optional[_ResidentPresenceSink]" = None,
+    ) -> tuple[Any, Path]:
+        """Run one full colleague work item to completion (blocking; executor-bound).
+
+        When *presence_sink* is supplied (an operator's armed run, t11) it rides
+        ``execute_work``'s ``progress_sink`` seam, so cadence-gated proactive
+        updates fire reply-to-origin at the SAME progress boundaries the cockpit
+        uses — no new thread, no loop.py change."""
         from colleague.cli._commands.work import execute_work
 
         return execute_work(
@@ -793,6 +1054,7 @@ class AppserverHarness:
             config=config,
             allow_dirty=self._allow_dirty,
             isolate=True,
+            progress_sink=presence_sink,
         )
 
     def replies(self) -> AsyncIterator[Message]:
