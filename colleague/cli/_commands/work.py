@@ -377,6 +377,7 @@ def _engine_failure_error(
     work_span,
     worktree_path: str | None = None,
     presence: "object | None" = None,
+    presence_fold_chat: bool = False,
 ) -> CliError:
     """Turn an engine raise into the failure artifact + a diagnosable CliError.
 
@@ -417,7 +418,7 @@ def _engine_failure_error(
     # that raises still carries the mode that drove it.
     result.mode = mode
     if presence is not None:
-        fold_presence_snapshot(result, presence)
+        fold_presence_snapshot(result, presence, fold_chat=presence_fold_chat)
     work_span.set(status=result.status)
     write(result, artifact_dir(repo))
     # Best-effort: never mask the error.
@@ -630,6 +631,11 @@ def execute_work(
             # result stream) is never touched, so presence can never corrupt the
             # machine-parseable contract.
             presence = None
+            # A foreground (one-shot, non-watched) run has no flight plane, so its
+            # chat has no other path onto the artifact — it must be folded from the
+            # snapshot (fold_chat=True). A watched run's chat rides the flight log
+            # (loop.py folds it), so folding here would duplicate it.
+            presence_foreground = False
             if progress_sink is None:
                 with suppress(Exception):
                     presence = build_watch_presence(task=task, config=config, engine=engine)
@@ -638,6 +644,7 @@ def execute_work(
                         presence = build_foreground_presence(
                             task=task, config=config, engine=engine, render=emit_diagnostic
                         )
+                        presence_foreground = presence is not None
             if presence is not None:
                 with suppress(Exception):
                     presence.acknowledge(ack_packet_for_task(task))
@@ -691,6 +698,7 @@ def execute_work(
                     work_span=work_span,
                     worktree_path=worktree_path,
                     presence=presence,
+                    presence_fold_chat=presence_foreground,
                 ) from exc
             finally:
                 # Close the live cockpit on every exit path (success or engine
@@ -705,7 +713,7 @@ def execute_work(
             # unattended watched run still records what it cost regardless of
             # whether an operator ever attaches via `colleague talk`.
             if presence is not None:
-                fold_presence_snapshot(result, presence)
+                fold_presence_snapshot(result, presence, fold_chat=presence_foreground)
 
             if result.status == OK and not read_only_role:
                 _handoff_result(

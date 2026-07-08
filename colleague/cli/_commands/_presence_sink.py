@@ -282,17 +282,28 @@ def build_foreground_presence(
     if senses_config is None:  # defensive: resolve_presence_rung already implies this
         return None
 
+    # A one-shot foreground run has no flight plane, so senses would have NO feed
+    # to narrate progress from (surfaced by the live rig proof: with an empty
+    # feed a smaller senses model re-dispatches every boundary instead of
+    # narrating). The progress sink populates THIS buffer with each real step, so
+    # senses narrates the actual cortex progress. `_feed_buffer` is read by the
+    # IO below and appended to by :func:`presence_progress_sink`.
+    feed: list[str] = []
+
+    def _feed_text() -> str:
+        return "\n".join(feed[-_FEED_TAIL_LINES:])
+
     io = PresenceIO(
         # Cortex is already being driven by the surrounding execute_work call —
         # nothing left to "dispatch"; the ack chat entry still renders regardless.
         dispatch_to_cortex=lambda _instruction: None,
         append_guidance=lambda _text: None,
-        read_flight=lambda: "",
+        read_flight=_feed_text,
         render=render,
         # No local operator stdin for a one-shot foreground run.
         poll_operator_input=lambda: None,
-        feed_tail=lambda: "",
-        task_state=lambda: None,
+        feed_tail=_feed_text,
+        task_state=lambda: (feed[-1] if feed else None),
     )
     driver = SensesLoopDriver(
         senses_config=senses_config,
@@ -302,7 +313,11 @@ def build_foreground_presence(
         initial_rung=RUNG_LOOP,
     )
     cadence: UpdateCadence = cadence_from_env(os.environ)
-    return PresenceEngine(driver=driver, io=io, cadence=cadence)
+    presence = PresenceEngine(driver=driver, io=io, cadence=cadence)
+    # Shared with the progress sink so it can feed real cortex progress in (a
+    # watched run reads the flight plane instead, so it has no buffer).
+    presence.feed_buffer = feed  # type: ignore[attr-defined]
+    return presence
 
 
 def presence_progress_sink(presence: PresenceEngine) -> ProgressSink:
@@ -320,6 +335,10 @@ def presence_progress_sink(presence: PresenceEngine) -> ProgressSink:
     every other progress sink).
     """
     state: "dict[str, Any]" = {"step_count": 0, "last_phase": None}
+    # A foreground engine (no flight plane) shares a feed buffer so senses can
+    # narrate the real cortex progress; a watched engine reads the flight plane
+    # instead and exposes no buffer (``None`` → this is a no-op for it).
+    feed_buffer = getattr(presence, "feed_buffer", None)
 
     def _sink(step_index: int, tool: str, target: str, ok: bool) -> None:  # noqa: ARG001
         with suppress(Exception):
@@ -331,6 +350,8 @@ def presence_progress_sink(presence: PresenceEngine) -> ProgressSink:
                 )
                 return
             state["step_count"] += 1
+            if feed_buffer is not None:
+                feed_buffer.append(f"step {state['step_count']}: {tool} {target}".strip())
             presence.on_progress_boundary(step_count=state["step_count"], phase_changed=False)
 
     return _sink
@@ -345,21 +366,26 @@ def compose_presence_sink(sink: ProgressSink, presence: PresenceEngine) -> Progr
     return make_fanout([sink, presence_progress_sink(presence)])
 
 
-def fold_presence_snapshot(result: TaskResult, presence: PresenceEngine) -> None:
+def fold_presence_snapshot(
+    result: TaskResult, presence: PresenceEngine, *, fold_chat: bool = False
+) -> None:
     """Fold *presence*'s cost/injection records onto ``result.senses`` (t9).
 
     Mirrors ``colleague/cli/_commands/session.py``'s ``_finalize_split_run``
     merge pattern: init-on-first (``SensesBlock(mode="cortex-only", ...)``),
     then extend rather than replace.
 
-    Deliberately does NOT fold ``snapshot()["chat"]`` here: this module's
-    ``render`` callback already appends every chat-shaped beat to the SAME
-    flight chat log ``colleague/loop.py``'s existing ``_fold_flight_chat``
-    reads at finish (before the reap) — folding it a second time here would
-    duplicate every ack/update in the artifact. ``records`` (the cost/latency/
-    degraded facts backing the "cap-bounded, always recorded" acceptance) and
-    ``injections`` have no other path onto the artifact, so they ARE merged
-    here, directly from :meth:`~colleague.presence_engine.PresenceEngine.snapshot`.
+    ``fold_chat`` controls the chat entries. For a WATCHED run (``fold_chat``
+    False, the default) this deliberately does NOT fold ``snapshot()["chat"]``:
+    the ``render`` callback already appended every chat-shaped beat to the flight
+    chat log ``colleague/loop.py``'s ``_fold_flight_chat`` reads at finish, so
+    folding it here would DUPLICATE every ack/update. A one-shot FOREGROUND run
+    (``fold_chat`` True) has no flight plane — its ``render`` went to stderr, so
+    the chat has NO other path onto the artifact and MUST be folded here, or the
+    ack/update conversation is lost (surfaced by the live rig proof). ``records``
+    and ``injections`` have no other path in either case, so they ARE always
+    merged, directly from
+    :meth:`~colleague.presence_engine.PresenceEngine.snapshot`.
 
     A no-op (never raises) when *presence* produced nothing at all — a run
     where every completion degraded before producing even one record still
@@ -369,7 +395,8 @@ def fold_presence_snapshot(result: TaskResult, presence: PresenceEngine) -> None
         snap = presence.snapshot()
         records: "list[SensesRecord]" = list(snap.get("records") or [])
         injections: "list[dict[str, Any]]" = list(snap.get("injections") or [])
-        if not records and not injections:
+        chat: "list[dict[str, Any]]" = list(snap.get("chat") or []) if fold_chat else []
+        if not records and not injections and not chat:
             return
         if result.senses is None:
             result.senses = SensesBlock(mode=_BLOCK_MODE, packet=None, records=[])
@@ -377,3 +404,5 @@ def fold_presence_snapshot(result: TaskResult, presence: PresenceEngine) -> None
             result.senses.records = list(result.senses.records) + records
         if injections:
             result.senses.injections = list(result.senses.injections) + injections
+        if chat:
+            result.senses.chat = list(result.senses.chat) + chat

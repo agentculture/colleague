@@ -387,6 +387,24 @@ class SensesLoopDriver:
         budget = self._senses_config.context_budget_tokens  # type: ignore[union-attr]
 
         parts: "list[str]" = []
+        # Boundary-aware steering (surfaced by the live rig proof): at a cadence
+        # tick / feed change the operator did NOT speak and cortex is ALREADY
+        # working the dispatched task — so senses must narrate progress, never
+        # re-dispatch. Without this, a smaller senses model re-picks
+        # dispatch_to_cortex every boundary and the operator only ever hears the
+        # dispatch notice instead of real progress.
+        if boundary.kind == BOUNDARY_OPERATOR_INPUT:
+            parts.append(
+                "The operator just spoke. If this is a new task, dispatch it to cortex; "
+                "if it is a question or guidance about the running work, reply or guide."
+            )
+        else:
+            parts.append(
+                "Cortex is ALREADY working on the dispatched task (no new operator message). "
+                "Narrate its current progress to the operator with reply_to_operator, grounded "
+                "in the recent feed below — or wait if nothing new has happened. Do NOT dispatch "
+                "again and do NOT invent progress."
+            )
         if boundary.operator_input:
             parts.append(f"Operator's live message (verbatim): {boundary.operator_input}")
         pkt = boundary.packet
