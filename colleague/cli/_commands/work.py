@@ -275,7 +275,17 @@ def _setup_isolation(
         emit_diagnostic(f"isolation worktree unavailable ({exc}); running in place")
         return repo, None, None, task
     work_repo = Path(worktree_path)
-    return work_repo, base_sha, worktree_path, replace(task, repo_path=str(work_repo))
+    # #310: the loop runs in the worktree (repo_path=work_repo) but the flight
+    # plane must live in the OPERATOR repo (flight_repo_path=repo) so
+    # `colleague talk` / `colleague flight` reach it and it survives the
+    # worktree removal on finish. The in-place path leaves flight_repo_path
+    # None (arm at repo_path), byte-identical.
+    return (
+        work_repo,
+        base_sha,
+        worktree_path,
+        replace(task, repo_path=str(work_repo), flight_repo_path=str(repo)),
+    )
 
 
 def _arm_interrupt_commit(worktree_path: str | None) -> Callable[[], None]:

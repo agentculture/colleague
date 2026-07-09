@@ -1725,7 +1725,7 @@ def _fold_flight_chat(ctx: _Work) -> None:
     if ctx.flight is None:
         return
     with suppress(Exception):
-        records = flightmod.read_chat(ctx.task.repo_path, ctx.task.id)
+        records = flightmod.read_chat(_flight_repo_path(ctx.task), ctx.task.id)
         if records:
             _ensure_senses_block(ctx.result, mode="cortex-only").chat.extend(records)
 
@@ -1744,13 +1744,29 @@ def _flight_record(ctx: _Work, resp: ModelResponse) -> None:
     )
 
 
+def _flight_repo_path(task: Task) -> str:
+    """Resolve WHERE the flight plane lives for this task (#310).
+
+    ``task.flight_repo_path`` (the OPERATOR repo, set by ``_setup_isolation`` on
+    an isolated run) when present, else ``task.repo_path`` (the pre-#310
+    behaviour — the in-place session path, byte-identical). The single source of
+    truth so the arm side (``_arm_flight``) and every read side
+    (``_fold_flight_chat``, the ``FlightSession`` methods it hands back) resolve
+    to the SAME directory the operator's ``colleague talk`` / ``colleague flight``
+    read and write.
+    """
+    return task.flight_repo_path or task.repo_path
+
+
 def _arm_flight(task: Task) -> "flightmod.FlightSession | None":
     """Arm the flight-control plane for a watchable work item, else ``None`` (no-op).
 
     Built from the existing ``task`` so :func:`run` needs no new parameter (it sits
     near the S107 ceiling); ``arm`` creates the empty feed so a pilot can attach.
+    Armed at :func:`_flight_repo_path` (the operator repo on an isolated run, #310)
+    so the plane the loop writes is the plane the operator reads.
     """
-    return flightmod.arm(task.repo_path, task.id) if task.watch else None
+    return flightmod.arm(_flight_repo_path(task), task.id) if task.watch else None
 
 
 def _reap_flight(ctx: _Work) -> None:
