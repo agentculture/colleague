@@ -811,12 +811,20 @@ class IncompletionRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "IncompletionRecord":
-        """Best-effort coercion: each field coerced to str, empty string on failure."""
+    def from_dict(cls, data: Any) -> "IncompletionRecord":
+        """Best-effort coercion: each field coerced to str, empty string on failure.
+
+        Robust to a malformed payload (a non-dict, or an explicit ``null`` field):
+        a non-dict ``data`` yields an all-empty record, and ``data.get(...) or ""``
+        turns a ``None`` value into ``""`` rather than the string ``"None"``. Mirrors
+        the type-guarded best-effort parsing the other optional structured fields use.
+        """
+        if not isinstance(data, dict):
+            return cls("", "", "")
         return cls(
-            reason=str(data.get("reason", "")),
-            evidence=str(data.get("evidence", "")),
-            recommendation=str(data.get("recommendation", "")),
+            reason=str(data.get("reason") or ""),
+            evidence=str(data.get("evidence") or ""),
+            recommendation=str(data.get("recommendation") or ""),
         )
 
 
@@ -1479,7 +1487,7 @@ class TaskResult:
             ),
             incompletion=(
                 IncompletionRecord.from_dict(data["incompletion"])
-                if data.get("incompletion")
+                if isinstance(data.get("incompletion"), dict)
                 else None
             ),
         )

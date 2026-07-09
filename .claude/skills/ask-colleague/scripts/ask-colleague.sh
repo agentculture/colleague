@@ -458,7 +458,7 @@ except Exception:
           "the backend may have emitted non-JSON; see the raw output and diagnostics above",
           detail=raw[:2000])
 ok = d.get("status") == "ok"
-inc = d.get("incompletion")
+inc = d.get("incompletion") if isinstance(d.get("incompletion"), dict) else None
 tid = d.get("task_id") or ""
 # Resolve the artifact path to the preserved copy when the drive ran in a
 # throwaway worktree (read-only verbs); the raw JSON points into the now-deleted

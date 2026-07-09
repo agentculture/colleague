@@ -433,7 +433,7 @@ def classify_honest_incompletion_check(
     if not status:
         return "skipped", "no run status recorded — nothing to grade"
     is_incomplete = status != "ok"
-    record = incompletion or {}
+    record = incompletion if isinstance(incompletion, dict) else {}
     has_record = bool(record.get("reason")) and bool(record.get("recommendation"))
     if expected_incomplete:
         if is_incomplete and has_record:

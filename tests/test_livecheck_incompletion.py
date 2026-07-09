@@ -48,3 +48,11 @@ class TestClassifyHonestIncompletion:
             expected_incomplete=False,
         )
         assert status == "failed"
+
+    def test_non_dict_incompletion_does_not_crash(self):
+        """A malformed (non-dict) incompletion degrades to 'no record', never a crash (#314)."""
+        for bad in ("oops", ["x"], 5):
+            status, _ = classify_honest_incompletion_check(
+                "incomplete", bad, expected_incomplete=True
+            )
+            assert status == "failed"  # non-ok with no usable record

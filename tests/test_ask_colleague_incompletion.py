@@ -26,7 +26,7 @@ NO_RESULT = "__COLLEAGUE_NO_RESULT_PRODUCED__"
 def parse_and_print(raw, json_mode=False, gradable=False):
     d = json.loads(raw)
     ok = d.get("status") == "ok"
-    inc = d.get("incompletion")
+    inc = d.get("incompletion") if isinstance(d.get("incompletion"), dict) else None
     tid = d.get("task_id") or ""
     summary = d.get("summary") or ""
 
@@ -179,6 +179,19 @@ def test_no_result_sentinel_suppresses_grade():
     assert not any(
         "grade:" in line for line in all_lines
     ), f"grade hint suppressed for NO_RESULT_PRODUCED (#192): {all_lines}"
+
+
+def test_non_dict_incompletion_does_not_crash():
+    """#314: a malformed non-dict `incompletion` is ignored — no diagnostic, no crash."""
+    payload = {
+        "status": "incomplete",
+        "task_id": "pqr678",
+        "summary": "partial",
+        "incompletion": "not-a-dict",
+    }
+    result = _run_parse(payload, json_mode=False, gradable=True)  # must not raise
+    all_lines = result["stderr_lines"] + result["stdout_lines"]
+    assert not any("incomplete:" in line for line in all_lines)
 
 
 def test_ok_with_incompletion_field_is_noop():
