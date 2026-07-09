@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.42.0] - 2026-07-09
+
+### Added
+
+- #308: run-start marker + phase heartbeat on the flight feed so `colleague talk`/senses surface a real status during a long completion instead of "I don't know" (distinct type-tagged records; #206 step-only invariant preserved)
+- #309: steer plan mode mid-run through the flight lane — `colleague plan run --watch` arms a plane and applies stop/guidance at the orchestrator's stage/wave boundaries (OrchestratorResult.steering); steering is now uniform across work/drive/explore/review/plan
+- #311: a senses-direct front-door turn writes a standalone auditable `.colleague/senses-direct/<id>.json` SensesDirectRecord (verbatim text); strict no-op when unarmed/--cortex-only; routing unchanged
+- docs/features/pilotable-runs.md documenting the arc; livecheck classifiers classify_flight_reachable_check/classify_flight_liveness_check
+
+### Changed
+
+- #307: the flight plane is now armed by DEFAULT on every run (work/drive/session) — opt out with --no-watch / COLLEAGUE_WATCH=0 / .colleague/config.json {"watch": false} (precedence flag>env>config>default). A deliberate, recorded default flip (opt-in -> opt-out); stdout + TaskResult stay byte-identical since the feed is a side file. The session default-arms the file plane too (c18)
+
+### Fixed
+
+- #310: the flight plane was armed INSIDE the throwaway isolation worktree for `colleague work`/`--background`, so `colleague talk`/`flight`/steering were disconnected and destroyed on cleanup. It is now armed at the OPERATOR repo (Task.flight_repo_path set by _setup_isolation, resolved via loop._flight_repo_path) — reachable and surviving worktree cleanup
+
 ## [1.41.0] - 2026-07-09
 
 ### Added
