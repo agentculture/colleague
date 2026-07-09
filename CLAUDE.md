@@ -559,9 +559,10 @@ The architecture, part by part:
   exchange is reconstructable from the artifact alone. **This is a DEEPENING
   of the THIRD sanctioned router-exclusion increment, not a new surface**:
   the same fixed boundary holds (cortex acts; senses perceives, presents, and
-  now converses proactively), no new model consumers are added, #276
-  (senses-direct) STAYS parked, and there is still no automatic task→model
-  routing. **Byte-identical guarantees**: an unarmed session (no senses
+  now converses proactively), no new model consumers are added, and there is
+  still no automatic task→model routing. (#276/senses-direct was parked at this
+  arc; it was SUBSEQUENTLY LANDED as the FIFTH sanctioned increment — the bounded
+  front door, see the next bullet.) **Byte-identical guarantees**: an unarmed session (no senses
   resolved), an off-TTY/piped/`--no-tui` session, and `--cortex-only` all
   leave the middle-manager lane a strict no-op — no ack, no updates, no
   clarify, no history — and a run that never triggers the lane leaves
@@ -579,6 +580,50 @@ The architecture, part by part:
   `docs/specs/2026-07-05-talking-to-colleague-now-feels-like-talking-to-one.md`
   and
   `docs/plans/2026-07-06-talking-to-colleague-now-feels-like-talking-to-one.md`.
+- **Talking to one teammate (the senses front door)** — senses becomes a genuine
+  FRONT DOOR on the interactive session and the resident/`talk` front: it answers
+  FIRST, and only wakes cortex for real repo work. The FIFTH sanctioned
+  router-exclusion increment (after deepthink, the cortex/senses split, senses
+  live-presence + voice, and presence-default-everywhere), landing the
+  previously-parked #276 (senses-direct) as a FIXED, ENUMERATED, repo-untouching
+  surface — never the excluded router. Three moves: (1) **ack-first** — with senses
+  armed, the intake ack is the FIRST operator-facing line, rendered BEFORE the
+  mechanical `→ work:` routing line (`colleague/cli/_commands/session.py` reordered
+  so `_prepare_senses` precedes the routing log). (2) **senses answers non-repo
+  turns itself** — a greeting, a question about colleague itself, or general
+  non-repo conversation is answered DIRECTLY by senses with NO cortex work item (no
+  branch, no eidetic record): a DETERMINISTIC route classifier
+  (`colleague/frontdoor.py` `classify_frontdoor`, a stdlib-`re` sibling of
+  `session_intent.classify_intent`, ambiguous→CORTEX) decides the route, and only a
+  confidently non-repo turn reaches `colleague/senses.py` `run_senses_frontdoor` —
+  ONE tools-off completion grounded in a curated fact-set
+  (`colleague/architecture_facts.py` `load_architecture_facts`), degrade-never-raise,
+  no reachable repo tool. (3) **visible hand-off** — the `senses:` /
+  `cortex ▸ working…` labels (`colleague/attribution.py`) make the two minds
+  unmistakable. The shared, front-agnostic decision is `colleague/frontdoor.py`
+  `run_frontdoor` → `FrontDoorOutcome`, called by BOTH the session
+  (`_run_frontdoor` / `_render_senses_direct`) and the resident
+  (`colleague/resident/appserver.py` `_maybe_answer_at_front_door`, c19-safe: a
+  non-operator's senses-direct answer is facts-only and exposes no repo state; only
+  the operator authorizes a cortex write dispatch). **The bright line (why this is
+  NOT a router):** the route is DETERMINISTIC (no per-input model judgment picks it),
+  anything TOUCHING THE REPO always dispatches to cortex, cortex stays the ONLY repo
+  actor, senses structurally cannot act (tools-off), and an unarmed / `--cortex-only`
+  / off-colour-TTY session is byte-identical. A dispatched turn records the route on
+  `TaskResult.senses.records` (`senses-frontdoor:<route>`, via the existing
+  `SensesRecord` shape — no contract change); a senses-direct turn has no work item,
+  so it is reconstructable from the session transcript (a standalone senses-direct
+  artifact is a documented follow-up). **Honest limits:** senses-direct turns have no
+  JSON artifact; per-lobe COLOUR in the live cockpit is deferred (the labels alone
+  disambiguate); the classifier is conservative (ambiguous→cortex may under-trigger
+  senses-direct — a safe under-trigger, tuning is a follow-up); the live proof
+  (`colleague/livecheck.py` `classify_one_teammate_check`) SKIPs honestly when senses
+  is unarmed/unreachable (the reference rig today); arming is a prerequisite
+  (`colleague lobes show`). Runtime-owned (all-engines rule). Feature doc:
+  `docs/features/talking-to-one-teammate.md`; spec + plan:
+  `docs/specs/2026-07-08-talking-to-colleague-feels-like-one-teammate-the-f.md`
+  and
+  `docs/plans/2026-07-08-talking-to-colleague-feels-like-one-teammate-the-f.md`.
 - **Memory (best-colleague arc, R1)** — colleague remembers and learns from
   every run. `colleague/memory.py` shells out to the operator-installed
   **eidetic** CLI (the SAME store + scope the operator's remember/recall
@@ -1601,14 +1646,23 @@ recorded convention break: an off-TTY / piped session with senses armed now
 carries labeled `senses:` lines (presence is default everywhere, no longer
 colour-TTY-only) — the broken byte-identical tests are enumerated in
 `tests/test_presence_pin_breaks.py`, and `--json` stdout stays machine-parseable
-(presence rides stderr). Anything beyond
-those four is still
-the excluded router; document the distinction honestly. Explicitly still OUT,
-each parked pending its own router-boundary re-spec:
-**senses-direct-for-cheap-tasks** — senses answering without cortex at all,
-tracked as [colleague#276](https://github.com/agentculture/colleague/issues/276)
-(a model deciding per-input whether cortex is needed is itself the start of
-the excluded routing policy) — and the **retrieval consumption** lane of #277
+(presence rides stderr). **The FIFTH sanctioned increment** is the
+**talking-to-one-teammate senses front door** (feature doc
+`docs/features/talking-to-one-teammate.md`): the previously-parked #276
+(senses-direct) now LANDS as a FIXED, ENUMERATED, repo-untouching surface — a
+DETERMINISTIC route classifier (`colleague/frontdoor.py` `classify_frontdoor`,
+ambiguous→cortex) lets senses answer a confidently non-repo turn (a greeting, a
+question about colleague itself, general non-repo conversation) DIRECTLY through
+its tools-off answer path with NO cortex work item (no branch, no eidetic
+record); ANYTHING touching the repo ALWAYS dispatches to cortex, cortex stays
+the ONLY repo actor, and senses still cannot act. This is a bounded re-spec, NOT
+the excluded router: no per-input MODEL judgment picks the route (the classifier
+is deterministic and code-locked), no N-model routing policy, and no
+senses-decides-to-answer beyond the enumerated non-repo surface — so it
+SUPERSEDES the earlier "#276 STAYS parked" notes above. Anything beyond those
+FIVE is still the excluded router; document the distinction honestly. Explicitly
+still OUT, each parked pending its own router-boundary re-spec: the **retrieval
+consumption** lane of #277
 — `embedder`/`reranker` roles are discoverable in the lobes `/capabilities`
 contract but colleague consumes only `cortex`/`senses`/`stt`/`tts` (the voice
 lane of [colleague#277](https://github.com/agentculture/colleague/issues/277)

@@ -66,6 +66,7 @@ from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, format_tags
 from colleague import cockpit, feedback, flight, handoff, icons, layers, registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
+from colleague.attribution import cortex_working_line, senses_line
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._session_input import CYCLE_MODE
 from colleague.cli._commands._tui_sink import fold_phase
@@ -75,6 +76,7 @@ from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, st
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_presence_rung, resolve_session_engine
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
+from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.presence import (
@@ -512,6 +514,10 @@ class _Session:
         # arms (off-TTY / --no-tui / piped / --cortex-only / no senses) nothing
         # here is ever written, so those paths stay byte-identical (h9).
         self._senses_chat: list[dict] = []
+        # Front-door decision record (cortex-route path) folded onto TaskResult.senses
+        # by _finalize_split_run; reset per work line in _work_line (NOT in
+        # _reset_presence_lane, which runs AFTER the front door sets it).
+        self._frontdoor_record: Optional[SensesRecord] = None
         self._update_records: list[SensesRecord] = []
         # The senses agentic loop (presence-default-everywhere arc, t7): built per
         # work line when the presence rung resolves to ``loop`` and the live talk
@@ -1270,22 +1276,14 @@ class _Session:
         # work-template selection regardless of mode (a palette pick is never
         # reclassified) — only genuinely free text is routed.
         stripped = line.strip()
+        self._frontdoor_record = None
         is_free_text = bool(stripped) and not stripped.isdigit() and stripped not in self.discovered
-        if is_free_text:
-            verb = route_for(self.mode, stripped, classify_intent)
-            if verb == PLAN:
-                self._log(f"→ plan: {stripped}")
-                self._run_plan(stripped)
-                return
-            if verb == "explore":
-                self._log(f"→ explore: {stripped}")
-                self._run_explore(stripped)
-                return
-            if verb == "review":
-                self._log(f"→ review: {stripped}")
-                self._run_review(stripped)
-                return
-            # verb == "work" → fall through to the work-template / ad-hoc path.
+        # Free-text routing — the active mode's verb plus, on the ``work`` verb,
+        # the senses front door — lives in _route_free_text. A True return means
+        # the line was fully handled there (plan/explore/review dispatched, or a
+        # senses-direct answer with NO cortex work item) and this turn is done.
+        if is_free_text and self._route_free_text(stripped):
+            return
         resolved = _resolve_selection(
             line,
             self.palette,
@@ -1302,14 +1300,56 @@ class _Session:
         # staging list clears (t11 one-shot semantics) — only a genuine work-line
         # dispatch consumes it; a plan/explore/review route above never reaches here.
         self._consume_staged_attachments(task)
-        if is_free_text:
-            self._log(f"→ work: {stripped}")
         # Cortex/senses (t8): with a senses model resolved, a free-text work line
         # runs senses intake first (perceives the request → ContextPacket on the
-        # task) unless --cortex-only. classify_intent already picked the VERB above;
-        # this only perceives the CONTENT — the two compose, never compete.
+        # task) unless --cortex-only. Intake also renders the senses ACK, which must
+        # precede the mechanical routing line (ack-first, h2) — so _prepare_senses
+        # runs BEFORE the "→ work:" log, not after. classify_intent already picked
+        # the VERB above; this only perceives the CONTENT — they compose, never compete.
         senses_mode, intake_record = self._prepare_senses(task, is_free_text)
+        if is_free_text:
+            self._log(f"→ work: {stripped}")
+        # Visible hand-off (c11): when the middle-manager lane is armed, name the
+        # mind now taking over so the operator sees cortex pick the work up.
+        if is_free_text and self._presence_enabled():
+            self._log(cortex_working_line())
         self._run_work(task, command_name, senses_mode=senses_mode, intake_record=intake_record)
+
+    def _route_free_text(self, stripped: str) -> bool:
+        """Route a free-text work line, returning True when it was fully handled
+        here (caller returns) and False to fall through to work-template selection
+        + cortex dispatch.
+
+        The ROUTE is deterministic: ``route_for`` picks the verb (``auto``
+        classifies via ``classify_intent``; ``work``/``plan``/``explore``/``review``
+        pin it), then — on the ``work`` verb ONLY — the senses front door
+        (talking-to-one-teammate) is consulted. A non-repo turn (greeting / question
+        about colleague itself) is answered DIRECTLY by senses with NO cortex work
+        item (no branch, no eidetic record); a repo-touching turn records the
+        cortex-route decision on ``self._frontdoor_record`` and returns False so the
+        caller dispatches to cortex exactly as before. The front door is a
+        deterministic classifier + at most one tools-off senses completion.
+        """
+        verb = route_for(self.mode, stripped, classify_intent)
+        if verb == PLAN:
+            self._log(f"→ plan: {stripped}")
+            self._run_plan(stripped)
+            return True
+        if verb == "explore":
+            self._log(f"→ explore: {stripped}")
+            self._run_explore(stripped)
+            return True
+        if verb == "review":
+            self._log(f"→ review: {stripped}")
+            self._run_review(stripped)
+            return True
+        outcome = self._run_frontdoor(stripped)
+        if outcome is not None and outcome.answered_directly:
+            self._render_senses_direct(stripped, outcome)
+            return True
+        if outcome is not None:
+            self._frontdoor_record = outcome.record
+        return False
 
     def _run_tracked(
         self, task_id: str, thunk: Callable[[], _T], *, goal: str = ""
@@ -1480,6 +1520,60 @@ class _Session:
             packet = self._maybe_clarify(task, packet, senses_config, engine)
             self._render_ack(packet.ack)
         return "split", record
+
+    # ── senses front door (talking-to-one-teammate) ──────────────────────────
+
+    def _run_frontdoor(self, text: str):
+        """Consult the senses front door for a free-text work line.
+
+        Returns a :class:`~colleague.frontdoor.FrontDoorOutcome`, or ``None`` when
+        the front door is a strict no-op — senses unarmed, ``--cortex-only``, or
+        media staged (a media turn is always cortex work). On ``None`` the caller
+        dispatches to cortex exactly as before (byte-identical). The ROUTE is a
+        deterministic classifier; senses is consulted (one tools-off completion)
+        only on a non-repo turn, and never raises (run_frontdoor degrades). The
+        CORTEX route is short-circuited BEFORE any senses engine load — it is the
+        common case and never consults senses — so it is recorded even when the
+        senses engine can't be resolved."""
+        if self.config.senses is None or self.cortex_only or self._staged_attachments:
+            return None
+        # Deterministic route FIRST (pure regex, no engine): the CORTEX route — the
+        # common case — never consults senses, so don't resolve/load the senses
+        # engine for it, and record the route even if the engine can't load.
+        if classify_frontdoor(text) == CORTEX:
+            return cortex_frontdoor_outcome()
+        pair = self._senses_engine()
+        if pair is None:
+            return None
+        senses_config, engine = pair
+        return run_frontdoor(
+            text,
+            senses_config=senses_config,
+            make_complete=engine.make_complete,
+            make_count_tokens=engine.make_count_tokens(senses_config),
+            history=list(self._history) or None,
+        )
+
+    def _render_senses_direct(self, text: str, outcome) -> None:
+        """Speak senses' direct answer to a non-repo turn — NO cortex work item.
+
+        The point of the front door: a greeting or a question about colleague
+        itself is answered by the fast front lobe with NO git branch and NO
+        eidetic record (the work loop never runs). The exchange threads into the
+        rolling history for continuity and is reconstructable from the session
+        transcript (a senses-direct turn produces no TaskResult to fold onto — an
+        honest limit noted in the feature doc)."""
+        self._history_append("operator", text)
+        self._log(f"→ senses: {text}")
+        self._log(senses_line(outcome.answer or ""))
+        self._history_append("senses", outcome.answer or "")
+        # A senses-direct turn produces NO work item / TaskResult, so its exchange
+        # must NOT accumulate in the per-work-item `_senses_chat` buffer (which is
+        # reset per work line and folded into a work item's artifact) — that would
+        # leak over a senses-only conversation. Continuity is already carried by the
+        # capped `_history` appends above; the turn is reconstructable from the transcript.
+        if self.view == "ansi":
+            self.emit()
 
     # ── middle-manager presence lane (talking-to-one arc, t6) ────────────────
 
@@ -1990,6 +2084,10 @@ class _Session:
         if result.senses is None:
             result.senses = SensesBlock(mode="split", packet=None, records=[])
         pre = [intake_record] if intake_record is not None else []
+        # The front-door route decision (cortex path) leads the records so the
+        # turn's senses→cortex hand-off is reconstructable from the artifact (h5).
+        if self._frontdoor_record is not None:
+            pre = [self._frontdoor_record, *pre]
         post = [speakback_record] if speakback_record is not None else []
         # Middle-manager fold (t6/t7): clarify re-intake records slot after the
         # intake (they happened pre-run), proactive-update records between the

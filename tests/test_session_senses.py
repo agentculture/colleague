@@ -122,9 +122,10 @@ def test_split_run_records_mode_packet_and_timings(tmp_path: Path, monkeypatch) 
     assert result.senses.mode == "split"
     assert result.senses.packet is not None
     assert result.senses.packet.original == "fix the flaky parser test"
-    # intake FIRST, speak-back LAST in the folded records.
+    # front-door route decision leads (talking-to-one-teammate, h5), then intake
+    # FIRST of the senses-model calls, speak-back LAST.
     points = [r.point for r in result.senses.records]
-    assert points == ["senses-intake", "senses-speakback"]
+    assert points == ["senses-frontdoor:cortex", "senses-intake", "senses-speakback"]
     # A visible senses: line was logged.
     assert "senses:" in out.text()
 
