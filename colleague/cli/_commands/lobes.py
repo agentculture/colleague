@@ -15,26 +15,20 @@ audio backend itself) — so an operator never conflates the two. ``lobes
 overview`` describes the noun (satisfying the agent-first rubric: any noun
 with action-verbs must also expose ``overview``).
 
-**Scope note (deliberately narrow):** this noun's armed signal is *only*
-``COLLEAGUE_LOBES_URL`` env — task t10 depends solely on t1
-(``colleague/lobes.py``'s resolution client), not on t4 (the lobes discovery
-rung wired into ``EngineConfig``/``SensesConfig`` resolution, which composes a
-fuller precedence chain: explicit flag > env > a ``lobes`` section in
-``.colleague/config.json`` > builtin default). Reading that nested config
-section here would either duplicate t4's future parsing or require editing
-``colleague/config.py``, which this task is file-disjoint from in the same
-build wave. Once t4 lands, this noun can be widened to reflect the same
-precedence colleague's runtime actually resolves — until then it reports
-exactly what it is told to consult: the env var.
+**Armed-signal precedence:** ``lobes show`` uses the same resolution as the
+runtime: ``COLLEAGUE_LOBES_URL`` env (``CONVERTIBLE_LOBES_URL`` honored as
+deprecated fallback) > a ``lobes`` section in ``.colleague/config.json`` (repo-level
+or user-level) > ``None``. Scope of ``--repo`` (default: ``.``) reflects the
+repo-level ``.colleague/config.json`` override.
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
+from colleague.config import resolve_lobes_gateway_url
 from colleague.lobes import RoleInfo, ready_kind, resolve_roles
 
 #: The sole armed signal this noun consults (see the scope note above).
@@ -51,11 +45,19 @@ def _lobes_sections() -> list[dict[str, object]]:
         {
             "title": "What it does",
             "items": [
-                "Shows whether colleague is armed at a lobes gateway (COLLEAGUE_LOBES_URL)",
+                "Shows whether colleague is armed at a lobes gateway",
                 "When reachable: the resolved cortex + senses role metadata",
                 "The degradation rung in effect: not_configured / armed_reachable /"
                 " armed_unreachable",
                 "Read-only, zero side effects — one GET to the gateway's /capabilities",
+            ],
+        },
+        {
+            "title": "Armed-signal precedence",
+            "items": [
+                "COLLEAGUE_LOBES_URL env (CONVERTIBLE_LOBES_URL deprecated fallback)",
+                ".colleague/config.json lobes section (repo-level or user-level)",
+                "not configured (unarmed)",
             ],
         },
         {
@@ -70,7 +72,7 @@ def _lobes_sections() -> list[dict[str, object]]:
         {
             "title": "Verbs",
             "items": [
-                "lobes show [--json] — show the armed state, resolved roles, and rung",
+                "lobes show [--repo PATH] [--json] — show the armed state and roles",
                 "lobes overview — describe the lobes surface (this command)",
             ],
         },
@@ -116,14 +118,19 @@ def _lobes_overview() -> object:
     )
 
 
-def _lobes_show() -> object:
+def _lobes_show(repo: str = ".") -> object:
     """Registry tool: the lobes gateway armed state as ``rendered(dict, text)``.
+
+    ``repo`` (default ``"."``) is derived by agentfront into ``--repo`` from this
+    signature, matching the legacy ``lobes show --repo PATH``. Resolves the
+    gateway URL using the full precedence chain: COLLEAGUE_LOBES_URL env >
+    .colleague/config.json lobes section > None.
 
     Never raises: an unarmed or unreachable gateway is a clean, honest report
     (exit 0), not an error — mirroring :func:`colleague.lobes.resolve_roles`'s
     own degrade-never-raise contract.
     """
-    url = (os.environ.get(_GATEWAY_URL_ENV) or "").strip()
+    url = (resolve_lobes_gateway_url(repo) or "").strip()
 
     if not url:
         payload = {
@@ -182,10 +189,10 @@ def register_into(app) -> None:
         _lobes_show,
         name="show",
         description="Show the lobes gateway armed state, resolved roles, and rung.",
-        doc="# lobes show [--json]\nShow whether colleague is armed at a lobes "
-        "gateway (COLLEAGUE_LOBES_URL), the resolved cortex/senses role metadata "
-        "when reachable, and the degradation rung in effect (not_configured / "
-        "armed_reachable / armed_unreachable).",
+        doc="# lobes show [--repo PATH] [--json]\nShow whether colleague is armed at a "
+        "lobes gateway (COLLEAGUE_LOBES_URL env or .colleague/config.json), the resolved "
+        "cortex/senses role metadata when reachable, and the degradation rung in effect "
+        "(not_configured / armed_reachable / armed_unreachable).",
     )
     g.tool(
         _lobes_overview,
@@ -202,7 +209,9 @@ def cmd_lobes_overview(args: argparse.Namespace) -> int:
 
 
 def cmd_lobes_show(args: argparse.Namespace) -> int:
-    emit_result(_lobes_show(), json_mode=bool(getattr(args, "json", False)))
+    emit_result(
+        _lobes_show(getattr(args, "repo", ".")), json_mode=bool(getattr(args, "json", False))
+    )
     return 0
 
 
@@ -221,6 +230,11 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     show = noun_sub.add_parser(
         "show", help="Show the lobes gateway armed state, resolved roles, and rung."
+    )
+    show.add_argument(
+        "--repo",
+        default=".",
+        help="Repository path (default: cwd).",
     )
     show.add_argument("--json", action="store_true", help=JSON_HELP)
     show.set_defaults(func=cmd_lobes_show)
