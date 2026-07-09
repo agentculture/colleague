@@ -1419,7 +1419,15 @@ class _Session:
         # and execute_work's presence builders are skipped for the session's own
         # progress sink, so this only arms the plane — no doubled narration.
         if not task.watch:
-            task.watch = bool(getattr(config, "watch", True))
+            want = bool(getattr(config, "watch", True))
+            # #307 nesting-safety (Qodo #312): degrade to no-watch at the flight
+            # depth cap, like colleague work's _arm_watch — a session nested
+            # inside a flight must not arm a plane past the cap. (No
+            # child_depth_env propagation: the session's subagents run
+            # in-process, not as CLI shell-outs, and cumulative env increments
+            # across the session's sequential dispatches would wrongly trip the
+            # cap.)
+            task.watch = want and not flight.depth_exceeded()
         self._arm_run_view(task.instruction)
         pair = self._run_tracked(
             task.id,

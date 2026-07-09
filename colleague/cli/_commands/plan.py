@@ -313,31 +313,42 @@ def run_plan_request(
         )
 
     try:
-        return run_plan_mode(
-            request,
-            propose_claims=make_propose_claims(simple),
-            decide=decide,
-            propose_plan_items=make_propose_plan_items(simple),
-            batch_spawn=batch_spawn,
-            engine=engine_name,
-            model=config.model,
-            complete=simple,
-            reviewer_enabled=review,
-            repo_path=str(repo),
-            plan_id=plan_id,
-            quick=quick,
-            workforce=workforce,
-            flight=plane,
-        )
-    except ValueError as exc:
-        # The model returned a malformed proposal (unparseable JSON, an invalid
-        # plan-item set, or a cyclic/dangling dependency graph). Surface a clean
-        # error, never a traceback (the agent-first no-traceback contract).
-        raise CliError(
-            EXIT_USER_ERROR,
-            f"the backend returned an unusable plan proposal: {exc}",
-            "retry, or use a stronger backend/model",
-        ) from exc
+        try:
+            return run_plan_mode(
+                request,
+                propose_claims=make_propose_claims(simple),
+                decide=decide,
+                propose_plan_items=make_propose_plan_items(simple),
+                batch_spawn=batch_spawn,
+                engine=engine_name,
+                model=config.model,
+                complete=simple,
+                reviewer_enabled=review,
+                repo_path=str(repo),
+                plan_id=plan_id,
+                quick=quick,
+                workforce=workforce,
+                flight=plane,
+            )
+        except ValueError as exc:
+            # The model returned a malformed proposal (unparseable JSON, an invalid
+            # plan-item set, or a cyclic/dangling dependency graph). Surface a clean
+            # error, never a traceback (the agent-first no-traceback contract).
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"the backend returned an unusable plan proposal: {exc}",
+                "retry, or use a stronger backend/model",
+            ) from exc
+    finally:
+        # #309 armed this plane but never reaped it (Qodo #312 "plan flight not
+        # reaped"): unlike the bounded tool loop, which reaps via
+        # ``ctx.flight.reap()`` (colleague/loop.py `_reap_flight`), a plan run left
+        # its feed/control/chat files under `.colleague/flight/<plan_id>.*` behind
+        # on every exit, so `colleague flight status/list` could keep reporting a
+        # finished plan as active. Reap on both the success and failure path;
+        # ``plane is None`` (no --watch) stays a strict no-op.
+        if plane is not None:
+            plane.reap()
 
 
 def cmd_plan_run(args: argparse.Namespace) -> int:

@@ -133,3 +133,48 @@ def test_guidance_before_spec_augments_the_request(tmp_path):
     _run(_CapturingDeps(), flight_session=plane, repo_path=str(tmp_path))
     assert "narrow to the parser" in seen["request"]
     assert "operator steering" in seen["request"]
+
+
+# ── guidance is APPLIED, not just recorded (Qodo #312 "guidance ignored" fix) ─
+
+
+def test_post_spec_guidance_threads_into_plan_item_proposal(tmp_path):
+    """Guidance drained at checkpoint 1 (after the spec stage) is injected into the
+    frame as a confirmed claim, so propose_plan_items (which reads confirmed claims)
+    is actually steered by it."""
+    plane = flight.arm(tmp_path, "plan1")
+    seen = {}
+
+    class _D(_Deps):
+        def propose_claims(self, request):
+            # operator writes guidance DURING the spec stage → checkpoint 1 drains it
+            flight.append_guidance(tmp_path, "plan1", "only plan the CLI surface")
+            return _claims(), _honesty()
+
+        def propose_plan_items(self, frame):
+            seen["confirmed"] = [c.text for c in frame.claims if c.state == "confirmed"]
+            return super().propose_plan_items(frame)
+
+    _run(_D(), flight_session=plane, repo_path=str(tmp_path))
+    assert any("only plan the CLI surface" in t for t in seen["confirmed"])
+
+
+def test_pre_wave_guidance_threads_into_workforce_children(tmp_path):
+    """Guidance drained at checkpoint 2 (before a wave) is threaded into the wave's
+    child instructions (build_workforce_items maps PlanItem.summary → instruction)."""
+    plane = flight.arm(tmp_path, "plan1")
+    captured = {}
+
+    class _D(_Deps):
+        def propose_plan_items(self, frame):
+            # operator writes guidance after plan items are proposed → checkpoint 2 drains it
+            flight.append_guidance(tmp_path, "plan1", "skip the telemetry item")
+            return super().propose_plan_items(frame)
+
+        def batch_spawn(self, items):
+            captured["items"] = items
+            return super().batch_spawn(items)
+
+    _run(_D(), flight_session=plane, repo_path=str(tmp_path))
+    instructions = " ".join(i.get("instruction", "") for i in captured.get("items", []))
+    assert "skip the telemetry item" in instructions

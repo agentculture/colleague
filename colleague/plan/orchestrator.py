@@ -17,7 +17,7 @@ is testable without a real model, operator, or subagents.
 from __future__ import annotations
 
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from colleague.contract import SubResult
@@ -95,6 +95,39 @@ def _record_steering(flight: Any, steering: list[str], guidance: list[str]) -> N
         if flight is not None:
             with suppress(Exception):
                 flight.append_feed(step_index=len(steering), tool="steering", intent=line, stats={})
+
+
+def _inject_frame_steering(frame: PlanFrame, guidance: list[str]) -> None:
+    """Thread post-spec operator guidance into plan-item proposal (#309).
+
+    ``propose_plan_items`` prompts from the frame's CONFIRMED claims
+    (``cli_driver.make_propose_plan_items`` reads ``c.state == "confirmed"``), so
+    appending the guidance as confirmed requirement claims makes mid-run steering
+    actually REACH the plan-item proposal — not merely get recorded (the Qodo #312
+    "guidance ignored" fix). A strict no-op with no guidance.
+    """
+    existing = sum(1 for c in frame.claims if c.id.startswith("steer-"))
+    for offset, line in enumerate(guidance, start=1):
+        frame.claims.append(
+            Claim(
+                id=f"steer-{existing + offset}",
+                kind="requirement",
+                text=f"[operator steering]: {line}",
+                state="confirmed",
+            )
+        )
+
+
+def _apply_wave_steering(wave_items: list[PlanItem], guidance: list[str]) -> list[PlanItem]:
+    """Thread accumulated pre-wave operator guidance into each child's instruction
+    (#309): ``build_workforce_items`` maps ``PlanItem.summary`` -> the child work
+    item's instruction, so augmenting the summary steers the workforce children.
+    Returns the items unchanged when there is no guidance (byte-identical).
+    """
+    if not guidance:
+        return wave_items
+    note = "\n\n" + "\n".join(f"[operator steering]: {line}" for line in guidance)
+    return [replace(item, summary=item.summary + note) for item in wave_items]
 
 
 # ── run_plan_mode ───────────────────────────────────────────────────────────
@@ -269,6 +302,9 @@ def run_plan_mode(
             converged=True,
             steering=steering,
         )
+    # Apply it: thread post-spec guidance into the frame so propose_plan_items
+    # (which reads confirmed claims) is actually steered by it (#309).
+    _inject_frame_steering(frame, guidance)
 
     # ── e. Propose and validate plan items ───────────────────────────
     plan_items = propose_plan_items(frame)
@@ -310,6 +346,9 @@ def run_plan_mode(
     # ── g. Run workforce waves ───────────────────────────────────────
     item_map = {item.id: item for item in plan_items}
     sub_results: list[SubResult] = []
+    # Accumulate pre-wave guidance across waves so guidance dropped before an
+    # early wave still steers every later wave's children (#309).
+    wave_guidance: list[str] = []
 
     for wave_ids in waves:
         # ── steering checkpoint 2 (before each wave, #309) ──────────
@@ -326,8 +365,11 @@ def run_plan_mode(
                 conflicts=surface_conflicts(sub_results),
                 steering=steering,
             )
+        wave_guidance.extend(guidance)
 
-        wave_items = [item_map[wid] for wid in wave_ids]
+        # Apply it: thread accumulated pre-wave guidance into this wave's child
+        # instructions so mid-run steering reaches the workforce (#309).
+        wave_items = _apply_wave_steering([item_map[wid] for wid in wave_ids], wave_guidance)
         wave_results = run_wave(
             wave_items,
             batch_spawn,
