@@ -1410,6 +1410,16 @@ class _Session:
         panel appears) and the idle layout is restored afterwards with a
         Last-run ledger — on the success AND the error path, so the cockpit
         never strands the operator in a half-running frame."""
+        # #307 / decision c18: the session arms the file-based flight plane by
+        # default (in addition to its in-place stdin talk lane), so a SECOND
+        # terminal can `colleague talk` into a running session. Respect the
+        # opt-out (COLLEAGUE_WATCH=0 / config.json {watch:false}, resolved onto
+        # config.watch); a talk lane that already armed it stays armed. Session
+        # runs in-place, so the plane lands in the operator repo (no #310 concern),
+        # and execute_work's presence builders are skipped for the session's own
+        # progress sink, so this only arms the plane — no doubled narration.
+        if not task.watch:
+            task.watch = bool(getattr(config, "watch", True))
         self._arm_run_view(task.instruction)
         pair = self._run_tracked(
             task.id,

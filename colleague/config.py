@@ -125,6 +125,16 @@ _DEFAULT_SYNTHESIS_RESERVE = 0
 _DEFAULT_LINT_ENABLED = True
 _DEFAULT_LINT_FIX_RETRIES = 1
 
+# Flight plane armed by default (#307): every run (work / drive / session) arms
+# the file-based flight-control plane so `colleague talk` / `colleague flight` /
+# senses live-presence always have a plane to attach to. Opt out per run with the
+# ``--no-watch`` flag, ``COLLEAGUE_WATCH=0``, or ``.colleague/config.json``
+# ``{"watch": false}`` (precedence flag > env > config > default-on). The plane is
+# an append-only side file with no daemon/socket/thread; a run with no pilot is
+# byte-identical on stdout and in the artifact, so default-on is a strict no-op
+# for an unattended run.
+_DEFAULT_WATCH_ENABLED = True
+
 # Coherence pre-finish gate (#294, colleague#291 S3). Default-ON warn-only
 # (operator decision on #291) with the same opt-out shape as lint:
 # --no-coherence flag, COLLEAGUE_COHERENCE=0, or config.json
@@ -696,6 +706,42 @@ def _resolve_lint_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_LINT_ENABLED
+
+
+def _load_watch_override(repo_path: str | Path) -> str | None:
+    """Read the ``watch`` key from .colleague/config.json as a raw string (#307).
+
+    Mirrors :func:`_load_coherence_override` — kept separate from
+    :func:`load_config_file` (which owns only the endpoint keys).
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("watch")
+    return None if value is None else str(value)
+
+
+def _resolve_watch_enabled(file_value: str | None) -> bool:
+    """Resolve the flight-plane armed flag: env ``COLLEAGUE_WATCH`` > config.json >
+    default-on (#307).
+
+    The ``--watch`` / ``--no-watch`` CLI flags override this post-resolve (the work
+    path resolves the effective value against ``config.watch``), so this stays off
+    the ``resolve()`` signature — the ``_resolve_lint_enabled`` precedent.
+    """
+    for env_key in ("COLLEAGUE_WATCH", "CONVERTIBLE_WATCH"):
+        env = os.environ.get(env_key)
+        if env is not None and env.strip() != "":
+            return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_WATCH_ENABLED
 
 
 def _load_coherence_override(repo_path: str | Path) -> str | None:
@@ -1426,6 +1472,11 @@ class EngineConfig:
     lint: bool = _DEFAULT_LINT_ENABLED
     coherence: bool = _DEFAULT_COHERENCE_ENABLED
     memory: bool = _DEFAULT_MEMORY_ENABLED
+    # Flight plane armed by default (#307): work/drive/session default watch ON.
+    # The work path resolves the effective value against the --watch/--no-watch
+    # flags post-resolve; session default-arms from this. env COLLEAGUE_WATCH >
+    # config.json {watch} > default-on.
+    watch: bool = _DEFAULT_WATCH_ENABLED
     lint_fix_retries: int = _DEFAULT_LINT_FIX_RETRIES
     testintegrity: bool = _DEFAULT_TESTINTEGRITY_ENABLED
     testintegrity_fix_retries: int = _DEFAULT_TESTINTEGRITY_FIX_RETRIES
@@ -1546,6 +1597,7 @@ class EngineConfig:
         # the file is absent/malformed).
         file_cfg: dict[str, str] = {}
         file_lint: str | None = None
+        file_watch: str | None = None
         file_coherence: str | None = None
         file_memory: str | None = None
         file_lint_retries: str | None = None
@@ -1561,6 +1613,7 @@ class EngineConfig:
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
+            file_watch = _load_watch_override(repo_path)
             file_coherence = _load_coherence_override(repo_path)
             file_memory = _load_memory_override(repo_path)
             file_ti, file_ti_retries = _load_testintegrity_overrides(repo_path)
@@ -1810,6 +1863,7 @@ class EngineConfig:
             # signature (the --no-lint flag overrides post-resolve) to hold the
             # S107 parameter ceiling, mirroring synthesis_reserve_steps above.
             lint=_resolve_lint_enabled(file_lint),
+            watch=_resolve_watch_enabled(file_watch),
             coherence=_resolve_coherence_enabled(file_coherence),
             memory=_resolve_memory_enabled(file_memory),
             lint_fix_retries=_try_int(

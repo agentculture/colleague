@@ -597,6 +597,20 @@ def execute_work(
             if trace_id:
                 emit_diagnostic(f"trace: {trace_id}")
 
+            # #307/#310: announce the flight-attach handle here — AFTER every guard
+            # (dirty tree, unknown engine) and isolation, so a REFUSED run never
+            # prints a stray handle before its "error:" line (armed-by-default made
+            # every early error hit that ordering). The paths use ``repo`` (the
+            # operator repo — the plane lives there, not the worktree, #310). Only
+            # the non-session work path (``progress_sink is None``); the interactive
+            # session has its own live UI and needs no stderr handle.
+            if task.watch and progress_sink is None:
+                emit_diagnostic(
+                    f"flight: {task.id}\n"
+                    f"feed: {flight.feed_path(repo, task.id)}\n"
+                    f"control: {flight.control_path(repo, task.id)}"
+                )
+
             # Snapshot untracked files BEFORE the work item so the handoff stages only
             # the files the work item itself produces — never pre-existing operator
             # work-in-progress (#39), with a live --tui-events stream registered as
@@ -1069,7 +1083,7 @@ def cmd_work(args: argparse.Namespace) -> int:
         # Detach and return immediately — never runs the loop in this process.
         return _cmd_work_background(args, repo, json_mode)
 
-    _arm_watch(args, task, repo)
+    _arm_watch(args, task, repo, config)
 
     # Delegate the full work orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
@@ -1104,25 +1118,41 @@ def cmd_work(args: argparse.Namespace) -> int:
     return _emit_work_outcome(result, engine, artifact_path, json_mode)
 
 
-def _arm_watch(args: argparse.Namespace, task, repo: Path) -> None:
-    """Arm the flight control plane when ``--watch`` was passed (extracted from
-    :func:`cmd_work` to keep its cognitive complexity in budget — S3776)."""
-    watch = bool(getattr(args, "watch", False))
-    task.watch = watch
+def _arm_watch(args: argparse.Namespace, task, repo: Path, config) -> None:
+    """Arm the flight control plane, armed by default (#307).
+
+    Precedence (flag > env > config > default-on): an explicit ``--no-watch``
+    disarms; an explicit ``--watch`` arms; otherwise ``config.watch`` (which
+    resolved ``COLLEAGUE_WATCH`` > ``.colleague/config.json`` ``{watch}`` >
+    default-on) decides. Extracted from :func:`cmd_work` to keep its cognitive
+    complexity in budget (S3776).
+    """
+    explicit_watch = bool(getattr(args, "watch", False))
+    if bool(getattr(args, "no_watch", False)):
+        task.watch = False
+        return
+    watch = True if explicit_watch else bool(getattr(config, "watch", True))
     if not watch:
+        task.watch = False
         return
     if flight.depth_exceeded():
-        raise CliError(
-            EXIT_USER_ERROR,
-            "flight depth cap reached — refusing to nest another sub-flight",
-            "a flight may pilot a sub-flight, but not unbounded recursion",
-        )
+        # Default-on watch must NEVER break a nested run: degrade to no-watch
+        # silently when watch was DEFAULTED. Only an EXPLICIT --watch at depth is a
+        # hard error (the operator asked for something that can't nest).
+        if explicit_watch:
+            raise CliError(
+                EXIT_USER_ERROR,
+                "flight depth cap reached — refusing to nest another sub-flight",
+                "a flight may pilot a sub-flight, but not unbounded recursion",
+            )
+        task.watch = False
+        return
+    task.watch = True
     os.environ.update(flight.child_depth_env())
-    emit_diagnostic(
-        f"flight: {task.id}\n"
-        f"feed: {flight.feed_path(repo, task.id)}\n"
-        f"control: {flight.control_path(repo, task.id)}"
-    )
+    # The flight-attach handle is emitted from execute_work, AFTER its guards
+    # (dirty tree, unknown engine, ...), so a refused run never prints a stray
+    # handle before its "error:" line (#307 armed-by-default made every early
+    # error hit that ordering). See execute_work's `if task.watch and ...` block.
 
 
 def _emit_work_outcome(result, engine: str, artifact_path, json_mode: bool) -> int:
@@ -1289,7 +1319,17 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Arm a flight-control plane so a pilot can watch/guide/stop "
-            "this work item (see 'colleague flight')."
+            "this work item (see 'colleague flight'). Armed by default (#307); "
+            "this flag is the explicit alias."
+        ),
+    )
+    p.add_argument(
+        "--no-watch",
+        action="store_true",
+        help=(
+            "Do NOT arm the flight-control plane (opt out of the #307 default). "
+            "Also settable via COLLEAGUE_WATCH=0 or .colleague/config.json "
+            '{"watch": false}.'
         ),
     )
     p.add_argument(

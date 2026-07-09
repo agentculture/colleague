@@ -41,15 +41,19 @@ def test_feed_gains_one_record_per_turn_boundary(tmp_path: Path) -> None:
     counts: list[int] = []
 
     def complete(_messages: list[dict]) -> ModelResponse:
-        # Captured MID-RUN: how many feed records are on disk right now.
-        counts.append(len(_read_feed(tmp_path, task.id)))
+        # Captured MID-RUN: how many STEP records are on disk right now. Filter out
+        # the #308 liveness markers (run-start / heartbeat carry a ``type`` key) —
+        # those are a SEPARATE record class the live lane surfaces but the step
+        # trace ignores; a step record has no ``type``.
+        steps = [r for r in _read_feed(tmp_path, task.id) if "type" not in r]
+        counts.append(len(steps))
         # three working turns, then finish
         return _finish_turn() if len(counts) > 3 else _list_dir_turn()
 
     result = run(complete, task, max_steps=10)
 
     assert result.status == OK
-    # At the start of turn N (0-indexed) exactly N records have been written:
+    # At the start of turn N (0-indexed) exactly N STEP records have been written:
     # one per completed boundary — proving incremental, mid-run-readable growth.
     assert counts == [0, 1, 2, 3]
 
