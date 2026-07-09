@@ -151,3 +151,54 @@ def test_run_frontdoor_is_noop_with_staged_attachments(tmp_path: Path) -> None:
     sess, _calls = _session(tmp_path)
     sess._staged_attachments = [{"path": "/x.png", "media_type": "image/png"}]
     assert sess._run_frontdoor("what are you?") is None
+
+
+def test_run_frontdoor_is_noop_when_senses_engine_unresolvable(tmp_path: Path, monkeypatch) -> None:
+    # Senses armed (config present), not --cortex-only, no staged media — but the
+    # engine cannot be resolved, so _senses_engine() returns None and _run_frontdoor
+    # degrades to None (the caller then dispatches to cortex, byte-identical).
+    sess, _calls = _session(tmp_path)
+    monkeypatch.setattr(sess, "_senses_engine", lambda: None)
+    assert sess._run_frontdoor("what are you?") is None
+
+
+# --- mode-pinned routes flow through _route_free_text (S3776 extraction) ------
+# `explore`/`review`/`plan` pin the verb (route_for), so a free-text work line in
+# those modes dispatches the read-only / plan verb and NEVER consults the senses
+# front door — proving the extracted helper preserves the pre-refactor routing.
+
+
+def _mode_route_session(tmp_path: Path, monkeypatch, mode: str):
+    sess, calls = _session(tmp_path)
+    sess.mode = mode
+    recorded: list[str] = []
+    monkeypatch.setattr(sess, "_run_plan", lambda text: recorded.append(f"plan:{text}"))
+    monkeypatch.setattr(sess, "_run_explore", lambda text: recorded.append(f"explore:{text}"))
+    monkeypatch.setattr(sess, "_run_review", lambda text: recorded.append(f"review:{text}"))
+
+    def _boom_frontdoor(*a, **k):
+        raise AssertionError("the front door must not be consulted on a non-work route")
+
+    monkeypatch.setattr(session_mod, "run_frontdoor", _boom_frontdoor)
+    return sess, calls, recorded
+
+
+def test_plan_mode_routes_through_route_free_text(tmp_path: Path, monkeypatch) -> None:
+    sess, calls, recorded = _mode_route_session(tmp_path, monkeypatch, "plan")
+    sess._work_line("design a new feature")
+    assert recorded == ["plan:design a new feature"]
+    assert calls == []  # no cortex work item dispatched
+
+
+def test_explore_mode_routes_through_route_free_text(tmp_path: Path, monkeypatch) -> None:
+    sess, calls, recorded = _mode_route_session(tmp_path, monkeypatch, "explore")
+    sess._work_line("look around the repo")
+    assert recorded == ["explore:look around the repo"]
+    assert calls == []
+
+
+def test_review_mode_routes_through_route_free_text(tmp_path: Path, monkeypatch) -> None:
+    sess, calls, recorded = _mode_route_session(tmp_path, monkeypatch, "review")
+    sess._work_line("review the diff")
+    assert recorded == ["review:review the diff"]
+    assert calls == []

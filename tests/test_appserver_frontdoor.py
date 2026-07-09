@@ -363,3 +363,34 @@ def test_attachment_bearing_message_skips_the_front_door_entirely(
     assert len(calls) == 1
     reply = sent[-1]
     assert reply.metadata.get("phase") != "senses"
+
+
+# ---------------------------------------------------------------------------
+# 6. senses armed but the engine cannot be resolved -- the front door degrades
+#    to a normal cortex dispatch (the _senses_engine() is None branch).
+# ---------------------------------------------------------------------------
+
+
+def test_front_door_degrades_when_senses_engine_unresolvable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Senses is armed (config present) but the engine cannot be loaded, so
+    ``_senses_engine()`` returns ``None``. ``_maybe_answer_at_front_door`` returns
+    ``False`` WITHOUT consulting ``run_frontdoor``, and the message falls through
+    to the normal cortex dispatch -- byte-identical to the senses-absent path."""
+    repo = _init_repo(tmp_path)
+    calls = _spy_execute_work(monkeypatch)
+
+    def _boom_frontdoor(*a, **k):
+        raise AssertionError("run_frontdoor must not run when the senses engine is unresolvable")
+
+    monkeypatch.setattr(appserver_mod, "run_frontdoor", _boom_frontdoor)
+    monkeypatch.setattr(appserver_mod.AppserverHarness, "_senses_engine", lambda self: None)
+
+    transport, supervisor = _supervisor(repo, _senses_config(), operator_identity="ori")
+    inbound = Message(sender="ori", target="#colleague", body="what are you?")
+    sent = asyncio.run(_round_trip(transport, supervisor, inbound))
+
+    assert len(calls) == 1, "an unresolvable senses engine falls through to cortex dispatch"
+    reply = sent[-1]
+    assert reply.metadata.get("phase") != "senses"

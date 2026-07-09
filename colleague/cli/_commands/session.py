@@ -1278,33 +1278,12 @@ class _Session:
         stripped = line.strip()
         self._frontdoor_record = None
         is_free_text = bool(stripped) and not stripped.isdigit() and stripped not in self.discovered
-        if is_free_text:
-            verb = route_for(self.mode, stripped, classify_intent)
-            if verb == PLAN:
-                self._log(f"→ plan: {stripped}")
-                self._run_plan(stripped)
-                return
-            if verb == "explore":
-                self._log(f"→ explore: {stripped}")
-                self._run_explore(stripped)
-                return
-            if verb == "review":
-                self._log(f"→ review: {stripped}")
-                self._run_review(stripped)
-                return
-            # verb == "work": consult the senses front door FIRST (talking-to-one-
-            # teammate). A non-repo turn (greeting / question about colleague
-            # itself) may be answered DIRECTLY by senses with NO cortex work item —
-            # no branch, no eidetic record. A repo-touching turn records the
-            # cortex-route decision and falls through to the normal dispatch. The
-            # ROUTE is deterministic (classify_frontdoor); senses is consulted (one
-            # tools-off completion) only on a non-repo turn.
-            outcome = self._run_frontdoor(stripped)
-            if outcome is not None and outcome.answered_directly:
-                self._render_senses_direct(stripped, outcome)
-                return
-            if outcome is not None:
-                self._frontdoor_record = outcome.record
+        # Free-text routing — the active mode's verb plus, on the ``work`` verb,
+        # the senses front door — lives in _route_free_text. A True return means
+        # the line was fully handled there (plan/explore/review dispatched, or a
+        # senses-direct answer with NO cortex work item) and this turn is done.
+        if is_free_text and self._route_free_text(stripped):
+            return
         resolved = _resolve_selection(
             line,
             self.palette,
@@ -1335,6 +1314,42 @@ class _Session:
         if is_free_text and self._presence_enabled():
             self._log(cortex_working_line())
         self._run_work(task, command_name, senses_mode=senses_mode, intake_record=intake_record)
+
+    def _route_free_text(self, stripped: str) -> bool:
+        """Route a free-text work line, returning True when it was fully handled
+        here (caller returns) and False to fall through to work-template selection
+        + cortex dispatch.
+
+        The ROUTE is deterministic: ``route_for`` picks the verb (``auto``
+        classifies via ``classify_intent``; ``work``/``plan``/``explore``/``review``
+        pin it), then — on the ``work`` verb ONLY — the senses front door
+        (talking-to-one-teammate) is consulted. A non-repo turn (greeting / question
+        about colleague itself) is answered DIRECTLY by senses with NO cortex work
+        item (no branch, no eidetic record); a repo-touching turn records the
+        cortex-route decision on ``self._frontdoor_record`` and returns False so the
+        caller dispatches to cortex exactly as before. The front door is a
+        deterministic classifier + at most one tools-off senses completion.
+        """
+        verb = route_for(self.mode, stripped, classify_intent)
+        if verb == PLAN:
+            self._log(f"→ plan: {stripped}")
+            self._run_plan(stripped)
+            return True
+        if verb == "explore":
+            self._log(f"→ explore: {stripped}")
+            self._run_explore(stripped)
+            return True
+        if verb == "review":
+            self._log(f"→ review: {stripped}")
+            self._run_review(stripped)
+            return True
+        outcome = self._run_frontdoor(stripped)
+        if outcome is not None and outcome.answered_directly:
+            self._render_senses_direct(stripped, outcome)
+            return True
+        if outcome is not None:
+            self._frontdoor_record = outcome.record
+        return False
 
     def _run_tracked(
         self, task_id: str, thunk: Callable[[], _T], *, goal: str = ""
