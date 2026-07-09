@@ -16,7 +16,8 @@ is testable without a real model, operator, or subagents.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from contextlib import suppress
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from colleague.contract import SubResult
@@ -49,6 +50,11 @@ class OrchestratorResult:
         (empty when spec did not converge).
     conflicts:
         Sub-results with ERROR status (conflicted merge children).
+    steering:
+        Operator steering applied mid-run through the flight lane (#309): each
+        guidance line drained at a stage/wave boundary, plus a ``"stopped at
+        <boundary>"`` marker when a cooperative stop halted the run. Empty for a
+        run with no flight plane (byte-identical to a pre-#309 plan run).
     """
 
     spec_result: SpecStageResult
@@ -57,6 +63,158 @@ class OrchestratorResult:
     waves: list[list[str]] = field(default_factory=list)
     sub_results: list[SubResult] = field(default_factory=list)
     conflicts: list[SubResult] = field(default_factory=list)
+    steering: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PlanRunContext:
+    """External I/O context for a plan run — grouped to hold ``run_plan_mode``
+    under the S107 parameter ceiling.
+
+    Fields
+    ------
+    repo_path:
+        When not ``None``, persist checkpoints to disk.
+    plan_id:
+        Identifier for checkpoint files (default ``"plan"``).
+    flight:
+        An optional :class:`colleague.flight.FlightSession` for mid-run steering
+        (#309), or ``None`` (no plane — byte-identical to a pre-#309 run).
+    """
+
+    repo_path: str | None = None
+    plan_id: str = "plan"
+    flight: Any = None
+
+
+# ── steering (mid-run flight guidance, #309) ────────────────────────────────
+
+
+def _drain_steering(flight: Any) -> tuple[bool, list[str]]:
+    """Read the flight control at a cooperative boundary: ``(stop, [guidance])``.
+
+    A strict no-op — ``(False, [])`` — when ``flight`` is None (no plane armed),
+    so a plan run with no pilot is byte-identical to a pre-#309 run.
+    ``FlightSession.read_control`` advances its own cursor, so each guidance line
+    drains exactly once.
+    """
+    if flight is None:
+        return False, []
+    control = flight.read_control()
+    return bool(control.stop), list(control.guidance)
+
+
+def _record_steering(flight: Any, steering: list[str], guidance: list[str]) -> None:
+    """Record each drained guidance line onto ``steering`` and the flight feed.
+
+    The feed record (``tool="steering"``) makes the applied guidance visible to a
+    pilot / ``flight status`` — a REAL step record (no ``type`` marker), distinct
+    from the #308 liveness heartbeats.
+    """
+    for line in guidance:
+        steering.append(line)
+        if flight is not None:
+            with suppress(Exception):
+                flight.append_feed(step_index=len(steering), tool="steering", intent=line, stats={})
+
+
+def _inject_frame_steering(frame: PlanFrame, guidance: list[str]) -> None:
+    """Thread post-spec operator guidance into plan-item proposal (#309).
+
+    ``propose_plan_items`` prompts from the frame's CONFIRMED claims
+    (``cli_driver.make_propose_plan_items`` reads ``c.state == "confirmed"``), so
+    appending the guidance as confirmed requirement claims makes mid-run steering
+    actually REACH the plan-item proposal — not merely get recorded (the Qodo #312
+    "guidance ignored" fix). A strict no-op with no guidance.
+    """
+    existing = sum(1 for c in frame.claims if c.id.startswith("steer-"))
+    for offset, line in enumerate(guidance, start=1):
+        frame.claims.append(
+            Claim(
+                id=f"steer-{existing + offset}",
+                kind="requirement",
+                text=f"[operator steering]: {line}",
+                state="confirmed",
+            )
+        )
+
+
+def _apply_wave_steering(wave_items: list[PlanItem], guidance: list[str]) -> list[PlanItem]:
+    """Thread accumulated pre-wave operator guidance into each child's instruction
+    (#309): ``build_workforce_items`` maps ``PlanItem.summary`` -> the child work
+    item's instruction, so augmenting the summary steers the workforce children.
+    Returns the items unchanged when there is no guidance (byte-identical).
+    """
+    if not guidance:
+        return wave_items
+    note = "\n\n" + "\n".join(f"[operator steering]: {line}" for line in guidance)
+    return [replace(item, summary=item.summary + note) for item in wave_items]
+
+
+def _run_workforce_waves(
+    plan_items: list[PlanItem],
+    waves: list[list[str]],
+    *,
+    batch_spawn: Callable[[list[dict]], list[SubResult]],
+    engine: str,
+    model: str,
+    context: "PlanRunContext",
+    steering: list[str],
+    request: str,
+    spec_result: SpecStageResult,
+) -> OrchestratorResult:
+    """Run the workforce waves with per-wave cooperative steering (#309).
+
+    Extracted from :func:`run_plan_mode` to hold that function under the S3776
+    cognitive-complexity ceiling. At the top of each wave it drains the flight
+    control (checkpoint 2): a cooperative ``stop`` halts and returns the partial
+    result; guidance is recorded and threaded into the wave's child instructions
+    (accumulated across waves). Returns the final :class:`OrchestratorResult`.
+    """
+    item_map = {item.id: item for item in plan_items}
+    sub_results: list[SubResult] = []
+    wave_guidance: list[str] = []
+
+    for wave_ids in waves:
+        stop, guidance = _drain_steering(context.flight)
+        _record_steering(context.flight, steering, guidance)
+        if stop:
+            steering.append("stopped at wave")
+            return OrchestratorResult(
+                spec_result=spec_result,
+                converged=True,
+                plan_items=plan_items,
+                waves=waves,
+                sub_results=sub_results,
+                conflicts=surface_conflicts(sub_results),
+                steering=steering,
+            )
+        wave_guidance.extend(guidance)
+
+        wave_items = _apply_wave_steering([item_map[wid] for wid in wave_ids], wave_guidance)
+        sub_results.extend(run_wave(wave_items, batch_spawn, engine=engine, model=model))
+
+        if context.repo_path is not None:
+            save(
+                Checkpoint(
+                    plan_id=context.plan_id,
+                    proposed_item="",
+                    recommended_move="workforce",
+                    resolved_gates=[g.item_id for g in spec_result.transcript],
+                    request=request,
+                ),
+                context.repo_path,
+            )
+
+    return OrchestratorResult(
+        spec_result=spec_result,
+        converged=True,
+        plan_items=plan_items,
+        waves=waves,
+        sub_results=sub_results,
+        conflicts=surface_conflicts(sub_results),
+        steering=steering,
+    )
 
 
 # ── run_plan_mode ───────────────────────────────────────────────────────────
@@ -73,10 +231,9 @@ def run_plan_mode(
     model: str,
     complete: Callable[[str, str], str] | None = None,
     reviewer_enabled: bool = False,
-    repo_path: str | None = None,
-    plan_id: str = "plan",
     quick: bool = False,
     workforce: bool = True,
+    context: "PlanRunContext | None" = None,
 ) -> OrchestratorResult:
     """Drive the full plan-mode lifecycle end to end.
 
@@ -123,10 +280,10 @@ def run_plan_mode(
         Passed through to ``run_spec_stage`` when ``reviewer_enabled=True``.
     reviewer_enabled:
         When ``True``, enable the reviewer in the spec stage.
-    repo_path:
-        When not ``None``, persist checkpoints to disk.
-    plan_id:
-        Identifier for checkpoint files (default ``"plan"``).
+    context:
+        A :class:`PlanRunContext` bundling the checkpoint-persistence target
+        (``repo_path``/``plan_id``) and the optional steering ``flight`` plane
+        (#309). Defaults to an empty context (no checkpoints, no plane).
     quick:
         When ``True``, skip the spec stage entirely and build a minimal
         frame from the request text, proceeding straight to plan-item
@@ -150,6 +307,26 @@ def run_plan_mode(
     ValueError:
         When ``validate_items`` finds problems in the proposed plan items.
     """
+
+    context = context or PlanRunContext()
+    steering: list[str] = []
+
+    # ── steering checkpoint 0 (before the spec stage, #309) ────────────
+    # Drain any guidance the operator wrote before/at the start of the run:
+    # record it, and thread it into the model context by augmenting the request
+    # the spec stage will propose from. A cooperative stop here halts before any
+    # stage runs. A strict no-op when no flight plane is armed.
+    stop, guidance = _drain_steering(context.flight)
+    _record_steering(context.flight, steering, guidance)
+    if guidance:
+        request = request + "\n\n" + "\n".join(f"[operator steering]: {g}" for g in guidance)
+    if stop:
+        steering.append("stopped at spec")
+        return OrchestratorResult(
+            spec_result=SpecStageResult(transcript=[], result=ConvergenceResult(passed=False)),
+            converged=False,
+            steering=steering,
+        )
 
     # ── a. Build frame from proposed claims + honesty ──────────────────
     if quick:
@@ -179,18 +356,18 @@ def run_plan_mode(
         converged = spec_result.result.passed
 
     # ── c. Checkpoint after spec stage ─────────────────────────────────
-    if repo_path is not None:
+    if context.repo_path is not None:
         gate_ids = [g.item_id for g in spec_result.transcript]
         recommended = "plan" if converged else "spec"
         save(
             Checkpoint(
-                plan_id=plan_id,
+                plan_id=context.plan_id,
                 proposed_item="",
                 recommended_move=recommended,
                 resolved_gates=gate_ids,
                 request=request,
             ),
-            repo_path,
+            context.repo_path,
         )
 
     # ── d. Early return if not converged ──────────────────────────────
@@ -198,7 +375,22 @@ def run_plan_mode(
         return OrchestratorResult(
             spec_result=spec_result,
             converged=False,
+            steering=steering,
         )
+
+    # ── steering checkpoint 1 (after the spec stage, before plan items) ─
+    stop, guidance = _drain_steering(context.flight)
+    _record_steering(context.flight, steering, guidance)
+    if stop:
+        steering.append("stopped at plan")
+        return OrchestratorResult(
+            spec_result=spec_result,
+            converged=True,
+            steering=steering,
+        )
+    # Apply it: thread post-spec guidance into the frame so propose_plan_items
+    # (which reads confirmed claims) is actually steered by it (#309).
+    _inject_frame_steering(frame, guidance)
 
     # ── e. Propose and validate plan items ───────────────────────────
     plan_items = propose_plan_items(frame)
@@ -214,6 +406,7 @@ def run_plan_mode(
                 spec_result=spec_result,
                 converged=True,
                 plan_items=plan_items,
+                steering=steering,
             )
 
     # ── f. Compute waves — also VALIDATES the dependency graph: it raises
@@ -233,44 +426,18 @@ def run_plan_mode(
             spec_result=spec_result,
             converged=True,
             plan_items=plan_items,
+            steering=steering,
         )
 
-    # ── g. Run workforce waves ───────────────────────────────────────
-    item_map = {item.id: item for item in plan_items}
-    sub_results: list[SubResult] = []
-
-    for wave_ids in waves:
-        wave_items = [item_map[wid] for wid in wave_ids]
-        wave_results = run_wave(
-            wave_items,
-            batch_spawn,
-            engine=engine,
-            model=model,
-        )
-        sub_results.extend(wave_results)
-
-        # Checkpoint after each wave
-        if repo_path is not None:
-            save(
-                Checkpoint(
-                    plan_id=plan_id,
-                    proposed_item="",
-                    recommended_move="workforce",
-                    resolved_gates=[g.item_id for g in spec_result.transcript],
-                    request=request,
-                ),
-                repo_path,
-            )
-
-    # ── h. Surface conflicts ────────────────────────────────────────
-    conflicts = surface_conflicts(sub_results)
-
-    # ── i. Return result ─────────────────────────────────────────────
-    return OrchestratorResult(
+    # ── g. Run workforce waves (with per-wave steering, #309) ─────────
+    return _run_workforce_waves(
+        plan_items,
+        waves,
+        batch_spawn=batch_spawn,
+        engine=engine,
+        model=model,
+        context=context,
+        steering=steering,
+        request=request,
         spec_result=spec_result,
-        converged=True,
-        plan_items=plan_items,
-        waves=waves,
-        sub_results=sub_results,
-        conflicts=conflicts,
     )

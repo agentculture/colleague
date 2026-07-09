@@ -30,6 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from colleague import flight as flightmod
 from colleague import registry
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
@@ -43,7 +44,7 @@ from colleague.plan.cli_driver import (
     make_propose_plan_items,
     robust_simple_complete,
 )
-from colleague.plan.orchestrator import run_plan_mode
+from colleague.plan.orchestrator import PlanRunContext, run_plan_mode
 from colleague.subagents import make_batch_spawn, new_agent_budget
 
 _PLAN_ID = "plan"
@@ -258,6 +259,7 @@ def run_plan_request(
     workforce: bool,
     review: bool = False,
     plan_id: str = _PLAN_ID,
+    watch: bool = False,
 ):
     """Run colleague plan mode for a single *request* and return the result.
 
@@ -298,31 +300,53 @@ def run_plan_request(
     # the plan workforce fan-out too (#t4 Q3 wiring fix).
     batch_spawn = make_batch_spawn(str(repo), config, engine_name, counter=new_agent_budget(config))
 
-    try:
-        return run_plan_mode(
-            request,
-            propose_claims=make_propose_claims(simple),
-            decide=decide,
-            propose_plan_items=make_propose_plan_items(simple),
-            batch_spawn=batch_spawn,
-            engine=engine_name,
-            model=config.model,
-            complete=simple,
-            reviewer_enabled=review,
-            repo_path=str(repo),
-            plan_id=plan_id,
-            quick=quick,
-            workforce=workforce,
+    # #309: arm a flight plane at the OPERATOR repo (plan mode runs in-place, so
+    # this is not the #310 worktree case) so an operator can steer the plan at the
+    # orchestrator's stage/wave boundaries. A strict no-op (flight=None) when
+    # --watch is off, byte-identical to a pre-#309 plan run.
+    plane = flightmod.arm(str(repo), plan_id) if watch else None
+    if plane is not None:
+        emit_diagnostic(
+            f"flight: {plan_id}\n"
+            f"feed: {flightmod.feed_path(repo, plan_id)}\n"
+            f"control: {flightmod.control_path(repo, plan_id)}"
         )
-    except ValueError as exc:
-        # The model returned a malformed proposal (unparseable JSON, an invalid
-        # plan-item set, or a cyclic/dangling dependency graph). Surface a clean
-        # error, never a traceback (the agent-first no-traceback contract).
-        raise CliError(
-            EXIT_USER_ERROR,
-            f"the backend returned an unusable plan proposal: {exc}",
-            "retry, or use a stronger backend/model",
-        ) from exc
+
+    try:
+        try:
+            return run_plan_mode(
+                request,
+                propose_claims=make_propose_claims(simple),
+                decide=decide,
+                propose_plan_items=make_propose_plan_items(simple),
+                batch_spawn=batch_spawn,
+                engine=engine_name,
+                model=config.model,
+                complete=simple,
+                reviewer_enabled=review,
+                quick=quick,
+                workforce=workforce,
+                context=PlanRunContext(repo_path=str(repo), plan_id=plan_id, flight=plane),
+            )
+        except ValueError as exc:
+            # The model returned a malformed proposal (unparseable JSON, an invalid
+            # plan-item set, or a cyclic/dangling dependency graph). Surface a clean
+            # error, never a traceback (the agent-first no-traceback contract).
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"the backend returned an unusable plan proposal: {exc}",
+                "retry, or use a stronger backend/model",
+            ) from exc
+    finally:
+        # #309 armed this plane but never reaped it (Qodo #312 "plan flight not
+        # reaped"): unlike the bounded tool loop, which reaps via
+        # ``ctx.flight.reap()`` (colleague/loop.py `_reap_flight`), a plan run left
+        # its feed/control/chat files under `.colleague/flight/<plan_id>.*` behind
+        # on every exit, so `colleague flight status/list` could keep reporting a
+        # finished plan as active. Reap on both the success and failure path;
+        # ``plane is None`` (no --watch) stays a strict no-op.
+        if plane is not None:
+            plane.reap()
 
 
 def cmd_plan_run(args: argparse.Namespace) -> int:
@@ -349,6 +373,7 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
         workforce=not bool(getattr(args, "no_workforce", False)),
         review=bool(getattr(args, "review", False)),
         plan_id=plan_id,
+        watch=bool(getattr(args, "watch", False)),
     )
 
     emit_result(_run_payload(result) if json_mode else _render_run(result), json_mode=json_mode)
@@ -546,6 +571,15 @@ def _add_run_args(run: argparse.ArgumentParser) -> None:
         dest="quick",
         action="store_true",
         help="Skip the spec stage; plan directly from the request (#199).",
+    )
+    run.add_argument(
+        "--watch",
+        action="store_true",
+        help=(
+            "Arm a flight-control plane so a pilot can steer the plan mid-run "
+            "(#309): guidance/stop written via 'colleague flight guide|stop' is "
+            "applied at the orchestrator's stage/wave boundaries."
+        ),
     )
     _add_common_plan_args(run)
 

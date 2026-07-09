@@ -4,6 +4,12 @@ A work item dispatched with `colleague work --watch` (or `ask-colleague --watch`
 becomes a **flight** — a watchable, pilotable work item backed by a file-based
 control plane.
 
+> The flight plane is armed **by default** on every run (`--no-watch` /
+> `COLLEAGUE_WATCH=0` to opt out), armed in the **operator repo** so it survives
+> worktree cleanup, carries a **liveness heartbeat** during long completions, and
+> is steerable on **every mode including plan** — see
+> [`pilotable-runs.md`](pilotable-runs.md) (#307–#311).
+
 ## Control-plane files
 
 - **`.colleague/flight/<task_id>.feed.jsonl`** — live feed. The bounded loop

@@ -124,6 +124,64 @@ class FlightSession:
         with open(feed_path(self.repo_path, self.task_id), "a") as f:
             f.write(json.dumps(record) + "\n")
 
+    def _append_marker(self, kind: str, step_index: int, intent: str, extra: dict) -> None:
+        """Append a distinct, filterable liveness marker to the feed (#308).
+
+        A marker carries a ``type`` key (``"run-start"`` / ``"heartbeat"``) that a
+        step record NEVER has, so a consumer that must count steps or replay
+        step-only (``tui replay``/``snapshot``, which read the events sink, not
+        this feed) can filter markers out by ``record.get("type")``. The marker
+        still carries the common ``step_index``/``tool``/``intent``/``stats`` keys
+        so an existing feed reader (``colleague talk`` grounding, ``flight
+        status``) renders it as informative liveness — never a KeyError.
+        """
+        record = {
+            "type": kind,
+            "step_index": step_index,
+            "tool": None,
+            "intent": intent,
+            "stats": {},
+            "at": time.time(),
+        }
+        record.update(extra)
+        with open(feed_path(self.repo_path, self.task_id), "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+    def append_run_start(self, goal: str | None, max_steps: int) -> None:
+        """Mark that the run began — a liveness signal BEFORE the first step (#308).
+
+        A reasoning cortex can spend minutes on its first completion with no tool
+        call, so the feed would otherwise be empty and ``colleague talk`` / senses
+        could only answer "I don't know". This run-start marker lets senses say
+        "cortex started, working on <goal>" immediately.
+        """
+        goal_txt = (goal or "").strip()
+        intent = "cortex started" + (f": {goal_txt}" if goal_txt else "")
+        intent += f" (0/{max_steps} steps)"
+        self._append_marker(
+            "run-start",
+            step_index=0,
+            intent=intent,
+            extra={"goal": goal_txt or None, "max_steps": max_steps},
+        )
+
+    def append_heartbeat(self, phase: str, elapsed: float, step_index: int, max_steps: int) -> None:
+        """Emit a liveness heartbeat during a (possibly long) completion (#308).
+
+        Fired from the loop's pre-completion phase notice (#206) so a long single
+        turn shows "cortex is on its Nth analysis, ~Ns elapsed" on the pilot plane
+        instead of going silent. A ``type="heartbeat"`` record — it NEVER advances
+        the run's ``step_count`` (the #206 invariant) and is filtered out of the
+        step-only ``tui replay``/``snapshot`` (which read a different sink).
+        """
+        intent = f"{phase} ({elapsed:.0f}s elapsed, step {step_index}/{max_steps})"
+        self._append_marker(
+            "heartbeat",
+            step_index=step_index,
+            intent=intent,
+            extra={"phase": phase, "elapsed": round(elapsed, 3), "max_steps": max_steps},
+        )
+
     def read_control(self) -> Control:
         """Read control file; return guidance beyond cursor, advancing cursor."""
         cp = control_path(self.repo_path, self.task_id)

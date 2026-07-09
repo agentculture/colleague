@@ -37,12 +37,16 @@ Classification rubric (evaluated in this order — repo signals win)
 
 from __future__ import annotations
 
+import json
 import re
 import time
+import uuid
+from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from colleague.contract import SensesRecord
+from colleague.contract import SensesDirectRecord, SensesRecord
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from colleague.config import EngineConfig
@@ -194,6 +198,39 @@ def cortex_frontdoor_outcome() -> "FrontDoorOutcome":
     )
 
 
+def _persist_senses_direct(
+    record_repo: "Optional[str | Path]", route: str, text: str, res: dict
+) -> None:
+    """Write a standalone, auditable record of a senses-direct turn (#311).
+
+    A senses-direct turn produces NO Task/TaskResult (there is no work item), so
+    without this it is unauditable from artifacts alone. Emits ONE
+    ``.colleague/senses-direct/<id>.json`` :class:`SensesDirectRecord` with the
+    operator's VERBATIM ``text`` — for BOTH a clean answer AND a degraded/misroute
+    fallback, so an offline "were any non-repo turns misrouted?" audit works.
+    Best-effort (suppressed) and a strict no-op when ``record_repo`` is None
+    (unarmed / not-consulted paths never reach here), so observability never
+    breaks the front door.
+    """
+    if record_repo is None:
+        return
+    with suppress(Exception):
+        record = SensesDirectRecord(
+            route=route,
+            text=text,
+            answer=str(res.get("answer", "")),
+            latency=res.get("latency"),
+            tokens=res.get("tokens"),
+            degraded=bool(res.get("degraded")),
+            at=time.time(),
+        )
+        out_dir = Path(record_repo) / ".colleague" / "senses-direct"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{uuid.uuid4().hex[:12]}.json").write_text(
+            json.dumps(record.to_dict()), encoding="utf-8"
+        )
+
+
 def run_frontdoor(
     text: str,
     *,
@@ -202,6 +239,7 @@ def run_frontdoor(
     facts: Optional[str] = None,
     make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
     history: "Optional[list[dict[str, str]]]" = None,
+    record_repo: "Optional[str | Path]" = None,
 ) -> FrontDoorOutcome:
     """The ONE shared front-agnostic front-door entry.
 
@@ -276,6 +314,11 @@ def run_frontdoor(
         tokens=res["tokens"],
         degraded=res["degraded"],
     )
+
+    # #311: persist a standalone auditable record for EVERY senses-direct route —
+    # a clean answer AND a degraded/misroute fallback — since a senses-direct turn
+    # has no TaskResult. Strict no-op when record_repo is None.
+    _persist_senses_direct(record_repo, SENSES_DIRECT, text, res)
 
     if res["degraded"]:
         # senses could not answer -> fall back to cortex.

@@ -1410,6 +1410,24 @@ class _Session:
         panel appears) and the idle layout is restored afterwards with a
         Last-run ledger — on the success AND the error path, so the cockpit
         never strands the operator in a half-running frame."""
+        # #307 / decision c18: the session arms the file-based flight plane by
+        # default (in addition to its in-place stdin talk lane), so a SECOND
+        # terminal can `colleague talk` into a running session. Respect the
+        # opt-out (COLLEAGUE_WATCH=0 / config.json {watch:false}, resolved onto
+        # config.watch); a talk lane that already armed it stays armed. Session
+        # runs in-place, so the plane lands in the operator repo (no #310 concern),
+        # and execute_work's presence builders are skipped for the session's own
+        # progress sink, so this only arms the plane — no doubled narration.
+        if not task.watch:
+            want = bool(getattr(config, "watch", True))
+            # #307 nesting-safety (Qodo #312): degrade to no-watch at the flight
+            # depth cap, like colleague work's _arm_watch — a session nested
+            # inside a flight must not arm a plane past the cap. (No
+            # child_depth_env propagation: the session's subagents run
+            # in-process, not as CLI shell-outs, and cumulative env increments
+            # across the session's sequential dispatches would wrongly trip the
+            # cap.)
+            task.watch = want and not flight.depth_exceeded()
         self._arm_run_view(task.instruction)
         pair = self._run_tracked(
             task.id,
@@ -1552,6 +1570,9 @@ class _Session:
             make_complete=engine.make_complete,
             make_count_tokens=engine.make_count_tokens(senses_config),
             history=list(self._history) or None,
+            # #311: persist a standalone auditable record of this senses-direct turn
+            # (it has no TaskResult) beside the operator repo's .colleague/ artifacts.
+            record_repo=str(self.repo),
         )
 
     def _render_senses_direct(self, text: str, outcome) -> None:

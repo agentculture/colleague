@@ -375,6 +375,48 @@ def classify_injection_reached_check(in_feed: bool, in_artifact: bool) -> tuple[
     return "failed", f"injection not reconstructable — missing from: {', '.join(missing)}"
 
 
+def classify_flight_reachable_check(
+    feed_reachable: bool, survived_cleanup: bool
+) -> tuple[str, str]:
+    """Grade the #310 flight-reachability proof: a backgrounded/watched
+    ``colleague work`` run's flight plane must live in the OPERATOR repo — reachable
+    by ``colleague talk`` / ``colleague flight`` — and SURVIVE worktree cleanup.
+
+    PASS only when BOTH hold (the plane the loop writes is the plane the operator
+    reads, and it outlives the throwaway worktree); FAIL otherwise (the pre-#310
+    bug, where the plane was armed inside the iso worktree and destroyed with it).
+    Never a fabricated pass.
+    """
+    if feed_reachable and survived_cleanup:
+        return "passed", "flight plane reachable in the operator repo and survived worktree cleanup"
+    missing = [
+        name
+        for name, ok in (
+            ("reachable-in-operator-repo", feed_reachable),
+            ("survived-cleanup", survived_cleanup),
+        )
+        if not ok
+    ]
+    return "failed", f"flight plane not pilotable — failed: {', '.join(missing)}"
+
+
+def classify_flight_liveness_check(has_liveness: bool, status_answer: str) -> tuple[str, str]:
+    """Grade the #308 liveness proof: during a long first completion the flight feed
+    must carry a run-start/heartbeat marker so ``colleague talk`` / senses can surface
+    a REAL status instead of "I don't know".
+
+    SKIPs (never FAILs) when the run produced no liveness marker to grade yet (a
+    fast turn, or the plane was never armed) — the honest no-measurement stance.
+    A recorded status that still says "I don't know" (no ground) FAILs; a grounded
+    status PASSes.
+    """
+    if not has_liveness:
+        return "skipped", "no run-start/heartbeat marker recorded yet — nothing to grade"
+    if "i don't know" in (status_answer or "").strip().lower():
+        return "failed", "feed had a liveness marker but the status answer was still 'I don't know'"
+    return "passed", "the flight feed carried a liveness signal and the status answer was grounded"
+
+
 def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
     """Grade an stt/tts voice-lane live proof (t10) from its recorded outcome.
 
