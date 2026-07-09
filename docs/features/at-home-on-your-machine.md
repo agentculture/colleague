@@ -213,13 +213,18 @@ decision — not a new route:
   existing cooked-mode/file-based flows. Any arm failure (no real TTY, a
   termios error, a thread that fails to start) silently degrades to the
   pre-existing cooked `_poll_talk_lane` path.
-- **Live proofs are pending.** The three success signals named in the spec —
-  (a) a repo config without `lobes` still arming from the user-level default
-  with zero env vars, (b) a sentence surviving mid-run updates, (c) "what
-  model are you?" answering with the exact resolved id via both senses and
-  cortex — are unit/pytest-covered in this arc, but the `docs/live-testing.md`
-  graded rows and the dedicated `livecheck` classifier are a follow-up task
-  (t11 in the plan), not yet landed as of this doc.
+- **Live proofs: PASSED 2026-07-10** (`docs/live-testing.md` rows 27–29,
+  graded by `colleague/livecheck.py`'s `classify_at_home_check`). The three
+  success signals named in the spec all passed on the reference rig: (a) the
+  pre-arc shadow case (repo config carrying only `model`, user-level `lobes`
+  default, zero env vars) armed BOTH introspection verbs; (b) `status please`
+  typed per-keystroke over a real PTY survived mid-run update lines (the
+  patch_stdout repaint captured live); (c) "what model are you?" answered
+  with BOTH exact resolved ids via the senses front door (no work item) AND
+  via a cortex `--mode explore` run that also explained the affected-tests
+  gate correctly from the live guide. One nuance: the live capture proves
+  visibility/survival; mid-run line *delivery* to the talk lane is pinned at
+  the unit level (`tests/test_input_line.py`, `tests/test_session_input_line.py`).
 
 ## Follow-ups
 
