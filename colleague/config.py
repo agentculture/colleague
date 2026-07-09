@@ -1581,6 +1581,16 @@ class EngineConfig:
     # eq/repr/to_dict like ``memory_root``/``role`` above.
     embed_env: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
 
+    # The ARMED lobes gateway origin this config resolved against (self-knowledge
+    # arc, t9): set by :meth:`resolve` from :func:`_resolve_lobes_rung`'s
+    # ``lobes_gateway_url`` — ``None`` when the rung is unarmed OR degraded
+    # (unreachable), so it reflects the state the run ACTUALLY resolved with,
+    # never a dead URL presented as live. Read by the loop's self-knowledge
+    # advisory (via ``ContextControls.from_config``) to render the honest
+    # ``lobes:`` self-fact. A runtime-derived plumbing value like ``embed_env``
+    # above — excluded from eq/repr/to_dict.
+    lobes_gateway_url: Optional[str] = field(default=None, compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,
@@ -1968,6 +1978,10 @@ class EngineConfig:
             # unarmed/unreachable or the gateway doesn't advertise an embedder
             # (see :func:`_resolve_lobes_rung` / :func:`colleague.lobes.embed_env`).
             embed_env=lobes_embed_env,
+            # Armed lobes gateway origin (t9 self-knowledge) — None when the rung
+            # is unarmed or degraded, so the self-facts ``lobes:`` line reflects
+            # the state this run actually resolved with.
+            lobes_gateway_url=lobes_gateway_url,
         )
 
     def to_dict(self) -> dict[str, object]:
