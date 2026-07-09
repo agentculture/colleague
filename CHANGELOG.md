@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.0] - 2026-07-09
+
+### Added
+
+- At-home arc, leg 1 — per-key config merge: `configdir.resolve_files` returns every existing `.colleague/config.json` match across `[repo/.colleague, repo/.convertible, user/.colleague, user/.convertible]` instead of only the first; `config._merged_config_json` folds them per top-level key (repo wins per-key, user fills the gaps) so a machine-wide `~/.colleague/config.json` `{"lobes": ...}` default now arms every repo on the machine and survives a repo-level config that never mentions `lobes`. `colleague lobes show` gained `--repo` and now resolves via the same `resolve_lobes_gateway_url(repo_path)` precedence the runtime consults, drift-tested against `colleague config show` so the two can never disagree.
+- At-home arc, leg 2 — the owned input line: `colleague/cli/_commands/_input_line.py`'s `OwnedInputLine` gives `colleague session`'s colour-TTY talk lane a sanctioned reader thread (the 4th recorded thread-confinement sanction) so a mid-run update prints ABOVE the operator's in-progress typing instead of destroying it. Off a colour TTY the session is byte-identical.
+- At-home arc, leg 3 — self-knowledge (#306): `colleague/selfknowledge.py`'s deterministic `classify_selfknowledge` + `build_guide_index` + `build_self_facts` give both minds a real answer to "what model are you?" — cortex-side, `loop.py`'s `_maybe_inject_self_knowledge` injects one advisory guide-index-plus-resolved-facts message before a self-knowledge-classified turn (ordinary turns byte-identical, test-pinned); senses-side, `frontdoor.py`'s `run_frontdoor` gains `config=`/`gateway_url=` params so a `SENSES_DIRECT` answer is enriched with the same resolved facts.
+- `COLLEAGUE_HOME` env override (`CONVERTIBLE_HOME` deprecated fallback) for test-hermeticity — points config resolution at a fake home directory instead of the developer's real `~/.colleague/`.
+- docs/features/at-home-on-your-machine.md documenting the arc; two follow-up issue drafts filed (guide/docent role, `config show` contributing-files listing).
+
+### Changed
+
+- Convention break #4 recorded: `threading`/`concurrent.futures` confinement is extended from `colleague/subagents.py` to also include `colleague/cli/_commands/_input_line.py` (the session's owned-input-line reader thread) — confined to the colour-TTY session path only, never the runtime work loop, bounded join, degrade-never-crash.
+
 ## [1.43.0] - 2026-07-09
 
 ### Added
