@@ -82,13 +82,23 @@ def classify_incompletion(
     """
 
     # --- Deliverable-present checks (return None) ---
-    if write_intent and changed_files >= 1:
-        return None  # files changed — even if wrong, that's not absence
+    stripped = summary.strip()
+    substantive = bool(stripped) and stripped != NO_RESULT_PRODUCED and not _is_meta(stripped)
 
-    if not write_intent:
-        stripped = summary.strip()
-        if stripped and stripped != NO_RESULT_PRODUCED and not _is_meta(stripped):
-            return None  # real text deliverable
+    if write_intent:
+        if changed_files >= 1:
+            return None  # files changed — even if wrong, that's not absence
+        # 0 changes: a CLEAN finish reporting a substantive, non-meta result is a
+        # legitimate "no change needed" deliverable (colleague#313 soft rule); an
+        # empty/meta finish, or a budget/stop exit, is a genuine no-deliverable
+        # (falls through to reason classification below — write-no-changes catches
+        # the #313 meta-finish, whose summary is not substantive).
+        if outcome == "finished" and substantive:
+            return None
+    elif substantive:
+        # Read intent: the summary IS the deliverable, regardless of outcome — a
+        # forced-synthesis answer at budget exhaustion still delivered.
+        return None
 
     # --- Incomplete: pick reason by priority ---
     if step_count == 0:

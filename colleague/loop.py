@@ -79,8 +79,10 @@ from colleague.contract import (
     TaskResult,
 )
 from colleague.hooks import HookConfig, HookDecision, hook_approval_verdict, load_hooks, run_hook
+from colleague.incompletion import classify_incompletion
 from colleague.neighbours import NeighbourManager
 from colleague.policy import Policy, load_policy
+from colleague.roles import is_read_only
 from colleague.telemetry import Telemetry, load_telemetry
 from colleague.tools import ToolError, ToolExecutor, ToolOutcome
 from colleague.tui.from_work import progress_target as _progress_target
@@ -2091,6 +2093,28 @@ def _resolve_terminal_summary(
         ctx.result.summary = last_sub or NO_RESULT_PRODUCED
 
 
+def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:
+    """Honest-incompletion detector (colleague#313): a run that produced no
+    expected deliverable comes back non-ok with an advisory
+    {reason, evidence, recommendation}. Runtime-owned so every backend inherits
+    it (all-engines); omit-when-None keeps a delivering run byte-identical.
+    """
+    result = ctx.result
+    record = classify_incompletion(
+        outcome=outcome,
+        write_intent=not is_read_only(result.role),
+        changed_files=len(result.changed_files),
+        summary=result.summary or "",
+        step_count=result.stats.step_count,
+        finish_recovered=result.finish_recovered,
+    )
+    if record is None:
+        return
+    result.incompletion = record
+    if result.status == OK:  # downgrade a clean-finish no-deliverable (the #313 core)
+        result.status = INCOMPLETE
+
+
 def _resolve_nudge_cap(context: "ContextControls") -> int:
     """The continue-working nudge cap (#142 + colleague PR #198).
 
@@ -3846,6 +3870,10 @@ def run(
     # _resolve_terminal_summary — extracted so run() stays under the S3776 threshold
     # and so synthesis runs BEFORE the compaction fallback (the stale-summary fix).
     _resolve_terminal_summary(ctx, outcome, complete, _last_sub)
+
+    # Honest-incompletion (colleague#313): flag a run that produced no expected
+    # deliverable — after summary resolution so it composes with finish_recovered.
+    _maybe_flag_incompletion(ctx, outcome)
 
     # Remember-after (spec R1 / plan t2): record this work item's lesson to the
     # repo's memory store; a strict no-op unless armed, best-effort always.

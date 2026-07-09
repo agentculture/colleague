@@ -8,18 +8,65 @@ from colleague.incompletion import (
 )
 
 
-# --- write_intent=True, 0 changes -> write-no-changes ---
-def test_write_no_changes() -> None:
+# --- write_intent=True, 0 changes, EMPTY finish -> write-no-changes ---
+def test_write_no_changes_empty_finish() -> None:
     result = classify_incompletion(
         outcome="finished",
         write_intent=True,
         changed_files=0,
-        summary="no files changed",
+        summary="",
         step_count=5,
     )
     assert result is not None
     assert result.reason == "write-no-changes"
     assert result.recommendation  # non-empty
+
+
+# --- write_intent=True, 0 changes, META finish (the #313 case) -> write-no-changes ---
+def test_write_no_changes_meta_finish_is_the_313_case() -> None:
+    # The live #313 evidence: a write task that read files then meta-finished
+    # "Need to continue implementation" with 0 changes — a meta summary is NOT a
+    # deliverable, so the soft rule still catches it.
+    result = classify_incompletion(
+        outcome="finished",
+        write_intent=True,
+        changed_files=0,
+        summary=(
+            "Context check triggered. I have read all the necessary files. "
+            "Need to continue implementation."
+        ),
+        step_count=9,
+    )
+    assert result is not None
+    assert result.reason == "write-no-changes"
+
+
+# --- SOFT rule: write_intent=True, 0 changes, SUBSTANTIVE clean finish -> None ---
+def test_write_substantive_summary_no_changes_is_deliverable() -> None:
+    # A write task that finishes cleanly with a real, non-meta explanation and 0
+    # changes is a legitimate "no change needed" deliverable (colleague#313 soft
+    # rule) — it is NOT flagged incomplete.
+    result = classify_incompletion(
+        outcome="finished",
+        write_intent=True,
+        changed_files=0,
+        summary="The target function is already correct; no change was needed.",
+        step_count=6,
+    )
+    assert result is None
+
+
+# --- SOFT rule: a substantive summary does NOT rescue a budget/stop write ---
+def test_write_substantive_summary_but_budget_is_still_incomplete() -> None:
+    result = classify_incompletion(
+        outcome="budget",
+        write_intent=True,
+        changed_files=0,
+        summary="Made good progress analysing the parser.",
+        step_count=10,
+    )
+    assert result is not None
+    assert result.reason == "budget-exhausted"
 
 
 # --- write_intent=True, 1 change -> None (absence != incorrectness) ---

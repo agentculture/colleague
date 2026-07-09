@@ -525,9 +525,10 @@ if json_mode:
     # task_id is already in the payload, but echoing the copy-paste grade hint
     # keeps the convention every work item follows (rule 907536) without breaking
     # the stdout contract. Gated on gradable, exactly like the digest below.
-    # Skip the grade hint for the no-result sentinel (#192).
-    # An incomplete run (status != "ok") must not invite a grade as if it succeeded.
-    if tid and gradable and ok and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
+    # Skip the grade hint for the no-result sentinel (#192). A FAILED/incomplete but
+    # gradable drive still gets the hint — a failure rated 1/5 is the ROI signal
+    # (#139); the incompletion diagnostic above already says it did not succeed.
+    if tid and gradable and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
         print("task:", tid, file=sys.stderr)
         print("grade:", "ask-colleague feedback", tid, "--rating N", file=sys.stderr)
 else:
@@ -551,8 +552,7 @@ else:
     # Skip the grade footer for the no-result sentinel (#192): a drive that
     # produced nothing is not worth grading.
     summary = d.get("summary") or ""
-    # An incomplete run (status != "ok") must not invite a grade as if it succeeded.
-    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1" and ok and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
+    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1" and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
         print("grade:", "ask-colleague feedback", tid, "--rating N", file=out)
 if ok:
     sys.exit(0)
