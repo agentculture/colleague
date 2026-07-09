@@ -76,7 +76,12 @@ from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
-from colleague.config import EngineConfig, resolve_presence_rung, resolve_session_engine
+from colleague.config import (
+    EngineConfig,
+    resolve_lobes_gateway_url,
+    resolve_presence_rung,
+    resolve_session_engine,
+)
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
 from colleague.media import validate_attachment
@@ -1632,6 +1637,12 @@ class _Session:
             # #311: persist a standalone auditable record of this senses-direct turn
             # (it has no TaskResult) beside the operator repo's .colleague/ artifacts.
             record_repo=str(self.repo),
+            # task t10: ground a senses-direct answer in the REAL resolved
+            # runtime state (config is the ORIGINAL main config, never the
+            # senses-replaced senses_config above) so "what model are you?"
+            # answers with the actual resolved model ids.
+            config=self.config,
+            gateway_url=resolve_lobes_gateway_url(self.repo),
         )
 
     def _render_senses_direct(self, text: str, outcome) -> None:
