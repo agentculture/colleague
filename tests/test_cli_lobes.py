@@ -22,6 +22,7 @@ Acceptance:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -72,9 +73,11 @@ _TTS = RoleInfo(
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
     # Never let a developer/CI shell leak a real gateway URL into these tests.
     monkeypatch.delenv(_ENV_VAR, raising=False)
+    # Isolate from user-level config: mock Path.home() to use a temp directory.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path_factory.mktemp("home"))
 
 
 # ---------------------------------------------------------------------------
@@ -263,3 +266,104 @@ def test_explain_lobes_show_and_overview(capsys: pytest.CaptureFixture[str]) -> 
     assert main(["explain", "lobes", "show"]) == 0
     capsys.readouterr()
     assert main(["explain", "lobes", "overview"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# --repo option: config.json lobes section
+# ---------------------------------------------------------------------------
+
+
+def _write_lobes_config(repo: Path, url: str) -> None:
+    """Write a .colleague/config.json with a lobes section."""
+    cfg_dir = repo / ".colleague"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.json").write_text(json.dumps({"lobes": url}), encoding="utf-8")
+
+
+def test_lobes_show_reads_config_file_lobes_section(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """lobes show --repo <repo> must read the .colleague/config.json lobes section."""
+    _write_lobes_config(tmp_path, "http://test:8000")
+    # Call with --repo; env is unset (autouse fixture cleans it).
+    rc = main(["lobes", "show", "--repo", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out.lower()
+    assert "armed" in out
+    assert "http://test:8000" in out
+
+
+def test_lobes_show_config_file_json_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """lobes show --json --repo <repo> must reflect config.json lobes section."""
+    _write_lobes_config(tmp_path, "http://config-test:9000")
+    rc = main(["lobes", "show", "--json", "--repo", str(tmp_path)])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["armed"] is True
+    assert payload["gateway_url"] == "http://config-test:9000"
+
+
+def test_lobes_show_env_beats_config_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """lobes show must prefer COLLEAGUE_LOBES_URL env over config.json."""
+    _write_lobes_config(tmp_path, "http://config:8000")
+    env_url = "http://env-wins:9999"
+    monkeypatch.setenv(_ENV_VAR, env_url)
+    rc = main(["lobes", "show", "--repo", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out.lower()
+    assert env_url.lower() in out
+    assert "config:8000" not in out
+
+
+# ---------------------------------------------------------------------------
+# drift test: lobes show and config show must agree on armed state
+# ---------------------------------------------------------------------------
+
+
+def test_lobes_show_and_config_show_agree_on_armed_unarmed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """lobes show and config show must both report armed/unarmed consistently."""
+    from colleague.config import resolve_lobes_gateway_url
+
+    # Both unarmed: no env, no config file.
+    # config show should NOT mention lobes
+    main(["config", "show", "--repo", str(tmp_path)])
+    config_out = capsys.readouterr().out
+    assert "lobes" not in config_out.lower()
+
+    # lobes show should report not configured
+    main(["lobes", "show", "--repo", str(tmp_path)])
+    lobes_out = capsys.readouterr().out
+    assert "not configured" in lobes_out.lower()
+
+    # Verify underlying resolution agrees
+    assert resolve_lobes_gateway_url(tmp_path) is None
+
+
+def test_lobes_show_and_config_show_agree_on_armed_config(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """lobes show and config show must both report armed when config.json sets it."""
+    from colleague.config import resolve_lobes_gateway_url
+
+    url = "http://gateway:9000"
+    _write_lobes_config(tmp_path, url)
+
+    # config show should mention lobes armed
+    main(["config", "show", "--repo", str(tmp_path)])
+    config_out = capsys.readouterr().out
+    assert "lobes" in config_out.lower()
+    assert "armed" in config_out.lower()
+
+    # lobes show should report armed
+    main(["lobes", "show", "--repo", str(tmp_path)])
+    lobes_out = capsys.readouterr().out
+    assert "armed" in lobes_out.lower()
+
+    # Verify underlying resolution agrees
+    assert resolve_lobes_gateway_url(tmp_path) == url

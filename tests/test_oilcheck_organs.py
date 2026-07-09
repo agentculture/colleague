@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -208,7 +209,11 @@ def test_version_read_from_importlib_metadata(monkeypatch: pytest.MonkeyPatch) -
 # --- armed-state resolution --------------------------------------------------
 
 
-def test_lobes_armed_from_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lobes_armed_from_env(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    # Isolate from user-level config
+    monkeypatch.setattr(Path, "home", lambda: tmp_path_factory.mktemp("home"))
     monkeypatch.delenv("COLLEAGUE_LOBES_URL", raising=False)
     monkeypatch.delenv("CONVERTIBLE_LOBES_URL", raising=False)
     entries = {e["organ"]: e for e in organs.resolve_organs(str(tmp_path))}
@@ -218,7 +223,11 @@ def test_lobes_armed_from_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None
     assert entries["lobes"]["armed"] is True
 
 
-def test_eidetic_armed_requires_store(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_eidetic_armed_requires_store(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    # Isolate from user-level config
+    monkeypatch.setattr(Path, "home", lambda: tmp_path_factory.mktemp("home"))
     monkeypatch.delenv("COLLEAGUE_MEMORY", raising=False)
     entries = {e["organ"]: e for e in organs.resolve_organs(str(tmp_path))}
     assert entries["eidetic"]["armed"] is False  # no .eidetic/ store
