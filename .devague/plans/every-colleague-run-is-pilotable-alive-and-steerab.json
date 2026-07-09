@@ -1,0 +1,353 @@
+{
+  "slug": "every-colleague-run-is-pilotable-alive-and-steerab",
+  "title": "Every colleague run is pilotable, alive, and steerable \u2014 you can talk to it, watch it, and redirect it from a second terminal on work, drive, session, plan, and background runs, because the flight plane is armed by default in the operator's repo (not a throwaway worktree), shows a live heartbeat even during a long completion, accepts steering at each mode's natural checkpoint including plan, and records every senses turn (dispatched or direct) as an auditable artifact",
+  "frame_slug": "every-colleague-run-is-pilotable-alive-and-steerab",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-09T05:15:47Z",
+  "updated": "2026-07-09T05:26:29Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Every colleague run is pilotable, alive, and steerable \u2014 you can talk to it, watch it, and redirect it from a second terminal on work, drive, session, plan, and background runs, because the flight plane is armed by default in the operator's repo (not a throwaway worktree), shows a live heartbeat even during a long completion, accepts steering at each mode's natural checkpoint including plan, and records every senses turn (dispatched or direct) as an auditable artifact"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "on the served rig, all four issue repros flip from broken to working AND a no-pilot / plane-off run stays byte-identical (e2e mock shape test green)"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "operators driving colleague from a second terminal (interactive + agent/batch callers) and senses live-presence consumers \u2014 colleague talk, colleague flight status|guide|stop, piloting agents, and the resident appserver"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "each named consumer (colleague talk, flight status|guide|stop, piloting agents, resident appserver) actually reads/writes the flight files, so arming the plane in the operator repo makes all of them functional on a work/background run"
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "every run (work / drive / session / plan / background) arms a reachable flight plane in the OPERATOR repo by default; the feed shows a run-start marker and a live heartbeat during long completions; guidance is steerable at each mode's natural checkpoint including plan; and every senses turn \u2014 dispatched OR senses-direct \u2014 leaves an auditable artifact"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the after_state is demonstrable end-to-end: all four issue repros pass on the served rig and a plane-off/no-pilot run is byte-identical (e2e mock shape green)"
+    },
+    {
+      "id": "c4",
+      "kind": "before_state",
+      "text": "the flight plane is opt-in and, for colleague work, armed INSIDE the throwaway isolation worktree (loop.py arms at task.repo_path, which _setup_isolation reassigned to iso-<id>/) so talk/flight/steer resolve a different directory and the feed is destroyed on worktree cleanup; the feed is silent during a long completion (senses says 'I don't know' for minutes); plan mode has no flight plane and cannot be steered at all; and a senses-direct front-door turn produces no Task/TaskResult, so it is unauditable from artifacts alone"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the described breakage is code-confirmed today: loop.py arms at task.repo_path (661-666), _setup_isolation reassigns it to iso-<id>/ (work.py:278), the worktree is removed on finish (work.py:764) \u2014 the #310 repros reproduce as written"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "talk/watch/steer + senses live-presence is the whole point of the senses-live-presence and talking-to-one arcs, yet it is silently non-functional today for exactly the batch/agent surfaces (colleague work, --background) it was built for \u2014 only the in-place session path works; an operator cannot rely on a capability that works in some modes and silently dies in others"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "today only the in-place session path (isolate=False) works; a colleague work/--background run verifiably reports 'no active flight' and never drains guidance \u2014 the capability is dead on exactly the batch/agent surfaces"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "stays file-based and cooperative: NO daemon, NO socket, NO new thread, and no new base dependency; the flight plane remains an append-only side file, steering is applied only at a mode's natural checkpoint (never preempting a completion mid-stream), and it is a strict no-op \u2014 byte-identical stdout + TaskResult \u2014 when nobody attaches or steers"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "test_boundary.py and test_zero_deps.py still pass: no new subprocess/socket/daemon/thread, no new base dep, and a no-attach run is byte-identical on stdout + TaskResult"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "NOT a change to routing or to any model-selection policy: #311 only records what senses-direct already decided (no new task->model routing), the heartbeat is a separate feed record type that does NOT advance step_count and does NOT appear in tui replay/snapshot (the #206 step-only invariant holds), and plan-mode steering adds checkpoints at existing orchestrator stage/batch boundaries, not preemptive mid-completion interrupts"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "the #206 step-only invariant test passes (heartbeat adds no step, replay/snapshot unchanged) and no task->model routing is introduced anywhere in the arc"
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "the exact live repros in the issues flip from broken to working: a backgrounded colleague work run's feed is reachable in the operator repo and survives worktree cleanup; colleague talk during a long first completion returns a real 'cortex started, ~Ns elapsed, N/max steps, thinking' status instead of 'I don't know'; colleague flight guide lands and drains guidance in a plan run; and a senses-direct turn writes a standalone JSON record \u2014 all verifiable on the served rig and byte-identical when the plane is off"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "each of the four success repros is captured as a check that was red before and green after (livecheck and/or unit tests), so success is measured, not asserted"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "[#310] the flight plane (FlightSession / feed / control) is armed at the ORIGINAL operator repo path, threaded separately from the isolation-reassigned task.repo_path, so the loop executes in the iso-<id> worktree while the plane lives in the operator repo \u2014 decoupling the flight-plane location from the work CWD"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a mock 'colleague work --watch' (a write run, so it isolates) leaves .colleague/flight/<id>.feed.jsonl in the OPERATOR repo and it survives worktree cleanup (the issue's repro #5 flips to passing)"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "colleague talk / flight status|guide|stop and the loop's read_control/append_feed/append_guidance resolve the SAME operator-repo files, so injected guidance actually drains into the running loop (issue repro #4 flips to guidance-applied)"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "[#307] the flight plane is armed by DEFAULT for work / drive / session, opt-out via --no-watch and/or COLLEAGUE_WATCH=0 and/or .colleague/config.json {watch:false} on the established flag>env>config>default precedence; --watch is kept as an explicit alias"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a run with NO pilot attached is byte-identical on stdout and in TaskResult/artifact shape \u2014 the e2e mock shape test still passes and the feed is a pure side file"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "precedence resolves flag>env>config>default: --no-watch, COLLEAGUE_WATCH=0, and .colleague/config.json {watch:false} each disarm; --watch stays an accepted explicit alias; colleague clean still reaps the always-armed residue"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "[#308] the loop writes a run-start marker to the feed at task start and folds the #206 pre-completion phase notice (thinking/synthesizing/compacting, with elapsed + step N/max) into the flight-feed sink as a distinct heartbeat feed record consumed by the live lane (colleague talk, run_senses_talk/update grounding, flight status) but ignored by tui replay/snapshot"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the heartbeat/run-start feed record does NOT advance step_count and does NOT appear in tui replay/snapshot (the #206 step-only invariant holds) \u2014 pinned by a test"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "fires identically for mock and vllm-openai (all-engines) and is a strict no-op when no plane is armed"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "[#309] plan mode gets a flight plane and cooperative injection checkpoints at the orchestrator's natural boundaries (between spec/plan/workforce stages, per claim-proposal batch, per plan-item batch), so an operator can steer a plan mid-run; steering is uniform across work/drive/explore/review/plan and stays cooperative + strict no-op when nobody steers"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "plan-mode injection is cooperative: guidance is applied only at an orchestrator stage/batch boundary, never mid-completion, and a plan run with nobody steering is byte-identical"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the same operator command (colleague flight guide / talk 'cortex:') steers uniformly across work/drive/explore/review/plan, and the plan plane is armed at the operator repo path (composes with #310)"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "[#311] each senses-direct front-door turn emits a lightweight standalone JSON record {route, text (verbatim), answer, latency, tokens, degraded, at} in the SensesRecord shape family, beside the .colleague/ artifacts, so direct answers and misroutes are measurable from artifacts alone; strict no-op when the front door does not fire / senses is unarmed / --cortex-only"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the record's text field is verbatim operator text, never derived from model output (the v1 verbatim invariant), and it is a strict no-op when the front door doesn't fire / unarmed / --cortex-only \u2014 pinned by a test"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "it does NOT change routing: a dispatched (cortex) front-door turn still records senses-frontdoor:<route> on TaskResult.senses.records exactly as before"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Extend the contract: add Task.flight_repo_path (operator-repo path for the flight plane, distinct from repo_path=work CWD, omit-when-None) and a SensesDirectRecord dataclass {route, text, answer, latency, tokens, degraded, at} in the SensesRecord shape family",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a Task with no flight_repo_path serializes byte-identically to today (key absent); a Task with it set round-trips through to_dict/from_dict",
+        "SensesDirectRecord.to_dict/from_dict round-trips including verbatim text, with best-effort numeric coercion of latency/tokens (mirrors SensesRecord.from_dict)",
+        "tests/test_e2e_mock.py (TaskResult shape) stays green"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "c13",
+        "h3"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "[#310] Arm the flight plane at the operator repo path, not the isolation worktree: loop.py _arm_flight and _fold_flight_chat resolve task.flight_repo_path or task.repo_path; work.py _setup_isolation sets flight_repo_path=str(repo) on the isolated task (in-place path leaves it None)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a mock 'colleague work --watch' (write run -> isolates) leaves .colleague/flight/<id>.feed.jsonl in the OPERATOR repo and it survives worktree removal (issue #310 repro #5 flips green)",
+        "guidance written to the operator-repo control.json drains into the running loop at a boundary (issue #310 repro #4 flips to guidance-applied)",
+        "the in-place session path (flight_repo_path=None) is byte-identical to today; .colleague/flight writes do not trip the #149 dirty-tree guard and two concurrent runs keyed by distinct <id> do not collide (verify, not assume)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4",
+        "h1",
+        "h2",
+        "h14",
+        "h15"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "[#308] Give the flight feed liveness: flight.py gains a distinct heartbeat/run-start feed record type; loop.py writes a run-start marker at task start and folds the #206 phase notice (thinking/synthesizing/compacting, elapsed + step N/max) into the flight-feed sink as a heartbeat record \u2014 WITHOUT advancing step_count",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a run-start feed record exists before the first WorkStep; a heartbeat record appears during a long completion carrying phase+elapsed+step N/max, and 'colleague talk'/senses grounding surface a real status instead of 'I don't know'",
+        "the heartbeat/run-start record does NOT advance step_count and does NOT appear in 'tui replay'/'snapshot' (the #206 step-only invariant test passes)",
+        "fires identically for mock and vllm-openai (all-engines) and is a strict no-op when no plane is armed"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c11",
+        "c7",
+        "h5",
+        "h6",
+        "h17"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "[#309] Steer plan mode: give plan runs a flight plane armed at the operator repo path (reusing t2's decoupling) and cooperative injection checkpoints at the orchestrator's natural boundaries (spec/plan/workforce stage transitions, per claim-proposal batch, per plan-item batch) \u2014 read control, apply guidance, honor stop at each boundary; steering uniform across work/drive/explore/review/plan",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'colleague plan run --watch' arms a plane in the OPERATOR repo; 'colleague flight guide <id>' injected mid-plan is applied at the next stage/batch boundary and drains control.json; a 'stop' halts the plan cooperatively",
+        "guidance is applied only at a boundary, never mid-completion; a plan run with nobody steering is byte-identical",
+        "the same operator command (flight guide / talk 'cortex:') steers uniformly across every mode"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c12",
+        "h7",
+        "h8"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "[#307] Arm the flight plane by DEFAULT for work/drive/session: EngineConfig.watch (default True) resolved flag>env(COLLEAGUE_WATCH)>config.json{watch}>default; --no-watch opt-out with --watch kept as explicit alias; session also arms the file plane by default while keeping its stdin talk lane (decision c18)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a plain 'colleague work'/'drive'/'session' arms the plane; --no-watch, COLLEAGUE_WATCH=0, and .colleague/config.json {watch:false} each disarm; precedence flag>env>config>default proven by unit test",
+        "a no-pilot run is byte-identical on stdout and TaskResult/artifact shape (e2e mock shape green); the feed is a pure side file",
+        "colleague clean still reaps the always-armed flight residue and a second terminal can 'colleague talk' into an interactive session"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c3",
+        "c10",
+        "h4"
+      ]
+    },
+    {
+      "id": "t6",
+      "summary": "[#311] Persist the senses-direct record: on a SENSES_DIRECT route (answered OR degraded-fallback), write a standalone .colleague/senses-direct/<id>.json SensesDirectRecord (verbatim text, answer, route, latency, tokens, degraded, at); centralize the write so both the session and the resident get it (decision c19: standalone file, not a session ledger)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a senses-direct turn writes exactly one .colleague/senses-direct/<id>.json with verbatim operator text (never derived from model output) + answer + route; a degraded/misroute senses-direct turn also records (auditable)",
+        "strict no-op when the front door does not fire / senses is unarmed / --cortex-only (no file written) \u2014 pinned by a test",
+        "routing is unchanged: a dispatched (cortex) front-door turn still records senses-frontdoor:<route> on TaskResult.senses.records exactly as before"
+      ],
+      "deps": [
+        "t1",
+        "t5"
+      ],
+      "covers": [
+        "c13",
+        "h9",
+        "h10"
+      ]
+    },
+    {
+      "id": "t7",
+      "summary": "Measure success and document: encode each of the four issue repros as a check red-before/green-after (colleague/livecheck.py classifier and/or unit/integration tests); update docs (senses-live-presence + flight feature docs, a 'pilotable everywhere' feature doc) with honest limits (cooperative granularity, cadence knob, plan workforce-child steering follow-up); confirm test_boundary.py + test_zero_deps.py stay green",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "each of the four success repros has a check that FAILS on pre-fix code and PASSES post-fix (measured, not asserted); a repro whose rig dependency is unavailable SKIPs honestly",
+        "test_boundary.py and test_zero_deps.py pass: no new subprocess/socket/daemon/thread and no new base dependency introduced anywhere in the arc",
+        "the feature docs are updated and drift-checked against the shipped behavior (doc-test-alignment), naming the cooperative-granularity limit and the parked cadence/workforce-child follow-ups"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c1",
+        "c2",
+        "c5",
+        "c6",
+        "c8",
+        "h11",
+        "h12",
+        "h13",
+        "h16",
+        "h18"
+      ]
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "heartbeat cadence \u2014 the elapsed-threshold / minimum interval between phase-heartbeat feed records plus its env knob and conservative default; tunable, does not block the design",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r2",
+      "text": "plan-mode steering depth \u2014 v1 exposes only the top-level orchestrator stage/batch boundaries; per-child steering (each workforce child in its own subagent worktree) is a follow-up",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4"
+    },
+    {
+      "id": "r3",
+      "text": "verify (not assume) that .colleague/flight writes into the operator repo during an isolated run do not trip the #149 dirty-tree guard and that two concurrent runs keyed by distinct <id> never collide \u2014 .colleague/* is code-confirmed gitignored",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2"
+    },
+    {
+      "id": "r4",
+      "text": "live proof depends on the reference rig serving a tool-calling cortex (#66); repros whose rig dependency is unavailable SKIP honestly and the livecheck grades from evidence",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7"
+    },
+    {
+      "id": "r5",
+      "text": "large-file editing constraint \u2014 loop.py/work.py/session.py are large existing files the local model tends to time out on (memory lesson); the loop/work/session edits in t2/t5/t6 are Claude-implemented or split, leaving the new/small pieces (contract, flight.py heartbeat, plan/ checkpoints, frontdoor.py writer, docs, tests) as colleague-friendly briefs",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r6",
+      "text": "unifying the senses-direct standalone record with the flight-feed/TaskResult observability surfaces (one query path for every senses turn) is a consolidation follow-up, not needed for v1 auditability",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
