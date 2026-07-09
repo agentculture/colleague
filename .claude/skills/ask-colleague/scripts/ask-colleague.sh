@@ -458,6 +458,7 @@ except Exception:
           "the backend may have emitted non-JSON; see the raw output and diagnostics above",
           detail=raw[:2000])
 ok = d.get("status") == "ok"
+inc = d.get("incompletion")
 tid = d.get("task_id") or ""
 # Resolve the artifact path to the preserved copy when the drive ran in a
 # throwaway worktree (read-only verbs); the raw JSON points into the now-deleted
@@ -494,6 +495,14 @@ elif d.get("not_finished"):
 summary = d.get("summary") or ""
 if summary == "__COLLEAGUE_NO_RESULT_PRODUCED__":
     print("warning: no result produced — widen --max-steps or narrow the scope.", file=sys.stderr)
+# Incompletion: when the run did NOT deliver (status != "ok") and colleague
+# carried an incompletion record, surface it as a diagnostic to stderr so the
+# delegating caller knows WHY the run failed and what to do next. Always stderr
+# (never stdout) so --json stdout stays pure.
+if not ok and inc:
+    reason = inc.get("reason", "")
+    recommendation = inc.get("recommendation", "")
+    print(f"incomplete: {reason} — {recommendation}", file=sys.stderr)
 if json_mode:
     # --json contract: stdout carries ONLY the TaskResult JSON; every
     # human/diagnostic line already went to stderr above. The exit code still
@@ -517,7 +526,8 @@ if json_mode:
     # keeps the convention every work item follows (rule 907536) without breaking
     # the stdout contract. Gated on gradable, exactly like the digest below.
     # Skip the grade hint for the no-result sentinel (#192).
-    if tid and gradable and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
+    # An incomplete run (status != "ok") must not invite a grade as if it succeeded.
+    if tid and gradable and ok and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
         print("task:", tid, file=sys.stderr)
         print("grade:", "ask-colleague feedback", tid, "--rating N", file=sys.stderr)
 else:
@@ -541,7 +551,8 @@ else:
     # Skip the grade footer for the no-result sentinel (#192): a drive that
     # produced nothing is not worth grading.
     summary = d.get("summary") or ""
-    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1" and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
+    # An incomplete run (status != "ok") must not invite a grade as if it succeeded.
+    if tid and os.environ.get("ASK_COLLEAGUE_GRADABLE") == "1" and ok and summary != "__COLLEAGUE_NO_RESULT_PRODUCED__":
         print("grade:", "ask-colleague feedback", tid, "--rating N", file=out)
 if ok:
     sys.exit(0)
