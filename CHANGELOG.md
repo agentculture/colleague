@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.43.0] - 2026-07-09
+
+### Added
+
+- Honest-incompletion contract (#313): when a work item produces no expected deliverable, colleague reports status: incomplete with a structured TaskResult.incompletion {reason, evidence, recommendation} instead of a silent ok. Runtime-owned (all-engines), role/intent-aware, deterministic reason->advice map, omit-when-None (a delivering run is byte-identical). ask-colleague surfaces it as an incomplete: diagnostic. livecheck.classify_honest_incompletion_check grades the live proof.
+
+### Changed
+
+- Soft-rule refinement (#313): a clean finish with a substantive, non-meta summary is a deliverable even for a write run with 0 changed files (a legitimate no-change-needed run); only an empty/meta finish, budget/stop, or zero-step run is flagged incomplete.
+- ask-colleague keeps the grade: hint on a gradable failure (#139) — only the NO_RESULT_PRODUCED sentinel suppresses it (#192) — while adding the incompletion diagnostic.
+
 ## [1.42.0] - 2026-07-09
 
 ### Added

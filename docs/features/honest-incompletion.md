@@ -111,13 +111,13 @@ classifier returns a record:
 On a non-ok run carrying an incompletion record, the script prints a diagnostic
 to stderr:
 
-```
+```text
 incomplete: write-no-changes — re-scope or take over: colleague finished without changing any files.
 ```
 
 The `grade:` hint is **not** suppressed on a non-ok run: a failed/incomplete but
 gradable drive still gets the grade hint (a failure rated 1/5 is the ROI signal,
-#139). Only the `NO_RESULT_PRODUCED` sentinel suppresses it (#192).
+per #139). Only the `NO_RESULT_PRODUCED` sentinel suppresses it (#192).
 
 ## Role/intent awareness
 

@@ -417,6 +417,45 @@ def classify_flight_liveness_check(has_liveness: bool, status_answer: str) -> tu
     return "passed", "the flight feed carried a liveness signal and the status answer was grounded"
 
 
+def classify_honest_incompletion_check(
+    status: str, incompletion: dict | None, *, expected_incomplete: bool
+) -> tuple[str, str]:
+    """Grade the honest-incompletion proof (#313): a run that produced no
+    deliverable must come back non-ok carrying an ``incompletion`` record with a
+    ``reason`` AND a ``recommendation``; a delivering run must carry NONE.
+
+    PASS when the artifact matches the expectation (no-deliverable <-> non-ok with
+    a full incompletion record; delivered <-> ok with no incompletion). SKIP when
+    there is no status to grade. FAIL on a mismatch — a silent incomplete (non-ok
+    with no record), a wrongly-flagged delivering run, or a run that was expected
+    to stall but reported ok. Never a fabricated pass.
+    """
+    if not status:
+        return "skipped", "no run status recorded — nothing to grade"
+    is_incomplete = status != "ok"
+    record = incompletion or {}
+    has_record = bool(record.get("reason")) and bool(record.get("recommendation"))
+    if expected_incomplete:
+        if is_incomplete and has_record:
+            return (
+                "passed",
+                f"no-deliverable run reported {status!r} with "
+                f"incompletion.reason={record.get('reason')!r}",
+            )
+        if is_incomplete:
+            return "failed", "run was non-ok but carried no incompletion {reason, recommendation}"
+        return (
+            "failed",
+            f"run expected to be incomplete but reported {status!r} with no incompletion",
+        )
+    if not is_incomplete and not incompletion:
+        return "passed", "delivering run reported ok and carried no incompletion (byte-identical)"
+    return (
+        "failed",
+        f"delivering run wrongly flagged: status={status!r}, incompletion={incompletion!r}",
+    )
+
+
 def classify_voice_lane_check(kind: str, outcome: str) -> tuple[str, str]:
     """Grade an stt/tts voice-lane live proof (t10) from its recorded outcome.
 
