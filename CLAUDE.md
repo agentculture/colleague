@@ -702,6 +702,46 @@ The architecture, part by part:
   continuation) stays out of scope. Feature doc: `docs/features/honest-incompletion.md`;
   spec + plan: `docs/specs/2026-07-09-when-colleague-can-t-finish-a-work-item-it-hands-b.md`
   and `docs/plans/2026-07-09-when-colleague-can-t-finish-a-work-item-it-hands-b.md`.
+- **At home on your machine (at-home arc)** — colleague now feels at home on
+  the machine it runs on, not just inside one repo, closing three frictions
+  reproduced live before they were fixed. (1) **Global config, per-key
+  merge** — `colleague/configdir.py`'s `resolve_files` returns every existing
+  `.colleague/config.json` match across `[repo/.colleague, repo/.convertible,
+  user/.colleague, user/.convertible]` instead of only the first (whole-file
+  shadowing), and `colleague/config.py`'s `_merged_config_json` folds them
+  PER TOP-LEVEL KEY (repo wins per-key, user fills the gaps) — so a
+  machine-wide `~/.colleague/config.json` `{"lobes": ...}` default now arms
+  every repo on the box and survives a repo-level `config.json` that never
+  mentions `lobes`; `colleague lobes show` (`colleague/cli/_commands/
+  lobes.py`) now resolves via the SAME `resolve_lobes_gateway_url(repo_path)`
+  precedence the runtime consults and gained `--repo`, drift-tested against
+  `colleague config show` so the two can never disagree about the armed
+  state. (2) **The owned input line** — `colleague/cli/_commands/
+  _input_line.py`'s `OwnedInputLine` gives `colleague session`'s colour-TTY
+  talk lane a sanctioned reader thread (the 4th recorded thread-confinement
+  sanction — see the **Threads and subprocesses** convention and the v1-scope
+  graduation note above; not restated here) so a mid-run update prints ABOVE
+  the operator's in-progress typing instead of destroying it — the fix for
+  the operator's own complaint that typing while cortex posts updates
+  "clears my text, so I have to type really fast." Off a colour TTY the
+  session stays byte-identical. (3) **Self-knowledge (#306)** —
+  `colleague/selfknowledge.py`'s deterministic `classify_selfknowledge` +
+  `build_guide_index` + `build_self_facts` give BOTH minds a real answer to
+  "what model are you?" (the fix for the operator's complaint "I don't feel
+  like I talk with Gemma - feels like it gets right to Qwen"): cortex-side,
+  `colleague/loop.py`'s `_maybe_inject_self_knowledge` appends ONE advisory
+  guide-index-plus-resolved-facts message before a self-knowledge-classified
+  turn (ordinary turns byte-identical, test-pinned) so cortex reads its own
+  live docs via the EXISTING `read_file` tool; senses-side,
+  `colleague/frontdoor.py`'s `run_frontdoor` gains `config=`/`gateway_url=`
+  params so a `SENSES_DIRECT`-routed turn's fact-set is enriched with the same
+  resolved facts. This is an advisory enrichment of the EXISTING #305/#306
+  routes, never a new one: both classifiers stay deterministic and
+  conservative (ambiguous input never over-triggers), cortex remains the only
+  repo actor, and no new role is introduced. Feature doc:
+  `docs/features/at-home-on-your-machine.md`; spec + plan:
+  `docs/specs/2026-07-09-colleague-now-feels-at-home-on-your-machine-arm-th.md`
+  and `docs/plans/2026-07-09-colleague-now-feels-at-home-on-your-machine-arm-th.md`.
 - **Background one-shot + mesh residency (best-colleague arc, R4/R5,
   decision c17)** — `colleague work --background` detaches the run as a
   session-leader child (`colleague/background.py`, the sanctioned one-shot
