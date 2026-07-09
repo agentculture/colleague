@@ -1291,15 +1291,42 @@ The architecture, part by part:
   `docs/specs/2026-06-06-colleague-learns-from-others-starting-with-claude.md`
   and `docs/plans/2026-06-06-colleague-learns-from-others-starting-with-claude.md`;
   feature doc: `docs/features/learn-from.md`.
-- **Piloting / flight** — `colleague work --watch` arms a file-based flight-control
-  plane (`.colleague/flight/<id>.*`) the bounded loop appends a live feed to and
-  reads stop/guidance from at each turn boundary; pilot it via the `colleague
-  flight` noun (`status`/`guide`/`stop`/`list`/`overview`) and the `ask-colleague
-  monitor`/`guide`/`stop` verbs. Cooperative (not preemptive), runtime-owned
-  (all-engines), strict no-op when not a flight, caller-symmetric + depth-capped,
-  no daemon/socket/deps. Spec + plan:
+- **Piloting / flight** — colleague arms a file-based flight-control plane
+  (`.colleague/flight/<id>.*`) the bounded loop appends a live feed to and reads
+  stop/guidance from at each turn boundary; pilot it via the `colleague flight`
+  noun (`status`/`guide`/`stop`/`list`/`overview`), `colleague talk`, and the
+  `ask-colleague monitor`/`guide`/`stop` verbs. Cooperative (not preemptive),
+  runtime-owned (all-engines), caller-symmetric + depth-capped, no
+  daemon/socket/deps. Spec + plan:
   `docs/specs/2026-06-13-colleague-flights-are-now-piloted-after-ask-collea.md`
   and `docs/plans/2026-06-13-colleague-flights-are-now-piloted-after-ask-collea.md`.
+- **Every run is pilotable, alive, and steerable (#307-#311)** — the smooth-piloting
+  arc: the flight plane is armed **by default** on every run (`work`/`drive`/`session`;
+  opt out with `--no-watch` / `COLLEAGUE_WATCH=0` / `.colleague/config.json`
+  `{"watch": false}`, precedence flag>env>config>default) instead of opt-in `--watch`
+  only (a deliberate, recorded default flip — stdout + `TaskResult` stay
+  byte-identical since the feed is a side file). **#310 root fix:** the plane is armed
+  at the **operator repo** (`Task.flight_repo_path` set by `_setup_isolation`; the
+  loop resolves it via `colleague/loop.py` `_flight_repo_path`), not the throwaway
+  isolation worktree — so `colleague talk`/`flight` reach it and it survives worktree
+  cleanup (previously it was armed inside `iso-<id>/` and destroyed, silently killing
+  piloting for `colleague work`/`--background`). **#308 liveness:** a run-start marker
+  plus a phase heartbeat ride the flight feed (`colleague/flight.py` `append_run_start`/
+  `append_heartbeat`, distinct `type`-tagged records) so `talk`/senses surface a real
+  status during a long completion instead of "I don't know" — the #206 step-only
+  invariant holds (markers never advance `step_count`; `tui replay`/`snapshot` read a
+  different sink). **#309 steering everywhere:** plan mode gets a plane + cooperative
+  injection checkpoints at the orchestrator's stage/wave boundaries
+  (`colleague/plan/orchestrator.py` `run_plan_mode(flight=…)`,
+  `OrchestratorResult.steering`, `colleague plan run --watch`), so steering is uniform
+  across `work`/`drive`/`explore`/`review`/`plan`. **#311 auditability:** a
+  senses-direct front-door turn writes a standalone `.colleague/senses-direct/<id>.json`
+  `SensesDirectRecord` (`colleague/frontdoor.py`; verbatim text; strict no-op when
+  unarmed/`--cortex-only`; routing unchanged). Runtime-owned (all-engines); no new
+  subprocess/socket/daemon/thread and no new base dep (boundary + zero-deps gates
+  green). Feature doc: `docs/features/pilotable-runs.md`; spec + plan:
+  `docs/specs/2026-07-09-every-colleague-run-is-pilotable-alive-and-steerab.md` and
+  `docs/plans/2026-07-09-every-colleague-run-is-pilotable-alive-and-steerab.md`.
 - **Explore never wastes a run** — a read-only explore/drive that exhausts its step
   budget is never a silent no-result. Four threads (issues #194/#192/#191/#190/#188):
   (1) **Forced synthesis (#191)** — when `_work_loop` exits via `_EXIT_BUDGET`/
