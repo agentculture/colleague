@@ -20,7 +20,11 @@ import pytest
 from colleague.contract import ERROR, OK, SubResult, Usage
 from colleague.plan.checkpoint import load as load_checkpoint
 from colleague.plan.frame import Claim, HonestyCondition, PlanFrame
-from colleague.plan.orchestrator import OrchestratorResult, run_plan_mode
+from colleague.plan.orchestrator import (
+    OrchestratorResult,
+    PlanRunContext,
+    run_plan_mode,
+)
 from colleague.plan.plan_stage import PlanItem
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -428,8 +432,7 @@ class TestCheckpointPersistence:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=str(tmp_path),
-            plan_id="test-plan",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
         )
 
         cp = load_checkpoint("test-plan", tmp_path)
@@ -453,8 +456,7 @@ class TestCheckpointPersistence:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=str(tmp_path),
-            plan_id="test-plan",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
         )
 
         cp = load_checkpoint("test-plan", tmp_path)
@@ -478,8 +480,7 @@ class TestCheckpointPersistence:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=str(tmp_path),
-            plan_id="test-plan",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
         )
 
         cp = load_checkpoint("test-plan", tmp_path)
@@ -502,8 +503,7 @@ class TestCheckpointPersistence:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=None,
-            plan_id="test-plan",
+            context=PlanRunContext(repo_path=None, plan_id="test-plan"),
         )
 
         # No checkpoint should exist
@@ -653,8 +653,7 @@ class TestMultiWaveCheckpointing:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=str(tmp_path),
-            plan_id="test-plan",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="test-plan"),
         )
 
         cp = load_checkpoint("test-plan", tmp_path)
@@ -746,7 +745,7 @@ class TestDefaults:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=str(tmp_path),
+            context=PlanRunContext(repo_path=str(tmp_path)),
         )
 
         cp = load_checkpoint("plan", tmp_path)
@@ -874,8 +873,7 @@ class TestQuickPath:
             batch_spawn=deps.batch_spawn,
             engine="mock",
             model="test-model",
-            repo_path=str(tmp_path),
-            plan_id="quick-plan",
+            context=PlanRunContext(repo_path=str(tmp_path), plan_id="quick-plan"),
             quick=True,
         )
 

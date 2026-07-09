@@ -469,6 +469,26 @@ def _moded_config(config: EngineConfig, mode: str | None, repo: Path) -> EngineC
     return apply_mode_profile(config, mode, explicit=config.explicit_knobs, repo_path=repo)
 
 
+def _announce_flight(task: Task, repo: Path, progress_sink: "CockpitProgressSink | None") -> None:
+    """Emit the flight-attach handle for a watched non-session run (#307/#310).
+
+    Called AFTER every guard (dirty tree, unknown engine) and isolation, so a
+    REFUSED run never prints a stray handle before its "error:" line
+    (armed-by-default made every early error hit that ordering). Uses *repo*
+    (the operator repo — the plane lives there, not the worktree, #310). Only
+    fires on the non-session work path (``progress_sink is None``); the
+    interactive session has its own live UI and needs no stderr handle.
+    Extracted from :func:`execute_work` to keep its cognitive complexity under
+    the S3776 threshold.
+    """
+    if task.watch and progress_sink is None:
+        emit_diagnostic(
+            f"flight: {task.id}\n"
+            f"feed: {flight.feed_path(repo, task.id)}\n"
+            f"control: {flight.control_path(repo, task.id)}"
+        )
+
+
 def execute_work(
     *,
     repo: Path,
@@ -597,19 +617,7 @@ def execute_work(
             if trace_id:
                 emit_diagnostic(f"trace: {trace_id}")
 
-            # #307/#310: announce the flight-attach handle here — AFTER every guard
-            # (dirty tree, unknown engine) and isolation, so a REFUSED run never
-            # prints a stray handle before its "error:" line (armed-by-default made
-            # every early error hit that ordering). The paths use ``repo`` (the
-            # operator repo — the plane lives there, not the worktree, #310). Only
-            # the non-session work path (``progress_sink is None``); the interactive
-            # session has its own live UI and needs no stderr handle.
-            if task.watch and progress_sink is None:
-                emit_diagnostic(
-                    f"flight: {task.id}\n"
-                    f"feed: {flight.feed_path(repo, task.id)}\n"
-                    f"control: {flight.control_path(repo, task.id)}"
-                )
+            _announce_flight(task, repo, progress_sink)
 
             # Snapshot untracked files BEFORE the work item so the handoff stages only
             # the files the work item itself produces — never pre-existing operator
@@ -1083,7 +1091,7 @@ def cmd_work(args: argparse.Namespace) -> int:
         # Detach and return immediately — never runs the loop in this process.
         return _cmd_work_background(args, repo, json_mode)
 
-    _arm_watch(args, task, repo, config)
+    _arm_watch(args, task, config)
 
     # Delegate the full work orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
@@ -1118,7 +1126,7 @@ def cmd_work(args: argparse.Namespace) -> int:
     return _emit_work_outcome(result, engine, artifact_path, json_mode)
 
 
-def _arm_watch(args: argparse.Namespace, task, repo: Path, config) -> None:
+def _arm_watch(args: argparse.Namespace, task, config) -> None:
     """Arm the flight control plane, armed by default (#307).
 
     Precedence (flag > env > config > default-on): an explicit ``--no-watch``

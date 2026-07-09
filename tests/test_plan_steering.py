@@ -13,7 +13,7 @@ import json
 
 from colleague import flight
 from colleague.plan.frame import Claim, HonestyCondition
-from colleague.plan.orchestrator import run_plan_mode
+from colleague.plan.orchestrator import PlanRunContext, run_plan_mode
 from colleague.plan.plan_stage import PlanItem
 
 _KINDS = ("announcement", "audience", "after_state", "boundary", "success_signal", "before_state")
@@ -61,8 +61,7 @@ def _run(deps, *, flight_session=None, repo_path=None):
         batch_spawn=deps.batch_spawn,
         engine="mock",
         model="test",
-        repo_path=repo_path,
-        flight=flight_session,
+        context=PlanRunContext(repo_path=repo_path, flight=flight_session),
     )
 
 

@@ -44,7 +44,7 @@ from colleague.plan.cli_driver import (
     make_propose_plan_items,
     robust_simple_complete,
 )
-from colleague.plan.orchestrator import run_plan_mode
+from colleague.plan.orchestrator import PlanRunContext, run_plan_mode
 from colleague.subagents import make_batch_spawn, new_agent_budget
 
 _PLAN_ID = "plan"
@@ -324,11 +324,9 @@ def run_plan_request(
                 model=config.model,
                 complete=simple,
                 reviewer_enabled=review,
-                repo_path=str(repo),
-                plan_id=plan_id,
                 quick=quick,
                 workforce=workforce,
-                flight=plane,
+                context=PlanRunContext(repo_path=str(repo), plan_id=plan_id, flight=plane),
             )
         except ValueError as exc:
             # The model returned a malformed proposal (unparseable JSON, an invalid
