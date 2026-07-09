@@ -734,12 +734,16 @@ class TestNoEmbeddingsConsumption:
 # Structural check 7 — threading / concurrent.futures confined to subagents.py
 # ---------------------------------------------------------------------------
 
-# The ONLY module permitted to import threading or concurrent.futures.
-# colleague/subagents.py uses a ThreadPoolExecutor for the parallel convoy path.
+# The modules permitted to import threading or concurrent.futures, with reasons:
+#   subagents.py — uses a ThreadPoolExecutor for the parallel convoy path
+#   cli/_commands/_input_line.py — operator-decided q1 sanction (at-home arc):
+#                   session owned input line — colour-TTY session path only,
+#                   bounded join, degrades to cooked mode
 # Every other colleague module must never import either primitive directly.
 _THREADS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/subagents.py",
+        "colleague/cli/_commands/_input_line.py",
     }
 )
 
