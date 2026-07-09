@@ -16,6 +16,7 @@ is testable without a real model, operator, or subagents.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -49,6 +50,11 @@ class OrchestratorResult:
         (empty when spec did not converge).
     conflicts:
         Sub-results with ERROR status (conflicted merge children).
+    steering:
+        Operator steering applied mid-run through the flight lane (#309): each
+        guidance line drained at a stage/wave boundary, plus a ``"stopped at
+        <boundary>"`` marker when a cooperative stop halted the run. Empty for a
+        run with no flight plane (byte-identical to a pre-#309 plan run).
     """
 
     spec_result: SpecStageResult
@@ -57,6 +63,38 @@ class OrchestratorResult:
     waves: list[list[str]] = field(default_factory=list)
     sub_results: list[SubResult] = field(default_factory=list)
     conflicts: list[SubResult] = field(default_factory=list)
+    steering: list[str] = field(default_factory=list)
+
+
+# ── steering (mid-run flight guidance, #309) ────────────────────────────────
+
+
+def _drain_steering(flight: Any) -> tuple[bool, list[str]]:
+    """Read the flight control at a cooperative boundary: ``(stop, [guidance])``.
+
+    A strict no-op — ``(False, [])`` — when ``flight`` is None (no plane armed),
+    so a plan run with no pilot is byte-identical to a pre-#309 run.
+    ``FlightSession.read_control`` advances its own cursor, so each guidance line
+    drains exactly once.
+    """
+    if flight is None:
+        return False, []
+    control = flight.read_control()
+    return bool(control.stop), list(control.guidance)
+
+
+def _record_steering(flight: Any, steering: list[str], guidance: list[str]) -> None:
+    """Record each drained guidance line onto ``steering`` and the flight feed.
+
+    The feed record (``tool="steering"``) makes the applied guidance visible to a
+    pilot / ``flight status`` — a REAL step record (no ``type`` marker), distinct
+    from the #308 liveness heartbeats.
+    """
+    for line in guidance:
+        steering.append(line)
+        if flight is not None:
+            with suppress(Exception):
+                flight.append_feed(step_index=len(steering), tool="steering", intent=line, stats={})
 
 
 # ── run_plan_mode ───────────────────────────────────────────────────────────
@@ -77,6 +115,7 @@ def run_plan_mode(
     plan_id: str = "plan",
     quick: bool = False,
     workforce: bool = True,
+    flight: Any = None,
 ) -> OrchestratorResult:
     """Drive the full plan-mode lifecycle end to end.
 
@@ -151,6 +190,25 @@ def run_plan_mode(
         When ``validate_items`` finds problems in the proposed plan items.
     """
 
+    steering: list[str] = []
+
+    # ── steering checkpoint 0 (before the spec stage, #309) ────────────
+    # Drain any guidance the operator wrote before/at the start of the run:
+    # record it, and thread it into the model context by augmenting the request
+    # the spec stage will propose from. A cooperative stop here halts before any
+    # stage runs. A strict no-op when no flight plane is armed.
+    stop, guidance = _drain_steering(flight)
+    _record_steering(flight, steering, guidance)
+    if guidance:
+        request = request + "\n\n" + "\n".join(f"[operator steering]: {g}" for g in guidance)
+    if stop:
+        steering.append("stopped at spec")
+        return OrchestratorResult(
+            spec_result=SpecStageResult(transcript=[], result=ConvergenceResult(passed=False)),
+            converged=False,
+            steering=steering,
+        )
+
     # ── a. Build frame from proposed claims + honesty ──────────────────
     if quick:
         # Quick path: skip the spec stage entirely. Build a minimal frame
@@ -198,6 +256,18 @@ def run_plan_mode(
         return OrchestratorResult(
             spec_result=spec_result,
             converged=False,
+            steering=steering,
+        )
+
+    # ── steering checkpoint 1 (after the spec stage, before plan items) ─
+    stop, guidance = _drain_steering(flight)
+    _record_steering(flight, steering, guidance)
+    if stop:
+        steering.append("stopped at plan")
+        return OrchestratorResult(
+            spec_result=spec_result,
+            converged=True,
+            steering=steering,
         )
 
     # ── e. Propose and validate plan items ───────────────────────────
@@ -214,6 +284,7 @@ def run_plan_mode(
                 spec_result=spec_result,
                 converged=True,
                 plan_items=plan_items,
+                steering=steering,
             )
 
     # ── f. Compute waves — also VALIDATES the dependency graph: it raises
@@ -233,6 +304,7 @@ def run_plan_mode(
             spec_result=spec_result,
             converged=True,
             plan_items=plan_items,
+            steering=steering,
         )
 
     # ── g. Run workforce waves ───────────────────────────────────────
@@ -240,6 +312,21 @@ def run_plan_mode(
     sub_results: list[SubResult] = []
 
     for wave_ids in waves:
+        # ── steering checkpoint 2 (before each wave, #309) ──────────
+        stop, guidance = _drain_steering(flight)
+        _record_steering(flight, steering, guidance)
+        if stop:
+            steering.append("stopped at wave")
+            return OrchestratorResult(
+                spec_result=spec_result,
+                converged=True,
+                plan_items=plan_items,
+                waves=waves,
+                sub_results=sub_results,
+                conflicts=surface_conflicts(sub_results),
+                steering=steering,
+            )
+
         wave_items = [item_map[wid] for wid in wave_ids]
         wave_results = run_wave(
             wave_items,
@@ -273,4 +360,5 @@ def run_plan_mode(
         waves=waves,
         sub_results=sub_results,
         conflicts=conflicts,
+        steering=steering,
     )

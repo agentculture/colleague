@@ -30,6 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from colleague import flight as flightmod
 from colleague import registry
 from colleague.cli._commands.overview import emit_overview
 from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
@@ -258,6 +259,7 @@ def run_plan_request(
     workforce: bool,
     review: bool = False,
     plan_id: str = _PLAN_ID,
+    watch: bool = False,
 ):
     """Run colleague plan mode for a single *request* and return the result.
 
@@ -298,6 +300,18 @@ def run_plan_request(
     # the plan workforce fan-out too (#t4 Q3 wiring fix).
     batch_spawn = make_batch_spawn(str(repo), config, engine_name, counter=new_agent_budget(config))
 
+    # #309: arm a flight plane at the OPERATOR repo (plan mode runs in-place, so
+    # this is not the #310 worktree case) so an operator can steer the plan at the
+    # orchestrator's stage/wave boundaries. A strict no-op (flight=None) when
+    # --watch is off, byte-identical to a pre-#309 plan run.
+    plane = flightmod.arm(str(repo), plan_id) if watch else None
+    if plane is not None:
+        emit_diagnostic(
+            f"flight: {plan_id}\n"
+            f"feed: {flightmod.feed_path(repo, plan_id)}\n"
+            f"control: {flightmod.control_path(repo, plan_id)}"
+        )
+
     try:
         return run_plan_mode(
             request,
@@ -313,6 +327,7 @@ def run_plan_request(
             plan_id=plan_id,
             quick=quick,
             workforce=workforce,
+            flight=plane,
         )
     except ValueError as exc:
         # The model returned a malformed proposal (unparseable JSON, an invalid
@@ -349,6 +364,7 @@ def cmd_plan_run(args: argparse.Namespace) -> int:
         workforce=not bool(getattr(args, "no_workforce", False)),
         review=bool(getattr(args, "review", False)),
         plan_id=plan_id,
+        watch=bool(getattr(args, "watch", False)),
     )
 
     emit_result(_run_payload(result) if json_mode else _render_run(result), json_mode=json_mode)
@@ -546,6 +562,15 @@ def _add_run_args(run: argparse.ArgumentParser) -> None:
         dest="quick",
         action="store_true",
         help="Skip the spec stage; plan directly from the request (#199).",
+    )
+    run.add_argument(
+        "--watch",
+        action="store_true",
+        help=(
+            "Arm a flight-control plane so a pilot can steer the plan mid-run "
+            "(#309): guidance/stop written via 'colleague flight guide|stop' is "
+            "applied at the orchestrator's stage/wave boundaries."
+        ),
     )
     _add_common_plan_args(run)
 
