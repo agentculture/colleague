@@ -664,6 +664,12 @@ class _Work:
     # control file at each turn boundary (cooperative ``stop`` + ``guidance``
     # injection). Runtime-owned, so every backend inherits it (the all-engines rule).
     flight: "flightmod.FlightSession | None" = None
+    # #308 liveness: the model-turn budget (for the pilot's "step N/max" heartbeat
+    # display) and a single-element mutable cell holding the loop's monotonic start
+    # (set once the drive timing is captured), so ``_emit_phase`` can stamp a
+    # heartbeat's elapsed against it. Both a strict no-op when ``flight`` is None.
+    max_steps: int = 0
+    _flight_started_monotonic: list[float] = field(default_factory=list)
     # Lint pre-finish gate (#200): ``lint_enabled`` arms the gate (run the repo's
     # configured linters on the changed files + auto-fix before handoff);
     # ``lint_fix_retries`` caps the bounded model fix-turn for residual violations
@@ -790,9 +796,22 @@ def _emit_phase(ctx: _Work, detail: str) -> None:
     populated at loop exit by ``_finalize_stats``, so it would report a stale 0
     mid-run) — but the empty tool is the signal that this is a phase, not a step.
     """
+    step_index = len(ctx.result.steps)  # live count; stats.step_count is 0 until finalize
+    # #308: fold the phase notice onto the FLIGHT FEED too (not just the stderr /
+    # cockpit sinks), so `colleague talk` / senses grounding / `flight status` have
+    # a liveness signal during a long completion instead of an empty feed. A
+    # ``type="heartbeat"`` record — it NEVER advances step_count and is filtered out
+    # of the step-only tui replay/snapshot (a different sink). Strict no-op when not
+    # a watchable flight; suppressed like every observability write.
+    if ctx.flight is not None:
+        started = ctx._flight_started_monotonic
+        elapsed = (time.monotonic() - started[0]) if started else 0.0
+        with suppress(Exception):
+            ctx.flight.append_heartbeat(
+                phase=detail, elapsed=elapsed, step_index=step_index, max_steps=ctx.max_steps
+            )
     if ctx.progress is None:
         return
-    step_index = len(ctx.result.steps)  # live count; stats.step_count is 0 until finalize
     with suppress(Exception):
         ctx.progress(step_index, "", detail, True)
 
@@ -3599,6 +3618,7 @@ def run(
         messages=messages,
         policy=policy,
         progress=progress,
+        max_steps=max_steps,
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
         deepthink_run=_context.deepthink_run,
@@ -3661,6 +3681,16 @@ def run(
     # WorkStats on every exit path below.
     started_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     start_monotonic = time.monotonic()
+
+    # #308 liveness: a run-start marker on the flight feed BEFORE the first
+    # completion, so a pilot / senses can say "cortex started, working on <goal>"
+    # instead of "I don't know" during a slow first turn. Record the monotonic
+    # start so ``_emit_phase`` can stamp each heartbeat's elapsed. Strict no-op
+    # (and no feed line) when this is not a watchable flight.
+    if ctx.flight is not None:
+        ctx._flight_started_monotonic.append(start_monotonic)
+        with suppress(Exception):
+            ctx.flight.append_run_start(goal=task.goal, max_steps=max_steps)
 
     # The engine call (`complete`) may raise mid-loop. Catch it here so the
     # partial work accumulated on `result` is preserved rather than discarded
