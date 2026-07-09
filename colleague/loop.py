@@ -544,6 +544,14 @@ class _Work:
     # no model) degrades that advisory to the guide index alone — never a fabricated
     # facts block. Not otherwise load-bearing, so ``""`` is byte-identical.
     model: str = ""
+    # Self-knowledge facts plumbing (t9 / #306), threaded from the ContextControls
+    # fields of the same names (see their contract there): the resolved senses
+    # model id and the ARMED lobes gateway origin, so an armed session's facts
+    # block renders the REAL values; ``""`` = genuinely absent → the honest
+    # ``not configured``/``not armed`` lines. Read only by the self-knowledge
+    # advisory — not otherwise load-bearing.
+    senses_model: str = ""
+    lobes_gateway: str = ""
     # Proactive context-window management (t4): when ``context_budget`` is a
     # positive int the running history is trimmed to it (via ``count_tokens``,
     # defaulting to the char estimate in ``window_messages``) before each turn,
@@ -2403,6 +2411,18 @@ class ContextControls:
     affectedtests_depth: int | None = None
     affectedtests_max_files: int | None = None
     affectedtests_override: str | None = None
+    # Self-knowledge facts plumbing (t9 / #306): the resolved senses model id
+    # (``config.senses.model``) and the ARMED lobes gateway origin
+    # (``config.lobes_gateway_url``, set by ``EngineConfig.resolve`` — ``None``
+    # when unarmed OR degraded-unreachable, so it names the state the run
+    # ACTUALLY resolved with). Read ONLY by the self-knowledge advisory so an
+    # armed session renders the REAL senses id + gateway URL instead of a false
+    # ``not configured``/``not armed``; ``""`` (the default — direct ``run``
+    # callers, or genuinely absent) keeps the honest absent lines. Forwarded by
+    # every backend via :meth:`from_config` (all-engines rule); not otherwise
+    # load-bearing — byte-identical when empty.
+    senses_model: str = ""
+    lobes_gateway: str = ""
 
     @classmethod
     def from_config(
@@ -2459,6 +2479,14 @@ class ContextControls:
                 getattr(config, "senses", None) is not None
                 and getattr(config.senses, "multimodal", False)
             ),
+            # Self-knowledge facts (t9): the real senses id + armed gateway when
+            # present; "" keeps build_self_facts' honest absent lines.
+            senses_model=(
+                getattr(config.senses, "model", "") or ""
+                if getattr(config, "senses", None) is not None
+                else ""
+            ),
+            lobes_gateway=getattr(config, "lobes_gateway_url", None) or "",
         )
 
 
@@ -2792,6 +2820,15 @@ _SELF_KNOWLEDGE_ADVISORY = (
 _SELF_KNOWLEDGE_GUIDE_CAP = 40
 
 
+class _SensesFact:
+    """The minimal ``senses``-shaped holder ``build_self_facts`` duck-reads (t9):
+    it checks ``senses is not None and senses.model`` — this carries exactly that
+    one attribute (the ``_StubSenses`` shape the selfknowledge unit tests pin)."""
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+
+
 class _SelfFactsSource:
     """Adapt ``_Work`` to the duck-typed surface :func:`build_self_facts` reads (t9).
 
@@ -2800,15 +2837,19 @@ class _SelfFactsSource:
     ``from_config``/``resolve_role`` also observe), so a full config is not cheaply
     reachable here. This exposes exactly what the loop DOES know under the attribute
     names ``build_self_facts`` expects: the cortex ``model`` id (threaded onto
-    ``_Work.model``) and the five gate booleans. ``senses`` is left ``None`` and no
-    ``gateway_url`` is passed, so the senses model id + lobes URL — which are not on
-    the loop's ``ContextControls`` surface — render via ``build_self_facts``'s own
-    honest ``not configured`` / ``not armed`` defaults (never a fabricated id/URL).
+    ``_Work.model``), the five gate booleans, and — when armed — the resolved senses
+    model id (``ContextControls.senses_model`` → ``_Work.senses_model``), so an
+    armed session renders the REAL id and only a genuinely absent one renders
+    ``build_self_facts``'s honest ``not configured`` default (never a fabricated
+    id, and never a false absent line when the value is present). The armed lobes
+    gateway travels the same way (``_Work.lobes_gateway``) but is passed as
+    ``build_self_facts``'s ``gateway_url=`` parameter by the caller, not exposed
+    here.
     """
 
     def __init__(self, ctx: "_Work") -> None:
         self.model = ctx.model
-        self.senses = None
+        self.senses = _SensesFact(ctx.senses_model) if ctx.senses_model else None
         self.lint = ctx.lint_enabled
         self.testintegrity = ctx.testintegrity_enabled
         self.affected_tests = ctx.affectedtests_enabled
@@ -2829,15 +2870,20 @@ def _maybe_inject_self_knowledge(ctx: _Work) -> None:
     self-facts, no extra message — so the guide docs are loaded ONLY when a
     self-knowledge turn triggers them and an ordinary run is byte-identical (#306).
 
-    Facts-block plumbing (honest degradation): the loop reaches the cortex model id
-    (``_Work.model``) and the five gate booleans, but NOT a resolved
-    :class:`~colleague.config.EngineConfig` (see :class:`_SelfFactsSource`). So the
-    facts block is built from a lightweight source of exactly what the loop knows;
-    the senses model id + lobes URL render via ``build_self_facts``'s honest
-    ``not configured`` / ``not armed`` defaults (never fabricated). When even the
-    cortex model id is absent (a direct ``run`` caller that passed no ``model``) the
-    facts block is dropped entirely and the guide index alone is injected — the
-    task's honest-degradation clause: never a fabricated facts block.
+    Facts-block plumbing (honest both ways): the loop reaches the cortex model id
+    (``_Work.model``), the five gate booleans, and — threaded through
+    ``ContextControls.from_config`` by every backend (all-engines rule) — the
+    resolved senses model id (``config.senses.model``) plus the ARMED lobes gateway
+    origin (``config.lobes_gateway_url``, set by ``EngineConfig.resolve``); it does
+    NOT hold the full :class:`~colleague.config.EngineConfig` (see
+    :class:`_SelfFactsSource`). An armed session therefore renders the REAL senses
+    id + gateway URL; only a genuinely absent value renders ``build_self_facts``'s
+    honest ``not configured`` / ``not armed`` defaults — a present value must never
+    render as absent (that would be a FALSE fact), and an absent one is never
+    fabricated. When even the cortex model id is absent (a direct ``run`` caller
+    that passed no ``model``) the facts block is dropped entirely and the guide
+    index alone is injected — the task's honest-degradation clause: never a
+    fabricated facts block.
 
     The #206 invariant holds: this appends a companion user message but never fires
     the progress sink or advances ``step_count`` (it runs before the loop body, like
@@ -2856,11 +2902,12 @@ def _maybe_inject_self_knowledge(ctx: _Work) -> None:
             lines.append(f"- … and {len(guides) - len(shown)} more")
 
     # Facts block only when the cortex model id is genuinely known — never a
-    # fabricated facts block (guide index alone otherwise).
+    # fabricated facts block (guide index alone otherwise). gateway_url carries
+    # the ARMED lobes origin ("" → None → the honest "not armed" line).
     if ctx.model:
         lines.append("")
         lines.append("resolved runtime state:")
-        lines.append(build_self_facts(_SelfFactsSource(ctx)))
+        lines.append(build_self_facts(_SelfFactsSource(ctx), gateway_url=ctx.lobes_gateway or None))
 
     ctx.messages.append({"role": "user", "content": "\n".join(lines)})
 
@@ -3748,6 +3795,8 @@ def run(
         policy=policy,
         progress=progress,
         model=model or "",
+        senses_model=_context.senses_model,
+        lobes_gateway=_context.lobes_gateway,
         max_steps=max_steps,
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,

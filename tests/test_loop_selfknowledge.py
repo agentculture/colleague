@@ -28,9 +28,9 @@ from pathlib import Path
 import pytest
 
 from colleague import registry
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, SensesConfig
 from colleague.contract import OK, Task
-from colleague.loop import ModelResponse, ToolCall, run
+from colleague.loop import ContextControls, ModelResponse, ToolCall, run
 
 _SELF_KNOWLEDGE_QUESTION = "what model are you and how does the affected-tests gate work?"
 _ORDINARY_INSTRUCTION = "fix the bug in foo.py"
@@ -131,6 +131,40 @@ def test_self_knowledge_turn_injects_guide_index_and_self_facts(tmp_path: Path) 
     # (b) the build_self_facts block: the cortex model id + the gates line.
     assert "cortex: cortex-model-x" in body
     assert "gates:" in body
+    # Honest ABSENT lines: no senses/lobes threaded (direct run, no controls) —
+    # never a fabricated senses id or gateway URL.
+    assert "senses: not configured" in body
+    assert "lobes: not armed" in body
+
+
+def test_self_knowledge_armed_renders_real_senses_and_gateway(tmp_path: Path) -> None:
+    """The armed inverse of the honest-absent pin: when the session resolved a
+    senses model + lobes gateway (threaded through ContextControls), the facts
+    block renders the EXACT senses model id + gateway URL — a present value must
+    never render as the false 'not configured'/'not armed'."""
+    _make_guide_repo(tmp_path)
+    seen: list = []
+    task = Task.new(str(tmp_path), _SELF_KNOWLEDGE_QUESTION)
+    controls = ContextControls(
+        senses_model="gemma-senses-12b", lobes_gateway="http://lobes.local:8001"
+    )
+    result = run(
+        _finish_complete(seen), task, max_steps=3, model="cortex-model-x", context=controls
+    )
+
+    assert result.status == OK
+    advisory = [
+        m
+        for m in seen[0]
+        if m.get("role") == "user" and str(m.get("content", "")).startswith("[self-knowledge]")
+    ]
+    assert len(advisory) == 1
+    body = advisory[0]["content"]
+    assert "senses: gemma-senses-12b" in body
+    assert "lobes: http://lobes.local:8001" in body
+    # The armed values REPLACE the absent lines — no false statement remains.
+    assert "senses: not configured" not in body
+    assert "lobes: not armed" not in body
 
 
 def test_self_knowledge_facts_degrade_to_guide_only_without_model(tmp_path: Path) -> None:
@@ -227,3 +261,60 @@ def test_self_knowledge_fires_through_mock_engine_path(
     body = advisory[0]["content"]
     assert "CLAUDE.md" in body
     assert f"cortex: {cfg.model}" in body  # facts resolved from the mock's config.model
+
+
+def test_armed_config_threads_through_from_config_on_mock_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All-engines armed path: an EngineConfig carrying a resolved SensesConfig +
+    lobes_gateway_url reaches the advisory through the shared
+    ``ContextControls.from_config`` seam BOTH engines build their controls with —
+    proven end-to-end on the real ``mock`` engine's ``work()`` path."""
+    _make_guide_repo(tmp_path)
+    seen: list = []
+
+    def _recording_script(_task):
+        def complete(messages: list[dict]) -> ModelResponse:
+            seen.append([dict(m) for m in messages])
+            return ModelResponse(tool_calls=[ToolCall("1", "finish", {"summary": "done"})])
+
+        return complete
+
+    monkeypatch.setattr("colleague.engines.mock._script", _recording_script)
+    cfg = EngineConfig.resolve()
+    cfg.senses = SensesConfig(
+        model="gemma-senses-12b", base_url="http://x", api_key="k", context_budget=24000
+    )
+    cfg.lobes_gateway_url = "http://lobes.local:8001"
+    result = registry.load("mock").work(Task.new(str(tmp_path), "what model are you?"), cfg)
+
+    assert result.status == OK
+    advisory = [
+        m
+        for m in seen[0]
+        if m.get("role") == "user" and str(m.get("content", "")).startswith("[self-knowledge]")
+    ]
+    assert len(advisory) == 1
+    body = advisory[0]["content"]
+    assert "senses: gemma-senses-12b" in body
+    assert "lobes: http://lobes.local:8001" in body
+    assert "senses: not configured" not in body
+    assert "lobes: not armed" not in body
+
+
+def test_from_config_populates_self_knowledge_fields() -> None:
+    """The from_config mapping itself (the single source both engines share):
+    senses_model/lobes_gateway are filled when armed and stay "" when absent."""
+    armed = EngineConfig.resolve()
+    armed.senses = SensesConfig(
+        model="gemma-senses-12b", base_url="http://x", api_key="k", context_budget=24000
+    )
+    armed.lobes_gateway_url = "http://lobes.local:8001"
+    controls = ContextControls.from_config(armed)
+    assert controls.senses_model == "gemma-senses-12b"
+    assert controls.lobes_gateway == "http://lobes.local:8001"
+
+    bare = EngineConfig.resolve()
+    bare_controls = ContextControls.from_config(bare)
+    assert bare_controls.senses_model == ""
+    assert bare_controls.lobes_gateway == ""
