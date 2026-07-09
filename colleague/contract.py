@@ -690,6 +690,102 @@ class SensesRecord:
 
 
 @dataclass
+class SensesDirectRecord:
+    """A standalone, auditable record of ONE senses-direct front-door turn (#311).
+
+    A senses-direct turn (the front door answering a confidently non-repo turn
+    itself — a greeting, a question about colleague, general conversation)
+    produces NO ``Task``/``TaskResult`` by design (there is no work item), so
+    the dispatched path's ``TaskResult.senses.records`` audit trail has no
+    counterpart for it. This is that counterpart: a lightweight
+    ``{route, text, answer, latency, tokens, degraded, at}`` record written
+    beside the ``.colleague/`` artifacts (``.colleague/senses-direct/<id>.json``)
+    so direct answers AND misroutes are measurable from artifacts alone.
+
+    Same *shape family* as :class:`SensesRecord` (best-effort numeric coercion
+    on read-back), extended with the fields a standalone turn needs and the
+    dispatched-path record already implies elsewhere: the classifier ``route``,
+    the operator's VERBATIM ``text`` (never derived from model output — the v1
+    verbatim invariant), the senses ``answer``, and a wall-clock ``at`` stamp.
+
+    Fields
+    ------
+    route:
+        The deterministic :func:`colleague.frontdoor.classify_frontdoor`
+        verdict for this turn (e.g. ``"senses_direct"``).
+    text:
+        The operator's VERBATIM message — never normalized or derived from
+        model output.
+    answer:
+        The senses-direct answer text (or the degraded-fallback text when
+        senses could not answer and the turn fell back to cortex).
+    latency:
+        Wall-clock seconds the senses completion took, or ``None``.
+    tokens:
+        Total tokens the completion used, or ``None`` (e.g. a degraded call
+        that never reached the wire).
+    degraded:
+        ``True`` iff the senses-direct attempt fell back / degraded. Default
+        ``False``.
+    at:
+        Wall-clock timestamp (float seconds) the turn was recorded, or ``None``.
+    """
+
+    route: str
+    text: str
+    answer: str = ""
+    latency: Optional[float] = None
+    tokens: Optional[int] = None
+    degraded: bool = False
+    at: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "route": self.route,
+            "text": self.text,
+            "answer": self.answer,
+            "latency": self.latency,
+            "tokens": self.tokens,
+            "degraded": self.degraded,
+            "at": self.at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SensesDirectRecord":
+        """Coerce a raw ``SensesDirectRecord``-shaped mapping read back from an
+        artifact. ``latency``/``tokens``/``at`` are best-effort numeric coercions
+        (a value that cannot be parsed falls back to ``None`` rather than raising),
+        exactly as :meth:`SensesRecord.from_dict` handles ``latency``/``tokens``.
+        ``route``/``text``/``answer``/``degraded`` survive from the rest of the
+        entry — ``text`` verbatim.
+        """
+        raw_latency = data.get("latency")
+        raw_tokens = data.get("tokens")
+        raw_at = data.get("at")
+        try:
+            latency = float(raw_latency) if raw_latency is not None else None
+        except (TypeError, ValueError):
+            latency = None
+        try:
+            tokens = int(raw_tokens) if raw_tokens is not None else None
+        except (TypeError, ValueError):
+            tokens = None
+        try:
+            at = float(raw_at) if raw_at is not None else None
+        except (TypeError, ValueError):
+            at = None
+        return cls(
+            route=str(data.get("route", "")),
+            text=str(data.get("text", "")),
+            answer=str(data.get("answer", "")),
+            latency=latency,
+            tokens=tokens,
+            degraded=bool(data.get("degraded", False)),
+            at=at,
+        )
+
+
+@dataclass
 class SensesBlock:
     """The cortex/senses front-door record for a work item (cortex/senses, t2).
 
@@ -868,6 +964,16 @@ class Task:
     ``original`` field preserves the operator's verbatim text. Omitted from
     ``to_dict`` when ``None`` — mirroring ``goal``/``acceptance``/``attachments``
     — so a packet-less task serializes byte-identically to today."""
+    flight_repo_path: Optional[str] = None
+    """The OPERATOR-repo path the flight-control plane is armed at, distinct from
+    ``repo_path`` (the work CWD). Set by ``_setup_isolation`` on an isolated run
+    (#310) so the flight feed/control live in the operator repo — reachable by
+    ``colleague talk`` / ``colleague flight`` and surviving worktree cleanup —
+    while the loop still executes in the throwaway worktree at ``repo_path``.
+    ``None`` (the default, and the in-place session path) means "arm at
+    ``repo_path``" — the pre-#310 behaviour, byte-identical. Omitted from
+    ``to_dict`` when ``None`` so a non-isolated task serializes byte-identically
+    to today."""
 
     @classmethod
     def new(
@@ -883,6 +989,7 @@ class Task:
         acceptance: list[str] | None = None,
         attachments: list[dict[str, Any]] | None = None,
         context_packet: Optional["ContextPacket"] = None,
+        flight_repo_path: str | None = None,
     ) -> "Task":
         """Create a task with a fresh short id."""
         return cls(
@@ -899,6 +1006,7 @@ class Task:
                 [dict(entry) for entry in attachments] if attachments is not None else None
             ),
             context_packet=context_packet,
+            flight_repo_path=flight_repo_path,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -928,6 +1036,11 @@ class Task:
         # to today.
         if self.context_packet is not None:
             data["context_packet"] = self.context_packet.to_dict()
+        # flight_repo_path gets the same omit-when-None treatment (#310): a
+        # non-isolated task (in-place session, or any run whose plane arms at
+        # repo_path) serializes byte-identically to today.
+        if self.flight_repo_path is not None:
+            data["flight_repo_path"] = self.flight_repo_path
         return data
 
     @classmethod
@@ -981,6 +1094,9 @@ class Task:
             acceptance=acceptance,
             attachments=attachments,
             context_packet=context_packet,
+            flight_repo_path=(
+                str(data["flight_repo_path"]) if data.get("flight_repo_path") is not None else None
+            ),
         )
 
 
