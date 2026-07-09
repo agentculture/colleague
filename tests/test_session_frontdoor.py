@@ -105,6 +105,24 @@ def test_senses_direct_threads_history_for_continuity(tmp_path: Path, monkeypatc
     assert "operator" in roles and "senses" in roles
 
 
+def test_senses_direct_does_not_grow_senses_chat_buffer(tmp_path: Path, monkeypatch) -> None:
+    # Bug 3: a senses-direct turn produces NO work item / TaskResult, so it must
+    # NOT accumulate onto the per-work-item `_senses_chat` buffer (reset per work
+    # line, folded into a work item's artifact) — that would leak unbounded over a
+    # senses-only conversation. `_history` is the continuity mechanism instead, and
+    # it DOES accumulate.
+    sess, calls = _session(tmp_path)
+    monkeypatch.setattr(session_mod, "run_frontdoor", lambda *a, **k: _senses_direct_outcome())
+    sess._work_line("what are you?")
+    sess._work_line("who are you?")
+    sess._work_line("hello")
+    assert calls == []  # no cortex work item ever dispatched
+    assert len(sess._senses_chat) == 0
+    roles = [h["role"] for h in sess._history]
+    assert roles.count("operator") == 3
+    assert roles.count("senses") == 3
+
+
 # --- cortex route: ack precedes the routing line, hand-off is visible --------
 
 
@@ -160,6 +178,26 @@ def test_run_frontdoor_is_noop_when_senses_engine_unresolvable(tmp_path: Path, m
     sess, _calls = _session(tmp_path)
     monkeypatch.setattr(sess, "_senses_engine", lambda: None)
     assert sess._run_frontdoor("what are you?") is None
+
+
+def test_run_frontdoor_cortex_route_short_circuits_before_engine_load(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Bug 4: the CORTEX route is the common case and never consults senses, so
+    # _run_frontdoor must classify FIRST and never resolve/load the senses engine
+    # for it — the route is still recorded even when the engine can't load.
+    sess, _calls = _session(tmp_path)
+
+    def _boom():
+        raise AssertionError("_senses_engine must not be called on the CORTEX route")
+
+    monkeypatch.setattr(sess, "_senses_engine", _boom)
+    outcome = sess._run_frontdoor("fix the bug in loop.py")
+    assert outcome is not None
+    assert outcome.route == CORTEX
+    assert outcome.dispatch is True
+    assert outcome.record is not None
+    assert outcome.record.point.endswith(":cortex")
 
 
 # --- mode-pinned routes flow through _route_free_text (S3776 extraction) ------

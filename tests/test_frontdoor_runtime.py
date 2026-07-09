@@ -25,7 +25,13 @@ from __future__ import annotations
 import json
 
 from colleague.config import EngineConfig
-from colleague.frontdoor import CORTEX, SENSES_DIRECT, FrontDoorOutcome, run_frontdoor
+from colleague.frontdoor import (
+    CORTEX,
+    SENSES_DIRECT,
+    FrontDoorOutcome,
+    cortex_frontdoor_outcome,
+    run_frontdoor,
+)
 from colleague.loop import ModelResponse
 
 _FRONTDOOR_JSON = json.dumps({"answer": "I am senses, the front lobe."})
@@ -136,6 +142,19 @@ class TestCortexRoute:
         assert outcome.record is not None
         assert outcome.record.point.endswith(":cortex")
         assert outcome.chat_entry is None
+
+    def test_cortex_frontdoor_outcome_shared_helper(self) -> None:
+        # Bug 4: cortex_frontdoor_outcome() is the single source of truth for the
+        # CORTEX outcome shape, shared by run_frontdoor's own CORTEX branch and the
+        # session's classify-first short-circuit (which never resolves/loads the
+        # senses engine for the common CORTEX case).
+        outcome = cortex_frontdoor_outcome()
+
+        assert outcome.route == CORTEX
+        assert outcome.dispatch is True
+        assert outcome.answered_directly is False
+        assert outcome.record is not None
+        assert outcome.record.point.endswith(":cortex")
 
 
 # ---------------------------------------------------------------------------

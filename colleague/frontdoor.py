@@ -178,6 +178,22 @@ class FrontDoorOutcome:
     chat_entry: Optional[dict[str, Any]] = None
 
 
+def cortex_frontdoor_outcome() -> "FrontDoorOutcome":
+    """The FrontDoorOutcome for a deterministic CORTEX route: dispatch to cortex,
+    no senses consult, recorded as ``senses-frontdoor:cortex``. Shared by
+    :func:`run_frontdoor` and the session's classify-first short-circuit so the
+    cortex route is recorded WITHOUT resolving the senses engine (and even when the
+    engine can't load)."""
+    from colleague.senses import FRONTDOOR_POINT
+
+    return FrontDoorOutcome(
+        route=CORTEX,
+        dispatch=True,
+        answered_directly=False,
+        record=SensesRecord(point=f"{FRONTDOOR_POINT}:cortex"),
+    )
+
+
 def run_frontdoor(
     text: str,
     *,
@@ -235,14 +251,7 @@ def run_frontdoor(
     route = classify_frontdoor(text)
 
     if route == CORTEX:
-        from colleague.senses import FRONTDOOR_POINT
-
-        return FrontDoorOutcome(
-            route=CORTEX,
-            dispatch=True,
-            answered_directly=False,
-            record=SensesRecord(point=f"{FRONTDOOR_POINT}:cortex"),
-        )
+        return cortex_frontdoor_outcome()
 
     # route == SENSES_DIRECT
     from colleague.architecture_facts import load_architecture_facts

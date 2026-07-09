@@ -76,7 +76,7 @@ from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, st
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import EngineConfig, resolve_presence_rung, resolve_session_engine
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
-from colleague.frontdoor import run_frontdoor
+from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.presence import (
@@ -1531,9 +1531,17 @@ class _Session:
         media staged (a media turn is always cortex work). On ``None`` the caller
         dispatches to cortex exactly as before (byte-identical). The ROUTE is a
         deterministic classifier; senses is consulted (one tools-off completion)
-        only on a non-repo turn, and never raises (run_frontdoor degrades)."""
+        only on a non-repo turn, and never raises (run_frontdoor degrades). The
+        CORTEX route is short-circuited BEFORE any senses engine load — it is the
+        common case and never consults senses — so it is recorded even when the
+        senses engine can't be resolved."""
         if self.config.senses is None or self.cortex_only or self._staged_attachments:
             return None
+        # Deterministic route FIRST (pure regex, no engine): the CORTEX route — the
+        # common case — never consults senses, so don't resolve/load the senses
+        # engine for it, and record the route even if the engine can't load.
+        if classify_frontdoor(text) == CORTEX:
+            return cortex_frontdoor_outcome()
         pair = self._senses_engine()
         if pair is None:
             return None
@@ -1559,8 +1567,11 @@ class _Session:
         self._log(f"→ senses: {text}")
         self._log(senses_line(outcome.answer or ""))
         self._history_append("senses", outcome.answer or "")
-        if outcome.chat_entry is not None:
-            self._senses_chat.append(outcome.chat_entry)
+        # A senses-direct turn produces NO work item / TaskResult, so its exchange
+        # must NOT accumulate in the per-work-item `_senses_chat` buffer (which is
+        # reset per work line and folded into a work item's artifact) — that would
+        # leak over a senses-only conversation. Continuity is already carried by the
+        # capped `_history` appends above; the turn is reconstructable from the transcript.
         if self.view == "ansi":
             self.emit()
 
