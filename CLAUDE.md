@@ -1558,17 +1558,20 @@ The buildable spec and plan this implementation converged from live in
 ## v1 scope (hold this line)
 
 **v0 → v1 graduation (#156).** colleague has graduated from v0 to v1: it now holds
-an opinion about its own context capacity (the **Capacity standard** above). Two
+an opinion about its own context capacity (the **Capacity standard** above). Three
 deliberate, recorded convention changes have landed since v0 — never silent
 breaches: (1) the v0 rule *"no LLM-generated summary"* is **intentionally
 superseded** by the fill-line `compact` move (a model-authored self-summary), with
-lossy windowing retained as the documented fallback floor; and (2) the
+lossy windowing retained as the documented fallback floor; (2) the
 *"zero base dependencies"* rule is **intentionally superseded** by **one**
 sanctioned base dep, `agentfront` (the **CLI surface (cli-on-agentfront)** part
 above) — justified because agentfront's core is pure-stdlib (a base install still
 pulls zero third-party transitive deps) and it is the org's shared agent-first CLI
 standard; the MCP SDK stays an opt-in `[mcp]` extra and `test_zero_deps.py` becomes
-an allow-list of exactly agentfront. Everything else below still holds: the
+an allow-list of exactly agentfront; and (3) the *"threads confined to subagents"*
+rule is **intentionally extended** to include the session's input-line reader thread
+(operator-decided q1 sanction, at-home arc — see the **Threads and subprocesses** convention below).
+Everything else below still holds: the
 **no-second-base-dep** / no-socket / no-daemon conventions, the all-engines rule,
 and the out-of-scope list (a self-summary is NOT a multi-model router, sandbox, or
 daemon; the MCP *server* bonus runs no colleague-owned daemon).
@@ -1851,7 +1854,13 @@ test (`tests/test_e2e_mock.py`) is the guard.
   detach — `Popen(start_new_session=True)`, no daemon/polling; a dedicated
   boundary test additionally pins no `.wait()`/`.poll()`), **`memory.py`** (the
   eidetic CLI shell-out), and **`livecheck.py`** (the gated live-proof runner).
-  Threads (`concurrent.futures`) stay confined to `colleague/subagents.py`.
+  Threads (`concurrent.futures`) stay confined to `colleague/subagents.py` and
+  `colleague/cli/_commands/_input_line.py` — the second entry is the session's
+  owned-input-line reader thread (operator-decided q1 sanction, at-home arc):
+  confined to the interactive session's colour-TTY path only, never the runtime
+  work loop; daemon thread with a bounded join at stop; any failure degrades to
+  the pre-existing cooked-mode behavior (never a crashed session); enforced by
+  `tests/test_boundary.py`'s thread allow-list.
   Every shell-out targets an operator-installed CLI via explicit allow-listing;
   none opens a socket or forks a daemon. `worktrees.py`'s admin mutations are
   additionally serialized by an advisory `fcntl` lock (#239) so concurrent
