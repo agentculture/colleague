@@ -125,6 +125,45 @@ def classify_selfknowledge(text: str) -> bool:
     return False
 
 
+def build_self_facts(config: object, *, gateway_url: str | None = None) -> str:
+    """Render the resolved runtime state as a short plain-text facts block.
+
+    Pure function — no network, no model call, no subprocess, no file I/O.
+    Every value is copied verbatim from *config* (or *gateway_url*);
+    unconfigured values render explicit honest lines.
+    """
+    lines: list[str] = []
+
+    # Cortex (main) model.
+    lines.append(f"cortex: {config.model}")
+
+    # Senses model when configured.
+    senses = getattr(config, "senses", None)
+    if senses is not None and getattr(senses, "model", None):
+        lines.append(f"senses: {senses.model}")
+    else:
+        lines.append("senses: not configured")
+
+    # Lobes gateway.
+    if gateway_url:
+        lines.append(f"lobes: {gateway_url}")
+    else:
+        lines.append("lobes: not armed")
+
+    # Active gates.
+    gates = {
+        "lint": getattr(config, "lint", False),
+        "testintegrity": getattr(config, "testintegrity", False),
+        "affected_tests": getattr(config, "affected_tests", False),
+        "memory": getattr(config, "memory", False),
+        "coherence": getattr(config, "coherence", False),
+    }
+    gate_parts = [f"{name} {'on' if val else 'off'}" for name, val in gates.items()]
+    lines.append("gates: " + " ".join(gate_parts))
+
+    return "\n".join(lines)
+
+
 def build_guide_index(repo_path: str | Path) -> list[str]:
     """Return repo-relative paths of colleague's own guide docs that *exist*.
 

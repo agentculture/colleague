@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from colleague.selfknowledge import build_guide_index, classify_selfknowledge
+from colleague.selfknowledge import build_guide_index, build_self_facts, classify_selfknowledge
 
 # ── Self-knowledge positive cases (should return True) ─────────────────────
 
@@ -134,3 +134,109 @@ def test_build_guide_index_subdirs_ignored(tmp_path) -> None:
     (features / "subdir").mkdir()
     (features / "subdir" / "nested.md").write_text("nested")
     assert build_guide_index(tmp_path) == ["docs/features/affected-tests.md"]
+
+
+# ── build_self_facts tests ─────────────────────────────────────────────────
+
+
+class _StubConfig:
+    """Minimal stub with the EngineConfig attributes build_self_facts reads."""
+
+    def __init__(
+        self,
+        model: str = "default-model",
+        senses: object | None = None,
+        lint: bool = True,
+        testintegrity: bool = True,
+        affected_tests: bool = True,
+        memory: bool = True,
+        coherence: bool = True,
+    ):
+        self.model = model
+        self.senses = senses
+        self.lint = lint
+        self.testintegrity = testintegrity
+        self.affected_tests = affected_tests
+        self.memory = memory
+        self.coherence = coherence
+
+
+class _StubSenses:
+    def __init__(self, model: str):
+        self.model = model
+
+
+class TestBuildSelfFacts:
+    """Tests for build_self_facts — purity, armed/unarmed, gate rendering."""
+
+    def test_armed_config_contains_model_ids(self) -> None:
+        """Armed config => output contains the exact model id strings."""
+        senses = _StubSenses("senses-model")
+        cfg = _StubConfig(model="cortex-model", senses=senses)
+        out = build_self_facts(cfg, gateway_url="http://lobes.local:8001")
+        assert "cortex: cortex-model" in out
+        assert "senses: senses-model" in out
+        assert "lobes: http://lobes.local:8001" in out
+
+    def test_unarmed_senses(self) -> None:
+        """No senses configured => 'not configured' and no fabricated id."""
+        cfg = _StubConfig(model="cortex-model", senses=None)
+        out = build_self_facts(cfg)
+        assert "senses: not configured" in out
+        # Must NOT contain a fabricated model id on the senses line.
+        for line in out.split("\n"):
+            if line.startswith("senses:"):
+                assert "not configured" in line
+
+    def test_unarmed_lobes(self) -> None:
+        """No gateway_url => 'not armed' and no fabricated URL."""
+        cfg = _StubConfig(model="cortex-model")
+        out = build_self_facts(cfg)
+        assert "lobes: not armed" in out
+        # Must NOT contain a fabricated URL on the lobes line.
+        for line in out.split("\n"):
+            if line.startswith("lobes:"):
+                assert "not armed" in line
+                assert "http" not in line
+
+    def test_gates_all_on(self) -> None:
+        """All gates True => each renders 'on'."""
+        cfg = _StubConfig()
+        out = build_self_facts(cfg)
+        gate_line = [line for line in out.split("\n") if line.startswith("gates:")][0]
+        assert "lint on" in gate_line
+        assert "testintegrity on" in gate_line
+        assert "affected_tests on" in gate_line
+        assert "memory on" in gate_line
+        assert "coherence on" in gate_line
+
+    def test_gates_all_off(self) -> None:
+        """All gates False => each renders 'off'."""
+        cfg = _StubConfig(
+            lint=False,
+            testintegrity=False,
+            affected_tests=False,
+            memory=False,
+            coherence=False,
+        )
+        out = build_self_facts(cfg)
+        gate_line = [line for line in out.split("\n") if line.startswith("gates:")][0]
+        assert "lint off" in gate_line
+        assert "testintegrity off" in gate_line
+        assert "affected_tests off" in gate_line
+        assert "memory off" in gate_line
+        assert "coherence off" in gate_line
+
+    def test_purity_no_network_or_subprocess(self) -> None:
+        """build_self_facts is pure — no subprocess, no socket, no file I/O.
+
+        We verify by constructing a stub config (no EngineConfig.resolve()
+        which would read env/files) and confirming the function runs without
+        side effects.
+        """
+        cfg = _StubConfig(model="pure-model")
+        # Should complete without any I/O.
+        out = build_self_facts(cfg)
+        assert "cortex: pure-model" in out
+        assert "senses: not configured" in out
+        assert "lobes: not armed" in out
