@@ -655,6 +655,9 @@ class AppserverHarness:
                 senses_config=senses_config,
                 make_complete=engine.make_complete,
                 make_count_tokens=engine.make_count_tokens(senses_config),
+                # #311: persist a standalone auditable record of a senses-direct
+                # turn (no TaskResult) in the resident's operator repo too.
+                record_repo=self._repo_path,
             ),
         )
         if not outcome.answered_directly:

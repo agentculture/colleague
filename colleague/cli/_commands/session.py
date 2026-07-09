@@ -1562,6 +1562,9 @@ class _Session:
             make_complete=engine.make_complete,
             make_count_tokens=engine.make_count_tokens(senses_config),
             history=list(self._history) or None,
+            # #311: persist a standalone auditable record of this senses-direct turn
+            # (it has no TaskResult) beside the operator repo's .colleague/ artifacts.
+            record_repo=str(self.repo),
         )
 
     def _render_senses_direct(self, text: str, outcome) -> None:
