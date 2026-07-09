@@ -14,6 +14,11 @@ session and the mesh resident can decide-and-answer through one call.
    correctly and builds the "talk" chat entry.
 4. a degraded senses-direct attempt falls back to dispatching to cortex.
 5. omitting ``facts`` defaults to the real curated architecture fact-set.
+6. (task t10) an optional ``config`` param appends the REAL resolved
+   self-facts (:func:`colleague.selfknowledge.build_self_facts`) onto the
+   fact-set grounding a senses-direct answer, so "what model are you?" can
+   answer with the actual resolved model ids instead of the static fact-set's
+   deferral. Omitting ``config`` stays byte-identical to before this task.
 
 No network: every ``make_complete`` under test is a fake recording what it
 was called with, mirroring the ``_FakeMakeComplete`` pattern in
@@ -24,7 +29,7 @@ from __future__ import annotations
 
 import json
 
-from colleague.config import EngineConfig
+from colleague.config import EngineConfig, SensesConfig
 from colleague.frontdoor import (
     CORTEX,
     SENSES_DIRECT,
@@ -238,3 +243,152 @@ class TestFactsDefault:
         # A real fact from colleague.architecture_facts.load_architecture_facts()
         # reached the senses prompt (e.g. the "cortex" lobe fact).
         assert "cortex" in user_content.lower()
+
+    def test_omitting_config_never_appends_self_facts(self) -> None:
+        """Byte-identical pin: no ``config`` kwarg -> no self-facts block at
+        all (not even the honest 'not configured'/'not armed' lines) — the
+        prompt is exactly what it was before task t10."""
+        fake = _FakeMakeComplete()
+
+        outcome = run_frontdoor(
+            "what model are you?",
+            senses_config=_senses_config(),
+            make_complete=fake,
+            make_count_tokens=_char_counter,
+        )
+
+        assert outcome.answered_directly is True
+        user_content = fake.captured_messages[-1]["content"]
+        assert "senses: not configured" not in user_content
+        assert "lobes: not armed" not in user_content
+        # The self-facts gate-summary line (build_self_facts's own format,
+        # e.g. "gates: lint on ..."), not the static architecture fact-set's
+        # unrelated prose mentioning "pre-handoff gates: a lint gate".
+        assert "gates: lint" not in user_content
+
+
+# ---------------------------------------------------------------------------
+# (6) task t10 -- resolved self-facts reach the senses-direct prompt
+# ---------------------------------------------------------------------------
+
+
+def _armed_engine_config(
+    *, cortex_model: str = "cortex-sentinel-9000", senses_model: str = "senses-sentinel-42"
+) -> EngineConfig:
+    """The ORIGINAL/main resolved EngineConfig (not the senses-replaced
+    ``senses_config`` the routing call already receives) — carries the real
+    cortex model id plus the ``senses`` sub-config
+    :func:`colleague.selfknowledge.build_self_facts` reads."""
+    config = EngineConfig(model=cortex_model)
+    config.senses = SensesConfig(
+        model=senses_model, base_url="http://senses", api_key="k", context_budget=24000
+    )
+    return config
+
+
+class TestSelfFactsComposition:
+    def test_resolved_model_ids_reach_the_senses_prompt_when_config_given(self) -> None:
+        """The headline case: with a resolved ``config`` given, the exact
+        cortex + senses model id strings reach the prompt verbatim — not the
+        live-proven "I don't know which specific model I am using" deferral,
+        which only happens because the static fact-set never names a model."""
+        fake = _FakeMakeComplete()
+        config = _armed_engine_config()
+
+        outcome = run_frontdoor(
+            "what model are you?",
+            senses_config=_senses_config(),
+            make_complete=fake,
+            make_count_tokens=_char_counter,
+            config=config,
+        )
+
+        assert outcome.answered_directly is True
+        assert fake.captured_messages is not None
+        user_content = fake.captured_messages[-1]["content"]
+        # Exact, verbatim -- no truncation/rewrite of the resolved ids.
+        assert "cortex-sentinel-9000" in user_content
+        assert "senses-sentinel-42" in user_content
+        assert "cortex: cortex-sentinel-9000" in user_content
+        assert "senses: senses-sentinel-42" in user_content
+
+    def test_config_present_but_lobes_unarmed_says_not_armed_no_fabricated_url(self) -> None:
+        """Honesty pin: ``config`` given, ``gateway_url`` omitted (lobes
+        unarmed) -> the composed facts say 'not armed', never a fabricated
+        URL — while the resolved model ids still appear verbatim."""
+        fake = _FakeMakeComplete()
+        config = _armed_engine_config()
+
+        outcome = run_frontdoor(
+            "what model are you?",
+            senses_config=_senses_config(),
+            make_complete=fake,
+            make_count_tokens=_char_counter,
+            config=config,
+        )
+
+        assert outcome.answered_directly is True
+        user_content = fake.captured_messages[-1]["content"]
+        assert "lobes: not armed" in user_content
+        for line in user_content.split("\n"):
+            if line.startswith("lobes:"):
+                assert "not armed" in line
+                assert "http" not in line
+        assert "cortex-sentinel-9000" in user_content
+        assert "senses-sentinel-42" in user_content
+
+    def test_gateway_url_reaches_the_prompt_when_given(self) -> None:
+        """A resolved lobes gateway URL, when passed, appears verbatim too."""
+        fake = _FakeMakeComplete()
+        config = _armed_engine_config()
+
+        outcome = run_frontdoor(
+            "what model are you?",
+            senses_config=_senses_config(),
+            make_complete=fake,
+            make_count_tokens=_char_counter,
+            config=config,
+            gateway_url="http://lobes.local:8001",
+        )
+
+        assert outcome.answered_directly is True
+        user_content = fake.captured_messages[-1]["content"]
+        assert "lobes: http://lobes.local:8001" in user_content
+
+    def test_config_with_no_senses_subconfig_says_not_configured(self) -> None:
+        """A resolved ``config`` whose OWN ``.senses`` is ``None`` (e.g. senses
+        armed only via a lobes rung distinct from *config*) renders the
+        honest 'not configured' line rather than fabricating a senses id."""
+        fake = _FakeMakeComplete()
+        config = EngineConfig(model="cortex-sentinel-9000")  # config.senses stays None
+
+        outcome = run_frontdoor(
+            "what model are you?",
+            senses_config=_senses_config(),
+            make_complete=fake,
+            make_count_tokens=_char_counter,
+            config=config,
+        )
+
+        assert outcome.answered_directly is True
+        user_content = fake.captured_messages[-1]["content"]
+        assert "senses: not configured" in user_content
+        assert "cortex-sentinel-9000" in user_content
+
+    def test_cortex_route_never_composes_self_facts(self) -> None:
+        """A cortex-routed message never even builds the self-facts block —
+        composition happens only inside the senses-direct branch, and
+        ``make_complete`` is never called on this path."""
+        fake = _RaisingMakeComplete()
+        config = _armed_engine_config()
+
+        outcome = run_frontdoor(
+            "fix the bug in loop.py",
+            senses_config=_senses_config(),
+            make_complete=fake,
+            make_count_tokens=_char_counter,
+            config=config,
+        )
+
+        assert outcome.route == CORTEX
+        assert outcome.dispatch is True

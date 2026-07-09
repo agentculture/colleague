@@ -199,6 +199,7 @@ from colleague import registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.attribution import senses_line
+from colleague.config import resolve_lobes_gateway_url
 from colleague.contract import ContextPacket, SensesBlock, SensesRecord, Task
 from colleague.flight import append_guidance, feed_path, is_safe_task_id
 from colleague.frontdoor import run_frontdoor
@@ -658,6 +659,12 @@ class AppserverHarness:
                 # #311: persist a standalone auditable record of a senses-direct
                 # turn (no TaskResult) in the resident's operator repo too.
                 record_repo=self._repo_path,
+                # task t10: ground a senses-direct answer in the REAL resolved
+                # runtime state (self._config is the ORIGINAL main config,
+                # never the senses-replaced senses_config above) so "what
+                # model are you?" answers with the actual resolved model ids.
+                config=self._config,
+                gateway_url=resolve_lobes_gateway_url(self._repo_path),
             ),
         )
         if not outcome.answered_directly:
