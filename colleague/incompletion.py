@@ -32,10 +32,10 @@ _META_MARKERS: tuple[str, ...] = (
 _REASON_ADVICE: dict[str, str] = {
     "write-no-changes": "re-scope or take over: colleague finished without changing any files.",
     "empty-deliverable": (
-        "re-run with a tighter scope or take over: " "the finish produced no usable deliverable."
+        "re-run with a tighter scope or take over: " + "the finish produced no usable deliverable."
     ),
     "budget-exhausted": (
-        "split the task or raise --max-steps: " "colleague ran out of steps before delivering."
+        "split the task or raise --max-steps: " + "colleague ran out of steps before delivering."
     ),
     "no-progress-zero-steps": (
         "check backend tool-calling or escalate to another model: "
@@ -57,7 +57,6 @@ def classify_incompletion(
     changed_files: int,
     summary: str,
     step_count: int,
-    finish_recovered: Optional[str] = None,
 ) -> Optional[IncompletionRecord]:
     """Classify a finished work item as complete or incomplete.
 
@@ -76,9 +75,6 @@ def classify_incompletion(
         The work item's finish summary text.
     step_count:
         Number of tool-call steps the loop recorded.
-    finish_recovered:
-        Optional recovery note (unused by the classifier; reserved for future
-        disambiguation).
     """
 
     # --- Deliverable-present checks (return None) ---

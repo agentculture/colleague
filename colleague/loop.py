@@ -2106,7 +2106,6 @@ def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:
         changed_files=len(result.changed_files),
         summary=result.summary or "",
         step_count=result.stats.step_count,
-        finish_recovered=result.finish_recovered,
     )
     if record is None:
         return
