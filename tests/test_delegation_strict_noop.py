@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from colleague.contract import NO_RESULT_PRODUCED, OK, Task
+from colleague.contract import INCOMPLETE, NO_RESULT_PRODUCED, OK, Task
 from colleague.loop import ContextControls, ModelResponse, ToolCall, run
 from colleague.tools import ToolExecutor
 
@@ -92,7 +92,10 @@ def test_no_read_empty_finish_does_not_synthesize(tmp_path: Path) -> None:
         context=ContextControls(synthesis_reserve=0),
     )
 
-    assert result.status == OK
+    # A zero-step, no-write run produced no deliverable: honest-incompletion
+    # (colleague#313) reports INCOMPLETE (reason no-progress-zero-steps). The point
+    # of this test is unchanged — nothing was synthesised.
+    assert result.status == INCOMPLETE
     # With step_count 0 there is nothing to synthesise, so the summary must be
     # empty or the NO_RESULT_PRODUCED sentinel — never a synthesized verdict.
     assert result.summary in ("", NO_RESULT_PRODUCED)

@@ -1,0 +1,229 @@
+{
+  "slug": "when-colleague-can-t-finish-a-work-item-it-hands-b",
+  "title": "When colleague can't finish a work item, it hands back an honest not-ok status and a short explanation \u2014 the reason, the evidence, and a recommended next move (take over, re-scope, split, or escalate) \u2014 instead of reporting ok with an empty diff.",
+  "frame_slug": "when-colleague-can-t-finish-a-work-item-it-hands-b",
+  "schema_version": 1,
+  "status": "exported",
+  "created": "2026-07-09T14:09:02Z",
+  "updated": "2026-07-09T14:26:31Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "When colleague can't finish a work item, it hands back an honest not-ok status and a short explanation \u2014 the reason, the evidence, and a recommended next move (take over, re-scope, split, or escalate) \u2014 instead of reporting ok with an empty diff."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A legitimately read-only run (explorer/reviewer role, or explore/review mode) that changes 0 files is NOT flagged incomplete \u2014 it is complete when it delivered a non-empty findings summary. The detector distinguishes write-intent from read-intent so it never mislabels a correct read-only run."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The delegating caller \u2014 Claude via the ask-colleague skill, or any programmatic caller of 'colleague work' \u2014 plus the human operator; they need a trustworthy status signal to decide whether to take over, re-scope, split, or escalate."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The primary consumer is a programmatic caller (ask-colleague / colleague work --json), so the signal must be machine-readable \u2014 a status value plus a structured field \u2014 not human prose alone."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Today a clean finish() on a write task that produced 0 changed files (a 'meta-finish' whose own summary admits it isn't done \u2014 the live #313 evidence from the PR #312 t4 build) reports status: ok; likewise an empty or meta-description finish (#231/#248) hands back a near-empty deliverable as ok. The caller can only discover the non-completion by diffing the branch."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The #313 before-state is real and reproducible: the PR #312 t4 run (task 48a9e3db1b3f) finished clean with 0 changed files yet reported status ok \u2014 verifiable from the issue body."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "A work item that did not produce its expected deliverable comes back non-ok (status: incomplete) carrying a structured, omit-when-None TaskResult.incompletion {reason, evidence, recommendation}; ask-colleague surfaces it to the caller. A genuinely complete run (write with changes, or read-only with findings) is byte-identical \u2014 no incompletion key, status unchanged."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The incompletion field is additive and omit-when-None: its presence never alters a complete run's artifact, and its absence is itself the signal 'this run is complete'."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Delegation only works if the caller can trust the status. A silent incomplete both wastes the caller's trust and hides the exact moment they most need to intervene; an honest reason + recommended next move is what lets the caller act instead of re-deriving the failure by hand."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The value is measurable: a caller can branch on status/incompletion WITHOUT diffing the branch \u2014 the 'diff-to-discover' step that #313 describes is eliminated."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not about making colleague COMPLETE more work (the reach half \u2014 #289 tool-call-parsing, #237 cross-drive continuation \u2014 is explicitly out of scope, per the user's frame decision); not a multi-model router; not a correctness oracle (it detects 'no deliverable', never 'wrong deliverable'); the recommendation is a deterministic reason->advice map, not a model deciding to escalate."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The boundary holds under test: a run that produces a WRONG-but-present deliverable (changed files that are incorrect) is NOT flagged \u2014 the gate detects ABSENCE of a deliverable, never incorrectness (that stays with review/feedback)."
+    },
+    {
+      "id": "c7",
+      "kind": "success_signal",
+      "text": "A delegated write task that meta-finishes with 0 changed files returns status: incomplete with incompletion.reason == 'write-no-changes' and a recommendation; ask-colleague prints it; a normal write (>=1 changed file) and a normal explore (findings summary, 0 changes) are byte-identical (no incompletion, status unchanged)."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The success signal is a concrete testable pair on mock: a write task with 0 changes yields status=incomplete + incompletion.reason='write-no-changes'; a write task with >=1 change yields status=ok and no incompletion key."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "TaskResult gains an omit-when-None 'incompletion' field {reason: str, evidence: str, recommendation: str} (a dataclass mirroring the finish_recovered/acceptance_outcomes omit-when-None convention in colleague/contract.py), serialized only when set."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "TaskResult.incompletion round-trips through to_dict/from_dict, is omit-when-None, and a run without it serializes byte-identically to a pre-feature artifact (drift-tested)."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The loop's terminal-status logic (colleague/loop.py _set_terminal_status) is extended so a clean finish (_EXIT_FINISHED) that produced NO expected deliverable downgrades to INCOMPLETE and attaches the incompletion record \u2014 extending, never duplicating, the existing finish_recovered / forced-synthesis / NO_RESULT_PRODUCED machinery."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The 'no expected deliverable' test is role/intent-aware: for a write-intent run the deliverable is >=1 changed file; for a read-intent run it is a non-empty, non-meta findings summary. The downgrade never fires on a run that produced its role-appropriate deliverable."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "incompletion composes with finish_recovered: when forced-synthesis recovered a real (non-empty) deliverable, the run is complete and no incompletion fires; incompletion fires only when NO deliverable survives after the existing recovery paths run."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The status downgrade for the previously-ok write-0-changes case is a DELIBERATE, documented behavior change (recorded in CLAUDE.md like the other convention changes), not a silent breach; callers keying on status=='ok' will correctly now see 'incomplete' for these runs."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The incompletion detector is runtime-owned and fires identically for mock and vllm-openai (all-engines rule); a genuinely complete run leaves TaskResult byte-identical (no incompletion key), guarded by the e2e mock shape test."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The feature fires identically for mock and vllm-openai; tests/test_e2e_mock.py still passes because a complete mock run carries no incompletion key."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The ask-colleague skill surfaces the incompletion {reason, recommendation} to the delegating caller (a stderr line and/or the --json payload), so the caller sees the honest non-completion without diffing the branch."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "ask-colleague prints the incompletion reason+recommendation on a non-ok result and suppresses the success-shaped 'grade:' footer for an incomplete run, consistent with the existing #192 ask-colleague.sh incomplete handling."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "contract.py: add IncompletionRecord{reason,evidence,recommendation} dataclass + omit-when-None TaskResult.incompletion field",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "IncompletionRecord round-trips through to_dict/from_dict; TaskResult.incompletion is omit-when-None (key absent when None); a TaskResult without it serializes byte-identically to the pre-feature shape (drift-tested in tests/test_contract_incompletion.py)"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h5",
+        "h11",
+        "c4"
+      ]
+    },
+    {
+      "id": "t2",
+      "summary": "colleague/incompletion.py: pure deterministic classify_incompletion() + fixed reason->advice map",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "classify_incompletion(outcome, write_intent, changed_files, summary, step_count, finish_recovered) returns None when the run delivered its role-appropriate deliverable (write_intent+>=1 change, OR read+non-empty non-meta summary) and an IncompletionRecord otherwise; reason in {write-no-changes,empty-deliverable,budget-exhausted,no-progress-zero-steps}; recommendation from a fixed map with NO model call; a WRONG-but-present deliverable (>=1 change) returns None (detects absence, not incorrectness)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c6",
+        "h13",
+        "h2",
+        "h3"
+      ]
+    },
+    {
+      "id": "t3",
+      "summary": "ask-colleague surfacing: print incompletion {reason,recommendation} on a non-ok result and suppress the success grade footer",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on a work --json payload with status!=ok and an incompletion field, ask-colleague.sh prints 'incomplete: <reason> - <recommendation>' to stderr and omits the success-shaped grade: footer; an ok result with no incompletion is byte-identical to today; tested against a synthetic --json fixture"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11",
+        "h8",
+        "c2",
+        "h9"
+      ]
+    },
+    {
+      "id": "t4",
+      "summary": "loop.py wiring: call classify_incompletion at terminal-status, downgrade a no-deliverable clean finish to INCOMPLETE, attach the record (all paths, all engines)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "mock write task finishing with 0 changed files -> status=incomplete + incompletion.reason='write-no-changes'; mock write task with >=1 change -> status=ok, no incompletion key; read-only explorer run with 0 changes + real findings summary -> stays complete, no incompletion (h1); a finish_recovered synthesis that produced content -> no incompletion (h3); tests/test_e2e_mock.py still passes; wired via ContextControls so mock and vllm-openai fire identically"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c9",
+        "c10",
+        "h4",
+        "h6",
+        "c1",
+        "c5",
+        "c7",
+        "h14",
+        "h1",
+        "h12",
+        "c3",
+        "h10"
+      ]
+    },
+    {
+      "id": "t5",
+      "summary": "docs + livecheck: feature doc, CLAUDE.md arc bullet recording the deliberate ok->incomplete downgrade, livecheck classifier, version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/honest-incompletion.md documents the contract + honest limits; CLAUDE.md records the write-0-changes ok->incomplete downgrade as a DELIBERATE documented behavior change (h4); colleague/livecheck.py gains classify_honest_incompletion_check; pyproject/CHANGELOG version bumped"
+      ],
+      "deps": [
+        "t4",
+        "t3"
+      ],
+      "covers": [
+        "h4"
+      ]
+    }
+  ],
+  "risks": []
+}

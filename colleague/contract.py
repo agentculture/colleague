@@ -785,6 +785,49 @@ class SensesDirectRecord:
         )
 
 
+@dataclass(frozen=True)
+class IncompletionRecord:
+    """Record of why a work item was incomplete.
+
+    Fields
+    ------
+    reason:
+        Human-readable explanation of why the work item did not complete.
+    evidence:
+        Supporting detail (e.g. last tool-call output, error text).
+    recommendation:
+        Suggested next step for the operator or a follow-up work item.
+    """
+
+    reason: str
+    evidence: str
+    recommendation: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reason": self.reason,
+            "evidence": self.evidence,
+            "recommendation": self.recommendation,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "IncompletionRecord":
+        """Best-effort coercion: each field coerced to str, empty string on failure.
+
+        Robust to a malformed payload (a non-dict, or an explicit ``null`` field):
+        a non-dict ``data`` yields an all-empty record, and ``data.get(...) or ""``
+        turns a ``None`` value into ``""`` rather than the string ``"None"``. Mirrors
+        the type-guarded best-effort parsing the other optional structured fields use.
+        """
+        if not isinstance(data, dict):
+            return cls("", "", "")
+        return cls(
+            reason=str(data.get("reason") or ""),
+            evidence=str(data.get("evidence") or ""),
+            recommendation=str(data.get("recommendation") or ""),
+        )
+
+
 @dataclass
 class SensesBlock:
     """The cortex/senses front-door record for a work item (cortex/senses, t2).
@@ -1271,6 +1314,12 @@ class TaskResult:
     OMITTED (not null) when ``None``, so a run with no senses involvement
     serializes byte-identically to today's artifact. The packet's ``original``
     text round-trips verbatim."""
+    incompletion: Optional[IncompletionRecord] = None
+    """Record of why a work item was incomplete, or ``None`` when the work item
+    completed normally. A :class:`IncompletionRecord` of shape
+    ``{reason, evidence, recommendation}``. Like ``senses``/``deepthink``,
+    the serialized key is OMITTED (not null) when ``None``, so a completed
+    work item serializes byte-identically to today's artifact."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1373,6 +1422,10 @@ class TaskResult:
         # today's artifact (no extra key).
         if self.senses is not None:
             extra["senses"] = self.senses.to_dict()
+        # incompletion gets the same omit-when-None treatment: a completed
+        # work item serializes byte-identically (no extra key).
+        if self.incompletion is not None:
+            extra["incompletion"] = self.incompletion.to_dict()
         return extra
 
     @classmethod
@@ -1430,6 +1483,11 @@ class TaskResult:
             senses=(
                 SensesBlock.from_dict(data["senses"])
                 if isinstance(data.get("senses"), dict)
+                else None
+            ),
+            incompletion=(
+                IncompletionRecord.from_dict(data["incompletion"])
+                if isinstance(data.get("incompletion"), dict)
                 else None
             ),
         )

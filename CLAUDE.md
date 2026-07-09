@@ -669,6 +669,39 @@ The architecture, part by part:
   surviving lines still name the real file line) so cited line numbers are
   copy-derived, not re-counted from drifting context (#240); the numbering is
   display-only and never round-trips into `edit_file` matching.
+- **Honest incompletion (#313)** — when a work item can't finish, colleague
+  says so instead of reporting `ok` with an empty diff. A pure, deterministic
+  detector (`colleague/incompletion.py` `classify_incompletion`) is consulted
+  once in the loop (`colleague/loop.py` `_maybe_flag_incompletion`, **after**
+  `_resolve_terminal_summary` so it composes with `finish_recovered`/
+  forced-synthesis, never duplicating them): a run that produced **no expected
+  deliverable** comes back non-`ok` (`INCOMPLETE`) carrying an omit-when-None
+  `TaskResult.incompletion` `{reason, evidence, recommendation}` — the reason is
+  one of `write-no-changes` / `empty-deliverable` / `budget-exhausted` /
+  `no-progress-zero-steps`, the recommendation a **fixed** `reason→advice` map
+  (no model call — behavior locked in code, not prompts). Detection is
+  **role/intent-aware** (`write_intent = not roles.is_read_only(result.role)`):
+  a legitimately read-only run (explorer/reviewer role, explore/review mode)
+  that changes nothing but delivers a real summary is never flagged. The rule is
+  **soft** (the deliberate operator decision, q1): a CLEAN finish with a
+  substantive, non-meta summary is a deliverable even for a write run with 0
+  changes (a legitimate "the code is already correct — no change needed"); only
+  an empty/meta finish (the literal #313 evidence, `"Need to continue
+  implementation"`), a budget/stop exit, or a zero-step run is flagged. It
+  detects **absence** of a deliverable, never **incorrectness** (a
+  wrong-but-present change is not flagged — that stays with review/feedback).
+  `ask-colleague` surfaces it as an `incomplete: <reason> — <recommendation>`
+  stderr diagnostic and — honoring #139/#192 — keeps the `grade:` hint on a
+  gradable failure (a failure rated 1/5 is the ROI signal), suppressing it only
+  for the `NO_RESULT_PRODUCED` sentinel. Runtime-owned (all-engines): the shared
+  loop path fires it identically for `mock` and `vllm-openai`, and omit-when-None
+  keeps a delivering run byte-identical. **Honest limit:** because a substantive
+  finish counts as delivered, it does NOT catch a confident-FALSE "Done!" summary
+  paired with 0 changes (the soft-rule trade-off avoiding false-positives on real
+  no-change-needed runs); the reach half (#289 tool-call parsing, #237 cross-drive
+  continuation) stays out of scope. Feature doc: `docs/features/honest-incompletion.md`;
+  spec + plan: `docs/specs/2026-07-09-when-colleague-can-t-finish-a-work-item-it-hands-b.md`
+  and `docs/plans/2026-07-09-when-colleague-can-t-finish-a-work-item-it-hands-b.md`.
 - **Background one-shot + mesh residency (best-colleague arc, R4/R5,
   decision c17)** — `colleague work --background` detaches the run as a
   session-leader child (`colleague/background.py`, the sanctioned one-shot
