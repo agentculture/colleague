@@ -102,6 +102,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import backends as _backends_group
     from colleague.cli._commands import clean as _clean_cmd
     from colleague.cli._commands import cli as _cli_group
+    from colleague.cli._commands import coherence as _coherence_group
     from colleague.cli._commands import commands as _commands_group
     from colleague.cli._commands import config as _config_group
     from colleague.cli._commands import doctor as _doctor_cmd
@@ -179,6 +180,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _lobes_group.register(sub)
     # Organism visibility (#291/S10): the curated organ table (presence/version/armed).
     _organs_group.register(sub)
+    # Coherence measurement: on-demand scoring of documentation artifacts.
+    _coherence_group.register(sub)
     # Experiment orchestration (#291/S5): detached sloth training runs.
     _experiment_cmd.register(sub)
     # Provider config: resolved engine/provider settings (api_key redacted).
