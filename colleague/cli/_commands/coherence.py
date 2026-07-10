@@ -113,6 +113,27 @@ def _check_cli_installed() -> None:
         )
 
 
+def _render_score_lines(records: list[dict[str, Any]]) -> list[str]:
+    """Render one text line per scored record, plus its diagnostics hints.
+
+    Extracted from ``_score_files`` (S3776): the nested for/if-else/for was
+    the bulk of that function's cognitive complexity.
+    """
+    lines: list[str] = []
+    for record in records:
+        path = record.get("path", "?")
+        if "error" in record:
+            lines.append(f"  {path}: error — {record['error']}")
+            continue
+        score = record.get("meaning_score")
+        score_str = f"{score:.4f}" if isinstance(score, (int, float)) else "?"
+        lines.append(f"  {path}: meaning {score_str}")
+        fake_report = type("R", (), {"status": "scored", "files": [record]})()
+        for hint in diagnostics_lines(fake_report):
+            lines.append(f"    {hint}")
+    return lines
+
+
 def _score_files(paths: list[str] | str) -> object:
     """Score markdown file path(s) and return a rendered result.
 
@@ -166,20 +187,7 @@ def _score_files(paths: list[str] | str) -> object:
         "embed_model": env.get("COHERENCE_EMBED_MODEL"),
     }
 
-    # Build text rendering
-    lines: list[str] = []
-    for record in records:
-        path = record.get("path", "?")
-        if "error" in record:
-            lines.append(f"  {path}: error — {record['error']}")
-        else:
-            score = record.get("meaning_score")
-            score_str = f"{score:.4f}" if isinstance(score, (int, float)) else "?"
-            lines.append(f"  {path}: meaning {score_str}")
-            for hint in diagnostics_lines(type("R", (), {"status": "scored", "files": [record]})()):
-                lines.append(f"    {hint}")
-
-    text = "coherence scores:\n" + "\n".join(lines)
+    text = "coherence scores:\n" + "\n".join(_render_score_lines(records))
     return rendered(payload, text)
 
 
@@ -188,23 +196,22 @@ def _score_files(paths: list[str] | str) -> object:
 # ---------------------------------------------------------------------------
 
 
-def _show_task(ref: str, repo: str = ".") -> object:
-    """Show coherence for a work item: score its changed .md files + report block."""
-    repo_path = Path(repo).expanduser()
+def _resolve_task_id(ref: str, repo_path: Path) -> str:
+    """Resolve ``ref`` ("last" or an explicit task-id) to a concrete task_id."""
+    if ref != "last":
+        return ref
+    task_id = get_last_work(repo_path)
+    if not task_id:
+        raise CliError(
+            code=EXIT_USER_ERROR,
+            message="no 'last' work item recorded for this repo",
+            remediation="run a work item first, or pass an explicit task-id",
+        )
+    return task_id
 
-    # Resolve task_id (supports "last")
-    if ref == "last":
-        task_id = get_last_work(repo_path)
-        if not task_id:
-            raise CliError(
-                code=EXIT_USER_ERROR,
-                message="no 'last' work item recorded for this repo",
-                remediation="run a work item first, or pass an explicit task-id",
-            )
-    else:
-        task_id = ref
 
-    # Find the artifact
+def _load_artifact(repo_path: Path, task_id: str) -> tuple[Path, dict[str, Any]]:
+    """Find and parse a work item's JSON artifact; raises CliError on failure."""
     artifact_path = find_artifact(repo_path, task_id)
     if artifact_path is None:
         raise CliError(
@@ -212,8 +219,6 @@ def _show_task(ref: str, repo: str = ".") -> object:
             message=f"no artifact found for task {task_id!r}",
             remediation="check the task-id, or run 'colleague feedback list' to see recorded items",
         )
-
-    # Read the artifact JSON
     try:
         artifact_data = json.loads(artifact_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -222,66 +227,70 @@ def _show_task(ref: str, repo: str = ".") -> object:
             message=f"cannot read artifact for {task_id}: {exc}",
             remediation="the artifact file may be corrupt",
         ) from exc
+    return artifact_path, artifact_data
 
-    # Extract the existing coherence_report block
-    existing_report = artifact_data.get("coherence_report")
 
-    # Get changed_files from stats
-    stats = artifact_data.get("stats") or {}
-    changed_files: list[str] = stats.get("changed_files") or []
+def _score_changed_docs(
+    md_files: list[str], repo_path: Path
+) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    """Score a work item's changed ``.md`` files; degrades to an empty result.
 
-    # Find .md files among changed files
-    md_files = [f for f in changed_files if f.endswith(".md")]
+    Returns ``(scored_records, embed_url, embed_model)``. With no changed
+    markdown files, or no embedder configured, returns ``([], None, None)`` —
+    the caller renders "no scores" / "no changed .md files" from that, the
+    same degradation the inline version used.
+    """
+    if not md_files:
+        return [], None, None
+    _check_cli_installed()
+    env_overrides = embed_env()
+    env = {**(env_overrides or {}), **os.environ}
+    if not env.get("COHERENCE_EMBED_URL"):
+        # If no embedder, still show the existing report if present.
+        emit_diagnostic(
+            "coherence: no embedder configured, skipping live scoring. "
+            "Set COHERENCE_EMBED_URL to score files."
+        )
+        return [], None, None
+    scored: list[dict[str, Any]] = []
+    for rel_path in md_files:
+        full_path = repo_path / rel_path
+        if full_path.is_file():
+            scored.append(_score_one(full_path, repo_path, env))
+    return scored, env.get("COHERENCE_EMBED_URL"), env.get("COHERENCE_EMBED_MODEL")
 
-    result: dict[str, Any] = {
-        "task_id": task_id,
-        "artifact": str(artifact_path),
-    }
 
-    # Score the .md files if any exist
-    scored_files: list[dict[str, Any]] = []
-    if md_files:
-        _check_cli_installed()
-        env_overrides = embed_env()
-        env = {**(env_overrides or {}), **os.environ}
+def _format_score_record(record: dict[str, Any]) -> str:
+    """Render one scored-file record for text output, including an error case."""
+    path = record.get("path", "?")
+    if "error" in record:
+        return f"  {path}: error — {record['error']}"
+    score = record.get("meaning_score")
+    score_str = f"{score:.4f}" if isinstance(score, (int, float)) else "?"
+    return f"  {path}: meaning {score_str}"
 
-        if not env.get("COHERENCE_EMBED_URL"):
-            # If no embedder, still show the existing report if present
-            emit_diagnostic(
-                "coherence: no embedder configured, skipping live scoring. "
-                "Set COHERENCE_EMBED_URL to score files."
-            )
-        else:
-            for rel_path in md_files:
-                full_path = repo_path / rel_path
-                if full_path.is_file():
-                    record = _score_one(full_path, repo_path, env)
-                    scored_files.append(record)
 
-    if scored_files:
-        result["scores"] = scored_files
-        result["embed_url"] = env.get("COHERENCE_EMBED_URL")
-        result["embed_model"] = env.get("COHERENCE_EMBED_MODEL")
+def _format_report_entry(entry: dict[str, Any]) -> str:
+    """Render one existing ``coherence_report`` file entry (no error case)."""
+    path = entry.get("path", "?")
+    score = entry.get("meaning_score")
+    score_str = f"{score:.4f}" if isinstance(score, (int, float)) else "?"
+    return f"  {path}: meaning {score_str}"
 
-    if existing_report is not None:
-        result["existing_report"] = existing_report
-    else:
-        result["existing_report"] = None
 
-    # Build text rendering
-    lines: list[str] = [f"task: {task_id}"]
-    lines.append(f"artifact: {artifact_path}")
+def _render_show_text(
+    task_id: str,
+    artifact_path: Path,
+    scored_files: list[dict[str, Any]],
+    md_files: list[str],
+    existing_report: dict[str, Any] | None,
+) -> str:
+    """Render the ``coherence show`` text block from its already-resolved parts."""
+    lines: list[str] = [f"task: {task_id}", f"artifact: {artifact_path}"]
 
     if scored_files:
         lines.append("scores:")
-        for record in scored_files:
-            path = record.get("path", "?")
-            if "error" in record:
-                lines.append(f"  {path}: error — {record['error']}")
-            else:
-                score = record.get("meaning_score")
-                score_str = f"{score:.4f}" if isinstance(score, (int, float)) else "?"
-                lines.append(f"  {path}: meaning {score_str}")
+        lines.extend(_format_score_record(record) for record in scored_files)
     elif md_files:
         lines.append("no scores (no embedder configured or files not found)")
     else:
@@ -289,18 +298,35 @@ def _show_task(ref: str, repo: str = ".") -> object:
 
     if existing_report is not None:
         lines.append("existing coherence_report:")
-        report_status = existing_report.get("status", "?")
-        lines.append(f"  status: {report_status}")
-        if existing_report.get("files"):
-            for f in existing_report["files"]:
-                fpath = f.get("path", "?")
-                fscore = f.get("meaning_score")
-                fscore_str = f"{fscore:.4f}" if isinstance(fscore, (int, float)) else "?"
-                lines.append(f"  {fpath}: meaning {fscore_str}")
+        lines.append(f"  status: {existing_report.get('status', '?')}")
+        lines.extend(_format_report_entry(f) for f in existing_report.get("files") or [])
     else:
         lines.append("no existing coherence_report in artifact")
 
-    text = "\n".join(lines)
+    return "\n".join(lines)
+
+
+def _show_task(ref: str, repo: str = ".") -> object:
+    """Show coherence for a work item: score its changed .md files + report block."""
+    repo_path = Path(repo).expanduser()
+    task_id = _resolve_task_id(ref, repo_path)
+    artifact_path, artifact_data = _load_artifact(repo_path, task_id)
+
+    existing_report = artifact_data.get("coherence_report")
+    stats = artifact_data.get("stats") or {}
+    changed_files: list[str] = stats.get("changed_files") or []
+    md_files = [f for f in changed_files if f.endswith(".md")]
+
+    scored_files, embed_url, embed_model = _score_changed_docs(md_files, repo_path)
+
+    result: dict[str, Any] = {"task_id": task_id, "artifact": str(artifact_path)}
+    if scored_files:
+        result["scores"] = scored_files
+        result["embed_url"] = embed_url
+        result["embed_model"] = embed_model
+    result["existing_report"] = existing_report
+
+    text = _render_show_text(task_id, artifact_path, scored_files, md_files, existing_report)
     return rendered(result, text)
 
 
