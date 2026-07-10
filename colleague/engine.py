@@ -11,6 +11,16 @@ Backends do not re-implement the agentic loop — they delegate to
 (a ``complete`` function). The repo, the tool set, and the step budget that the
 loop needs are derived from the task (``repo_path``) and the config
 (``max_steps``).
+
+Token-delta seam (feels-alive arc, task t3): an engine's own ``complete``-
+building code (this ``work``/``make_complete`` layer, not the loop) MAY read
+the optional :attr:`~colleague.config.EngineConfig.on_delta` sink off the
+``config`` it already receives and call it with each ordered text delta of the
+model's in-progress completion, before returning the finished
+:class:`~colleague.loop.ModelResponse` — see that attribute's docstring for
+the full contract. ``mock`` (task t3) streams synthetic word-chunk deltas of
+its scripted turns; ``vllm-openai`` (task t4) is the intended real producer,
+wiring its SSE stream into the same seam.
 """
 
 from __future__ import annotations
