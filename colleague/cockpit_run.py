@@ -7,6 +7,7 @@ clock reads — all timestamps and elapsed values are passed in by the caller.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -239,3 +240,92 @@ def status_line(
         parts.append(_format_elapsed(elapsed_seconds))
 
     return " · ".join(parts)
+
+
+# ── Delta tail (feels-alive arc, task t6) ───────────────────────────
+
+# Deliberately NOT importing ``agentfront.taui.colors.strip_ansi`` here even
+# though it does the same job (``_tui_sink.py`` already imports it): this
+# module is pinned agentfront-free by ``tests/test_cockpit_run.py``'s
+# ``TestModuleBoundary.test_no_agentfront_import`` (a genuine "pure module"
+# boundary, predating this task), so the tiny ANSI-CSI-escape regex is
+# duplicated here rather than forking/depending on agentfront's renderer
+# layer for a two-line sanitizer.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_NEWLINE_RE = re.compile(r"[\r\n]+")
+
+#: Trailing window of streamed text kept for display (characters). Display
+#: only — never the full accumulated turn, never persisted.
+DELTA_TAIL_CHARS = 80
+
+#: Repaint throttle: fold+redraw at most once per this many accumulated
+#: characters — never a per-token/per-chunk full-screen repaint.
+DELTA_REPAINT_THRESHOLD = 48
+
+
+@dataclass(frozen=True)
+class DeltaTail:
+    """Accumulated in-progress generation text for ONE completion turn.
+
+    Display-only: a trailing window of the current turn's streamed answer.
+    Reset (a fresh ``DeltaTail()``) whenever the next real step/phase event
+    arrives — a delta never becomes a work step or a feed line (the same
+    #206 invariant ``fold_phase`` holds for a phase notice), and a fresh
+    completion always starts a fresh tail.
+    """
+
+    text: str = ""
+    pending_chars: int = 0
+
+
+def sanitize_delta_chunk(chunk: str) -> str:
+    """Sanitize ONE streamed delta chunk for safe single-line display.
+
+    Strips ANSI CSI escapes (a model-emitted or adversarial chunk must never
+    inject cursor movement into the cockpit) and collapses any run of CR/LF
+    into a single space (a raw newline would visually break the one-line
+    STATUS surface). Pure — no I/O.
+    """
+    return _NEWLINE_RE.sub(" ", _ANSI_RE.sub("", chunk))
+
+
+def fold_delta(tail: DeltaTail, chunk: str, *, width: int = DELTA_TAIL_CHARS) -> DeltaTail:
+    """Fold ONE streamed delta chunk onto *tail* (pure — never mutates *tail*).
+
+    Sanitizes *chunk* first (:func:`sanitize_delta_chunk`), appends it, and
+    keeps only the trailing *width* characters — a display "tail", not an
+    accumulating log. ``pending_chars`` counts characters folded since the
+    last repaint (:func:`should_repaint_delta`); cleared separately by
+    :func:`mark_delta_rendered` so a caller can throttle repaints without
+    losing already-accumulated tail text.
+    """
+    sanitized = sanitize_delta_chunk(chunk)
+    combined = (tail.text + sanitized)[-width:] if width > 0 else ""
+    return DeltaTail(text=combined, pending_chars=tail.pending_chars + len(sanitized))
+
+
+def should_repaint_delta(tail: DeltaTail, *, threshold: int = DELTA_REPAINT_THRESHOLD) -> bool:
+    """Whether *tail* has accumulated enough pending characters to repaint.
+
+    Count-based throttling only — no clock, no timer (the feels-alive arc's
+    constraint: a slow/fast stream repaints at the same CADENCE of
+    characters, never a wall-clock cadence).
+    """
+    return tail.pending_chars >= threshold
+
+
+def mark_delta_rendered(tail: DeltaTail) -> DeltaTail:
+    """Return *tail* with its repaint counter cleared (pure) — a repaint just
+    happened, so the next one waits for another *threshold* worth of chars."""
+    return DeltaTail(text=tail.text, pending_chars=0)
+
+
+def delta_status_message(tail: DeltaTail) -> str:
+    """Compose the STATUS-surface message for a live-generating *tail*.
+
+    Reads ``generating… <tail text>`` (or the bare prefix while the tail is
+    still empty) — folded onto the SAME status surface a phase notice uses
+    (:func:`fold_phase` in ``colleague/cli/_commands/_tui_sink.py``), never a
+    new renderer surface.
+    """
+    return f"generating… {tail.text}" if tail.text else "generating…"
