@@ -602,7 +602,7 @@ def classify_streaming_check(
         return "failed", "armed stream produced no deltas — streaming never engaged"
     if delta_count < 2:
         return "failed", "a single terminal burst is not a stream (1 delta)"
-    if delta_count >= 2 and total_s > 0 and first_delta_s >= 0.9 * total_s:
+    if total_s > 0 and first_delta_s >= 0.9 * total_s:
         # Many deltas, ALL landing at the end of the turn: the server did
         # stream (frames exist) but an intermediary delivered them as one
         # terminal burst. Client-agnostic (raw `curl -N` through the lobes
