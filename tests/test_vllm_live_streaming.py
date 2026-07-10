@@ -79,7 +79,12 @@ def test_live_dead_server_yields_a_distinct_no_stream_state() -> None:
     complete = VllmOpenAIEngine().make_complete(config, tools=[])
 
     t0 = time.monotonic()
-    with pytest.raises(Exception) as excinfo:
+    # The dead-server path goes through ``_raise_legible_connection_error``
+    # (immediate connection-refused — the common case for "nothing listens
+    # on this port") or, on an environment where the connection attempt
+    # hangs instead of refusing outright, ``_raise_legible_timeout`` — the
+    # union of what those two legible-error wrappers genuinely raise.
+    with pytest.raises((ConnectionError, TimeoutError)) as excinfo:
         complete([{"role": "user", "content": "hello"}])
     elapsed = time.monotonic() - t0
 
