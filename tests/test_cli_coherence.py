@@ -379,16 +379,29 @@ class TestShow:
 
 class TestLegacyParser:
     def test_register_creates_subparsers(self) -> None:
-        """register() creates the expected subparser structure."""
+        """register() wires a real 'coherence' subparser with score/show/overview."""
         import argparse
 
         parser = argparse.ArgumentParser()
-        sub = parser.add_subparsers()
+        sub = parser.add_subparsers(dest="command", parser_class=type(parser))
         _mod.register(sub)
 
-        # Verify the parser was created (no exception)
-        # The register function should have added subparsers
-        assert True  # If we got here, register() didn't crash
+        # The 'coherence' noun is actually registered on the sub-parser action.
+        assert "coherence" in sub.choices
+
+        # A bare 'coherence' invocation parses to the no-verb default, which
+        # itself delegates to the overview command.
+        ns = parser.parse_args(["coherence"])
+        assert ns.func is _mod._no_verb
+
+        # Each verb sub-parser is wired to its own handler.
+        ns_score = parser.parse_args(["coherence", "score", "a.md"])
+        assert ns_score.func is _mod.cmd_coherence_score
+        assert ns_score.paths == ["a.md"]
+
+        ns_show = parser.parse_args(["coherence", "show", "task-1"])
+        assert ns_show.func is _mod.cmd_coherence_show
+        assert ns_show.ref == "task-1"
 
     def test_overview_cmd(self) -> None:
         """cmd_coherence_overview returns 0."""
