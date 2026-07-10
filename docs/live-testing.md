@@ -967,3 +967,41 @@ COLLEAGUE_ENGINE=vllm-openai COLLEAGUE_SENSES_UPDATE_STEPS=2 \
   uv run colleague work "Add a docstring to the greet function." --repo <repo> --no-pr --json
 # stdout = JSON result; stderr = gemma's `senses:` ack + progress lines.
 ```
+
+## 2026-07-10 — Feels-alive arc live proofs (t9)
+
+Rig: lobes gateway at `http://localhost:8001` serving cortex
+`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`, senses
+`coolthor/gemma-4-12B-it-NVFP4A16`, embedder `Qwen/Qwen3-Embedding-0.6B`.
+Baseline (t1, same day, above): a 13.62s full turn whose longest silent gap
+was 4.43s.
+
+- **Token streaming — colleague side proven, rig side SKIPs.** Colleague's
+  SSE consumption is incremental by construction (the fake-SSE-server unit
+  suite pins deltas arriving before the stream closes;
+  `tests/test_vllm_stream.py`). LIVE through the gateway the proof
+  (`tests/test_vllm_live_streaming.py`, livecheck row "token streaming
+  (feels-alive)") observed 220 deltas ALL landing at 34.0s of a 34.0s turn —
+  and a client-agnostic raw `curl -N` probe shows the same signature
+  (21 frames, first=last=3.06s): **the gateway proxy buffers SSE**, so
+  `classify_streaming_check` grades the rig **SKIP** ("stream delivered as
+  one terminal burst … rig-side, not a colleague regression"). A lobes-cli
+  issue draft is prepared (filing pending operator approval). The moment the
+  gateway forwards frames incrementally, the same proof grades PASS with no
+  colleague change.
+- **Dead-server distinct state — PASSED.** An unreachable endpoint with an
+  armed sink yields a legible connection error in ~0s with ZERO deltas —
+  visually distinct from a live turn's stream (spec h13).
+- **`colleague coherence` — live-proven.** `coherence score <small.md>`
+  returns a real Meaning Gradient payload (meaning 0.3705, full `frame`
+  provenance naming `Qwen/Qwen3-Embedding-0.6B` at
+  `http://localhost:8001/v1`) through the lobes embed relay — after fixing
+  `lobes.embed_env` to carry the advertised `/v1` path prefix (a bare-origin
+  relay 404'd BOTH this verb and the #294 gate on the real rig).
+  `coherence show last` resolves the real work item `44a9865c4be5` and
+  reports honestly (no changed `.md` files in that work item). A file larger
+  than the embedder's 8192-token window records an honest per-file error
+  (400), never a crash.
+- **CLAUDE.md cut — measured.** 158,454 → 25,564 bytes (~39,613 → ~6,391
+  est. tokens at bytes/4): every session in this repo reclaims ~33K tokens of
+  context.

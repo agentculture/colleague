@@ -191,7 +191,7 @@ class TestNotInstalled:
         )
 
         with pytest.raises(CliError) as exc_info:
-            _mod._show_task(str(tmp_path), "task-001")
+            _mod._show_task("task-001", str(tmp_path))
 
         assert exc_info.value.code == 2
         assert "coherence CLI not installed" in exc_info.value.message
@@ -251,7 +251,7 @@ class TestShow:
 
         monkeypatch.setattr(_mod, "_score_one", _fake_score_one)
 
-        result = _mod._show_task(str(tmp_path), "task-001")
+        result = _mod._show_task("task-001", str(tmp_path))
         text = str(result)
         assert "task-001" in text
         assert "meaning" in text.lower()
@@ -281,7 +281,7 @@ class TestShow:
             lambda repo, task_id: artifact_file,
         )
 
-        result = _mod._show_task(str(tmp_path), "task-002")
+        result = _mod._show_task("task-002", str(tmp_path))
         text = str(result)
         assert "no changed .md files" in text
 
@@ -305,7 +305,7 @@ class TestShow:
             lambda repo, task_id: artifact_file,
         )
 
-        result = _mod._show_task(str(tmp_path), "task-003")
+        result = _mod._show_task("task-003", str(tmp_path))
         assert result["existing_report"] is None
 
     def test_show_last_resolves(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -333,7 +333,7 @@ class TestShow:
             lambda repo, task_id: artifact_file,
         )
 
-        result = _mod._show_task(str(tmp_path), "last")
+        result = _mod._show_task("last", str(tmp_path))
         assert result["task_id"] == "task-last"
 
     def test_show_last_no_work_item(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -345,7 +345,7 @@ class TestShow:
         )
 
         with pytest.raises(CliError) as exc_info:
-            _mod._show_task(str(tmp_path), "last")
+            _mod._show_task("last", str(tmp_path))
 
         assert "no 'last' work item" in exc_info.value.message
 
@@ -358,7 +358,7 @@ class TestShow:
         )
 
         with pytest.raises(CliError) as exc_info:
-            _mod._show_task(str(tmp_path), "nonexistent")
+            _mod._show_task("nonexistent", str(tmp_path))
 
         assert "no artifact found" in exc_info.value.message
 

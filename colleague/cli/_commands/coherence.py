@@ -188,7 +188,7 @@ def _score_files(paths: list[str] | str) -> object:
 # ---------------------------------------------------------------------------
 
 
-def _show_task(repo: str, ref: str) -> object:
+def _show_task(ref: str, repo: str = ".") -> object:
     """Show coherence for a work item: score its changed .md files + report block."""
     repo_path = Path(repo).expanduser()
 
@@ -360,7 +360,7 @@ def cmd_coherence_score(args: argparse.Namespace) -> int:
 
 def cmd_coherence_show(args: argparse.Namespace) -> int:
     emit_result(
-        _show_task(getattr(args, "repo", "."), args.ref),
+        _show_task(args.ref, getattr(args, "repo", ".")),
         json_mode=bool(getattr(args, "json", False)),
     )
     return 0
