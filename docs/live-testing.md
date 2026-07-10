@@ -985,8 +985,8 @@ was 4.43s.
   and a client-agnostic raw `curl -N` probe shows the same signature
   (21 frames, first=last=3.06s): **the gateway proxy buffers SSE**, so
   `classify_streaming_check` grades the rig **SKIP** ("stream delivered as
-  one terminal burst … rig-side, not a colleague regression"). A lobes-cli
-  issue draft is prepared (filing pending operator approval). The moment the
+  one terminal burst … rig-side, not a colleague regression"). Filed as
+  [lobes-cli#103](https://github.com/agentculture/lobes-cli/issues/103). The moment the
   gateway forwards frames incrementally, the same proof grades PASS with no
   colleague change.
 - **Dead-server distinct state — PASSED.** An unreachable endpoint with an

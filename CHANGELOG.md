@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.1] - 2026-07-10
+
+### Changed
+
+- docs: live-testing ledger + feels-alive delivery summary now reference the filed lobes-cli#103 (gateway SSE buffering) instead of a pending draft
+
 ## [1.45.0] - 2026-07-10
 
 ### Added

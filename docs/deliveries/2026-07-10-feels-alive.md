@@ -139,11 +139,12 @@ acceptance criteria (see Actual Delivery).
 
 ## Remaining Work / Follow-up
 
-- **File the lobes-cli issue** (gateway chat proxy buffers SSE → streaming
-  clients get one terminal burst): draft ready at the session scratchpad
-  (`lobes-issue.md`); the permission gate blocked `gh issue create` on the
-  sibling repo — operator to approve/file. Until fixed, the live streaming UX
-  is a terminal burst and the livecheck row SKIPs.
+- **lobes-cli#103 filed** (gateway chat proxy buffers SSE → streaming
+  clients get one terminal burst):
+  <https://github.com/agentculture/lobes-cli/issues/103>, operator-approved.
+  Until fixed, the live streaming UX is a terminal burst and the livecheck
+  row SKIPs; the gated proof flips to PASS with no colleague change once the
+  gateway forwards frames incrementally.
 - **agentfront upstream ask (optional)**: variadic positionals for rendered
   tools — `coherence score` takes one path per call on the rendered surface
   (multi-path works via the legacy parser); noted in-code in
