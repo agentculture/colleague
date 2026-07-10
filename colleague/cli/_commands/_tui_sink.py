@@ -35,10 +35,15 @@ from agentfront.taui.state import TAUIState as CockpitState
 from agentfront.taui.state import WorkItem
 
 from colleague.cockpit_run import (
+    DeltaTail,
     Ledger,
     RunState,
+    delta_status_message,
     fold,
+    fold_delta,
+    mark_delta_rendered,
     observed_ledger,
+    should_repaint_delta,
     status_line,
 )
 from colleague.tui.from_work import work_step
@@ -148,8 +153,31 @@ class CockpitProgressSink:
         # so `work --tui`'s status line shows elapsed just like the session's
         # `_WorkSink`, and the two live cockpits agree (Qodo PR #288 parity).
         self._started = time.monotonic()
+        # Live generation tail (feels-alive arc, task t6): accumulates the
+        # CURRENT turn's streamed text (see `on_delta`); reset at the top of
+        # every `__call__` so a stale tail can never linger past the turn
+        # that produced it.
+        self._delta = DeltaTail()
+
+    @property
+    def wants_delta_stream(self) -> bool:
+        """Whether this sink should receive live-generation deltas (task t6).
+
+        Always ``True``: a :class:`CockpitProgressSink` only exists when
+        `build_progress`'s `cockpit_active` gate already resolved the live
+        cockpit ON (an explicit ``--tui`` or an auto-detected colour TTY) —
+        every call already renders a frame, so folding a live tail onto it is
+        always worthwhile. Contrast with the session's ``_WorkSink``, whose
+        equivalent property additionally checks its OWN dynamic-tier state.
+        """
+        return True
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
+        # A real step or a phase notice ends the current turn's live-generation
+        # tail (task t6): reset it so a stale "generating… …" text can never
+        # linger once the loop has moved on — the same clearing rule
+        # `fold_phase` relies on for a phase notice.
+        self._delta = DeltaTail()
         # Update the parallel run-state accumulator on every call (phase or step).
         self._run = fold(self._run, tool, target, ok)
         if not tool:
@@ -172,6 +200,30 @@ class CockpitProgressSink:
             phase="",
         )
         self._state = replace(self._state, status=Status(severity="info", message=line))
+        self._writer.write(self._state)
+
+    def on_delta(self, chunk: str) -> None:
+        """Fold ONE streamed text delta onto the live cockpit STATUS surface
+        (feels-alive arc, task t6 — the visible-reactivity half of
+        token-streaming; the runtime seam itself, ``EngineConfig.on_delta``,
+        landed in task t3).
+
+        Accumulates *chunk* into the current turn's :class:`~colleague.cockpit_run.DeltaTail`
+        and, throttled to at most once per
+        :data:`~colleague.cockpit_run.DELTA_REPAINT_THRESHOLD` accumulated
+        characters (never a per-token full-screen repaint), folds the
+        sanitized tail onto ``self._state.status`` via the SAME
+        :func:`fold_phase` a phase notice uses and redraws exactly one frame.
+        Never creates a work step and never touches the conversation feed —
+        the #206 invariant holds here identically to a phase notice. Cleared
+        by the very next `__call__` (a real step or phase notice), so a
+        stale tail can never outlive the turn that produced it.
+        """
+        self._delta = fold_delta(self._delta, chunk)
+        if not should_repaint_delta(self._delta):
+            return
+        self._delta = mark_delta_rendered(self._delta)
+        self._state = fold_phase(self._state, delta_status_message(self._delta))
         self._writer.write(self._state)
 
     @property

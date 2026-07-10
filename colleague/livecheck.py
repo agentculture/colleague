@@ -89,6 +89,7 @@ _KNOWN_PROOFS: list[tuple[str, str]] = [
     ("tests/test_vllm_live_telemetry.py", "telemetry"),
     ("tests/test_dual_live.py", "dual live"),
     ("tests/test_vllm_live_talking_to_one.py", "talking to one (middle-manager)"),
+    ("tests/test_vllm_live_streaming.py", "token streaming (feels-alive)"),
 ]
 
 
@@ -569,6 +570,65 @@ def front_latencies(senses: dict[str, Any] | None) -> list[float]:
         if isinstance(latency, (int, float)):
             out.append(float(latency))
     return out
+
+
+def classify_streaming_check(
+    first_delta_s: float | None,
+    total_s: float | None,
+    delta_count: int,
+    *,
+    error: str | None = None,
+    first_target: float = 2.0,
+) -> tuple[str, str]:
+    """Grade the token-streaming proof (feels-alive arc, spec c10/h13).
+
+    With a delta sink armed, the FIRST visible model output must arrive within
+    ``first_target`` seconds of the completion starting — or at worst inside
+    the first half of the turn — instead of only at full-turn latency (the
+    pre-arc baseline: a 13.62s turn whose longest silent gap was 4.43s,
+    measured 2026-07-10). Graded from wall-clock evidence, never estimates:
+
+    - an ``error`` (unreachable rig, live-call failure) SKIPs honestly — a
+      fabricated pass is a test failure;
+    - zero deltas from an ARMED stream is a FAIL (streaming never engaged);
+    - a single delta is a FAIL (one terminal burst is not a stream — that is
+      exactly the silence this feature removes);
+    - otherwise PASS iff the first delta beat ``first_target`` seconds or half
+      the turn, else FAIL naming the numbers.
+    """
+    if error:
+        return "skipped", f"no streaming measurement: {error}"
+    if not delta_count or first_delta_s is None or total_s is None:
+        return "failed", "armed stream produced no deltas — streaming never engaged"
+    if delta_count < 2:
+        return "failed", "a single terminal burst is not a stream (1 delta)"
+    if total_s > 0 and first_delta_s >= 0.9 * total_s:
+        # Many deltas, ALL landing at the end of the turn: the server did
+        # stream (frames exist) but an intermediary delivered them as one
+        # terminal burst. Client-agnostic (raw `curl -N` through the lobes
+        # gateway shows the same signature, probed 2026-07-10), so this is
+        # rig-side — SKIP honestly like the stt/tts-502 voice-lane precedent,
+        # never a colleague regression verdict. Colleague-side incrementality
+        # stays pinned by the fake-SSE-server unit tests.
+        return (
+            "skipped",
+            f"stream delivered as one terminal burst ({delta_count} deltas, "
+            f"first at {first_delta_s:.2f}s of a {total_s:.2f}s turn) — an "
+            "intermediary (gateway proxy) buffers SSE; rig-side, not a "
+            "colleague regression",
+        )
+    if first_delta_s <= first_target or first_delta_s <= 0.5 * total_s:
+        return (
+            "passed",
+            f"first delta at {first_delta_s:.2f}s of a {total_s:.2f}s turn "
+            f"({delta_count} deltas; target first<{first_target:.0f}s)",
+        )
+    return (
+        "failed",
+        f"first delta arrived late: {first_delta_s:.2f}s into a {total_s:.2f}s "
+        f"turn ({delta_count} deltas; target first<{first_target:.0f}s or <50% "
+        "of the turn)",
+    )
 
 
 def classify_front_latency_check(latencies: list[float], *, target: float = 3.0) -> tuple[str, str]:

@@ -1,0 +1,353 @@
+{
+  "slug": "colleague-now-feels-alive-while-it-works-model-out",
+  "title": "Colleague now feels alive while it works: model output streams in token-by-token instead of arriving in silent blocks, the interactive session shows live state and reactivity so you feel the agent working, a first-class coherence command measures the coherence of colleague's own work via coherence-cli, and CLAUDE.md shrank from a wall of history to a readable brief.",
+  "frame_slug": "colleague-now-feels-alive-while-it-works-model-out",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-10T14:53:57Z",
+  "updated": "2026-07-10T14:58:11Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague now feels alive while it works: model output streams in token-by-token instead of arriving in silent blocks, the interactive session shows live state and reactivity so you feel the agent working, a first-class coherence command measures the coherence of colleague's own work via coherence-cli, and CLAUDE.md shrank from a wall of history to a readable brief."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "each announcement thread lands as a verifiable artifact: streamed tokens on a live run, a visibly reactive cockpit, a working 'colleague coherence' verb, and a brief CLAUDE.md \u2014 no thread is quietly dropped"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "the operator driving colleague interactively (session, work, talk) \u2014 and secondarily agent callers who read artifacts and docs"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "no interactive gain costs the agent caller anything: --json, piped, and off-TTY output is pinned byte-identical by tests"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "a model turn arrives as one silent block: only phase notices (#206) break minutes of quiet, so a slow completion is indistinguishable from a stall until it ends; CLAUDE.md is a 158KB wall of accreted history that taxes every session's context; coherence exists only as a hidden advisory gate on changed .md files; the cockpit shows steps, never the model actually generating"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the before-state is reproduced live before building (a timed run showing full-turn silence, wc -c CLAUDE.md, the absent coherence noun) \u2014 fixes target reproduced frictions, not assumed ones"
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "model output streams in token-by-token on the live surfaces, the session cockpit visibly reacts while the model generates, a first-class 'colleague coherence' command measures colleague's own work on demand, and CLAUDE.md is a readable brief that points at docs/features/ for depth"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "every after-state clause maps to at least one requirement claim carrying its own confirmed honesty condition"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "delegation trust is felt, not just reported: an operator who sees tokens arriving knows the agent is alive, catches derailment early instead of after a wasted turn, and a lean CLAUDE.md stops taxing ~40K tokens of context from every future session in this repo"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the context-tax claim is measured, not asserted: CLAUDE.md token cost is counted before and after the cut and recorded in the PR"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "streaming is display-only: TaskResult, the artifact, and every off-TTY/piped/--json surface stay byte-identical \u2014 an agent caller sees no change"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "a run that streams and a run that doesn't produce equal TaskResult dicts on mock (test-pinned); no new artifact key appears for display-only behavior"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "no new base dependency and no TUI framework: SSE consumption is stdlib urllib line-iteration in the engine; renderer gaps are filed upstream in agentfront (the #249/#285 rule), never forked locally"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "test_zero_deps.py stays an allow-list of exactly agentfront; if a renderer gap appears it becomes a filed agentfront issue linked from the PR, never a forked renderer module"
+    },
+    {
+      "id": "c10",
+      "kind": "success_signal",
+      "text": "watching a live run, the first visible model output lands within ~1-2s of a completion starting instead of after the full turn; a stalled server is visually distinct from a thinking model"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "time-to-first-visible-output is measured on the live rig and recorded in docs/live-testing.md; an unreachable server yields a distinct 'no stream' state, not an indistinguishable silence"
+    },
+    {
+      "id": "c11",
+      "kind": "success_signal",
+      "text": "CLAUDE.md drops from 158KB to a brief (target <=25KB) with zero information lost \u2014 every trimmed part survives as a docs/features/ or docs/specs/ pointer; 'colleague coherence' returns a scored JSON payload on a real finished work item"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "wc -c CLAUDE.md is at or under the target after the cut; the doc-alignment verification is run and its result recorded; the coherence verb is live-proven against a real finished work item"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "token-streaming: the vLLM engine requests stream:true and consumes the SSE chunk stream via stdlib urllib; a runtime-owned token sink (an extension of the existing #38 progress-sink contract) receives incremental text deltas; the all-engines rule holds \u2014 mock emits a synthetic delta stream so the contract is testable without a live server"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "on mock, the same task run streamed and non-streamed yields an identical TaskResult; under live streaming, usage tokens still come verbatim from the server (stream_options include_usage) or are honestly omitted \u2014 never estimated"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "live visibility: the session cockpit and work --tui render streamed deltas as they arrive (a live-updating tail line or panel, throttled redraw), replacing the static 'thinking\u2026' phase notice with visible generation; the #206 invariant holds \u2014 deltas never advance step_count and never land in the events sink or tui replay"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "off-TTY / piped / --json surfaces are byte-identical with streaming enabled (test-pinned), and a delta never advances step_count nor appears in the events sink / tui replay (the #206 invariant, test-pinned)"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "coherence command: a new 'colleague coherence' CLI noun (e.g. score/show/overview) shells out to the operator-installed coherence CLI (same allow-list pattern as the #294 gate, embed_env injected) to measure a work item's outputs \u2014 its summary/artifact and changed docs \u2014 on demand, reusing colleague/coherence.py's scoring seam rather than duplicating it"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "with no coherence CLI installed the command reports a clean actionable skip (never a traceback), and every emitted score carries its embedding-frame provenance exactly as the #294 gate records it"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "CLAUDE.md reduction: each architecture part shrinks to a few-line summary + a pointer to its existing docs/features/ or docs/specs/ file (creating the feature doc where one is missing); the conventions/scope sections stay authoritative; no fact is deleted without a surviving pointer"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "a doc-alignment pass verifies every fact trimmed from CLAUDE.md survives at the named pointer target; the tests, lint, and teken rubric gates stay green after the cut"
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "streaming degrades, never breaks: a server without SSE support, a mid-stream disconnect, or a non-TTY consumer falls back to today's blocking completion path with the same TaskResult; backpressure latency measurement and /tokenize counting keep working under streaming"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "a mid-stream disconnect or SSE-refusing server degrades to the existing blocking path within the bounded retry budget and the run still completes with an honest TaskResult \u2014 proven by a test that kills the stream mid-turn"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Reproduce the before-state live: a timed run on the rig showing full-turn silence between phase notices, wc -c CLAUDE.md (158454), and the absent 'colleague coherence' noun \u2014 recorded as the plan's baseline evidence",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a dated baseline note (docs or plan notes) records the three reproduced frictions with real numbers: seconds of silence on one completion, CLAUDE.md bytes, 'colleague coherence' exiting with unknown-command"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h8"
+      ],
+      "instruction": "read-only: run one timed 'colleague work' against the rig noting seconds between phase notices; wc -c CLAUDE.md; run 'colleague coherence' expecting unknown-command; write the numbers into a dated baseline section of the plan notes or docs/live-testing.md"
+    },
+    {
+      "id": "t2",
+      "summary": "vLLM SSE streaming: when (and only when) a delta sink is armed, the vLLM engine requests stream:true + stream_options include_usage and parses the SSE chunk stream incrementally over stdlib urllib, feeding deltas to the seam; usage stays verbatim-from-server or honestly absent",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [
+        "a fake-SSE-server test proves incremental parsing: deltas arrive before the stream closes and the assembled ModelResponse (content, reasoning, tool calls, usage) equals the blocking-path equivalent",
+        "no delta sink armed sends NO stream field on the wire (byte-identical request)",
+        "tool-call chunks are accumulated correctly across SSE deltas (the OpenAI incremental tool_calls shape) and usage tokens are never estimated"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c12",
+        "h12",
+        "c7"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t3",
+      "summary": "Runtime token-delta seam + mock stream: extend the runtime completion path (ContextControls / progress-sink family) with an optional on_delta callback engines feed incremental text into; the mock engine emits a synthetic delta stream; no callback armed = exactly today's code path; deltas never reach the flight feed (heartbeat-only, operator decision c18)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with no delta sink armed, TaskResult.to_dict on mock is byte-identical to pre-change for the same task (test-pinned)",
+        "with a delta sink armed on mock, the sink receives ordered deltas whose concatenation equals the final message content, and TaskResult.to_dict is STILL identical to the unstreamed run",
+        "a delta never advances step_count and never lands in the events sink or the flight feed (test-pinned); boundary + zero-deps tests stay green"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h1",
+        "h11",
+        "c6"
+      ],
+      "instruction": "touch colleague/loop.py (+ContextControls), colleague/engines/mock.py, maybe colleague/contract.py: add an optional on_delta callback threaded config->ContextControls->completion call; mock emits its final content as N synthetic deltas when armed; TDD-pin unarmed byte-identity, delta ordering/concat equality, step_count/events/flight invariance; keep tests/test_boundary.py + test_zero_deps.py green"
+    },
+    {
+      "id": "t4",
+      "summary": "vLLM SSE streaming: when (and only when) a delta sink is armed, the vLLM engine requests stream:true + stream_options include_usage and parses the SSE chunk stream incrementally over stdlib urllib, feeding deltas to the t3 seam; usage stays verbatim-from-server or honestly absent",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a fake-SSE-server test proves incremental parsing: deltas arrive before the stream closes and the assembled ModelResponse (content, reasoning, tool calls, usage) equals the blocking-path equivalent",
+        "with no delta sink armed the wire request carries NO stream field (byte-identical request, test-pinned)",
+        "tool-call chunks accumulate correctly across SSE deltas (the OpenAI incremental tool_calls shape); usage tokens come verbatim from the final usage chunk or are honestly absent \u2014 never estimated"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c12",
+        "h12",
+        "c7"
+      ],
+      "instruction": "touch colleague/engines/vllm_openai.py + colleague/config.py only: when controls carry an armed delta sink, POST with stream:true + stream_options{include_usage:true}, iterate response lines (SSE 'data:' frames) over stdlib urllib, accumulate content/reasoning/tool_calls deltas into the same ModelResponse shape; build a fake SSE HTTP server fixture in tests; never send stream when unarmed"
+    },
+    {
+      "id": "t5",
+      "summary": "Streaming degradation: a mid-stream disconnect, malformed SSE, or a server refusing stream:true routes through classify_degradable and falls back to the blocking completion within the same turn's bounded retries; backpressure latency measurement and /tokenize counting keep working under streaming",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test that kills the fake SSE stream mid-turn sees the turn complete via the blocking fallback and the run end with an honest TaskResult",
+        "a server that 400s on stream:true is retried without streaming in the same turn and the failure is never surfaced as a run error",
+        "per-turn latency recorded by backpressure under streaming measures full-turn wall clock (same semantics as today, test-pinned)"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c16",
+        "h5"
+      ],
+      "instruction": "touch colleague/context.py (classify_degradable) + the vLLM stream reader: wrap stream consumption so IncompleteRead/socket error/malformed SSE raises a degradable classification; the same turn retries blocking (no stream field); a 400 mentioning stream retries blocking immediately; keep _timed_complete latency = full-turn wall clock"
+    },
+    {
+      "id": "t6",
+      "summary": "Cockpit live tail: both live sinks (session _WorkSink + work --tui CockpitProgressSink) render armed deltas as a throttled live-updating tail on the cockpit STATUS surface (the fold_phase pattern), replacing the static 'thinking\u2026' notice with visible generation while a completion runs; off-colour-TTY / piped / --json / --no-tui sessions never arm the sink",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on a colour TTY the STATUS line visibly updates with the generation tail while a (mock synthetic) completion streams, and clears to the normal status on turn end",
+        "off-TTY / piped / --json surfaces are byte-identical with streaming enabled (test-pinned): the sink is never armed there",
+        "redraws are throttled (a bounded repaint rate, no per-token full-screen repaint) and no colleague-side fork of an agentfront renderer appears \u2014 a genuine renderer gap becomes a filed agentfront issue linked from the PR"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c13",
+        "h2",
+        "c2",
+        "h7"
+      ],
+      "instruction": "touch colleague/cli/_commands/_tui_sink.py + session.py (+cockpit_run.py if needed): arm the delta sink only on the colour-TTY live-cockpit paths; fold the accumulated tail (last ~80 chars) onto state.status.message like fold_phase; throttle repaints to ~4/s by delta count or chunk size (no clock thread); clear on turn end; pin off-TTY byte-identity"
+    },
+    {
+      "id": "t7",
+      "summary": "The 'colleague coherence' CLI noun: new colleague/cli/_commands/coherence.py with register_into(app) (verbs: score PATH.../show TASK-ID/overview, --json everywhere), reusing colleague/coherence.py's scoring seam + embed_env injection to measure a work item's summary artifact and changed docs on demand; advisory always, never a gate; explain catalog entry added",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "'colleague coherence score <file.md>' returns the scored JSON payload with embedding-frame provenance on a machine with the coherence CLI installed",
+        "'colleague coherence show <task-id|last>' scores a finished work item's summary + changed docs from its artifact and renders per-file scores",
+        "with no coherence CLI installed every verb reports a clean actionable skip (exit 0 on overview, structured error with remediation on score/show) \u2014 never a traceback",
+        "cross-surface parity holds (registry == MCP catalog == learn catalog, existing test) and the noun appears in explain"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h3"
+      ],
+      "instruction": "new file colleague/cli/_commands/coherence.py (register_into(app) + register(sub)): verbs score PATH... / show TASK-ID|last / overview; reuse colleague/coherence.py's single-file scoring helper + colleague/lobes.py embed_env; resolve artifacts via colleague/artifact.py find_artifact/read_request; add explain catalog entry; degrade to clean skip when shutil.which('coherence') is None"
+    },
+    {
+      "id": "t8",
+      "summary": "CLAUDE.md cut to a <=25KB brief: each architecture part shrinks to a few-line summary + a pointer to its docs/features/ or docs/specs/ file (creating the missing feature docs); conventions + scope + commands stay authoritative inline; no fact deleted without a surviving pointer; before/after byte+token counts recorded in the PR",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "wc -c CLAUDE.md <= 25600 after the cut",
+        "a doc-test-alignment pass over the reduced CLAUDE.md + new feature docs finds no orphaned fact: every trimmed part's content survives at its named pointer target",
+        "markdownlint, pytest, and the teken rubric gate stay green; before/after byte and token counts appear in the PR description"
+      ],
+      "deps": [],
+      "covers": [
+        "c15",
+        "h4",
+        "h10",
+        "c5"
+      ],
+      "instruction": "edit CLAUDE.md only + create missing docs/features/*.md: for each architecture bullet keep 3-6 lines (what it is, the one rule, the pointer); keep conventions/scope/commands sections intact; move deep detail verbatim into the feature doc it points at; run markdownlint + the doc-test-alignment skill; record byte/token counts"
+    },
+    {
+      "id": "t9",
+      "summary": "Live proofs + livecheck: measure time-to-first-visible-delta on the live rig vs the full-turn baseline (docs/live-testing.md rows), prove the dead-server path renders a distinct no-stream state, live-prove 'colleague coherence' against a real finished work item, and verify every announcement thread landed (streamed run, reactive cockpit, coherence verb, brief CLAUDE.md)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/live-testing.md gains dated rows: first-delta latency (target ~1-2s vs full-turn baseline from t1), the coherence verb's live payload, and the CLAUDE.md before/after numbers",
+        "an unreachable/stalled server yields a visually distinct no-stream state, not silence (proven live or via the fake server)",
+        "each after-state clause traces to its landed requirement in the PR description; a livecheck classifier SKIPs honestly when the rig is unreachable"
+      ],
+      "deps": [
+        "t1",
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ],
+      "covers": [
+        "c1",
+        "h6",
+        "c4",
+        "h9",
+        "c10",
+        "h13",
+        "c11",
+        "h14"
+      ],
+      "instruction": "extend colleague/livecheck.py with a streaming check (classify from evidence, SKIP honestly when rig unreachable); run the live rig proof: first-delta latency vs t1 baseline, dead-server distinct state, 'colleague coherence show last' on a real artifact; append dated rows to docs/live-testing.md"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "the live tail may hit a genuine agentfront renderer gap (partial-line repaint); fallback is colleague-side composition on the STATUS surface, upstream issue filed only if needed (the #249 rule)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6"
+    },
+    {
+      "id": "r2",
+      "text": "the served rig's vLLM version must support stream_options include_usage and streamed tool_calls; fake-SSE-server tests carry v1 correctness, t9 verifies live and SKIPs honestly if the rig lags",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9"
+    },
+    {
+      "id": "r3",
+      "text": "v2 candidates deliberately out of this plan: throttled delta chunks on the flight feed, streaming for senses/deepthink tools-off turns, coherence signal/trend over run history",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

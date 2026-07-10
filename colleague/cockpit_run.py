@@ -7,6 +7,7 @@ clock reads — all timestamps and elapsed values are passed in by the caller.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -239,3 +240,108 @@ def status_line(
         parts.append(_format_elapsed(elapsed_seconds))
 
     return " · ".join(parts)
+
+
+# ── Delta tail (feels-alive arc, task t6) ───────────────────────────
+
+# Deliberately NOT importing ``agentfront.taui.colors.strip_ansi`` here even
+# though it does the same job (``_tui_sink.py`` already imports it): this
+# module is pinned agentfront-free by ``tests/test_cockpit_run.py``'s
+# ``TestModuleBoundary.test_no_agentfront_import`` (a genuine "pure module"
+# boundary, predating this task), so the escape-stripper regex is duplicated
+# here rather than forking/depending on agentfront's renderer layer.
+#
+# Terminal-control injection is NOT limited to CSI (Qodo #318 review, comment
+# 3560546638): a model-emitted OSC (``ESC]52;…`` writes the CLIPBOARD; title
+# changes, hyperlinks) or a bare Fe escape must never reach the operator's
+# terminal through the streamed tail. The stripper removes, in one pass:
+# CSI (``ESC[…final``, incl. the 8-bit ``\x9b`` form), OSC (``ESC]…`` up to
+# BEL or ST), and single-character Fe escapes (``ESC @-_``). Belt-and-braces,
+# ``sanitize_delta_chunk`` then drops any RESIDUAL C0 control byte (a
+# sequence split across two delta chunks leaves a dangling ``ESC`` that no
+# complete-sequence regex can classify) — no control byte ever survives.
+_ANSI_RE = re.compile(
+    r"(?:\x1b\[|\x9b)[0-9;?]*[ -/]*[@-~]"  # CSI (7-bit and 8-bit forms)
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?"  # OSC, BEL/ST-terminated or dangling
+    r"|\x1b[@-_]"  # single-character Fe escapes
+)
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x9b]")
+_NEWLINE_RE = re.compile(r"[\r\n]+")
+
+#: Trailing window of streamed text kept for display (characters). Display
+#: only — never the full accumulated turn, never persisted.
+DELTA_TAIL_CHARS = 80
+
+#: Repaint throttle: fold+redraw at most once per this many accumulated
+#: characters — never a per-token/per-chunk full-screen repaint.
+DELTA_REPAINT_THRESHOLD = 48
+
+
+@dataclass(frozen=True)
+class DeltaTail:
+    """Accumulated in-progress generation text for ONE completion turn.
+
+    Display-only: a trailing window of the current turn's streamed answer.
+    Reset (a fresh ``DeltaTail()``) whenever the next real step/phase event
+    arrives — a delta never becomes a work step or a feed line (the same
+    #206 invariant ``fold_phase`` holds for a phase notice), and a fresh
+    completion always starts a fresh tail.
+    """
+
+    text: str = ""
+    pending_chars: int = 0
+
+
+def sanitize_delta_chunk(chunk: str) -> str:
+    """Sanitize ONE streamed delta chunk for safe single-line display.
+
+    Strips terminal escape sequences — CSI (7- and 8-bit), OSC (clipboard/
+    title/hyperlink injection), and single-character Fe escapes — collapses
+    any run of CR/LF into a single space (a raw newline would visually break
+    the one-line STATUS surface), then drops any residual C0 control byte so
+    a sequence split across chunk boundaries can never leak a live ``ESC``
+    to the terminal. Pure — no I/O.
+    """
+    return _CONTROL_RE.sub("", _NEWLINE_RE.sub(" ", _ANSI_RE.sub("", chunk)))
+
+
+def fold_delta(tail: DeltaTail, chunk: str, *, width: int = DELTA_TAIL_CHARS) -> DeltaTail:
+    """Fold ONE streamed delta chunk onto *tail* (pure — never mutates *tail*).
+
+    Sanitizes *chunk* first (:func:`sanitize_delta_chunk`), appends it, and
+    keeps only the trailing *width* characters — a display "tail", not an
+    accumulating log. ``pending_chars`` counts characters folded since the
+    last repaint (:func:`should_repaint_delta`); cleared separately by
+    :func:`mark_delta_rendered` so a caller can throttle repaints without
+    losing already-accumulated tail text.
+    """
+    sanitized = sanitize_delta_chunk(chunk)
+    combined = (tail.text + sanitized)[-width:] if width > 0 else ""
+    return DeltaTail(text=combined, pending_chars=tail.pending_chars + len(sanitized))
+
+
+def should_repaint_delta(tail: DeltaTail, *, threshold: int = DELTA_REPAINT_THRESHOLD) -> bool:
+    """Whether *tail* has accumulated enough pending characters to repaint.
+
+    Count-based throttling only — no clock, no timer (the feels-alive arc's
+    constraint: a slow/fast stream repaints at the same CADENCE of
+    characters, never a wall-clock cadence).
+    """
+    return tail.pending_chars >= threshold
+
+
+def mark_delta_rendered(tail: DeltaTail) -> DeltaTail:
+    """Return *tail* with its repaint counter cleared (pure) — a repaint just
+    happened, so the next one waits for another *threshold* worth of chars."""
+    return DeltaTail(text=tail.text, pending_chars=0)
+
+
+def delta_status_message(tail: DeltaTail) -> str:
+    """Compose the STATUS-surface message for a live-generating *tail*.
+
+    Reads ``generating… <tail text>`` (or the bare prefix while the tail is
+    still empty) — folded onto the SAME status surface a phase notice uses
+    (:func:`fold_phase` in ``colleague/cli/_commands/_tui_sink.py``), never a
+    new renderer surface.
+    """
+    return f"generating… {tail.text}" if tail.text else "generating…"

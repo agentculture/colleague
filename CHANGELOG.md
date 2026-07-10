@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.0] - 2026-07-10
+
+### Added
+
+- Token-streaming: the vLLM engine consumes SSE (`stream:true` + `stream_options include_usage`) over stdlib urllib when a delta sink is armed, feeding an optional runtime `EngineConfig.on_delta` seam; the mock engine emits a synthetic delta stream (all-engines rule). Unarmed runs are byte-identical (no `stream` key on the wire); usage tokens stay verbatim-from-server or honestly absent, never estimated (feels-alive arc, tasks t3/t4).
+- Cockpit live generation tail: both live cockpit surfaces (`colleague session` and `work --tui`) fold a throttled tail of the model's in-progress generation onto the STATUS line (the `fold_phase` pattern) — visible generation instead of a silent `thinking…`; off-TTY/piped/`--json` never arm and stay byte-identical; deltas never advance `step_count` or reach the events sink/flight feed (t6).
+- `colleague coherence` CLI noun (score/show/overview): on-demand coherence measurement of markdown files and finished work items via the operator-installed coherence CLI, reusing the #294 gate's scoring seam + lobes embed relay — advisory, never a gate; clean actionable skip when the CLI is absent (t7, colleague-built).
+- Streaming livecheck: `classify_streaming_check` + a gated live proof (`tests/test_vllm_live_streaming.py`, registered in the livecheck ledger) grading first-delta latency from wall-clock evidence — honest SKIP on an unreachable rig and on the terminal-burst signature of an SSE-buffering intermediary (t9).
+
+### Changed
+
+- CLAUDE.md cut from 158,454 to 25,564 bytes (~39.6K → ~6.4K est. tokens of per-session context): each architecture part is now a few lines + a pointer to its feature doc; all trimmed detail relocated verbatim into docs/features/ (t8; operator decision c17).
+- Streaming degrades, never breaks: a mid-stream disconnect, malformed SSE frame, missing terminal frame, or a stream-refusing server (400/422 naming stream) falls back to ONE blocking request within the same turn; backpressure still measures one wall-clock span per turn (t5).
+
+### Fixed
+
+- `lobes.embed_env` now folds the embedder role's advertised path prefix (`/v1`) into the relayed `EIDETIC_EMBED_URL`/`COHERENCE_EMBED_URL` base — a bare-origin relay 404'd both the #294 coherence gate and the new coherence verb on the real rig.
+- Delta-stream arming defaults opt-OUT for external progress sinks (an opt-in default crashed the resident appserver's sink on the missing `on_delta` attribute).
+- `coherence show` rendered signature fixed to `(ref, repo='.')` so `colleague coherence show last` works; `coherence score` accepts the single path string the rendered surface passes (the agentfront registry has no variadic positionals) and resolves paths absolute before scoring.
+
 ## [1.44.0] - 2026-07-10
 
 ### Added

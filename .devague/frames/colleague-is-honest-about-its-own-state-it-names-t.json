@@ -1,0 +1,577 @@
+{
+  "slug": "colleague-is-honest-about-its-own-state-it-names-t",
+  "title": "Colleague is honest about its own state: it names the config it actually loaded and the models it actually resolved, answers questions about itself without waking cortex, and never erases what you are typing",
+  "schema_version": 2,
+  "status": "drafting",
+  "created": "2026-07-09T17:00:24Z",
+  "updated": "2026-07-09T17:53:30Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague is honest about its own state: it names the config it actually loaded and the models it actually resolved, answers questions about itself without waking cortex, and never erases what you are typing",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Every claim colleague makes about its own state is derived from the same code path that produced the state \u2014 there is no second, hand-maintained copy of the truth that can disagree",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The operator driving colleague interactively at a TTY, plus any agent caller that reads colleague's introspection verbs to decide what is armed",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Colleague resolves config and model ids it will not admit to: 'lobes show' says not_configured while 'config show' says armed; 'config show' prints config_file (none) while reading that file; senses answers 'I do not know which model I am' though the ids sit in EngineConfig; and every cockpit repaint erases the operator's half-typed line",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Every introspection surface reports the same resolved truth with its provenance (which file or env var supplied it); senses answers self-questions from resolved runtime facts plus the live guide with cortex unreachable; and a work item's repaint never destroys operator input",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "An operator cannot trust a harness that misreports its own configuration. The lobes arming gap went unnoticed for an entire arc precisely because the verb documented as the arming check reported 'not configured' while the runtime was armed",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Not a new config feature: machine-global defaults via ~/.colleague/config.json already work (configdir.resolve_file searches repo then user home). This arc surfaces and documents that path, it does not build a new one",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "Not the excluded router: the self-knowledge route stays deterministic (classify_frontdoor precedent), senses stays tools-off and answer-only, cortex remains the only repo actor, and no per-input model judgment picks a model",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q8",
+          "text": "contradiction with c19?",
+          "resolved": false,
+          "blocking": true
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c8",
+      "kind": "non_goal",
+      "text": "No new base dependency (agentfront stays the only one); no readline/prompt_toolkit/curses; no threads outside the sanctioned subagents.py; no daemon or socket",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c9",
+      "kind": "success_signal",
+      "text": "With cortex's endpoint unreachable, 'what model are you running right now?' names the resolved cortex and senses model ids; 'lobes show' and 'config show' never disagree; and text typed during a running work item stays on screen across repaints",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "R1 config legibility: every surface that reports resolved state ('lobes show', 'config show', 'doctor') resolves through the SAME precedence chain and names the PROVENANCE of each value (explicit flag / COLLEAGUE_* env / repo .colleague/config.json / user ~/.colleague/config.json / lobes discovery / builtin default). 'lobes show' gains --repo and reads the config.json lobes section",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A test asserts that for the SAME repo+env, 'lobes show' and 'config show' report the same armed state and the same gateway \u2014 a divergence is a test failure, not a doc note",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h2",
+          "text": "Provenance is reported for a value colleague ACTUALLY used, derived from the resolution itself \u2014 never re-guessed after the fact by re-reading the sources",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "Is 'lobes show' widened to the full precedence chain, or deprecated in favour of 'config show' as the single authoritative armed signal? Two verbs reporting arming is what produced the contradiction.",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "R2 input preservation: while a work item runs, an operator's in-progress keystrokes remain visible and intact across every cockpit repaint, senses update, and phase notice \u2014 no character is lost and none is visually erased",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Zero keystrokes are lost: a character typed at any moment during a run (including mid-repaint) still reaches the guidance injection \u2014 the existing verbatim-operator-words invariant holds at the terminal layer too",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h4",
+          "text": "The fix introduces no thread and no clock: it stays inside the cooperative progress-sink boundary design, or the departure is recorded as a deliberate convention change",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "To redraw a half-typed line colleague must OWN the input buffer, which means raw mode and per-character polling. But _poll_talk_lane deliberately relies on cooked mode so 'select' only fires on Enter. Which way: (a) raw mode during a run, (b) an ANSI scroll region pinning the input line outside the repainted area, (c) stop full-screen clearing and append-only render?",
+          "resolved": false,
+          "blocking": false
+        },
+        {
+          "id": "q6",
+          "text": "risk: Raw mode during a run risks regressing the off-TTY / piped / --json session paths that presence-default-everywhere made byte-identical, and the tests in test_presence_pin_breaks.py pin that surface",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "R3 self-knowledge without cortex: colleague answers questions about its own architecture and its own resolved runtime state (model ids, armed gateway, enabled gates) from senses alone, with cortex unreachable, and never fabricates a fact it cannot resolve",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A live proof runs with cortex's base_url pointed at a dead port and still gets a correct model-id answer from senses \u2014 proving self-knowledge does not route through cortex",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h6",
+          "text": "Colleague never states a runtime fact it did not resolve: an unarmed gateway yields 'not armed', not an invented model id \u2014 absence is reported as absence (the honest-incompletion precedent)",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h7",
+          "text": "Self-knowledge context is loaded only on a self-knowledge turn: the base-context prompt size for an ordinary repo turn is unchanged (assertable, per issue 306's acceptance sketch)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "Where do deep self-knowledge facts come from: (a) generated from docs/features + CLAUDE.md at build time, (b) a curated skill pointing the role at live docs it reads on demand, (c) the parked #277 embedder/reranker retrieval lane over the guide corpus?",
+          "resolved": false,
+          "blocking": false
+        },
+        {
+          "id": "q3",
+          "text": "Does this arc build issue 306's dedicated 'guide' ROLE (BUILTIN_ROLES + curated skills, loaded only when relevant), or only inject resolved runtime self-facts into the existing senses front-door answer path?",
+          "resolved": false,
+          "blocking": false
+        },
+        {
+          "id": "q5",
+          "text": "Operator said 'even without Qwen working'. Does that mean cortex-unreachable-but-senses-armed, or ALSO senses-unarmed (no model at all)? The latter demands a deterministic, model-free self-answer path \u2014 a different feature from a senses answer",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "R4 freshness: the self-knowledge fact-set does not silently drift from the guide it describes \u2014 either it is derived from the live guide, or a drift check fails loudly in CI",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "A CI check fails when the guide changes without the fact-set following \u2014 drift is caught by the gate, not by a reviewer noticing",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q7",
+          "text": "risk: A build-time generated fact-set adds a generation step to the build; a live-doc-reading role adds file I/O to a tools-off completion path that is currently structurally pure (senses.py imports neither ToolExecutor nor subprocess \u2014 a boundary test pins this)",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c14",
+      "kind": "assumption",
+      "text": "The reference rig stays reachable at localhost:8001 serving cortex=Qwen3.6-27B and senses=gemma-4-12B, so the live proofs in this arc can actually run rather than SKIP",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c15",
+      "kind": "decision",
+      "text": "D1 typing fix: pin the input row. Stop the full-screen erase; repaint the cockpit above a reserved bottom row and park the cursor there after each paint. Cooked mode and kernel echo are retained, so no keystroke is lost, with no raw mode, no thread, and no clock",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c16",
+      "kind": "decision",
+      "text": "D2 self-knowledge is a MOVE, not a branch: senses has an enumerated coordination move surface (senses_moves.py). Operating cortex ('dispatch_to_cortex') is one move; answering about colleague itself is another, sibling move. 'Without Qwen working' therefore means the dispatch move is unavailable while the self-knowledge move still is",
+      "origin": "user",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c17",
+      "kind": "decision",
+      "text": "D3 sourcing: self-knowledge reads the LIVE guide at answer time (docs/features, CLAUDE.md) rather than any second, hand-maintained copy. The read happens in the CALLER, not in senses.py, so the pinned boundary (senses imports neither ToolExecutor nor subprocess) survives. No copy means no drift",
+      "origin": "user",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c18",
+      "kind": "decision",
+      "text": "D4 scope: this arc closes issue 306 AND unparks the issue 277 embedder/reranker retrieval lane, applied over colleague's own guide corpus",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "Not the excluded router (restated under D2): the move surface is FIXED and enumerated in one place (MOVE_SCHEMA); senses' judgment selects among ITS OWN coordination moves, never among models or backends for a task. Senses stays structurally tools-off (prompted-JSON, tools=[]), the executor refuses any move outside MOVES, and cortex remains the only repo actor",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A hallucinated move name never reaches an injected callback: SensesMoveExecutor refuses any name outside MOVES. Adding the self-knowledge move extends MOVE_SCHEMA in its single source, so the derived instruction, MOVES set, and executor keying cannot drift",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q9",
+          "text": "contradiction with c23?",
+          "resolved": false,
+          "blocking": true
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "R5 retrieval: colleague gains a retrieval lane over its OWN guide corpus (docs/features, docs/specs, CLAUDE.md) served by the lobes embedder and reranker roles, used ONLY to ground the self-knowledge move \u2014 a fixed role answering a fixed question class, never a general routing or retrieval policy",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "The retrieval lane is reachable ONLY from the self-knowledge move: no repo task, no cortex prompt, and no other move can invoke it \u2014 pinned by a structural test, the way senses' tools-off purity is pinned today",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h11",
+          "text": "The corpus is colleague's OWN guide only. Retrieval never indexes the operator's repo contents \u2014 a self-question can never leak repo source into a senses answer",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h12",
+          "text": "An absent or unreachable embedder degrades the self-knowledge move to ungrounded-but-honest (runtime facts plus whole-doc context), never a hard failure and never a fabricated citation \u2014 the degrade-never-raise convention",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "D5 recorded convention change: unparking 277 makes colleague an embeddings CLIENT for the first time. tests/test_boundary.py TestNoEmbeddingsConsumption currently pins that '/v1/embeddings' appears only in colleague/lobes.py and that colleague never issues an embeddings request. That pin must be deliberately amended, exactly as the agentfront base-dep, the LLM self-summary, and the background/residency re-specs were \u2014 never silently broken",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The amended boundary test still forbids embeddings consumption everywhere EXCEPT the one new sanctioned retrieval module \u2014 the allow-list shrinks to a named file, it is not deleted",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "D6 lobes show is WIDENED, not deprecated: it gains --repo and reads the config.json lobes section through the same precedence chain as config show. Both verbs survive; a test asserts they can never disagree (h1)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c23",
+      "kind": "boundary",
+      "text": "Not the excluded router (corrected, evidence-based): the GATE into the senses move-set stays the deterministic classify_frontdoor classifier, which short-circuits the CORTEX route before senses is even loaded (session.py:1561). Senses' move judgment operates only WITHIN an already-routed senses-direct turn and selects HOW to answer, never WHETHER cortex runs \u2014 in the session, dispatch_to_cortex is bound to a no-op because the session runs cortex itself (session.py:1916). Cortex remains the only repo actor; a repo turn with cortex dead reports cortex unreachable rather than letting senses take the work",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "A test asserts that classify_frontdoor alone decides the route: for any input classified CORTEX, no senses completion is issued at all \u2014 proven by the existing short-circuit, extended to cover the self-knowledge move",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h16",
+          "text": "The self_knowledge move is reachable ONLY on a senses-direct-routed turn; it can never be selected on a turn the classifier sent to cortex, and a repo-touching question never reaches it",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h17",
+          "text": "A hallucinated move name never reaches an injected callback: SensesMoveExecutor refuses any name outside MOVES. Adding the self-knowledge move extends MOVE_SCHEMA in its single source, so the derived instruction, MOVES set, and executor keying cannot drift",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "D7 SET CLAIM (not negotiable): cortex does the ground work. Senses' role is to interface the operator to cortex, with possible ROLE SELECTION. Senses never does ground work",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c25",
+      "kind": "decision",
+      "text": "D8 self-knowledge is a ROLE, not a senses move: a sixth read-only entry in roles.py BUILTIN_ROLES (alongside explorer/planner/reviewer/validator/writer), carrying a tailored prompt and a CURATED skill subset. CORTEX assumes that role and answers; senses selects the role and presents the answer. This supersedes D2",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c26",
+      "kind": "decision",
+      "text": "D9 the instruction/feature set is SMALL and curated, not the whole guide corpus. It rides the existing roles.py skill_subset plus layers.py token-capped skill curation (issue 257), inside cortex's 131072 window \u2014 so no retrieval is needed. This supersedes D3",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c27",
+      "kind": "decision",
+      "text": "D10 role selection boundary: senses may select ONLY from a FIXED, enumerated set of READ-ONLY roles (self-knowledge, explorer, reviewer). It never selects 'writer', never picks a model or a backend, and an ambiguous turn defaults to plain cortex. A structural test pins the selectable set",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "R3 (restated) self-knowledge is answered by CORTEX assuming a read-only self-knowledge role: a sixth entry in roles.py BUILTIN_ROLES with a tailored prompt and a curated instruction subset (roles.py skill_subset + layers.py token-capped curation). Senses selects the role and presents the answer; cortex does the ground work; the role provably cannot mutate the tree",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "Colleague never states a fact it did not resolve: absence is reported as absence (an unarmed gateway yields 'not armed', never an invented model id) \u2014 the honest-incompletion precedent",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h19",
+          "text": "The self-knowledge role's instruction subset is loaded ONLY when that role is selected: the base-context prompt size for an ordinary repo turn is unchanged, and is asserted to be so (issue 306's acceptance sketch)",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h20",
+          "text": "The self-knowledge role is READ-ONLY in the provable sense roles.py already enforces: it withholds write_file, edit_file and run_command, and the role-aware ToolExecutor refuses any withheld tool even if the model hallucinates the call",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c29",
+      "kind": "boundary",
+      "text": "Not the excluded router (role selection): senses selects among a fixed enumerated set of READ-ONLY cortex roles, never among models or backends. The set excludes 'writer', so senses' judgment can never authorize a repo write; ambiguity defaults to plain cortex; cortex remains the only repo actor and the only mind that does ground work",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "A structural test pins the set of roles senses may select; 'writer' is absent from it, and a senses-selected role can never reach a write-capable tool",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h22",
+          "text": "An ambiguous or unclassified turn selects no role and dispatches to plain cortex \u2014 senses' role judgment can only NARROW cortex's capability, never widen it",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Chunking + indexing strategy for the guide corpus: what unit is embedded (a doc, a CLAUDE.md bullet, a heading section), when the index is built (install time, on demand, cached where), and whether it is committed",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Terminal resize (SIGWINCH) handling for the pinned input row: the reserved bottom row must survive a resize mid-run, and colleague today installs no SIGWINCH handler",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Whether the self-knowledge move is available WHILE a cortex work item is running (it would share the live talk lane), or only at the idle front door",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Whether the reranker role is used at all, or the embedder alone suffices for a corpus this small",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "Retrieval over the guide corpus (issue 277 embedder/reranker lane) and the embeddings-client convention change: superseded by D9's small curated instruction set. tests/test_boundary.py TestNoEmbeddingsConsumption stays INTACT \u2014 colleague still relays the embedder and never consumes it",
+      "kind": "out_of_scope",
+      "claim_id": null
+    },
+    {
+      "id": "v6",
+      "text": "Whether senses selecting a cortex ROLE is itself a routing judgment: today roles are backend-judged or operator-flagged; senses picking a role for cortex is new. It picks a role, never a model or backend \u2014 but the line deserves an explicit boundary claim",
+      "kind": "unknown_blocking",
+      "claim_id": null
+    },
+    {
+      "id": "v7",
+      "text": "The operator's original 'colleague must know itself even without Qwen working' requirement is WITHDRAWN by the operator after review. Self-knowledge is ground work and needs cortex. Note for a follow-up: resolved runtime facts (model ids, armed gateway) are a pure config read that needs no model at all, so a deterministic tier could be recovered cheaply later if wanted",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ],
+  "scope_entries": []
+}

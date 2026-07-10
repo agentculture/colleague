@@ -1538,6 +1538,37 @@ class EngineConfig:
         default=None, compare=False, repr=False
     )
 
+    # Token-delta seam (feels-alive arc, task t3): an OPTIONAL per-completion
+    # sink an engine MAY call with each ordered text delta of the model's
+    # in-progress completion, before it returns the full ``ModelResponse``.
+    # Mirrors ``progress`` immediately above: a runtime-only field set
+    # imperatively by the caller (CLI/session/cockpit), never resolved from
+    # env/file/``resolve()`` — excluded from eq/repr/``to_dict`` (behavior,
+    # not serializable config). ``None`` (the default, and the ONLY state
+    # reachable through ``resolve()``) is a strict no-op: an engine that never
+    # checks ``on_delta``, or checks it and finds it ``None``, streams
+    # nothing — an unarmed run is byte-identical to the pre-seam loop.
+    #
+    # Deliberately NOT threaded through ``ContextControls``/``colleague.loop``:
+    # the loop only ever sees a completed ``ModelResponse`` (what ``complete``
+    # returns), never the raw stream a live backend receives it from — so
+    # there is nothing for the loop to forward. Each backend's OWN
+    # completion-building code already receives this ``config`` object
+    # directly (e.g. ``MockEngine.work(self, task, config)``, or the vLLM
+    # adapter's ``_make_complete(self, config, tools)``), so it reads
+    # ``config.on_delta`` itself and invokes it as the answer streams in,
+    # still returning the same ``ModelResponse`` at the end exactly as today.
+    #
+    # Intended producer (task t4): the vLLM engine's SSE stream calls this
+    # once per received content chunk as it arrives from the server.
+    # Intended producer (this task, t3): the mock engine emits synthetic
+    # word-chunk deltas of each scripted turn's ``content`` when armed (see
+    # ``colleague/engines/mock.py``), so the seam is exercisable end to end
+    # with no network.
+    # Intended consumer (task t6): the session's live cockpit sinks arm this
+    # to render tokens as they stream instead of only after a turn completes.
+    on_delta: Optional[Callable[[str], None]] = field(default=None, compare=False, repr=False)
+
     # Runtime-only spawn callback for subagent delegation; set by the work item
     # path, not by ``resolve()``; excluded from eq/repr/to_dict (it is behavior,
     # not serializable config).

@@ -291,6 +291,15 @@ def embed_env(roles: "LobesRoles", gateway_url: str) -> dict[str, str]:
     if embedder is None:
         return {}
     base_url = resolve_role_base_url(embedder, gateway_url)
+    # Honor the role's advertised path PREFIX (e.g. path="/v1/embeddings"):
+    # both downstream consumers append their own "/embeddings" to the relayed
+    # base, so a bare-origin relay loses the "/v1" and 404s (probed live
+    # 2026-07-10: {origin}/embeddings -> 404, {origin}/v1/embeddings -> 200).
+    # A path of exactly "/embeddings" (or an absent one) keeps the bare relay.
+    path = (embedder.path or "").strip()
+    suffix = "/embeddings"
+    if path.endswith(suffix) and len(path) > len(suffix):
+        base_url = base_url.rstrip("/") + path[: -len(suffix)]
     model = embedder.model
     return {
         "EIDETIC_EMBED_URL": base_url,

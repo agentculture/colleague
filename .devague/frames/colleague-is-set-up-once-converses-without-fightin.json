@@ -1,0 +1,270 @@
+{
+  "slug": "colleague-is-set-up-once-converses-without-fightin",
+  "title": "Colleague is set up once, converses without fighting you, and knows itself",
+  "schema_version": 2,
+  "status": "drafting",
+  "created": "2026-07-09T18:00:21Z",
+  "updated": "2026-07-09T18:10:00Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague is set up once, converses without fighting you, and knows itself",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "the operator running colleague interactively on their own machine across many repos, and the agents that call colleague as a delegate",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "colleague must be armed per-repo (any repo .colleague/config.json silently shadows the whole global file), typing during a run is wiped off screen by the cockpit repaint, and colleague answers questions about itself from a hand-curated 69-line fact-set that defers on 'what model are you?'",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "colleague is armed once on the machine and inherits those defaults in every repo, an operator can type while cortex works without losing their text, and colleague answers questions about itself from its live guide plus its resolved runtime state",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "the three failures each break the illusion of a teammate: you configure it repeatedly, it talks over you, and it does not know what it is",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c6",
+      "kind": "success_signal",
+      "text": "an operator sets ~/.colleague/config.json once, opens any repo, types a question while cortex runs without losing characters, and asks 'what model are you running?' and gets the resolved cortex + senses ids",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "not a routing policy: the self-knowledge route stays a deterministic code-locked classifier, never a per-input model judgment; cortex remains the only repo actor and the guide surface stays tools-off and answer-only",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "not a TUI rewrite and not a new dependency: the input-line fix uses the termios machinery already in _session_input.py, adds no thread, no clock, and no base dep",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c9",
+      "kind": "non_goal",
+      "text": "not a secrets manager: global config gains no new credential handling beyond the api_key key that already resolves today",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c10",
+      "kind": "non_goal",
+      "text": "the #277 embedder/reranker retrieval lane stays parked; self-knowledge must not be the vehicle that lands it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c11",
+      "kind": "decision",
+      "text": "global defaults compose by KEY-LEVEL DEEP MERGE: ~/.colleague/config.json loads first, the repo's file overlays it key-by-key, repo wins per key, unmentioned keys inherit the global",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c12",
+      "kind": "success_signal",
+      "text": "zero characters are lost: a line typed across N cockpit repaints during a run arrives at senses byte-identical to what was typed, for N >= 10",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c13",
+      "kind": "success_signal",
+      "text": "an ordinary non-self-knowledge turn carries 0 extra prompt tokens of guide text \u2014 the guide is loaded only on a self-knowledge route",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "config resolution deep-merges ~/.colleague/config.json under the repo's .colleague/config.json key-by-key, so a repo file setting only 'model' still inherits the global 'lobes' gateway",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "risk: deep-merge silently arms senses in a repo that has a config.json and a global lobes gateway; the operator decision is to merge and emit a one-time stderr notice naming the inherited keys and their source file",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "colleague lobes show reports the same armed state colleague's runtime actually resolves (env > repo config.json > user config.json), and accepts --repo, so it can never contradict colleague config show",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "during a running work item the interactive session owns the input line: characters typed while the cockpit repaints remain visible and are delivered intact to the talk lane on Enter",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "does entering raw mode for the duration of a running work item break Ctrl-C / SIGINT handling, the #222 interrupt-safety WIP sweep, or the off-TTY byte-identical guarantee?",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "a deterministic self-knowledge route loads a guide surface that answers from colleague's live guide and its RESOLVED runtime state (cortex/senses model ids, armed gateway, which gates are on), and that surface is absent from every other turn's context",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "risk: deep-merge changes existing behavior: an operator with a global lobes gateway AND a repo config.json previously got NO senses (repo file shadowed global); after the merge that repo silently gains senses. A behavior flip must be recorded, not silent.",
+          "resolved": false,
+          "blocking": false
+        },
+        {
+          "id": "q3",
+          "text": "if the harness deterministically reads a doc file and injects it into a tools-off senses completion, is senses still 'tools-off and never reads the repo' \u2014 or does harness-side file reading breach the cortex-is-the-only-repo-actor line?",
+          "resolved": false,
+          "blocking": false
+        }
+      ],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c18",
+      "kind": "assumption",
+      "text": "the whole guide corpus (~150,013 tok: CLAUDE.md ~38,399 + 65 feature docs ~111,614) CANNOT fit senses' 24,000-token budget or its 32,768 window; but every INDIVIDUAL feature doc fits (median 1,714 tok, max 5,019 tok), so a deterministic per-turn doc SELECTION is the only sourcing option that keeps senses tools-off and #277 parked",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c19",
+      "kind": "decision",
+      "text": "self-knowledge sourcing (operator decision, supersedes the three proposed options): a DEEP guide question is answered by CORTEX, not senses \u2014 cortex has the 131,072-token window and the read_file tool, so it reads the LIVE guide (zero drift by construction), renders the answer as an HTML page, and SENSES speaks back conversationally with a link to that page",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "the tier boundary between an instant senses answer and a cortex-authored page is DETERMINISTIC and code-locked (an extension of classify_frontdoor), never a per-input model judgment about whether an answer is 'big'",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "cortex authoring a self-knowledge page writes ONLY the page (a gitignored path beside the run) and performs no git handoff \u2014 no branch, no commit, no PR \u2014 so asking colleague about itself never mutates the operator's repo or history",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": []
+}

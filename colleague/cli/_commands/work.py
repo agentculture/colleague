@@ -489,6 +489,39 @@ def _announce_flight(task: Task, repo: Path, progress_sink: "CockpitProgressSink
         )
 
 
+def _arm_delta_stream(config: EngineConfig, cockpit_sink: object) -> None:
+    """Arm the token-delta seam on a genuinely live-rendering cockpit sink (t6).
+
+    Live generation tail (feels-alive arc): arms the runtime's optional
+    token-delta seam (`EngineConfig.on_delta`, task t3) on the two live
+    cockpit surfaces ONLY. *cockpit_sink* is non-None exactly when
+    `build_progress` built or was HANDED a rendering cockpit (the same
+    `cockpit_active` gate the visual redraw uses — an explicit `--tui` or an
+    auto-detected colour TTY). `wants_delta_stream` lets the session's own
+    `_WorkSink` additionally decline when its dynamic ANSI tier isn't the one
+    drawing (a piped/`--json`/Markdown session still builds a `_WorkSink` for
+    bookkeeping but must never stream deltas into a frame nobody redraws).
+    The default is OPT-OUT (`getattr(..., False)`): both live cockpit sinks
+    declare the property explicitly (`CockpitProgressSink` always True,
+    `_WorkSink` tier-gated), while an EXTERNAL caller-supplied sink that never
+    heard of deltas stays unarmed (an opt-in default crashed such callers on
+    the missing `on_delta` attribute). Every other path — bare non-TTY `work`,
+    `--no-tui`, `--tui-events` alone — passes ``None``, so `config.on_delta`
+    keeps its byte-identical default. Extracted from :func:`execute_work` to
+    keep its cognitive complexity under the S3776 threshold.
+
+    The reset is UNCONDITIONAL (mirroring how ``config.progress`` is
+    overwritten every run): any long-lived caller that reuses one
+    ``EngineConfig`` across work items (the session, an embedding host) must
+    never carry a previous run's armed sink — a stale bound method — into a
+    later run whose own sink is absent or declines (Qodo #318 review, comment
+    3560546632).
+    """
+    config.on_delta = None
+    if cockpit_sink is not None and getattr(cockpit_sink, "wants_delta_stream", False):
+        config.on_delta = cockpit_sink.on_delta
+
+
 def execute_work(
     *,
     repo: Path,
@@ -641,6 +674,7 @@ def execute_work(
                 diag=emit_diagnostic,
                 external_sink=progress_sink,
             )
+            _arm_delta_stream(config, cockpit_sink)
             # Background presence (presence-default-everywhere arc, task t9):
             # wire the front-agnostic PresenceEngine onto this SAME progress-sink
             # boundary for a watched, non-session work item — a background

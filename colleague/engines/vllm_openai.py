@@ -15,12 +15,15 @@ needs the server to emit OpenAI-format tool calls.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
-from typing import Any, Callable
+from contextlib import suppress
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterator
 
 from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
@@ -38,6 +41,10 @@ from colleague.loop import (
 from colleague.senses import make_senses_run
 from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas
 
+# The one spelling of the wire content-type, referenced by every JSON POST
+# below (chat completions, the SSE stream variant, and /tokenize) — S1192.
+_CONTENT_TYPE_JSON = "application/json"
+
 
 def _post_json(
     url: str, payload: dict[str, Any], *, api_key: str, timeout: float
@@ -52,7 +59,7 @@ def _post_json(
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers={"Content-Type": _CONTENT_TYPE_JSON, "Authorization": f"Bearer {api_key}"},
     )
     try:
         with urllib.request.urlopen(
@@ -60,54 +67,11 @@ def _post_json(
         ) as response:  # nosec B310 - configured endpoint
             return json.loads(response.read().decode("utf-8"))
     except TimeoutError as exc:
-        # A read-phase timeout (the server accepted the request but didn't answer
-        # within ``timeout``) raises a bare ``TimeoutError`` — ``socket.timeout is
-        # TimeoutError`` on the >=3.12 floor — which is NOT a ``URLError`` subclass,
-        # so it would otherwise escape this function unwrapped as a cryptic "timed
-        # out". Re-raise it legibly, keeping the phrase "timed out" so the loop's
-        # request-timeout detector (``colleague.context.is_request_timeout``) matches
-        # and the degradation / auto-split path fires (#154), and naming the
-        # ``COLLEAGUE_TIMEOUT`` knob to raise for a big-context audit.
-        raise TimeoutError(
-            f"request to {url} timed out after {timeout:.0f}s — "
-            f"raise COLLEAGUE_TIMEOUT for big-context audits"
-        ) from exc
+        _raise_legible_timeout(url, timeout, exc)
     except urllib.error.HTTPError as exc:
-        # vLLM/OpenAI carry the actionable detail (e.g. "model `X` does not
-        # exist") in the response *body*, which the bare HTTPError str() drops.
-        # Re-raise the same error class with the body folded into the message so
-        # a wrong-model 404 is legible instead of "HTTP Error 404: Not Found".
-        detail = _read_error_body(exc)
-        if not detail:
-            raise
-        msg = f"{exc.msg}: {detail}"
-        if exc.code == 500:
-            msg = (
-                "the model server returned a 500 (server-side error, not a "
-                "Colleague bug) — " + msg
-            )
-            if "EngineCore" in detail or "InternalServerError" in detail:
-                msg += (
-                    " — the server likely crashed on a tool-calling request "
-                    "(a vLLM build that can't handle tools + "
-                    "speculative-decoding/FP4 at this size is the usual cause). "
-                    "Run 'colleague doctor --probe' to test tool calling, and "
-                    "check the server's --enable-auto-tool-choice / "
-                    "--tool-call-parser / speculative-decoding config."
-                )
-        raise urllib.error.HTTPError(url, exc.code, msg, exc.headers, None) from exc
+        _raise_legible_http_error(url, exc)
     except urllib.error.URLError as exc:
-        # A connection-level failure (server down/refused, DNS error, TLS) — NOT an
-        # HTTP response. HTTPError is a URLError subclass, so this clause sits
-        # *after* it and only sees the no-response case. Without it the loop would
-        # surface a cryptic "URLError: <urlopen error [Errno 111] Connection
-        # refused>"; raise a legible error that names the endpoint so a down rig or
-        # a wrong --base-url is diagnosable (mirrors the graceful URLError handling
-        # already in _tokenize_count).
-        raise ConnectionError(
-            f"vLLM endpoint unreachable at {url}: {exc.reason}. "
-            f"Is the server running, and is --base-url correct?"
-        ) from exc
+        _raise_legible_connection_error(url, exc)
 
 
 def _read_error_body(exc: urllib.error.HTTPError) -> str:
@@ -116,6 +80,71 @@ def _read_error_body(exc: urllib.error.HTTPError) -> str:
         return exc.read().decode("utf-8", "replace").strip()
     except Exception:  # nosec B110 - body is advisory; never let decoding mask the HTTP error
         return ""
+
+
+# ── shared legible-error wrapping (used by both the blocking POST above and
+# the streaming POST below, task t4) ───────────────────────────────────────
+
+
+def _raise_legible_timeout(url: str, timeout: float, exc: BaseException) -> None:
+    """Re-raise a read-phase timeout legibly (shared by blocking + streaming).
+
+    A read-phase timeout (the server accepted the request but didn't answer
+    within ``timeout``) raises a bare ``TimeoutError`` — ``socket.timeout is
+    TimeoutError`` on the >=3.12 floor — which is NOT a ``URLError`` subclass,
+    so it would otherwise escape unwrapped as a cryptic "timed out". Re-raise
+    it legibly, keeping the phrase "timed out" so the loop's request-timeout
+    detector (``colleague.context.is_request_timeout``) matches and the
+    degradation / auto-split path fires (#154), and naming the
+    ``COLLEAGUE_TIMEOUT`` knob to raise for a big-context audit.
+    """
+    raise TimeoutError(
+        f"request to {url} timed out after {timeout:.0f}s — "
+        f"raise COLLEAGUE_TIMEOUT for big-context audits"
+    ) from exc
+
+
+def _raise_legible_http_error(url: str, exc: urllib.error.HTTPError) -> None:
+    """Re-raise an HTTPError with the vLLM/OpenAI body folded in (shared).
+
+    vLLM/OpenAI carry the actionable detail (e.g. "model `X` does not
+    exist") in the response *body*, which the bare HTTPError str() drops.
+    Re-raise the same error class with the body folded into the message so a
+    wrong-model 404 is legible instead of "HTTP Error 404: Not Found".
+    """
+    detail = _read_error_body(exc)
+    if not detail:
+        raise exc
+    msg = f"{exc.msg}: {detail}"
+    if exc.code == 500:
+        msg = "the model server returned a 500 (server-side error, not a Colleague bug) — " + msg
+        if "EngineCore" in detail or "InternalServerError" in detail:
+            msg += (
+                " — the server likely crashed on a tool-calling request "
+                "(a vLLM build that can't handle tools + "
+                "speculative-decoding/FP4 at this size is the usual cause). "
+                "Run 'colleague doctor --probe' to test tool calling, and "
+                "check the server's --enable-auto-tool-choice / "
+                "--tool-call-parser / speculative-decoding config."
+            )
+    raise urllib.error.HTTPError(url, exc.code, msg, exc.headers, None) from exc
+
+
+def _raise_legible_connection_error(url: str, exc: urllib.error.URLError) -> None:
+    """Re-raise a connection-level URLError with the endpoint named (shared).
+
+    A connection-level failure (server down/refused, DNS error, TLS) — NOT an
+    HTTP response. HTTPError is a URLError subclass, so callers dispatch this
+    *after* their HTTPError clause and only reach it on the no-response case.
+    Without it the loop would surface a cryptic "URLError: <urlopen error
+    [Errno 111] Connection refused>"; raise a legible error that names the
+    endpoint so a down rig or a wrong --base-url is diagnosable (mirrors the
+    graceful URLError handling already in _tokenize_count).
+    """
+    raise ConnectionError(
+        f"vLLM endpoint unreachable at {url}: {exc.reason}. "
+        f"Is the server running, and is --base-url correct?"
+    ) from exc
 
 
 def _parse_response(data: dict[str, Any]) -> ModelResponse:
@@ -150,6 +179,412 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
     )
 
 
+# ── SSE token-streaming (feels-alive arc, task t4) ─────────────────────────
+#
+# Feeds ``EngineConfig.on_delta`` (colleague/config.py) as the model answers,
+# instead of only after the full completion lands. Armed only when
+# ``config.on_delta is not None`` — see ``_make_complete`` below, which is the
+# ONLY call site that decides blocking vs. streaming; this section is pure
+# machinery with no opinion about when it runs.
+
+
+def _emit_delta(on_delta: Callable[[str], None], chunk: str | None) -> None:
+    """Feed *chunk* to *on_delta*, suppressing any exception it raises.
+
+    Mirrors ``colleague.engines.mock._emit_synthetic_deltas``'s convention: a
+    raising sink must never break the run. A no-op on an empty/absent chunk.
+    """
+    if not chunk:
+        return
+    with suppress(Exception):
+        on_delta(chunk)
+
+
+def _iter_sse_frames(
+    response: Any, *, terminal: list[bool] | None = None
+) -> Iterator[dict[str, Any]]:
+    """Yield decoded JSON payloads from an SSE ``data: {...}`` stream.
+
+    Iterates *response* line by line as bytes arrive (an
+    ``http.client.HTTPResponse`` is iterable — no full-body buffering, so a
+    caller observes a chunk the moment its line lands, not after the whole
+    response has been read). Blank lines and SSE comment lines (a ``:``
+    prefix — vLLM/OpenAI use these for keepalives) are tolerated and
+    skipped; any other non-``data:`` field (``event:``, ``id:``, ``retry:``)
+    is tolerated too, since this stream only ever needs ``data:``.
+    ``data: [DONE]`` — the OpenAI/vLLM stream terminator — stops iteration
+    WITHOUT yielding a frame, and nothing after it is ever read. A malformed
+    ``data:`` payload's ``json.JSONDecodeError`` propagates unguarded,
+    matching the blocking path's own unguarded ``json.loads`` on a malformed
+    response body — a mid-stream failure must stay legible, never silently
+    swallowed.
+
+    *terminal*, when given, is a mutable one-element out-param (``terminal[0]``)
+    set to ``True`` right before returning on ``data: [DONE]`` — the same
+    mutable-box convention ``colleague.loop`` already uses for out-of-band
+    signals (e.g. ``ctx._backpressure_state``). It is the only way a caller can
+    tell "the server sent the real terminator" apart from "the connection
+    simply ran out of lines" (task t5's missing-terminal-frame degradation
+    trigger, see ``_post_json_stream``).
+    """
+    for raw_line in response:
+        line = raw_line.decode("utf-8").strip()
+        if not line or line.startswith(":"):
+            continue
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:") :].strip()
+        if payload == "[DONE]":
+            if terminal is not None:
+                terminal[0] = True
+            return
+        yield json.loads(payload)
+
+
+def _accumulate_tool_call_fragment(
+    fragments: dict[int, dict[str, str]], fragment: dict[str, Any]
+) -> None:
+    """Fold one incremental ``delta.tool_calls[]`` fragment into *fragments*.
+
+    The OpenAI/vLLM streaming wire format sends a tool call's ``id`` and
+    ``function.name`` ONCE — typically the fragment that introduces its
+    ``index`` — then dribbles ``function.arguments`` across MANY subsequent
+    fragments as a partial JSON string that must be concatenated, never
+    overwritten.
+    """
+    index = fragment.get("index", 0)
+    slot = fragments.setdefault(index, {"id": "", "name": "", "arguments": ""})
+    if fragment.get("id"):
+        slot["id"] = fragment["id"]
+    function = fragment.get("function") or {}
+    if function.get("name"):
+        slot["name"] = function["name"]
+    if function.get("arguments"):
+        slot["arguments"] += function["arguments"]
+
+
+def _decode_tool_call_arguments(arguments: str) -> dict[str, Any]:
+    """Decode an accumulated streaming tool-call ``arguments`` string to a dict.
+
+    Mirrors ``_parse_response``'s own decode rule for the blocking path: an
+    empty/absent string is treated as ``"{}"``, and a malformed string decodes
+    to ``{}`` rather than raising — an assembled tool call must survive a
+    truncated/garbled arguments stream, the same tolerance the blocking path
+    already affords a malformed response body.
+    """
+    try:
+        return json.loads(arguments or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def _finalize_tool_calls(fragments: dict[int, dict[str, str]]) -> list[ToolCall]:
+    """Turn accumulated ``delta.tool_calls`` fragments into ordered ``ToolCall``\\ s.
+
+    Ordered by ``index`` — the wire order the calls were introduced in.
+    """
+    return [
+        ToolCall(
+            id=fragments[index]["id"],
+            name=fragments[index]["name"],
+            arguments=_decode_tool_call_arguments(fragments[index]["arguments"]),
+        )
+        for index in sorted(fragments)
+    ]
+
+
+@dataclass
+class _StreamAccumulator:
+    """Mutable per-turn accumulator :func:`_post_json_stream` folds frames into.
+
+    Extracted so the frame-handling helpers below (and the loop that calls
+    them) can share this state by reference instead of ``_post_json_stream``
+    threading five separate locals through nested conditionals — the sole
+    purpose is keeping that function's cognitive complexity low (S3776), with
+    IDENTICAL observable behavior.
+    """
+
+    content_parts: list[str] = field(default_factory=list)
+    reasoning_parts: list[str] = field(default_factory=list)
+    tool_call_fragments: dict[int, dict[str, str]] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)
+    saw_finish_reason: bool = False
+
+
+def _emit_content_and_reasoning_deltas(
+    delta: dict[str, Any], acc: _StreamAccumulator, on_delta: Callable[[str], None]
+) -> None:
+    """Fold one frame's ``delta`` content/reasoning chunks into *acc*, feeding
+    each to *on_delta* as it arrives. Honors both ``reasoning`` and
+    ``reasoning_content`` key spellings (some servers use the latter).
+    """
+    content_chunk = delta.get("content")
+    if content_chunk:
+        acc.content_parts.append(content_chunk)
+        _emit_delta(on_delta, content_chunk)
+    reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content")
+    if reasoning_chunk:
+        acc.reasoning_parts.append(reasoning_chunk)
+        _emit_delta(on_delta, reasoning_chunk)
+
+
+def _accumulate_frame_tool_calls(delta: dict[str, Any], acc: _StreamAccumulator) -> None:
+    """Fold every ``delta.tool_calls[]`` fragment on one frame into *acc*."""
+    for fragment in delta.get("tool_calls") or []:
+        _accumulate_tool_call_fragment(acc.tool_call_fragments, fragment)
+
+
+def _capture_frame_usage(frame: dict[str, Any], acc: _StreamAccumulator) -> None:
+    """Record *frame*'s ``usage`` on *acc* verbatim when present (task t4).
+
+    The LAST usage-bearing frame wins — a later call simply overwrites the
+    previous one, matching ``stream_options.include_usage``'s convention of
+    sending the final tally on the closing frame.
+    """
+    frame_usage = frame.get("usage")
+    if frame_usage:
+        acc.usage = frame_usage
+
+
+def _apply_stream_frame(
+    frame: dict[str, Any], acc: _StreamAccumulator, on_delta: Callable[[str], None]
+) -> None:
+    """Fold one decoded SSE frame into *acc* (content, reasoning, tool-call
+    fragments, ``finish_reason``, and usage) — the single per-frame dispatch
+    :func:`_post_json_stream`'s loop body calls, so the frame-shape branching
+    lives in its own low-complexity function rather than nested inside the
+    streaming loop.
+    """
+    choices = frame.get("choices") or []
+    if choices:
+        delta = choices[0].get("delta") or {}
+        _emit_content_and_reasoning_deltas(delta, acc, on_delta)
+        _accumulate_frame_tool_calls(delta, acc)
+        if choices[0].get("finish_reason") is not None:
+            acc.saw_finish_reason = True
+    _capture_frame_usage(frame, acc)
+
+
+class _StreamIncomplete(Exception):
+    """Internal sentinel (task t5): the SSE stream ended with no terminal frame.
+
+    Raised by :func:`_post_json_stream` when the frame iterator is exhausted
+    — the connection closed, no exception — WITHOUT ever observing a
+    ``data: [DONE]`` terminator OR a delta carrying a non-null
+    ``finish_reason``. Either signal alone is enough to call the stream
+    complete (some servers omit ``[DONE]`` and rely on ``finish_reason``, or
+    vice versa); missing BOTH means the connection was cut mid-answer (e.g. a
+    proxy that silently closes the socket) — the exact trigger task t5 pins.
+
+    Caught ONLY by :func:`_stream_or_blocking` to decide the one-time
+    blocking fallback; a direct call to :func:`_post_json_stream` still lets
+    this propagate unguarded, matching how a malformed frame's
+    ``json.JSONDecodeError`` already propagates unguarded from that function.
+    """
+
+
+def _post_json_stream(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    timeout: float,
+    on_delta: Callable[[str], None],
+) -> ModelResponse:
+    """POST *payload* (already carrying ``stream``/``stream_options``) and
+    incrementally assemble a :class:`ModelResponse` from Server-Sent Events,
+    feeding each content/reasoning delta to *on_delta* as it arrives.
+
+    Shares ``_post_json``'s own request construction and legible error
+    wrapping (a read-phase timeout, an HTTPError with its body folded in, a
+    connection-level URLError — see ``_raise_legible_*`` above) so a
+    mid-stream failure surfaces through the SAME exception family the
+    blocking path does: the loop's degradation classifier
+    (``colleague.context.classify_degradable``) matches identically either
+    way. A malformed ``data:`` frame's ``json.JSONDecodeError``, an
+    ``http.client.IncompleteRead``, and a missing-terminal-frame
+    :class:`_StreamIncomplete` all propagate unguarded too — this function
+    stays a single honest attempt; deciding whether/how to recover from any
+    of these is :func:`_stream_or_blocking`'s job (task t5), the function
+    actually wired into the armed completion path.
+
+    Usage is taken VERBATIM from the final usage-bearing chunk
+    (``stream_options.include_usage``); if the server sends none, the usage
+    fields stay at their honest zero default — exactly what the blocking path
+    already does for a response with no ``usage`` key (:func:`_parse_response`,
+    ``ModelResponse.prompt_tokens``/``completion_tokens`` are plain ``int``
+    fields, not ``Optional``) — never an estimate.
+    """
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={"Content-Type": _CONTENT_TYPE_JSON, "Authorization": f"Bearer {api_key}"},
+    )
+    acc = _StreamAccumulator()
+    terminal_marker: list[bool] = [False]
+    try:
+        with urllib.request.urlopen(
+            request, timeout=timeout
+        ) as response:  # nosec B310 - configured endpoint
+            for frame in _iter_sse_frames(response, terminal=terminal_marker):
+                _apply_stream_frame(frame, acc, on_delta)
+            if not terminal_marker[0] and not acc.saw_finish_reason:
+                # The connection closed cleanly (no exception) but neither
+                # terminal signal ever arrived — a truncated stream, not a
+                # completed one (task t5's missing-terminal-frame trigger).
+                raise _StreamIncomplete(
+                    "SSE stream ended without a terminal frame "
+                    "([DONE] or a non-null finish_reason)"
+                )
+    except TimeoutError as exc:
+        _raise_legible_timeout(url, timeout, exc)
+    except urllib.error.HTTPError as exc:
+        _raise_legible_http_error(url, exc)
+    except urllib.error.URLError as exc:
+        _raise_legible_connection_error(url, exc)
+
+    return ModelResponse(
+        content="".join(acc.content_parts),
+        tool_calls=_finalize_tool_calls(acc.tool_call_fragments),
+        prompt_tokens=int(acc.usage.get("prompt_tokens", 0)),
+        completion_tokens=int(acc.usage.get("completion_tokens", 0)),
+        reasoning="".join(acc.reasoning_parts),
+    )
+
+
+# ── mid-stream failure fallback (feels-alive arc, task t5) ─────────────────
+#
+# A broken stream must never break a run: ``_stream_or_blocking`` is the ONLY
+# call site ``_make_complete`` uses when ``on_delta`` is armed (replacing a
+# bare ``_post_json_stream`` call) — pure machinery layered on top of the
+# single-attempt primitive above, with no opinion about when streaming itself
+# is armed.
+
+
+def _blocking_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """*payload* with the streaming-only keys stripped (task t5 fallback).
+
+    The fallback POSTs the SAME turn to the SAME blocking surface the unarmed
+    path already uses (:func:`_post_json`) — sending ``stream: true`` there
+    would make a compliant server answer with an SSE body again, which
+    :func:`_parse_response`'s plain ``json.loads`` can't read.
+    """
+    return {k: v for k, v in payload.items() if k not in ("stream", "stream_options")}
+
+
+_STREAM_UNSUPPORTED_HTTP_CODES = (400, 422)
+
+
+def _is_stream_unsupported_http_error(exc: urllib.error.HTTPError) -> bool:
+    """True for the 'server refuses to stream' shape (task t5).
+
+    A 400/422 whose (already legible — see ``_raise_legible_http_error``)
+    message names ``stream``/``stream_options`` is how an OpenAI-compatible
+    server rejects a streaming request outright. Any OTHER status/body is a
+    genuine failure — retrying blocking is unlikely to fix a real server-side
+    error, so it is left to propagate exactly as it does today (no wasted
+    fallback attempt).
+    """
+    return exc.code in _STREAM_UNSUPPORTED_HTTP_CODES and "stream" in (exc.msg or "").lower()
+
+
+# The mid-stream failure shapes that ARE a *streaming*-specific problem — see
+# ``_stream_or_blocking``'s docstring for why a request TIMEOUT is
+# deliberately excluded from this set.
+_STREAM_FALLBACK_ERRORS = (
+    _StreamIncomplete,
+    json.JSONDecodeError,
+    http.client.IncompleteRead,
+    ConnectionError,
+)
+
+
+def _emit_stream_fallback_notice(reason: str) -> None:
+    """One legible stderr line when a stream degrades to blocking (task t5).
+
+    Mirrors the existing ``colleague: ...`` stderr-notice convention (e.g.
+    ``colleague.config._emit_lobes_unreachable_notice``) and, like the
+    ``COLLEAGUE_DUMP_REQUEST`` diagnostic above, must never itself break a
+    turn — swallow a broken/closed stderr (e.g. ``2>/dev/null``) rather than
+    raise.
+    """
+    with suppress(OSError):
+        print(
+            f"colleague: streaming turn degraded to a blocking request ({reason}) "
+            "— the turn itself is unaffected",
+            file=sys.stderr,
+        )
+
+
+def _stream_or_blocking(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    timeout: float,
+    on_delta: Callable[[str], None],
+) -> ModelResponse:
+    """Stream one turn, falling back to ONE blocking request on a mid-stream
+    failure — so a broken stream never breaks a run (task t5).
+
+    Tries :func:`_post_json_stream` first (the SAME *payload*, still carrying
+    ``stream``/``stream_options``). Any deltas already emitted via *on_delta*
+    before a failure are NOT retracted — the cockpit's live tail treats a
+    later event as superseding an in-flight one (t6), so a superseded partial
+    stream is harmless — this function only decides whether the TURN itself
+    recovers.
+
+    Falls back to ONE blocking (non-stream) POST for the identical turn — via
+    the SAME :func:`_post_json`/:func:`_parse_response` the unarmed path
+    already uses, stripped of the stream keys (:func:`_blocking_payload`) —
+    on exactly the failure shapes that are a *streaming*-specific problem,
+    never a genuine model/server failure a retry can't fix:
+
+      - the stream ended with no terminal frame (:class:`_StreamIncomplete`);
+      - a malformed ``data:`` JSON frame (``json.JSONDecodeError``);
+      - a connection drop mid-transfer (``http.client.IncompleteRead``, or the
+        legible ``ConnectionError`` :func:`_raise_legible_connection_error`
+        already wraps a bare ``URLError`` into — whether the drop happened at
+        open or mid-transfer, the wrapped shape is the same);
+      - a stream-refusing server: a 400/422 naming ``stream``/``stream_options``
+        (:func:`_is_stream_unsupported_http_error`) — arming ``on_delta`` is
+        display-only and must never make an otherwise-working server unusable.
+
+    A read-phase TIMEOUT is deliberately NOT fallback-eligible here — it
+    already has its own bounded retry at the loop level
+    (``colleague.context.classify_degradable`` /
+    ``colleague.loop._MAX_TIMEOUT_RETRIES``). Folding it into this fallback
+    too would let a single turn silently spend THREE full ``timeout`` windows
+    (the stream attempt, the blocking fallback, and the loop's own retry)
+    instead of the documented worst case of two — and an unrelated HTTP
+    error (any status/body not naming stream support) is left alone for the
+    same "don't waste an attempt on a failure retrying can't fix" reason.
+
+    Worst-case timing (documented, not enforced by a new retry loop): ONE
+    stream attempt up to *timeout*, plus — only on a fallback-eligible
+    failure — ONE blocking attempt reusing the SAME *timeout*. Bounded at
+    2×timeout for a single turn, never more; this is the only retry this
+    function performs.
+
+    A failing blocking attempt propagates ITS OWN error unchanged (already
+    legible via :func:`_post_json`'s own wrapping) — the loop's existing
+    degradation path handles it exactly as it does today.
+    """
+    try:
+        return _post_json_stream(url, payload, api_key=api_key, timeout=timeout, on_delta=on_delta)
+    except urllib.error.HTTPError as exc:
+        if not _is_stream_unsupported_http_error(exc):
+            raise
+        _emit_stream_fallback_notice(f"server rejected streaming ({exc.code}): {exc.msg}")
+    except _STREAM_FALLBACK_ERRORS as exc:
+        _emit_stream_fallback_notice(f"{type(exc).__name__}: {exc}")
+
+    data = _post_json(url, _blocking_payload(payload), api_key=api_key, timeout=timeout)
+    return _parse_response(data)
+
+
 def _tokenize_url(base_url: str) -> str:
     """Derive the vLLM ``/tokenize`` URL from an OpenAI-style ``base_url``.
 
@@ -182,7 +617,7 @@ def _tokenize_post(
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers={"Content-Type": _CONTENT_TYPE_JSON, "Authorization": f"Bearer {api_key}"},
     )
     with urllib.request.urlopen(  # nosec B310 - configured endpoint
         request, timeout=timeout
@@ -271,6 +706,18 @@ class VllmOpenAIEngine(Engine):
             if offered_tools:
                 payload["tools"] = offered_tools
                 payload["tool_choice"] = "auto"
+            # Token-delta seam (feels-alive arc, task t4): an armed on_delta
+            # switches the request to an incrementally-consumed SSE stream, so
+            # each content/reasoning chunk reaches the sink as it arrives
+            # instead of only after the full completion lands (the served
+            # Qwen spends its long silent time in reasoning — this is the
+            # silence the seam fixes). Unarmed (``config.on_delta is None``,
+            # the default) adds NEITHER key — byte-identical to the
+            # pre-streaming request body.
+            streaming = config.on_delta is not None
+            if streaming:
+                payload["stream"] = True
+                payload["stream_options"] = {"include_usage": True}
             if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
                 # Best-effort: a diagnostic dump must NEVER break a work item — a
                 # closed/broken stderr (e.g. `2>/dev/null`, a dead pipe) raises
@@ -284,6 +731,17 @@ class VllmOpenAIEngine(Engine):
                     )
                 except OSError:  # nosec B110 - diagnostic only; never mask the real work
                     pass
+            if streaming:
+                # A mid-stream failure degrades to ONE blocking request for
+                # THIS SAME turn (task t5) — the loop never sees the
+                # transport hiccup, only a normal ModelResponse.
+                return _stream_or_blocking(
+                    url,
+                    payload,
+                    api_key=config.api_key,
+                    timeout=config.timeout,
+                    on_delta=config.on_delta,
+                )
             data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
             return _parse_response(data)
 

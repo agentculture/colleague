@@ -9,6 +9,10 @@ result *shape* is compared (h8).
 
 from __future__ import annotations
 
+import re
+from contextlib import suppress
+from typing import Callable
+
 from colleague.config import EngineConfig
 from colleague.contract import Task, TaskResult
 from colleague.deepthink import make_deepthink_run
@@ -26,6 +30,49 @@ from colleague.tools import ToolExecutor
 
 #: Where the mock writes its marker file (relative to the repo root).
 OUTPUT_FILE = "colleague-mock.md"
+
+# Splits text into ordered chunks that reconstruct it EXACTLY when
+# concatenated: each match is either a run of non-whitespace plus any
+# trailing whitespace, or a run of whitespace on its own (covers leading
+# whitespace / repeated separators) — ``"".join(pattern.findall(s)) == s``
+# always holds. Used only by :func:`_emit_synthetic_deltas` below.
+_DELTA_CHUNK_RE = re.compile(r"\S+\s*|\s+")
+
+
+def _emit_synthetic_deltas(content: str, on_delta: "Callable[[str], None]") -> None:
+    """Stream *content* to *on_delta* as ordered chunks that reconstruct it exactly.
+
+    The mock's network-free stand-in for a live engine's real token/SSE stream
+    (feels-alive arc, task t3): word-chunked so the concatenation of every
+    emitted chunk, in call order, always equals *content* — the same
+    invariant a real stream upholds. A no-op on empty content. A raising sink
+    must never break the run — suppressed exactly like the loop's own
+    ``_emit_progress``/``_emit_phase`` observability sinks (``colleague/loop.py``).
+    """
+    if not content:
+        return
+    for chunk in _DELTA_CHUNK_RE.findall(content):
+        with suppress(Exception):
+            on_delta(chunk)
+
+
+def _with_synthetic_deltas(complete: CompleteFn, on_delta: "Callable[[str], None]") -> CompleteFn:
+    """Wrap *complete* so each returned turn's ``content`` streams to *on_delta* first.
+
+    Kept as a wrapper around whatever ``complete`` callable :func:`_script`
+    (or a test double standing in for it) returns, rather than a parameter on
+    :func:`_script` itself, so :func:`_script`'s signature — and any existing
+    caller/monkeypatch of it — never has to change (task t3). Only called when
+    ``on_delta`` is armed; the wrapped callable's return value is otherwise
+    unchanged, so this is invisible to the loop.
+    """
+
+    def _complete(messages: list[dict]) -> ModelResponse:
+        resp = complete(messages)
+        _emit_synthetic_deltas(resp.content, on_delta)
+        return resp
+
+    return _complete
 
 
 def _script(task: Task) -> CompleteFn:
@@ -86,8 +133,18 @@ class MockEngine(Engine):
         # senses-armed run records a degraded no-op — the same c13 ladder as
         # deepthink-on-mock. ``None`` for a config without senses (byte-identical).
         senses_run = make_senses_run(config, self.name)
+        # Token-delta seam (task t3): stream synthetic word-chunk deltas of
+        # each scripted turn's content when armed. Wrapping the completed
+        # `_script(task)` callable — rather than threading on_delta into
+        # `_script` itself — keeps `_script`'s signature (and any existing
+        # test double standing in for it) unchanged. `config.on_delta is
+        # None` (the default) is a strict no-op: `complete` stays exactly
+        # `_script(task)`.
+        complete = _script(task)
+        if config.on_delta is not None:
+            complete = _with_synthetic_deltas(complete, config.on_delta)
         return run(
-            _script(task),
+            complete,
             task,
             max_steps=config.max_steps,
             system_prompt=self.system_prompt(task, config),
