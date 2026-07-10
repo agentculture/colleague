@@ -74,7 +74,18 @@ from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
-from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
+from colleague.cockpit_run import (
+    DeltaTail,
+    RunState,
+    delta_status_message,
+    fold,
+    fold_delta,
+    mark_delta_rendered,
+    observed_ledger,
+    reconcile,
+    should_repaint_delta,
+    status_line,
+)
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
 from colleague.config import (
     EngineConfig,
@@ -315,9 +326,36 @@ class _WorkSink:
         # clock" decision.
         self._run = RunState()
         self._started = time.monotonic()
+        # Live generation tail (feels-alive arc, task t6): accumulates the
+        # CURRENT turn's streamed text (see `on_delta`); reset at the top of
+        # every `__call__` so a stale tail can never linger past the turn
+        # that produced it — the same clearing rule `_tui_sink.py`'s
+        # `CockpitProgressSink` uses for the standalone `work --tui` cockpit.
+        self._delta = DeltaTail()
+
+    @property
+    def wants_delta_stream(self) -> bool:
+        """Whether this sink should receive live-generation deltas (task t6).
+
+        Only the session's dynamic ANSI tier ever redraws per sink call
+        (``sess.emit()`` in `__call__`, below) — off that tier a delta fold
+        would be computed and then never displayed until the next work
+        item's idle render, so leaving the seam unarmed there costs nothing
+        and keeps a piped/``--json``/Markdown session's ``EngineConfig.on_delta``
+        at its byte-identical default (``None`` — see the arming site,
+        ``execute_work`` in ``colleague/cli/_commands/work.py``). ``getattr``
+        degrades a bare state-holder (no ``view`` attribute at all, the
+        pattern several other guards below already use) to ``False`` — never
+        armed by accident.
+        """
+        return getattr(self._session, "view", None) == "ansi"
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
+        # A real step or a phase notice ends the current turn's live-generation
+        # tail (task t6): reset it so a stale "generating… …" text can never
+        # linger once the loop has moved on.
+        self._delta = DeltaTail()
         # Concurrent talk lane (t7): at EVERY sink boundary — a real step OR a
         # phase notice (thinking…/synthesizing…) — poll stdin non-blockingly so an
         # operator message is picked up promptly even mid-completion. A strict
@@ -381,6 +419,32 @@ class _WorkSink:
             update_run(self._run)
         if sess.view == "ansi":
             sess.emit()  # live redraw per step
+
+    def on_delta(self, chunk: str) -> None:
+        """Fold ONE streamed text delta onto the session's live STATUS surface
+        (feels-alive arc, task t6).
+
+        Only ever CALLED when `wants_delta_stream` was `True` at arming time
+        (the dynamic ANSI tier — see the arming site in `execute_work`,
+        ``colleague/cli/_commands/work.py``), so this always redraws — the
+        ``sess.view == "ansi"`` check below is a defensive mirror of
+        `__call__`'s own gate, not a second arming decision. Accumulates
+        *chunk* into the current turn's `DeltaTail` and, throttled to at most
+        once per `DELTA_REPAINT_THRESHOLD` accumulated characters, folds the
+        sanitized tail onto ``sess.state.status`` via the SAME `fold_phase`
+        a phase notice uses and redraws exactly one frame. Never creates a
+        work step and never touches the conversation feed (the #206
+        invariant, held identically to `__call__`'s phase-notice branch).
+        Cleared by the very next `__call__`.
+        """
+        sess = self._session
+        self._delta = fold_delta(self._delta, chunk)
+        if not should_repaint_delta(self._delta):
+            return
+        self._delta = mark_delta_rendered(self._delta)
+        sess.state = fold_phase(sess.state, delta_status_message(self._delta))
+        if sess.view == "ansi":
+            sess.emit()
 
     def close(self) -> None:  # called by execute_work on every exit path
         return None

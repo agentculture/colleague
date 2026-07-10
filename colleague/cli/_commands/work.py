@@ -641,6 +641,25 @@ def execute_work(
                 diag=emit_diagnostic,
                 external_sink=progress_sink,
             )
+            # Live generation tail (feels-alive arc, task t6): arm the runtime's
+            # optional token-delta seam (`EngineConfig.on_delta`, landed by task
+            # t3) on the two genuinely live-rendering cockpit surfaces ONLY.
+            # `cockpit_sink` is non-None exactly when `build_progress` built or
+            # was HANDED a rendering cockpit (the SAME `cockpit_active` gate the
+            # visual redraw itself already uses — an explicit `--tui` or an
+            # auto-detected colour TTY for the standalone `work --tui` path).
+            # `wants_delta_stream` lets the session's own `_WorkSink` additionally
+            # decline when its OWN dynamic ANSI tier isn't the one drawing right
+            # now (a piped/`--json`/Markdown session still builds a `_WorkSink`
+            # for its state bookkeeping, but must never stream deltas into a
+            # frame nobody redraws) — `getattr(..., True)` defaults a plain
+            # `CockpitProgressSink` (which has no such extra gate) to wanting it.
+            # Every other path — a bare non-TTY `work` (no --tui), `--no-tui`, or
+            # `--tui-events` alone — leaves `cockpit_sink` `None`, so
+            # `config.on_delta` stays at its byte-identical default (`None`),
+            # untouched here.
+            if cockpit_sink is not None and getattr(cockpit_sink, "wants_delta_stream", True):
+                config.on_delta = cockpit_sink.on_delta
             # Background presence (presence-default-everywhere arc, task t9):
             # wire the front-agnostic PresenceEngine onto this SAME progress-sink
             # boundary for a watched, non-session work item — a background
