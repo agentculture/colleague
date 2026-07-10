@@ -44,6 +44,28 @@ colleague config overview
 The `--repo` default is the cwd, so a bare `colleague doctor` outside a repo (or
 in one without `.colleague/config.json`) is unchanged — env + defaults only.
 
+## Rename back-compat (`convertible` → `colleague`)
+
+The project was renamed from *convertible*. The import package, the
+`colleague`/`clg` commands, the `.colleague/` config dir, and the `COLLEAGUE_*`
+env vars are the canonical names; the PyPI distribution is `colleague` (no longer
+`convertible-cli`). The legacy names are still honored as **deprecated read
+fallbacks**:
+
+- `.convertible/` config/artifact dirs are read-only fallbacks (writes always go
+  to `.colleague/`; see `configdir.LEGACY_CONFIG_DIR_NAME`,
+  `artifact.artifact_read_dirs`, `layers._LEGACY_USER_CONFIG_SUBDIR`).
+- `CONVERTIBLE_*` env vars — each read prefers `COLLEAGUE_*` then falls back to
+  `CONVERTIBLE_*`.
+- `identity_env` emits **both** `COLLEAGUE_IDENTITY` and `CONVERTIBLE_IDENTITY`
+  so sibling CLIs that only know the old name keep working.
+
+Historical artifacts (`CHANGELOG.md`, `docs/specs/`, `docs/plans/`, `.devague/`,
+dated drive-notes) intentionally keep the old name. The SonarCloud `projectKey`
+in `sonar-project.properties` is `agentculture_colleague`; that is an EXTERNAL
+identity, so the SonarCloud project itself must be re-keyed/recreated to match or
+coverage uploads 404 until it is.
+
 ## Related
 
 - [model-selection.md](model-selection.md) — the `--model` / `--base-url` surface.
