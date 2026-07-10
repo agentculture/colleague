@@ -94,6 +94,79 @@ treat ❌-by-staleness the same as never-validated.
 
 Tracking epic: [#128](https://github.com/agentculture/colleague/issues/128).
 
+## Feels-alive baseline measurements
+
+The "feels-alive" plan (devague specification) aims to reduce three operational frictions observed in the current colleague v1.44.0 runtime. This section records baseline measurements of each friction, captured live against the reference rig on **2026-07-10** during workforce task t1.
+
+### Friction A: CLAUDE.md documentation size
+
+**What matters.** The CLAUDE.md file at the repository root serves as comprehensive guidance for Claude Code on how to work in this codebase. A large guidance file must be loaded into every agent's context, consuming tokens before the actual work begins. The feels-alive arc aims to make coherence-gated doc refresh automatic, so CLAUDE.md can grow without manual gate-keeping.
+
+**Baseline measurement (2026-07-10, t1):**
+
+- File size: **158,454 bytes**
+- Estimated token count: **39,613 tokens** (using bytes/4 heuristic)
+- Impact: Every interaction with Claude/Colleague loads this full file into context; a 40k-token preamble before any work begins
+
+### Friction B: Absent coherence noun
+
+**What matters.** The coherence gate exists as a pre-finish inline check in the loop, but there is no operator-facing verb to inspect or manually run coherence scoring on a file or set of files. Operators cannot measure doc coherence independently of a work item completion.
+
+**Baseline measurement (2026-07-10, t1):**
+
+- Attempted command: `colleague coherence`
+- Result: **Unknown command** — the noun does not exist
+- Exit code: **1**
+- Error message:
+
+```text
+error: argument command: invalid choice: 'coherence' (choose from learn, explain, overview, doctor, whoami, quickstart, cli, backends, wheels, feedback, commands, hooks, agents, skills, roles, telemetry, lobes, organs, config, learn-from, clean, livecheck, work, drive, plan, promote, flight, talk, experiment, session, tui, mcp)
+hint: check usage with --help
+```
+
+- Impact: No operator-facing introspection surface for coherence scoring; the gate is invisible except through post-run artifact records
+
+### Friction C: Full-turn silence during live run
+
+**What matters.** During a live work item, when the model is processing a large completion (thinking hard, synthesizing, or compacting history), there is no feedback to the operator beyond phase notices (thinking…/synthesizing…/compacting…). The longest observed gap between output lines represents the "silence window" where the operator sees no progress indicator.
+
+**Baseline measurement (2026-07-10, t1):**
+
+A live work item was run against the reference rig to measure output timing:
+
+```text
+Task: "Read README.md and summarize it in one sentence."
+Repo: Throwaway tmp repo (/tmp/t1-baseline-repo-1783696181)
+Provider: vllm-openai at http://localhost:8001/v1
+Cortex model: sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP (Qwen 27B)
+Senses model: coolthor/gemma-4-12B-it-NVFP4A16 (Gemma 4 12B, via lobes)
+Rig reachability: PASSED (provider_reachable + provider_model_available)
+```
+
+**Timing results:**
+
+- Total wall-clock: **13.62 seconds**
+- Longest silent gap: **4.43 seconds** (between consecutive "thinking…" phase notices)
+- Output lines: 25 total
+- Result status: **incomplete** (the run produced no commit; task was read-only + simple enough to require no tool calls)
+
+**Observations:**
+
+- The longest gap occurs during model processing when the only feedback is repeated phase notices at the same timestamp
+- No intermediate progress indicators or partial results are streamed between phase notices
+- The operator experiences 4.43s of "silence" from the model's perspective, even though phase notices say "thinking…"
+- Impact: Operators cannot easily distinguish between "model is busy" and "rig is unresponsive" when gaps exceed 2–3 seconds; a live presence lane (feels-alive senses feature) would provide intermediate status from senses while cortex thinks
+
+---
+
+**Cross-reference.** These three baseline measurements align with the feels-alive plan's three identified frictions:
+
+1. (A) Large CLAUDE.md → **Coherence gate problem:** docs drift from code; → **Coherence noun solution:** allow operators to score + refresh docs independently
+2. (B) No coherence noun → **Coherence noun solution:** make coherence introspectable and runnable on demand
+3. (C) 4.43s silent gaps → **Senses live presence solution:** senses answers and gives status while cortex drives, eliminating operator uncertainty
+
+The plan aims to land these three solutions incrementally, measuring improvement at each step.
+
 ## Procedures
 
 Every procedure ends by updating this file's matrix row (status + `Last
