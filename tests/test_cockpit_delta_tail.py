@@ -583,3 +583,78 @@ def test_cockpit_run_still_has_no_agentfront_import() -> None:
     source = inspect.getsource(mod)
     assert "import agentfront" not in source
     assert "from agentfront" not in source
+
+
+class TestSanitizeEscapeFamilies:
+    """Non-CSI escape families must never reach the terminal (Qodo 3560546638)."""
+
+    def test_osc_clipboard_write_is_stripped(self) -> None:
+        from colleague.cockpit_run import sanitize_delta_chunk
+
+        assert sanitize_delta_chunk("\x1b]52;c;aGVsbG8=\x07steal") == "steal"
+
+    def test_osc_title_with_st_terminator_is_stripped(self) -> None:
+        from colleague.cockpit_run import sanitize_delta_chunk
+
+        assert sanitize_delta_chunk("\x1b]0;evil title\x1b\\ok") == "ok"
+
+    def test_dangling_unterminated_osc_leaves_no_escape_byte(self) -> None:
+        # A sequence split across two delta chunks leaves a dangling ESC] with
+        # no terminator — nothing control-ish may survive.
+        from colleague.cockpit_run import sanitize_delta_chunk
+
+        out = sanitize_delta_chunk("before\x1b]52;c;aGVs")
+        assert "\x1b" not in out and out.startswith("before")
+
+    def test_single_char_fe_escape_and_8bit_csi_are_stripped(self) -> None:
+        from colleague.cockpit_run import sanitize_delta_chunk
+
+        assert sanitize_delta_chunk("a\x1bMb") == "ab"
+        assert sanitize_delta_chunk("a\x9b31mb") == "ab"
+
+    def test_residual_c0_controls_are_dropped(self) -> None:
+        from colleague.cockpit_run import sanitize_delta_chunk
+
+        assert sanitize_delta_chunk("a\x07b\x00c\x1bd") == "abcd"
+
+
+class TestArmDeltaStreamReset:
+    """A reused EngineConfig never carries a stale sink (Qodo 3560546632)."""
+
+    def test_second_run_without_sink_clears_previous_arming(self) -> None:
+        from colleague.cli._commands.work import _arm_delta_stream
+        from colleague.config import EngineConfig
+
+        class _Sink:
+            wants_delta_stream = True
+
+            def on_delta(self, text: str) -> None:  # pragma: no cover - spy
+                pass
+
+        config = EngineConfig(base_url="http://x", api_key="k", model="m")
+        sink = _Sink()
+        _arm_delta_stream(config, sink)
+        assert config.on_delta is not None
+        _arm_delta_stream(config, None)
+        assert config.on_delta is None
+
+    def test_second_run_with_declining_sink_clears_previous_arming(self) -> None:
+        from colleague.cli._commands.work import _arm_delta_stream
+        from colleague.config import EngineConfig
+
+        class _Wants:
+            wants_delta_stream = True
+
+            def on_delta(self, text: str) -> None:  # pragma: no cover - spy
+                pass
+
+        class _Declines:
+            wants_delta_stream = False
+
+            def on_delta(self, text: str) -> None:  # pragma: no cover - spy
+                pass
+
+        config = EngineConfig(base_url="http://x", api_key="k", model="m")
+        _arm_delta_stream(config, _Wants())
+        _arm_delta_stream(config, _Declines())
+        assert config.on_delta is None

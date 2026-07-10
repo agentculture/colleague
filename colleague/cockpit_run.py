@@ -248,10 +248,24 @@ def status_line(
 # though it does the same job (``_tui_sink.py`` already imports it): this
 # module is pinned agentfront-free by ``tests/test_cockpit_run.py``'s
 # ``TestModuleBoundary.test_no_agentfront_import`` (a genuine "pure module"
-# boundary, predating this task), so the tiny ANSI-CSI-escape regex is
-# duplicated here rather than forking/depending on agentfront's renderer
-# layer for a two-line sanitizer.
-_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# boundary, predating this task), so the escape-stripper regex is duplicated
+# here rather than forking/depending on agentfront's renderer layer.
+#
+# Terminal-control injection is NOT limited to CSI (Qodo #318 review, comment
+# 3560546638): a model-emitted OSC (``ESC]52;…`` writes the CLIPBOARD; title
+# changes, hyperlinks) or a bare Fe escape must never reach the operator's
+# terminal through the streamed tail. The stripper removes, in one pass:
+# CSI (``ESC[…final``, incl. the 8-bit ``\x9b`` form), OSC (``ESC]…`` up to
+# BEL or ST), and single-character Fe escapes (``ESC @-_``). Belt-and-braces,
+# ``sanitize_delta_chunk`` then drops any RESIDUAL C0 control byte (a
+# sequence split across two delta chunks leaves a dangling ``ESC`` that no
+# complete-sequence regex can classify) — no control byte ever survives.
+_ANSI_RE = re.compile(
+    r"(?:\x1b\[|\x9b)[0-9;?]*[ -/]*[@-~]"  # CSI (7-bit and 8-bit forms)
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?"  # OSC, BEL/ST-terminated or dangling
+    r"|\x1b[@-_]"  # single-character Fe escapes
+)
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x9b]")
 _NEWLINE_RE = re.compile(r"[\r\n]+")
 
 #: Trailing window of streamed text kept for display (characters). Display
@@ -281,12 +295,14 @@ class DeltaTail:
 def sanitize_delta_chunk(chunk: str) -> str:
     """Sanitize ONE streamed delta chunk for safe single-line display.
 
-    Strips ANSI CSI escapes (a model-emitted or adversarial chunk must never
-    inject cursor movement into the cockpit) and collapses any run of CR/LF
-    into a single space (a raw newline would visually break the one-line
-    STATUS surface). Pure — no I/O.
+    Strips terminal escape sequences — CSI (7- and 8-bit), OSC (clipboard/
+    title/hyperlink injection), and single-character Fe escapes — collapses
+    any run of CR/LF into a single space (a raw newline would visually break
+    the one-line STATUS surface), then drops any residual C0 control byte so
+    a sequence split across chunk boundaries can never leak a live ``ESC``
+    to the terminal. Pure — no I/O.
     """
-    return _NEWLINE_RE.sub(" ", _ANSI_RE.sub("", chunk))
+    return _CONTROL_RE.sub("", _NEWLINE_RE.sub(" ", _ANSI_RE.sub("", chunk)))
 
 
 def fold_delta(tail: DeltaTail, chunk: str, *, width: int = DELTA_TAIL_CHARS) -> DeltaTail:

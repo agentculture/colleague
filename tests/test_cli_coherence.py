@@ -82,7 +82,7 @@ def mock_embed_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         _mod,
         "embed_env",
-        lambda: {"COHERENCE_EMBED_URL": "http://localhost:8000/embed"},
+        lambda repo_path=".": {"COHERENCE_EMBED_URL": "http://localhost:8000/embed"},
     )
 
 
@@ -143,7 +143,7 @@ class TestScore:
 
         original = getattr(cm, "embed_env", None)
         try:
-            cm.embed_env = lambda: None
+            cm.embed_env = lambda repo_path=".": None
             with pytest.raises(CliError) as exc_info:
                 cm._score_files([str(tmp_md)])
             assert "no coherence embedder configured" in exc_info.value.message
@@ -251,7 +251,7 @@ class TestShow:
         monkeypatch.setattr(
             _mod,
             "embed_env",
-            lambda: {"COHERENCE_EMBED_URL": "http://localhost:8000/embed"},
+            lambda repo_path=".": {"COHERENCE_EMBED_URL": "http://localhost:8000/embed"},
         )
 
         # Patch _score_one

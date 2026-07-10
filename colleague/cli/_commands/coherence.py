@@ -41,18 +41,23 @@ from colleague.coherence import (
 from colleague.feedback import get_last_work
 
 
-def embed_env() -> dict[str, str]:
+def embed_env(repo_path: str | Path = ".") -> dict[str, str]:
     """Embedder env overrides via the SAME resolution the runtime uses.
 
-    Delegates to ``EngineConfig.resolve(repo_path=cwd)``, whose lobes-discovery
+    Delegates to ``EngineConfig.resolve(repo_path=…)``, whose lobes-discovery
     rung fills ``.embed_env`` (``{}`` when unarmed / unreachable / no embedder
     role) — one path, so this verb can never drift from the #294 gate.
     ``colleague.lobes.embed_env`` itself takes ``(roles, gateway_url)``; calling
     it directly here would re-derive what ``resolve()`` already composes.
+
+    *repo_path* is the TARGET repo (the ``--repo`` argument, default cwd):
+    resolving from the process cwd regardless of ``--repo`` picked up the
+    wrong config/lobes discovery when invoked from outside the target repo
+    (Qodo #318 review, comment 3560546642).
     """
     from colleague.config import EngineConfig
 
-    return EngineConfig.resolve(repo_path=Path.cwd()).embed_env
+    return EngineConfig.resolve(repo_path=Path(repo_path).expanduser()).embed_env
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +139,11 @@ def _render_score_lines(records: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _score_files(paths: list[str] | str) -> object:
+def _score_files(paths: list[str] | str, repo: str = ".") -> object:
     """Score markdown file path(s) and return a rendered result.
+
+    *repo* (rendered as ``--repo``) names the repo whose config/lobes
+    discovery resolves the embedder env — deterministic from any cwd.
 
     Accepts a single path string as well as a list: the agentfront-rendered
     tool surface has no variadic positionals (a ``list[str]`` annotation
@@ -150,7 +158,7 @@ def _score_files(paths: list[str] | str) -> object:
     _check_cli_installed()
 
     # Resolve embedder env from lobes (same as the gate path)
-    env_overrides = embed_env()
+    env_overrides = embed_env(repo)
     env = {**(env_overrides or {}), **os.environ}
 
     # Require an embedder endpoint (same configured-detection as the gate)
@@ -243,7 +251,7 @@ def _score_changed_docs(
     if not md_files:
         return [], None, None
     _check_cli_installed()
-    env_overrides = embed_env()
+    env_overrides = embed_env(repo_path)
     env = {**(env_overrides or {}), **os.environ}
     if not env.get("COHERENCE_EMBED_URL"):
         # If no embedder, still show the existing report if present.
@@ -378,7 +386,7 @@ def cmd_coherence_overview(args: argparse.Namespace) -> int:
 
 def cmd_coherence_score(args: argparse.Namespace) -> int:
     emit_result(
-        _score_files(args.paths),
+        _score_files(args.paths, getattr(args, "repo", ".")),
         json_mode=bool(getattr(args, "json", False)),
     )
     return 0
@@ -415,6 +423,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         "paths",
         nargs="+",
         help="Paths to markdown files to score.",
+    )
+    sc.add_argument(
+        "--repo",
+        default=".",
+        help="Repo whose config/lobes discovery resolves the embedder (default: cwd).",
     )
     sc.add_argument("--json", action="store_true", help=JSON_HELP)
     sc.set_defaults(func=cmd_coherence_score)

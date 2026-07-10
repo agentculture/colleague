@@ -509,7 +509,15 @@ def _arm_delta_stream(config: EngineConfig, cockpit_sink: object) -> None:
     `--no-tui`, `--tui-events` alone — passes ``None``, so `config.on_delta`
     keeps its byte-identical default. Extracted from :func:`execute_work` to
     keep its cognitive complexity under the S3776 threshold.
+
+    The reset is UNCONDITIONAL (mirroring how ``config.progress`` is
+    overwritten every run): any long-lived caller that reuses one
+    ``EngineConfig`` across work items (the session, an embedding host) must
+    never carry a previous run's armed sink — a stale bound method — into a
+    later run whose own sink is absent or declines (Qodo #318 review, comment
+    3560546632).
     """
+    config.on_delta = None
     if cockpit_sink is not None and getattr(cockpit_sink, "wants_delta_stream", False):
         config.on_delta = cockpit_sink.on_delta
 
