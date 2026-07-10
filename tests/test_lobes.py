@@ -487,18 +487,22 @@ def test_embed_env_builds_eidetic_and_coherence_vars_from_resolved_embedder() ->
     env = embed_env(result, url)
 
     # The embedder's own endpoint (a distinct origin from the gateway url,
-    # like cortex/senses above) is what gets relayed — not the gateway origin.
+    # like cortex/senses above) is what gets relayed — not the gateway origin —
+    # PLUS the advertised path's prefix (path="/v1/embeddings" -> "/v1"), since
+    # both downstream consumers append their own "/embeddings" to the base
+    # (probed live 2026-07-10: a bare-origin relay 404s on the real rig).
     assert env == {
-        "EIDETIC_EMBED_URL": "http://localhost:8000",
+        "EIDETIC_EMBED_URL": "http://localhost:8000/v1",
         "EIDETIC_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B",
-        "COHERENCE_EMBED_URL": "http://localhost:8000",
+        "COHERENCE_EMBED_URL": "http://localhost:8000/v1",
         "COHERENCE_EMBED_MODEL": "Qwen/Qwen3-Embedding-0.6B",
     }
 
 
 def test_embed_env_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
     """Empty/missing embedder endpoint falls back to the gateway origin — the
-    same SSRF-guarded fallback every other role gets."""
+    same SSRF-guarded fallback every other role gets (still carrying the
+    advertised path prefix)."""
     payload = json.loads(json.dumps(REAL_CAPABILITIES_PAYLOAD))
     payload["embedder"]["endpoint"] = ""
     with _serving(_payload_bytes(payload)) as url:
@@ -506,8 +510,21 @@ def test_embed_env_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
     assert result is not None and result.embedder is not None
 
     env = embed_env(result, url)
-    assert env["EIDETIC_EMBED_URL"] == url
-    assert env["COHERENCE_EMBED_URL"] == url
+    assert env["EIDETIC_EMBED_URL"] == url + "/v1"
+    assert env["COHERENCE_EMBED_URL"] == url + "/v1"
+
+
+def test_embed_env_keeps_bare_relay_for_pathless_or_bare_embeddings_path() -> None:
+    """A path of exactly '/embeddings' (or absent) keeps the bare-origin relay —
+    only a real prefix (e.g. '/v1') is folded into the base."""
+    payload = json.loads(json.dumps(REAL_CAPABILITIES_PAYLOAD))
+    payload["embedder"]["path"] = "/embeddings"
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.embedder is not None
+
+    env = embed_env(result, url)
+    assert env["COHERENCE_EMBED_URL"] == "http://localhost:8000"
 
 
 def test_embed_env_is_empty_when_no_embedder_resolved() -> None:

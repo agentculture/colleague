@@ -39,7 +39,21 @@ from colleague.coherence import (
     diagnostics_lines,
 )
 from colleague.feedback import get_last_work
-from colleague.lobes import embed_env
+
+
+def embed_env() -> dict[str, str]:
+    """Embedder env overrides via the SAME resolution the runtime uses.
+
+    Delegates to ``EngineConfig.resolve(repo_path=cwd)``, whose lobes-discovery
+    rung fills ``.embed_env`` (``{}`` when unarmed / unreachable / no embedder
+    role) — one path, so this verb can never drift from the #294 gate.
+    ``colleague.lobes.embed_env`` itself takes ``(roles, gateway_url)``; calling
+    it directly here would re-derive what ``resolve()`` already composes.
+    """
+    from colleague.config import EngineConfig
+
+    return EngineConfig.resolve(repo_path=Path.cwd()).embed_env
+
 
 # ---------------------------------------------------------------------------
 # Overview
@@ -99,8 +113,19 @@ def _check_cli_installed() -> None:
         )
 
 
-def _score_files(paths: list[str]) -> object:
-    """Score a list of markdown file paths and return a rendered result."""
+def _score_files(paths: list[str] | str) -> object:
+    """Score markdown file path(s) and return a rendered result.
+
+    Accepts a single path string as well as a list: the agentfront-rendered
+    tool surface has no variadic positionals (a ``list[str]`` annotation
+    renders as ONE string argument), so the rendered ``coherence score``
+    passes a lone string — iterating it raw would score per-character
+    (caught live). Multi-path calls arrive as a real list via the legacy
+    argparse path (``nargs="+"``); a variadic rendered surface is a
+    possible agentfront upstream ask.
+    """
+    if isinstance(paths, str):
+        paths = [paths]
     _check_cli_installed()
 
     # Resolve embedder env from lobes (same as the gate path)
@@ -118,9 +143,12 @@ def _score_files(paths: list[str]) -> object:
 
     records: list[dict[str, Any]] = []
     for path_str in paths:
-        path = Path(path_str)
+        # Resolve BEFORE calling: _score_one runs the CLI with cwd=repo_path,
+        # so a relative path + cwd=path.parent would double the prefix
+        # (docs/docs/… — caught live).
+        path = Path(path_str).resolve()
         if not path.is_file():
-            emit_diagnostic(f"coherence: skipping non-file {path}")
+            emit_diagnostic(f"coherence: skipping non-file {path_str}")
             continue
         record = _score_one(path, path.parent, env)
         records.append(record)

@@ -388,3 +388,17 @@ class TestLegacyParser:
         args = argparse.Namespace(json=False)
         rc = _mod.cmd_coherence_overview(args)
         assert rc == 0
+
+
+class TestScoreRenderedSurface:
+    """The agentfront-rendered tool passes ONE string, not a list (caught live)."""
+
+    def test_score_accepts_a_single_path_string(
+        self, tmp_md: Path, mock_score: None, mock_embed_env: None
+    ) -> None:
+        result = _mod._score_files(str(tmp_md))
+        payload = result.data if hasattr(result, "data") else result
+        assert isinstance(payload, dict)
+        files = payload.get("files", [])
+        assert len(files) == 1
+        assert files[0]["path"] == str(tmp_md)
