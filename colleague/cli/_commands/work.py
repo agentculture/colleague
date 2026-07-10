@@ -652,13 +652,18 @@ def execute_work(
             # decline when its OWN dynamic ANSI tier isn't the one drawing right
             # now (a piped/`--json`/Markdown session still builds a `_WorkSink`
             # for its state bookkeeping, but must never stream deltas into a
-            # frame nobody redraws) — `getattr(..., True)` defaults a plain
-            # `CockpitProgressSink` (which has no such extra gate) to wanting it.
-            # Every other path — a bare non-TTY `work` (no --tui), `--no-tui`, or
-            # `--tui-events` alone — leaves `cockpit_sink` `None`, so
-            # `config.on_delta` stays at its byte-identical default (`None`),
-            # untouched here.
-            if cockpit_sink is not None and getattr(cockpit_sink, "wants_delta_stream", True):
+            # frame nobody redraws). The default is OPT-OUT (`getattr(...,
+            # False)`): both live cockpit sinks declare the property explicitly
+            # (`CockpitProgressSink` always True, `_WorkSink` tier-gated), while
+            # an EXTERNAL caller-supplied sink that never heard of deltas must
+            # stay unarmed (an opt-in default crashed such callers on the
+            # missing `on_delta` attribute). Every other path — a bare non-TTY `work` (no
+            # --tui), `--no-tui`, or `--tui-events` alone — leaves
+            # `cockpit_sink` `None`, so `config.on_delta` stays at its
+            # byte-identical default (`None`), untouched here.
+            if cockpit_sink is not None and getattr(
+                cockpit_sink, "wants_delta_stream", False
+            ):
                 config.on_delta = cockpit_sink.on_delta
             # Background presence (presence-default-everywhere arc, task t9):
             # wire the front-agnostic PresenceEngine onto this SAME progress-sink
