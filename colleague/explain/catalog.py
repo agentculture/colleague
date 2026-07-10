@@ -859,6 +859,46 @@ probe-only, never part of the zero-network registered group.
 - `colleague explain config`
 """
 
+_COHERENCE = """\
+# colleague coherence
+
+On-demand coherence measurement of colleague's work artifacts. Coherence scores
+measure the semantic quality of documentation (``*.md`` files) via the
+operator-installed ``coherence`` CLI (Meaning Gradient). The measurement is
+**advisory** and **never a gate**: it informs but never blocks the work item
+handoff.
+
+## Verbs
+
+- ``coherence overview`` — describe the coherence surface (what it is, that it is
+  advisory and never a gate). Always exits 0.
+- ``coherence score PATH [PATH...]`` — score one or more markdown files directly
+  by reusing the existing scoring machinery in ``colleague/coherence.py``.
+  Supports ``--json`` for structured output including embedding-frame provenance.
+- ``coherence show TASK_ID|last`` — resolve a finished work item's artifact,
+  score its recorded changed ``.md`` files if any, and report the artifact's
+  existing ``coherence_report`` block when present.
+
+## Degradation
+
+When the ``coherence`` CLI is not installed (``shutil.which`` returns ``None``):
+``overview`` still exits 0; ``score``/``show`` raise a structured ``CliError``
+with a remediation hint (``uv tool install coherence-cli``).
+
+## Usage
+
+    colleague coherence overview
+    colleague coherence score README.md
+    colleague coherence score --json CHANGELOG.md docs/guide.md
+    colleague coherence show last
+    colleague coherence show abc123 --repo /path/to/repo
+
+## See also
+
+- `colleague explain feedback` — grade a finished work item
+- `colleague explain organs` — the coherence organ in the organism map
+"""
+
 
 _SUBAGENT = """\
 # colleague subagent
@@ -1400,6 +1440,10 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("organs",): _ORGANS,
     ("organs", "list"): _ORGANS,
     ("organs", "overview"): _ORGANS,
+    ("coherence",): _COHERENCE,
+    ("coherence", "overview"): _COHERENCE,
+    ("coherence", "score"): _COHERENCE,
+    ("coherence", "show"): _COHERENCE,
     ("config",): _CONFIG,
     ("config", "show"): _CONFIG,
     ("config", "overview"): _CONFIG,
