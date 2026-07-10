@@ -661,9 +661,7 @@ def execute_work(
             # --tui), `--no-tui`, or `--tui-events` alone — leaves
             # `cockpit_sink` `None`, so `config.on_delta` stays at its
             # byte-identical default (`None`), untouched here.
-            if cockpit_sink is not None and getattr(
-                cockpit_sink, "wants_delta_stream", False
-            ):
+            if cockpit_sink is not None and getattr(cockpit_sink, "wants_delta_stream", False):
                 config.on_delta = cockpit_sink.on_delta
             # Background presence (presence-default-everywhere arc, task t9):
             # wire the front-agnostic PresenceEngine onto this SAME progress-sink
