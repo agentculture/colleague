@@ -165,9 +165,9 @@ no socket/daemon code of its own (supervision is imported from agent-lifecycle
 behind an opt-in extra; background execution is a one-shot detached child). Exactly
 two backends: `mock` (the contract reference) and `vllm-openai`.
 
-**Out of scope for v0** — do not add without re-speccing: **a multi-backend /
-multi-model router / routing policy** (any automatic task→model or task→backend
-routing decision). **Five sanctioned increments** have landed at this line, each a
+**Out of scope for v0** — do not add without re-speccing: **a multi-backend
+router / routing policy** (equally the multi-model router: any automatic
+task→model or task→backend routing decision). **Five sanctioned increments** have landed at this line, each a
 re-spec'd, FIXED, ENUMERATED surface — never a routing policy (fuller descriptions
 in the architecture bullets above + their docs): (1) **dual-model deepthink
 escalation** (ONE declared second model); (2) **cortex/senses role split** (TWO
