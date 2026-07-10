@@ -22,6 +22,7 @@ import sys
 import urllib.error
 import urllib.request
 from contextlib import suppress
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 
 from colleague.config import EngineConfig
@@ -40,6 +41,10 @@ from colleague.loop import (
 from colleague.senses import make_senses_run
 from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas
 
+# The one spelling of the wire content-type, referenced by every JSON POST
+# below (chat completions, the SSE stream variant, and /tokenize) — S1192.
+_CONTENT_TYPE_JSON = "application/json"
+
 
 def _post_json(
     url: str, payload: dict[str, Any], *, api_key: str, timeout: float
@@ -54,7 +59,7 @@ def _post_json(
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers={"Content-Type": _CONTENT_TYPE_JSON, "Authorization": f"Bearer {api_key}"},
     )
     try:
         with urllib.request.urlopen(
@@ -112,7 +117,7 @@ def _raise_legible_http_error(url: str, exc: urllib.error.HTTPError) -> None:
         raise exc
     msg = f"{exc.msg}: {detail}"
     if exc.code == 500:
-        msg = "the model server returned a 500 (server-side error, not a " "Colleague bug) — " + msg
+        msg = "the model server returned a 500 (server-side error, not a Colleague bug) — " + msg
         if "EngineCore" in detail or "InternalServerError" in detail:
             msg += (
                 " — the server likely crashed on a tool-calling request "
@@ -288,6 +293,78 @@ def _finalize_tool_calls(fragments: dict[int, dict[str, str]]) -> list[ToolCall]
     ]
 
 
+@dataclass
+class _StreamAccumulator:
+    """Mutable per-turn accumulator :func:`_post_json_stream` folds frames into.
+
+    Extracted so the frame-handling helpers below (and the loop that calls
+    them) can share this state by reference instead of ``_post_json_stream``
+    threading five separate locals through nested conditionals — the sole
+    purpose is keeping that function's cognitive complexity low (S3776), with
+    IDENTICAL observable behavior.
+    """
+
+    content_parts: list[str] = field(default_factory=list)
+    reasoning_parts: list[str] = field(default_factory=list)
+    tool_call_fragments: dict[int, dict[str, str]] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)
+    saw_finish_reason: bool = False
+
+
+def _emit_content_and_reasoning_deltas(
+    delta: dict[str, Any], acc: _StreamAccumulator, on_delta: Callable[[str], None]
+) -> None:
+    """Fold one frame's ``delta`` content/reasoning chunks into *acc*, feeding
+    each to *on_delta* as it arrives. Honors both ``reasoning`` and
+    ``reasoning_content`` key spellings (some servers use the latter).
+    """
+    content_chunk = delta.get("content")
+    if content_chunk:
+        acc.content_parts.append(content_chunk)
+        _emit_delta(on_delta, content_chunk)
+    reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content")
+    if reasoning_chunk:
+        acc.reasoning_parts.append(reasoning_chunk)
+        _emit_delta(on_delta, reasoning_chunk)
+
+
+def _accumulate_frame_tool_calls(delta: dict[str, Any], acc: _StreamAccumulator) -> None:
+    """Fold every ``delta.tool_calls[]`` fragment on one frame into *acc*."""
+    for fragment in delta.get("tool_calls") or []:
+        _accumulate_tool_call_fragment(acc.tool_call_fragments, fragment)
+
+
+def _capture_frame_usage(frame: dict[str, Any], acc: _StreamAccumulator) -> None:
+    """Record *frame*'s ``usage`` on *acc* verbatim when present (task t4).
+
+    The LAST usage-bearing frame wins — a later call simply overwrites the
+    previous one, matching ``stream_options.include_usage``'s convention of
+    sending the final tally on the closing frame.
+    """
+    frame_usage = frame.get("usage")
+    if frame_usage:
+        acc.usage = frame_usage
+
+
+def _apply_stream_frame(
+    frame: dict[str, Any], acc: _StreamAccumulator, on_delta: Callable[[str], None]
+) -> None:
+    """Fold one decoded SSE frame into *acc* (content, reasoning, tool-call
+    fragments, ``finish_reason``, and usage) — the single per-frame dispatch
+    :func:`_post_json_stream`'s loop body calls, so the frame-shape branching
+    lives in its own low-complexity function rather than nested inside the
+    streaming loop.
+    """
+    choices = frame.get("choices") or []
+    if choices:
+        delta = choices[0].get("delta") or {}
+        _emit_content_and_reasoning_deltas(delta, acc, on_delta)
+        _accumulate_frame_tool_calls(delta, acc)
+        if choices[0].get("finish_reason") is not None:
+            acc.saw_finish_reason = True
+    _capture_frame_usage(frame, acc)
+
+
 class _StreamIncomplete(Exception):
     """Internal sentinel (task t5): the SSE stream ended with no terminal frame.
 
@@ -343,38 +420,17 @@ def _post_json_stream(
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers={"Content-Type": _CONTENT_TYPE_JSON, "Authorization": f"Bearer {api_key}"},
     )
-    content_parts: list[str] = []
-    reasoning_parts: list[str] = []
-    tool_call_fragments: dict[int, dict[str, str]] = {}
-    usage: dict[str, Any] = {}
-    saw_finish_reason = False
+    acc = _StreamAccumulator()
     terminal_marker: list[bool] = [False]
     try:
         with urllib.request.urlopen(
             request, timeout=timeout
         ) as response:  # nosec B310 - configured endpoint
             for frame in _iter_sse_frames(response, terminal=terminal_marker):
-                choices = frame.get("choices") or []
-                if choices:
-                    delta = choices[0].get("delta") or {}
-                    content_chunk = delta.get("content")
-                    if content_chunk:
-                        content_parts.append(content_chunk)
-                        _emit_delta(on_delta, content_chunk)
-                    reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content")
-                    if reasoning_chunk:
-                        reasoning_parts.append(reasoning_chunk)
-                        _emit_delta(on_delta, reasoning_chunk)
-                    for fragment in delta.get("tool_calls") or []:
-                        _accumulate_tool_call_fragment(tool_call_fragments, fragment)
-                    if choices[0].get("finish_reason") is not None:
-                        saw_finish_reason = True
-                frame_usage = frame.get("usage")
-                if frame_usage:
-                    usage = frame_usage
-            if not terminal_marker[0] and not saw_finish_reason:
+                _apply_stream_frame(frame, acc, on_delta)
+            if not terminal_marker[0] and not acc.saw_finish_reason:
                 # The connection closed cleanly (no exception) but neither
                 # terminal signal ever arrived — a truncated stream, not a
                 # completed one (task t5's missing-terminal-frame trigger).
@@ -390,11 +446,11 @@ def _post_json_stream(
         _raise_legible_connection_error(url, exc)
 
     return ModelResponse(
-        content="".join(content_parts),
-        tool_calls=_finalize_tool_calls(tool_call_fragments),
-        prompt_tokens=int(usage.get("prompt_tokens", 0)),
-        completion_tokens=int(usage.get("completion_tokens", 0)),
-        reasoning="".join(reasoning_parts),
+        content="".join(acc.content_parts),
+        tool_calls=_finalize_tool_calls(acc.tool_call_fragments),
+        prompt_tokens=int(acc.usage.get("prompt_tokens", 0)),
+        completion_tokens=int(acc.usage.get("completion_tokens", 0)),
+        reasoning="".join(acc.reasoning_parts),
     )
 
 
@@ -561,7 +617,7 @@ def _tokenize_post(
         url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        headers={"Content-Type": _CONTENT_TYPE_JSON, "Authorization": f"Bearer {api_key}"},
     )
     with urllib.request.urlopen(  # nosec B310 - configured endpoint
         request, timeout=timeout
