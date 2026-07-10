@@ -15,8 +15,8 @@ session path only, its :meth:`stop` join is bounded (never hangs), and it
 degrades to today's cooked-mode behavior on any setup failure or reader crash.
 The corresponding allow-list entry lives in ``tests/test_boundary.py``.
 
-Stdlib only — ``threading`` / ``termios`` / ``tty`` / ``io`` / ``os`` / ``signal``.
-No curses, no new dependency, no socket, no daemon.
+Stdlib only — ``threading`` / ``termios`` / ``tty`` / ``select`` / ``io`` / ``os``
+/ ``signal``. No curses, no new dependency, no socket, no daemon.
 
 Design notes
 ------------
@@ -28,6 +28,12 @@ Design notes
   ``Ctrl-C`` (``0x03``) arrives to us as a byte and is forwarded to
   ``on_interrupt`` instead of being swallowed by the terminal driver. A non-TTY
   stream (tests) is read per-character with no termios at all.
+* **The reader never parks in a blocking read.** When the stream exposes a
+  pollable fd, each character is preceded by a short ``select`` wait, so the
+  reader wakes every ``_READ_POLL_SECONDS`` to re-check the stop event. Without
+  this, :meth:`stop` could only take effect on the operator's *next keystroke*:
+  its bounded join would time out and return while the thread still held stdin,
+  leaving a ghost reader to race the session's cooked reads for the next key.
 * **One lock.** The reader's echo path and :meth:`print_above` share a single
   lock, so a repaint can never interleave with an echo.
 * **Degrade, never raise.** Any failure arming the line (termios setup, thread
@@ -41,6 +47,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import select
 import signal
 import threading
 from typing import Callable, Optional
@@ -57,6 +64,11 @@ _CTRL_C = "\x03"
 # whose read raises) so it can report a failed arm. A healthy stream blocks on an
 # empty fd for far longer than this, so the happy path costs at most this once.
 _START_SETTLE_SECONDS = 0.1
+
+# How long the reader waits for a readable fd before looping back to re-check the
+# stop event. Bounds how long :meth:`stop` can take on an idle stream; small
+# enough to be imperceptible, large enough that an idle line costs ~nothing.
+_READ_POLL_SECONDS = 0.05
 
 
 def _default_interrupt() -> None:
@@ -125,6 +137,9 @@ class OwnedInputLine:
         self._saved_termios: Optional[list] = None
         self._restored = False
 
+        # The fd the reader polls for readability (None for in-memory streams).
+        self._poll_fd: Optional[int] = None
+
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> bool:
@@ -165,14 +180,22 @@ class OwnedInputLine:
     def stop(self, *, timeout: float = 1.0) -> None:
         """Signal the reader to stop and join it bounded; restore the terminal.
 
-        Bounded (``join(timeout=...)``) so it never hangs on a reader blocked in a
-        read, and idempotent — safe to call more than once.
+        Bounded (``join(timeout=...)``) so it never hangs, and idempotent — safe
+        to call more than once. The reader polls for readability rather than
+        parking in a blocking read, so it observes the stop event within
+        ``_READ_POLL_SECONDS`` and the join returns promptly without needing a
+        keystroke to unblock it.
+
+        A thread that somehow outlived the bounded join keeps its handle, so a
+        later :meth:`stop` re-joins it instead of silently forgetting a thread
+        that may still hold stdin.
         """
         self._stop_event.set()
         thread = self._thread
-        self._thread = None
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
+        if thread is None or not thread.is_alive():
+            self._thread = None
         self._restore_terminal()
         self._armed = False
 
@@ -206,6 +229,8 @@ class OwnedInputLine:
         try:
             while not self._stop_event.is_set():
                 ch = self._read_one()
+                if ch is None:  # Poll tick with no input — re-check the stop event.
+                    continue
                 if ch == "":  # EOF — the input stream closed.
                     break
                 self._handle_char(ch)
@@ -268,8 +293,15 @@ class OwnedInputLine:
 
     # -- stream + terminal plumbing ---------------------------------------
 
-    def _read_one(self) -> str:
-        """Read one character (a full UTF-8 codepoint on a real fd). ``""`` on EOF."""
+    def _read_one(self) -> Optional[str]:
+        """Read one character (a full UTF-8 codepoint on a real fd).
+
+        Returns ``None`` when the poll tick elapsed with no input waiting (the
+        caller loops back to re-check the stop event), ``""`` on EOF, else the
+        character.
+        """
+        if self._poll_fd is not None and not self._wait_readable():
+            return None
         if self._use_fd:
             data = os.read(self._fd, 1)
             if not data:
@@ -286,6 +318,31 @@ class OwnedInputLine:
         if isinstance(ch, (bytes, bytearray)):
             return bytes(ch).decode("utf-8", errors="ignore")
         return ch
+
+    def _wait_readable(self) -> bool:
+        """Wait one poll tick for ``self._poll_fd`` to become readable.
+
+        A ``select`` failure (the fd was closed under us) propagates to the
+        reader's crash handler, which disarms the line — the same degrade path as
+        any other unreadable stream.
+        """
+        ready, _, _ = select.select([self._poll_fd], [], [], _READ_POLL_SECONDS)
+        return bool(ready)
+
+    def _pollable_fd(self) -> Optional[int]:
+        """The input stream's fd when ``select`` can poll it, else ``None``.
+
+        In-memory streams (``io.StringIO``) raise on ``fileno()``; they never
+        block, so they need no poll and read straight through to EOF.
+        """
+        fileno = getattr(self._stream_in, "fileno", None)
+        if not callable(fileno):
+            return None
+        try:
+            fd = fileno()
+        except Exception:
+            return None
+        return fd if isinstance(fd, int) and fd >= 0 else None
 
     def _write(self, text: str) -> None:
         try:
@@ -309,6 +366,9 @@ class OwnedInputLine:
             is_tty = False
         if not is_tty:
             self._use_fd = False
+            # A pipe or socket still blocks, so still poll it; an in-memory
+            # stream has no fd and reads straight through.
+            self._poll_fd = self._pollable_fd()
             return
 
         import termios
@@ -324,6 +384,7 @@ class OwnedInputLine:
         mode[3] &= ~termios.ISIG  # index 3 == lflag.
         termios.tcsetattr(fd, termios.TCSADRAIN, mode)
         self._fd = fd
+        self._poll_fd = fd
         self._use_fd = True
         self._restored = False
 

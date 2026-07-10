@@ -233,3 +233,54 @@ def test_print_above_before_start_is_a_plain_write() -> None:
     assert out.getvalue() == "plain\n"
     # stop() on a never-started object is safe.
     line.stop(timeout=0.2)
+
+
+def test_stop_is_prompt_when_the_reader_is_parked_on_an_idle_stream() -> None:
+    """A reader parked on an idle fd must notice ``stop()`` without a keystroke.
+
+    Regression (PR #315 review). The reader used to sit in a blocking read until
+    the operator happened to press a key, so ``stop()`` waited out its whole join
+    timeout and returned with the thread *still alive and still holding stdin*.
+    The session then resumed its cooked reads, leaving two readers racing for the
+    same fd: the ghost swallowed (and misechoed) the next keystroke, and every
+    work item ended with a full join-timeout stall.
+
+    Fake in-memory streams cannot catch this — ``StringIO.read(1)`` returns at
+    EOF immediately, so the thread always exited. Only a real blocking fd (an
+    idle pipe, exactly like an idle TTY) reproduces it.
+    """
+    pipe = _Pipe()
+    line = OwnedInputLine(pipe.reader, io.StringIO(), on_line=lambda _s: None)
+    try:
+        assert line.start() is True
+        thread = line._thread
+        assert thread is not None and thread.is_alive()
+
+        started = time.monotonic()
+        line.stop(timeout=2.0)
+        elapsed = time.monotonic() - started
+
+        assert (
+            not thread.is_alive()
+        ), "reader thread survived stop() — a ghost reader still holds stdin"
+        assert elapsed < 1.0, (
+            f"stop() took {elapsed:.2f}s: it waited out the join instead of "
+            "waking the parked reader"
+        )
+    finally:
+        pipe.close()
+
+
+def test_a_keystroke_still_arrives_after_the_poll_wake_loop() -> None:
+    """The stop-responsive poll must not cost us a character: typing still lands."""
+    pipe = _Pipe()
+    out = io.StringIO()
+    seen: list[str] = []
+    line = OwnedInputLine(pipe.reader, out, on_line=seen.append)
+    try:
+        assert line.start() is True
+        pipe.feed(b"hi\r")
+        assert _wait_for(lambda: seen == ["hi"]), f"never received the line: {seen!r}"
+    finally:
+        line.stop(timeout=1.0)
+        pipe.close()

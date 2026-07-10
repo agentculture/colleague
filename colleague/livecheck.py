@@ -1091,99 +1091,119 @@ def classify_one_teammate_check(
     return "passed", "senses answered directly; no cortex work item"
 
 
+def _grade_at_home_global_arming(evidence: dict[str, object]) -> tuple[str, str]:
+    """The machine-global config proof.
+
+    Evidence: ``env_armed`` (was COLLEAGUE_LOBES_URL set? — must be False for
+    this proof to mean anything), ``config_show_armed`` / ``lobes_show_armed``
+    (what the two introspection verbs reported), ``user_config_present``.
+    PASSes only when, with the env unset and only a user-level config carrying
+    ``lobes``, BOTH verbs agree armed — the t1 shadow fix plus the t2 drift fix
+    in one observable. FAILs on any disagreement (the pre-arc contradiction) or
+    on an unarmed verdict. SKIPs when no user-level config exists to prove with.
+    """
+    if evidence.get("env_armed"):
+        return (
+            "skipped",
+            "COLLEAGUE_LOBES_URL was set — the proof needs the env rung dark",
+        )
+    if not evidence.get("user_config_present"):
+        return "skipped", "no user-level ~/.colleague/config.json to prove with"
+    config_armed = bool(evidence.get("config_show_armed"))
+    lobes_armed = bool(evidence.get("lobes_show_armed"))
+    if config_armed and lobes_armed:
+        return (
+            "passed",
+            "user-level lobes default armed both verbs with zero env vars",
+        )
+    if config_armed != lobes_armed:
+        return (
+            "failed",
+            f"introspection drift: config show armed={config_armed}, "
+            f"lobes show armed={lobes_armed} — the pre-arc contradiction",
+        )
+    return "failed", "user-level lobes default did not arm (shadowed or unread)"
+
+
+def _grade_at_home_input_line(evidence: dict[str, object]) -> tuple[str, str]:
+    """The mid-run typing proof.
+
+    Evidence: ``armed`` (did the owned line arm on the live TTY?),
+    ``repaint_seen`` (did an update line print ABOVE a repainted pending buffer
+    — the print_above escape shape?), ``pending_text`` + ``output`` (the typed
+    chars and the captured stream — the pending text must survive in the final
+    repaint). SKIPs when the owned line never armed (off-TTY capture — the
+    structural pytest remains the floor). FAILs when armed but the repaint shape
+    never appeared or the pending text was lost — exactly the clobber this arc
+    removes.
+    """
+    if not evidence.get("armed"):
+        return (
+            "skipped",
+            "owned input line never armed (no live colour TTY) — "
+            "the structural pytest remains the floor",
+        )
+    output = str(evidence.get("output", ""))
+    pending = str(evidence.get("pending_text", ""))
+    if not evidence.get("repaint_seen"):
+        return (
+            "failed",
+            "armed but no print_above repaint appeared around mid-run output",
+        )
+    if pending and pending not in output:
+        return (
+            "failed",
+            f"pending input {pending!r} lost from the captured stream — "
+            "the clobber this arc removes",
+        )
+    return "passed", "mid-run output printed above a surviving pending input line"
+
+
+def _grade_at_home_self_knowledge(evidence: dict[str, object]) -> tuple[str, str]:
+    """The "knows itself" proof, senses or cortex side.
+
+    Evidence: ``reachable`` (was the answering mind armed/reachable?),
+    ``answer`` (the transcript answer), ``expected_ids`` (the RESOLVED model id
+    strings that must appear verbatim — exact-match, the c18 measurable).
+    PASSes only when every expected id appears verbatim in the answer. FAILs on
+    a deferral (the live-proven "i don't know which" shape) or a missing id.
+    SKIPs when the mind was unreachable. Never a fabricated pass.
+    """
+    if not evidence.get("reachable"):
+        return "skipped", "answering mind unarmed/unreachable — nothing to grade"
+    answer = str(evidence.get("answer", ""))
+    lowered = answer.lower()
+    if "i don't know which" in lowered or "i do not know which" in lowered:
+        return "failed", "answer is the pre-arc deferral, not a resolved fact"
+    expected = [str(e) for e in (evidence.get("expected_ids") or []) if str(e)]
+    if not expected:
+        return "skipped", "no expected ids supplied — nothing exact to grade"
+    missing = [e for e in expected if e not in answer]
+    if missing:
+        return (
+            "failed",
+            f"answer omitted resolved id(s) {missing!r} — exact-match is the bar",
+        )
+    return "passed", "answer names every resolved id verbatim"
+
+
+#: The at-home arc's three live-proof legs, keyed by the ``leg`` selector. An
+#: unlisted leg SKIPs honestly rather than falling through to a verdict.
+_AT_HOME_LEGS: dict[str, Callable[[dict[str, object]], tuple[str, str]]] = {
+    "global-arming": _grade_at_home_global_arming,
+    "input-line": _grade_at_home_input_line,
+    "self-knowledge": _grade_at_home_self_knowledge,
+}
+
+
 def classify_at_home_check(leg: str, **evidence: object) -> tuple[str, str]:
     """Grade one leg of the at-home arc's live proof from evidence alone.
 
-    Three legs, selected by *leg* (unknown legs SKIP honestly — a typo'd
-    invocation must never fabricate a verdict):
-
-    ``global-arming`` — the machine-global config proof. Evidence:
-    ``env_armed`` (was COLLEAGUE_LOBES_URL set? — must be False for this proof
-    to mean anything), ``config_show_armed`` / ``lobes_show_armed`` (what the
-    two introspection verbs reported), ``user_config_present``. PASSes only
-    when, with the env unset and only a user-level config carrying ``lobes``,
-    BOTH verbs agree armed — the t1 shadow fix plus the t2 drift fix in one
-    observable. FAILs on any disagreement (the pre-arc contradiction) or on an
-    unarmed verdict. SKIPs when no user-level config exists to prove with.
-
-    ``input-line`` — the mid-run typing proof. Evidence: ``armed`` (did the
-    owned line arm on the live TTY?), ``repaint_seen`` (did an update line
-    print ABOVE a repainted pending buffer — the print_above escape shape?),
-    ``pending_text`` + ``output`` (the typed chars and the captured stream —
-    the pending text must survive in the final repaint). SKIPs when the owned
-    line never armed (off-TTY capture — the structural pytest remains the
-    floor). FAILs when armed but the repaint shape never appeared or the
-    pending text was lost — exactly the clobber this arc removes.
-
-    ``self-knowledge`` — the "knows itself" proof, senses or cortex side.
-    Evidence: ``reachable`` (was the answering mind armed/reachable?),
-    ``answer`` (the transcript answer), ``expected_ids`` (the RESOLVED model
-    id strings that must appear verbatim — exact-match, the c18 measurable).
-    PASSes only when every expected id appears verbatim in the answer. FAILs
-    on a deferral (the live-proven "i don't know which" shape) or a missing
-    id. SKIPs when the mind was unreachable. Never a fabricated pass.
+    Dispatches to the per-leg grader named by *leg* (see :data:`_AT_HOME_LEGS`);
+    an unknown leg SKIPs honestly — a typo'd invocation must never fabricate a
+    verdict.
     """
-    if leg == "global-arming":
-        if evidence.get("env_armed"):
-            return (
-                "skipped",
-                "COLLEAGUE_LOBES_URL was set — the proof needs the env rung dark",
-            )
-        if not evidence.get("user_config_present"):
-            return "skipped", "no user-level ~/.colleague/config.json to prove with"
-        config_armed = bool(evidence.get("config_show_armed"))
-        lobes_armed = bool(evidence.get("lobes_show_armed"))
-        if config_armed and lobes_armed:
-            return (
-                "passed",
-                "user-level lobes default armed both verbs with zero env vars",
-            )
-        if config_armed != lobes_armed:
-            return (
-                "failed",
-                f"introspection drift: config show armed={config_armed}, "
-                f"lobes show armed={lobes_armed} — the pre-arc contradiction",
-            )
-        return "failed", "user-level lobes default did not arm (shadowed or unread)"
-
-    if leg == "input-line":
-        if not evidence.get("armed"):
-            return (
-                "skipped",
-                "owned input line never armed (no live colour TTY) — "
-                "the structural pytest remains the floor",
-            )
-        output = str(evidence.get("output", ""))
-        pending = str(evidence.get("pending_text", ""))
-        if not evidence.get("repaint_seen"):
-            return (
-                "failed",
-                "armed but no print_above repaint appeared around mid-run output",
-            )
-        if pending and pending not in output:
-            return (
-                "failed",
-                f"pending input {pending!r} lost from the captured stream — "
-                "the clobber this arc removes",
-            )
-        return "passed", "mid-run output printed above a surviving pending input line"
-
-    if leg == "self-knowledge":
-        if not evidence.get("reachable"):
-            return "skipped", "answering mind unarmed/unreachable — nothing to grade"
-        answer = str(evidence.get("answer", ""))
-        lowered = answer.lower()
-        if "i don't know which" in lowered or "i do not know which" in lowered:
-            return "failed", "answer is the pre-arc deferral, not a resolved fact"
-        expected = [str(e) for e in (evidence.get("expected_ids") or []) if str(e)]
-        if not expected:
-            return "skipped", "no expected ids supplied — nothing exact to grade"
-        missing = [e for e in expected if e not in answer]
-        if missing:
-            return (
-                "failed",
-                f"answer omitted resolved id(s) {missing!r} — exact-match is the bar",
-            )
-        return "passed", "answer names every resolved id verbatim"
-
-    return "skipped", f"unknown at-home proof leg {leg!r} — nothing to grade"
+    grade = _AT_HOME_LEGS.get(leg)
+    if grade is None:
+        return "skipped", f"unknown at-home proof leg {leg!r} — nothing to grade"
+    return grade(evidence)
