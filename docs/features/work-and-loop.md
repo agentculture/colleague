@@ -101,6 +101,40 @@ empty-tool-call turn (the model answered in prose), or the `max_steps` budget
 (default 25, see [config](#configuration)). Hooks add no new exit path and
 cannot extend the budget.
 
+### Progress sink & phase notices (#38 / #206 / #256)
+
+The per-step **progress sink** (`#38`, `ProgressFn` / `_emit_progress`) lives in
+the loop, and a **pre-completion phase notice** (`#206`, `_emit_phase`) fires
+through that same sink right *before* every model completion — `thinking…`
+before a normal turn, a louder `synthesizing…` before the no-tools
+forced-synthesis turn (#191), and `compacting…` before a fill-line summary turn
+— so a long single completion on a slow backend is visibly *working, not
+stalled* instead of going silent for minutes. A phase notice is encoded as a
+progress event with an EMPTY tool name (a reserved sentinel — a real tool always
+has a name); the plain stderr sink renders it as a standalone line, the
+structured **events** sink still skips it (so `tui replay`/`snapshot` stay
+step-only — `WorkStep` has no phase-only shape). `fold_phase`
+(`colleague/cli/_commands/_tui_sink.py`) folds a phase notice onto the cockpit's
+STATUS surface (`state.status.message`) instead of dropping it (spec R3 / #256,
+task t9) — shared by both live-cockpit consumers, `CockpitProgressSink`
+(`work --tui`) and the session's `_WorkSink`. **The #206 invariant:** a phase
+notice never advances `work_item.step_count` or adds a conversation/feed line,
+so neither cockpit ever folds a phantom step. Runtime-owned (all-engines rule);
+a strict no-op without a progress sink, and zero new deps/threads (the flight
+feed is untouched — the synthesis turn runs after the feed is reaped, so a
+piloting agent already reads it as ended, not stalled).
+
+### Finish recovery (#248 / #231)
+
+A work item's findings always survive to the caller. The loop re-parses a finish
+the model emitted as literal tool-call markup in message content (#248 mode B),
+and fires the forced-synthesis path on a **thin** (headline-only, #248 mode A)
+or **meta** (describes-a-report-it-never-contains, #231) finish after a
+read-heavy zero-write run — each recovery recorded honestly on omit-when-None
+`TaskResult.finish_recovered` (`"literal-markup"` / `"thin-finish-synthesis"` /
+`"meta-finish-synthesis"`). The grounded-read line numbering (#240, above) makes
+those recovered findings cite real file lines.
+
 ## Usage
 
 ```bash
