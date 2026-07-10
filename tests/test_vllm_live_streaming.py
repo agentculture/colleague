@@ -60,9 +60,7 @@ def test_live_streamed_completion_first_delta_beats_full_turn() -> None:
     response = complete([{"role": "user", "content": _PROMPT}])
     total = time.monotonic() - t0
 
-    status, detail = classify_streaming_check(
-        stamps[0] if stamps else None, total, len(deltas)
-    )
+    status, detail = classify_streaming_check(stamps[0] if stamps else None, total, len(deltas))
     print(f"\nstreaming live proof: {status} — {detail}")
     assert status in ("passed", "skipped"), detail
     if status == "skipped":

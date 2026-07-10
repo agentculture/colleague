@@ -55,7 +55,16 @@ def mock_coherence_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 @pytest.fixture
 def mock_score(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mock _score_one so it never calls the real subprocess."""
+    """Mock _score_one so it never calls the real subprocess.
+
+    Also fakes the coherence CLI's PRESENCE: scoring implies an installed CLI,
+    and without patching ``shutil.which`` these tests only passed on machines
+    that happen to have ``coherence`` on PATH (caught by CI, where it is
+    absent and ``_check_cli_installed`` raised before the mock was reached).
+    """
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/coherence" if name == "coherence" else None
+    )
 
     def _fake_score_one(path: Path, root: Path, env: dict[str, str]) -> dict[str, Any]:
         return {
