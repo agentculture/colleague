@@ -13,11 +13,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - At-home arc, leg 2 — the owned input line: `colleague/cli/_commands/_input_line.py`'s `OwnedInputLine` gives `colleague session`'s colour-TTY talk lane a sanctioned reader thread (the 4th recorded thread-confinement sanction) so a mid-run update prints ABOVE the operator's in-progress typing instead of destroying it. Off a colour TTY the session is byte-identical.
 - At-home arc, leg 3 — self-knowledge (#306): `colleague/selfknowledge.py`'s deterministic `classify_selfknowledge` + `build_guide_index` + `build_self_facts` give both minds a real answer to "what model are you?" — cortex-side, `loop.py`'s `_maybe_inject_self_knowledge` injects one advisory guide-index-plus-resolved-facts message before a self-knowledge-classified turn (ordinary turns byte-identical, test-pinned); senses-side, `frontdoor.py`'s `run_frontdoor` gains `config=`/`gateway_url=` params so a `SENSES_DIRECT` answer is enriched with the same resolved facts.
 - `COLLEAGUE_HOME` env override (`CONVERTIBLE_HOME` deprecated fallback) for test-hermeticity — points config resolution at a fake home directory instead of the developer's real `~/.colleague/`.
-- docs/features/at-home-on-your-machine.md documenting the arc; two follow-up issue drafts filed (guide/docent role, `config show` contributing-files listing).
+- docs/features/at-home-on-your-machine.md documenting the arc; two follow-up issues filed ([#316](https://github.com/agentculture/colleague/issues/316) guide/docent role, [#317](https://github.com/agentculture/colleague/issues/317) `config show` contributing-files listing).
+- `docs/deliveries/2026-07-10-colleague-now-feels-at-home-on-your-machine.md` — the arc's planned-vs-actual accountability artifact, produced by the newly vendored `summarize-delivery` skill (origin: devague; the delivery-side closure leg of the `/think` -> `/spec-to-plan` -> `/assign-to-workforce` chain).
 
 ### Changed
 
 - Convention break #4 recorded: `threading`/`concurrent.futures` confinement is extended from `colleague/subagents.py` to also include `colleague/cli/_commands/_input_line.py` (the session's owned-input-line reader thread) — confined to the colour-TTY session path only, never the runtime work loop, bounded join, degrade-never-crash.
+
+### Fixed
+
+- `OwnedInputLine.stop()` no longer leaves a ghost reader on stdin (PR #315 review). The reader parked in a blocking `os.read`, so it could only observe the stop event on the operator's *next keystroke*: the bounded join always timed out and returned while the thread still held stdin, leaving two readers racing for the next key (stolen keystroke, corrupted echo) plus a ~1s stall after every work item. The reader now waits on `select` with a short poll tick, so it observes the stop event without a keystroke; `stop()` also retains the thread handle if one ever outlives the join, so a later `stop()` re-joins rather than silently forgetting it. Verified on a real PTY (`stop()` 0.040s, thread dead) and regression-pinned by `tests/test_input_line.py::test_stop_is_prompt_when_the_reader_is_parked_on_an_idle_stream` — a fake in-memory stream structurally could not catch this.
+- `livecheck.classify_at_home_check` split into three per-leg graders behind a dispatch table, clearing SonarCloud `python:S3776` (cognitive complexity 29 > 15). Behavior unchanged.
 
 ## [1.43.0] - 2026-07-09
 

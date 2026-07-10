@@ -228,15 +228,15 @@ decision — not a new route:
 
 ## Follow-ups
 
-- **A named guide/docent role.** #306's fuller sketch — a dedicated role
-  (rather than an advisory message injected into cortex's own turn) — stays
-  parked unless the current advisory-injection approach proves too shallow
-  in practice (e.g. cortex reading only the index line and never opening a
-  listed doc). Draft: `docs/drafts/issue-guide-role.md`.
-- **`config show` should list every contributing file.** Now that
+- **A named guide/docent role** ([#316](https://github.com/agentculture/colleague/issues/316)).
+  #306's fuller sketch — a dedicated role (rather than an advisory message
+  injected into cortex's own turn) — stays parked unless the current
+  advisory-injection approach proves too shallow in practice (e.g. cortex
+  reading only the index line and never opening a listed doc).
+- **`config show` should list every contributing file**
+  ([#317](https://github.com/agentculture/colleague/issues/317)). Now that
   `config.json` resolution is a per-key merge across up to four roots, `colleague
   config show`'s `config_file:` line still names only the single first-matched
   file (`colleague/cli/_commands/config.py` `_config_show`) rather than every
   file that actually contributed a key post-merge. A cosmetic, non-blocking
-  follow-up from the spec's own open items. Draft:
-  `docs/drafts/issue-config-show-files.md`.
+  follow-up from the spec's own open items.

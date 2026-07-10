@@ -6,10 +6,13 @@ AgentCulture **skills supplier** after the steward → guildmaster cutover
 (`steward doctor`, the sibling-pattern baseline); only the skills-supplier role
 moved. This file tracks provenance so re-syncs stay deterministic.
 
-Three skills (`think`, `spec-to-plan`, `assign-to-workforce`) originate in
+Four skills (`think`, `spec-to-plan`, `assign-to-workforce`,
+`summarize-delivery`) originate in
 [`agentculture/devague`](https://github.com/agentculture/devague); guildmaster
 only **re-broadcasts** them. Cite guildmaster's copy; track devague as the true
-origin.
+origin. `summarize-delivery` is the exception that proves the rule: guildmaster
+has not re-broadcast it yet, so it is cited **directly from devague** and should
+be re-pointed at guildmaster's copy once that broadcast lands.
 
 One skill is **first-party**: `ask-colleague` is **authored here** (origin =
 colleague), not vendored. It is the inverse of the rest — when it stabilizes,
@@ -34,6 +37,7 @@ is load-bearing, even where guildmaster's upstream copy omits it.
 | `think` | `../guildmaster/.claude/skills/think/` | **devague** (re-broadcast via guildmaster) | idea→spec leg of the devague workflow chain. Verbatim (already carried `type: command` at guildmaster). Origin/broadcast prose left verbatim. | 2026-05-26 (guildmaster 0.6.0) |
 | `spec-to-plan` | `../guildmaster/.claude/skills/spec-to-plan/` | **devague** (re-broadcast via guildmaster) | spec→plan leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
 | `assign-to-workforce` | `../guildmaster/.claude/skills/assign-to-workforce/` | **devague** (re-broadcast via guildmaster) | plan→parallel-implementation leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
+| `summarize-delivery` | `../devague/.claude/skills/summarize-delivery/` | **devague** (cited direct — not yet re-broadcast) | delivery-side closure leg of the devague workflow chain: turns an `assign-to-workforce` run into a planned-vs-actual accountability artifact under `docs/deliveries/`. Method-only (no script, no CLI verb); uses read-only `devague plan show` / `plan waves` / `scope --list` / `show` / `status`. Verbatim (already carried `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-10 (devague 0.17.0) |
 | `ask-colleague` | — (first-party) | **colleague** | Authored here, not vendored: a portable wrapper (`scripts/ask-colleague.sh`) that drives the `colleague` CLI for `explore`/`review`/`write` — hand a scoped task to a different backend/mind. Carries `type: command`. | n/a (origin) |
 
 ## Re-sync procedure
