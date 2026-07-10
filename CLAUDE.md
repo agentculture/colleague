@@ -702,6 +702,46 @@ The architecture, part by part:
   continuation) stays out of scope. Feature doc: `docs/features/honest-incompletion.md`;
   spec + plan: `docs/specs/2026-07-09-when-colleague-can-t-finish-a-work-item-it-hands-b.md`
   and `docs/plans/2026-07-09-when-colleague-can-t-finish-a-work-item-it-hands-b.md`.
+- **At home on your machine (at-home arc)** — colleague now feels at home on
+  the machine it runs on, not just inside one repo, closing three frictions
+  reproduced live before they were fixed. (1) **Global config, per-key
+  merge** — `colleague/configdir.py`'s `resolve_files` returns every existing
+  `.colleague/config.json` match across `[repo/.colleague, repo/.convertible,
+  user/.colleague, user/.convertible]` instead of only the first (whole-file
+  shadowing), and `colleague/config.py`'s `_merged_config_json` folds them
+  PER TOP-LEVEL KEY (repo wins per-key, user fills the gaps) — so a
+  machine-wide `~/.colleague/config.json` `{"lobes": ...}` default now arms
+  every repo on the box and survives a repo-level `config.json` that never
+  mentions `lobes`; `colleague lobes show` (`colleague/cli/_commands/
+  lobes.py`) now resolves via the SAME `resolve_lobes_gateway_url(repo_path)`
+  precedence the runtime consults and gained `--repo`, drift-tested against
+  `colleague config show` so the two can never disagree about the armed
+  state. (2) **The owned input line** — `colleague/cli/_commands/
+  _input_line.py`'s `OwnedInputLine` gives `colleague session`'s colour-TTY
+  talk lane a sanctioned reader thread (the 4th recorded thread-confinement
+  sanction — see the **Threads and subprocesses** convention and the v1-scope
+  graduation note above; not restated here) so a mid-run update prints ABOVE
+  the operator's in-progress typing instead of destroying it — the fix for
+  the operator's own complaint that typing while cortex posts updates
+  "clears my text, so I have to type really fast." Off a colour TTY the
+  session stays byte-identical. (3) **Self-knowledge (#306)** —
+  `colleague/selfknowledge.py`'s deterministic `classify_selfknowledge` +
+  `build_guide_index` + `build_self_facts` give BOTH minds a real answer to
+  "what model are you?" (the fix for the operator's complaint "I don't feel
+  like I talk with Gemma - feels like it gets right to Qwen"): cortex-side,
+  `colleague/loop.py`'s `_maybe_inject_self_knowledge` appends ONE advisory
+  guide-index-plus-resolved-facts message before a self-knowledge-classified
+  turn (ordinary turns byte-identical, test-pinned) so cortex reads its own
+  live docs via the EXISTING `read_file` tool; senses-side,
+  `colleague/frontdoor.py`'s `run_frontdoor` gains `config=`/`gateway_url=`
+  params so a `SENSES_DIRECT`-routed turn's fact-set is enriched with the same
+  resolved facts. This is an advisory enrichment of the EXISTING #305/#306
+  routes, never a new one: both classifiers stay deterministic and
+  conservative (ambiguous input never over-triggers), cortex remains the only
+  repo actor, and no new role is introduced. Feature doc:
+  `docs/features/at-home-on-your-machine.md`; spec + plan:
+  `docs/specs/2026-07-09-colleague-now-feels-at-home-on-your-machine-arm-th.md`
+  and `docs/plans/2026-07-09-colleague-now-feels-at-home-on-your-machine-arm-th.md`.
 - **Background one-shot + mesh residency (best-colleague arc, R4/R5,
   decision c17)** — `colleague work --background` detaches the run as a
   session-leader child (`colleague/background.py`, the sanctioned one-shot
@@ -1558,17 +1598,24 @@ The buildable spec and plan this implementation converged from live in
 ## v1 scope (hold this line)
 
 **v0 → v1 graduation (#156).** colleague has graduated from v0 to v1: it now holds
-an opinion about its own context capacity (the **Capacity standard** above). Two
+an opinion about its own context capacity (the **Capacity standard** above). Four
 deliberate, recorded convention changes have landed since v0 — never silent
 breaches: (1) the v0 rule *"no LLM-generated summary"* is **intentionally
 superseded** by the fill-line `compact` move (a model-authored self-summary), with
-lossy windowing retained as the documented fallback floor; and (2) the
+lossy windowing retained as the documented fallback floor; (2) the
 *"zero base dependencies"* rule is **intentionally superseded** by **one**
 sanctioned base dep, `agentfront` (the **CLI surface (cli-on-agentfront)** part
 above) — justified because agentfront's core is pure-stdlib (a base install still
 pulls zero third-party transitive deps) and it is the org's shared agent-first CLI
 standard; the MCP SDK stays an opt-in `[mcp]` extra and `test_zero_deps.py` becomes
-an allow-list of exactly agentfront. Everything else below still holds: the
+an allow-list of exactly agentfront; (3) the no-daemon line is **deliberately
+re-specced** by the best-colleague arc (decision c17 — background one-shot +
+mesh residency via the agent-lifecycle embed; detailed in the out-of-scope
+section below, which names it the third recorded change); and (4) the *"threads
+confined to subagents"* rule is **intentionally extended** to include the
+session's input-line reader thread (operator-decided q1 sanction, at-home arc —
+see the **Threads and subprocesses** convention below).
+Everything else below still holds: the
 **no-second-base-dep** / no-socket / no-daemon conventions, the all-engines rule,
 and the out-of-scope list (a self-summary is NOT a multi-model router, sandbox, or
 daemon; the MCP *server* bonus runs no colleague-owned daemon).
@@ -1851,7 +1898,13 @@ test (`tests/test_e2e_mock.py`) is the guard.
   detach — `Popen(start_new_session=True)`, no daemon/polling; a dedicated
   boundary test additionally pins no `.wait()`/`.poll()`), **`memory.py`** (the
   eidetic CLI shell-out), and **`livecheck.py`** (the gated live-proof runner).
-  Threads (`concurrent.futures`) stay confined to `colleague/subagents.py`.
+  Threads (`concurrent.futures`) stay confined to `colleague/subagents.py` and
+  `colleague/cli/_commands/_input_line.py` — the second entry is the session's
+  owned-input-line reader thread (operator-decided q1 sanction, at-home arc):
+  confined to the interactive session's colour-TTY path only, never the runtime
+  work loop; daemon thread with a bounded join at stop; any failure degrades to
+  the pre-existing cooked-mode behavior (never a crashed session); enforced by
+  `tests/test_boundary.py`'s thread allow-list.
   Every shell-out targets an operator-installed CLI via explicit allow-listing;
   none opens a socket or forks a daemon. `worktrees.py`'s admin mutations are
   additionally serialized by an advisory `fcntl` lock (#239) so concurrent

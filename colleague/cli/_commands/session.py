@@ -47,6 +47,7 @@ import os
 import select
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence, TypeVar, cast
@@ -68,13 +69,19 @@ from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.attribution import cortex_working_line, senses_line
 from colleague.cli._banner import emit_banner
-from colleague.cli._commands._session_input import CYCLE_MODE
+from colleague.cli._commands._input_line import OwnedInputLine
+from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import execute_work as _default_work
 from colleague.cli._errors import CliError
 from colleague.cockpit_run import RunState, fold, observed_ledger, reconcile, status_line
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
-from colleague.config import EngineConfig, resolve_presence_rung, resolve_session_engine
+from colleague.config import (
+    EngineConfig,
+    resolve_lobes_gateway_url,
+    resolve_presence_rung,
+    resolve_session_engine,
+)
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
 from colleague.media import validate_attachment
@@ -505,6 +512,29 @@ class _Session:
         self._talk_active = False
         self._talk_task_id: Optional[str] = None
         self._talk_packet = None
+
+        # Owned mid-run input line (at-home arc, t5): on a LIVE colour TTY the
+        # talk lane takes ownership of the bottom input line via a sanctioned
+        # reader thread (:class:`OwnedInputLine`), so mid-run output prints ABOVE
+        # the operator's in-progress typing (``print_above``) instead of a
+        # full-frame clear-home redraw that would clobber the cooked tty echo.
+        # ``None`` on every non-live / off-colour-TTY / --json / --no-tui / unarmed
+        # path → byte-identical (the cooked ``_poll_talk_lane`` select poll stays
+        # the fallback). ``_owned_line_streams`` is a test seam: when set it forces
+        # arming over injected io streams (no real TTY needed); production leaves it
+        # ``None`` and gates on a live colour-TTY session. ``_owned_talk_queue`` is
+        # the thread-safe hand-off — the reader thread only ENQUEUES a submitted
+        # line; the main thread drains it at the next progress-sink boundary (in
+        # ``_poll_talk_lane``), so a talk message never mutates session state
+        # concurrently. ``_printed_conv`` tracks how many conversation lines have
+        # already scrolled above the owned line (the ``print_above`` delta cursor).
+        self._owned_line: Optional[OwnedInputLine] = None
+        self._owned_line_streams: Optional[tuple[object, object]] = None
+        self._owned_talk_queue: "deque[str]" = deque()
+        self._printed_conv = 0
+        # True only inside the genuine live interactive loop (``run`` with no
+        # test ``input_fn`` and the ANSI view). Gates real-TTY owned-line arming.
+        self._live = False
 
         # Middle-manager presence lane (talking-to-one arc, t6): the session-side
         # record of this work line's ack/update exchanges (folded onto
@@ -1092,7 +1122,33 @@ class _Session:
         return _render_markdown(self.state)
 
     def emit(self) -> None:
+        # THE mid-run choke point (at-home arc, t5): while the talk lane owns the
+        # bottom input line, every mid-run redraw — the _WorkSink's per-step feed,
+        # the senses ack/update/answer lines, everything that funnels through
+        # emit() — scrolls the NEW conversation lines ABOVE the owned line via
+        # print_above instead of a full-frame clear-home redraw that would clobber
+        # the operator's in-progress cooked typing. A pure display-path change:
+        # state is untouched here, so the #206 invariant holds (no step-count
+        # advance, no feed line added). Owned line is armed only mid-run on a live
+        # colour TTY, so at idle / off-TTY this is byte-identical.
+        if self._owned_line is not None:
+            self._emit_over_owned_line()
+            return
         self.chrome(self._frame())
+
+    def _emit_over_owned_line(self) -> None:
+        """Scroll conversation lines added since the last emit ABOVE the owned
+        input line (``print_above`` repaints the operator's pending buffer below
+        each one). Only the DELTA is printed — a full-frame redraw would wipe the
+        owned line and the in-progress typing. A no-op if the line disarmed
+        mid-call (``print_above`` itself degrades to a plain write when disarmed)."""
+        line = self._owned_line
+        if line is None:
+            return
+        conv = self.state.conversation
+        for cline in conv[self._printed_conv :]:
+            line.print_above(cline.render())
+        self._printed_conv = len(conv)
 
     def _read_live_ansi(self) -> Optional[str]:
         """Live ANSI read with a slash-command autocomplete popup.
@@ -1149,6 +1205,10 @@ class _Session:
     def run(self, input_fn: Optional[Iterator[str]]) -> int:
         emit_banner(self.err, json_mode=self.json_mode)
         live_ansi = input_fn is None and self.view == "ansi"
+        # Only a genuine live interactive colour-TTY loop may take ownership of
+        # the bottom input line (t5) — a test-seam iterator / static view keeps
+        # the cooked path, byte-identical.
+        self._live = live_ansi
         # The clarify loop's input seam (t7): pull ONE more operator line from
         # the SAME source this loop reads — the live raw reader or the iterator.
         self._read_next = self._read_live_ansi if live_ansi else (lambda: _read_line(input_fn))
@@ -1171,6 +1231,10 @@ class _Session:
                 break
             if not self._handle(line):
                 break
+        # Safety net: a work item's own finally already disarms the owned line,
+        # but a break out of the loop mid-arm (or a future path) must never leave
+        # the reader thread running. stop() is bounded + idempotent.
+        self._disarm_owned_line()
         self.err("(session ended)")
         return 0
 
@@ -1573,6 +1637,12 @@ class _Session:
             # #311: persist a standalone auditable record of this senses-direct turn
             # (it has no TaskResult) beside the operator repo's .colleague/ artifacts.
             record_repo=str(self.repo),
+            # task t10: ground a senses-direct answer in the REAL resolved
+            # runtime state (config is the ORIGINAL main config, never the
+            # senses-replaced senses_config above) so "what model are you?"
+            # answers with the actual resolved model ids.
+            config=self.config,
+            gateway_url=resolve_lobes_gateway_url(self.repo),
         )
 
     def _render_senses_direct(self, text: str, outcome) -> None:
@@ -1883,6 +1953,7 @@ class _Session:
         self._talk_task_id = task.id
         self._talk_packet = getattr(task, "context_packet", None)
         self._maybe_build_presence_engine()
+        self._arm_owned_line()
 
     def _maybe_build_presence_engine(self) -> None:
         """Build the senses agentic loop for this work line on the ``loop`` rung.
@@ -1937,6 +2008,58 @@ class _Session:
         self._talk_active = False
         self._talk_task_id = None
         self._talk_packet = None
+        self._disarm_owned_line()
+
+    # ── owned mid-run input line (at-home arc, t5) ───────────────────────────
+
+    def _arm_owned_line(self) -> None:
+        """Take ownership of the bottom input line for the running work item.
+
+        Gated the same way as the raw-mode slash reader: a real POSIX colour TTY
+        inside the live interactive loop (``supports_raw_mode(sys.stdin)`` +
+        ``self._live``). A test seam (``_owned_line_streams``) forces arming over
+        injected io streams so the wiring is exercisable without a TTY or a work
+        run. Degrades to the cooked ``_poll_talk_lane`` path when the streams
+        aren't a live TTY, or when ``start()`` reports a failed arm — so a session
+        that ran before always still runs (h7)."""
+        if self._owned_line is not None:
+            return
+        streams = self._owned_line_streams
+        if streams is None:
+            if not (self._live and supports_raw_mode(sys.stdin)):
+                return
+            streams = (sys.stdin, sys.stdout)
+        stream_in, stream_out = streams
+        line = OwnedInputLine(
+            stream_in,
+            stream_out,
+            prompt=plain_prompt(context="colleague"),
+            on_line=self._enqueue_talk,
+        )
+        # Everything already on screen (the echo + ack rendered before the line
+        # armed) is treated as history — only lines added FROM HERE scroll above.
+        self._printed_conv = len(self.state.conversation)
+        if line.start():
+            self._owned_line = line
+
+    def _disarm_owned_line(self) -> None:
+        """Stop the owned line (bounded, idempotent) and clear it back to the
+        cooked path. A no-op when the line was never armed."""
+        line = self._owned_line
+        self._owned_line = None
+        self._owned_talk_queue.clear()
+        if line is not None:
+            line.stop()
+
+    def _enqueue_talk(self, text: str) -> None:
+        """``on_line`` callback fired on the READER thread: only enqueue the
+        submitted line (a thread-safe ``deque`` append). The main thread drains
+        it at the next progress-sink boundary (:meth:`_poll_talk_lane`), so a
+        talk message never mutates session state concurrently with the work
+        loop — the same main-thread-handles-talk model as the cooked path."""
+        stripped = text.strip()
+        if stripped:
+            self._owned_talk_queue.append(stripped)
 
     def _poll_talk_lane(self) -> None:
         """Thread-free stdin poll at a progress-sink boundary (t7).
@@ -1946,8 +2069,22 @@ class _Session:
         interactive TTY stdin is line-buffered (cooked), so ``select`` reports
         readable only once the operator presses Enter and ``readline`` then never
         blocks. A strict no-op unless the lane is armed; any error degrades to a
-        silent no-op so a talk-lane hiccup never disturbs the running work item."""
+        silent no-op so a talk-lane hiccup never disturbs the running work item.
+
+        When the owned input line is armed (t5) this does NOT read stdin — the
+        reader thread owns it and enqueues each submitted line — so here it only
+        drains that queue (on THIS, the main thread) into ``_handle_talk_input``,
+        keeping talk handling single-threaded and each line verbatim."""
         if not self._talk_active:
+            return
+        if self._owned_line is not None:
+            while self._owned_talk_queue:
+                try:
+                    text = self._owned_talk_queue.popleft()
+                except IndexError:
+                    break
+                with contextlib.suppress(Exception):
+                    self._handle_talk_input(text)
             return
         try:
             ready, _, _ = select.select([sys.stdin], [], [], 0)

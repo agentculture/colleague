@@ -240,6 +240,8 @@ def run_frontdoor(
     make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
     history: "Optional[list[dict[str, str]]]" = None,
     record_repo: "Optional[str | Path]" = None,
+    config: "Optional[EngineConfig]" = None,
+    gateway_url: Optional[str] = None,
 ) -> FrontDoorOutcome:
     """The ONE shared front-agnostic front-door entry.
 
@@ -258,10 +260,15 @@ def run_frontdoor(
     text:
         The operator's verbatim message.
     senses_config:
-        The senses-pointed :class:`~colleague.config.EngineConfig`, or
-        ``None`` when senses is unarmed. Unarmed is BYTE-IDENTICAL to
-        pre-arc colleague: never classifies, never consults senses, never
-        records — ``make_complete`` is never called.
+        The senses-pointed :class:`~colleague.config.EngineConfig` (the
+        ``dataclasses.replace`` :func:`colleague.senses.senses_engine_config`
+        already switched onto the senses model), or ``None`` when senses is
+        unarmed. Unarmed is BYTE-IDENTICAL to pre-arc colleague: never
+        classifies, never consults senses, never records — ``make_complete``
+        is never called. **Deliberately distinct from** *config* below — this
+        is the config the completion actually dials, never the source for
+        self-facts (it carries the SENSES model id on its own ``.model``,
+        which would render as a fabricated cortex id).
     make_complete:
         The ``(config, tools=...) -> CompleteFn`` seam, forwarded verbatim to
         :func:`~colleague.senses.run_senses_frontdoor`.
@@ -274,6 +281,32 @@ def run_frontdoor(
         Injectable token counter, forwarded verbatim.
     history:
         Optional rolling chat history, forwarded verbatim.
+    config:
+        (task t10) The caller's ORIGINAL, resolved
+        :class:`~colleague.config.EngineConfig` — the one BEFORE
+        :func:`colleague.senses.senses_engine_config` swapped ``model``/
+        ``base_url``/``api_key`` onto the senses target, i.e. the same object
+        a caller like the session (``self.config``) or the resident
+        (``self._config``) already holds. When given (not ``None``), its
+        resolved state is rendered via
+        :func:`colleague.selfknowledge.build_self_facts` and appended onto
+        *facts* — so a senses-direct answer can name the REAL resolved
+        cortex/senses model ids instead of deferring "I don't know which
+        specific model I am using". ``None`` (the default) is BYTE-IDENTICAL
+        to before this parameter existed: no self-facts block is appended,
+        not even an honest "not configured" line — every existing call site
+        that doesn't pass it is unaffected. c19: this only ever exposes
+        operator-visible CONFIG identity (model ids, the lobes gateway,
+        which gates are on) — never repo state (no file contents, no branch
+        names) — so it is safe on the same facts-only, tools-off path that is
+        already safe for both an operator and a non-operator.
+    gateway_url:
+        (task t10) The resolved lobes gateway URL (e.g. from
+        :func:`colleague.config.resolve_lobes_gateway_url`), forwarded
+        verbatim to :func:`~colleague.selfknowledge.build_self_facts` when
+        *config* is given. Only ever consulted together with *config* — has
+        no effect when *config* is ``None``. Omitted (``None``) renders the
+        honest "lobes: not armed" line rather than fabricating a URL.
 
     Returns
     -------
@@ -295,9 +328,18 @@ def run_frontdoor(
     from colleague.architecture_facts import load_architecture_facts
     from colleague.senses import FRONTDOOR_POINT, run_senses_frontdoor
 
+    resolved_facts = facts if facts is not None else load_architecture_facts()
+    if config is not None:
+        # task t10: ground the answer in the REAL resolved runtime state too —
+        # the ORIGINAL config (never senses_config; see the parameter doc
+        # above for why that distinction matters).
+        from colleague.selfknowledge import build_self_facts
+
+        resolved_facts = resolved_facts + "\n\n" + build_self_facts(config, gateway_url=gateway_url)
+
     res = run_senses_frontdoor(
         text,
-        facts=facts if facts is not None else load_architecture_facts(),
+        facts=resolved_facts,
         senses_config=senses_config,
         make_complete=make_complete,
         make_count_tokens=make_count_tokens,

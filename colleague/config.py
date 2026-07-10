@@ -272,49 +272,90 @@ def _file_or_default(file_value: str | None, default: str) -> str:
     return file_value if file_value is not None else default
 
 
-def load_config_file(repo_path: str | Path) -> dict[str, str]:
-    """Load a persistent config file from .colleague/config.json.
+def _read_json_object(path: Path) -> dict:
+    """Read *path* as a JSON object; a missing/malformed/non-dict payload yields ``{}``.
 
-    Uses :func:`colleague.configdir.resolve_file` to locate the file, honouring
-    the repo-over-user precedence and the legacy .convertible fallback.
-
-    Returns a dict containing only the recognised keys (``base_url``,
-    ``api_key``, ``model``). On a missing file, malformed JSON, or any read
-    error, returns an empty dict and never raises.
+    Never raises — the shared per-file primitive :func:`_merged_config_json`
+    uses so that one malformed level (bad JSON, or JSON that isn't an object)
+    is skipped for THAT level only, never aborting the merge of the other
+    levels.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    if not isinstance(data, dict):
-        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _merged_config_json(repo_path: str | Path) -> dict:
+    """Merge every resolved ``.colleague/config.json`` across configdir roots, PER TOP-LEVEL KEY.
+
+    Root-cause fix for the whole-file shadow bug (task t1): a repo-level
+    ``config.json`` that never mentions ``lobes`` (or ``senses``/``voice``/
+    ``deepthink``/``base_url``/...) used to make a same-named USER-level
+    default disappear entirely, because :func:`colleague.configdir.resolve_file`
+    returns only the first existing match. This instead reads EVERY existing
+    match (:func:`colleague.configdir.resolve_files`, precedence order
+    highest-first: ``repo/.colleague`` > ``repo/.convertible`` >
+    ``user/.colleague`` > ``user/.convertible``) and merges them so a
+    higher-precedence file's top-level key wins, but a key ABSENT there falls
+    through to the next lower-precedence file that does define it.
+
+    Merge granularity is the TOP-LEVEL KEY only — a key's value (e.g. an
+    entire nested ``senses``/``deepthink``/``voice`` object) is taken
+    wholesale from whichever file supplies that key first; there is no deep
+    merge *inside* a section (a repo-level ``senses`` section wholly replaces
+    a user-level one, it does not fold field-by-field).
+
+    Malformed JSON, an unreadable file, or a non-dict payload at any single
+    level is skipped for THAT level only via :func:`_read_json_object` — it
+    never raises and never prevents the other levels from contributing. No
+    matching files at all returns ``{}`` (byte-identical to the pre-merge
+    "no config file" case).
+    """
+    paths = configdir.resolve_files(repo_path, _CONFIG_FILENAME)
+    merged: dict = {}
+    # Fold lowest-precedence first so each higher-precedence file's keys
+    # overwrite it afterwards — "repo wins per-key, user fills the gaps".
+    for path in reversed(paths):
+        merged.update(_read_json_object(path))
+    return merged
+
+
+def load_config_file(repo_path: str | Path) -> dict[str, str]:
+    """Load the persistent config, PER-KEY merged across .colleague/config.json roots.
+
+    Uses :func:`_merged_config_json` (in turn built on
+    :func:`colleague.configdir.resolve_files`) so a repo-level file that
+    doesn't mention ``base_url``/``api_key``/``model`` no longer shadows a
+    user-level default for that same key (task t1) — see that function's
+    docstring for the exact merge + malformed-input semantics.
+
+    Returns a dict containing only the recognised keys (``base_url``,
+    ``api_key``, ``model``). No matching file, malformed JSON at every level,
+    or any read error yields an empty dict and never raises.
+    """
+    data = _merged_config_json(repo_path)
     return {k: str(v) for k, v in data.items() if k in _CONFIG_KEYS and v is not None}
 
 
 def _load_deepthink_overrides(repo_path: str | Path) -> dict[str, str]:
-    """Read the NESTED ``deepthink`` section of .colleague/config.json.
+    """Read the NESTED ``deepthink`` section of .colleague/config.json, per-key merged.
 
-    Mirrors :func:`load_config_file`'s malformed-input handling but reads a
-    *nested* object (``{"deepthink": {...}}``) instead of top-level keys —
-    ``load_config_file``'s ``dict[str, str]`` endpoint contract (base_url/
-    api_key/model) must not change. Returns a dict of stringified values for
-    the recognised keys (``model``, ``base_url``, ``api_key``,
-    ``context_budget``). A missing file, malformed JSON, a non-dict payload,
-    or an absent/non-dict ``deepthink`` section all yield an empty dict and
-    never raise.
+    Mirrors :func:`load_config_file`'s merge (task t1: reads the ``deepthink``
+    key from :func:`_merged_config_json` instead of the first-match-only
+    file) but reads a *nested* object (``{"deepthink": {...}}``) instead of
+    top-level keys — ``load_config_file``'s ``dict[str, str]`` endpoint
+    contract (base_url/api_key/model) must not change. Returns a dict of
+    stringified values for the recognised keys (``model``, ``base_url``,
+    ``api_key``, ``context_budget``). No file defining ``deepthink``, or an
+    absent/non-dict ``deepthink`` section wherever it IS defined, yields an
+    empty dict and never raises. Merge granularity is the top-level ``deepthink``
+    key itself — the section is taken wholesale from whichever config file
+    defines it first (highest precedence), never deep-merged field-by-field
+    with a lower-precedence file's ``deepthink`` section.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
+    data = _merged_config_json(repo_path)
     section = data.get("deepthink")
     if not isinstance(section, dict):
         return {}
@@ -326,26 +367,20 @@ def _load_deepthink_overrides(repo_path: str | Path) -> dict[str, str]:
 
 
 def _load_senses_overrides(repo_path: str | Path) -> dict[str, str]:
-    """Read the NESTED ``senses`` section of .colleague/config.json.
+    """Read the NESTED ``senses`` section of .colleague/config.json, per-key merged.
 
     Mirrors :func:`_load_deepthink_overrides` field-for-field (cortex/senses
-    arc, task t3) — reads a *nested* object (``{"senses": {...}}``) instead of
-    top-level keys, so ``load_config_file``'s ``dict[str, str]`` endpoint
-    contract (base_url/api_key/model) stays unchanged. Returns a dict of
-    stringified values for the recognised keys (``model``, ``base_url``,
-    ``api_key``, ``context_budget``, ``multimodal``). A missing file,
-    malformed JSON, a non-dict payload, or an absent/non-dict ``senses``
-    section all yield an empty dict and never raise.
+    arc, task t3; per-key merge added in task t1) — reads a *nested* object
+    (``{"senses": {...}}``) instead of top-level keys, so
+    ``load_config_file``'s ``dict[str, str]`` endpoint contract (base_url/
+    api_key/model) stays unchanged. Returns a dict of stringified values for
+    the recognised keys (``model``, ``base_url``, ``api_key``,
+    ``context_budget``, ``multimodal``). No file defining ``senses``, or an
+    absent/non-dict ``senses`` section wherever it IS defined, yields an empty
+    dict and never raises. Merge granularity is the top-level ``senses`` key
+    itself — see :func:`_merged_config_json`.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
+    data = _merged_config_json(repo_path)
     section = data.get("senses")
     if not isinstance(section, dict):
         return {}
@@ -357,23 +392,17 @@ def _load_senses_overrides(repo_path: str | Path) -> dict[str, str]:
 
 
 def _load_voice_overrides(repo_path: str | Path) -> dict[str, str]:
-    """Read the NESTED ``voice`` section of .colleague/config.json.
+    """Read the NESTED ``voice`` section of .colleague/config.json, per-key merged.
 
-    Mirrors :func:`_load_senses_overrides` field-for-field — reads a *nested*
-    object (``{"voice": {...}}``) for the recognised keys (``stt_model``,
-    ``tts_model``, ``base_url``, ``api_key``). A missing file, malformed JSON,
-    a non-dict payload, or an absent/non-dict ``voice`` section all yield an
-    empty dict and never raise.
+    Mirrors :func:`_load_senses_overrides` field-for-field (per-key merge
+    added in task t1) — reads a *nested* object (``{"voice": {...}}``) for
+    the recognised keys (``stt_model``, ``tts_model``, ``base_url``,
+    ``api_key``). No file defining ``voice``, or an absent/non-dict ``voice``
+    section wherever it IS defined, yields an empty dict and never raises.
+    Merge granularity is the top-level ``voice`` key itself — see
+    :func:`_merged_config_json`.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
+    data = _merged_config_json(repo_path)
     section = data.get("voice")
     if not isinstance(section, dict):
         return {}
@@ -385,22 +414,24 @@ def _load_voice_overrides(repo_path: str | Path) -> dict[str, str]:
 
 
 def _load_lobes_override(repo_path: str | Path) -> str | None:
-    """Read the lobes gateway URL from the ``lobes`` section of config.json.
+    """Read the lobes gateway URL from the ``lobes`` key of config.json, per-key merged.
+
+    Task t1's motivating fix: a repo-level ``config.json`` that never
+    mentions ``lobes`` used to shadow a user-level machine-wide default
+    whole-file (:func:`colleague.configdir.resolve_file` returns only the
+    first match). This now reads the ``lobes`` key from
+    :func:`_merged_config_json`, so a user-level ``lobes`` default survives a
+    repo-level ``config.json`` that carries unrelated keys — but a
+    repo-level ``lobes`` key, when present, still wins outright (per-key
+    merge, not a fallback chain within the value itself).
 
     Accepts either a bare string (``{"lobes": "http://host:8001"}``) or a nested
-    object with a ``url`` key (``{"lobes": {"url": "http://host:8001"}}``). A
-    missing file, malformed JSON, a non-dict payload, or an absent/blank section
-    yields ``None`` and never raises. NO network — this only reads the URL.
+    object with a ``url`` key (``{"lobes": {"url": "http://host:8001"}}``). No
+    file defining ``lobes``, malformed JSON at every level, a non-dict payload,
+    or an absent/blank section yields ``None`` and never raises. NO network —
+    this only reads the URL.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
+    data = _merged_config_json(repo_path)
     section = data.get("lobes")
     if isinstance(section, str):
         return section.strip() or None
@@ -1550,6 +1581,16 @@ class EngineConfig:
     # eq/repr/to_dict like ``memory_root``/``role`` above.
     embed_env: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
 
+    # The ARMED lobes gateway origin this config resolved against (self-knowledge
+    # arc, t9): set by :meth:`resolve` from :func:`_resolve_lobes_rung`'s
+    # ``lobes_gateway_url`` — ``None`` when the rung is unarmed OR degraded
+    # (unreachable), so it reflects the state the run ACTUALLY resolved with,
+    # never a dead URL presented as live. Read by the loop's self-knowledge
+    # advisory (via ``ContextControls.from_config``) to render the honest
+    # ``lobes:`` self-fact. A runtime-derived plumbing value like ``embed_env``
+    # above — excluded from eq/repr/to_dict.
+    lobes_gateway_url: Optional[str] = field(default=None, compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,
@@ -1937,6 +1978,10 @@ class EngineConfig:
             # unarmed/unreachable or the gateway doesn't advertise an embedder
             # (see :func:`_resolve_lobes_rung` / :func:`colleague.lobes.embed_env`).
             embed_env=lobes_embed_env,
+            # Armed lobes gateway origin (t9 self-knowledge) — None when the rung
+            # is unarmed or degraded, so the self-facts ``lobes:`` line reflects
+            # the state this run actually resolved with.
+            lobes_gateway_url=lobes_gateway_url,
         )
 
     def to_dict(self) -> dict[str, object]:

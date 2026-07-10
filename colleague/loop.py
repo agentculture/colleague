@@ -83,6 +83,7 @@ from colleague.incompletion import classify_incompletion
 from colleague.neighbours import NeighbourManager
 from colleague.policy import Policy, load_policy
 from colleague.roles import is_read_only
+from colleague.selfknowledge import build_guide_index, build_self_facts, classify_selfknowledge
 from colleague.telemetry import Telemetry, load_telemetry
 from colleague.tools import ToolError, ToolExecutor, ToolOutcome
 from colleague.tui.from_work import progress_target as _progress_target
@@ -537,6 +538,20 @@ class _Work:
     messages: list[dict[str, Any]]
     policy: Policy = field(default_factory=Policy)
     progress: ProgressFn | None = None
+    # The resolved cortex (main) model id, threaded from ``run(model=…)`` by every
+    # backend (all-engines rule). Read only by the self-knowledge advisory (t9) to
+    # render the ``cortex:`` self-fact; ``""`` (a direct ``run`` caller that passed
+    # no model) degrades that advisory to the guide index alone — never a fabricated
+    # facts block. Not otherwise load-bearing, so ``""`` is byte-identical.
+    model: str = ""
+    # Self-knowledge facts plumbing (t9 / #306), threaded from the ContextControls
+    # fields of the same names (see their contract there): the resolved senses
+    # model id and the ARMED lobes gateway origin, so an armed session's facts
+    # block renders the REAL values; ``""`` = genuinely absent → the honest
+    # ``not configured``/``not armed`` lines. Read only by the self-knowledge
+    # advisory — not otherwise load-bearing.
+    senses_model: str = ""
+    lobes_gateway: str = ""
     # Proactive context-window management (t4): when ``context_budget`` is a
     # positive int the running history is trimmed to it (via ``count_tokens``,
     # defaulting to the char estimate in ``window_messages``) before each turn,
@@ -2396,6 +2411,18 @@ class ContextControls:
     affectedtests_depth: int | None = None
     affectedtests_max_files: int | None = None
     affectedtests_override: str | None = None
+    # Self-knowledge facts plumbing (t9 / #306): the resolved senses model id
+    # (``config.senses.model``) and the ARMED lobes gateway origin
+    # (``config.lobes_gateway_url``, set by ``EngineConfig.resolve`` — ``None``
+    # when unarmed OR degraded-unreachable, so it names the state the run
+    # ACTUALLY resolved with). Read ONLY by the self-knowledge advisory so an
+    # armed session renders the REAL senses id + gateway URL instead of a false
+    # ``not configured``/``not armed``; ``""`` (the default — direct ``run``
+    # callers, or genuinely absent) keeps the honest absent lines. Forwarded by
+    # every backend via :meth:`from_config` (all-engines rule); not otherwise
+    # load-bearing — byte-identical when empty.
+    senses_model: str = ""
+    lobes_gateway: str = ""
 
     @classmethod
     def from_config(
@@ -2452,6 +2479,14 @@ class ContextControls:
                 getattr(config, "senses", None) is not None
                 and getattr(config.senses, "multimodal", False)
             ),
+            # Self-knowledge facts (t9): the real senses id + armed gateway when
+            # present; "" keeps build_self_facts' honest absent lines.
+            senses_model=(
+                getattr(config.senses, "model", "") or ""
+                if getattr(config, "senses", None) is not None
+                else ""
+            ),
+            lobes_gateway=getattr(config, "lobes_gateway_url", None) or "",
         )
 
 
@@ -2757,6 +2792,124 @@ def _maybe_inject_context_packet(ctx: _Work) -> None:
         lines.append("Possible omissions: " + "; ".join(packet.omissions))
     ctx.messages.append({"role": "user", "content": "\n".join(lines)})
     _ensure_senses_block(ctx.result, mode="split", packet=packet)
+
+
+#: The advisory companion injected before the first cortex turn when the
+#: operator's message is a *self-knowledge* question (t9 / #306). Mirrors
+#: ``_CONTEXT_PACKET_ADVISORY``: cortex's first user message is ALREADY the
+#: operator's verbatim question — this ADDS the live guide index + resolved
+#: self-facts as ONE advisory turn so cortex answers about colleague from the
+#: repo's OWN docs + runtime state instead of guessing. ADVISORY, never a
+#: replacement (the recall-before precedent).
+_SELF_KNOWLEDGE_ADVISORY = (
+    "[self-knowledge] The operator is asking about colleague itself. Answer from "
+    "colleague's OWN live documentation and resolved runtime state below — open a "
+    "listed guide with read_file for detail rather than guessing. This is ADVISORY: "
+    "the operator's original question above is authoritative.\n"
+)
+
+#: Cap on the number of guide-doc paths folded into the self-knowledge advisory
+#: (t9). ``build_guide_index`` returns CLAUDE.md (always first) + every
+#: ``docs/features/*.md`` — a set that grows unbounded as feature docs accumulate.
+#: Capping keeps the ONE advisory a small, fixed fraction of the context budget
+#: (each entry is one short repo-relative path line, so N paths ≈ N lines) rather
+#: than letting it scale with the doc count; cortex reads any FULL doc on demand
+#: via ``read_file``, so the index only needs to name enough entry points (CLAUDE.md
+#: is the master index, so it is always kept — it heads the list). Overflow is
+#: reported honestly as a "… and N more" line, never silently dropped.
+_SELF_KNOWLEDGE_GUIDE_CAP = 40
+
+
+class _SensesFact:
+    """The minimal ``senses``-shaped holder ``build_self_facts`` duck-reads (t9):
+    it checks ``senses is not None and senses.model`` — this carries exactly that
+    one attribute (the ``_StubSenses`` shape the selfknowledge unit tests pin)."""
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+
+
+class _SelfFactsSource:
+    """Adapt ``_Work`` to the duck-typed surface :func:`build_self_facts` reads (t9).
+
+    The loop does NOT hold a resolved :class:`~colleague.config.EngineConfig` — it
+    takes a curated :class:`ContextControls` (the deliberate import-cycle boundary
+    ``from_config``/``resolve_role`` also observe), so a full config is not cheaply
+    reachable here. This exposes exactly what the loop DOES know under the attribute
+    names ``build_self_facts`` expects: the cortex ``model`` id (threaded onto
+    ``_Work.model``), the five gate booleans, and — when armed — the resolved senses
+    model id (``ContextControls.senses_model`` → ``_Work.senses_model``), so an
+    armed session renders the REAL id and only a genuinely absent one renders
+    ``build_self_facts``'s honest ``not configured`` default (never a fabricated
+    id, and never a false absent line when the value is present). The armed lobes
+    gateway travels the same way (``_Work.lobes_gateway``) but is passed as
+    ``build_self_facts``'s ``gateway_url=`` parameter by the caller, not exposed
+    here.
+    """
+
+    def __init__(self, ctx: "_Work") -> None:
+        self.model = ctx.model
+        self.senses = _SensesFact(ctx.senses_model) if ctx.senses_model else None
+        self.lint = ctx.lint_enabled
+        self.testintegrity = ctx.testintegrity_enabled
+        self.affected_tests = ctx.affectedtests_enabled
+        self.memory = ctx.memory_enabled
+        self.coherence = ctx.coherence_enabled
+
+
+def _maybe_inject_self_knowledge(ctx: _Work) -> None:
+    """Inject the guide index + resolved self-facts on a self-knowledge turn (t9 / #306).
+
+    Mirrors :func:`_maybe_inject_context_packet` in shape, gating, and placement:
+    cortex's first user message is ALREADY the operator's verbatim instruction
+    (``_build_initial_content``) — this appends ONE advisory user message so cortex
+    answers questions ABOUT colleague from the LIVE guide docs + resolved runtime
+    state instead of guessing. Gated on the deterministic
+    :func:`colleague.selfknowledge.classify_selfknowledge`; an ordinary
+    (non-self-knowledge) instruction is a STRICT no-op — no guide index, no
+    self-facts, no extra message — so the guide docs are loaded ONLY when a
+    self-knowledge turn triggers them and an ordinary run is byte-identical (#306).
+
+    Facts-block plumbing (honest both ways): the loop reaches the cortex model id
+    (``_Work.model``), the five gate booleans, and — threaded through
+    ``ContextControls.from_config`` by every backend (all-engines rule) — the
+    resolved senses model id (``config.senses.model``) plus the ARMED lobes gateway
+    origin (``config.lobes_gateway_url``, set by ``EngineConfig.resolve``); it does
+    NOT hold the full :class:`~colleague.config.EngineConfig` (see
+    :class:`_SelfFactsSource`). An armed session therefore renders the REAL senses
+    id + gateway URL; only a genuinely absent value renders ``build_self_facts``'s
+    honest ``not configured`` / ``not armed`` defaults — a present value must never
+    render as absent (that would be a FALSE fact), and an absent one is never
+    fabricated. When even the cortex model id is absent (a direct ``run`` caller
+    that passed no ``model``) the facts block is dropped entirely and the guide
+    index alone is injected — the task's honest-degradation clause: never a
+    fabricated facts block.
+
+    The #206 invariant holds: this appends a companion user message but never fires
+    the progress sink or advances ``step_count`` (it runs before the loop body, like
+    the packet/recall injections).
+    """
+    if not classify_selfknowledge(ctx.task.instruction or ""):
+        return
+    lines = [_SELF_KNOWLEDGE_ADVISORY]
+
+    guides = build_guide_index(ctx.task.repo_path)
+    if guides:
+        shown = guides[:_SELF_KNOWLEDGE_GUIDE_CAP]
+        lines.append("colleague guide docs (open one with read_file for detail):")
+        lines.extend(f"- {path}" for path in shown)
+        if len(guides) > len(shown):
+            lines.append(f"- … and {len(guides) - len(shown)} more")
+
+    # Facts block only when the cortex model id is genuinely known — never a
+    # fabricated facts block (guide index alone otherwise). gateway_url carries
+    # the ARMED lobes origin ("" → None → the honest "not armed" line).
+    if ctx.model:
+        lines.append("")
+        lines.append("resolved runtime state:")
+        lines.append(build_self_facts(_SelfFactsSource(ctx), gateway_url=ctx.lobes_gateway or None))
+
+    ctx.messages.append({"role": "user", "content": "\n".join(lines)})
 
 
 def _maybe_run_senses_media_bridge(ctx: _Work) -> bool:
@@ -3641,6 +3794,9 @@ def run(
         messages=messages,
         policy=policy,
         progress=progress,
+        model=model or "",
+        senses_model=_context.senses_model,
+        lobes_gateway=_context.lobes_gateway,
         max_steps=max_steps,
         context_budget=_context.budget,
         count_tokens=_context.count_tokens,
@@ -3692,6 +3848,13 @@ def run(
     # first message is already the operator's verbatim original) and record the
     # packet on TaskResult.senses; a strict no-op with no packet.
     _maybe_inject_context_packet(ctx)
+
+    # Cortex-side self-knowledge (t9 / #306): when the operator's instruction is a
+    # self-knowledge question (classify_selfknowledge), inject ONE advisory message
+    # with the LIVE guide index + resolved self-facts so cortex answers about
+    # colleague from its own docs, not a guess; a strict no-op for an ordinary turn
+    # (the guide docs load ONLY on a self-knowledge turn).
+    _maybe_inject_self_knowledge(ctx)
 
     # Media-comprehension bridge (t8, c24): with a text-only main + attached
     # media + an operator-declared multimodal second model, ONE tools-off
