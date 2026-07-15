@@ -70,4 +70,6 @@ def test_cortex_cases(text: str) -> None:
 
 @pytest.mark.parametrize("text", SENSES_DIRECT_CASES + CORTEX_CASES)
 def test_deterministic(text: str) -> None:
-    assert classify_frontdoor(text) == classify_frontdoor(text)
+    first = classify_frontdoor(text)
+    second = classify_frontdoor(text)
+    assert first == second

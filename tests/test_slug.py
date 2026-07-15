@@ -49,4 +49,6 @@ def test_hard_cut_when_no_boundary_to_back_off_to() -> None:
 
 def test_is_deterministic() -> None:
     text = "Implement the destination tool for vague tasks"
-    assert slugify(text) == slugify(text)
+    first = slugify(text)
+    second = slugify(text)
+    assert first == second

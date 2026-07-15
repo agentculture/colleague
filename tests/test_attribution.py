@@ -72,13 +72,21 @@ def test_senses_and_cortex_use_different_colour_codes() -> None:
 
 
 def test_senses_line_is_deterministic() -> None:
-    assert senses_line("same text", color=True) == senses_line("same text", color=True)
-    assert senses_line("same text", color=False) == senses_line("same text", color=False)
+    first = senses_line("same text", color=True)
+    second = senses_line("same text", color=True)
+    assert first == second
+    first_plain = senses_line("same text", color=False)
+    second_plain = senses_line("same text", color=False)
+    assert first_plain == second_plain
 
 
 def test_cortex_working_line_is_deterministic() -> None:
-    assert cortex_working_line("detail", color=True) == cortex_working_line("detail", color=True)
-    assert cortex_working_line("detail", color=False) == cortex_working_line("detail", color=False)
+    first = cortex_working_line("detail", color=True)
+    second = cortex_working_line("detail", color=True)
+    assert first == second
+    first_plain = cortex_working_line("detail", color=False)
+    second_plain = cortex_working_line("detail", color=False)
+    assert first_plain == second_plain
 
 
 def test_color_false_is_default() -> None:

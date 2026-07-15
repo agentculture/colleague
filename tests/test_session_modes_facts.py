@@ -191,7 +191,9 @@ class TestModeFactsFragment:
     def test_fragment_is_deterministic(self) -> None:
         """Same facts produce the same fragment."""
         facts = mode_facts("plan")
-        assert mode_facts_fragment(facts) == mode_facts_fragment(facts)
+        first = mode_facts_fragment(facts)
+        second = mode_facts_fragment(facts)
+        assert first == second
 
     def test_fragment_is_non_empty(self) -> None:
         """Fragment is never empty."""

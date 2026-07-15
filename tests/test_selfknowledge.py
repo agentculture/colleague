@@ -75,7 +75,9 @@ def test_selfknowledge_false_cases(text: str) -> None:
 
 @pytest.mark.parametrize("text", SELFKNOWLEDGE_TRUE_CASES + SELFKNOWLEDGE_FALSE_CASES)
 def test_deterministic(text: str) -> None:
-    assert classify_selfknowledge(text) == classify_selfknowledge(text)
+    first = classify_selfknowledge(text)
+    second = classify_selfknowledge(text)
+    assert first == second
 
 
 # ── build_guide_index tests ────────────────────────────────────────────────

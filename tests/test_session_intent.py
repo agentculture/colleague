@@ -66,4 +66,6 @@ def test_returns_only_work_or_plan(text: str) -> None:
 @pytest.mark.parametrize("text", PLAN_CASES + WORK_CASES)
 def test_deterministic(text: str) -> None:
     """Same input twice must yield the same output."""
-    assert classify_intent(text) == classify_intent(text)
+    first = classify_intent(text)
+    second = classify_intent(text)
+    assert first == second
