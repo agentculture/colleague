@@ -126,3 +126,56 @@ def test_explain_config(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["explain", "config"])
     assert rc == 0
     assert "colleague config" in capsys.readouterr().out
+
+
+def test_show_provenance_multi_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Repo sets 'model', user sets 'base_url'+'model' — both files listed,
+    repo wins 'model', user wins 'base_url'."""
+    # Repo-level config: only 'model'
+    repo_cfg = tmp_path / ".colleague"
+    repo_cfg.mkdir()
+    (repo_cfg / "config.json").write_text(json.dumps({"model": "repo-model"}))
+
+    # User-level config: 'base_url' and 'model' (model is shadowed by repo)
+    user_home = tmp_path / "user-home"
+    user_home.mkdir()
+    user_cfg = user_home / ".colleague"
+    user_cfg.mkdir()
+    (user_cfg / "config.json").write_text(
+        json.dumps({"base_url": "http://user.test/v1", "model": "shadowed"})
+    )
+    monkeypatch.setenv("COLLEAGUE_HOME", str(user_home))
+
+    rc = main(["config", "show", "--repo", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+
+    # Both files should appear
+    assert str(repo_cfg / "config.json") in out
+    assert str(user_cfg / "config.json") in out
+
+    # Repo file: sets [model], wins [model]
+    assert "model" in out
+    repo_line = [line for line in out.splitlines() if str(repo_cfg) in line][0]
+    assert "model" in repo_line
+    assert "wins:" in repo_line
+
+    # User file: sets [base_url, model], wins [base_url]
+    user_line = [line for line in out.splitlines() if str(user_cfg) in line][0]
+    assert "base_url" in user_line
+    assert "model" in user_line  # listed in keys
+    # "wins:" should contain base_url but not model
+    assert "base_url" in user_line.split("wins:")[1]
+    assert "model" not in user_line.split("wins:")[1]
+
+
+def test_show_no_config_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No config files at all — the '(none — ...)' line is byte-identical."""
+    rc = main(["config", "show", "--repo", str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "config_file: (none — using env vars + built-in defaults)" in out

@@ -14,7 +14,11 @@ import argparse
 
 from colleague.cli._commands.overview import render_text
 from colleague.cli._output import JSON_HELP, emit_result, rendered
-from colleague.config import EngineConfig, load_config_file, resolve_lobes_gateway_url
+from colleague.config import (
+    EngineConfig,
+    config_provenance,
+    resolve_lobes_gateway_url,
+)
 
 
 def _config_sections() -> list[dict[str, object]]:
@@ -69,10 +73,12 @@ def _config_show(repo: str = ".") -> object:
         f"timeout:                {cfg.timeout}",
         f"context_budget_tokens:  {cfg.context_budget_tokens}",
     ]
-    file_cfg = load_config_file(repo)
-    if file_cfg:
-        keys = ", ".join(sorted(file_cfg.keys()))
-        lines.append(f"config_file: .colleague/config.json sets [{keys}]")
+    provenance = config_provenance(repo)
+    if provenance:
+        for entry in provenance:
+            keys = ", ".join(entry["keys"])
+            wins = ", ".join(entry["winning_keys"])
+            lines.append(f"config_file: {entry['path']} sets [{keys}] (wins: {wins})")
     else:
         lines.append("config_file: (none — using env vars + built-in defaults)")
 
@@ -82,6 +88,7 @@ def _config_show(repo: str = ".") -> object:
     # to_dict() snapshot stays byte-identical (the guard); the lobes key is added
     # to the rendered payload only when armed.
     data = cfg.to_dict()
+    data["config_files"] = provenance
     gateway = resolve_lobes_gateway_url(repo)
     if gateway is not None:
         lines.append(f"lobes: armed (gateway={gateway!r}) — resolved model={cfg.model}")
