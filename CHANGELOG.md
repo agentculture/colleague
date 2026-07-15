@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.46.0] - 2026-07-15
+
+### Added
+
+- **Interactive finishes what it starts** (#167, #168, #169; closes #170 as the interactive-redesign increment — spec + plan `docs/{specs,plans}/2026-07-15-interactive-finishes-what-it-starts.md`, built via the full devague arc /scope → /think → /challenge → /spec-to-plan → /assign-to-workforce with 3 recorded deviations):
+  - `colleague work --continue <id|last>` (short `-c`) and session `/continue` resume a cut work item by seeding the new run from its persisted artifact's continuation record (`colleague/continuation.py` reusing `build_continuation` verbatim, ~1.3K tokens probed); a completed (ok) item is refused (`nothing to continue: <id> finished ok` — the wrong-run guard, since a SIGKILL-cut run may have written no artifact), missing/corrupt artifacts error naming the id; lineage recorded as omit-when-None `TaskResult.continued_from` on every artifact write (success + failure paths).
+  - The session heals the dirty-tree refusal with ONE explicit choice (#168): a colour-TTY dispatch that would hit the #149 guard renders the 3-choice prompt (`colleague/heal.py` — commit-onto-work-branch as a one-run waiver / stash with the created ref + `git stash pop` recovery via `handoff.heal_stash` / abort on empty input), each choice carrying its consequence AND undo verbatim (the cockpit label-state-consequence policy). Off-TTY / `--json` / `--allow-dirty` sessions fall through byte-identically; the runtime guard is untouched (test-pinned).
+  - The PR a run just opened is one glance away (#169): `Ledger.pr_url` reconciled verbatim from `TaskResult.pr_url` (never synthesized, never claimed mid-run), a Last-run panel PR row and a post-run `· PR: <url>` line rendered only when the handoff actually returned one (local-only output pinned byte-identical).
+  - Feature doc `docs/features/session-continue-heal.md` with the executed boundary grep gate (no resident/plan/subagents/engine-resolution hunks in the arc diff) and the flow→test acceptance sweep; CLAUDE.md architecture bullet.
+
 ## [1.45.4] - 2026-07-15
 
 ### Fixed

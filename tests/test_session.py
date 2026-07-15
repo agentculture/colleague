@@ -14,7 +14,7 @@ import pytest
 
 from colleague.cli import main
 from colleague.cli._commands.session import run_session
-from colleague.cli._commands.work import execute_work
+from colleague.cli._commands.work import DisplayOptions, execute_work
 from colleague.contract import OK, Task, TaskResult
 
 # ---------------------------------------------------------------------------
@@ -217,8 +217,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
             config=config,
             allow_dirty=allow_dirty,
             command_name=command_name,
-            tui=tui,
-            tui_events=tui_events,
+            display=DisplayOptions(tui=tui, tui_events=tui_events),
             progress_sink=progress_sink,
             mode=mode,
         )

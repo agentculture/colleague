@@ -95,6 +95,7 @@ from colleague.config import (
 )
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
+from colleague.heal import COMMIT, STASH, parse_heal_choice, render_heal_prompt
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.presence import (
@@ -592,6 +593,12 @@ class _Session:
         # ``_poll_talk_lane``), so a talk message never mutates session state
         # concurrently. ``_printed_conv`` tracks how many conversation lines have
         # already scrolled above the owned line (the ``print_above`` delta cursor).
+        # One-run dirty-guard waiver granted by the heal prompt's commit choice
+        # (#168); consumed (reset) by the next _dispatch_work. Never persists.
+        self._heal_allow_dirty_once = False
+        # Lineage for the next dispatch when /continue seeded it (#167); consumed
+        # (reset) by _dispatch_work, mirroring the heal waiver cell above.
+        self._continued_from_next: Optional[str] = None
         self._owned_line: Optional[OwnedInputLine] = None
         self._owned_line_streams: Optional[tuple[object, object]] = None
         self._owned_talk_queue: "deque[str]" = deque()
@@ -1110,6 +1117,19 @@ class _Session:
                     label=icons.label("publish", "run", self._icons_mode),
                     status=led.publish_state or "none",
                 ),
+                # PR link (#169): present ONLY when the handoff actually returned
+                # one — a local-only run renders exactly the four items above.
+                *(
+                    [
+                        PanelItem(
+                            id="last.pr",
+                            label=icons.label("PR", "run", self._icons_mode),
+                            status=led.pr_url,
+                        )
+                    ]
+                    if led.pr_url
+                    else []
+                ),
             ],
         )
 
@@ -1336,6 +1356,10 @@ class _Session:
             self._log({"verbose": _HELP_VERBOSE, "compact": _HELP_COMPACT}.get(arg, _HELP_TEXT))
             return True
 
+        if verb == "continue":
+            self._slash_continue(rest[0] if rest else "last")
+            return True
+
         introspect = _INTROSPECT.get(verb)
         if introspect is not None:
             self._log(self._run_cli(*introspect(self)))
@@ -1382,6 +1406,31 @@ class _Session:
 
     # ── work ────────────────────────────────────────────────────────────────
 
+    def _slash_continue(self, ref: str) -> None:
+        """Resume a cut work item from its persisted artifact (#167).
+
+        The session leg of the continue affordance: the SAME resolve path
+        ``work --continue`` uses (a bare ``/continue`` defaults to ``last``),
+        dispatched through the ordinary work path so the cockpit, heal guard,
+        and artifact writes all behave exactly like a fresh dispatch. The
+        ok-guard error text is the CLI's own (``ContinuationError`` verbatim),
+        so an agent driving the session off-TTY parses one shape.
+        """
+        from colleague.continuation import ContinuationError, resolve_continuation
+
+        ref = (ref or "last").strip() or "last"
+        try:
+            prior_id, seed = resolve_continuation(self.repo, ref)
+        except ContinuationError as exc:
+            self._error(f"error: {exc}")
+            return
+        self._log(f"→ continue: resuming {prior_id}")
+        if not self._heal_dirty_tree_if_needed():
+            return
+        task = Task.new(str(self.repo), seed, engine=self.engine_name)
+        self._continued_from_next = prior_id
+        self._run_work(task, None)
+
     def _consume_staged_attachments(self, task: Task) -> None:
         """Move any ``/attach``-staged entries onto *task*, in staged order, and
         clear the staging list — one-shot semantics (task t11): the work line
@@ -1424,6 +1473,12 @@ class _Session:
         if resolved is None:
             return
         task, command_name = resolved
+        # Dirty-tree heal (#168): a colour-TTY session that KNOWS the dispatch
+        # would hit the #149 refusal offers the one explicit choice now, BEFORE
+        # the senses ack and the doomed run. Off-TTY / --json / allow-dirty
+        # sessions fall through byte-identically (the runtime guard still rules).
+        if not self._heal_dirty_tree_if_needed():
+            return
         # Any /attach-staged media rides THIS work item (staged order), then the
         # staging list clears (t11 one-shot semantics) — only a genuine work-line
         # dispatch consumes it; a plan/explore/review route above never reaches here.
@@ -1477,6 +1532,47 @@ class _Session:
             return True
         if outcome is not None:
             self._frontdoor_record = outcome.record
+        return False
+
+    def _heal_dirty_tree_if_needed(self) -> bool:
+        """Offer the three-choice dirty-tree heal before a doomed dispatch (#168).
+
+        Returns ``True`` when the dispatch may proceed: tree clean, the session
+        already runs ``--allow-dirty``, not a live colour TTY (the prompt never
+        blocks a pipe — the dispatch then meets today's refusal unchanged), the
+        operator chose commit-onto-work-branch (a ONE-RUN waiver, never sticky),
+        or the stash succeeded. Returns ``False`` when the operator aborted
+        (empty input / unknown / explicit abort) or the stash failed — the
+        dispatch is cancelled with the tree untouched. Every choice's
+        consequence + undo is in the prompt copy itself (colleague/heal.py).
+        """
+        if self.allow_dirty or not self._live or self._read_next is None:
+            return True
+        if not handoff.working_tree_dirty(self.repo):
+            return True
+        self.out(render_heal_prompt())
+        # The live ANSI reader can yield the CYCLE_MODE sentinel (shift-tab) —
+        # not a string; re-read past it (mode cycling has no meaning inside the
+        # heal prompt). EOF/None aborts, matching empty input.
+        raw = self._read_next()
+        while raw is CYCLE_MODE:
+            raw = self._read_next()
+        choice = parse_heal_choice(str(raw or "").strip())
+        if choice is COMMIT:
+            self._heal_allow_dirty_once = True
+            self._log(
+                "healing: your uncommitted tracked edits will ride the work branch "
+                "(undo there: git reset --soft HEAD~1)"
+            )
+            return True
+        if choice is STASH:
+            ref = handoff.heal_stash(self.repo)
+            if ref is None:
+                self._error("stash failed — dispatch cancelled; your edits are untouched")
+                return False
+            self._log(f"healing: stashed as {ref} — recover with: git stash pop")
+            return True
+        self._log("dispatch cancelled — your edits are untouched")
         return False
 
     def _run_tracked(
@@ -1557,6 +1653,13 @@ class _Session:
             # cap.)
             task.watch = want and not flight.depth_exceeded()
         self._arm_run_view(task.instruction)
+        heal_waiver = self._heal_allow_dirty_once
+        self._heal_allow_dirty_once = False
+        continued_from = self._continued_from_next
+        self._continued_from_next = None
+        # Passed ONLY when set: an ordinary dispatch keeps the exact work_fn
+        # call shape stable for strict test doubles / injected work_fns.
+        lineage_kwargs = {"continued_from": continued_from} if continued_from else {}
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -1564,7 +1667,8 @@ class _Session:
                 engine_name=self.engine_name,
                 task=task,
                 open_pr=open_pr,
-                allow_dirty=self.allow_dirty,
+                allow_dirty=self.allow_dirty or heal_waiver,
+                **lineage_kwargs,
                 base=self.base,
                 config=config,
                 command_name=command_name,
@@ -2385,7 +2489,10 @@ class _Session:
             self._resave_artifact(result)
         changed = ", ".join(result.changed_files) or "(none)"
         branch = f" → {result.branch}" if result.branch else ""
-        self._log(f"{result.status}: {display} [{changed}]{branch}")
+        # PR link (#169): one glance away on the post-run line — only when the
+        # handoff actually opened one (never synthesized).
+        pr = f" · PR: {result.pr_url}" if result.pr_url else ""
+        self._log(f"{result.status}: {display} [{changed}]{branch}{pr}")
         # A completed work item can change branch / dirty / last-feedback state.
         self._refresh_context()
 
@@ -2539,6 +2646,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "show/cycle the session mode (auto|work|plan|explore|review) — shift-tab equivalent",
         "runtime",
         ("interactive",),
+    ),
+    SlashSpec(
+        "continue",
+        "[id|last]",
+        "resume a cut work item from its persisted artifact",
+        "runtime",
+        ("writes", "git"),
     ),
     SlashSpec("base", "<branch>", "set the PR base branch", "workspace", ("git", "config")),
     SlashSpec(

@@ -26,7 +26,7 @@ import os
 import signal
 import sys
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -385,6 +385,7 @@ def _engine_failure_error(
     command_name: str | None,
     mode: str | None,
     work_span,
+    continued_from: str | None = None,
     worktree_path: str | None = None,
     presence: "object | None" = None,
     presence_fold_chat: bool = False,
@@ -427,6 +428,9 @@ def _engine_failure_error(
     # Mode (t7 / spec R3 / #256): recorded on the failure path too — a moded run
     # that raises still carries the mode that drove it.
     result.mode = mode
+    # Lineage (#167): the failure path keeps it too — a continued run that
+    # crashes still names what it was continuing.
+    result.continued_from = continued_from
     if presence is not None:
         fold_presence_snapshot(result, presence, fold_chat=presence_fold_chat)
     work_span.set(status=result.status)
@@ -522,6 +526,18 @@ def _arm_delta_stream(config: EngineConfig, cockpit_sink: object) -> None:
         config.on_delta = cockpit_sink.on_delta
 
 
+@dataclass(frozen=True)
+class DisplayOptions:
+    """The cockpit/TUI display knobs, bundled (SonarCloud S107 — the recorded
+    hot-signature pattern: rarely-passed presentation knobs ride one frozen
+    options object instead of two positional-adjacent params)."""
+
+    #: Live-cockpit activation (#74 A1): True forces on, False off, None auto.
+    tui: bool | None = None
+    #: Optional WorkStep-JSONL path (#74 A3) an agent can follow / `tui replay`.
+    tui_events: str | None = None
+
+
 def execute_work(
     *,
     repo: Path,
@@ -533,10 +549,10 @@ def execute_work(
     allow_dirty: bool = False,
     isolate: bool = False,
     command_name: str | None = None,
-    tui: bool | None = None,
-    tui_events: str | None = None,
+    display: "DisplayOptions | None" = None,
     progress_sink: "CockpitProgressSink | None" = None,
     mode: str | None = None,
+    continued_from: str | None = None,
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
 
@@ -566,18 +582,21 @@ def execute_work(
         Originating command-template name (``None`` for a plain instruction).
         Recorded on the result before *every* artifact write — including the
         failure path — so the run report never loses the origin (R5 / c12).
-    tui:
-        Live-cockpit activation (#74 A1): ``True`` forces it on, ``False`` off,
-        ``None`` (default) is auto — on when stderr is an interactive TTY. When
-        off, the plain ``step N:`` stderr sink is used unchanged.
-    tui_events:
-        Optional path (#74 A3): when set, one `WorkStep` JSONL line is appended
-        per step as the work item runs, so an agent can follow / `tui replay` it.
+    display:
+        The bundled cockpit/TUI display knobs (:class:`DisplayOptions` —
+        ``tui`` live-cockpit activation #74 A1, ``tui_events`` WorkStep-JSONL
+        path #74 A3); ``None`` (default) means both knobs at their ``None``
+        defaults, byte-identical to the pre-bundle behavior.
     progress_sink:
         Optional caller-supplied cockpit sink (#74 A2): the interactive ``session``
         passes a sink bound to its own `CockpitState` + frame-writer so a work item
         renders into the session's one shared screen. Replaces the auto-constructed
         cockpit; ``None`` (the default) preserves the byte-identical `work` path.
+    continued_from:
+        The prior work item's task id when this run CONTINUES it (#167), else
+        ``None``. Recorded on the result before every artifact write — the
+        one-way lineage the continue path (``work --continue`` / session
+        ``/continue``) stamps; omit-when-None keeps ordinary runs byte-identical.
     mode:
         Constraint-profile mode (t3 / spec R1 / #254). When set, the mode's
         profile (``colleague.profiles`` + operator overlays) fills the
@@ -603,6 +622,8 @@ def execute_work(
         On unknown engine or engine-level failure (artifact is still written
         before the exception is raised — honesty h5).
     """
+    display = display or DisplayOptions()
+    tui, tui_events = display.tui, display.tui_events
     # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
     # operator left untouched, BEFORE anything reads the config (extracted to
     # _moded_config for the S3776 budget). One code path for every entry door.
@@ -760,6 +781,7 @@ def execute_work(
                     repo=repo,
                     engine_name=engine_name,
                     command_name=command_name,
+                    continued_from=continued_from,
                     mode=mode,
                     work_span=work_span,
                     worktree_path=worktree_path,
@@ -808,6 +830,9 @@ def execute_work(
             # command_name just above. `mode` is None when no mode was selected, and
             # TaskResult.to_dict() omits the key in that case (byte-identical shape).
             result.mode = mode
+            # Lineage (#167): recorded before the artifact write, mirroring mode
+            # just above; None (an ordinary run) is omitted from the artifact.
+            result.continued_from = continued_from
             artifact_path = write(result, artifact_dir(repo))
             # Record this as the repo's most recent work item so `colleague feedback
             # last` resolves to it. Best-effort: a pointer write must never break
@@ -871,6 +896,10 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
     has_command = bool(command_name)
     has_instruction = not has_command and bool(positional_tokens)
 
+    continue_ref: str | None = getattr(args, "continue_ref", None)
+    if continue_ref is not None:
+        return _build_continued_task(args, repo, engine, continue_ref, positional_tokens)
+
     if not has_instruction and not has_command:
         raise CliError(
             EXIT_USER_ERROR,
@@ -905,6 +934,55 @@ def _build_task(args: argparse.Namespace, repo: Path, engine: str, config: Engin
 
     # Plain instruction path (original behaviour).
     return Task.new(str(repo), " ".join(positional_tokens), engine=engine, attachments=attachments)
+
+
+def _build_continued_task(
+    args: argparse.Namespace,
+    repo: Path,
+    engine: str,
+    continue_ref: str,
+    positional_tokens: list[str],
+) -> Task:
+    """Seed a Task from a prior work item's persisted artifact (#167).
+
+    The flag value is validated here explicitly — never via ``choices=``
+    (agentfront#38: a value-carrying flag's choices are not enforced at App
+    build time). Positional tokens, when present, are EXTRA operator guidance
+    appended after the seed; ``--command`` cannot combine with ``--continue``
+    (a template would fight the seed for the instruction). The resolved prior
+    id rides ``args._continued_from_resolved`` so :func:`cmd_work` can thread
+    it into :func:`execute_work` for the lineage stamp.
+    """
+    # Lazy import: the continue path is opt-in; keep work's import graph flat.
+    from colleague.continuation import ContinuationError, resolve_continuation
+
+    if getattr(args, "command_name", None):
+        raise CliError(
+            EXIT_USER_ERROR,
+            "--continue cannot be combined with --command",
+            "run the template fresh, or continue without --command",
+        )
+    ref = continue_ref.strip()
+    if not ref:
+        raise CliError(
+            EXIT_USER_ERROR,
+            "--continue needs a work item reference",
+            "pass an explicit task id, or 'last' for the most recent work item",
+        )
+    try:
+        prior_id, seed = resolve_continuation(repo, ref)
+    except ContinuationError as exc:
+        raise CliError(
+            EXIT_USER_ERROR,
+            str(exc),
+            "list recent work items with: colleague feedback list --repo <path>",
+        ) from exc
+    instruction = seed
+    if positional_tokens:
+        instruction += "\n\nAdditional operator guidance:\n" + " ".join(positional_tokens)
+    args._continued_from_resolved = prior_id
+    task = Task.new(str(repo), instruction, engine=engine, attachments=_collect_attachments(args))
+    return task
 
 
 def _validated_mode(mode: str | None) -> str | None:
@@ -1144,9 +1222,12 @@ def cmd_work(args: argparse.Namespace) -> int:
             base=args.base,
             config=config,
             command_name=command_name or None,
-            tui=getattr(args, "tui", None),
-            tui_events=getattr(args, "tui_events", None),
+            display=DisplayOptions(
+                tui=getattr(args, "tui", None),
+                tui_events=getattr(args, "tui_events", None),
+            ),
             mode=mode,
+            continued_from=getattr(args, "_continued_from_resolved", None),
         )
     except CliError as exc:
         # On a partial-bearing failure, surface the preserved partial TaskResult to
@@ -1257,6 +1338,19 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
         metavar="NAME",
         default=None,
         help="Expand a saved command template and run it (mutually exclusive with instruction).",
+    )
+    p.add_argument(
+        "--continue",
+        "-c",
+        dest="continue_ref",
+        metavar="ID|last",
+        default=None,
+        help=(
+            "Resume a cut work item (#167): seed this run from its persisted "
+            "artifact's continuation record. 'last' resolves the most recent "
+            "work item; a completed (ok) item is refused. Positional text "
+            "becomes extra guidance appended after the seed."
+        ),
     )
     p.add_argument("--repo", default=".", help="Path to the target repository (default: cwd).")
     p.add_argument(

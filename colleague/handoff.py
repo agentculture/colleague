@@ -469,6 +469,25 @@ def working_tree_dirty(repo_path: str | Path) -> bool:
     return bool(non_memory)
 
 
+def heal_stash(repo_path: str | Path) -> str | None:
+    """Stash the operator's uncommitted tracked edits for the session heal (#168).
+
+    Runs ``git stash push`` (tracked changes only — untracked files stay put,
+    matching :func:`working_tree_dirty`'s hazard scope) with a recognizable
+    message and returns the stash ref (``stash@{0}``) on success, ``None`` when
+    there was nothing to stash or git failed. The caller owns telling the
+    operator the recovery line (``git stash pop``).
+    """
+    repo = Path(repo_path).resolve()
+    try:
+        proc = _git(repo, "stash", "push", "-m", "colleague session heal (#168)", check=False)
+    except (HandoffError, OSError):
+        return None
+    if proc.returncode != 0 or "No local changes" in (proc.stdout or ""):
+        return None
+    return "stash@{0}"
+
+
 def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
     """Subset of ``paths`` that git ignores (so they cannot land in a commit).
 

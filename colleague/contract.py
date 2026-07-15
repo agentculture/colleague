@@ -1320,6 +1320,13 @@ class TaskResult:
     ``{reason, evidence, recommendation}``. Like ``senses``/``deepthink``,
     the serialized key is OMITTED (not null) when ``None``, so a completed
     work item serializes byte-identically to today's artifact."""
+    continued_from: Optional[str] = None
+    """The task id of the prior work item this run CONTINUES (#167), or ``None``
+    for an ordinary run. Set by the CLI/session continue path when the new
+    Task was seeded from a persisted artifact's continuation record — one-way
+    lineage (the old artifact is never mutated). Like ``incompletion``, the
+    serialized key is OMITTED (not null) when ``None``, so a non-continued run
+    serializes byte-identically."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1426,6 +1433,10 @@ class TaskResult:
         # work item serializes byte-identically (no extra key).
         if self.incompletion is not None:
             extra["incompletion"] = self.incompletion.to_dict()
+        # continued_from gets the same omit-when-None treatment (#167): a
+        # non-continued run serializes byte-identically (no extra key).
+        if self.continued_from is not None:
+            extra["continued_from"] = self.continued_from
         return extra
 
     @classmethod
@@ -1489,6 +1500,9 @@ class TaskResult:
                 IncompletionRecord.from_dict(data["incompletion"])
                 if isinstance(data.get("incompletion"), dict)
                 else None
+            ),
+            continued_from=(
+                str(data["continued_from"]) if data.get("continued_from") is not None else None
             ),
         )
 

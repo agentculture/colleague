@@ -168,8 +168,6 @@ def _namespace(repo: Path, **overrides) -> argparse.Namespace:
         json=True,
         command_name=None,
         allow_dirty=True,
-        tui=None,
-        tui_events=None,
         mode=None,
         role=None,
     )
