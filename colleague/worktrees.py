@@ -268,6 +268,37 @@ class MergeOutcome:
         return self.status in (self.MERGED, self.NOOP)
 
 
+@dataclass
+class IsolationAddOutcome:
+    """The result of creating one isolation worktree, with base-ref provenance.
+
+    The tree-carry surface for chained episodes (indefinite-run c6/h6): a
+    chained caller passes the prior episode's ``colleague/<prior-id>`` branch
+    as ``base_ref`` to :func:`isolation_worktree_add_outcome` and records
+    ``warning`` (when set) onto the run result.
+
+    Fields
+    ------
+    path:
+        Absolute path of the created worktree directory (as a string) — the
+        same value :func:`isolation_worktree_add` returns.
+    base_ref:
+        The ref the worktree was ACTUALLY based on; ``None`` means the repo's
+        current HEAD (the historical default, and the degrade target).
+    warning:
+        A human-readable degradation note, set ONLY when a requested
+        ``base_ref`` could not be used (missing/reaped, or unexpectedly
+        uncheckoutable) and the worktree fell back to the HEAD base; ``None``
+        on the happy path. The caller records it — a bad base ref never
+        raises (c29/h24: the #222 WIP sweep that feeds the chain is
+        best-effort, so the prior branch may legitimately be gone).
+    """
+
+    path: str
+    base_ref: str | None = None
+    warning: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -320,36 +351,89 @@ def worktree_add(repo_path: str, child_id: str) -> str:
     return str(wt_path)
 
 
-def isolation_worktree_add(repo_path: str, task_id: str, branch: str) -> str:
-    """Create an isolated worktree at HEAD on *branch* for an isolated write item (#196/#201).
+def isolation_worktree_add(
+    repo_path: str, task_id: str, branch: str, *, base_ref: str | None = None
+) -> str:
+    """Create an isolated worktree on *branch* for an isolated write item (#196/#201).
 
     Unlike :func:`worktree_add` (which mints a ``sub/<id>`` branch for a parallel
     subagent child), this places the worktree on the caller-supplied work branch —
     the ``colleague/<id>`` name the handoff will use — so a model self-commit
     *during* the run lands on that branch directly, never on the operator's
-    checked-out branch (#196). The worktree is created at the repo's current HEAD,
-    so the operator's uncommitted edits are deliberately excluded (clean-HEAD
-    isolation; ``--allow-dirty`` is moot for the isolated path — q1). Two concurrent
-    isolated runs get distinct ``iso-<task_id>`` worktrees, so they can never
-    cross-pollute each other's working tree (#201).
+    checked-out branch (#196). By default (``base_ref=None``) the worktree is
+    created at the repo's current HEAD, so the operator's uncommitted edits are
+    deliberately excluded (clean-HEAD isolation; ``--allow-dirty`` is moot for the
+    isolated path — q1). Two concurrent isolated runs get distinct
+    ``iso-<task_id>`` worktrees, so they can never cross-pollute each other's
+    working tree (#201).
+
+    A chained episode passes ``base_ref`` (tree carry, indefinite-run c6/h6) to
+    base the worktree on the prior episode's branch tip instead of HEAD; a
+    missing ref degrades to HEAD silently ON THIS SURFACE — a caller that needs
+    the degradation warning uses :func:`isolation_worktree_add_outcome`, which
+    this function is a back-compat wrapper over.
 
     Args:
         repo_path: Absolute (or relative) path to the git repository root.
         task_id: The work item's task id; names the worktree directory.
         branch: The work branch to create the worktree on (``colleague/<id>``).
+        base_ref: Optional ref to base the worktree on; ``None`` = HEAD (the
+            historical behavior, byte-identical).
 
     Returns:
         The absolute path of the newly created worktree directory (as a string).
     """
+    return isolation_worktree_add_outcome(repo_path, task_id, branch, base_ref=base_ref).path
+
+
+def isolation_worktree_add_outcome(
+    repo_path: str, task_id: str, branch: str, *, base_ref: str | None = None
+) -> IsolationAddOutcome:
+    """Create an isolation worktree, reporting base-ref provenance (tree carry, c6/h6).
+
+    The implementation behind :func:`isolation_worktree_add` (same reclaim +
+    admin-lock + liveness-marker sequence), returning an
+    :class:`IsolationAddOutcome` so a chained caller can record how the worktree
+    was based:
+
+    - ``base_ref=None`` (the default) — the worktree is created at the repo's
+      current HEAD, exactly the historical behavior; ``base_ref``/``warning``
+      on the outcome are both ``None``.
+    - ``base_ref=<ref>`` — the ref is verified with ``git rev-parse --verify``
+      first; when it resolves to a commit, the worktree is created AT that ref,
+      so episode N+1's tree starts from episode N's ``colleague/<prior-id>``
+      branch tip — a file committed by N's WIP sweep (#222) is present in
+      N+1's tree.
+    - a missing/reaped/uncheckoutable ``base_ref`` DEGRADES to the HEAD base
+      with ``warning`` set for the caller to record — never a crash (c29/h24:
+      the WIP sweep feeding the chain is best-effort, so the prior branch may
+      legitimately be gone).
+    """
     repo = Path(repo_path).resolve()
     wt_path = repo / _WORKTREES_SUBDIR / f"iso-{task_id}"
     wt_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Tree carry (c6/h6): verify the requested base ref BEFORE any mutation so a
+    # missing/reaped prior-episode branch degrades to the HEAD base up front.
+    # ``^{commit}`` guarantees the ref is commit-ish (checkoutable), not merely a
+    # name resolving to some other object type.
+    resolved_ref: str | None = None
+    warning: str | None = None
+    if base_ref is not None:
+        verify = _git(
+            repo, "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}", check=False
+        )
+        if verify.returncode == 0:
+            resolved_ref = base_ref
+        else:
+            warning = f"base ref {base_ref!r} not found; isolation worktree based on HEAD instead"
+
     # Reclaim any leftovers a crashed prior run with this task id left behind: a
     # stale worktree dir or the ``colleague/<id>`` branch would make ``worktree add
     # -b`` fail and silently drop isolation back to the in-place path (colleague
-    # review of t1, finding A). The branch is recreated from HEAD below, so dropping
-    # the stale one loses nothing the operator could still recover (a same-id retry
-    # only happens after a crash). All tolerant (``check=False``).
+    # review of t1, finding A). The branch is recreated from the base below, so
+    # dropping the stale one loses nothing the operator could still recover (a
+    # same-id retry only happens after a crash). All tolerant (``check=False``).
     #
     # The whole reclaim+add sequence is admin-lock-guarded (#239): unguarded, a
     # SEPARATE concurrent colleague process's own add/remove/prune on this shared
@@ -361,12 +445,34 @@ def isolation_worktree_add(repo_path: str, task_id: str, branch: str) -> str:
         _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
         _git(repo, "worktree", "prune", check=False)
         _git(repo, "branch", "-D", branch, check=False)
-        _git(repo, "worktree", "add", str(wt_path), "-b", branch)
+        if resolved_ref is not None:
+            added = _git(
+                repo, "worktree", "add", str(wt_path), resolved_ref, "-b", branch, check=False
+            )
+            if added.returncode != 0:
+                # The ref verified moments ago but the add still failed (e.g. a
+                # concurrent reap raced the verify). Same degrade contract: fall
+                # back to the HEAD base with a recorded warning — after re-running
+                # the tolerant reclaim, since the failed add may have left a
+                # half-created branch or worktree entry behind.
+                detail = ((added.stderr or "") + (added.stdout or "")).strip()
+                warning = (
+                    f"base ref {resolved_ref!r} could not be checked out"
+                    f" ({detail or 'git worktree add failed'});"
+                    " isolation worktree based on HEAD instead"
+                )
+                resolved_ref = None
+                _git(repo, "worktree", "remove", "--force", str(wt_path), check=False)
+                _git(repo, "worktree", "prune", check=False)
+                _git(repo, "branch", "-D", branch, check=False)
+                _git(repo, "worktree", "add", str(wt_path), "-b", branch)
+        else:
+            _git(repo, "worktree", "add", str(wt_path), "-b", branch)
     # Liveness marker (#239 h1): stamp this process as the worktree's holder so
     # `colleague clean` never mistakes a still-running work item for orphaned
     # residue, regardless of whether it is also tracked as an active flight.
     _write_liveness_marker(repo, task_id)
-    return str(wt_path)
+    return IsolationAddOutcome(path=str(wt_path), base_ref=resolved_ref, warning=warning)
 
 
 def isolation_worktree_remove(repo_path: str, worktree_path: str) -> None:
