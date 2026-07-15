@@ -92,14 +92,19 @@ class Feedback:
     chain: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        # ``chain`` is omit-when-False: an ordinary (non-chain) grade keeps the
+        # exact persisted shape the contract doc pins (test_contract_doc.py) —
+        # only chain-graded records carry the marker.
+        data: dict[str, Any] = {
             "task_id": self.task_id,
             "rating": self.rating,
             "notes": self.notes,
             "by": self.by,
             "at": self.at,
-            "chain": self.chain,
         }
+        if self.chain:
+            data["chain"] = True
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Feedback":

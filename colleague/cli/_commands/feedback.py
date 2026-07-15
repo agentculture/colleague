@@ -161,13 +161,53 @@ def _record(
             "be empty. Pass --by NAME, or add a culture.yaml nick or "
             '.colleague/identity.json "as".'
         )
+    # Chain-aware grading (indefinite-run c30): when the graded work item is the
+    # tail of a ``continued_from`` chain, one record call stamps EVERY episode
+    # (grade_chain walks the lineage with a visited-set; cycle/missing-artifact
+    # terminate cleanly). A lineage-less work item keeps today's single-record
+    # path and persisted shape byte-identical.
     try:
+        if _continued_from(repo_path, task_id) is not None:
+            records = fb.grade_chain(
+                repo_path, task_id, rating=rating, notes=notes or "", by=by_val
+            )
+            payload = records[0].to_dict()
+            payload["chain_episodes"] = [r.task_id for r in records]
+            text = (
+                _render(records[0])
+                + f"\n(chain: graded {len(records)} episodes: "
+                + " <- ".join(r.task_id for r in records)
+                + ")"
+            )
+            return rendered(payload, text)
         record = fb.write_feedback(repo_path, task_id, rating=rating, notes=notes or "", by=by_val)
     except FeedbackError as exc:
         raise CliError(
             EXIT_USER_ERROR, str(exc), f"--rating must be {fb.MIN_RATING}-{fb.MAX_RATING}"
         ) from exc
     return rendered(record.to_dict(), _render(record))
+
+
+def _continued_from(repo_path: Path, task_id: str) -> str | None:
+    """The ``continued_from`` id off ``task_id``'s artifact, or ``None``.
+
+    Best-effort: a missing/corrupt artifact or an absent/blank field all read as
+    "not a chain tail" — the single-record grading path handles those exactly as
+    before this feature.
+    """
+    from colleague.artifact import find_artifact
+
+    path = find_artifact(repo_path, task_id)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    parent = data.get("continued_from") if isinstance(data, dict) else None
+    if isinstance(parent, str) and parent:
+        return parent
+    return None
 
 
 def _show(ref: str, repo: str = ".") -> object:
