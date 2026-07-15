@@ -1,0 +1,518 @@
+{
+  "slug": "indefinite-run",
+  "title": "indefinite-run",
+  "frame_slug": "indefinite-run",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-15T18:04:55Z",
+  "updated": "2026-07-15T18:11:13Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague work items no longer die at their budgets: when the step budget exhausts mid-task, colleague automatically continues from the persisted artifact \u2014 carrying the prior episode's actual tree state \u2014 and when the context fills, it compacts with a validated summary that provably preserves the goal and the work done so far; a big task keeps going until it is done or honestly cannot progress, and the operator can stop it at any moment"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "with chaining DORMANT (no flag, no env, no config key) every existing test passes unmodified and a bare work item behaves byte-identically to v1.46 \u2014 the indefinite behavior is armed, never ambient"
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "episode chaining lives OUTSIDE the bounded loop: _work_loop keeps its max_steps budget and _EXIT_BUDGET exit (loop.py:2262-2321); auto-continue is a driver at the work-dispatch layer that re-seeds a new episode via resolve_continuation, never an in-loop budget extension"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "max_steps semantics and the _EXIT_BUDGET exit are untouched; no code path extends a live episode's step budget"
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "the fill-line re-arms after a resolved compact: _fillline_offered (loop.py:627-631, 'at most once per work item' per capacity-standard.md:32) becomes per-crossing so a long run can compact repeatedly, with a per-run compaction cap against thrash"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "a second threshold crossing after a resolved compact offers the decision again (test), and a per-run compaction cap bounds the total number of compaction turns"
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "compaction gets deterministic validation: apply_compaction (fillline.py:137-147) today accepts any text \u2014 empty becomes '(no summary produced)' and the run continues with amnesia; the compacted note must be checked against the run's own evidence (goal text, changed-file paths from the step trace) with missing facts repaired deterministically, lossy windowing remaining the floor"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the validator is deterministic (goal text + changed-file paths from the run's own trace); a summary missing facts is repaired deterministically or rejected \u2014 an empty summary NEVER replaces history; lossy windowing remains the floor when validation cannot produce a usable note"
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "auto-continue reuses resolve_continuation verbatim (continuation.py:25-97): the wrong-run guard and ok-guard stay; the chain driver re-dispatches only a non-ok episode whose exit reason is budget-shaped, and stamps lineage via the existing TaskResult.continued_from"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the ok-guard holds inside the chain: an episode that finishes ok is never re-dispatched; ContinuationError surfaces as a clean chain halt, not a crash"
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "a chained episode carries the prior episode's TREE, not just its 1.3K-token seed: today a continued run dispatches through the ordinary work path onto a fresh worktree at HEAD (worktrees.py isolation_worktree_add: 'at HEAD on *branch*') while the prior WIP sits committed on colleague/<prior-id> (#222); the chain must base episode N+1's worktree on episode N's branch tip so edits accumulate instead of being re-derived"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "a file committed by episode N's WIP commit is present in episode N+1's worktree (test); when the prior branch is missing (reaped/crashed) the chain degrades to today's HEAD base with a recorded warning, never a crash"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "honest incompletion (#313, incompletion.py reasons incl. 'budget-exhausted'/'no-progress-zero-steps') is never weakened: a chain halts on a no-progress episode (no new changed files AND no substantive advance) and the final artifact still reports non-ok with reason + evidence \u2014 auto-continue must never become an infinite no-progress loop or a way to launder incompletion"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "a chain that makes no progress (no new commits on the episode branch AND no new artifact evidence) halts and the final artifact reports non-ok with an incompletion reason \u2014 verified by the chain-halts-honestly test"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "an indefinite run stays stoppable and observable: the flight plane's cooperative stop (flight.py write_stop, checked at every turn boundary via _flight_stop_requested) plus the heartbeat (#308) must hold ACROSS episodes \u2014 the chain driver checks stop between episodes and the flight feed shows episode transitions, so 'indefinite' never means 'unattended and unstoppable'"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "flight write_stop between episodes prevents the next episode from starting (test); each episode keeps its own in-episode stop checks and heartbeat unchanged"
+    },
+    {
+      "id": "c9",
+      "kind": "boundary",
+      "text": "no daemon, no router: the chain is a foreground loop inside the existing work dispatch (or a c17 background one-shot child) \u2014 no new process, socket, scheduler, or task->model routing; each episode re-acquires the rig-budget slot cooperatively rather than holding it across episodes"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "test_boundary.py's sanctioned subprocess/thread lists are unchanged by the feature; no new socket/daemon/scheduler code; the rig-budget slot is re-acquired per episode (never held across the gap)"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "runtime-owned, all-engines: chaining, re-armed fill-line, and compaction validation land in loop.py/work.py/fillline.py \u2014 never in an engine \u2014 so mock and vllm-openai behave identically; mock exercises the whole chain in tests (the existing seams: test_fillline.py, test_continuation.py, test_cli_work_continue.py, test_capacity*.py)"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the chain e2e runs on the mock engine in CI; TaskResult shape (incl. lineage + chain view) is identical across mock and vllm-openai per the all-engines guard"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "session parity (all-fronts): whatever arms auto-continue on 'colleague work' is reachable from 'colleague session' too (the /continue SlashSpec already rides the same resolve path; session-continue-heal.md) \u2014 a session-dispatched big task benefits identically"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the session front can arm the same chaining with the same semantics (shared dispatch path, no session-only fork); off a colour TTY the behavior is unchanged"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "knobs ride the existing config resolution (flag > env > config.json > default, config.py resolve()): an episode cap (e.g. COLLEAGUE_MAX_EPISODES / --max-episodes), the auto-continue arm, and a compaction-validation toggle land as ordinary resolved knobs with strict-no-op defaults preserving today's single-episode behavior for untouched configs"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "every new knob rides resolve() precedence (flag > env > config.json > default) and its unset default reproduces today's single-episode behavior exactly"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "docs record the new line honestly: capacity-standard.md ('fires at most once per work item'), continue-working.md, session-continue-heal.md, graceful-degradation.md, honest-incompletion.md and CLAUDE.md architecture bullets all state the once-per-run and text-only-carry limits today and must be updated with the superseding behavior plus its honest limits"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "each doc that states a limit this feature removes is updated in the same PR, and the doc-test-alignment check passes"
+    },
+    {
+      "id": "c15",
+      "kind": "audience",
+      "text": "operators who hand colleague tasks bigger than one budget (Ori's rig first), on every front: work CLI, session, --background \u2014 and both engines, mock + vllm-openai"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "no front is second-class: work, session, and --background all reach the armed behavior in the shipped PR (all-fronts), not a follow-up"
+    },
+    {
+      "id": "c16",
+      "kind": "before_state",
+      "text": "today a big task dies at max_steps (~40 steps in live work-lessons) with incompletion reason budget-exhausted and waits for a MANUAL work --continue that restarts on a fresh worktree at HEAD without the prior episode's edits; the fill-line fires at most once, and the compaction summary is applied unvalidated"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "each stated current limit is verified against the named code line before build starts (they are the baseline the tests must break)"
+    },
+    {
+      "id": "c17",
+      "kind": "after_state",
+      "text": "an armed run chains bounded episodes automatically: budget-exhausted episodes re-seed via resolve_continuation onto a worktree based on the prior episode's branch tip; each context crossing can compact again with a validated summary; the chain ends with the deliverable (ok) or an honest non-ok when progress stalls \u2014 stoppable via the flight plane at any boundary"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the mock e2e chain test enacts this narrative end-to-end (>=3 episodes, tree carry, validated compact, honest halt) \u2014 the after-state is demonstrated, not asserted"
+    },
+    {
+      "id": "c18",
+      "kind": "why_it_matters",
+      "text": "recurring live evidence (eidetic work-lessons: 5+ items 'incomplete: step budget exhausted' at steps 38-49) shows real tasks outgrow one episode; chaining turns colleague from a per-episode tool into a task-completer without weakening the honesty rules that make its results trustworthy"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "the spec cites real work-lesson evidence; if the live rig proof shows chaining does NOT reduce babysitting (e.g. the 27B loops without progress), that result is reported honestly in the delivery summary"
+    },
+    {
+      "id": "c19",
+      "kind": "success_signal",
+      "text": "a mock-engine e2e task sized to need >= 3 episodes (deliberately small max_steps) lands its deliverable with status ok and a continued_from lineage chain of length >= 3 with zero operator interventions; a deliberately no-progress task halts within 2 episodes reporting non-ok; a validated compaction test shows an empty/uncoverable summary NEVER silently replaces history"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "all three named tests exist and fail on main before the feature lands (TDD baseline)"
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "between-episode accounting is first-class: each episode remains one work item with its own artifact; the chain stamps continued_from lineage episode-to-episode and the final artifact carries a chain view (episode count, total steps/tokens) so WorkStats stay exact per-episode, never merged estimates"
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "tokens/steps in the chain view are sums of per-episode exact usage \u2014 never estimated (the tokens-are-exact rule)"
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "the chain continues ONLY on a continuable-exit allow-list: incompletion reason budget-exhausted (and a timeout-preserved partial with progress); it NEVER re-dispatches a pilot-stop, tool-protocol-broken, no-progress-zero-steps, or ok exit \u2014 each non-continuable reason is a deliberate halt with its own meaning"
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "a test per non-continuable reason proves the chain halts (pilot-stop, tool-protocol, ok); the allow-list is an explicit enumeration in code, not a status!=ok catch-all"
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "handoff fires ONCE, at chain end: intermediate episodes suppress per-episode push/PR; because episode N+1 branches from episode N's tip, the final episode's branch carries the cumulative diff, and intermediate colleague/<id> branches are reaped after the chain completes (artifacts keep the evidence)"
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "a 3-episode armed chain with --pr produces exactly one PR whose diff equals the cumulative work; colleague clean reaps the intermediates; the read-only verbs (explore/review) remain handoff-free"
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "episode transitions are observable and pilotable: the progress sink (#38) announces 'episode N+1 continuing <prior-id>' and the flight feed records the next episode's id at each boundary, so a pilot following episode 1 can follow (or stop) the whole chain \u2014 never a silently re-keyed run"
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "a pilot watching episode 1's flight file can locate episode 2 from the recorded transition (test); write_stop before the boundary prevents episode 2 entirely (h8)"
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "chain re-dispatch inherits the original invocation's resolved options verbatim (engine, mode, --no-pr, --allow-dirty, budgets, attachments policy) \u2014 the precedent is the background child's forwardable-flags list (work.py) \u2014 so an episode never runs under silently different config than the run the operator armed"
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "a chain armed with --engine mock --no-pr keeps both on every episode (test); nothing is re-resolved from a config file that changed mid-chain"
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "feedback is chain-aware: grading the last work item traverses continued_from lineage and stamps the grade on EVERY episode of the chain, so per-episode ROI stats reflect the chain outcome they contributed to"
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "grading a 3-episode chain writes the grade to all three feedback records (test); a lineage cycle or missing artifact terminates traversal cleanly, never loops"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Fill-line re-arm + compaction cap",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "after a resolved compact, a second threshold crossing offers the fill-line decision again (new test in tests/test_fillline.py)",
+        "a per-run compaction cap (default from config) bounds total compaction turns; the cap reached = no further offers, recorded on the trace",
+        "existing test_fillline.py + test_capacity*.py pass unmodified except where they assert the old once-per-run limit"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3"
+      ],
+      "instruction": "Owns colleague/fillline.py + the fill-line cells/regions of colleague/loop.py (_fillline_offered/_fillline_resolved, _maybe_offer_fillline, _consume_fillline_declaration) and tests/test_fillline.py. Turn the single-element offered/resolved cells into per-crossing state (offered resets once the declaration is consumed and the run drops back under the line). Add the cap as a counted cell. Do NOT touch compaction content/validation \u2014 that is t2. Work test-first."
+    },
+    {
+      "id": "t2",
+      "summary": "Deterministic compaction validation + unrepairable-note policy",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a validator in colleague/fillline.py cross-checks the model summary against the run's own evidence: goal/original-request text present, every changed-file path from the step trace mentioned; missing facts are appended deterministically (repair), and an empty/whitespace summary is REJECTED \u2014 it never replaces history",
+        "on an unrepairable note with chaining armed, the loop takes finish-with-handoff (decision c23); unarmed, it keeps today's lossy-windowing floor (both tested)",
+        "validation runs on the MAIN model's summary only \u2014 no second-model call is introduced (non-goal c12)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4",
+        "h4"
+      ],
+      "instruction": "Owns colleague/fillline.py (pure validator: validate_compaction(summary, goal, changed_files) -> (text, ok)) + loop.py _compact_history to consume it + tests/test_fillline.py additions. Armed-policy flag threaded via ContextControls; unarmed behavior byte-identical to today except empty-summary rejection. Same files as t1 \u2014 build strictly after it."
+    },
+    {
+      "id": "t3",
+      "summary": "Chain driver core: continuable exits, no-progress guard, episode cap, knobs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "new module colleague/chain.py: an explicit continuable-exit ALLOW-LIST (incompletion reason budget-exhausted; never pilot-stop / tool-protocol-broken / no-progress-zero-steps / ok) with one test per non-continuable reason",
+        "the no-progress guard halts when an episode lands no new commits on its branch AND adds no new artifact evidence (decision c22); ok-status episodes are never re-dispatched (ContinuationError = clean halt, not crash)",
+        "knobs ride resolve(): --until-done arm + --max-episodes (default 5 armed, 0 = unlimited, decision c21) via COLLEAGUE_UNTIL_DONE / COLLEAGUE_MAX_EPISODES; unset = today's single-episode behavior byte-identical",
+        "the loop's max_steps semantics and _EXIT_BUDGET are untouched \u2014 chain.py never imports loop internals; it consumes artifacts + resolve_continuation only"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c5",
+        "h5",
+        "c7",
+        "h7",
+        "c24",
+        "h20",
+        "c13",
+        "h12"
+      ],
+      "instruction": "Owns NEW colleague/chain.py + the two knob entries in colleague/config.py + NEW tests/test_chain.py. chain.py exposes pure decision functions (should_continue(result, episode_n, cap) -> verdict+reason) plus a ChainState record; the CLI dispatch loop that USES it is t5. Pure stdlib; no subprocess/thread/socket (test_boundary.py lists unchanged). Work test-first."
+    },
+    {
+      "id": "t4",
+      "summary": "Tree carry: base episode N+1 on episode N's branch tip",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a chained episode's isolation worktree is created at the prior episode's colleague/<prior-id> branch tip instead of HEAD, so a file committed by episode N's WIP sweep is present in episode N+1's tree (test)",
+        "a missing/reaped prior branch degrades to today's HEAD base with a recorded warning on the result \u2014 never a crash (assumption c29/h24: the #222 WIP sweep is best-effort)",
+        "non-chained runs still base at HEAD \u2014 byte-identical (existing worktree tests pass unmodified)"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h6"
+      ],
+      "instruction": "Owns colleague/worktrees.py (isolation_worktree_add gains an optional base_ref parameter, default None = HEAD as today) + tests/test_worktrees* additions. Verify the ref exists with git rev-parse before use; degrade path returns the warning string for the caller to record. Do NOT wire the CLI here \u2014 t5 threads base_ref."
+    },
+    {
+      "id": "t5",
+      "summary": "Work dispatch chain loop: arming flags, config inheritance, handoff-once",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague work --until-done [--max-episodes N] runs the episode chain: each non-final episode suppresses push/PR, the FINAL episode hands off once with the cumulative diff (episode branches chain from each other), and intermediate colleague/<id> branches are reaped after completion (3-episode --pr test = exactly one PR)",
+        "every episode inherits the arming invocation's resolved options verbatim (engine, mode, --no-pr, --allow-dirty, budgets) \u2014 test: a chain armed with --engine mock --no-pr keeps both on all episodes; nothing re-resolves from a mid-chain config change",
+        "lineage stamps continued_from episode-to-episode; the ok-guard holds inside the chain"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c26",
+        "h21",
+        "c28",
+        "h23"
+      ],
+      "instruction": "Owns colleague/cli/_commands/work.py (the chain loop wrapping execute_work, reusing resolve_continuation + chain.py verdicts + t4's base_ref) and colleague/handoff.py (handoff gating + intermediate reap). Follow the background-child forwardable-flags precedent (work.py ~line 1010) for inheritance. Read-only verbs stay handoff-free."
+    },
+    {
+      "id": "t6",
+      "summary": "Flight continuity + episode-transition observability",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the chain checks flight stop BETWEEN episodes: write_stop before the boundary prevents episode N+1 from starting (test); in-episode stop checks + heartbeat unchanged",
+        "each boundary records the next episode's id on the prior episode's flight feed and announces 'episode N+1 of <cap>: continuing <prior-id>' on the progress sink \u2014 a pilot following episode 1 can locate every later episode (test)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c8",
+        "h8",
+        "c27",
+        "h22"
+      ],
+      "instruction": "Owns colleague/flight.py (a chain-transition marker record, type='episode-transition') + the chain driver's between-episode hooks in chain.py/work.py touchpoints agreed with t5 (coordinate: t6 adds the flight/sink calls, t5 owns the loop skeleton \u2014 build after t5's skeleton merges if same lines) + tests/test_flight* additions."
+    },
+    {
+      "id": "t7",
+      "summary": "Chain view accounting on the artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult carries an optional chain view (episode index, episode count so far, totals) whose tokens/steps are SUMS of per-episode exact usage \u2014 never estimated (tokens-are-exact rule); omit-when-absent keeps ordinary runs' artifacts byte-identical",
+        "WorkStats stay per-episode; the final episode's artifact renders the chain totals (test asserts additivity from real per-episode numbers)"
+      ],
+      "deps": [],
+      "covers": [
+        "c20",
+        "h19"
+      ],
+      "instruction": "Owns colleague/contract.py (ChainView dataclass + TaskResult field, from_dict/to_dict round-trip) + colleague/artifact.py rendering + NEW tests/test_chain_view.py. Additive fields only \u2014 the all-engines shape guard (test_e2e_mock.py) must keep passing."
+    },
+    {
+      "id": "t8",
+      "summary": "Chain-aware feedback grading",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "grading the last work item traverses continued_from lineage and stamps the grade on EVERY episode of the chain (3-episode test: one record call writes three grades)",
+        "a lineage cycle or missing artifact terminates traversal cleanly \u2014 never loops, never crashes (both tested)"
+      ],
+      "deps": [],
+      "covers": [
+        "c30",
+        "h25"
+      ],
+      "instruction": "Owns colleague/feedback.py + tests/test_feedback* additions. Traversal walks artifacts via find_artifact + continued_from with a visited-set; per-episode grade records keep today's schema plus a chain marker."
+    },
+    {
+      "id": "t9",
+      "summary": "Session parity + background forwarding",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the session front arms the same chaining with the same semantics (shared dispatch path \u2014 no session-only fork); off a colour TTY behavior is unchanged (test)",
+        "a --background chain forwards --until-done/--max-episodes to the detached child via the forwardable-flags list (test); all three fronts (work, session, background) reach the armed behavior in this PR"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c11",
+        "h11",
+        "c15",
+        "h14"
+      ],
+      "instruction": "Owns colleague/cli/_commands/session.py (arm via /mode-adjacent flag or session flag parity) + the forwardable-flags list entries in work.py (coordinate with t5 \u2014 build after it merges). Tests in tests/test_session*."
+    },
+    {
+      "id": "t10",
+      "summary": "E2E chain proofs + dormancy/boundary guards (tests only)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "chain-completes: a mock-engine task sized to need >= 3 episodes lands its deliverable with status ok, lineage chain length >= 3, zero operator interventions",
+        "chain-halts-honestly: a deliberately no-progress task halts within 2 episodes reporting non-ok with an incompletion reason",
+        "compaction-validated: an empty/uncoverable summary never silently replaces history (rejection observable on the trace)",
+        "dormancy: with no flag/env/config the entire existing suite passes unmodified and a bare work item's artifact is byte-identical; test_boundary.py sanctioned lists unchanged; TaskResult shape identical across mock and vllm-openai (all-engines guard extended)",
+        "each of the three named tests demonstrably fails on main (TDD baseline recorded in the test file docstring with the command used)"
+      ],
+      "deps": [
+        "t2",
+        "t5",
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c9",
+        "h9",
+        "c10",
+        "h10",
+        "c16",
+        "h15",
+        "c17",
+        "h16",
+        "c19",
+        "h18"
+      ],
+      "instruction": "Owns NEW tests/test_chain_e2e.py only (plus reading everything). Mock engine drives the chain via scripted finishes/budget exits. Verify the c16 before-state limits are actually removed (re-arm, carry, validation) by asserting against the new behavior. Record the fails-on-main proof by running each named test against main in a throwaway worktree."
+    },
+    {
+      "id": "t11",
+      "summary": "Docs: the new line, stated honestly",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "capacity-standard.md (drops 'fires at most once'), continue-working.md, session-continue-heal.md, graceful-degradation.md, honest-incompletion.md updated + NEW docs/features/indefinite-run.md + the CLAUDE.md architecture bullet \u2014 each stating the superseding behavior AND its honest limits (best-effort WIP sweep, crawl risk under --max-episodes 0, per-episode gate cost)",
+        "the why-it-matters rationale cites at least one recorded work-lesson id (c18); doc-test-alignment check passes; markdownlint clean"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [
+        "c14",
+        "h13",
+        "c18"
+      ],
+      "instruction": "Owns docs/features/*.md + CLAUDE.md + CHANGELOG entry. Follow trim discipline: CLAUDE.md gets a few lines + Doc: pointer; detail lives in docs/features/indefinite-run.md linking the spec/plan. Cite work-lesson-54ead8272f22 (steps=46, budget exhausted) as live evidence."
+    },
+    {
+      "id": "t12",
+      "summary": "Live dogfood proof: chained review of this arc's own PR",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an ask-colleague review of this arc's PR diff runs with chaining armed on the live rig and DELIVERS a verdict (findings or a clean pass) instead of dying at its budget \u2014 episodes > 1 observed in the lineage (decision c25)",
+        "the outcome is reported honestly in the delivery summary, including a negative result (e.g. the 27B loops without progress) if that is what happens (h17)"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "h17"
+      ],
+      "instruction": "Run AFTER the PR exists: COLLEAGUE_TIMEOUT=300, cap 2 concurrent loops (GPU serializes). Use the checkout's uv run colleague (ask-colleague wrapper may resolve a stale PATH CLI). Verify the review actually finished (recorded gotcha: mid-thought narration can masquerade as a result). This is the live pass criterion for the whole arc."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "live-model behavior under chaining is unproven until t12: the 27B may loop or stall across episodes in ways mock cannot show (recorded precedent: 27B cannot 3-way decompose under self-load)",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "colleague/loop.py is a 4131-line shared surface: t1 and t2 are deliberately serialized on it; every other task must keep out of loop.py or the waves' file-disjointness breaks",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r3",
+      "text": "t5 and t6 both touch the chain-loop skeleton in work.py: t6 is sequenced after t5 via its dep on t3 only \u2014 if line-level conflicts emerge, build t6 after t5's merge (recorded coordination note in both instructions)",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
