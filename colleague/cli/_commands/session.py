@@ -596,6 +596,9 @@ class _Session:
         # One-run dirty-guard waiver granted by the heal prompt's commit choice
         # (#168); consumed (reset) by the next _dispatch_work. Never persists.
         self._heal_allow_dirty_once = False
+        # Lineage for the next dispatch when /continue seeded it (#167); consumed
+        # (reset) by _dispatch_work, mirroring the heal waiver cell above.
+        self._continued_from_next: Optional[str] = None
         self._owned_line: Optional[OwnedInputLine] = None
         self._owned_line_streams: Optional[tuple[object, object]] = None
         self._owned_talk_queue: "deque[str]" = deque()
@@ -1340,6 +1343,10 @@ class _Session:
             self._log({"verbose": _HELP_VERBOSE, "compact": _HELP_COMPACT}.get(arg, _HELP_TEXT))
             return True
 
+        if verb == "continue":
+            self._slash_continue(rest[0] if rest else "last")
+            return True
+
         introspect = _INTROSPECT.get(verb)
         if introspect is not None:
             self._log(self._run_cli(*introspect(self)))
@@ -1385,6 +1392,31 @@ class _Session:
         return sink.getvalue().rstrip() or "(no output)"
 
     # ── work ────────────────────────────────────────────────────────────────
+
+    def _slash_continue(self, ref: str) -> None:
+        """Resume a cut work item from its persisted artifact (#167).
+
+        The session leg of the continue affordance: the SAME resolve path
+        ``work --continue`` uses (a bare ``/continue`` defaults to ``last``),
+        dispatched through the ordinary work path so the cockpit, heal guard,
+        and artifact writes all behave exactly like a fresh dispatch. The
+        ok-guard error text is the CLI's own (``ContinuationError`` verbatim),
+        so an agent driving the session off-TTY parses one shape.
+        """
+        from colleague.continuation import ContinuationError, resolve_continuation
+
+        ref = (ref or "last").strip() or "last"
+        try:
+            prior_id, seed = resolve_continuation(self.repo, ref)
+        except ContinuationError as exc:
+            self._error(f"error: {exc}")
+            return
+        self._log(f"→ continue: resuming {prior_id}")
+        if not self._heal_dirty_tree_if_needed():
+            return
+        task = Task.new(str(self.repo), seed, engine=self.engine_name)
+        self._continued_from_next = prior_id
+        self._run_work(task, None)
 
     def _consume_staged_attachments(self, task: Task) -> None:
         """Move any ``/attach``-staged entries onto *task*, in staged order, and
@@ -1605,6 +1637,8 @@ class _Session:
         self._arm_run_view(task.instruction)
         heal_waiver = self._heal_allow_dirty_once
         self._heal_allow_dirty_once = False
+        continued_from = self._continued_from_next
+        self._continued_from_next = None
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -1613,6 +1647,7 @@ class _Session:
                 task=task,
                 open_pr=open_pr,
                 allow_dirty=self.allow_dirty or heal_waiver,
+                continued_from=continued_from,
                 base=self.base,
                 config=config,
                 command_name=command_name,
@@ -2587,6 +2622,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         "show/cycle the session mode (auto|work|plan|explore|review) — shift-tab equivalent",
         "runtime",
         ("interactive",),
+    ),
+    SlashSpec(
+        "continue",
+        "[id|last]",
+        "resume a cut work item from its persisted artifact",
+        "runtime",
+        ("writes", "git"),
     ),
     SlashSpec("base", "<branch>", "set the PR base branch", "workspace", ("git", "config")),
     SlashSpec(
