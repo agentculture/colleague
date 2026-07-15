@@ -625,15 +625,26 @@ class _Work:
     # ``context_budget`` at which the runtime offers the one capacity decision; armed
     # only when degradation is active and the threshold is in ``(0, 1]``.
     # ``_fillline_offered`` / ``_fillline_resolved`` are single-element mutable cells
-    # (the ``_split_recommended`` pattern) so the decision is offered + recorded at
-    # most once per work item through the frozen binding.
+    # (the ``_split_recommended`` pattern) holding PER-CROSSING state (indefinite-run
+    # t1, superseding v1's at-most-once-per-work-item): the decision is offered +
+    # recorded once per crossing, and ``_maybe_offer_fillline`` clears the cells once
+    # the declaration is consumed AND the run drops back under the line, re-arming
+    # the next crossing.
     capacity_threshold: float | None = None
     _fillline_offered: list[bool] = field(default_factory=list)
     _fillline_resolved: list[bool] = field(default_factory=list)
     # The prompt-token count that tripped the fill line — captured when the decision
     # is OFFERED so the recorded reason matches the number named in the prompt (not
-    # the slightly different count of the declaring turn).
+    # the slightly different count of the declaring turn). Cleared with the re-arm so
+    # each crossing's decision records its own numbers.
     _fillline_used: list[int] = field(default_factory=list)
+    # Per-run compaction cap (indefinite-run t1): ``_fillline_compactions`` is a
+    # counted cell ([n], the ``_unknown_tool_streak`` pattern) tallying compaction
+    # turns; at ``fillline.DEFAULT_COMPACTION_CAP`` further offers are suppressed
+    # (anti-thrash — lossy windowing remains the floor). ``_fillline_capped`` marks
+    # the suppression recorded once on the trace (never re-noted per crossing).
+    _fillline_compactions: list[int] = field(default_factory=list)
+    _fillline_capped: list[bool] = field(default_factory=list)
     # Mapping fan-out advisory (#188): ``mapping_fanout_files`` is the files-read count
     # at which the runtime injects ONE advisory recommendation to fan a wide read-only
     # survey out across folders via the ``subagents`` tool (instead of grinding serially
@@ -1110,7 +1121,9 @@ def _offer_fillline(ctx: _Work, prompt_tokens: int) -> None:
 
     Names the three moves + the capacity numbers (reusing the autosplit child-count
     maths for the split option) and points the model at how to declare each by its
-    next action. Offered at most once per work item via ``_fillline_offered``.
+    next action. Offered at most once per CROSSING via ``_fillline_offered``
+    (re-armed by :func:`_maybe_offer_fillline` once a resolved crossing drops back
+    under the line — indefinite-run t1).
     """
     budget = int(ctx.context_budget)
     target = ctx.autosplit_target if isinstance(ctx.autosplit_target, int) else budget
@@ -1131,7 +1144,10 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
 
     The reason names the offer-time token count (``_fillline_used``) so it matches the
     number stated in the decision prompt, not the declaring turn's slightly different
-    prompt size.
+    prompt size. With the per-crossing re-arm (indefinite-run t1) a run can declare
+    more than once; the singular contract field keeps the LATEST declaration (the
+    contract shape is unchanged here — earlier moves stay visible as their effects:
+    compaction notes in the history, subagent results, usage).
     """
     budget = int(ctx.context_budget)
     used = ctx._fillline_used[0] if ctx._fillline_used else 0
@@ -1173,20 +1189,72 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
         ctx._compacted_summary[:] = [resp.content]
 
 
-def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
-    """Offer the fill-line decision once, when the last turn's context crossed it (#156).
+def _fillline_cap_reached(ctx: _Work) -> bool:
+    """True when this run's compaction turns exhausted the per-run cap (t1).
 
-    A strict no-op when dormant (not armed), already offered, or still under the
-    threshold — so a work item that never fills its context is byte-identical to today.
+    Reads ``fillline.DEFAULT_COMPACTION_CAP`` at call time — a module constant for
+    now (the operator-tunable config knob is t3's; ``cap_reached`` already treats
+    ``cap <= 0`` as unlimited so the knob can wire in without touching this seam).
     """
-    if (
-        _fillline_armed(ctx)
-        and not ctx._fillline_offered
-        and _fillline.crossed(
-            last_prompt_tokens, int(ctx.context_budget), float(ctx.capacity_threshold)
-        )
-    ):
-        _offer_fillline(ctx, last_prompt_tokens)
+    count = ctx._fillline_compactions[0] if ctx._fillline_compactions else 0
+    return _fillline.cap_reached(count, _fillline.DEFAULT_COMPACTION_CAP)
+
+
+def _record_fillline_cap(ctx: _Work) -> None:
+    """Record ONCE that the compaction cap suppressed further fill-line offers (t1).
+
+    Follows the backpressure-advisory precedent (:func:`_record_turn_latency`):
+    append the note to ``result.capacity_warning`` (the artifact) and fire a phase
+    notice (the stderr/cockpit/flight feeds), so the suppression is observable on
+    the trace rather than silent. Lossy windowing remains the floor for the rest of
+    the run. ``_fillline_capped`` guards the once — later capped crossings no-op.
+    """
+    if ctx._fillline_capped:
+        return
+    ctx._fillline_capped[:] = [True]
+    cap = _fillline.DEFAULT_COMPACTION_CAP
+    note = (
+        f"fill-line compaction cap reached ({cap} compaction turns this run) — "
+        "no further capacity offers; lossy windowing remains the floor"
+    )
+    existing = ctx.result.capacity_warning
+    ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
+    _emit_phase(ctx, note)
+
+
+def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
+    """Offer the fill-line decision at each crossing of the line (#156, t1).
+
+    Per-crossing, not once-per-run (indefinite-run t1 supersedes the v1 "fires at
+    most once per work item" line): a RESOLVED offer re-arms once the run drops back
+    under the line — a resolved-but-still-over boundary never immediately re-offers,
+    because the declaring turn's own prompt is naturally still over the line — so a
+    long run can compact repeatedly. Total compaction turns are bounded by the
+    per-run cap: the cap reached = no further offers, recorded once on the trace
+    (:func:`_record_fillline_cap`). A strict no-op when dormant (not armed), pending,
+    or under the threshold — a work item that never fills its context is
+    byte-identical to today.
+    """
+    if not _fillline_armed(ctx):
+        return
+    over = _fillline.crossed(
+        last_prompt_tokens, int(ctx.context_budget), float(ctx.capacity_threshold)
+    )
+    if ctx._fillline_resolved and not over:
+        # The declaration was consumed and the run dropped back under the line —
+        # this crossing is spent. Clear the per-crossing cells so the NEXT crossing
+        # offers again (clearing ``_fillline_used`` keeps the next decision's
+        # recorded reason naming its own crossing's token count).
+        ctx._fillline_offered.clear()
+        ctx._fillline_resolved.clear()
+        ctx._fillline_used.clear()
+        return
+    if ctx._fillline_offered or not over:
+        return
+    if _fillline_cap_reached(ctx):
+        _record_fillline_cap(ctx)
+        return
+    _offer_fillline(ctx, last_prompt_tokens)
 
 
 def _files_read(ctx: _Work) -> int:
@@ -1311,6 +1379,13 @@ def _resolve_fillline(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> 
     kind = _fillline.classify_declaration(tool_names)
     _record_fillline_decision(ctx, kind)
     if kind == _fillline.MOVE_COMPACT:
+        # Count the compaction turn against the per-run cap (indefinite-run t1)
+        # BEFORE running it: a compaction that falls back to lossy windowing (the
+        # summary turn overflowed) still spent a model call, so it still counts.
+        # Only compact declarations count — split/handoff moves are bounded by
+        # their own machinery (subagent caps / the finish path).
+        count = ctx._fillline_compactions[0] if ctx._fillline_compactions else 0
+        ctx._fillline_compactions[:] = [count + 1]
         _compact_history(ctx, complete)
     return kind
 

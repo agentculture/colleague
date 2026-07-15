@@ -5,6 +5,12 @@ byte-identical no-op otherwise), c10/h3 (self-compaction: a model-authored summa
 replaces the elided turns, head preserved, lossy-windowing fallback on overflow),
 c11 (a split declaration routes through the existing subagents path), and c12 (a
 finish-with-handoff declaration preserves a continuation summary).
+
+Indefinite-run t1 (c3/h3) supersedes the v1 once-per-work-item limit: the decision
+is offered per CROSSING (a resolved offer re-arms once the run drops back under the
+line), bounded by the per-run compaction cap
+(``fillline.DEFAULT_COMPACTION_CAP``) — the cap reached = no further offers,
+recorded on the trace (``capacity_warning``).
 """
 
 from __future__ import annotations
@@ -56,6 +62,19 @@ def test_build_decision_prompt_names_all_three_moves() -> None:
     assert "200" in body and "250" in body and "3" in body
 
 
+def test_default_compaction_cap_and_cap_reached() -> None:
+    """The per-run compaction cap is a module constant (t3 owns the config knob) and
+    ``cap_reached`` follows the 0-is-unlimited convention (indefinite-run t1)."""
+    assert fillline.DEFAULT_COMPACTION_CAP == 4
+    assert fillline.cap_reached(0, 4) is False
+    assert fillline.cap_reached(3, 4) is False
+    assert fillline.cap_reached(4, 4) is True
+    assert fillline.cap_reached(5, 4) is True
+    # cap <= 0 = no cap (the 0-is-unlimited chain-knob convention) — never reached.
+    assert fillline.cap_reached(100, 0) is False
+    assert fillline.cap_reached(100, -1) is False
+
+
 def test_apply_compaction_preserves_head_and_replaces_tail() -> None:
     messages = [
         {"role": "system", "content": "sys"},
@@ -96,6 +115,16 @@ def _run(complete, task, **kwargs):
 
 def _has(messages, needle: str) -> bool:
     return any(needle in (m.get("content") or "") for m in messages)
+
+
+def _offers_seen(calls: list[list]) -> int:
+    """Count the completions whose LAST message is the fill-line decision prompt.
+
+    The offer is always appended immediately before the declaring completion (and a
+    compaction then elides it from later histories), so this counts distinct offers
+    the model actually saw.
+    """
+    return sum(1 for msgs in calls if "declare ONE move" in (msgs[-1].get("content") or ""))
 
 
 def test_no_fillline_event_is_byte_identical_noop(tmp_path) -> None:
@@ -293,3 +322,213 @@ def test_finish_with_handoff_declaration_preserves_continuation(tmp_path) -> Non
     assert result.capacity_decision is not None
     assert result.capacity_decision.kind == "finish-with-handoff"
     assert result.summary == "DONE: A,B  REMAINS: C,D"
+
+
+# ---------------------------------------------------------------------------
+# Per-crossing re-arm + compaction cap (indefinite-run t1, c3/h3)
+# ---------------------------------------------------------------------------
+
+
+def test_second_crossing_after_resolved_compact_offers_again(tmp_path) -> None:
+    """After a resolved compact, a SECOND threshold crossing offers the fill-line
+    decision again — per-crossing re-arm, superseding the v1 once-per-work-item
+    limit (indefinite-run t1, c3)."""
+    calls: list[list] = []
+    work = {"n": 0}
+    summaries = {"n": 0}
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            summaries["n"] += 1
+            return ModelResponse(
+                content=f"SUMMARY {'ONE' if summaries['n'] == 1 else 'TWO'}",
+                prompt_tokens=5,
+                completion_tokens=5,
+            )
+        if "declare ONE move" in last:
+            # Declare COMPACT: reply without a tool call.
+            return ModelResponse(content="compacting", prompt_tokens=90, completion_tokens=1)
+        work["n"] += 1
+        if work["n"] == 1:  # first crossing (>= 0.8 * 100)
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        if work["n"] == 2:  # post-compaction turn drops BACK UNDER the line → re-arm
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("2", "list_dir", {"path": "."})],
+                prompt_tokens=20,
+                completion_tokens=1,
+            )
+        if work["n"] == 3:  # second crossing
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("3", "list_dir", {"path": "."})],
+                prompt_tokens=95,
+                completion_tokens=1,
+            )
+        return ModelResponse(
+            content="done",
+            tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+            prompt_tokens=5,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), max_steps=20)
+    assert result.status == OK
+    assert _offers_seen(calls) == 2  # the second crossing offered the decision again
+    # The recorded (singular) decision reflects the LATEST crossing's own numbers —
+    # the used-tokens cell was reset with the re-arm.
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
+    assert "95" in result.capacity_decision.reason
+    # The second compaction's summary replaced the history; the first is elided.
+    final = calls[-1]
+    assert _has(final, "SUMMARY TWO")
+    assert not _has(final, "SUMMARY ONE")
+
+
+def test_no_reoffer_while_still_over_the_line(tmp_path) -> None:
+    """A resolved compact whose follow-up turns STAY over the line never immediately
+    re-offers: the re-arm requires the run to drop back under the line first — one
+    offer per crossing, not one per over-the-line turn (indefinite-run t1, h3)."""
+    calls: list[list] = []
+    work = {"n": 0}
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="SUMMARY", prompt_tokens=5, completion_tokens=5)
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=90, completion_tokens=1)
+        work["n"] += 1
+        if work["n"] <= 3:  # first crossing, then two post-compact turns STILL over
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        return ModelResponse(
+            content="done",
+            tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+            prompt_tokens=90,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), max_steps=20)
+    assert result.status == OK
+    assert _offers_seen(calls) == 1  # never re-offered without a dip under the line
+
+
+def test_split_declaration_rearms_without_consuming_compaction_cap(tmp_path) -> None:
+    """The re-arm applies to ANY resolved declaration, and only compaction turns
+    count against the cap: a resolved SPLIT followed by a dip under the line lets a
+    second crossing offer again, which can still declare COMPACT (t1, c3/h3)."""
+    calls: list[list] = []
+    work = {"n": 0}
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="SUMMARY", prompt_tokens=5, completion_tokens=5)
+        if "declare ONE move" in last:
+            if _offers_seen(calls) == 1:  # first offer: declare SPLIT
+                return ModelResponse(
+                    content="splitting",
+                    tool_calls=[ToolCall("s", "subagents", {"tasks": []})],
+                    prompt_tokens=90,
+                    completion_tokens=1,
+                )
+            # Second offer: declare COMPACT.
+            return ModelResponse(content="compacting", prompt_tokens=90, completion_tokens=1)
+        work["n"] += 1
+        if work["n"] == 1:  # first crossing
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        if work["n"] == 2:  # dip back under the line → re-arm
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("2", "list_dir", {"path": "."})],
+                prompt_tokens=20,
+                completion_tokens=1,
+            )
+        if work["n"] == 3:  # second crossing
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("3", "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        return ModelResponse(
+            content="done",
+            tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+            prompt_tokens=5,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), max_steps=20)
+    assert result.status == OK
+    assert _offers_seen(calls) == 2
+    # The latest declaration wins the singular field; the split never counted
+    # against the compaction cap (the compact still ran).
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
+    assert result.capacity_warning is None  # cap never reached — nothing recorded
+
+
+def test_compaction_cap_suppresses_further_offers_and_is_recorded(tmp_path) -> None:
+    """The per-run compaction cap bounds total compaction turns: the crossing after
+    the cap-th compaction gets NO offer, and the suppression is recorded ONCE on
+    ``capacity_warning`` (the trace) — never silent (indefinite-run t1, h3)."""
+    calls: list[list] = []
+    work = {"n": 0}
+    # 4 full compact cycles (cross → offer → compact → dip re-arms), then TWO more
+    # over-the-line turns: the 5th crossing must get no offer (cap = 4 reached) and
+    # the 6th proves the cap note records once, not per crossing.
+    tokens = iter([90, 20, 90, 20, 90, 20, 90, 20, 90, 90])
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="S", prompt_tokens=5, completion_tokens=5)
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=90, completion_tokens=1)
+        tok = next(tokens, None)
+        if tok is None:
+            return ModelResponse(
+                content="done",
+                tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+                prompt_tokens=5,
+                completion_tokens=1,
+            )
+        work["n"] += 1
+        return ModelResponse(
+            content="",
+            tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+            prompt_tokens=tok,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), max_steps=30)
+    assert result.status == OK
+    # Exactly the cap's worth of offers — the 5th crossing was suppressed.
+    assert _offers_seen(calls) == fillline.DEFAULT_COMPACTION_CAP
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
+    # The suppression is on the trace, once (not re-recorded by the 6th crossing).
+    assert result.capacity_warning is not None
+    assert "compaction cap" in result.capacity_warning
+    assert result.capacity_warning.count("compaction cap") == 1
