@@ -246,6 +246,7 @@ class TestNoFinishResultFidelity:
             "senses",
             "incompletion",  # honest-incompletion contract (#313)
             "continued_from",  # continue lineage (#167)
+            "chain",  # chain-of-episodes accounting (indefinite-run c20)
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields

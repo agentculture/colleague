@@ -828,6 +828,106 @@ class IncompletionRecord:
         )
 
 
+def _coerce_count(value: Any) -> int:
+    """Coerce one raw chain-view counter to a non-negative-ish int, 0 on failure.
+
+    Best-effort like :meth:`IncompletionRecord.from_dict`: a missing key, an
+    explicit ``null``, or a non-numeric value from a malformed artifact degrades
+    to ``0`` rather than raising — a chained artifact must stay readable even
+    when a field was corrupted."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+@dataclass(frozen=True)
+class ChainView:
+    """Chain-of-episodes accounting stamped on a chained work item's artifact (c20).
+
+    A chained run (``--until-done``) drives one work item per episode; each
+    episode keeps its OWN exact :class:`Usage` / :class:`WorkStats` (never
+    merged), and this record adds the running view of the chain so far. The
+    totals are **sums of per-episode exact usage** taken verbatim from each
+    episode's result — never estimated, never re-counted (the tokens-are-exact
+    rule, honesty condition h19). The caller (the chain dispatch loop) supplies
+    the sums, canonically via :meth:`accumulate`.
+
+    Fields
+    ------
+    episode_index:
+        1-based position of THIS episode in the chain.
+    episode_count:
+        Number of episodes in the chain so far, including this one (equals
+        ``episode_index`` on the episode's own artifact; on the final episode
+        it is the chain length).
+    total_steps:
+        Sum of per-episode ``stats.step_count`` across episodes 1..this one.
+    total_prompt_tokens / total_completion_tokens / total_tokens:
+        Sums of the per-episode exact :class:`Usage` fields (same names,
+        ``total_`` prefixed) across episodes 1..this one.
+    """
+
+    episode_index: int
+    episode_count: int
+    total_steps: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+
+    @classmethod
+    def accumulate(cls, prior: Optional["ChainView"], result: "TaskResult") -> "ChainView":
+        """The chain view for the episode that produced ``result``.
+
+        ``prior`` is the view stamped on the previous episode's artifact
+        (``None`` for the first episode). Every total is the prior total plus
+        this episode's exact number read verbatim off ``result.usage`` /
+        ``result.stats`` — sums of exacts, never estimates (h19).
+        """
+        index = (prior.episode_index if prior else 0) + 1
+        return cls(
+            episode_index=index,
+            episode_count=index,
+            total_steps=(prior.total_steps if prior else 0) + result.stats.step_count,
+            total_prompt_tokens=(
+                (prior.total_prompt_tokens if prior else 0) + result.usage.prompt_tokens
+            ),
+            total_completion_tokens=(
+                (prior.total_completion_tokens if prior else 0) + result.usage.completion_tokens
+            ),
+            total_tokens=(prior.total_tokens if prior else 0) + result.usage.total_tokens,
+        )
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "episode_index": self.episode_index,
+            "episode_count": self.episode_count,
+            "total_steps": self.total_steps,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ChainView":
+        """Best-effort coercion: each counter coerced to int, 0 on failure.
+
+        Robust to a malformed payload (a non-dict, explicit ``null`` fields,
+        non-numeric values) — mirrors :meth:`IncompletionRecord.from_dict`'s
+        never-raises stance on optional structured payloads read back from an
+        artifact."""
+        if not isinstance(data, dict):
+            return cls(0, 0, 0, 0, 0, 0)
+        return cls(
+            episode_index=_coerce_count(data.get("episode_index")),
+            episode_count=_coerce_count(data.get("episode_count")),
+            total_steps=_coerce_count(data.get("total_steps")),
+            total_prompt_tokens=_coerce_count(data.get("total_prompt_tokens")),
+            total_completion_tokens=_coerce_count(data.get("total_completion_tokens")),
+            total_tokens=_coerce_count(data.get("total_tokens")),
+        )
+
+
 @dataclass
 class SensesBlock:
     """The cortex/senses front-door record for a work item (cortex/senses, t2).
@@ -1327,6 +1427,16 @@ class TaskResult:
     lineage (the old artifact is never mutated). Like ``incompletion``, the
     serialized key is OMITTED (not null) when ``None``, so a non-continued run
     serializes byte-identically."""
+    chain: Optional[ChainView] = None
+    """Chain-of-episodes accounting for a chained run (``--until-done``, c20),
+    or ``None`` for an ordinary single-episode run. A :class:`ChainView` of
+    shape ``{episode_index, episode_count, total_steps, total_prompt_tokens,
+    total_completion_tokens, total_tokens}`` where every total is a SUM of
+    per-episode exact usage — never estimated (the tokens-are-exact rule,
+    h19); ``usage``/``stats`` on this result stay this episode's own exact
+    numbers, never merged. Set by the chain dispatch loop, not by the
+    engine/loop. Like ``continued_from``, the serialized key is OMITTED (not
+    null) when ``None``, so a non-chained run serializes byte-identically."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1437,6 +1547,10 @@ class TaskResult:
         # non-continued run serializes byte-identically (no extra key).
         if self.continued_from is not None:
             extra["continued_from"] = self.continued_from
+        # chain gets the same omit-when-None treatment (c20): a non-chained
+        # run serializes byte-identically (no extra key).
+        if self.chain is not None:
+            extra["chain"] = self.chain.to_dict()
         return extra
 
     @classmethod
@@ -1503,6 +1617,9 @@ class TaskResult:
             ),
             continued_from=(
                 str(data["continued_from"]) if data.get("continued_from") is not None else None
+            ),
+            chain=(
+                ChainView.from_dict(data["chain"]) if isinstance(data.get("chain"), dict) else None
             ),
         )
 
