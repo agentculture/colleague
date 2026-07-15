@@ -432,3 +432,140 @@ def test_handoff_only_tilde_pollution_is_a_no_op(tmp_path: Path) -> None:
     assert "hand off" in result.note
     assert "test-pollution" in result.note
     assert _current_branch(repo) == before
+
+
+# ---------------------------------------------------------------------------
+# Chain helpers (indefinite-run t5): commits_ahead, chain_handoff_finalize,
+# reap_chain_intermediates — the --until-done loop's handoff-once seam (c26).
+# ---------------------------------------------------------------------------
+
+
+def _make_branch_with_commit(
+    repo: Path, branch: str, filename: str, base: str | None = None
+) -> None:
+    """Create *branch* (from *base* or HEAD), commit one file, return to prior ref."""
+    before = _current_branch(repo)
+    args = ["checkout", "-q", "-b", branch] + ([base] if base else [])
+    _run(repo, *args)
+    (repo / filename).write_text(f"{filename}\n")
+    _run(repo, "add", filename)
+    _run(repo, "commit", "-q", "-m", f"add {filename}")
+    _run(repo, "checkout", "-q", before)
+
+
+def test_commits_ahead_counts_and_degrades(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    base_branch = _current_branch(repo)
+    _make_branch_with_commit(repo, "colleague/ep1", "one.txt")
+    assert ho.commits_ahead(repo, base_branch, "colleague/ep1") == 1
+    assert ho.commits_ahead(repo, "colleague/ep1", base_branch) == 0
+    # A broken ref degrades to 0 (the guard's conservative side), never raises.
+    assert ho.commits_ahead(repo, "no-such-ref", "colleague/ep1") == 0
+
+
+def test_chain_handoff_finalize_local_only_without_remote(tmp_path: Path) -> None:
+    """No remote → the finalize is local-only (h7 gate), never pushes or raises."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _make_branch_with_commit(repo, "colleague/final1", "work.txt")
+    before = _current_branch(repo)
+
+    result = ho.chain_handoff_finalize(repo, "final1", "colleague/final1", instruction="do it")
+    assert result.branch == "colleague/final1"
+    assert result.committed is True
+    assert result.pushed is False
+    assert result.pr_url is None
+    assert "local branches only" in result.note
+    # The finalize never switches branches — operator checkout untouched.
+    assert _current_branch(repo) == before
+
+
+def test_chain_handoff_finalize_pushes_final_branch_with_explicit_head(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """With a remote + gh, the finalize pushes by refspec and PRs with --head."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    bare = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True)
+    _run(repo, "remote", "add", "origin", str(bare))
+    _make_branch_with_commit(repo, "colleague/final2", "work.txt")
+    before = _current_branch(repo)
+
+    calls: list[dict] = []
+
+    def fake_pr(repo_arg, base_branch, title, head=None):
+        calls.append({"base": base_branch, "title": title, "head": head})
+        return "https://example.test/pr/9"
+
+    monkeypatch.setattr(ho, "gh_available", lambda: True)
+    monkeypatch.setattr(ho, "_gh_pr_create", fake_pr)
+
+    result = ho.chain_handoff_finalize(
+        repo, "final2", "colleague/final2", instruction="chain work", base_branch="main"
+    )
+    assert result.pushed is True
+    assert result.pr_url == "https://example.test/pr/9"
+    assert calls == [{"base": "main", "title": "colleague: chain work", "head": "colleague/final2"}]
+    assert _current_branch(repo) == before
+    # The push actually landed on the bare origin.
+    ls = subprocess.run(
+        ["git", "ls-remote", "--heads", str(bare), "colleague/final2"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "colleague/final2" in ls.stdout
+
+
+def test_chain_handoff_finalize_respects_no_pr(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    bare = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True)
+    _run(repo, "remote", "add", "origin", str(bare))
+    _make_branch_with_commit(repo, "colleague/final3", "work.txt")
+    monkeypatch.setattr(ho, "gh_available", lambda: True)
+
+    result = ho.chain_handoff_finalize(repo, "final3", "colleague/final3", open_pr=False)
+    assert result.pushed is False
+    assert result.pr_url is None
+    assert "local branches only" in result.note
+
+
+def test_reap_chain_intermediates_ancestor_guard(tmp_path: Path) -> None:
+    """Reaps only ancestors of the kept final branch; never the keep, never a
+    non-ancestor (unique work), never a non-colleague ref (refused)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    base_branch = _current_branch(repo)
+    # ep1 <- ep2 (final): ep1 is an ancestor of ep2.
+    _make_branch_with_commit(repo, "colleague/ep-a", "a.txt")
+    _make_branch_with_commit(repo, "colleague/ep-b", "b.txt", base="colleague/ep-a")
+    # A stray branch NOT reachable from the final (a degraded-base episode).
+    _make_branch_with_commit(repo, "colleague/stray", "stray.txt", base=base_branch)
+
+    actions = ho.reap_chain_intermediates(
+        repo,
+        ["colleague/ep-a", "colleague/stray", base_branch, "colleague/ep-b"],
+        keep="colleague/ep-b",
+    )
+    by_ref = {a["ref"]: a["action"] for a in actions}
+    assert by_ref["colleague/ep-a"] == "reaped"
+    assert by_ref["colleague/stray"] == "kept"  # not an ancestor — unique work
+    assert by_ref["colleague/ep-b"] == "kept"  # the deliverable
+    # The base branch is an ancestor of the final tip, but it is outside the
+    # colleague/* namespace — _delete_colleague_ref refuses it (defense in depth).
+    assert by_ref[base_branch] == "refused"
+
+    proc = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    remaining = set(proc.stdout.split())
+    assert "colleague/ep-a" not in remaining
+    assert {"colleague/ep-b", "colleague/stray", base_branch} <= remaining
