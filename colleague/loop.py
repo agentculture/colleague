@@ -2690,6 +2690,13 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
+            # Continuation chaining armed (decision c23): an armed invocation's
+            # episodes prefer finish-with-handoff over the lossy-windowing floor
+            # when a compaction note is unrepairable — the chain driver restarts
+            # from the clean artifact seed. Threaded from the SAME resolved
+            # ``until_done`` the chain loop arms on (t10's integration catch:
+            # nothing set this before, leaving the armed branch unreachable).
+            chain_armed=bool(getattr(config, "until_done", False)),
             media_bridge=bool(
                 config.deepthink is not None and getattr(config.deepthink, "multimodal", False)
             ),

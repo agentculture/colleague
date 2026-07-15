@@ -757,3 +757,21 @@ def test_compaction_summary_repaired_with_run_evidence(tmp_path) -> None:
     # No second-model / extra completion was introduced by validation (c12):
     # work turn, declaring turn, summary turn, finish turn — exactly four.
     assert len(calls) == 4
+
+
+def test_from_config_threads_chain_armed() -> None:
+    """The from_config mapping threads ``until_done`` into ``chain_armed`` (c23).
+
+    t10's integration catch: nothing set ``chain_armed`` from a real dispatch,
+    leaving the armed unrepairable-note branch unreachable — this pins the
+    single-source mapping both engines share (the all-engines rule).
+    """
+    from colleague.config import EngineConfig
+    from colleague.loop import ContextControls
+
+    armed = EngineConfig.resolve()
+    armed.until_done = True
+    assert ContextControls.from_config(armed).chain_armed is True
+
+    bare = EngineConfig.resolve()
+    assert ContextControls.from_config(bare).chain_armed is False
