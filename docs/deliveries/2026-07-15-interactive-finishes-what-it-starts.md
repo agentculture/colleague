@@ -53,7 +53,7 @@ the assigned ids at creation — the ids are authoritative):
   implementing (artifact `54ead8272f22`, honest budget exhaustion); Claude took
   over the implementation, salvaging the drive's test file from its branch
 - `d3` — t8 reassigned colleague→Claude at wave 5 — the acceptance-sweep table
-  + boundary grep gate need the full arc-diff context the integrator already
+  and boundary grep gate need the full arc-diff context the integrator already
   holds; two earlier reassignments (d1/d2) showed the colleague round-trip cost
   under GPU contention outweighs delegation for context-heavy end-of-arc docs
 - The `continued_from` kwarg is passed to the session's `work_fn` ONLY when
