@@ -631,6 +631,11 @@ class _Work:
     # the declaration is consumed AND the run drops back under the line, re-arming
     # the next crossing.
     capacity_threshold: float | None = None
+    # Continuation chaining armed (indefinite-run t2, decision c23), threaded from
+    # ``ContextControls.chain_armed``: read ONLY by the unrepairable-compaction-note
+    # policy (:func:`_reject_compaction`) — armed routes an empty compaction note to
+    # FINISH-WITH-HANDOFF; unarmed (the default) keeps the lossy-windowing floor.
+    chain_armed: bool = False
     _fillline_offered: list[bool] = field(default_factory=list)
     _fillline_resolved: list[bool] = field(default_factory=list)
     # The prompt-token count that tripped the fill line — captured when the decision
@@ -1157,14 +1162,25 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
 
 
 def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
-    """Compact the working history into a model-authored summary (compact branch, #156).
+    """Compact the working history into a validated model-authored summary (#156, t2/c4).
 
-    Runs ONE bounded summarization turn over the windowed history and replaces the
-    working history (after the preserved head ``messages[:2]``) with the summary, so
+    Runs ONE bounded summarization turn over the windowed history, cross-checks the
+    note against the run's own evidence (goal/original request + changed-file paths —
+    :func:`fillline.validate_compaction`, pure and deterministic: the MAIN model's
+    summary only, no second-model call, non-goal c12), and replaces the working
+    history (after the preserved head ``messages[:2]``) with the validated note, so
     the model continues from a compact note instead of losing older context silently.
     The summary turn is accounted like any other turn (counts against the step
-    budget). If it raises a *degradable* error (the summary itself cannot fit), the
-    loop falls back to today's lossy windowing — the documented floor.
+    budget).
+
+    Two floors, never an abort:
+
+    - a *degradable* completion error (the summary turn itself cannot fit / timed
+      out) → today's lossy windowing, unchanged;
+    - an UNREPAIRABLE note (empty/whitespace, rejected by the validator — it never
+      replaces history; the old ``(no summary produced)`` silent-amnesia placeholder
+      is gone from this path, h4) → :func:`_reject_compaction` (armed:
+      finish-with-handoff, decision c23; unarmed: the lossy-windowing floor).
     """
     budget = int(ctx.context_budget)
     request = _fillline.build_compaction_request(ctx.messages, budget, ctx.count_tokens)
@@ -1181,12 +1197,51 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
             return
         raise
     _account_turn(ctx, resp)
-    ctx.messages[:] = _fillline.apply_compaction(ctx.messages, resp.content)
+    # Validate against the run's own evidence (t2, c4). Changed-file paths come from
+    # the live ``executor.changed`` set — the same set the end-of-run
+    # ``result.changed_files`` snapshot is taken from (mid-run the snapshot is still
+    # empty, so the populated field is honoured first, then the live set).
+    changed = ctx.result.changed_files or sorted(ctx.executor.changed)
+    text, ok = _fillline.validate_compaction(
+        resp.content, ctx.task.goal or ctx.task.instruction, changed
+    )
+    if not ok:
+        _reject_compaction(ctx, budget)
+        return
+    ctx.messages[:] = _fillline.apply_compaction(ctx.messages, text)
     # auto-compact-on-finish (t3): preserve the compaction summary on its own cell so
     # it survives later turns and can serve as the FALLBACK clean summary at a
     # stop/budget exit when forced synthesis yields nothing (_resolve_terminal_summary).
+    # The RAW model text, not the repaired note: the evidence block protects the
+    # continuation context; the terminal-summary fallback stays byte-identical.
     if resp.content:
         ctx._compacted_summary[:] = [resp.content]
+
+
+def _reject_compaction(ctx: _Work, budget: int) -> None:
+    """Handle an UNREPAIRABLE (empty) compaction note — it never replaces history (c4/h4).
+
+    Armed (``chain_armed`` — continuation chaining, decision c23): inject the
+    deterministic FINISH-WITH-HANDOFF instruction as ONE user message, so the model
+    finishes with a continuation summary the next episode resumes from (the per-turn
+    windowing still bounds the next completion). Unarmed: keep today's
+    lossy-windowing floor, exactly like the degradable-error fallback. Either way the
+    rejection is announced as a phase notice (#206) — observable on the feeds, never
+    silent, and a phase notice never advances ``step_count``.
+    """
+    move = (
+        "taking finish-with-handoff (chaining armed)"
+        if ctx.chain_armed
+        else "lossy windowing remains the floor"
+    )
+    _emit_phase(
+        ctx,
+        f"compaction produced an empty summary — rejected (history not replaced); {move}",
+    )
+    if ctx.chain_armed:
+        ctx.messages.append({"role": "user", "content": _fillline.build_handoff_instruction()})
+        return
+    _window_in_place(ctx, budget)
 
 
 def _fillline_cap_reached(ctx: _Work) -> bool:
@@ -2443,6 +2498,15 @@ class ContextControls:
     # ``None`` or out of ``(0, 1]`` leaves the proactive decision dormant — a strict
     # no-op (degradation + reactive auto-split still apply).
     fillline_threshold: float | None = None
+    # Continuation chaining armed (indefinite-run t2, decision c23): governs ONLY the
+    # unrepairable-compaction-note policy in :func:`_compact_history` — when True, an
+    # empty compaction summary (rejected by ``fillline.validate_compaction``; it never
+    # replaces history) routes the run to FINISH-WITH-HANDOFF: the loop injects the
+    # deterministic handoff instruction so the model finishes with a continuation
+    # summary the next episode resumes from. False (the default) keeps today's
+    # lossy-windowing floor — dormant, byte-identical. The chain driver (t5) threads
+    # ``config.until_done`` here; nothing sets it from ``from_config`` yet.
+    chain_armed: bool = False
     # Mapping fan-out advisory (#188): the files-read count at which the runtime
     # injects ONE advisory recommendation to fan a wide read-only survey out across
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
@@ -3961,6 +4025,7 @@ def run(
         senses_media_bridge=_context.senses_media_bridge,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
+        chain_armed=_context.chain_armed,
         mapping_fanout_files=_context.fanout_files,
         review_fanout_folders=_context.review_fanout_folders,
         plan_offer_tokens=_context.plan_offer_tokens,
