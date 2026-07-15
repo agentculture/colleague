@@ -77,6 +77,8 @@ Commands
   colleague overview           Descriptive snapshot of the agent.
   colleague doctor             Check configuration readiness (health check).
   colleague flight ...        Pilot a running work item (watch/guide/stop a flight).
+  colleague session            Interactive palette: converse, delegate, pilot (agent-native).
+  colleague clean              Reap stale colleague/* branches + artifacts a crashed run left.
   colleague lobes show         Show the lobes gateway armed state + resolved roles.
 
 Machine-readable output
@@ -185,6 +187,14 @@ def _as_json_payload() -> dict[str, object]:
             {
                 "path": ["flight"],
                 "summary": "Pilot a running work item (watch/guide/stop a flight).",
+            },
+            {
+                "path": ["session"],
+                "summary": "Interactive palette: converse, delegate, pilot (agent-native).",
+            },
+            {
+                "path": ["clean"],
+                "summary": "Reap stale colleague/* branches + artifacts a crashed run left.",
             },
             {
                 "path": ["lobes", "show"],

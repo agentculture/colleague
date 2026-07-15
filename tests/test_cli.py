@@ -157,6 +157,9 @@ def test_learn_text(capsys: pytest.CaptureFixture[str]) -> None:
     low = out.lower()
     for marker in ("purpose", "commands", "exit", "--json", "explain"):
         assert marker in low, f"learn output missing rubric marker: {marker}"
+    # the command map names every operator-facing recovery/interactive verb (#185).
+    assert "colleague clean" in out
+    assert "colleague session" in out
 
 
 def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
@@ -172,6 +175,10 @@ def test_learn_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["work_with"]["verbs"][0]["verb"].startswith("ask-colleague")
     # the overlay <model> placeholder is documented as sanitized in the payload too.
     assert "filename-safe" in payload["teach_with_skills"]["model_placeholder"]
+    # the JSON command map carries clean + session too (#185).
+    paths = [c["path"][0] for c in payload["commands"]]
+    assert "clean" in paths
+    assert "session" in paths
 
 
 # --- explain --------------------------------------------------------------
