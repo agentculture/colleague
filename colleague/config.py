@@ -114,6 +114,16 @@ _DEFAULT_MAX_CONTINUE_NUDGES = 2
 # caller raises it.
 _DEFAULT_SYNTHESIS_RESERVE = 0
 
+# Episode chaining (indefinite-run, decision c21). ``until_done`` arms the
+# chain driver (colleague/chain.py decisions, dispatched by the work path):
+# default OFF, so an untouched config keeps today's single-episode behavior
+# byte-identical. ``max_episodes`` caps an ARMED chain's episodes: default 5,
+# 0 = unlimited. Precedence for both: --until-done / --max-episodes flag
+# (applied by the CLI, t5) > COLLEAGUE_UNTIL_DONE / COLLEAGUE_MAX_EPISODES env
+# > .colleague/config.json {"until_done": ..., "max_episodes": ...} > default.
+_DEFAULT_UNTIL_DONE = False
+_DEFAULT_MAX_EPISODES = 5
+
 # Lint pre-finish gate (#200). When enabled (the default — operator intent is
 # default-ON with an opt-out), the runtime runs the repo's configured linters on
 # the work item's changed files before handoff and auto-fixes what it can. Disable
@@ -821,6 +831,49 @@ def _resolve_watch_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_WATCH_ENABLED
+
+
+def _load_chain_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
+    """Read ``until_done`` / ``max_episodes`` from .colleague/config.json as raw strings.
+
+    Mirrors :func:`_load_lint_overrides` (kept separate from
+    :func:`load_config_file`, whose endpoint-string contract must not change):
+    these keys carry a bool / int. Returns ``(until_done, max_episodes)``, each
+    the stringified value or ``None`` when absent. A missing/malformed file
+    yields ``(None, None)`` and never raises.
+    """
+    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
+    if path is None:
+        return None, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    until_done = data.get("until_done")
+    max_episodes = data.get("max_episodes")
+    return (
+        None if until_done is None else str(until_done),
+        None if max_episodes is None else str(max_episodes),
+    )
+
+
+def _resolve_until_done_enabled(file_value: str | None) -> bool:
+    """Resolve the chain-arming flag: env ``COLLEAGUE_UNTIL_DONE`` > config.json >
+    default-OFF (indefinite-run decision c21 — armed, never ambient).
+
+    The ``--until-done`` CLI flag is applied by the work path *after*
+    ``resolve()`` (t5), so this stays off the ``resolve()`` signature — the
+    ``_resolve_lint_enabled`` precedent (S107 parameter ceiling).
+    """
+    for env_key in ("COLLEAGUE_UNTIL_DONE", "CONVERTIBLE_UNTIL_DONE"):
+        env = os.environ.get(env_key)
+        if env is not None and env.strip() != "":
+            return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_UNTIL_DONE
 
 
 def _load_coherence_override(repo_path: str | Path) -> str | None:
@@ -1565,6 +1618,14 @@ class EngineConfig:
     affected_tests_depth: int = _DEFAULT_AFFECTED_TESTS_DEPTH
     affected_tests_max_files: int = _DEFAULT_AFFECTED_TESTS_MAX_FILES
     affected_tests_override: Optional[str] = None
+    # Episode chaining (indefinite-run, decision c21): ``until_done`` arms the
+    # chain driver (colleague/chain.py); default OFF = today's single-episode
+    # behavior byte-identical. ``max_episodes`` caps an armed chain: default 5,
+    # 0 = unlimited. Deliberately NOT in :meth:`to_dict` (the ``watch``
+    # precedent) so a dormant run's artifact config snapshot stays
+    # byte-identical (h1).
+    until_done: bool = _DEFAULT_UNTIL_DONE
+    max_episodes: int = _DEFAULT_MAX_EPISODES
     # Dual-model deepthink escalation target (t1). ``None`` = single-model,
     # byte-identical to today (the pre-feature default). See
     # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
@@ -1727,6 +1788,8 @@ class EngineConfig:
         file_at_retries: str | None = None
         file_at_depth: str | None = None
         file_at_max_files: str | None = None
+        file_until_done: str | None = None
+        file_max_episodes: str | None = None
         file_deepthink: dict[str, str] = {}
         file_senses: dict[str, str] = {}
         file_voice: dict[str, str] = {}
@@ -1740,6 +1803,7 @@ class EngineConfig:
             file_at, file_at_retries, file_at_depth, file_at_max_files = (
                 _load_affected_tests_overrides(repo_path)
             )
+            file_until_done, file_max_episodes = _load_chain_overrides(repo_path)
             file_deepthink = _load_deepthink_overrides(repo_path)
             file_senses = _load_senses_overrides(repo_path)
             file_voice = _load_voice_overrides(repo_path)
@@ -2043,6 +2107,21 @@ class EngineConfig:
             ),
             # affected_tests_override has no env var (set later from a CLI flag).
             affected_tests_override=None,
+            # Episode chaining (indefinite-run, decision c21) — env > config.json
+            # > default (dormant OFF / cap 5, 0 = unlimited). The --until-done /
+            # --max-episodes CLI flags are applied post-resolve by the work path
+            # (t5), keeping both off the signature (the S107 ceiling, the lint
+            # precedent).
+            until_done=_resolve_until_done_enabled(file_until_done),
+            max_episodes=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_MAX_EPISODES",
+                    "CONVERTIBLE_MAX_EPISODES",
+                    default=_file_or_default(file_max_episodes, str(_DEFAULT_MAX_EPISODES)),
+                ),
+                default=_DEFAULT_MAX_EPISODES,
+            ),
             # Dual-model deepthink (t1) — env > config.json `deepthink` section >
             # absent (None). base_url/api_key default to the resolved MAIN
             # endpoint values computed above.
