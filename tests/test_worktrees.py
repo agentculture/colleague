@@ -753,3 +753,33 @@ class TestIsolationBaseRef:
             str(git_repo), "ep14", "colleague/ep14", base_ref=prior
         )
         assert worktrees.iso_worktree_is_live(str(git_repo), "ep14") is True
+
+
+class TestIsolationBaseRefDetachedSha:
+    """t12 dogfood follow-through: a raw commit SHA (detached-HEAD shape) as base_ref."""
+
+    def test_raw_sha_base_ref_carries_the_tree(self, git_repo: Path) -> None:
+        """base_ref accepts a bare commit SHA — the worktree bases on that commit
+        exactly (rev-parse ^{commit} verifies SHAs, not just branch names)."""
+        branch = "colleague/sha-ep1"
+        wt = worktrees.isolation_worktree_add(str(git_repo), "sha-ep1", branch)
+        (Path(wt) / "sha-carried.txt").write_text("wip\n", encoding="utf-8")
+        assert worktrees.commit_iso_worktree_wip(wt) is True
+        worktrees.isolation_worktree_remove(str(git_repo), wt)
+        sha = subprocess.run(
+            ["git", "rev-parse", branch],
+            cwd=str(git_repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        outcome = worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "sha-ep2", "colleague/sha-ep2", base_ref=sha
+        )
+        try:
+            assert outcome.warning is None
+            assert outcome.base_ref == sha
+            assert (Path(outcome.path) / "sha-carried.txt").exists()
+        finally:
+            worktrees.isolation_worktree_remove(str(git_repo), outcome.path)
