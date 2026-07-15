@@ -66,9 +66,9 @@ def test_watch_emits_flight_handle(git_repo, capsys):
     cmd_work(ns)
     captured = capsys.readouterr()
     assert "flight:" in captured.err
-    assert str(flight.feed_path(git_repo, "placeholder")) == str(
-        flight.feed_path(git_repo, "placeholder")
-    )  # sanity: feed_path is callable
+    first = flight.feed_path(git_repo, "placeholder")
+    second = flight.feed_path(git_repo, "placeholder")
+    assert first == second  # sanity: feed_path is callable and deterministic
     # The actual task id is dynamic, so check the feed path pattern exists
     assert "feed:" in captured.err
     assert "control:" in captured.err

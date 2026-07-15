@@ -140,7 +140,9 @@ def test_flat_renderer_is_borderless_with_emoji_and_color() -> None:
 
 def test_flat_renderer_is_deterministic() -> None:
     st = _sample_state()
-    assert render_flat(st) == render_flat(st)
+    first = render_flat(st)
+    second = render_flat(st)
+    assert first == second
 
 
 def test_state_glyph_moves_with_step_count_while_running() -> None:

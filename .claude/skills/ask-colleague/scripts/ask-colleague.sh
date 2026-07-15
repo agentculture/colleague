@@ -680,7 +680,7 @@ run_readonly() {
     local instruction="$1"
     _add_worktree
     local out rc=0
-    out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
+    out="$("${COLLEAGUE[@]}" work "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
     # Preserve the artifact to the real repo BEFORE the EXIT trap removes the
     # worktree, so the drive can be graded by its task-id (`ask-colleague feedback
@@ -704,7 +704,7 @@ run_preview() {
     local instruction="$1"
     _add_worktree
     local out rc=0
-    out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
+    out="$("${COLLEAGUE[@]}" work "$instruction" --repo "$_WT" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
     _DRIVE_BRANCH="$(printf '%s' "$out" | _extract_branch)"
 
     # Capture the would-be patch before _cleanup_worktree deletes the drive branch.
@@ -742,7 +742,7 @@ run_write() {
     if [[ "$ALLOW_DIRTY" -eq 0 ]] \
         && [[ -n "$(git -C "$REPO" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
         echo "error: working tree is dirty — commit/stash first, or pass --allow-dirty" >&2
-        echo "hint: 'colleague drive --no-pr' commits uncommitted edits onto the drive branch" >&2
+        echo "hint: 'colleague work --no-pr' commits uncommitted edits onto the work branch" >&2
         # User-fixable state guard -> exit 1, matching the runtime's own
         # dirty-tree guard (colleague/handoff.py _guard_clean_tree =
         # EXIT_USER_ERROR), not exit 2 (#161).
@@ -763,9 +763,9 @@ run_write() {
     # read-only / preview paths, which guard this way.
     local out rc=0
     if [[ "$OPEN_PR" -eq 1 ]]; then
-        out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || rc=$?
+        out="$("${COLLEAGUE[@]}" work "$instruction" --repo "$REPO" "${COMMON_FLAGS[@]}")" || rc=$?
     else
-        out="$("${COLLEAGUE[@]}" drive "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
+        out="$("${COLLEAGUE[@]}" work "$instruction" --repo "$REPO" --no-pr "${COMMON_FLAGS[@]}")" || rc=$?
     fi
     # A landed write persists its artifact in the real repo and moves `last`, so it
     # is gradable — print the `grade:` hint (with the explicit task-id).

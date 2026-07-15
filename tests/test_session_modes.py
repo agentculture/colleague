@@ -171,7 +171,9 @@ class TestModeAffordanceLine:
     def test_deterministic(self) -> None:
         """Same input always produces the same output."""
         for mode in MODES:
-            assert mode_affordance_line(mode) == mode_affordance_line(mode)
+            first = mode_affordance_line(mode)
+            second = mode_affordance_line(mode)
+            assert first == second
 
 
 # ── Acceptance criterion 5: module purity ─────────────────────────────────
