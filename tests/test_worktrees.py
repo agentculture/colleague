@@ -638,3 +638,118 @@ class TestCommitAllExcludesBuildResidue:
             assert ".pyc" not in shown
         finally:
             worktrees.isolation_worktree_remove(str(git_repo), wt)
+
+
+# ---------------------------------------------------------------------------
+# Tree carry (indefinite-run c6/h6): a chained episode's isolation worktree is
+# based on the PRIOR episode's colleague/<prior-id> branch tip instead of HEAD,
+# so a file committed by episode N's WIP sweep is present in episode N+1's
+# tree. A missing/reaped prior branch degrades to today's HEAD base with a
+# recorded warning on the outcome — never a crash (assumption c29/h24: the
+# #222 WIP sweep is best-effort). base_ref=None stays byte-identical to the
+# historical HEAD-based add.
+# ---------------------------------------------------------------------------
+
+
+class TestIsolationBaseRef:
+    """isolation_worktree_add_outcome bases a worktree on an explicit ref (tree carry)."""
+
+    @staticmethod
+    def _run_episode(git_repo: Path, task_id: str) -> str:
+        """Simulate episode N: iso worktree, WIP-sweep a file, remove (branch kept).
+
+        Returns the surviving ``colleague/<task_id>`` branch name — the ref the
+        NEXT episode chains from.
+        """
+        branch = f"colleague/{task_id}"
+        wt = worktrees.isolation_worktree_add(str(git_repo), task_id, branch)
+        (Path(wt) / "carried.txt").write_text("episode N wip\n", encoding="utf-8")
+        assert worktrees.commit_iso_worktree_wip(wt) is True
+        worktrees.isolation_worktree_remove(str(git_repo), wt)  # branch survives
+        return branch
+
+    def test_chained_episode_sees_prior_episodes_committed_file(self, git_repo: Path) -> None:
+        """AC1 headline: a file episode N's WIP sweep committed is PRESENT in
+        episode N+1's tree when N+1 chains from N's branch tip."""
+        prior = self._run_episode(git_repo, "ep1")
+        outcome = worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "ep2", "colleague/ep2", base_ref=prior
+        )
+        carried = Path(outcome.path) / "carried.txt"
+        assert carried.read_text(encoding="utf-8") == "episode N wip\n"
+        assert outcome.base_ref == prior
+        assert outcome.warning is None
+
+    def test_chained_worktree_head_is_prior_branch_tip_not_repo_head(self, git_repo: Path) -> None:
+        prior = self._run_episode(git_repo, "ep3")
+        prior_sha = _git(git_repo, "rev-parse", prior).stdout.strip()
+        repo_head = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        assert prior_sha != repo_head  # the WIP commit advanced the episode branch
+
+        outcome = worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "ep4", "colleague/ep4", base_ref=prior
+        )
+        wt_sha = _git(Path(outcome.path), "rev-parse", "HEAD").stdout.strip()
+        assert wt_sha == prior_sha
+
+    def test_chaining_never_touches_the_operator_tree(self, git_repo: Path) -> None:
+        prior = self._run_episode(git_repo, "ep5")
+        worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "ep6", "colleague/ep6", base_ref=prior
+        )
+        assert not (git_repo / "carried.txt").exists()
+
+    def test_missing_base_ref_degrades_to_head_with_warning(self, git_repo: Path) -> None:
+        """AC2: a base_ref that never existed falls back to HEAD, records a
+        warning naming the ref, and never raises."""
+        outcome = worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "ep7", "colleague/ep7", base_ref="colleague/never-existed"
+        )
+        repo_head = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        wt_sha = _git(Path(outcome.path), "rev-parse", "HEAD").stdout.strip()
+        assert wt_sha == repo_head
+        assert outcome.base_ref is None  # HEAD base, not the missing ref
+        assert outcome.warning is not None
+        assert "colleague/never-existed" in outcome.warning
+
+    def test_reaped_prior_branch_degrades_never_crashes(self, git_repo: Path) -> None:
+        """AC2, the c29/h24 shape: episode N's branch existed but `colleague
+        clean` reaped it before N+1 started — degrade to HEAD, warn, no crash."""
+        prior = self._run_episode(git_repo, "ep8")
+        _git(git_repo, "branch", "-D", prior)  # the reap
+
+        outcome = worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "ep9", "colleague/ep9", base_ref=prior
+        )
+        assert Path(outcome.path).is_dir()
+        assert outcome.warning is not None
+        assert prior in outcome.warning
+        # HEAD base: the reaped episode's file is NOT in the tree.
+        assert not (Path(outcome.path) / "carried.txt").exists()
+
+    def test_isolation_worktree_add_accepts_base_ref_and_returns_path(self, git_repo: Path) -> None:
+        """The historical str-returning surface gains base_ref (default None)."""
+        prior = self._run_episode(git_repo, "ep10")
+        path = worktrees.isolation_worktree_add(
+            str(git_repo), "ep11", "colleague/ep11", base_ref=prior
+        )
+        assert isinstance(path, str)
+        assert (Path(path) / "carried.txt").exists()
+
+    def test_no_base_ref_outcome_matches_historical_head_add(self, git_repo: Path) -> None:
+        """AC3: base_ref=None is exactly today's behavior — worktree at HEAD,
+        no warning, no base-ref provenance."""
+        outcome = worktrees.isolation_worktree_add_outcome(str(git_repo), "ep12", "colleague/ep12")
+        repo_head = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        assert _git(Path(outcome.path), "rev-parse", "HEAD").stdout.strip() == repo_head
+        assert outcome.base_ref is None
+        assert outcome.warning is None
+
+    def test_chained_add_still_writes_liveness_marker(self, git_repo: Path) -> None:
+        """The base_ref path shares the full add sequence — reclaim, admin lock,
+        liveness marker (#239 h1) — not a divergent copy."""
+        prior = self._run_episode(git_repo, "ep13")
+        worktrees.isolation_worktree_add_outcome(
+            str(git_repo), "ep14", "colleague/ep14", base_ref=prior
+        )
+        assert worktrees.iso_worktree_is_live(str(git_repo), "ep14") is True
