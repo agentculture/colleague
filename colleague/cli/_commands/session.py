@@ -72,7 +72,9 @@ from colleague.cli._banner import emit_banner
 from colleague.cli._commands._input_line import OwnedInputLine
 from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
+from colleague.cli._commands.work import _resolve_chain_arming
 from colleague.cli._commands.work import execute_work as _default_work
+from colleague.cli._commands.work import execute_work_chain as _default_chain
 from colleague.cli._errors import CliError
 from colleague.cockpit_run import (
     DeltaTail,
@@ -137,6 +139,10 @@ _WorkFn = Callable[..., tuple[TaskResult, Path]]
 #: A session "plan" runner: takes a free-text request and returns a summary
 #: string to fold into the feed. Injectable as a test seam (mirrors ``_WorkFn``).
 _PlanFn = Callable[..., str]
+#: The session's chain runner (indefinite-run t9): the shape of
+#: :func:`colleague.cli._commands.work.execute_work_chain` — the SAME chain
+#: loop ``work --until-done`` drives. Injectable test seam (mirrors ``_WorkFn``).
+_ChainFn = Callable[..., tuple[TaskResult, Path]]
 
 #: Return type of a tracked dispatch thunk (a work-fn pair or a plan summary).
 _T = TypeVar("_T")
@@ -553,6 +559,18 @@ class _Session:
         self.chrome = self.err if json_mode else self.out
         self.work_fn = work_fn
         self.plan_fn = plan_fn
+        # Episode chaining (indefinite-run t9): the session front's --until-done
+        # arming. ``chain_cap`` is None when unarmed — every dispatch is the
+        # ordinary single-episode ``work_fn`` call, byte-identical to today. An
+        # int cap arms EVERY work item this session dispatches through
+        # ``chain_fn`` — by default ``work.execute_work_chain``, the exact chain
+        # loop ``work --until-done`` drives (shared dispatch path, no
+        # session-only fork). Resolved ONCE at session start by ``run_session``
+        # (flag > env > config.json, c28 verbatim inheritance) and set
+        # post-construction (the documented post-construction attribute idiom —
+        # ``__init__``'s signature stays at the S107 bundle ceiling).
+        self.chain_cap: Optional[int] = None
+        self.chain_fn: _ChainFn = _default_chain
         # The latest fill-line/backpressure signal a completed work item surfaced
         # on `TaskResult.capacity_warning` (spec R3 / plan t9 / #256), or `None`
         # before any work item has run. Read by `_capacity_panel`; set in
@@ -1660,9 +1678,9 @@ class _Session:
         # Passed ONLY when set: an ordinary dispatch keeps the exact work_fn
         # call shape stable for strict test doubles / injected work_fns.
         lineage_kwargs = {"continued_from": continued_from} if continued_from else {}
-        pair = self._run_tracked(
-            task.id,
-            lambda: self.work_fn(
+
+        def _single_episode() -> tuple[TaskResult, Path]:
+            return self.work_fn(
                 repo=self.repo,
                 engine_name=self.engine_name,
                 task=task,
@@ -1674,7 +1692,33 @@ class _Session:
                 command_name=command_name,
                 progress_sink=_WorkSink(self),
                 mode=mode,
-            ),
+            )
+
+        def _armed_chain() -> tuple[TaskResult, Path]:
+            # Episode chaining (indefinite-run t9): an armed session dispatches
+            # through the SAME chain loop `work --until-done` drives
+            # (execute_work_chain) — identical semantics (handoff-once c26,
+            # tree carry c6, verbatim inheritance c28), never a session-only
+            # fork. Same kwargs shape as the single-episode call, plus the cap
+            # resolved once at session start.
+            return self.chain_fn(
+                repo=self.repo,
+                engine_name=self.engine_name,
+                task=task,
+                open_pr=open_pr,
+                allow_dirty=self.allow_dirty or heal_waiver,
+                **lineage_kwargs,
+                base=self.base,
+                config=config,
+                command_name=command_name,
+                progress_sink=_WorkSink(self),
+                mode=mode,
+                cap=self.chain_cap,
+            )
+
+        pair = self._run_tracked(
+            task.id,
+            _armed_chain if self.chain_cap is not None else _single_episode,
             goal=task.instruction,
         )
         if pair is None:
@@ -2940,6 +2984,7 @@ def run_session(
     err: Optional[Callable[..., None]] = None,
     _work_fn: _WorkFn = _default_work,
     _plan_fn: _PlanFn = _default_plan,
+    _chain_fn: _ChainFn = _default_chain,
     _color: Optional[bool] = None,
 ) -> int:
     """Run the interactive cockpit session loop.
@@ -2975,6 +3020,13 @@ def run_session(
         repo_path=repo,
     )
 
+    # Episode chaining (indefinite-run t9): resolve the session's arming ONCE
+    # at start — flag > env > config.json, via the SAME _resolve_chain_arming
+    # the work front uses (the env/config legs already rode EngineConfig.resolve
+    # above). Every work item this session dispatches inherits the pair
+    # verbatim (c28); unarmed leaves chain_cap None — byte-identical dispatch.
+    chain_cap, chain_armed = _resolve_chain_arming(args, config)
+
     color = _color if _color is not None else should_color(sys.stdout)
     view = _resolve_view(args, color=color)
 
@@ -2995,6 +3047,11 @@ def run_session(
             debug_senses=bool(getattr(args, "debug_senses", False)),
         ),
     )
+    # Post-construction (the documented attribute idiom — see _Session.__init__):
+    # the chain seam is always injectable; the cap is set only when armed.
+    session.chain_fn = _chain_fn
+    if chain_armed:
+        session.chain_cap = chain_cap
     return session.run(input_fn)
 
 
@@ -3075,6 +3132,29 @@ def _configure_session_parser(p: argparse.ArgumentParser) -> None:
     p.add_argument("--model", default=None, help="Override the engine model name.")
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--until-done",
+        action="store_true",
+        dest="until_done",
+        help=(
+            "Arm episode chaining for EVERY work item this session dispatches: "
+            "chain bounded episodes until the task finishes ok (or the chain "
+            "halts: a non-continuable exit, no progress, or the episode cap) — "
+            "the same semantics as 'work --until-done'; push/PR happens ONCE, at "
+            "chain end. Also via COLLEAGUE_UNTIL_DONE=1 or .colleague/config.json "
+            '{"until_done": true}.'
+        ),
+    )
+    p.add_argument(
+        "--max-episodes",
+        type=int,
+        default=None,
+        dest="max_episodes",
+        help=(
+            "Episode cap for an armed --until-done chain (default 5; 0 = unlimited). "
+            'Also via COLLEAGUE_MAX_EPISODES or .colleague/config.json {"max_episodes": N}.'
+        ),
+    )
     p.add_argument(
         "--tui",
         action=argparse.BooleanOptionalAction,
