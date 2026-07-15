@@ -378,3 +378,57 @@ def test_pushed_but_pr_failed_note_is_not_misleading(
     assert result.pushed is True
     assert "PR creation failed" in result.note
     assert "local commit only" not in result.note
+
+
+def test_handoff_skips_literal_tilde_pollution(tmp_path: Path) -> None:
+    """A literal ``~/…`` dir at the repo root (shell-expansion test pollution)
+    is never committed onto the work branch, and the skip is surfaced (#275)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    fake_home = repo / "~" / ".culture"
+    fake_home.mkdir(parents=True)
+    (fake_home / "mesh.yaml").write_text("polluted: true\n")
+    (repo / "feature.txt").write_text("real work\n")
+
+    result = handoff(repo, "abc123", instruction="add feature", open_pr=False)
+
+    committed = _committed_files(repo, result.branch)
+    assert "feature.txt" in committed
+    assert not any(p.startswith("~") for p in committed)
+    assert result.changed_files == ["feature.txt"]
+    assert "test-pollution" in result.note
+    assert "~/.culture/mesh.yaml" in result.note
+
+
+def test_handoff_commits_tilde_prefixed_legitimate_files(tmp_path: Path) -> None:
+    """A tilde-PREFIXED root file (e.g. ``~notes.md``) is a legitimate deliverable
+    — only the literal ``~`` segment is #275 pollution, so both files commit."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "~notes.md").write_text("real notes\n")
+    (repo / "feature.txt").write_text("real work\n")
+
+    result = handoff(repo, "abc123", instruction="add feature", open_pr=False)
+
+    committed = _committed_files(repo, result.branch)
+    assert "~notes.md" in committed
+    assert "feature.txt" in committed
+    assert sorted(result.changed_files) == ["feature.txt", "~notes.md"]
+    assert "test-pollution" not in result.note
+
+
+def test_handoff_only_tilde_pollution_is_a_no_op(tmp_path: Path) -> None:
+    """If the only untracked output is a literal ``~`` dir, nothing is committed
+    and the note names both the no-op and the skipped pollution (#275)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "~").mkdir()
+    (repo / "~" / "junk.txt").write_text("x\n")
+    before = _current_branch(repo)
+
+    result = handoff(repo, "abc123", open_pr=False)
+    assert result.committed is False
+    assert result.branch is None
+    assert "hand off" in result.note
+    assert "test-pollution" in result.note
+    assert _current_branch(repo) == before

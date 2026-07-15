@@ -77,6 +77,16 @@ class ToolError(Exception):
     """A tool call that cannot be honored (bad path, escape attempt, missing file)."""
 
 
+class UnknownToolError(ToolError):
+    """A tool call naming a tool the harness does not have (#321).
+
+    Distinguished from a plain :class:`ToolError` so the loop can tell a broken
+    tool-call *protocol* (a name that can never exist — a serving-side parser /
+    template mismatch, see #320) from an ordinary bad call to a real tool, and
+    stop a run that would otherwise burn its whole step budget on them.
+    """
+
+
 @dataclass
 class ToolOutcome:
     """Result of executing one tool call."""
@@ -770,7 +780,9 @@ class ToolExecutor:
         }
         handler = dispatch.get(name)
         if handler is None:
-            raise ToolError(f"unknown tool '{name}'")
+            raise UnknownToolError(
+                f"unknown tool '{name}' — valid tools: {', '.join(sorted(dispatch))}"
+            )
         try:
             return handler(arguments)
         except ToolError:

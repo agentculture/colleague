@@ -210,9 +210,12 @@ class FlightSession:
 
 def arm(repo_path, task_id):
     """Create the flight dir, truncate an empty feed file, return FlightSession."""
+    from colleague.artifact import ensure_self_ignored
+
     repo_path = Path(repo_path)
     fd = flight_dir(repo_path)
     fd.mkdir(parents=True, exist_ok=True)
+    ensure_self_ignored(fd.parent)
     fp = feed_path(repo_path, task_id)
     fp.write_text("")
     return FlightSession(repo_path=repo_path, task_id=task_id)

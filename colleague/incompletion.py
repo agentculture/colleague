@@ -41,6 +41,12 @@ _REASON_ADVICE: dict[str, str] = {
         "check backend tool-calling or escalate to another model: "
         "colleague made zero tool-calls."
     ),
+    "tool-protocol-broken": (
+        "check the served model's tool-call parser/template (e.g. vLLM "
+        "--enable-auto-tool-choice + --tool-call-parser) before re-running: "
+        "the model's tool calls never parsed as known tools, so the task "
+        "itself was likely never attempted."
+    ),
 }
 
 
@@ -57,6 +63,7 @@ def classify_incompletion(
     changed_files: int,
     summary: str,
     step_count: int,
+    protocol_detail: str = "",
 ) -> Optional[IncompletionRecord]:
     """Classify a finished work item as complete or incomplete.
 
@@ -75,7 +82,23 @@ def classify_incompletion(
         The work item's finish summary text.
     step_count:
         Number of tool-call steps the loop recorded.
+    protocol_detail:
+        Loop-supplied evidence for a ``"tool_protocol"`` outcome (#321) — the
+        unknown-tool streak that stopped the run. Empty otherwise.
     """
+
+    # --- Broken tool-call channel (#321): diagnosed before the deliverable
+    # checks, because a run stopped for consecutive unknown-tool calls cannot
+    # have a trustworthy deliverable — the finish tool itself never parsed. The
+    # reason must point at the PROTOCOL, not the task, so the operator fixes
+    # the serving-side parser instead of blaming the model's competence.
+    if outcome == "tool_protocol":
+        return IncompletionRecord(
+            reason="tool-protocol-broken",
+            evidence=protocol_detail
+            or f"stopped after {step_count} step(s): consecutive unknown-tool calls",
+            recommendation=_REASON_ADVICE["tool-protocol-broken"],
+        )
 
     # --- Deliverable-present checks (return None) ---
     stripped = summary.strip()

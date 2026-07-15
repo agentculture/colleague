@@ -339,6 +339,54 @@ def load_config_file(repo_path: str | Path) -> dict[str, str]:
     return {k: str(v) for k, v in data.items() if k in _CONFIG_KEYS and v is not None}
 
 
+def config_provenance(repo_path: str | Path) -> list[dict]:
+    """Return provenance for every config.json that contributed keys.
+
+    Mirrors :func:`_merged_config_json`'s semantics: calls
+    :func:`colleague.configdir.resolve_files` for ``config.json``, reads each
+    existing file with :func:`_read_json_object`, and reports per-file
+    top-level keys plus the subset that actually *win* the per-key merge
+    (no higher-precedence file also sets that key). Files that read as ``{}``
+    (malformed, missing, or empty) are skipped — exactly as
+    :func:`_merged_config_json` handles them.
+
+    Returns a list of dicts, highest-precedence first, each with::
+
+        {'path': str(path), 'keys': sorted list of top-level keys,
+         'winning_keys': sorted list of keys this file wins}
+
+    Empty list when no config files exist.
+    """
+    paths = configdir.resolve_files(repo_path, _CONFIG_FILENAME)
+    # Build per-file data: path -> (keys_set, data_dict)
+    file_data: list[tuple[Path, dict]] = []
+    for path in paths:
+        data = _read_json_object(path)
+        if data:
+            file_data.append((path, data))
+
+    # Determine winning keys: a key wins for the highest-precedence file
+    # that sets it (first in file_data order).
+    claimed: dict[str, str] = {}  # key -> path string of the winner
+    for path, data in file_data:
+        for key in data:
+            if key not in claimed:
+                claimed[key] = str(path)
+
+    result: list[dict] = []
+    for path, data in file_data:
+        keys = sorted(data.keys())
+        winning_keys = sorted(k for k in keys if claimed[k] == str(path))
+        result.append(
+            {
+                "path": str(path),
+                "keys": keys,
+                "winning_keys": winning_keys,
+            }
+        )
+    return result
+
+
 def _load_deepthink_overrides(repo_path: str | Path) -> dict[str, str]:
     """Read the NESTED ``deepthink`` section of .colleague/config.json, per-key merged.
 

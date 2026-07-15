@@ -27,7 +27,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from colleague.artifact import artifact_dir, artifact_read_dirs, find_artifact
+from colleague.artifact import (
+    artifact_dir,
+    artifact_read_dirs,
+    ensure_self_ignored,
+    find_artifact,
+)
 
 #: Per-repo pointer file (in the artifact dir) naming the most recent work item.
 LAST_WORK_FILENAME = "last_work"
@@ -141,6 +146,7 @@ def set_last_work(repo_path: str | Path, task_id: str) -> None:
     """
     path = last_work_path(repo_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_self_ignored(path.parent)
     path.write_text(f"{task_id}\n", encoding="utf-8")
 
 
@@ -207,6 +213,7 @@ def write_feedback(
     record = Feedback(task_id=task_id, rating=rating, notes=notes, by=by, at=at or _now_iso())
     path = feedback_path(repo_path, task_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_self_ignored(path.parent)
     path.write_text(
         json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

@@ -228,6 +228,15 @@ def handoff(
         for path in _untracked_paths(repo)
         if path not in baseline and not path.startswith(".colleague/")
     ]
+    # #275: an entry whose first segment is exactly ``~`` is shell-expansion
+    # pollution (a run_command test wrote a "~/…" path relative to the repo
+    # instead of $HOME), never a deliverable — skip it and surface it in the
+    # note instead of committing a fake home directory onto the work branch.
+    # Only the literal ``~`` dir qualifies: a tilde-PREFIXED root file like
+    # ``~notes.md`` is a legitimate deliverable and is committed as usual.
+    pollution = [p for p in produced if p.split("/", 1)[0] == "~"]
+    if pollution:
+        produced = [p for p in produced if p not in pollution]
     if produced:
         _git(repo, "add", "--", *produced)
 
@@ -238,7 +247,7 @@ def handoff(
         # Only excluded/ignored/pre-existing output — nothing of the task's own
         # to commit. We have NOT switched branches, so operator state is intact.
         result.branch = None
-        result.note = _with_ignored("no task changes to hand off", ignored)
+        result.note = _with_ignored("no task changes to hand off", ignored, pollution)
         return result
     result.changed_files = staged
 
@@ -258,7 +267,7 @@ def handoff(
 
     if not should_open_pr(repo, open_pr):
         result.note = _with_ignored(
-            "local commit only (--no-pr, no remote, or gh unavailable)", ignored
+            "local commit only (--no-pr, no remote, or gh unavailable)", ignored, pollution
         )
         _restore_ref(repo, original_ref)
         return result
@@ -267,14 +276,18 @@ def handoff(
         _git(repo, "push", "-u", "origin", branch)
         result.pushed = True
         result.pr_url = _gh_pr_create(repo, base_branch, subject)
-        result.note = _with_ignored("pushed and opened PR", ignored)
+        result.note = _with_ignored("pushed and opened PR", ignored, pollution)
     except HandoffError as exc:
         # Distinguish a push that already landed from one that never left: the
         # note must not contradict result.pushed (observability).
         if result.pushed:
-            result.note = _with_ignored(f"pushed branch; PR creation failed: {exc}", ignored)
+            result.note = _with_ignored(
+                f"pushed branch; PR creation failed: {exc}", ignored, pollution
+            )
         else:
-            result.note = _with_ignored(f"local commit only (push failed: {exc})", ignored)
+            result.note = _with_ignored(
+                f"local commit only (push failed: {exc})", ignored, pollution
+            )
     # Restore only after push + `gh pr create` (which infer the head from the
     # checked-out branch) have run on the work branch.
     _restore_ref(repo, original_ref)
@@ -498,12 +511,18 @@ def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
     return sorted({line.strip() for line in proc.stdout.splitlines() if line.strip()})
 
 
-def _with_ignored(note: str, ignored: list[str]) -> str:
-    """Append a gitignored-output advisory to ``note`` (surfaced, not dropped — #39)."""
-    if not ignored:
-        return note
-    listed = ", ".join(ignored)
-    return f"{note}; {len(ignored)} file(s) produced but not committed (gitignored): {listed}"
+def _with_ignored(note: str, ignored: list[str], pollution: list[str] | None = None) -> str:
+    """Append the not-committed advisories to ``note`` (surfaced, not dropped — #39/#275)."""
+    if ignored:
+        listed = ", ".join(ignored)
+        note = f"{note}; {len(ignored)} file(s) produced but not committed (gitignored): {listed}"
+    if pollution:
+        listed = ", ".join(pollution)
+        note = (
+            f"{note}; {len(pollution)} test-pollution path(s) skipped "
+            f"(literal ~ at the repo root): {listed}"
+        )
+    return note
 
 
 def _gh_pr_create(repo: Path, base_branch: str, title: str) -> str | None:
