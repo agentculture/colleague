@@ -8,7 +8,7 @@
 # and names the recommended next move. It is the forward leg: seed a plan from a
 # *converged* frame, then work it into a buildable plan.
 #
-# Origin: authored and maintained in agentculture/devague. steward pulls this
+# Origin: authored and maintained in agentculture/devague. guildmaster pulls this
 # skill from here and broadcasts it to the rest of the AgentCulture mesh, so it
 # is written to run anywhere — portable bash, no devague-checkout assumptions.
 #
@@ -26,8 +26,8 @@ resolve_devague() {
     fi
     # Local-dev fallback: inside the devague checkout, run via uv.
     local dir="$PWD"
-    while [[ -n "$dir" ]] && [[ "$dir" != "/" ]]; do
-        if [[ -f "$dir/pyproject.toml" ]] \
+    while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+        if [ -f "$dir/pyproject.toml" ] \
             && grep -q '^name = "devague"' "$dir/pyproject.toml" 2>/dev/null; then
             if command -v uv >/dev/null 2>&1; then
                 DEVAGUE=(uv run devague)
