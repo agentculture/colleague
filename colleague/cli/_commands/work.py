@@ -1285,6 +1285,39 @@ def _emit_chain_outcome(verdict, state, *, completed: bool, branches: list[str])
         emit_diagnostic("chain: episode branches kept (WIP): " + ", ".join(branches))
 
 
+def _maybe_finalize_chain(
+    repo: Path,
+    result: TaskResult,
+    branches: list[str],
+    *,
+    completed: bool,
+    read_only: bool,
+    chain_base: str,
+    instruction: str,
+    open_pr: bool,
+    base: str,
+    artifact_path: Path,
+) -> Path:
+    """Finalize a COMPLETED chain once — or honestly decline to (extracted, S3776).
+
+    Three declines, each deliberate: a HALTED chain never pushes (the operator
+    may want the WIP); a read-only chain stays handoff-free (h21); and a
+    completed chain that landed NO commits mirrors ``handoff()``'s "no changes
+    to hand off" semantics — no push, no PR, no reap, one explicit diagnostic
+    (Qodo, PR #333; ``commits_ahead`` degrades to 0 on any git error, which
+    conservatively declines too). Returns the (possibly re-written) artifact
+    path — unchanged on every decline.
+    """
+    if not completed or read_only or not branches:
+        return artifact_path
+    if commits_ahead(repo, chain_base, branches[-1]) <= 0:
+        emit_diagnostic("chain: completed with no changes; no handoff performed")
+        return artifact_path
+    return _chain_finalize(
+        repo, result, branches, instruction=instruction, open_pr=open_pr, base=base
+    )
+
+
 def execute_work_chain(
     *,
     repo: Path,
@@ -1423,25 +1456,18 @@ def execute_work_chain(
         _announce_episode_transition(repo, result.task_id, episode_task.id, state, task.watch)
 
     completed = verdict.reason == chainmod.HALT_OK_FINISH
-    # A completed chain that landed NO commits mirrors handoff()'s "no changes
-    # to hand off" semantics: no push, no PR, no reap — an empty branch must
-    # never become an empty PR (Qodo, PR #333). commits_ahead degrades to 0 on
-    # any git error, which conservatively skips the finalize too.
-    chain_has_work = bool(episode_branches) and (
-        commits_ahead(repo, chain_base, episode_branches[-1]) > 0
+    artifact_path = _maybe_finalize_chain(
+        repo,
+        result,
+        episode_branches,
+        completed=completed,
+        read_only=read_only_chain,
+        chain_base=chain_base,
+        instruction=arming_instruction,
+        open_pr=open_pr,
+        base=base,
+        artifact_path=artifact_path,
     )
-    if completed and not read_only_chain and not chain_has_work:
-        emit_diagnostic("chain: completed with no changes; no handoff performed")
-    if completed and not read_only_chain and chain_has_work:
-        # h21: the read-only verbs stay handoff-free — no finalize, no reap.
-        artifact_path = _chain_finalize(
-            repo,
-            result,
-            episode_branches,
-            instruction=arming_instruction,
-            open_pr=open_pr,
-            base=base,
-        )
     _emit_chain_outcome(verdict, state, completed=completed, branches=episode_branches)
     return result, artifact_path
 
