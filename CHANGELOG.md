@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.3] - 2026-07-15
+
+### Fixed
+
+- SonarCloud main quality gate: 12 python:S5863 findings — the `assert f(x) == f(x)` determinism tests across 9 test files rewritten as two-variable comparisons (`first = f(x); second = f(x); assert first == second`), semantics preserved; clears the new-code reliability rating back to A. Swept by a colleague `write --apply` drive (task 2f2396d7ac62), reviewed by a colleague review drive, operator-verified (6181 passed).
+- `colleague learn` command map now names `clean` (crash recovery) and `session` (the interactive palette) in both the text and `--json` payloads (#185).
+- The vendored ask-colleague skill wrapper invokes the canonical `colleague work` verb instead of the deprecated `drive` alias at all four drive sites, and the dirty-tree hint names `work` too (#187).
+
 ## [1.45.2] - 2026-07-15
 
 ### Changed
