@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from colleague.contract import ERROR, TaskResult
+from colleague.contract import ERROR, ChainView, TaskResult
 from colleague.slug import slugify
 
 DEFAULT_ARTIFACT_DIRNAME = ".colleague"
@@ -188,6 +188,28 @@ def read_request(repo_path: str | Path, task_id: str) -> Optional[str]:
         return None
     request = (data.get("stats") or {}).get("request")
     return request if isinstance(request, str) and request else None
+
+
+def read_chain_view(repo_path: str | Path, task_id: str) -> Optional[ChainView]:
+    """The chain view recorded on ``task_id``'s artifact, or ``None`` (best-effort).
+
+    Reads the work item's artifact (:func:`find_artifact`) and returns its
+    ``chain`` block as a :class:`~colleague.contract.ChainView` — the read
+    point the chain dispatch loop uses to carry running totals from episode N
+    into episode N+1 (sums of per-episode exact usage, c20/h19). Any failure —
+    missing artifact, unreadable/corrupt JSON, absent or malformed ``chain``
+    key — yields ``None`` so a caller never breaks on an ordinary (non-chained)
+    or damaged artifact.
+    """
+    path = find_artifact(repo_path, task_id)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    chain = data.get("chain")
+    return ChainView.from_dict(chain) if isinstance(chain, dict) else None
 
 
 def _is_empty_file(path: Path) -> bool:
