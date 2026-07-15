@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # assign-to-workforce.sh — fan out devague plan waves to parallel agents.
 #
-# The skill is named `assign-to-workforce`; it reads `devague plan waves`
-# (scheduling metadata produced by the /spec-to-plan skill) and renders the
-# implementation split plan: task map + per-task agent/model proposal + a
-# go/no-go prompt for the human. The actual fan-out (worktree creation,
-# spawning, TDD-gated merges) is performed by the operator/main agent once
-# the human approves the split plan.
+# The skill is named `assign-to-workforce`; it reads `devague plan waves --json`
+# — the enriched payload (devague#53 t9: {"plan", "waves", "tasks"}, the latter
+# keyed by task id with summary/instruction/acceptance_criteria/covers) — and
+# renders the implementation split plan: a wave listing (each task id carries
+# an `[instruction: yes|no, accept: N]` marker, verbatim from the payload) plus
+# a single four-column per-task table — Wave, Task, Model, Task summary (#69)
+# — and a go/no-go prompt for the human. The Model cell is a presentation-only
+# default (`sonnet`); the devague CLI stays model-agnostic (#20) and the human
+# is expected to edit it to a real model token (and harness, when it matters)
+# before approving. The actual fan-out (worktree creation, spawning, TDD-gated
+# merges) is performed by the operator/main agent once the human approves the
+# split plan. Output ends with an End state section (devague#70 t6) — the
+# verbatim output of `devague plan deliverables` — so the human can see what
+# the plan actually produces before saying go; on an older devague lacking
+# that verb the section degrades to a one-line hint instead of failing.
 #
 # The devague CLI is non-orchestrating (#20): `devague plan waves` describes
 # the dependency graph; it does not spawn agents, manage worktrees, or pick
 # a backend. This wrapper is the operator-facing helper.
 #
-# Origin: authored and maintained in agentculture/devague. steward pulls this
+# Origin: authored and maintained in agentculture/devague. guildmaster pulls this
 # skill from here and broadcasts it to the rest of the AgentCulture mesh, so
 # it is written to run anywhere — portable bash, no devague-checkout assumptions.
 #
@@ -30,8 +39,8 @@ resolve_devague() {
     fi
     # Local-dev fallback: inside the devague checkout, run via uv.
     local dir="$PWD"
-    while [[ -n "$dir" ]] && [[ "$dir" != "/" ]]; do
-        if [[ -f "$dir/pyproject.toml" ]] \
+    while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+        if [ -f "$dir/pyproject.toml" ] \
             && grep -q '^name = "devague"' "$dir/pyproject.toml" 2>/dev/null; then
             if command -v uv >/dev/null 2>&1; then
                 DEVAGUE=(uv run devague)
@@ -61,9 +70,14 @@ Usage:
 
 Commands:
   split-plan   Read `devague plan waves --json` and render the human-facing
-               implementation split plan: task map + per-task agent/model
-               proposal + go/no-go. Present this to the human before any
-               fan-out; do not proceed without approval.
+               implementation split plan: a wave listing (with per-task
+               instruction/acceptance-count markers, verbatim from the
+               payload) + a four-column Wave/Task/Model/Task-summary table
+               (Model defaults to `sonnet`; edit it before approving) +
+               go/no-go, ending with an End state section — the verbatim
+               output of `devague plan deliverables` (degrades to a one-line
+               hint on an older devague lacking that verb). Present this to
+               the human before any fan-out; do not proceed without approval.
   waves        Forward `devague plan waves` (and any extra flags) verbatim.
                On a converged plan exits 0 and lists the dependency waves.
 
@@ -73,7 +87,7 @@ you are implementing. Results go to stdout, diagnostics to stderr.
 Human gates (three only):
   1. The exported spec (already closed by the /think leg).
   2. This implementation split plan (go/no-go to assign to workforce).
-  3. The final PR (opened by the main agent via `cicd` / `agex pr open`).
+  3. The final PR (opened by the main agent via `cicd` / `devex pr open`).
 
 The devague CLI is non-orchestrating (#20): `devague plan waves` describes
 the graph; the operator performs the fan-out. One worktree per task; TDD
@@ -85,9 +99,8 @@ EOF
 cmd_split_plan() {
     local extra_args=()
     # Forward any --plan flag so waves targets the right plan.
-    while [[ $# -gt 0 ]]; do
-        local arg="$1"
-        extra_args+=("$arg")
+    while [ $# -gt 0 ]; do
+        extra_args+=("$1")
         shift
     done
 
@@ -112,7 +125,7 @@ cmd_split_plan() {
     trap - EXIT
     eval "${old_exit_trap}"  # empty string is a no-op; re-installs a prior trap if any
 
-    if [[ "$waves_rc" -ne 0 ]]; then
+    if [ "$waves_rc" -ne 0 ]; then
         printf '%s\n' "$waves_err" >&2
         return "$waves_rc"
     fi
@@ -136,30 +149,58 @@ except json.JSONDecodeError as exc:
 
 plan_slug = data.get("plan", "(unknown)")
 waves = data.get("waves") or []
+# The enriched payload (devague#53 t9): every active task's full working
+# contract, keyed by id — summary, instruction, acceptance criteria, covers.
+tasks_meta = data.get("tasks") or {}
+
+# Presentation-only default (issue #69): the devague CLI itself stays
+# model-agnostic (#20) — this is just what the table proposes before a human
+# edits it.
+DEFAULT_MODEL = "sonnet"
+MAX_SUMMARY_LEN = 72
+ELLIPSIS = "..."
+
+
+def marker(task_id):
+    """`[instruction: yes|no, accept: N]`, verbatim from the payload (#53 t13,
+    c12/h5) — no operator paraphrasing of the underlying summary/instruction."""
+    meta = tasks_meta.get(task_id) or {}
+    has_instruction = "yes" if meta.get("instruction") else "no"
+    accept_count = len(meta.get("acceptance_criteria") or [])
+    return f"{task_id} [instruction: {has_instruction}, accept: {accept_count}]"
+
+
+def truncate(summary):
+    if len(summary) <= MAX_SUMMARY_LEN:
+        return summary
+    # Reserve room for the ellipsis so the rendered width (ellipsis included)
+    # never exceeds MAX_SUMMARY_LEN (issue #77). The trailing clamp keeps the
+    # contract intact even in the degenerate MAX_SUMMARY_LEN <= len(ELLIPSIS)
+    # case (PR #78 review), where the reserved slice would otherwise underflow.
+    slice_len = max(0, MAX_SUMMARY_LEN - len(ELLIPSIS))
+    return (summary[:slice_len] + ELLIPSIS)[:MAX_SUMMARY_LEN]
+
 
 print(f"Implementation split plan — plan: {plan_slug}")
 print()
 print("Dependency waves (from `devague plan waves`):")
 for i, wave in enumerate(waves, 1):
-    tasks = ", ".join(wave)
-    print(f"  Wave {i}: [{tasks}]")
+    markers = ", ".join(marker(task_id) for task_id in wave)
+    print(f"  Wave {i}: [{markers}]")
 
 print()
-print("Task assignments (proposed — edit before approving):")
+print("Task assignments (proposed — edit the Model column before approving):")
 print()
 
-headers = ("Task", "Wave", "Summary", "Agent type", "Model", "Scope note")
+headers = ("Wave", "Task", "Model", "Task summary")
 rows = []
 for i, wave in enumerate(waves, 1):
     for task_id in wave:
-        rows.append((
-            task_id,
-            str(i),
-            "(see plan export for summary + acceptance criteria)",
-            "subagent",
-            "cheaper/faster",
-            "TDD-scoped task; isolated worktree; tests gate merge",
-        ))
+        meta = tasks_meta.get(task_id) or {}
+        # Verbatim from the payload — no operator paraphrasing (#53 t13, c12/h5) —
+        # never a placeholder unless the payload truly has no summary recorded.
+        summary = meta.get("summary") or "(no summary recorded)"
+        rows.append((str(i), task_id, DEFAULT_MODEL, truncate(summary)))
 
 col_widths = [max(len(h), max((len(r[j]) for r in rows), default=0))
               for j, h in enumerate(headers)]
@@ -174,21 +215,49 @@ for row in rows:
     print(row_str(row))
 
 print()
-print("Go/no-go: review the table above, edit agent type / model / scope as needed,")
-print("then confirm: \"Approved — assign to workforce\" or \"Edit first\".")
+print("Model column: edit each row to a real model token (e.g. haiku, sonnet,")
+print("opus, fable), optionally qualified with the harness when it matters")
+print("(e.g. colleague, codex) — the default above is a starting proposal, not")
+print("a recommendation.")
+print()
+print("Go/no-go: review the table above, edit the Model column as needed, then")
+print("confirm: \"Approved — assign to workforce\" or \"Edit first\".")
 print()
 print("Once approved, fan out wave by wave:")
 print("  1. Create one git worktree per task in the wave.")
-print("  2. Spawn a task agent per worktree (brief = task summary + acceptance criteria).")
+print("  2. Spawn a task agent per worktree — its brief quotes `devague plan")
+print("     waves --json`'s summary, instruction, and acceptance criteria for")
+print("     that task id verbatim (no paraphrasing).")
 print("  3. Await all tasks in the wave; then TDD-gate each merge (tests before + after).")
 print("  4. Advance to the next wave.")
 print("  5. Open the final PR (human gate 3) after all waves merge and tests pass.")
 PY
+
+    # ── End state: quote `devague plan deliverables` verbatim (#70 t6) ───────
+    # Never composed freehand — it is the single synthesized "what do we have
+    # in the end?" view (confirmed after-state claims, terminal tasks, and
+    # surviving open items). Forward the same --plan args used for waves.
+    # Degrades gracefully on an older devague that predates the verb: print
+    # one hint line naming the minimum version and keep exiting 0 — this
+    # section must never fail the script.
+    local deliverables_out deliverables_rc
+    set +e
+    deliverables_out="$("${DEVAGUE[@]}" plan deliverables "${extra_args[@]}" 2>/dev/null)"
+    deliverables_rc=$?
+    set -e
+
+    echo
+    if [ "$deliverables_rc" -eq 0 ]; then
+        echo 'End state (from `devague plan deliverables`):'
+        echo
+        printf '%s\n' "$deliverables_out"
+    else
+        echo 'hint: End state view requires devague >= 0.18.0 (devague plan deliverables)'
+    fi
 }
 
 main() {
-    local subcommand="${1:-help}"
-    case "$subcommand" in
+    case "${1:-help}" in
         help | -h | --help)
             usage
             return 0
@@ -204,7 +273,7 @@ main() {
             exec "${DEVAGUE[@]}" plan waves "$@"
             ;;
         *)
-            printf 'error: unknown subcommand: %s\n' "$subcommand" >&2
+            printf 'error: unknown subcommand: %s\n' "$1" >&2
             printf 'hint: run `assign-to-workforce.sh help` for usage\n' >&2
             return 1
             ;;

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.2] - 2026-07-15
+
+### Changed
+
+- Skills refresh: the vendored devague-family skills (think, spec-to-plan, assign-to-workforce, summarize-delivery) brought to current source — steward→guildmaster rename, devague#77, agex→devex localization
+- Added devague origin skills: challenge (blind-spot discovery pass between /think and /spec-to-plan), scope (idea→scope exploration ahead of /think), deviate (record a first-class deviation when a workforce run must diverge from the confirmed plan)
+
 ## [1.45.1] - 2026-07-10
 
 ### Changed
