@@ -90,6 +90,14 @@ class TestFrontLoadReviewDiff:
         func = _extract_function(src, "front_load_review_diff")
         assert ":(exclude)" in func
 
+    def test_function_bounds_the_buffering(self) -> None:
+        """#324: the diff is piped through `head -c` so the substitution never
+        materializes more than cap+1 bytes, instead of buffering the full diff
+        and capping only the printed output."""
+        src = _script_src()
+        func = _extract_function(src, "front_load_review_diff")
+        assert "head -c" in func
+
     def test_review_dispatch_includes_front_load(self) -> None:
         src = _script_src()
         # The review case should call front_load_review_diff.
@@ -250,6 +258,52 @@ class TestFrontLoadReviewDiffBehavior:
                 assert (
                     "requirements.lock" not in line
                 ), f"requirements.lock should be excluded from diff body: {line}"
+
+    def test_oversized_diff_is_truncated_with_marker(self, tmp_path: Path) -> None:
+        """#324: with a tiny cap, a diff larger than the cap comes back truncated
+        (bounded output + the truncation marker), and the SIGPIPE from `head`
+        closing git's pipe early is absorbed under `set -o pipefail`."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "big.py").write_text("# base\n")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+             "commit", "-q", "-m", "base"],
+            check=True,
+        )
+        (repo / "big.py").write_text("\n".join(f"line_{i} = {i}" for i in range(2000)) + "\n")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+             "commit", "-q", "-m", "big change"],
+            check=True,
+        )
+
+        func_src = _extract_function(SCRIPT.read_text(encoding="utf-8"), "front_load_review_diff")
+        runner = tmp_path / "runner.sh"
+        runner.write_text(
+            "#!/usr/bin/env bash\nset -euo pipefail\n" + func_src + "\nfront_load_review_diff\n"
+        )
+        runner.chmod(0o755)
+
+        cap = 500
+        env = {
+            **os.environ,
+            "REPO": str(repo),
+            "BASE": "HEAD~1",
+            "COLLEAGUE_MAX_OUTPUT_CHARS": str(cap),
+        }
+        result = subprocess.run(
+            ["bash", str(runner)], capture_output=True, text=True, env=env, check=False
+        )
+        assert result.returncode == 0, result.stderr
+        assert "truncated at 500 chars" in result.stdout
+        # The body between the header and the marker is capped, not the full diff.
+        body = result.stdout.split("--- DIFF UNDER REVIEW", 1)[1]
+        body = body.split("[... diff body truncated", 1)[0]
+        assert len(body) < 2 * cap + 200  # diffstat + capped body, nowhere near the full diff
 
     def test_diffstat_always_present(self, tmp_path: Path) -> None:
         """The diffstat line should always be present, even when the body is empty."""
