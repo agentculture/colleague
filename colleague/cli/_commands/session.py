@@ -1551,8 +1551,13 @@ class _Session:
         if not handoff.working_tree_dirty(self.repo):
             return True
         self.out(render_heal_prompt())
-        raw = (self._read_next() or "").strip()
-        choice = parse_heal_choice(raw)
+        # The live ANSI reader can yield the CYCLE_MODE sentinel (shift-tab) —
+        # not a string; re-read past it (mode cycling has no meaning inside the
+        # heal prompt). EOF/None aborts, matching empty input.
+        raw = self._read_next()
+        while raw is CYCLE_MODE:
+            raw = self._read_next()
+        choice = parse_heal_choice(str(raw or "").strip())
         if choice is COMMIT:
             self._heal_allow_dirty_once = True
             self._log(

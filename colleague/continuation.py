@@ -73,10 +73,16 @@ def resolve_continuation(
 
     try:
         data = json.loads(artifact_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        raise ContinuationError(f"corrupt artifact for {task_id}") from None
+    # Valid JSON is not enough: a non-dict payload or one missing required keys
+    # must stay inside the ContinuationError boundary, never a raw traceback.
+    if not isinstance(data, dict):
         raise ContinuationError(f"corrupt artifact for {task_id}")
-
-    result = TaskResult.from_dict(data)
+    try:
+        result = TaskResult.from_dict(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ContinuationError(f"corrupt artifact for {task_id}") from exc
 
     # Guard: ok-status artifact unless allow_completed.
     if result.status == OK and not allow_completed:

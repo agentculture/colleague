@@ -255,3 +255,40 @@ class TestModuleConstraints:
             elif isinstance(node, ast.ImportFrom):
                 if node.module and node.module.startswith("colleague"):
                     assert node.module in allowed_modules, f"Forbidden from-import: {node.module}"
+
+
+class TestWrongShapeArtifacts:
+    """Valid JSON with an invalid shape stays inside the ContinuationError
+    boundary — never a raw KeyError/TypeError traceback (Qodo #331)."""
+
+    def _write(self, repo, task_id, payload):
+        coll = repo / ".colleague"
+        coll.mkdir(exist_ok=True)
+        (coll / f"{task_id}.json").write_text(payload)
+
+    def test_list_payload(self, tmp_path):
+        import pytest
+
+        from colleague.continuation import ContinuationError, resolve_continuation
+
+        self._write(tmp_path, "bad1", "[]")
+        with pytest.raises(ContinuationError, match="corrupt artifact for bad1"):
+            resolve_continuation(tmp_path, "bad1")
+
+    def test_dict_missing_required_keys(self, tmp_path):
+        import pytest
+
+        from colleague.continuation import ContinuationError, resolve_continuation
+
+        self._write(tmp_path, "bad2", "{}")
+        with pytest.raises(ContinuationError, match="corrupt artifact for bad2"):
+            resolve_continuation(tmp_path, "bad2")
+
+    def test_scalar_payload(self, tmp_path):
+        import pytest
+
+        from colleague.continuation import ContinuationError, resolve_continuation
+
+        self._write(tmp_path, "bad3", '"just a string"')
+        with pytest.raises(ContinuationError, match="corrupt artifact for bad3"):
+            resolve_continuation(tmp_path, "bad3")

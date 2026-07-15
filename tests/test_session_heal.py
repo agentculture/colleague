@@ -184,3 +184,31 @@ def test_non_action_inputs_abort(tmp_path: Path, raw: str) -> None:
     h.dispatch()
     assert h.calls == []
     assert handoff.working_tree_dirty(tmp_path)
+
+
+def test_cycle_mode_sentinel_is_skipped_at_the_heal_prompt(tmp_path: Path) -> None:
+    """Shift-tab (the CYCLE_MODE sentinel, not a string) mid-prompt is re-read
+    past, never .strip()'d — the next real answer decides (Qodo #331)."""
+    from colleague.cli._commands._session_input import CYCLE_MODE
+
+    _git_repo(tmp_path)
+    _dirty(tmp_path)
+    h = _Harness(tmp_path, live=True, answers=[])
+    answers = iter([CYCLE_MODE, CYCLE_MODE, "1"])
+    h.session._read_next = lambda: next(answers, "")
+    h.dispatch()
+    assert len(h.calls) == 1
+    assert h.calls[0]["allow_dirty"] is True
+
+
+def test_eof_at_the_heal_prompt_aborts(tmp_path: Path) -> None:
+    from colleague.cli._commands._session_input import CYCLE_MODE
+
+    _git_repo(tmp_path)
+    _dirty(tmp_path)
+    h = _Harness(tmp_path, live=True, answers=[])
+    answers = iter([CYCLE_MODE])
+    h.session._read_next = lambda: next(answers, None)
+    h.dispatch()
+    assert h.calls == []
+    assert handoff.working_tree_dirty(tmp_path)
