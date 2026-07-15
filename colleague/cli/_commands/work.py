@@ -557,6 +557,19 @@ class DisplayOptions:
     tui: bool | None = None
     #: Optional WorkStep-JSONL path (#74 A3) an agent can follow / `tui replay`.
     tui_events: str | None = None
+    #: Optional caller-supplied cockpit sink (#74 A2): the interactive
+    #: ``session`` binds one to its own ``CockpitState`` + frame-writer so a
+    #: work item renders into the session's one shared screen (replacing the
+    #: auto-constructed cockpit). ``None`` (the default) preserves the
+    #: byte-identical ``work`` path. Rides this bundle since v1.47.0
+    #: (SonarCloud S107 on ``execute_work`` — same recorded pattern).
+    sink: "CockpitProgressSink | None" = None
+
+
+#: The constraint-profile modes whose work items are read-only by INTENT
+#: (their chains use read-only progress semantics + stay handoff-free, the
+#: read-only-role treatment — t12 live-dogfood catch).
+_READ_ONLY_MODES = frozenset({"explore", "review"})
 
 
 @dataclass(frozen=True)
@@ -576,6 +589,37 @@ class ChainEpisodeOptions:
     prior_view: ChainView | None = None
 
 
+def _build_run_presence(
+    *, task: Task, config: EngineConfig, engine, external_sink
+) -> "tuple[object | None, bool]":
+    """Build the run's presence engine, if any — ``(presence, foreground)``.
+
+    The presence-builder half of :func:`execute_work` (extracted for the S3776
+    budget, the ``_preserve_isolated_wip`` precedent). Skipped entirely when an
+    external ``progress_sink`` was supplied (the interactive ``session`` already
+    runs its own middle-manager lane — wiring a second engine would double every
+    ack/update). Otherwise the watched builder is tried first, then the
+    foreground sibling — the two are gated on ``task.watch`` in opposite
+    directions, so at most one returns non-None. ``foreground`` is ``True`` only
+    for a one-shot (non-watched) presence, whose chat must be folded from the
+    snapshot (no flight plane exists to carry it). Both builds ride
+    ``suppress``: narration must never break cortex.
+    """
+    if external_sink is not None:
+        return None, False
+    presence = None
+    with suppress(Exception):
+        presence = build_watch_presence(task=task, config=config, engine=engine)
+    if presence is not None:
+        return presence, False
+    with suppress(Exception):
+        presence = build_foreground_presence(
+            task=task, config=config, engine=engine, render=emit_diagnostic
+        )
+        return presence, presence is not None
+    return None, False
+
+
 def execute_work(
     *,
     repo: Path,
@@ -588,7 +632,6 @@ def execute_work(
     isolate: bool = False,
     command_name: str | None = None,
     display: "DisplayOptions | None" = None,
-    progress_sink: "CockpitProgressSink | None" = None,
     mode: str | None = None,
     continued_from: str | None = None,
     chain: "ChainEpisodeOptions | None" = None,
@@ -624,13 +667,12 @@ def execute_work(
     display:
         The bundled cockpit/TUI display knobs (:class:`DisplayOptions` —
         ``tui`` live-cockpit activation #74 A1, ``tui_events`` WorkStep-JSONL
-        path #74 A3); ``None`` (default) means both knobs at their ``None``
-        defaults, byte-identical to the pre-bundle behavior.
-    progress_sink:
-        Optional caller-supplied cockpit sink (#74 A2): the interactive ``session``
-        passes a sink bound to its own `CockpitState` + frame-writer so a work item
-        renders into the session's one shared screen. Replaces the auto-constructed
-        cockpit; ``None`` (the default) preserves the byte-identical `work` path.
+        path #74 A3, ``sink`` the caller-supplied cockpit sink #74 A2 — the
+        interactive ``session`` binds one to its own `CockpitState` +
+        frame-writer so a work item renders into the session's one shared
+        screen, replacing the auto-constructed cockpit); ``None`` (default)
+        means every knob at its ``None`` default, byte-identical to the
+        pre-bundle behavior.
     continued_from:
         The prior work item's task id when this run CONTINUES it (#167), else
         ``None``. Recorded on the result before every artifact write — the
@@ -672,7 +714,7 @@ def execute_work(
         before the exception is raised — honesty h5).
     """
     display = display or DisplayOptions()
-    tui, tui_events = display.tui, display.tui_events
+    tui, tui_events, progress_sink = display.tui, display.tui_events, display.sink
     # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
     # operator left untouched, BEFORE anything reads the config (extracted to
     # _moded_config for the S3776 budget). One code path for every entry door.
@@ -773,21 +815,9 @@ def execute_work(
             # `emit_diagnostic` as labeled `senses:` lines; stdout (the `--json`
             # result stream) is never touched, so presence can never corrupt the
             # machine-parseable contract.
-            presence = None
-            # A foreground (one-shot, non-watched) run has no flight plane, so its
-            # chat has no other path onto the artifact — it must be folded from the
-            # snapshot (fold_chat=True). A watched run's chat rides the flight log
-            # (loop.py folds it), so folding here would duplicate it.
-            presence_foreground = False
-            if progress_sink is None:
-                with suppress(Exception):
-                    presence = build_watch_presence(task=task, config=config, engine=engine)
-                if presence is None:
-                    with suppress(Exception):
-                        presence = build_foreground_presence(
-                            task=task, config=config, engine=engine, render=emit_diagnostic
-                        )
-                        presence_foreground = presence is not None
+            presence, presence_foreground = _build_run_presence(
+                task=task, config=config, engine=engine, external_sink=progress_sink
+            )
             if presence is not None:
                 with suppress(Exception):
                     presence.acknowledge(ack_packet_for_task(task))
@@ -1221,6 +1251,40 @@ def _chain_progress(
     return chainmod.episode_progressed(new_commits=new_commits, new_evidence=new_evidence)
 
 
+def _announce_episode_transition(
+    repo: Path, prior_id: str, next_id: str, state, watch: bool
+) -> None:
+    """Announce one chain hop (t6) — sink line + the flight transition marker.
+
+    Extracted from :func:`execute_work_chain` for the S3776 budget. The
+    announcement rides the #38 progress channel; the marker lands on the PRIOR
+    episode's flight feed (type="episode-transition", best-effort, watch-gated
+    like every flight write) so a pilot following episode 1 can locate every
+    later episode. Announcement text and marker intent are the same string.
+    """
+    announcement = flight.transition_announcement(prior_id, state.episode_count + 1, state.cap)
+    emit_diagnostic(f"chain: {announcement}")
+    if watch:
+        flight.append_episode_transition(
+            repo,
+            prior_id,
+            next_task_id=next_id,
+            episode_index=state.episode_count + 1,
+            cap=state.cap,
+        )
+
+
+def _emit_chain_outcome(verdict, state, *, completed: bool, branches: list[str]) -> None:
+    """The chain's terminal diagnostics (extracted for the S3776 budget)."""
+    detail = f": {verdict.detail}" if verdict.detail else ""
+    emit_diagnostic(
+        f"chain: {'completed' if completed else 'halted'} after "
+        f"{state.episode_count} episode(s) — {verdict.reason}{detail}"
+    )
+    if not completed and branches:
+        emit_diagnostic("chain: episode branches kept (WIP): " + ", ".join(branches))
+
+
 def execute_work_chain(
     *,
     repo: Path,
@@ -1280,13 +1344,23 @@ def execute_work_chain(
     1 error).
     """
     display = display or DisplayOptions()
+    if progress_sink is not None and display.sink is None:
+        # The session front still passes its sink positionally-adjacent; fold it
+        # into the bundle execute_work reads (S107 — sink rides DisplayOptions).
+        display = replace(display, sink=progress_sink)
     # c28: apply the mode profile ONCE at arming; every episode reuses this
     # resolved config verbatim (execute_work skips re-application when chained,
     # so a mid-chain overlay change is never re-read).
     config = _moded_config(config, mode, repo)
     attachments = task.attachments
     arming_instruction = task.instruction
-    read_only_role = is_read_only(getattr(config, "role", None))
+    # Read-only chain semantics arm on the read-only ROLE or a read-only MODE
+    # (explore/review): both produce commits structurally never, so the c22
+    # commit-evidence guard cannot apply (progressed=None; the episode cap
+    # bounds the chain) and the chain stays handoff-free (h21). Live-dogfood
+    # catch (t12): a `--mode review --until-done` chain otherwise halts
+    # 'no-progress' after episode 1 — the arc's own review chain proved it.
+    read_only_chain = is_read_only(getattr(config, "role", None)) or mode in _READ_ONLY_MODES
     # Lazy import: the chain path is opt-in; keep work's import graph flat.
     from colleague import chain as chainmod
 
@@ -1311,7 +1385,6 @@ def execute_work_chain(
             config=config,
             command_name=command_name,
             display=display,
-            progress_sink=progress_sink,
             mode=mode,
             continued_from=continued_from,
             chain=ChainEpisodeOptions(base_ref=prior_branch, prior_view=prior_view),
@@ -1324,7 +1397,7 @@ def execute_work_chain(
             repo,
             result,
             state,
-            read_only=read_only_role,
+            read_only=read_only_chain,
             prior_ref=prior_branch or chain_base,
             episode_branch=episode_branch,
         )
@@ -1347,26 +1420,10 @@ def execute_work_chain(
         )
         # The flight arming resolved once for the arming invocation (c28).
         episode_task.watch = task.watch
-        # t6: announce the hop on the progress channel and record it on the
-        # PRIOR episode's flight feed (type="episode-transition", best-effort)
-        # — a pilot following episode 1 can locate every later episode. The
-        # marker is watch-gated like every flight write; the announcement is
-        # the same exact text the marker's intent carries.
-        announcement = flight.transition_announcement(
-            result.task_id, state.episode_count + 1, state.cap
-        )
-        emit_diagnostic(f"chain: {announcement}")
-        if task.watch:
-            flight.append_episode_transition(
-                repo,
-                result.task_id,
-                next_task_id=episode_task.id,
-                episode_index=state.episode_count + 1,
-                cap=state.cap,
-            )
+        _announce_episode_transition(repo, result.task_id, episode_task.id, state, task.watch)
 
     completed = verdict.reason == chainmod.HALT_OK_FINISH
-    if completed and not read_only_role:
+    if completed and not read_only_chain:
         # h21: the read-only verbs stay handoff-free — no finalize, no reap.
         artifact_path = _chain_finalize(
             repo,
@@ -1376,13 +1433,7 @@ def execute_work_chain(
             open_pr=open_pr,
             base=base,
         )
-    detail = f": {verdict.detail}" if verdict.detail else ""
-    emit_diagnostic(
-        f"chain: {'completed' if completed else 'halted'} after "
-        f"{state.episode_count} episode(s) — {verdict.reason}{detail}"
-    )
-    if not completed and episode_branches:
-        emit_diagnostic("chain: episode branches kept (WIP): " + ", ".join(episode_branches))
+    _emit_chain_outcome(verdict, state, completed=completed, branches=episode_branches)
     return result, artifact_path
 
 

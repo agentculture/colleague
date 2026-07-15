@@ -351,7 +351,7 @@ def test_goal_line_appears_while_work_item_runs_and_clears_after(tmp_path: Path)
     captured: dict = {}
 
     def _work_fn(**kwargs: object) -> tuple[TaskResult, Path]:
-        sink = kwargs["progress_sink"]
+        sink = kwargs["display"].sink
         goal_item = next((i for i in _session_panel(sink._session).items), None)
         captured["status"] = goal_item.status if goal_item else None
         return TaskResult(task_id="x", status=OK, summary="done"), tmp_path / "art.json"
@@ -690,7 +690,8 @@ def test_running_frame_differs_from_idle_and_restores_on_finish(tmp_path: Path) 
 
     captured: dict = {}
 
-    def _work_fn(*, progress_sink, **kwargs: object) -> tuple[TaskResult, Path]:
+    def _work_fn(*, display, **kwargs: object) -> tuple[TaskResult, Path]:
+        progress_sink = display.sink
         # Mid-run: drive real steps through the live sink, then snapshot the frame.
         progress_sink(0, "write_file", "foo.py", True)
         progress_sink(1, "run_command", "pytest", True)

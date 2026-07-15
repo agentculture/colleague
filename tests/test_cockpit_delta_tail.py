@@ -435,7 +435,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            progress_sink=sink,
+            display=DisplayOptions(sink=sink),
         )
         assert config.on_delta is not None
         assert config.on_delta == sink.on_delta
@@ -454,7 +454,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            progress_sink=sink,
+            display=DisplayOptions(sink=sink),
         )
         assert config.on_delta is None
 

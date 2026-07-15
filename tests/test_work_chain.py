@@ -576,3 +576,32 @@ class TestChainFlightContinuity:
         assert len(episodes) == 2
         # No transition marker recreated episode 1's feed.
         assert not flight.feed_path(git_repo, episodes[0]["task_id"]).exists()
+
+
+class TestReadOnlyModeChain:
+    """t12 live-dogfood catch: a read-only MODE gets read-only chain semantics."""
+
+    def test_review_mode_chain_survives_a_no_commit_episode(self, git_repo, monkeypatch):
+        """A ``--mode review --until-done`` chain does NOT halt 'no-progress'
+        after a commit-less episode — the live dogfood (the arc's own review)
+        halted exactly there before the fix. Read-only-mode chains bypass the
+        c22 commit-evidence guard (the read-only-role treatment); the episode
+        cap still bounds them, and they stay handoff-free (h21)."""
+        from colleague.cli import main
+
+        counter = _script_episodes(monkeypatch, ["idle", "finish"])
+        rc = main(_work_argv(git_repo, "--mode", "review", "--until-done", "--max-episodes", "3"))
+        assert rc == 0
+        assert counter["n"] == 2  # continued PAST the commit-less idle episode
+        episodes = _lineage_artifacts(git_repo)
+        assert len(episodes) == 2
+        assert episodes[-1]["status"] == "ok"
+
+    def test_write_mode_no_progress_halt_is_unchanged(self, git_repo, monkeypatch):
+        """The write-run guard still halts a commit-less chain (c22 intact)."""
+        from colleague.cli import main
+
+        counter = _script_episodes(monkeypatch, ["idle", "finish"])
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "3", "--no-pr"))
+        assert rc == 2
+        assert counter["n"] == 1  # halted at the guard, never reached the finish bait

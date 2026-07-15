@@ -112,7 +112,8 @@ def _run_and_capture(tmp_path: Path) -> dict:
     """Drive one work item; capture the RUNNING frame mid-flight + the finished state."""
     captured: dict = {}
 
-    def _work_fn(*, progress_sink, **kwargs: object) -> tuple[TaskResult, Path]:
+    def _work_fn(*, display, **kwargs: object) -> tuple[TaskResult, Path]:
+        progress_sink = display.sink
         progress_sink(0, "", "thinking… (waiting on the model)", True)  # a phase notice
         progress_sink(1, "edit_file", "colleague/loop.py", True)
         progress_sink(2, "run_command", "pytest -q", True)

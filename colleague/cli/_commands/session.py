@@ -69,6 +69,7 @@ from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.attribution import cortex_working_line, senses_line
 from colleague.cli._banner import emit_banner
+from colleague.cli._commands import work as _work_mod
 from colleague.cli._commands._input_line import OwnedInputLine
 from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
@@ -1690,7 +1691,7 @@ class _Session:
                 base=self.base,
                 config=config,
                 command_name=command_name,
-                progress_sink=_WorkSink(self),
+                display=_work_mod.DisplayOptions(sink=_WorkSink(self)),
                 mode=mode,
             )
 

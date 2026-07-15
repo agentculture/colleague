@@ -70,7 +70,8 @@ def _make_233_work_fn(capture: dict) -> object:
 
     def _work_fn(**kwargs: object) -> tuple[TaskResult, Path]:
         capture["engine_name"] = kwargs.get("engine_name")
-        sink = kwargs.get("progress_sink")
+        display = kwargs.get("display")
+        sink = display.sink if display is not None else None
         task = kwargs.get("task")
         # Four identical culture calls (the #233 spam) followed by a long command.
         culture_args = {"cli": "agtag", "args": ["issues", "fetch"]}
