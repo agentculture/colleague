@@ -111,10 +111,16 @@ The trade-off is acceptable:
 
 ## Non-goals (honest limits)
 
-- **No LLM-generated rolling summary in v0:** Windowing drops the oldest history
-  entirely and leaves a short placeholder note `[earlier steps elided to fit the
-  context budget]`. A model-based summarization pass is a parked follow-up — it
-  would add latency and cost per work item.
+- **Windowing is the floor, not the whole story (v0 line superseded):** The
+  v0 rule "no LLM-generated rolling summary" was superseded by the recorded
+  v0→v1 graduation: the [fill-line](capacity-standard.md) `compact` move is a
+  model-authored summary, now offered **per crossing** (bounded by a per-run
+  compaction cap) and **validated deterministically** before it replaces
+  history — an empty summary is rejected, never applied
+  ([indefinite-run](indefinite-run.md)). Lossy windowing — dropping the oldest
+  history with the placeholder note `[earlier steps elided to fit the context
+  budget]` — remains the documented floor whenever compaction is declined,
+  capped, or rejected.
 - **Not a context router or multi-model fallback:** An overflow never
   auto-switches to a bigger model. That is the out-of-scope
   router / routing policy (multi-backend automatic routing). Degradation is about

@@ -46,6 +46,15 @@ code**, only makes the clean summary survive to the exit. A *short* run (one tha
 never crossed the fill line) that stalls still falls back to its trailing prose
 when forced synthesis yields nothing — a documented follow-up.
 
+## Beyond one episode
+
+The nudge cap keeps a run finishing **within** its episode; a run that
+exhausts its step budget anyway can now finish **across** episodes: an armed
+`--until-done` run chains a budget-exhausted exit into a new episode carrying
+the prior episode's actual tree, handing off once at chain end — with honest
+limits (best-effort WIP sweep, per-episode gate cost, crawl risk under
+`--max-episodes 0`). Doc: [indefinite-run.md](indefinite-run.md).
+
 ## Key files
 
 - `colleague/loop.py` — `_handle_no_tool_turn`, `_resolve_terminal_summary`.

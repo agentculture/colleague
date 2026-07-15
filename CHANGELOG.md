@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Indefinite run — episode chaining** (`--until-done`; spec + plan `docs/{specs,plans}/2026-07-15-indefinite-run.md`, feature doc `docs/features/indefinite-run.md`; live evidence: eidetic `work-lesson-54ead8272f22`, a real task cut at steps=46 with "step budget exhausted"):
+  - `colleague work --until-done` and `colleague session … --until-done` (plus `--max-episodes N`, default 5 armed, `0` = unlimited; `COLLEAGUE_UNTIL_DONE` / `COLLEAGUE_MAX_EPISODES` / `.colleague/config.json`) chain bounded episodes automatically: `execute_work_chain` — one implementation on both fronts, forwarded to `--background` children — re-dispatches a budget-exhausted episode via `resolve_continuation` over the pure `colleague/chain.py` verdicts. The continuable allow-list is exactly `{"budget-exhausted"}` (mapped from the persisted `not_finished` flag when the #313 soft rule suppresses the record on a partial-delivery budget exit); ok / error / pilot-stop / tool-protocol-broken / no-progress exits each halt deliberately. Unarmed runs are byte-identical.
+  - Tree carry: episode N+1's isolation worktree bases on episode N's `colleague/<id>` branch tip (`isolation_worktree_add` `base_ref`, ref-verified); the #222 WIP sweep feeding it is best-effort, so a missing prior branch degrades to HEAD with a recorded warning — never a crash.
+  - Handoff fires ONCE at chain end (ok-finish only): every episode dispatches with push/PR suppressed, the final branch carries the cumulative diff, intermediate `colleague/*` branches are reaped (ancestors of the kept final only); a halted chain never pushes and keeps every branch as WIP. Read-only chains stay handoff-free (the commit-evidence no-progress guard doesn't apply to them — the episode cap bounds them).
+  - Verbatim config inheritance (nothing re-resolves env/config.json mid-chain), `ChainView` accounting on every chained artifact (exact per-episode sums, `"chain"` key omit-when-None; `--continue --until-done` resumes a cut chain's accounting via `read_chain_view`), between-episode flight pilot-stop + `episode-transition` markers on the prior feed (watch-gated), chain-aware `feedback record` (grades every episode in the lineage; cycles/missing artifacts terminate cleanly), and an unrepairable compaction note taking finish-with-handoff when chaining is armed.
+  - Per-episode gate cost stated honestly: the lint / affected-tests / test-integrity gates re-run every episode (deferral to chain end is a recorded follow-up, not built). `--max-episodes 0` with trivial-but-real progress each episode never halts — explicit operator intent; flight stop + heartbeat are the brakes.
+
+### Changed
+
+- **Fill-line re-arms per crossing** (default-on, supersedes v1's "fires at most once per work item", #156): a resolved compact re-arms once the run drops back under the line; total compaction turns capped at `DEFAULT_COMPACTION_CAP = 4` per run (a module constant, not yet an operator knob; cap reached is recorded on `capacity_warning` + a phase notice, never silent).
+- **Compaction summaries are validated before replacing history** (default-on): `validate_compaction` deterministically cross-checks the MAIN model's note against the run's own goal + changed-file trace evidence and repairs omissions; an empty/whitespace summary is REJECTED — the `(no summary produced)` silent-amnesia path is gone (unarmed rejection keeps the lossy-windowing floor; no deepthink lane — the recorded window-asymmetry decision).
+- Docs updated to the new line: `capacity-standard.md` (drops "fires at most once"), `continue-working.md`, `session-continue-heal.md`, `graceful-degradation.md`, `honest-incompletion.md`, the CLAUDE.md architecture bullet, and the features README index.
+
 ## [1.46.0] - 2026-07-15
 
 ### Added
