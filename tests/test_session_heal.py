@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
+from colleague import handoff
+from colleague.cli._commands.session import SessionIO, _Session
 from colleague.config import EngineConfig
 from colleague.contract import OK, TaskResult
-from colleague.cli._commands.session import SessionIO, _Session
-from colleague import handoff
 
 
 def _git_repo(path: Path) -> None:

@@ -22,8 +22,8 @@ import pytest
 
 from colleague.artifact import find_artifact
 from colleague.cli._commands.work import _build_task
-from colleague.contract import OK
 from colleague.continuation import ContinuationError, resolve_continuation
+from colleague.contract import OK
 
 
 def _make_ns(

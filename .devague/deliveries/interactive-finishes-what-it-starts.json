@@ -1,0 +1,38 @@
+{
+  "plan_slug": "interactive-finishes-what-it-starts",
+  "schema_version": 1,
+  "created": "2026-07-15T16:29:09Z",
+  "updated": "2026-07-15T16:44:41Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1 reassigned colleague->Claude mid-wave-1",
+      "task_ref": "t1",
+      "reason": "the colleague drive finished 'ok' with zero changes and a COMPACT meta-note as its summary (artifact 17cb439d5c02) \u2014 a live classifier gap now filed as colleague#330; Claude rebuilt t1 to the same acceptance criteria (41 tests green incl. the e2e shape pin)",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "t4 reassigned colleague->Claude mid-wave-2",
+      "task_ref": "t4",
+      "reason": "the colleague drive spent all 45 steps writing the TDD test file and exhausted its budget before implementing (artifact 54ead8272f22, honest budget exhaustion); Claude takes over the implementation, salvaging the drive's test file from its branch",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t8 reassigned colleague->Claude at wave 5",
+      "task_ref": "t8",
+      "reason": "the acceptance-sweep table + boundary grep gate need the full arc-diff context the integrator already holds; two earlier reassignments (d1/d2) showed the colleague round-trip cost under GPU contention outweighs delegation for context-heavy end-of-arc docs",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable"
+    }
+  ]
+}

@@ -87,7 +87,6 @@ from colleague.cockpit_run import (
     status_line,
 )
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
-from colleague.heal import COMMIT, STASH, parse_heal_choice, render_heal_prompt
 from colleague.config import (
     EngineConfig,
     resolve_lobes_gateway_url,
@@ -96,6 +95,7 @@ from colleague.config import (
 )
 from colleague.contract import SensesBlock, SensesRecord, Task, TaskResult
 from colleague.frontdoor import CORTEX, classify_frontdoor, cortex_frontdoor_outcome, run_frontdoor
+from colleague.heal import COMMIT, STASH, parse_heal_choice, render_heal_prompt
 from colleague.media import validate_attachment
 from colleague.policy import load_policy
 from colleague.presence import (
@@ -1652,6 +1652,9 @@ class _Session:
         self._heal_allow_dirty_once = False
         continued_from = self._continued_from_next
         self._continued_from_next = None
+        # Passed ONLY when set: an ordinary dispatch keeps the exact work_fn
+        # call shape stable for strict test doubles / injected work_fns.
+        lineage_kwargs = {"continued_from": continued_from} if continued_from else {}
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -1660,7 +1663,7 @@ class _Session:
                 task=task,
                 open_pr=open_pr,
                 allow_dirty=self.allow_dirty or heal_waiver,
-                continued_from=continued_from,
+                **lineage_kwargs,
                 base=self.base,
                 config=config,
                 command_name=command_name,

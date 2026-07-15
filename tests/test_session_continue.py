@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from colleague.cli._commands.session import _SLASH_COMMANDS, SessionIO, _Session
 from colleague.config import EngineConfig
 from colleague.contract import OK, TaskResult
-from colleague.cli._commands.session import _SLASH_COMMANDS, SessionIO, _Session
 
 
 def _write_artifact(repo: Path, task_id: str, *, status: str = "incomplete") -> None:
@@ -101,7 +101,8 @@ def test_lineage_cell_is_consumed_per_dispatch(tmp_path: Path) -> None:
     h.session._work_line("a fresh unrelated goal")
     assert len(h.calls) == 2
     assert h.calls[0]["continued_from"] == "cut4"
-    assert h.calls[1]["continued_from"] is None
+    # An ordinary dispatch passes NO lineage kwarg at all (stable stub shape).
+    assert "continued_from" not in h.calls[1]
 
 
 def test_continue_is_in_the_slash_catalog() -> None:

@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from colleague.cli._commands.session import SessionIO, _Session
 from colleague.cockpit_run import Ledger, RunState, observed_ledger, reconcile
 from colleague.config import EngineConfig
 from colleague.contract import OK, Task, TaskResult
-from colleague.cli._commands.session import SessionIO, _Session
 
 
 def _make_session(repo: Path, work_result: TaskResult) -> tuple[_Session, list[str]]:
