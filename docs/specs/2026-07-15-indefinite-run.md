@@ -45,6 +45,16 @@
 - between-episode accounting is first-class: each episode remains one work item with its own artifact; the chain stamps continued_from lineage episode-to-episode and the final artifact carries a chain view (episode count, total steps/tokens) so WorkStats stay exact per-episode, never merged estimates
   - instruction: check artifact.py stats stay per-episode; chain summary is additive from real per-episode usage
   - honesty: tokens/steps in the chain view are sums of per-episode exact usage — never estimated (the tokens-are-exact rule)
+- the chain continues ONLY on a continuable-exit allow-list: incompletion reason budget-exhausted (and a timeout-preserved partial with progress); it NEVER re-dispatches a pilot-stop, tool-protocol-broken, no-progress-zero-steps, or ok exit — each non-continuable reason is a deliberate halt with its own meaning
+  - honesty: a test per non-continuable reason proves the chain halts (pilot-stop, tool-protocol, ok); the allow-list is an explicit enumeration in code, not a status!=ok catch-all
+- handoff fires ONCE, at chain end: intermediate episodes suppress per-episode push/PR; because episode N+1 branches from episode N's tip, the final episode's branch carries the cumulative diff, and intermediate colleague/<id> branches are reaped after the chain completes (artifacts keep the evidence)
+  - honesty: a 3-episode armed chain with --pr produces exactly one PR whose diff equals the cumulative work; colleague clean reaps the intermediates; the read-only verbs (explore/review) remain handoff-free
+- episode transitions are observable and pilotable: the progress sink (#38) announces 'episode N+1 continuing <prior-id>' and the flight feed records the next episode's id at each boundary, so a pilot following episode 1 can follow (or stop) the whole chain — never a silently re-keyed run
+  - honesty: a pilot watching episode 1's flight file can locate episode 2 from the recorded transition (test); write_stop before the boundary prevents episode 2 entirely (h8)
+- chain re-dispatch inherits the original invocation's resolved options verbatim (engine, mode, --no-pr, --allow-dirty, budgets, attachments policy) — the precedent is the background child's forwardable-flags list (work.py) — so an episode never runs under silently different config than the run the operator armed
+  - honesty: a chain armed with --engine mock --no-pr keeps both on every episode (test); nothing is re-resolved from a config file that changed mid-chain
+- feedback is chain-aware: grading the last work item traverses continued_from lineage and stamps the grade on EVERY episode of the chain, so per-episode ROI stats reflect the chain outcome they contributed to
+  - honesty: grading a 3-episode chain writes the grade to all three feedback records (test); a lineage cycle or missing artifact terminates traversal cleanly, never loops
 
 ## Honesty conditions
 
@@ -56,6 +66,7 @@
 - the mock e2e chain test enacts this narrative end-to-end (>=3 episodes, tree carry, validated compact, honest halt) — the after-state is demonstrated, not asserted
 - the spec cites real work-lesson evidence; if the live rig proof shows chaining does NOT reduce babysitting (e.g. the 27B loops without progress), that result is reported honestly in the delivery summary
 - all three named tests exist and fail on main before the feature lands (TDD baseline)
+- the chain treats a WIP-commit failure as 'prior branch may be stale/absent' and takes the recorded degrade path — never assumes the sweep succeeded
 
 ## Success signals
 
@@ -70,6 +81,10 @@
 ## Non-goals
 
 - compaction and its validation stay on the MAIN model: the compaction prompt IS the main model's own windowed history, which structurally cannot fit the 64K deepthink window (recorded decision, dual-model-deepthink 2026-07-01) — no deepthink/second-model escalation for summaries, and no LLM-judge validation lane; validation is deterministic-first
+
+## Assumptions
+
+- the tree-carry foundation is #222's WIP sweep: _preserve_isolated_wip (work.py:359-376) commits ANY non-OK isolated exit's WIP onto colleague/<id> — verified by probe; it is best-effort (suppress(Exception), empty diff = no-op), which is exactly why the h6 missing-branch degrade path is load-bearing
 
 ## Scope exploration
 
@@ -99,9 +114,23 @@
   - seeds: `c13`
 - `s13` — `docs/features/{capacity-standard,continue-working,session-continue-heal,graceful-degradation,honest-incompletion}.md + CLAUDE.md`: five feature docs + CLAUDE.md currently document the exact limits this idea removes; doc drift here would contradict the trim-discipline rule
   - seeds: `c14`
+- `s14` — `challenge pass / failure-modes lens: incompletion.py reasons x loop exit codes (_EXIT_PILOT_STOP, _EXIT_TOOL_PROTOCOL, _EXIT_BUDGET)`: the frame said 'budget-shaped' but never enumerated the exits that must NOT chain — a status!=ok catch-all would re-dispatch pilot-stopped and protocol-broken runs
+  - seeds: `c24`
+- `s15` — `challenge pass / adjacent-systems lens: colleague/handoff.py + cleanup-reap`: the ordinary work path hands off per work item — an unmodified chain would push a branch/PR per episode; nothing in the frame said handoff is chain-terminal
+  - seeds: `c26`
+- `s16` — `challenge pass / observability lens: colleague/flight.py per-task-id files x chain of ids`: flight files are keyed by work-item id — a chain spans multiple ids and the pilot's handle would silently die at each boundary unless the transition is recorded
+  - seeds: `c27`
+- `s17` — `challenge pass / adjacent-systems lens: work.py forwardable-flags precedent (_FORWARDABLE)`: the frame never said which knobs episode N+1 inherits; background one-shot already solved flag inheritance and is the pattern to reuse
+  - seeds: `c28`
+- `s18` — `challenge pass / probe: work.py _preserve_isolated_wip`: probe confirmed non-OK budget exits DO WIP-commit (the carry mechanism exists today); best-effort semantics found and recorded
+  - seeds: `c29`
+- `s19` — `challenge pass / concurrency lens: worktrees.py fcntl admin lock (#239) + rig-budget per-episode re-acquire`: clean pass: admin mutations already serialized; each episode is an ordinary work item re-acquiring the rig slot — no new interleaving surface found; residual only if two chains target one repo simultaneously (same as two manual runs today)
+- `s20` — `challenge pass / security+reversibility lens: approval gate, write isolation, colleague clean`: clean pass: no new subprocess/socket/import surface (c9/h9); every episode writes only colleague/* branches in throwaway worktrees — reversible by branch deletion, reapable by clean; approval gate semantics untouched
+- `s21` — `challenge pass / overlooked-actors lens: memory R1 remember-after per episode`: each episode writes its own work-lesson (recall noise grows with chain length) — acceptable v1; noted, not routed (eidetic shadowing exists for churn)
 
 ## Decisions
 
 - arming is an opt-in flag: work --until-done (+ --max-episodes N, default 5 when armed, 0 = unlimited); unarmed behavior byte-identical to today
 - the no-progress guard halts the chain when an episode lands no new commits on its branch AND adds no new artifact evidence
 - an unrepairable compaction note triggers finish-with-handoff when chaining is armed (chain re-seeds cleanly); the lossy-windowing floor stays for unarmed runs
+- the live proof is dogfood: an ask-colleague review of this arc's OWN PR diff runs with chaining armed — big-diff reviews exhausting their budget is a recorded pain (memory: interactive-arc 2026-07-15), so a review that completes across episodes with a delivered verdict is the live pass criterion
