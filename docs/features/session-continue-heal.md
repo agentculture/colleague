@@ -26,6 +26,14 @@ as the interactive-redesign increment):
   no artifact at all, and silently continuing the *previous, completed* run
   would be worse than an error. Missing/corrupt artifacts error naming the id;
   never a silent fresh start (`colleague/continuation.py`).
+- **The automatic sibling:** an armed `--until-done` run chains this same
+  resume seam automatically on a budget-exhausted exit — and, unlike a manual
+  `--continue` (text seed, fresh worktree at HEAD), a chained episode carries
+  the prior episode's **actual tree** (best-effort: a missing prior branch
+  degrades to HEAD with a recorded warning). The two compose: `--continue
+  --until-done` resumes the cut run as episode 1 (at HEAD, exactly like an
+  unchained `--continue`) and a cut *chained* run's accounting resumes via
+  `read_chain_view`. Doc: [indefinite-run.md](indefinite-run.md).
 
 ## 2. A dirty tree heals with one explicit choice (#168)
 

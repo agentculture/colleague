@@ -83,6 +83,18 @@ than producing one.
 
 Priority order: `no-progress-zero-steps` > `budget-exhausted` > `write-no-changes` > `empty-deliverable`.
 
+### The chain consumes `budget-exhausted` — and nothing else
+
+An armed `--until-done` run ([indefinite-run](indefinite-run.md)) uses this
+classification as its continue signal: the continuable allow-list is exactly
+`{"budget-exhausted"}` — every other reason (and `error`, and a pilot stop) is
+a deliberate halt. Because the soft rule *suppresses* the record when a budget
+exit already changed files (delivered-so-far is not absence), the chain also
+maps the persisted `not_finished` flag to `budget-exhausted`. #313 is never
+weakened by chaining: a chain that stops progressing halts, and the final
+artifact still reports non-ok with reason + evidence — auto-continue is not a
+way to launder incompletion.
+
 ### Contract (`colleague/contract.py`)
 
 ```python
