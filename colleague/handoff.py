@@ -228,11 +228,13 @@ def handoff(
         for path in _untracked_paths(repo)
         if path not in baseline and not path.startswith(".colleague/")
     ]
-    # #275: a literal ``~*`` entry at the repo root is shell-expansion pollution
-    # (a run_command test wrote a "~/…" path relative to the repo instead of
-    # $HOME), never a deliverable — skip it and surface it in the note instead
-    # of committing a fake home directory onto the work branch.
-    pollution = [p for p in produced if p.split("/", 1)[0].startswith("~")]
+    # #275: an entry whose first segment is exactly ``~`` is shell-expansion
+    # pollution (a run_command test wrote a "~/…" path relative to the repo
+    # instead of $HOME), never a deliverable — skip it and surface it in the
+    # note instead of committing a fake home directory onto the work branch.
+    # Only the literal ``~`` dir qualifies: a tilde-PREFIXED root file like
+    # ``~notes.md`` is a legitimate deliverable and is committed as usual.
+    pollution = [p for p in produced if p.split("/", 1)[0] == "~"]
     if pollution:
         produced = [p for p in produced if p not in pollution]
     if produced:

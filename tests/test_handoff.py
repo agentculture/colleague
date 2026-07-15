@@ -400,6 +400,23 @@ def test_handoff_skips_literal_tilde_pollution(tmp_path: Path) -> None:
     assert "~/.culture/mesh.yaml" in result.note
 
 
+def test_handoff_commits_tilde_prefixed_legitimate_files(tmp_path: Path) -> None:
+    """A tilde-PREFIXED root file (e.g. ``~notes.md``) is a legitimate deliverable
+    — only the literal ``~`` segment is #275 pollution, so both files commit."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "~notes.md").write_text("real notes\n")
+    (repo / "feature.txt").write_text("real work\n")
+
+    result = handoff(repo, "abc123", instruction="add feature", open_pr=False)
+
+    committed = _committed_files(repo, result.branch)
+    assert "~notes.md" in committed
+    assert "feature.txt" in committed
+    assert sorted(result.changed_files) == ["feature.txt", "~notes.md"]
+    assert "test-pollution" not in result.note
+
+
 def test_handoff_only_tilde_pollution_is_a_no_op(tmp_path: Path) -> None:
     """If the only untracked output is a literal ``~`` dir, nothing is committed
     and the note names both the no-op and the skipped pollution (#275)."""
