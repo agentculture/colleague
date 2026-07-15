@@ -259,6 +259,72 @@ def append_guidance(repo_path, task_id, message: str):
     cp.write_text(json.dumps(data))
 
 
+def transition_announcement(prior_task_id, episode_index: int, cap: int) -> str:
+    """The pilot-facing episode-transition line, in its exact canonical form (t6).
+
+    ``episode <N+1> of <cap>: continuing <prior-id>`` — the ONE form both the
+    progress-sink announcement and the feed marker's ``intent`` carry, so a
+    pilot reads the same words wherever the hop surfaces. A non-positive cap
+    (``0`` = unlimited, decision c21) reads ``unlimited``.
+    """
+    cap_label = "unlimited" if cap <= 0 else str(cap)
+    return f"episode {episode_index} of {cap_label}: continuing {prior_task_id}"
+
+
+def append_episode_transition(
+    repo_path, prior_task_id, *, next_task_id, episode_index: int, cap: int
+) -> None:
+    """Append a ``type="episode-transition"`` marker to the PRIOR episode's feed (t6).
+
+    Written by the chain driver on starting episode N+1, onto the JUST-FINISHED
+    episode's feed, recording ``{next_task_id, episode_index, cap}`` — so a
+    pilot tailing episode 1's feed can follow the chain hop by hop (the loop
+    reaps each episode's live plane at finish, so this append recreates the
+    feed file with the marker as its only record). Carries the common marker
+    keys (``step_index``/``tool``/``intent``/``stats`` — the #308 convention,
+    ``step_index`` ``0`` like ``run-start``: the prior run is over) so an
+    existing feed reader renders it as informative liveness, never a KeyError;
+    ``intent`` IS :func:`transition_announcement`'s exact text.
+
+    Best-effort: an unwritable flight dir/file (``OSError``) is swallowed — a
+    marker must never crash the chain (the module's degrade convention).
+    """
+    record = {
+        "type": "episode-transition",
+        "step_index": 0,
+        "tool": None,
+        "intent": transition_announcement(prior_task_id, episode_index, cap),
+        "stats": {},
+        "at": time.time(),
+        "next_task_id": str(next_task_id),
+        "episode_index": episode_index,
+        "cap": cap,
+    }
+    fp = feed_path(repo_path, prior_task_id)
+    try:
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        with open(fp, "a") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError:
+        return
+
+
+def read_stop(repo_path, task_id) -> bool:
+    """True when *task_id*'s control file requests a cooperative stop (t6).
+
+    A pure PEEK for the chain driver's between-episode boundary check: unlike
+    :meth:`FlightSession.read_control` it holds no guidance cursor and consumes
+    nothing. Absent file, malformed JSON, or an unreadable path all read as
+    ``False`` (the module's degrade convention — never raise, never block).
+    """
+    cp = control_path(repo_path, task_id)
+    try:
+        data = json.loads(cp.read_text())
+    except (OSError, ValueError):  # absent/unreadable file, malformed JSON
+        return False
+    return bool(data.get("stop", False)) if isinstance(data, dict) else False
+
+
 def _task_id_of(path: Path) -> str:
     """Extract the task id from a flight file name (<task_id>.feed.jsonl / .control.json).
 

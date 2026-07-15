@@ -61,6 +61,11 @@ HALT_NON_CONTINUABLE = "non-continuable-reason"
 HALT_CAP_REACHED = "cap-reached"
 HALT_NO_PROGRESS = "no-progress"
 HALT_CONTINUATION_ERROR = "continuation-error"
+# A pilot's cooperative stop landing in the between-episode window (t6). The
+# check itself lives at the work-dispatch seam (_chain_should_start_next) —
+# flight-control I/O stays out of this pure module; only the reason is named
+# here so the halt vocabulary has one home.
+HALT_PILOT_STOP = "pilot-stop"
 
 # The armed-default episode cap (decision c21). The resolved knob lives in
 # colleague/config.py (``EngineConfig.max_episodes``); this mirror keeps the

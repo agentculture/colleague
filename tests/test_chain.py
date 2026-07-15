@@ -505,3 +505,26 @@ def test_chain_module_is_pure_stdlib() -> None:
         if name in forbidden or any(name.startswith(f"{f}.") for f in forbidden)
     }
     assert not hits, f"chain.py must not import {sorted(hits)}"
+
+
+# ---------------------------------------------------------------------------
+# t6 — the pilot-stop halt reason (between-episode flight stop)
+# ---------------------------------------------------------------------------
+
+
+def test_pilot_stop_is_a_distinct_halt_reason():
+    """HALT_PILOT_STOP joins the halt vocabulary: one honest string per way a
+    chain ends (h2/h7), colliding with no other reason. The check itself lives
+    at the work-dispatch seam (flight I/O stays out of this pure module)."""
+    from colleague.chain import HALT_PILOT_STOP
+
+    assert HALT_PILOT_STOP == "pilot-stop"
+    reasons = {
+        HALT_OK_FINISH,
+        HALT_NON_CONTINUABLE,
+        HALT_CAP_REACHED,
+        HALT_NO_PROGRESS,
+        HALT_CONTINUATION_ERROR,
+        HALT_PILOT_STOP,
+    }
+    assert len(reasons) == 6
