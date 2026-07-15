@@ -1221,17 +1221,32 @@ def _chain_progress(
     return chainmod.episode_progressed(new_commits=new_commits, new_evidence=new_evidence)
 
 
-def _run_chain(
-    args: argparse.Namespace,
-    repo: Path,
-    engine: str,
-    config: EngineConfig,
-    task: Task,
+def execute_work_chain(
     *,
-    command_name: str | None,
-    mode: str | None,
-) -> int:
-    """The ``--until-done`` episode chain loop (indefinite-run t5).
+    repo: Path,
+    engine_name: str,
+    task: Task,
+    open_pr: bool,
+    base: str,
+    config: EngineConfig,
+    cap: int,
+    allow_dirty: bool = False,
+    command_name: str | None = None,
+    display: "DisplayOptions | None" = None,
+    progress_sink: "CockpitProgressSink | None" = None,
+    mode: str | None = None,
+    continued_from: str | None = None,
+) -> tuple[TaskResult, Path]:
+    """The ``--until-done`` episode chain loop (indefinite-run t5/t9).
+
+    The single implementation of episode chaining, shared by BOTH fronts (the
+    h11 ``execute_work`` precedent): :func:`_run_chain` adapts ``cmd_work``'s
+    parsed argv onto it, and the interactive ``session``'s armed dispatch
+    calls it directly (``_dispatch_work`` — same kwargs shape as its
+    single-episode ``work_fn`` call, plus *cap*), so the session front can
+    never fork the chain semantics. Returns the FINAL episode's
+    ``(result, artifact_path)`` pair — the caller owns outcome emission
+    (exit-code mapping for the CLI, the feed line for the session).
 
     Wraps :func:`execute_work`: each episode is an ordinary bounded work item
     with its own artifact; the chain decisions are pure ``colleague.chain``
@@ -1260,17 +1275,11 @@ def _run_chain(
       HEAD, exactly like an unchained ``--continue``), and a cut CHAINED
       run's accounting resumes via :func:`~colleague.artifact.read_chain_view`.
 
-    Exit code is the FINAL episode's, mapped by :func:`_emit_work_outcome`
-    (0 ok / 2 incomplete / 1 error) — a halted chain reports its last episode
-    honestly (#313 stays intact).
+    A halted chain returns its last episode's honest result (#313 stays
+    intact) — the CLI adapter maps it to the exit code (0 ok / 2 incomplete /
+    1 error).
     """
-    json_mode = bool(getattr(args, "json", False))
-    cap, _ = _resolve_chain_arming(args, config)
-    open_pr = not args.no_pr
-    allow_dirty = bool(getattr(args, "allow_dirty", False))
-    display = DisplayOptions(
-        tui=getattr(args, "tui", None), tui_events=getattr(args, "tui_events", None)
-    )
+    display = display or DisplayOptions()
     # c28: apply the mode profile ONCE at arming; every episode reuses this
     # resolved config verbatim (execute_work skips re-application when chained,
     # so a mid-chain overlay change is never re-read).
@@ -1281,7 +1290,6 @@ def _run_chain(
     # Lazy import: the chain path is opt-in; keep work's import graph flat.
     from colleague import chain as chainmod
 
-    continued_from: str | None = getattr(args, "_continued_from_resolved", None)
     # --continue + --until-done: resume the cut run's chain accounting when it
     # carried a view (an ordinary cut run yields None → fresh accounting).
     prior_view = read_chain_view(repo, continued_from) if continued_from else None
@@ -1292,29 +1300,22 @@ def _run_chain(
     episode_branches: list[str] = []
 
     while True:
-        try:
-            result, artifact_path = execute_work(
-                repo=repo,
-                engine_name=engine,
-                task=episode_task,
-                open_pr=False,  # c26: per-episode push/PR suppressed; see _chain_finalize
-                allow_dirty=allow_dirty,
-                isolate=True,
-                base=args.base,
-                config=config,
-                command_name=command_name,
-                display=display,
-                mode=mode,
-                continued_from=continued_from,
-                chain=ChainEpisodeOptions(base_ref=prior_branch, prior_view=prior_view),
-            )
-        except CliError as exc:
-            # An episode crash halts the chain like a single run's failure —
-            # branches stay (the operator may want the WIP); same --json
-            # partial surface as cmd_work's unchained path.
-            if json_mode and exc.result is not None:
-                emit_result(exc.result.to_dict(), json_mode=True)
-            raise
+        result, artifact_path = execute_work(
+            repo=repo,
+            engine_name=engine_name,
+            task=episode_task,
+            open_pr=False,  # c26: per-episode push/PR suppressed; see _chain_finalize
+            allow_dirty=allow_dirty,
+            isolate=True,
+            base=base,
+            config=config,
+            command_name=command_name,
+            display=display,
+            progress_sink=progress_sink,
+            mode=mode,
+            continued_from=continued_from,
+            chain=ChainEpisodeOptions(base_ref=prior_branch, prior_view=prior_view),
+        )
         prior_view = result.chain
         episode_branch = result.branch or branch_name(episode_task.id, episode_task.instruction)
         episode_branches.append(episode_branch)
@@ -1341,7 +1342,7 @@ def _run_chain(
         episode_task = Task.new(
             str(repo),
             seed_text,
-            engine=engine,
+            engine=engine_name,
             attachments=list(attachments) if attachments else None,
         )
         # The flight arming resolved once for the arming invocation (c28).
@@ -1373,7 +1374,7 @@ def _run_chain(
             episode_branches,
             instruction=arming_instruction,
             open_pr=open_pr,
-            base=args.base,
+            base=base,
         )
     detail = f": {verdict.detail}" if verdict.detail else ""
     emit_diagnostic(
@@ -1382,6 +1383,54 @@ def _run_chain(
     )
     if not completed and episode_branches:
         emit_diagnostic("chain: episode branches kept (WIP): " + ", ".join(episode_branches))
+    return result, artifact_path
+
+
+def _run_chain(
+    args: argparse.Namespace,
+    repo: Path,
+    engine: str,
+    config: EngineConfig,
+    task: Task,
+    *,
+    command_name: str | None,
+    mode: str | None,
+) -> int:
+    """``cmd_work``'s thin adapter onto :func:`execute_work_chain` (t5/t9).
+
+    Unpacks the parsed argv (open-pr choice, display knobs, the resolved
+    ``--continue`` lineage) onto the shared chain loop and maps the FINAL
+    episode's result to the exit code via :func:`_emit_work_outcome`
+    (0 ok / 2 incomplete / 1 error — a halted chain reports its last episode
+    honestly, #313). The session front calls ``execute_work_chain`` directly,
+    so the chain semantics live in exactly one place.
+    """
+    json_mode = bool(getattr(args, "json", False))
+    cap, _ = _resolve_chain_arming(args, config)
+    try:
+        result, artifact_path = execute_work_chain(
+            repo=repo,
+            engine_name=engine,
+            task=task,
+            open_pr=not args.no_pr,
+            base=args.base,
+            config=config,
+            cap=cap,
+            allow_dirty=bool(getattr(args, "allow_dirty", False)),
+            command_name=command_name,
+            display=DisplayOptions(
+                tui=getattr(args, "tui", None), tui_events=getattr(args, "tui_events", None)
+            ),
+            mode=mode,
+            continued_from=getattr(args, "_continued_from_resolved", None),
+        )
+    except CliError as exc:
+        # An episode crash halts the chain like a single run's failure —
+        # branches stay (the operator may want the WIP); same --json
+        # partial surface as cmd_work's unchained path.
+        if json_mode and exc.result is not None:
+            emit_result(exc.result.to_dict(), json_mode=True)
+        raise
     return _emit_work_outcome(result, engine, artifact_path, json_mode)
 
 

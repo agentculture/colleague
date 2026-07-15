@@ -467,6 +467,39 @@ def test_background_child_argv_forwards_multiple_attach_values_in_order(tmp_path
     assert resolved == [str(Path("a.png").resolve()), str(Path("sub/b.wav").resolve())]
 
 
+def test_background_child_argv_forwards_until_done_and_max_episodes(tmp_path):
+    """Acceptance (indefinite-run t9, criterion 2): a `work --background
+    --until-done --max-episodes N` chain forwards BOTH arming flags to the
+    detached child via the forwardable-flags list, so the child runs the same
+    armed chain the parent was asked for."""
+    repo = _init_repo(tmp_path)
+    ns = _full_namespace(until_done=True, max_episodes=7)
+    argv = _background_child_argv(ns, repo)
+
+    assert "--until-done" in argv
+    assert argv[argv.index("--max-episodes") + 1] == "7"
+
+
+def test_background_child_argv_forwards_explicit_zero_max_episodes(tmp_path):
+    """--max-episodes 0 (explicit unlimited, c21) is falsy — it must ride the
+    tail's `is not None` idiom, never be dropped by the truthy flag table."""
+    repo = _init_repo(tmp_path)
+    ns = _full_namespace(until_done=True, max_episodes=0)
+    argv = _background_child_argv(ns, repo)
+
+    assert argv[argv.index("--max-episodes") + 1] == "0"
+
+
+def test_background_child_argv_omits_chain_flags_when_unarmed(tmp_path):
+    """An unarmed background run's child argv carries neither chain flag."""
+    repo = _init_repo(tmp_path)
+    ns = _full_namespace()  # no until_done / max_episodes attrs at all
+    argv = _background_child_argv(ns, repo)
+
+    assert "--until-done" not in argv
+    assert "--max-episodes" not in argv
+
+
 # --- cmd_work wiring: --background never runs the loop in the parent -------
 
 
