@@ -103,6 +103,13 @@ minds. The architecture, part by part:
   a foreground TTY loop, no daemon; a `SlashSpec` catalog; a delegation cockpit
   (#158); agent-native default (#234/#233/#235); mode selection (shift-tab / `/mode`). Off a colour TTY
   = byte-identical. Docs: `session.md`, `session-modes.md`.
+- **Interactive finishes what it starts (#167/#168/#169)** — `work --continue/-c`
+  and session `/continue` resume a cut run from its persisted artifact
+  (`colleague/continuation.py`, wrong-run guard; lineage on
+  `TaskResult.continued_from`); a colour-TTY dirty dispatch offers the 3-choice
+  heal (`colleague/heal.py`, consequence+undo verbatim) instead of the #149
+  refusal (runtime guard untouched); the Last-run panel + post-run line carry
+  the real `pr_url`, never synthesized. Doc: `session-continue-heal.md`.
 - **Cockpit / tui (#285/#249)** — `colleague tui` gives three headless views of one
   `TAUIState` (JSON/ANSI/Markdown) + snapshot/diagnose; the session cockpit changes
   idle→running (claiming only ENFORCED gates, never "sandboxed"); the generic cockpit
