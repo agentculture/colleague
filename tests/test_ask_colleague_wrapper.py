@@ -269,15 +269,37 @@ class TestFrontLoadReviewDiffBehavior:
         (repo / "big.py").write_text("# base\n")
         subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
         subprocess.run(
-            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
-             "commit", "-q", "-m", "base"],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "base",
+            ],
             check=True,
         )
         (repo / "big.py").write_text("\n".join(f"line_{i} = {i}" for i in range(2000)) + "\n")
         subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
         subprocess.run(
-            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
-             "commit", "-q", "-m", "big change"],
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "big change",
+            ],
             check=True,
         )
 
