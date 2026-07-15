@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from colleague.contract import INCOMPLETE, OK, Task
 from colleague.incompletion import classify_incompletion
 from colleague.loop import CompleteFn, ModelResponse, ToolCall, run
@@ -56,6 +58,37 @@ def test_streak_stops_the_run_instead_of_burning_the_budget(tmp_path: Path) -> N
     assert "3 consecutive" in result.incompletion.evidence
     assert "tool-call parser" in result.incompletion.recommendation
     assert "tool-call channel" in result.summary
+
+
+def test_streak_cap_is_operator_tunable_via_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """COLLEAGUE_MAX_UNKNOWN_TOOL=1 stops the run after a single unknown-tool step."""
+    monkeypatch.setenv("COLLEAGUE_MAX_UNKNOWN_TOOL", "1")
+    responses = [_unknown_call(i) for i in range(1, 21)]
+    task = Task.new(str(tmp_path), "make a change")
+    result = run(scripted(responses), task, max_steps=20)
+
+    assert result.status == INCOMPLETE
+    assert result.incompletion is not None
+    assert result.incompletion.reason == "tool-protocol-broken"
+    assert len(result.steps) == 1
+
+
+@pytest.mark.parametrize("invalid", ["zero", "0"])
+def test_streak_cap_invalid_env_falls_back_to_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid: str
+) -> None:
+    """A non-int or < 1 COLLEAGUE_MAX_UNKNOWN_TOOL falls back to the default cap of 3."""
+    monkeypatch.setenv("COLLEAGUE_MAX_UNKNOWN_TOOL", invalid)
+    responses = [_unknown_call(i) for i in range(1, 21)]
+    task = Task.new(str(tmp_path), "make a change")
+    result = run(scripted(responses), task, max_steps=20)
+
+    assert result.status == INCOMPLETE
+    assert result.incompletion is not None
+    assert result.incompletion.reason == "tool-protocol-broken"
+    assert len(result.steps) == 3
 
 
 def test_unknown_tool_error_names_the_valid_tools(tmp_path: Path) -> None:

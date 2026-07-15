@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import re as _re
 import shlex
 import sys
@@ -178,7 +179,9 @@ _EXIT_TOOL_PROTOCOL = "tool_protocol"  # consecutive unknown-tool calls -> chann
 # ``_EXIT_TOOL_PROTOCOL`` (#321). Three failed self-corrections (each fed back the
 # valid-tool list) is decisive evidence the tool-call channel itself is broken —
 # e.g. a serving-side --tool-call-parser / template mismatch (#320) — and every
-# further turn would burn budget on calls that can never exist.
+# further turn would burn budget on calls that can never exist. Operators tune the
+# cap with ``COLLEAGUE_MAX_UNKNOWN_TOOL`` (int >= 1; a missing or invalid value
+# falls back here) — read per-check by ``_unknown_tool_cap``.
 _UNKNOWN_TOOL_STREAK_CAP = 3
 
 # Recovery for the trail-off (colleague#142): when the model ends a turn with no
@@ -1009,10 +1012,24 @@ def _track_unknown_tool(ctx: _Work, name: str, exc: Exception | None) -> None:
         cell[0] = 0
 
 
+def _unknown_tool_cap() -> int:
+    """Operator-tunable unknown-tool streak cap (#321).
+
+    ``COLLEAGUE_MAX_UNKNOWN_TOOL`` overrides ``_UNKNOWN_TOOL_STREAK_CAP`` when it
+    parses as an int >= 1; a missing or invalid value falls back to the default,
+    so an unset environment stays byte-identical.
+    """
+    try:
+        cap = int(os.environ.get("COLLEAGUE_MAX_UNKNOWN_TOOL", ""))
+    except ValueError:
+        return _UNKNOWN_TOOL_STREAK_CAP
+    return cap if cap >= 1 else _UNKNOWN_TOOL_STREAK_CAP
+
+
 def _tool_protocol_broken(ctx: _Work) -> bool:
     """True when the unknown-tool streak has hit the cap (#321)."""
     cell = ctx._unknown_tool_streak
-    return bool(cell) and cell[0] >= _UNKNOWN_TOOL_STREAK_CAP
+    return bool(cell) and cell[0] >= _unknown_tool_cap()
 
 
 def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
