@@ -26,7 +26,7 @@ import os
 import signal
 import sys
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -526,6 +526,18 @@ def _arm_delta_stream(config: EngineConfig, cockpit_sink: object) -> None:
         config.on_delta = cockpit_sink.on_delta
 
 
+@dataclass(frozen=True)
+class DisplayOptions:
+    """The cockpit/TUI display knobs, bundled (SonarCloud S107 — the recorded
+    hot-signature pattern: rarely-passed presentation knobs ride one frozen
+    options object instead of two positional-adjacent params)."""
+
+    #: Live-cockpit activation (#74 A1): True forces on, False off, None auto.
+    tui: bool | None = None
+    #: Optional WorkStep-JSONL path (#74 A3) an agent can follow / `tui replay`.
+    tui_events: str | None = None
+
+
 def execute_work(
     *,
     repo: Path,
@@ -537,8 +549,7 @@ def execute_work(
     allow_dirty: bool = False,
     isolate: bool = False,
     command_name: str | None = None,
-    tui: bool | None = None,
-    tui_events: str | None = None,
+    display: "DisplayOptions | None" = None,
     progress_sink: "CockpitProgressSink | None" = None,
     mode: str | None = None,
     continued_from: str | None = None,
@@ -571,13 +582,11 @@ def execute_work(
         Originating command-template name (``None`` for a plain instruction).
         Recorded on the result before *every* artifact write — including the
         failure path — so the run report never loses the origin (R5 / c12).
-    tui:
-        Live-cockpit activation (#74 A1): ``True`` forces it on, ``False`` off,
-        ``None`` (default) is auto — on when stderr is an interactive TTY. When
-        off, the plain ``step N:`` stderr sink is used unchanged.
-    tui_events:
-        Optional path (#74 A3): when set, one `WorkStep` JSONL line is appended
-        per step as the work item runs, so an agent can follow / `tui replay` it.
+    display:
+        The bundled cockpit/TUI display knobs (:class:`DisplayOptions` —
+        ``tui`` live-cockpit activation #74 A1, ``tui_events`` WorkStep-JSONL
+        path #74 A3); ``None`` (default) means both knobs at their ``None``
+        defaults, byte-identical to the pre-bundle behavior.
     progress_sink:
         Optional caller-supplied cockpit sink (#74 A2): the interactive ``session``
         passes a sink bound to its own `CockpitState` + frame-writer so a work item
@@ -613,6 +622,8 @@ def execute_work(
         On unknown engine or engine-level failure (artifact is still written
         before the exception is raised — honesty h5).
     """
+    display = display or DisplayOptions()
+    tui, tui_events = display.tui, display.tui_events
     # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
     # operator left untouched, BEFORE anything reads the config (extracted to
     # _moded_config for the S3776 budget). One code path for every entry door.
@@ -1211,8 +1222,10 @@ def cmd_work(args: argparse.Namespace) -> int:
             base=args.base,
             config=config,
             command_name=command_name or None,
-            tui=getattr(args, "tui", None),
-            tui_events=getattr(args, "tui_events", None),
+            display=DisplayOptions(
+                tui=getattr(args, "tui", None),
+                tui_events=getattr(args, "tui_events", None),
+            ),
             mode=mode,
             continued_from=getattr(args, "_continued_from_resolved", None),
         )

@@ -147,18 +147,21 @@ class TestContinueSeedsFromContinuation:
             )
         )
 
+        repo = str(git_repo)
         with pytest.raises(ContinuationError, match=task_id):
-            resolve_continuation(str(git_repo), task_id)
+            resolve_continuation(repo, task_id)
 
     def test_continue_missing_task_raises(self, git_repo, tmp_path):
         """resolve_continuation raises ContinuationError for a non-existent task id."""
+        repo = str(git_repo)
         with pytest.raises(ContinuationError, match="no artifact"):
-            resolve_continuation(str(git_repo), "nonexistent")
+            resolve_continuation(repo, "nonexistent")
 
     def test_continue_no_last_raises(self, git_repo, tmp_path):
         """resolve_continuation raises ContinuationError when no last_work exists."""
+        repo = str(git_repo)
         with pytest.raises(ContinuationError, match="no 'last' work item"):
-            resolve_continuation(str(git_repo), "last")
+            resolve_continuation(repo, "last")
 
 
 # --- Criterion 2: Flag validation ------------------------------------------

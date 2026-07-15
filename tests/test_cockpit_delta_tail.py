@@ -44,7 +44,7 @@ from colleague.cli._commands import _tui_sink
 from colleague.cli._commands import session as session_mod
 from colleague.cli._commands._tui_sink import CockpitProgressSink
 from colleague.cli._commands.session import _WorkSink, run_session
-from colleague.cli._commands.work import execute_work
+from colleague.cli._commands.work import DisplayOptions, execute_work
 from colleague.cockpit_run import (
     DELTA_REPAINT_THRESHOLD,
     DELTA_TAIL_CHARS,
@@ -366,7 +366,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            tui=True,
+            display=DisplayOptions(tui=True),
         )
         assert config.on_delta is not None
 
@@ -381,7 +381,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            tui=False,
+            display=DisplayOptions(tui=False),
         )
         assert config.on_delta is None
 
@@ -400,7 +400,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            tui=None,
+            display=DisplayOptions(tui=None),
         )
         assert config.on_delta is None
 
@@ -417,8 +417,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            tui=False,
-            tui_events=str(tmp_path / "ev.jsonl"),
+            display=DisplayOptions(tui=False, tui_events=str(tmp_path / "ev.jsonl")),
         )
         assert config.on_delta is None
 
@@ -477,8 +476,7 @@ class TestExecuteWorkArmsOnDelta:
             open_pr=False,
             base="main",
             config=config,
-            tui=True,
-            tui_events=str(events_path),
+            display=DisplayOptions(tui=True, tui_events=str(events_path)),
         )
         events = loads_events(events_path.read_text())
         labels = [e.label for e in events]
@@ -514,7 +512,7 @@ class TestEndToEndMockDeltasThroughRealSinks:
             open_pr=False,
             base="main",
             config=config,
-            tui=True,
+            display=DisplayOptions(tui=True),
         )
         assert calls  # deltas really flowed end to end through the real sink
         assert "".join(calls) == "writing the marker filedone"

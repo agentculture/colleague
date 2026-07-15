@@ -7,6 +7,8 @@ No session wiring, no git calls — copy + parsing only.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from colleague.heal import (
@@ -34,7 +36,7 @@ class TestHealChoiceDataclass:
 
     def test_frozen(self) -> None:
         c = HealChoice(key="test", label="Test", consequence="x", undo="y")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             c.key = "other"  # type: ignore
 
 
