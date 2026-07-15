@@ -67,6 +67,12 @@ HALT_CONTINUATION_ERROR = "continuation-error"
 # here so the halt vocabulary has one home.
 HALT_PILOT_STOP = "pilot-stop"
 
+#: The go-verdict reason for a declared fill-line handoff (deviation d1): the
+#: episode took the #156 FINISH-WITH-HANDOFF move, so the chain restarts from
+#: its continuation seed (decision c23) instead of halting on the episode's
+#: incompletion classification.
+CONTINUE_CAPACITY_HANDOFF = "capacity-handoff"
+
 # The armed-default episode cap (decision c21). The resolved knob lives in
 # colleague/config.py (``EngineConfig.max_episodes``); this mirror keeps the
 # decision layer usable without a config object (e.g. ``ChainState(cap=...)``).
@@ -121,6 +127,18 @@ def exit_reason(result: TaskResult) -> str:
     return EXIT_UNCLASSIFIED
 
 
+def declared_capacity_handoff(result: TaskResult) -> bool:
+    """True when *result* recorded the fill-line FINISH-WITH-HANDOFF move (#156).
+
+    The precise, deterministic signal (deviation d1): ``capacity_decision`` is
+    stamped by the loop only when the model declared a move at the fill line;
+    ``kind == "finish-with-handoff"`` is the continuation-shaped finish the
+    c23 decision exists to restart from.
+    """
+    decision = getattr(result, "capacity_decision", None)
+    return getattr(decision, "kind", None) == "finish-with-handoff"
+
+
 def should_continue(
     result: TaskResult,
     episode_index: int,
@@ -156,6 +174,26 @@ def should_continue(
             should_continue=False,
             reason=HALT_OK_FINISH,
             detail=f"{result.task_id} finished ok — the chain is done",
+        )
+    # Deviation d1 (2026-07-15, live-dogfood catch): a non-ok episode that
+    # DECLARED the fill-line finish-with-handoff (#156 — recorded verbatim on
+    # ``result.capacity_decision``) is continuable regardless of its
+    # incompletion classification: the handoff exists so the chain restarts
+    # from its seed (decision c23). The ok-guard above still wins (done is
+    # done), the cap below still bounds, and every deliberate halt in the
+    # allow-list contract (c24: pilot-stop, tool-protocol, plain no-progress)
+    # is unaffected — this recognizes exactly the one declared-handoff shape.
+    if declared_capacity_handoff(result):
+        if cap > 0 and episode_index >= cap:
+            return ChainVerdict(
+                should_continue=False,
+                reason=HALT_CAP_REACHED,
+                detail=f"episode {episode_index} reached the {cap}-episode cap",
+            )
+        return ChainVerdict(
+            should_continue=True,
+            reason=CONTINUE_CAPACITY_HANDOFF,
+            detail="the episode declared finish-with-handoff at the fill line (#156)",
         )
     if reason not in CONTINUABLE_REASONS:
         return ChainVerdict(

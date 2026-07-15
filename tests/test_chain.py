@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from colleague import chain
 from colleague.artifact import artifact_dir, write
 from colleague.chain import (
     CONTINUABLE_REASONS,
@@ -528,3 +529,60 @@ def test_pilot_stop_is_a_distinct_halt_reason():
         HALT_PILOT_STOP,
     }
     assert len(reasons) == 6
+
+
+class TestCapacityHandoffContinues:
+    """Deviation d1: a declared fill-line handoff is continuable (c23 intent)."""
+
+    def test_non_ok_handoff_episode_is_continuable(self) -> None:
+        from colleague.contract import INCOMPLETE, CapacityDecision, TaskResult
+
+        result = TaskResult(
+            task_id="e1",
+            status=INCOMPLETE,
+            summary="REVIEW INCOMPLETE — handoff",
+            capacity_decision=CapacityDecision(kind="finish-with-handoff", reason="fill line"),
+        )
+        verdict = chain.should_continue(result, 1, 5)
+        assert verdict.should_continue is True
+        assert verdict.reason == chain.CONTINUE_CAPACITY_HANDOFF
+
+    def test_ok_handoff_episode_still_halts(self) -> None:
+        from colleague.contract import OK, CapacityDecision, TaskResult
+
+        result = TaskResult(
+            task_id="e1",
+            status=OK,
+            summary="done",
+            capacity_decision=CapacityDecision(kind="finish-with-handoff", reason="fill line"),
+        )
+        verdict = chain.should_continue(result, 1, 5)
+        assert verdict.should_continue is False
+        assert verdict.reason == chain.HALT_OK_FINISH
+
+    def test_handoff_episode_still_bounded_by_cap(self) -> None:
+        from colleague.contract import INCOMPLETE, CapacityDecision, TaskResult
+
+        result = TaskResult(
+            task_id="e5",
+            status=INCOMPLETE,
+            summary="handoff again",
+            capacity_decision=CapacityDecision(kind="finish-with-handoff", reason="fill line"),
+        )
+        verdict = chain.should_continue(result, 5, 5)
+        assert verdict.should_continue is False
+        assert verdict.reason == chain.HALT_CAP_REACHED
+
+    def test_compact_declaration_does_not_continue(self) -> None:
+        """Only the HANDOFF move chains — a compact/split declaration doesn't."""
+        from colleague.contract import INCOMPLETE, CapacityDecision, TaskResult
+
+        result = TaskResult(
+            task_id="e1",
+            status=INCOMPLETE,
+            summary="finished without changes",
+            capacity_decision=CapacityDecision(kind="compact", reason="fill line"),
+        )
+        verdict = chain.should_continue(result, 1, 5)
+        assert verdict.should_continue is False
+        assert verdict.reason == chain.HALT_NON_CONTINUABLE

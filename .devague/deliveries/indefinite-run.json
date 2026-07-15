@@ -1,0 +1,23 @@
+{
+  "plan_slug": "indefinite-run",
+  "schema_version": 1,
+  "created": "2026-07-15T20:53:23Z",
+  "updated": "2026-07-15T20:53:23Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "a non-ok episode whose artifact carries capacity_decision.kind == 'finish-with-handoff' is continuable (reason 'capacity-handoff') \u2014 the #156-declared handoff restarts the chain from its seed; ok-guard and every deliberate halt in c24 stay",
+      "task_ref": "t3",
+      "reason": "live dogfood attempt 2: a review chain's fill-line FINISH-WITH-HANDOFF classified write-no-changes and halted at episode 1 \u2014 c24's allow-list letter contradicts c23's restart-from-seed intent for exactly the declared-handoff shape",
+      "affects": [
+        "t12",
+        "c23",
+        "c24",
+        "h20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable"
+    }
+  ]
+}
