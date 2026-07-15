@@ -488,6 +488,105 @@ def heal_stash(repo_path: str | Path) -> str | None:
     return "stash@{0}"
 
 
+def commits_ahead(repo_path: str | Path, base_ref: str, tip_ref: str) -> int:
+    """Commits reachable from ``tip_ref`` but not ``base_ref`` — read-only.
+
+    The chain loop's no-progress evidence (indefinite-run c22): counts what an
+    episode actually landed on its branch past the prior episode's tip (or the
+    chain-start HEAD for episode 1). Returns ``0`` on any git error — a count
+    the guard treats as "no new commits", so a broken ref degrades toward the
+    conservative halt rather than an infinite chain. Lives here because
+    ``handoff.py`` is the sanctioned subprocess consumer (``test_boundary.py``).
+    """
+    try:
+        proc = _git(
+            Path(repo_path).resolve(),
+            "rev-list",
+            "--count",
+            f"{base_ref}..{tip_ref}",
+            check=False,
+        )
+    except (HandoffError, OSError):
+        return 0
+    out = proc.stdout.strip()
+    return int(out) if proc.returncode == 0 and out.isdigit() else 0
+
+
+def chain_handoff_finalize(
+    repo_path: str | Path,
+    task_id: str,
+    branch: str,
+    *,
+    instruction: str = "",
+    open_pr: bool = True,
+    base_branch: str = "main",
+) -> HandoffResult:
+    """The chain's ONE handoff, at chain end (indefinite-run c26).
+
+    Every episode of an armed chain commits locally with push/PR suppressed;
+    when the chain COMPLETES, this pushes the final episode's ``branch`` — which
+    carries the cumulative diff, because each episode based its worktree on the
+    prior tip — and opens the single PR. Gated by the same
+    :func:`should_open_pr` predicate as the per-work-item handoff (h7): with
+    ``open_pr=False`` (the arming invocation's ``--no-pr``), no remote, or no
+    ``gh``, it returns a local-only result without touching the network.
+
+    Unlike :func:`handoff` this never stages or commits (the episodes already
+    did) and never switches branches: the push names the branch by refspec and
+    ``gh pr create`` gets an explicit ``--head``, so the operator's checkout is
+    untouched. Push/PR failures degrade to the local-only outcome, never raise.
+    """
+    repo = Path(repo_path).resolve()
+    result = HandoffResult(branch=branch, committed=True)
+    if not should_open_pr(repo, open_pr):
+        result.note = "chain final: local branches only (--no-pr, no remote, or gh unavailable)"
+        return result
+    subject = _commit_subject(instruction, task_id)
+    try:
+        _git(repo, "push", "-u", "origin", branch)
+        result.pushed = True
+        result.pr_url = _gh_pr_create(repo, base_branch, subject, head=branch)
+        result.note = "chain final: pushed and opened PR"
+    except HandoffError as exc:
+        if result.pushed:
+            result.note = f"chain final: pushed branch; PR creation failed: {exc}"
+        else:
+            result.note = f"chain final: local branches only (push failed: {exc})"
+    return result
+
+
+def reap_chain_intermediates(
+    repo_path: str | Path, branches: list[str], *, keep: str
+) -> list[dict]:
+    """Reap a COMPLETED chain's intermediate ``colleague/*`` branches (c26).
+
+    ``branches`` is the chain's episode branches in order; ``keep`` is the
+    final episode's branch (never deleted — it is the deliverable). Each
+    intermediate is deleted only when its tip is an **ancestor** of ``keep``
+    (``merge-base --is-ancestor``): because episode N+1 based on episode N's
+    tip, a healthy chain's intermediates are all reachable from the final
+    branch, so reaping loses nothing (artifacts keep the evidence). A tip that
+    is NOT reachable — a mid-chain base-ref degrade rebased that episode onto
+    HEAD — is ``kept`` rather than destroyed. Deletion goes through
+    :func:`_delete_colleague_ref` (``colleague/*`` only, defense in depth).
+
+    Returns one ``{ref, action}`` dict per input branch, ``action`` in
+    ``reaped`` / ``kept`` / ``failed`` / ``refused``.
+    """
+    repo = Path(repo_path).resolve()
+    results: list[dict] = []
+    for ref in branches:
+        if ref == keep:
+            results.append({"ref": ref, "action": "kept"})
+            continue
+        ancestor = _git(repo, "merge-base", "--is-ancestor", ref, keep, check=False)
+        if ancestor.returncode != 0:
+            results.append({"ref": ref, "action": "kept"})
+            continue
+        results.append({"ref": ref, "action": _delete_colleague_ref(repo, ref, dry_run=False)})
+    return results
+
+
 def _ignored_paths(repo: Path, paths: list[str]) -> list[str]:
     """Subset of ``paths`` that git ignores (so they cannot land in a commit).
 
@@ -525,9 +624,19 @@ def _with_ignored(note: str, ignored: list[str], pollution: list[str] | None = N
     return note
 
 
-def _gh_pr_create(repo: Path, base_branch: str, title: str) -> str | None:
+def _gh_pr_create(repo: Path, base_branch: str, title: str, head: str | None = None) -> str | None:
+    """Open the PR via ``gh pr create``; ``head`` names the source branch explicitly.
+
+    Without ``head`` the head branch is inferred from the checkout (the
+    per-work-item :func:`handoff` path, which runs while checked out on the
+    work branch). The chain's final handoff (:func:`chain_handoff_finalize`)
+    runs from the operator's own ref, so it must pass ``head`` explicitly.
+    """
+    argv = ["gh", "pr", "create", "--fill", "--base", base_branch, "--title", title]
+    if head:
+        argv += ["--head", head]
     proc = subprocess.run(  # nosec B603 B607 - fixed 'gh' argv, no shell
-        ["gh", "pr", "create", "--fill", "--base", base_branch, "--title", title],
+        argv,
         cwd=str(repo),
         capture_output=True,
         text=True,
