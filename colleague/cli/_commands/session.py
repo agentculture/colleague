@@ -87,6 +87,7 @@ from colleague.cockpit_run import (
     status_line,
 )
 from colleague.commands import CommandError, discover_commands, expand_command, load_command
+from colleague.heal import COMMIT, STASH, parse_heal_choice, render_heal_prompt
 from colleague.config import (
     EngineConfig,
     resolve_lobes_gateway_url,
@@ -592,6 +593,9 @@ class _Session:
         # ``_poll_talk_lane``), so a talk message never mutates session state
         # concurrently. ``_printed_conv`` tracks how many conversation lines have
         # already scrolled above the owned line (the ``print_above`` delta cursor).
+        # One-run dirty-guard waiver granted by the heal prompt's commit choice
+        # (#168); consumed (reset) by the next _dispatch_work. Never persists.
+        self._heal_allow_dirty_once = False
         self._owned_line: Optional[OwnedInputLine] = None
         self._owned_line_streams: Optional[tuple[object, object]] = None
         self._owned_talk_queue: "deque[str]" = deque()
@@ -1424,6 +1428,12 @@ class _Session:
         if resolved is None:
             return
         task, command_name = resolved
+        # Dirty-tree heal (#168): a colour-TTY session that KNOWS the dispatch
+        # would hit the #149 refusal offers the one explicit choice now, BEFORE
+        # the senses ack and the doomed run. Off-TTY / --json / allow-dirty
+        # sessions fall through byte-identically (the runtime guard still rules).
+        if not self._heal_dirty_tree_if_needed():
+            return
         # Any /attach-staged media rides THIS work item (staged order), then the
         # staging list clears (t11 one-shot semantics) — only a genuine work-line
         # dispatch consumes it; a plan/explore/review route above never reaches here.
@@ -1477,6 +1487,42 @@ class _Session:
             return True
         if outcome is not None:
             self._frontdoor_record = outcome.record
+        return False
+
+    def _heal_dirty_tree_if_needed(self) -> bool:
+        """Offer the three-choice dirty-tree heal before a doomed dispatch (#168).
+
+        Returns ``True`` when the dispatch may proceed: tree clean, the session
+        already runs ``--allow-dirty``, not a live colour TTY (the prompt never
+        blocks a pipe — the dispatch then meets today's refusal unchanged), the
+        operator chose commit-onto-work-branch (a ONE-RUN waiver, never sticky),
+        or the stash succeeded. Returns ``False`` when the operator aborted
+        (empty input / unknown / explicit abort) or the stash failed — the
+        dispatch is cancelled with the tree untouched. Every choice's
+        consequence + undo is in the prompt copy itself (colleague/heal.py).
+        """
+        if self.allow_dirty or not self._live or self._read_next is None:
+            return True
+        if not handoff.working_tree_dirty(self.repo):
+            return True
+        self.out(render_heal_prompt())
+        raw = (self._read_next() or "").strip()
+        choice = parse_heal_choice(raw)
+        if choice is COMMIT:
+            self._heal_allow_dirty_once = True
+            self._log(
+                "healing: your uncommitted tracked edits will ride the work branch "
+                "(undo there: git reset --soft HEAD~1)"
+            )
+            return True
+        if choice is STASH:
+            ref = handoff.heal_stash(self.repo)
+            if ref is None:
+                self._error("stash failed — dispatch cancelled; your edits are untouched")
+                return False
+            self._log(f"healing: stashed as {ref} — recover with: git stash pop")
+            return True
+        self._log("dispatch cancelled — your edits are untouched")
         return False
 
     def _run_tracked(
@@ -1557,6 +1603,8 @@ class _Session:
             # cap.)
             task.watch = want and not flight.depth_exceeded()
         self._arm_run_view(task.instruction)
+        heal_waiver = self._heal_allow_dirty_once
+        self._heal_allow_dirty_once = False
         pair = self._run_tracked(
             task.id,
             lambda: self.work_fn(
@@ -1564,7 +1612,7 @@ class _Session:
                 engine_name=self.engine_name,
                 task=task,
                 open_pr=open_pr,
-                allow_dirty=self.allow_dirty,
+                allow_dirty=self.allow_dirty or heal_waiver,
                 base=self.base,
                 config=config,
                 command_name=command_name,
