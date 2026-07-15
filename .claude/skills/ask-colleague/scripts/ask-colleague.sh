@@ -823,7 +823,12 @@ front_load_review_diff() {
     git -C "$REPO" diff "$BASE"...HEAD --stat
     printf '\n'
     local diff_body
-    diff_body="$(git -C "$REPO" diff "$BASE"...HEAD -- . ':(exclude)*.lock' ':(exclude)**/*.lock' ':(exclude)package-lock.json' ':(exclude)**/package-lock.json' ':(exclude)*.min.js' ':(exclude)**/*.min.js' 2>/dev/null || true)"
+    # #324: bound the buffering itself, not just the printed output — `head -c`
+    # caps what the substitution ever holds (cap+1 bytes, just enough to detect
+    # truncation) and SIGPIPEs git early on a pathological diff, instead of
+    # materializing the full diff in memory before the length check. `|| true`
+    # also absorbs the SIGPIPE exit under `set -o pipefail`.
+    diff_body="$(git -C "$REPO" diff "$BASE"...HEAD -- . ':(exclude)*.lock' ':(exclude)**/*.lock' ':(exclude)package-lock.json' ':(exclude)**/package-lock.json' ':(exclude)*.min.js' ':(exclude)**/*.min.js' 2>/dev/null | head -c "$((cap + 1))" || true)"
     if [[ "${#diff_body}" -gt "$cap" ]]; then
         printf '%s\n' "${diff_body:0:$cap}"
         printf '%s\n' "[... diff body truncated at ${cap} chars; read specific files for the rest ...]"

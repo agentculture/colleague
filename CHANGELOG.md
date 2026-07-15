@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.4] - 2026-07-15
+
+### Fixed
+
+- Consumer-repo trust batch — five field-reported bugs, one PR:
+  - `.colleague/` bookkeeping self-ignores (#322): every write choke point (artifact write, `last_work` pointer, feedback record, flight arm) drops an idempotent self-ignoring `.gitignore` (the `uv`/`.venv` pattern), so a consumer repo that never gitignored `.colleague/` can no longer stage the run trace with `git add -A`; the operator-committable `commands/`/`skills/` overlays stay visible.
+  - Broken tool-call channel guard (#321): `UnknownToolError` names the valid tools in its message, the loop tracks a consecutive unknown-tool streak (any call reaching a real tool resets it), and at 3 consecutive misses the run stops as `tool_protocol` with an honest `tool-protocol-broken` incompletion pointing at the serving-side parser/template (#320) — instead of burning the whole step budget and blaming the task (`write-no-changes`).
+  - `colleague config show` provenance (#317): every config.json that contributed a key is listed with its keys and the subset that wins the per-key merge (`config_file: <path> sets [k1, k2] (wins: k1)`), highest precedence first; the `--json` payload carries the same list under `config_files`. Implemented by a colleague `write --apply` drive (task c345c539b2e7).
+  - `front_load_review_diff` bounds the buffering (#324): the review diff is piped through `head -c cap+1`, so the wrapper never materializes a pathological diff in memory before the cap check; git is SIGPIPE'd early and the pipe exit is absorbed under `set -o pipefail`.
+  - Handoff skips literal `~` pollution (#275): a literal `~*` entry at the repo root (a run_command test writing `~/…` relative to the repo) is never committed onto the work branch; the skip is surfaced in the handoff note alongside the gitignored-output advisory.
+
 ## [1.45.3] - 2026-07-15
 
 ### Fixed

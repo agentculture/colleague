@@ -48,6 +48,41 @@ def artifact_read_dirs(repo_path: str | Path) -> list[Path]:
     return [repo_path / DEFAULT_ARTIFACT_DIRNAME, repo_path / LEGACY_ARTIFACT_DIRNAME]
 
 
+#: Contents of the self-ignoring ``.gitignore`` written into the bookkeeping dir
+#: (#322). Mirrors the repo-level rules colleague's own ``.gitignore`` uses:
+#: everything local except the two operator-committable subdirs.
+_SELF_IGNORE = (
+    "# auto-written by colleague: keep run artifacts out of the host repo's git status\n"
+    "*\n"
+    "!commands/\n"
+    "!commands/**\n"
+    "!skills/\n"
+    "!skills/**\n"
+)
+
+
+def ensure_self_ignored(directory: str | Path) -> None:
+    """Write a self-ignoring ``.gitignore`` into the bookkeeping dir (#322).
+
+    A consumer repo that never gitignored ``.colleague/`` would otherwise stage
+    the whole run trace (artifact JSON, step trace, ``last_work``) on a routine
+    ``git add -A``. The written pattern ignores everything under the dir —
+    including the ``.gitignore`` itself, which git still honors — except the
+    operator-committable ``commands/`` and ``skills/`` overlays. Idempotent (an
+    existing ``.gitignore`` is never overwritten — the operator owns it) and
+    best-effort (an unwritable dir never fails a run).
+    """
+    root = Path(directory)
+    marker = root / ".gitignore"
+    try:
+        if marker.exists():
+            return
+        root.mkdir(parents=True, exist_ok=True)
+        marker.write_text(_SELF_IGNORE, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def failed_result(task_id: str, error: str, *, request: str = "") -> TaskResult:
     """Build an error-status result for a work item that raised before completing.
 
@@ -89,6 +124,7 @@ def write(result: TaskResult, directory: str | Path) -> Path:
     """
     out = Path(directory)
     out.mkdir(parents=True, exist_ok=True)
+    ensure_self_ignored(out)
     stem = artifact_stem(result.task_id, result.stats.request)
     result_path = out / f"{stem}.json"
     result.artifacts_path = str(result_path)
