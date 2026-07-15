@@ -9,11 +9,18 @@ budget), the loop asks the backend to declare ONE opinionated move and acts on i
 - ``split`` — fan the work out to child instances via the existing ``subagents`` tool.
 - ``finish-with-handoff`` — stop and hand the caller a continuation summary.
 
+The decision is offered per CROSSING of the line (indefinite-run t1, superseding
+v1's at-most-once-per-work-item): a resolved offer re-arms once the run drops back
+under the line, and the total compaction turns a run may spend are bounded by
+``DEFAULT_COMPACTION_CAP`` (anti-thrash; the cap reached suppresses further offers,
+recorded on the trace).
+
 This module owns only the *pure* pieces (threshold maths, the decision-prompt text,
-the declaration classifier, and the compaction request/apply transforms). The loop
-(`colleague/loop.py`) owns the firing, the model calls, and recording the decision —
-so every backend inherits the behaviour identically (the all-engines rule). All
-stdlib only — zero runtime dependencies; no subprocess, threading, sockets, or network.
+the declaration classifier, the compaction-cap maths, and the compaction
+request/apply transforms). The loop (`colleague/loop.py`) owns the firing, the model
+calls, and recording the decision — so every backend inherits the behaviour
+identically (the all-engines rule). All stdlib only — zero runtime dependencies; no
+subprocess, threading, sockets, or network.
 """
 
 from __future__ import annotations
@@ -24,11 +31,13 @@ from colleague.context import window_messages
 
 __all__ = [
     "DEFAULT_THRESHOLD",
+    "DEFAULT_COMPACTION_CAP",
     "MOVE_COMPACT",
     "MOVE_SPLIT",
     "MOVE_HANDOFF",
     "armed",
     "crossed",
+    "cap_reached",
     "build_decision_prompt",
     "classify_declaration",
     "build_compaction_request",
@@ -39,6 +48,16 @@ __all__ = [
 # 0.8 leaves headroom for the decision prompt + the model's declaring turn before a
 # hard overflow. Tunable per environment via COLLEAGUE_FILLLINE_THRESHOLD.
 DEFAULT_THRESHOLD = 0.8
+
+# Per-run cap on compaction turns (indefinite-run t1). The fill-line re-arms per
+# CROSSING (superseding v1's "fires at most once per work item", #156), so a
+# degenerate run could otherwise thrash compact→fill→compact for its whole step
+# budget; the cap bounds the total compaction turns spent. The loop consumes it at
+# offer time — the cap reached suppresses further offers (recorded on the trace,
+# never silent) and lossy windowing remains the floor. A module constant for now:
+# the config knob that makes it operator-tunable is t3's (colleague/config.py is
+# deliberately untouched here).
+DEFAULT_COMPACTION_CAP = 4
 
 MOVE_COMPACT = "compact"
 MOVE_SPLIT = "split"
@@ -73,6 +92,15 @@ def armed(context_budget: Optional[int], threshold: Optional[float]) -> bool:
 def crossed(prompt_tokens: int, context_budget: int, threshold: float) -> bool:
     """True when the last turn's prompt token count crosses the fill-line threshold."""
     return prompt_tokens >= threshold * context_budget
+
+
+def cap_reached(compaction_turns: int, cap: int) -> bool:
+    """True when *compaction_turns* has exhausted the per-run *cap* (indefinite-run t1).
+
+    ``cap <= 0`` means no cap — never reached (the 0-is-unlimited convention the
+    chain knobs use, e.g. ``--max-episodes 0``).
+    """
+    return cap > 0 and compaction_turns >= cap
 
 
 def build_decision_prompt(
