@@ -85,7 +85,7 @@ from colleague.policy import Policy, load_policy
 from colleague.roles import is_read_only
 from colleague.selfknowledge import build_guide_index, build_self_facts, classify_selfknowledge
 from colleague.telemetry import Telemetry, load_telemetry
-from colleague.tools import ToolError, ToolExecutor, ToolOutcome
+from colleague.tools import ToolError, ToolExecutor, ToolOutcome, UnknownToolError
 from colleague.tui.from_work import progress_target as _progress_target
 
 _DEFAULT_SYSTEM = (
@@ -172,6 +172,14 @@ _EXIT_FINISHED = "finished"  # the finish tool was called -> authoritative resul
 _EXIT_STOPPED = "stopped"  # ended on a no-tool-call turn without ever finishing
 _EXIT_BUDGET = "budget"  # ran out of model turns (max_steps) without finishing
 _EXIT_PILOT_STOP = "pilot_stop"  # a pilot wrote a cooperative `stop` to the flight control file
+_EXIT_TOOL_PROTOCOL = "tool_protocol"  # consecutive unknown-tool calls -> channel is broken (#321)
+
+# Consecutive UnknownToolError steps tolerated before the loop stops the run as
+# ``_EXIT_TOOL_PROTOCOL`` (#321). Three failed self-corrections (each fed back the
+# valid-tool list) is decisive evidence the tool-call channel itself is broken —
+# e.g. a serving-side --tool-call-parser / template mismatch (#320) — and every
+# further turn would burn budget on calls that can never exist.
+_UNKNOWN_TOOL_STREAK_CAP = 3
 
 # Recovery for the trail-off (colleague#142): when the model ends a turn with no
 # tool call and has not called ``finish``, nudge it ONCE to finish before giving up.
@@ -644,6 +652,12 @@ class _Work:
     # ``_mapping_fanout_offered`` pattern) so the advisory fires at most once.
     plan_offer_tokens: int | None = None
     _plan_offered: list[bool] = field(default_factory=list)
+    # Unknown-tool streak guard (#321): a mutable ``[count, last_name]`` cell (the
+    # ``_last_substantive`` pattern). Consecutive :class:`UnknownToolError` steps
+    # increment it; any step that reached a REAL tool (ok or not) resets it. At
+    # ``_UNKNOWN_TOOL_STREAK_CAP`` the turn loop exits ``_EXIT_TOOL_PROTOCOL``
+    # instead of burning the remaining budget on a broken tool-call channel.
+    _unknown_tool_streak: list = field(default_factory=list)
     # continue-working: max consecutive no-tool-call nudges before the loop gives up
     # and stops (replaces the hardcoded ``_MAX_FINISH_NUDGES``). Forwarded by every
     # backend from ``config.max_continue_nudges`` (all-engines rule); falls back to
@@ -920,6 +934,7 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
                 if isinstance(exc, ToolError)
                 else f"bad tool arguments: {type(exc).__name__}: {exc}"
             )
+            _track_unknown_tool(ctx, call.name, exc)
             span.set(ok=False, error=msg)
             ctx.result.steps.append(
                 Step(step_index, call.name, arguments, f"error: {msg}", ok=False)
@@ -938,6 +953,7 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
             )
             return False
 
+        _track_unknown_tool(ctx, call.name, None)
         span.set(ok=True, bytes=len(outcome.result), changed_file=outcome.changed_file)
         ctx.result.steps.append(Step(step_index, call.name, arguments, outcome.result, ok=True))
         ctx.messages.append(_tool_message(call.id, outcome.result))
@@ -973,6 +989,30 @@ def _run_tool_call(ctx: _Work, call: ToolCall) -> bool:
         span.set(finished=True)
         _apply_finish(ctx.result, outcome)
         return True
+
+
+def _track_unknown_tool(ctx: _Work, name: str, exc: Exception | None) -> None:
+    """Advance or reset the unknown-tool streak cell (#321).
+
+    ``exc`` is the failure the call raised — an :class:`UnknownToolError` extends
+    the streak; anything else (including ``None``, a call that reached a real
+    tool) resets it, because a real dispatch proves the protocol still works.
+    """
+    cell = ctx._unknown_tool_streak
+    if isinstance(exc, UnknownToolError):
+        if cell:
+            cell[0] += 1
+            cell[1] = name
+        else:
+            cell.extend([1, name])
+    elif cell:
+        cell[0] = 0
+
+
+def _tool_protocol_broken(ctx: _Work) -> bool:
+    """True when the unknown-tool streak has hit the cap (#321)."""
+    cell = ctx._unknown_tool_streak
+    return bool(cell) and cell[0] >= _UNKNOWN_TOOL_STREAK_CAP
 
 
 def _run_tool_calls(ctx: _Work, calls: list[ToolCall]) -> bool:
@@ -1832,11 +1872,22 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
     cognitive-complexity threshold.
     """
     result.not_finished = outcome == _EXIT_BUDGET
-    result.stopped_without_finish = outcome in (_EXIT_STOPPED, _EXIT_PILOT_STOP)
+    result.stopped_without_finish = outcome in (
+        _EXIT_STOPPED,
+        _EXIT_PILOT_STOP,
+        _EXIT_TOOL_PROTOCOL,
+    )
     if outcome != _EXIT_FINISHED:
         result.status = INCOMPLETE
     if outcome == _EXIT_PILOT_STOP:
         note = f"Stopped by pilot after {len(result.steps)} step(s) (partial)."
+        result.summary = f"{note} {last_sub}".strip() if last_sub else note
+    if outcome == _EXIT_TOOL_PROTOCOL:
+        note = (
+            f"Stopped after {len(result.steps)} step(s): the tool-call channel is "
+            "broken — consecutive unknown-tool calls that never reached a real tool "
+            "(see incompletion)."
+        )
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
 
 
@@ -2115,12 +2166,20 @@ def _maybe_flag_incompletion(ctx: "_Work", outcome: str) -> None:
     it (all-engines); omit-when-None keeps a delivering run byte-identical.
     """
     result = ctx.result
+    cell = ctx._unknown_tool_streak
+    protocol_detail = ""
+    if outcome == _EXIT_TOOL_PROTOCOL and cell:
+        protocol_detail = (
+            f"{cell[0]} consecutive unknown-tool call(s), last {cell[1]!r} — "
+            "not one reached a real tool"
+        )
     record = classify_incompletion(
         outcome=outcome,
         write_intent=not is_read_only(result.role),
         changed_files=len(result.changed_files),
         summary=result.summary or "",
         step_count=result.stats.step_count,
+        protocol_detail=protocol_detail,
     )
     if record is None:
         return
@@ -2190,6 +2249,10 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # A strict no-op when the work item is not a watchable flight.
         if _flight_stop_requested(ctx):
             return _EXIT_PILOT_STOP
+        # Unknown-tool streak guard (#321): stop a run whose tool-call channel is
+        # provably broken rather than re-burning the remaining budget on it.
+        if _tool_protocol_broken(ctx):
+            return _EXIT_TOOL_PROTOCOL
         # Proactive fill-line decision (#156): when the last turn's context crossed the
         # threshold, offer the one capacity decision (compact | split | handoff) BEFORE
         # this turn completes, so the model declares it by its next action. No-op when
