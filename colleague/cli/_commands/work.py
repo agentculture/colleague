@@ -1423,7 +1423,16 @@ def execute_work_chain(
         _announce_episode_transition(repo, result.task_id, episode_task.id, state, task.watch)
 
     completed = verdict.reason == chainmod.HALT_OK_FINISH
-    if completed and not read_only_chain:
+    # A completed chain that landed NO commits mirrors handoff()'s "no changes
+    # to hand off" semantics: no push, no PR, no reap — an empty branch must
+    # never become an empty PR (Qodo, PR #333). commits_ahead degrades to 0 on
+    # any git error, which conservatively skips the finalize too.
+    chain_has_work = bool(episode_branches) and (
+        commits_ahead(repo, chain_base, episode_branches[-1]) > 0
+    )
+    if completed and not read_only_chain and not chain_has_work:
+        emit_diagnostic("chain: completed with no changes; no handoff performed")
+    if completed and not read_only_chain and chain_has_work:
         # h21: the read-only verbs stay handoff-free — no finalize, no reap.
         artifact_path = _chain_finalize(
             repo,

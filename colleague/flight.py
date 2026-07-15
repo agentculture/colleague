@@ -286,8 +286,10 @@ def append_episode_transition(
     existing feed reader renders it as informative liveness, never a KeyError;
     ``intent`` IS :func:`transition_announcement`'s exact text.
 
-    Best-effort: an unwritable flight dir/file (``OSError``) is swallowed — a
-    marker must never crash the chain (the module's degrade convention).
+    Best-effort: an unwritable flight dir/file (``OSError``) — and an unsafe
+    ``task_id`` (:func:`feed_path`'s ``ValueError`` guard) — are swallowed: a
+    marker must never crash the chain (the module's degrade convention; the
+    path build lives INSIDE the try for exactly that reason — Qodo, PR #333).
     """
     record = {
         "type": "episode-transition",
@@ -300,12 +302,12 @@ def append_episode_transition(
         "episode_index": episode_index,
         "cap": cap,
     }
-    fp = feed_path(repo_path, prior_task_id)
     try:
+        fp = feed_path(repo_path, prior_task_id)
         fp.parent.mkdir(parents=True, exist_ok=True)
-        with open(fp, "a") as f:
+        with open(fp, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
-    except OSError:
+    except (OSError, ValueError):
         return
 
 
@@ -317,10 +319,10 @@ def read_stop(repo_path, task_id) -> bool:
     nothing. Absent file, malformed JSON, or an unreadable path all read as
     ``False`` (the module's degrade convention — never raise, never block).
     """
-    cp = control_path(repo_path, task_id)
     try:
-        data = json.loads(cp.read_text())
-    except (OSError, ValueError):  # absent/unreadable file, malformed JSON
+        cp = control_path(repo_path, task_id)
+        data = json.loads(cp.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # absent/unreadable/unsafe path, malformed JSON
         return False
     return bool(data.get("stop", False)) if isinstance(data, dict) else False
 

@@ -605,3 +605,35 @@ class TestReadOnlyModeChain:
         rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "3", "--no-pr"))
         assert rc == 2
         assert counter["n"] == 1  # halted at the guard, never reached the finish bait
+
+
+class TestNoOpChainAndUnsafeFlightIds:
+    """Qodo PR #333 inline findings: no-op chains + flight ValueError leaks."""
+
+    def test_completed_chain_with_no_changes_skips_finalize(
+        self, git_repo, monkeypatch, capsys
+    ) -> None:
+        """An ok-finish chain that landed zero commits mirrors handoff()'s
+        no-changes semantics: no push, no PR, and an explicit diagnostic."""
+        from colleague.cli import main
+
+        pr_calls = _gate_pr_boundary(monkeypatch)
+        finalizes: list = []
+        real_finalize = ho.chain_handoff_finalize
+        monkeypatch.setattr(
+            ho,
+            "chain_handoff_finalize",
+            lambda *a, **k: finalizes.append(a) or real_finalize(*a, **k),
+        )
+        _script_episodes(monkeypatch, ["finish"])  # finishes immediately, no writes
+        rc = main(_work_argv(git_repo, "--until-done"))  # PR-on is the default
+        assert rc == 0
+        assert pr_calls == [] and finalizes == []
+        assert "no changes; no handoff performed" in capsys.readouterr().err
+
+    def test_flight_helpers_swallow_unsafe_task_ids(self, git_repo) -> None:
+        """feed_path/control_path ValueError on unsafe ids stays best-effort."""
+        flight.append_episode_transition(
+            git_repo, "../evil", next_task_id="n1", episode_index=2, cap=3
+        )  # must not raise
+        assert flight.read_stop(git_repo, "../evil") is False  # must not raise
