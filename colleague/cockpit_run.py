@@ -117,6 +117,9 @@ class Ledger:
     commands_run: int
     commits: Optional[int]
     publish_state: str
+    #: The PR the handoff actually opened (#169), or ``None`` — never synthesized;
+    #: ``None`` mid-run (observed) and for local-only runs (reconciled).
+    pr_url: Optional[str] = None
 
 
 def observed_ledger(state: RunState) -> Ledger:
@@ -177,6 +180,7 @@ def reconcile(result: TaskResult) -> Ledger:
         commands_run=commands_run,
         commits=commits,
         publish_state=publish_state,
+        pr_url=pr_url or None,
     )
 
 

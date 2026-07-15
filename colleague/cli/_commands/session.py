@@ -1117,6 +1117,19 @@ class _Session:
                     label=icons.label("publish", "run", self._icons_mode),
                     status=led.publish_state or "none",
                 ),
+                # PR link (#169): present ONLY when the handoff actually returned
+                # one — a local-only run renders exactly the four items above.
+                *(
+                    [
+                        PanelItem(
+                            id="last.pr",
+                            label=icons.label("PR", "run", self._icons_mode),
+                            status=led.pr_url,
+                        )
+                    ]
+                    if led.pr_url
+                    else []
+                ),
             ],
         )
 
@@ -2468,7 +2481,10 @@ class _Session:
             self._resave_artifact(result)
         changed = ", ".join(result.changed_files) or "(none)"
         branch = f" → {result.branch}" if result.branch else ""
-        self._log(f"{result.status}: {display} [{changed}]{branch}")
+        # PR link (#169): one glance away on the post-run line — only when the
+        # handoff actually opened one (never synthesized).
+        pr = f" · PR: {result.pr_url}" if result.pr_url else ""
+        self._log(f"{result.status}: {display} [{changed}]{branch}{pr}")
         # A completed work item can change branch / dirty / last-feedback state.
         self._refresh_context()
 
