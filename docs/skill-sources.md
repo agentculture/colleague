@@ -6,13 +6,15 @@ AgentCulture **skills supplier** after the steward → guildmaster cutover
 (`steward doctor`, the sibling-pattern baseline); only the skills-supplier role
 moved. This file tracks provenance so re-syncs stay deterministic.
 
-Four skills (`think`, `spec-to-plan`, `assign-to-workforce`,
-`summarize-delivery`) originate in
+Seven skills (`scope`, `think`, `challenge`, `spec-to-plan`,
+`assign-to-workforce`, `deviate`, `summarize-delivery` — listed in devague
+flow order) originate in
 [`agentculture/devague`](https://github.com/agentculture/devague); guildmaster
-only **re-broadcasts** them. Cite guildmaster's copy; track devague as the true
-origin. `summarize-delivery` is the exception that proves the rule: guildmaster
-has not re-broadcast it yet, so it is cited **directly from devague** and should
-be re-pointed at guildmaster's copy once that broadcast lands.
+only **re-broadcasts** them. Cite guildmaster's copy where it has re-broadcast
+(currently `think`, `spec-to-plan`, `assign-to-workforce`); track devague as the
+true origin. The four not yet re-broadcast — `summarize-delivery`, `scope`,
+`challenge`, `deviate` — are cited **directly from devague** and should be
+re-pointed at guildmaster's copy once that broadcast lands.
 
 One skill is **first-party**: `ask-colleague` is **authored here** (origin =
 colleague), not vendored. It is the inverse of the rest — when it stabilizes,
@@ -38,6 +40,9 @@ is load-bearing, even where guildmaster's upstream copy omits it.
 | `spec-to-plan` | `../guildmaster/.claude/skills/spec-to-plan/` | **devague** (re-broadcast via guildmaster) | spec→plan leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
 | `assign-to-workforce` | `../guildmaster/.claude/skills/assign-to-workforce/` | **devague** (re-broadcast via guildmaster) | plan→parallel-implementation leg of the devague workflow chain. Verbatim (already carried `type: command`). | 2026-05-26 (guildmaster 0.6.0) |
 | `summarize-delivery` | `../devague/.claude/skills/summarize-delivery/` | **devague** (cited direct — not yet re-broadcast) | delivery-side closure leg of the devague workflow chain: turns an `assign-to-workforce` run into a planned-vs-actual accountability artifact under `docs/deliveries/`. Method-only (no script, no CLI verb); uses read-only `devague plan show` / `plan waves` / `scope --list` / `show` / `status`. Verbatim (already carried `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-10 (devague 0.17.0) |
+| `scope` | `../devague/.claude/skills/scope/` | **devague** (cited direct — not yet re-broadcast) | idea→scope leg: the optional opening move ahead of `/think` — surveys the surfaces an idea touches (code, docs, skills, CI, siblings) and seeds boundary / non-goal / assumption claims for the coming frame. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-15 (devague 0.19.1) |
+| `challenge` | `../devague/.claude/skills/challenge/` | **devague** (cited direct — not yet re-broadcast) | blind-spot discovery pass **between** `/think` and `/spec-to-plan`: pressure-tests the converged, exported frame through structured lenses, routing every finding back through devague's deterministic moves as proposed-only content the human adjudicates. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-15 (devague 0.19.1) |
+| `deviate` | `../devague/.claude/skills/deviate/` | **devague** (cited direct — not yet re-broadcast) | mid-run divergence leg: stops an in-flight `assign-to-workforce` run when execution must diverge from the confirmed plan, gets explicit human approval, and records an append-only deviation via `devague deviate` before resuming. Method-only (SKILL.md, no script). Verbatim (carries `type: command`). Re-point at guildmaster once it re-broadcasts. | 2026-07-15 (devague 0.19.1) |
 | `ask-colleague` | — (first-party) | **colleague** | Authored here, not vendored: a portable wrapper (`scripts/ask-colleague.sh`) that drives the `colleague` CLI for `explore`/`review`/`write` — hand a scoped task to a different backend/mind. Carries `type: command`. | n/a (origin) |
 
 ## Re-sync procedure
