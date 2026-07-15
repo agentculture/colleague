@@ -1087,21 +1087,24 @@ def _resolve_chain_arming(args: argparse.Namespace, config: EngineConfig) -> tup
 
 
 def _chain_should_start_next(
-    repo: Path, result: TaskResult, state, *, progressed: bool | None
+    repo: Path, result: TaskResult, state, *, progressed: bool | None, watch: bool
 ) -> tuple[tuple[str, str] | None, "object"]:
     """Decide the chain's move at ONE episode boundary — the t6 extension seam.
 
     Everything that happens BETWEEN two episodes funnels through here, in
     order: (1) the pure verdict — ok-guard, continuable allow-list,
     no-progress guard, episode cap (:func:`colleague.chain.should_continue`);
-    (2) the continuation seed resolution (the ok-guard and wrong-run guard
-    live inside :func:`~colleague.continuation.resolve_continuation`, wrapped
-    by :func:`~colleague.chain.resolve_chain_seed` so a ``ContinuationError``
-    is a clean halt, never a crash).
-
-    t6 (between-episode flight stop): insert the pilot stop check HERE,
-    between (1) and (2) — return ``(None, <halt verdict>)`` when the pilot
-    stopped the chain, so a stop never dispatches another episode.
+    (2) the between-episode pilot stop (t6): on a WATCHED chain, read the
+    JUST-FINISHED episode's flight control — the pilot's live handle — and
+    halt (reason :data:`~colleague.chain.HALT_PILOT_STOP`) when a cooperative
+    ``stop`` landed in the boundary window, so a stop never dispatches another
+    episode (an unwatched chain ignores it, matching the in-episode unwatched
+    semantics; :func:`colleague.flight.read_stop` is a pure peek — absent
+    control file = no stop); (3) the continuation seed resolution (the
+    ok-guard and wrong-run guard live inside
+    :func:`~colleague.continuation.resolve_continuation`, wrapped by
+    :func:`~colleague.chain.resolve_chain_seed` so a ``ContinuationError`` is
+    a clean halt, never a crash).
 
     Returns ``(seed, verdict)``: ``seed`` is ``(prior_task_id, seed_text)``
     when episode N+1 may dispatch, else ``None``; ``verdict`` is the
@@ -1116,6 +1119,15 @@ def _chain_should_start_next(
     )
     if not verdict.should_continue:
         return None, verdict
+    if watch and flight.read_stop(repo, result.task_id):
+        return None, chainmod.ChainVerdict(
+            should_continue=False,
+            reason=chainmod.HALT_PILOT_STOP,
+            detail=(
+                f"pilot stop on {result.task_id}'s flight control — episode "
+                f"{state.episode_count + 1} was never dispatched"
+            ),
+        )
     seed, halt = chainmod.resolve_chain_seed(repo, result.task_id)
     if halt is not None:
         return None, halt
@@ -1315,7 +1327,9 @@ def _run_chain(
             prior_ref=prior_branch or chain_base,
             episode_branch=episode_branch,
         )
-        seed, verdict = _chain_should_start_next(repo, result, state, progressed=progressed)
+        seed, verdict = _chain_should_start_next(
+            repo, result, state, progressed=progressed, watch=task.watch
+        )
         if seed is None:
             break
         emit_diagnostic(
@@ -1332,6 +1346,23 @@ def _run_chain(
         )
         # The flight arming resolved once for the arming invocation (c28).
         episode_task.watch = task.watch
+        # t6: announce the hop on the progress channel and record it on the
+        # PRIOR episode's flight feed (type="episode-transition", best-effort)
+        # — a pilot following episode 1 can locate every later episode. The
+        # marker is watch-gated like every flight write; the announcement is
+        # the same exact text the marker's intent carries.
+        announcement = flight.transition_announcement(
+            result.task_id, state.episode_count + 1, state.cap
+        )
+        emit_diagnostic(f"chain: {announcement}")
+        if task.watch:
+            flight.append_episode_transition(
+                repo,
+                result.task_id,
+                next_task_id=episode_task.id,
+                episode_index=state.episode_count + 1,
+                cap=state.cap,
+            )
 
     completed = verdict.reason == chainmod.HALT_OK_FINISH
     if completed and not read_only_role:

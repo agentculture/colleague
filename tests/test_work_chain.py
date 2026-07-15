@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+from colleague import flight
 from colleague import handoff as ho
 from colleague.artifact import find_artifact
 from colleague.loop import ModelResponse, ToolCall
@@ -443,3 +444,135 @@ class TestChainArming:
         assert lineage[1]["continued_from"] == cut_id
         assert [e["chain"]["episode_index"] for e in lineage[1:]] == [1, 2, 3]
         assert lineage[-1]["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# t6 — flight continuity + episode-transition observability
+# ---------------------------------------------------------------------------
+
+
+def _stop_after_episode(monkeypatch, repo: Path, counter: dict, *, after: int) -> None:
+    """Simulate a pilot's ``flight stop`` written in the between-episode window.
+
+    Wraps the loop's flight reap (the last flight act of an episode) so the
+    stop lands AFTER episode *after* finished — and after its live plane was
+    reaped — but BEFORE the chain's boundary decision runs: exactly the moment
+    a real pilot's ``colleague flight stop <id>`` would land between episodes.
+    """
+    import colleague.loop as loop_mod
+
+    real_reap = loop_mod._reap_flight
+
+    def reap_then_stop(ctx):
+        real_reap(ctx)
+        if counter["n"] == after:
+            flight.write_stop(repo, ctx.task.id)
+
+    monkeypatch.setattr(loop_mod, "_reap_flight", reap_then_stop)
+
+
+class TestChainFlightContinuity:
+    def test_between_episode_stop_prevents_next_episode(self, git_repo, monkeypatch, capsys):
+        """write_stop before the boundary halts the chain: episode 2 never starts."""
+        from colleague.cli import main
+
+        counter = _script_episodes(monkeypatch, ["budget", "budget", "finish"])
+        pr_calls = _gate_pr_boundary(monkeypatch)
+        _stop_after_episode(monkeypatch, git_repo, counter, after=1)
+
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "5"))
+        assert rc == 2  # the stopped chain reports its last episode honestly
+
+        # Episode 2 was never dispatched — the boundary check caught the stop.
+        assert counter["n"] == 1
+        episodes = _lineage_artifacts(git_repo)
+        assert len(episodes) == 1
+        # A halted chain keeps its branches (WIP) and never hands off.
+        assert pr_calls == []
+        assert len(_colleague_branches(git_repo)) == 1
+        # The halt names its honest reason on the progress channel.
+        assert "pilot-stop" in capsys.readouterr().err
+        # No transition marker was written — the chain never hopped.
+        feed = flight.feed_path(git_repo, episodes[0]["task_id"])
+        if feed.exists():
+            markers = [
+                json.loads(line)
+                for line in feed.read_text().splitlines()
+                if line.strip() and json.loads(line).get("type") == "episode-transition"
+            ]
+            assert markers == []
+
+    def test_boundary_records_transition_marker_and_announces(self, git_repo, monkeypatch, capsys):
+        """Each boundary appends an episode-transition marker to the PRIOR episode's
+        feed and announces the hop on the progress sink — a pilot following
+        episode 1 can locate every later episode."""
+        from colleague.cli import main
+
+        _script_episodes(monkeypatch, ["budget", "budget", "finish"])
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "5", "--no-pr"))
+        assert rc == 0
+
+        episodes = _lineage_artifacts(git_repo)
+        assert len(episodes) == 3
+
+        # Hop-by-hop: episode N's feed carries episode N+1's id.
+        for prior, nxt, idx in (
+            (episodes[0], episodes[1], 2),
+            (episodes[1], episodes[2], 3),
+        ):
+            feed = flight.feed_path(git_repo, prior["task_id"])
+            records = [json.loads(line) for line in feed.read_text().splitlines() if line.strip()]
+            markers = [r for r in records if r.get("type") == "episode-transition"]
+            assert len(markers) == 1
+            marker = markers[0]
+            assert marker["next_task_id"] == nxt["task_id"]
+            assert marker["episode_index"] == idx
+            assert marker["cap"] == 5
+
+        # The FINAL episode's feed carries no marker (the chain ended there);
+        # its live plane was reaped at finish and never recreated.
+        assert not flight.feed_path(git_repo, episodes[-1]["task_id"]).exists()
+
+        # The progress channel announced every hop, in the exact pilot-facing form.
+        err = capsys.readouterr().err
+        assert f"episode 2 of 5: continuing {episodes[0]['task_id']}" in err
+        assert f"episode 3 of 5: continuing {episodes[1]['task_id']}" in err
+
+    def test_unlimited_cap_announces_unlimited(self, git_repo, monkeypatch, capsys):
+        """--max-episodes 0: the announcement and marker say 'unlimited' / cap 0."""
+        from colleague.cli import main
+
+        _script_episodes(monkeypatch, ["budget", "finish"])
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "0", "--no-pr"))
+        assert rc == 0
+
+        episodes = _lineage_artifacts(git_repo)
+        assert len(episodes) == 2
+        err = capsys.readouterr().err
+        assert f"episode 2 of unlimited: continuing {episodes[0]['task_id']}" in err
+
+        feed = flight.feed_path(git_repo, episodes[0]["task_id"])
+        records = [json.loads(line) for line in feed.read_text().splitlines() if line.strip()]
+        markers = [r for r in records if r.get("type") == "episode-transition"]
+        assert len(markers) == 1
+        assert markers[0]["cap"] == 0
+
+    def test_no_watch_chain_ignores_stop_and_writes_no_marker(self, git_repo, monkeypatch):
+        """--no-watch: the flight plane is disarmed, so the boundary neither honors
+        a stop (matching the in-episode unwatched semantics) nor writes markers."""
+        from colleague.cli import main
+
+        counter = _script_episodes(monkeypatch, ["budget", "finish"])
+        _stop_after_episode(monkeypatch, git_repo, counter, after=1)
+
+        rc = main(
+            _work_argv(git_repo, "--until-done", "--max-episodes", "5", "--no-pr", "--no-watch")
+        )
+        assert rc == 0
+
+        # The stop was ignored — episode 2 dispatched and finished the chain.
+        assert counter["n"] == 2
+        episodes = _lineage_artifacts(git_repo)
+        assert len(episodes) == 2
+        # No transition marker recreated episode 1's feed.
+        assert not flight.feed_path(git_repo, episodes[0]["task_id"]).exists()
