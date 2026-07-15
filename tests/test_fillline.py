@@ -11,6 +11,14 @@ is offered per CROSSING (a resolved offer re-arms once the run drops back under 
 line), bounded by the per-run compaction cap
 (``fillline.DEFAULT_COMPACTION_CAP``) — the cap reached = no further offers,
 recorded on the trace (``capacity_warning``).
+
+Indefinite-run t2 (c4/h4) adds deterministic compaction validation: the MAIN
+model's summary is cross-checked against the run's own evidence (goal/original
+request + changed-file paths) and repaired deterministically
+(``fillline.validate_compaction`` — no second-model call, non-goal c12); an
+empty/whitespace summary is REJECTED and never replaces history — armed
+(``ContextControls.chain_armed``) the loop takes FINISH-WITH-HANDOFF (decision
+c23), unarmed it keeps today's lossy-windowing floor.
 """
 
 from __future__ import annotations
@@ -107,6 +115,7 @@ def _run(complete, task, **kwargs):
         count_tokens=kwargs.pop("count_tokens", None),
         autosplit_target=kwargs.pop("autosplit_target", 100),
         fillline_threshold=kwargs.pop("fillline_threshold", 0.8),
+        chain_armed=kwargs.pop("chain_armed", False),
     )
     kwargs.setdefault("system_prompt", _SYS)
     kwargs.setdefault("max_steps", 10)
@@ -532,3 +541,219 @@ def test_compaction_cap_suppresses_further_offers_and_is_recorded(tmp_path) -> N
     assert result.capacity_warning is not None
     assert "compaction cap" in result.capacity_warning
     assert result.capacity_warning.count("compaction cap") == 1
+
+
+# ---------------------------------------------------------------------------
+# Deterministic compaction validation (indefinite-run t2, c4) — pure validator
+# ---------------------------------------------------------------------------
+
+
+def test_validate_compaction_rejects_only_empty_or_whitespace() -> None:
+    """Rejection is reserved for the uncoverable case — an empty/whitespace note
+    (c4/h4). Any non-empty summary is repairable, so it is repaired, never rejected."""
+    assert fillline.validate_compaction("", "some goal", ["a.py"]) == ("", False)
+    assert fillline.validate_compaction("   \n\t ", "some goal", ["a.py"]) == ("", False)
+    assert fillline.validate_compaction(None, "some goal", ["a.py"]) == ("", False)
+    # A bare non-empty token is never rejected — it gets the evidence appended.
+    text, ok = fillline.validate_compaction("x", "some goal", ["a.py"])
+    assert ok is True
+    assert "some goal" in text and "a.py" in text
+
+
+def test_validate_compaction_passes_complete_summary_unchanged() -> None:
+    """A summary already carrying the goal and every changed-file path passes
+    through byte-identical — no evidence block, no rewriting (c4)."""
+    summary = "Did the long thing; edited a.py and b.py; remains: the docs."
+    text, ok = fillline.validate_compaction(summary, "the long thing", ["a.py", "b.py"])
+    assert ok is True
+    assert text == summary
+
+
+def test_validate_compaction_appends_only_missing_facts() -> None:
+    """Repair is additive and deterministic: the original text is preserved verbatim
+    and ONLY the missing facts (goal + absent changed paths) are appended (c4)."""
+    summary = "Edited a.py; more to do."
+    text, ok = fillline.validate_compaction(summary, "refactor the parser", ["a.py", "b.py"])
+    assert ok is True
+    assert text.startswith(summary)
+    assert "refactor the parser" in text
+    assert "b.py" in text
+    # The already-present path is not re-listed in the appended evidence block.
+    appended = text[len(summary) :]
+    assert "a.py" not in appended
+    # Deterministic: same inputs, same output.
+    assert fillline.validate_compaction(summary, "refactor the parser", ["a.py", "b.py"]) == (
+        text,
+        True,
+    )
+
+
+def test_validate_compaction_goal_heuristic_first_line_case_insensitive() -> None:
+    """The goal-presence check is a containment heuristic on the goal's FIRST line,
+    case-insensitive — a summary restating the request in different case passes."""
+    text, ok = fillline.validate_compaction(
+        "I did REFACTOR THE PARSER as asked.", "refactor the parser\nmore detail below", []
+    )
+    assert ok is True
+    assert text == "I did REFACTOR THE PARSER as asked."
+
+
+def test_validate_compaction_repair_is_idempotent() -> None:
+    """Validating a repaired text appends nothing further — the evidence block itself
+    satisfies the checks, so repeated validation is a fixed point (c4)."""
+    repaired, ok = fillline.validate_compaction("a thin note", "the goal text", ["src/mod.py"])
+    assert ok is True
+    again, ok2 = fillline.validate_compaction(repaired, "the goal text", ["src/mod.py"])
+    assert ok2 is True
+    assert again == repaired
+
+
+def test_build_handoff_instruction_names_finish_and_continuation() -> None:
+    """The unrepairable-note handoff instruction (decision c23) is deterministic and
+    mirrors the decision prompt's FINISH-WITH-HANDOFF wording: call `finish` with a
+    continuation summary."""
+    body = fillline.build_handoff_instruction()
+    assert body == fillline.build_handoff_instruction()  # deterministic
+    assert "FINISH-WITH-HANDOFF" in body
+    assert "finish" in body
+    assert "continuation summary" in body
+
+
+# ---------------------------------------------------------------------------
+# Unrepairable-note policy in the loop (indefinite-run t2, c4/h4, decision c23)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_summary_rejected_unarmed_keeps_windowing_floor(tmp_path) -> None:
+    """An empty compaction summary NEVER replaces history: unarmed (chain_armed
+    False, the default), the loop keeps today's lossy-windowing floor — and the old
+    '(no summary produced)' silent-amnesia placeholder is gone (c4/h4)."""
+    calls: list[list] = []
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="   \n ", prompt_tokens=5, completion_tokens=1)
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=85, completion_tokens=1)
+        if len(calls) == 1:
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        return ModelResponse(
+            content="done",
+            tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+            prompt_tokens=5,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path))
+    assert result.status == OK
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
+    # The empty note never replaced history: no compacted-summary message and no
+    # silent-amnesia placeholder appear in ANY completion's history.
+    for msgs in calls:
+        assert not _has(msgs, "[Compacted summary")
+        assert not _has(msgs, "(no summary produced)")
+    # The lossy-windowing floor preserved the head — the original assignment is
+    # still present on the final (finish) turn.
+    assert _has(calls[-1], "do a long thing")
+    # And no handoff instruction was injected — that path is armed-only.
+    assert not any(_has(msgs, "FINISH-WITH-HANDOFF now") for msgs in calls)
+
+
+def test_empty_summary_rejected_armed_takes_finish_with_handoff(tmp_path) -> None:
+    """With continuation chaining armed (ContextControls.chain_armed=True), an
+    unrepairable (empty) compaction note routes the run to FINISH-WITH-HANDOFF
+    (decision c23): the loop injects the deterministic handoff instruction and the
+    model finishes with a continuation summary — preserved on the result."""
+    calls: list[list] = []
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="", prompt_tokens=5, completion_tokens=1)
+        if "FINISH-WITH-HANDOFF now" in last:
+            return ModelResponse(
+                content="handing off",
+                tool_calls=[ToolCall("f", "finish", {"summary": "DONE: A  REMAINS: B"})],
+                prompt_tokens=5,
+                completion_tokens=1,
+            )
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=85, completion_tokens=1)
+        if len(calls) == 1:
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("1", "list_dir", {"path": "."})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        # Without the injected instruction the model would keep working — the
+        # summary assertion below would then fail.
+        return ModelResponse(
+            content="",
+            tool_calls=[ToolCall("2", "list_dir", {"path": "."})],
+            prompt_tokens=20,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), chain_armed=True)
+    assert result.status == OK
+    # The handoff instruction reached the model and the continuation summary landed.
+    assert any(_has(msgs, "FINISH-WITH-HANDOFF now") for msgs in calls)
+    assert result.summary == "DONE: A  REMAINS: B"
+    # The empty note still never replaced history.
+    for msgs in calls:
+        assert not _has(msgs, "[Compacted summary")
+        assert not _has(msgs, "(no summary produced)")
+
+
+def test_compaction_summary_repaired_with_run_evidence(tmp_path) -> None:
+    """A non-empty summary that omits the goal and a changed-file path is repaired
+    deterministically before it replaces history: the compacted note carries the
+    run's own evidence (c4) — and validation is pure, no extra model call (c12)."""
+    calls: list[list] = []
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            # Omits the goal AND the changed file — must be repaired, not trusted.
+            return ModelResponse(content="made some progress", prompt_tokens=5, completion_tokens=1)
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=85, completion_tokens=1)
+        if len(calls) == 1:
+            return ModelResponse(
+                content="",
+                tool_calls=[ToolCall("w", "write_file", {"path": "marker.txt", "content": "hi"})],
+                prompt_tokens=90,
+                completion_tokens=1,
+            )
+        return ModelResponse(
+            content="done",
+            tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+            prompt_tokens=5,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path))
+    assert result.status == OK
+    final = calls[-1]
+    note = next(
+        (m.get("content") or "")
+        for m in final
+        if (m.get("content") or "").startswith("[Compacted summary")
+    )
+    assert "made some progress" in note  # the model's own text, preserved verbatim
+    assert "do a long thing" in note  # the goal/original request, repaired in
+    assert "marker.txt" in note  # the changed-file evidence, repaired in
+    # No second-model / extra completion was introduced by validation (c12):
+    # work turn, declaring turn, summary turn, finish turn — exactly four.
+    assert len(calls) == 4
