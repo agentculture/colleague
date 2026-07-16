@@ -219,6 +219,34 @@ def test_explicit_flag_cap_beats_config_json(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# --max-steps survives the work-mode profile (#336)
+# ---------------------------------------------------------------------------
+
+
+def test_max_steps_flag_survives_the_work_mode_profile(tmp_path: Path) -> None:
+    """#336: run_session must mirror cmd_work's config.explicit_knobs guard
+    (work.py:1701-1703). Every session dispatch runs with mode="work"
+    (_run_work) and apply_mode_profile — via work._moded_config, the exact
+    path execute_work runs before the engine starts — refills any knob NOT
+    named in config.explicit_knobs from the work profile's default. The work
+    profile's max_steps (40) happens to equal today's built-in default, so an
+    UNMARKED explicit --max-steps=5 would silently be clobbered back to 40."""
+    work_calls: list = []
+    rc = run_session(
+        _make_args(tmp_path, max_steps=5),
+        input_fn=iter(["do a thing", "q"]),
+        out=_CollectingOut(),
+        _work_fn=_ok_work(work_calls),
+        _color=False,
+    )
+    assert rc == 0
+    assert len(work_calls) == 1
+    dispatched = work_calls[0]
+    effective = work_mod._moded_config(dispatched["config"], dispatched["mode"], dispatched["repo"])
+    assert effective.max_steps == 5
+
+
+# ---------------------------------------------------------------------------
 # End-to-end: the session front drives a REAL two-episode chain (mock engine)
 # ---------------------------------------------------------------------------
 
@@ -299,12 +327,13 @@ def test_armed_session_runs_a_real_two_episode_chain(
     the chain view accumulated, the t6 episode diagnostics on stderr. This
     drives the REAL execute_work_chain through the session (no fakes), so the
     session front provably reaches the same chain semantics as work."""
-    # Env (not --max-steps) keeps the knob operator-decided so the session's
-    # behaviour-neutral work-mode profile cannot refill it (h1 semantics).
-    monkeypatch.setenv("COLLEAGUE_MAX_STEPS", "1")
+    # --max-steps (not the env workaround) keeps the knob operator-decided:
+    # run_session now marks it on config.explicit_knobs (#336), the same
+    # guard cmd_work uses, so the session's work-mode profile cannot refill
+    # it (h1 semantics) even though this rides the flag path, not env.
     _script_two_episode_chain(monkeypatch)
     rc = run_session(
-        _make_args(git_repo, until_done=True, max_episodes=4),
+        _make_args(git_repo, until_done=True, max_episodes=4, max_steps=1),
         input_fn=iter(["add a CONTRIBUTING.md file", "q"]),
         out=_CollectingOut(),
         _color=False,
