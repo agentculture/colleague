@@ -358,6 +358,70 @@ class TestChainGateDeferralSurfacing:
         err = capsys.readouterr().err
         assert "handed off with the final episode's pre-finish gates deferred" in err
 
+    def test_halted_then_continued_chain_ends_gated(self, git_repo, monkeypatch):
+        """#341(3): continue-the-chain is the documented remedy for ungated
+        halted WIP — a cap-halted chain resumed with --continue --until-done
+        ends with a GATED final episode whose gates graded the inherited
+        union, and the resumed accounting still names every deferring episode.
+        """
+        from colleague.cli import main
+
+        # Record what the lint gate was asked to grade (the union evidence);
+        # the loop calls through its module alias, so patching the source
+        # module is visible (the tests/test_gate_deferral.py recorder shape).
+        lint_calls: list[list[str]] = []
+
+        def fake_lint(repo, changed):
+            lint_calls.append(list(changed))
+            from colleague.contract import LintReport
+
+            return LintReport(fixed=["stub: reformatted"])
+
+        monkeypatch.setattr("colleague.lint.run_lint_gate", fake_lint)
+
+        # Cut chain: two budget episodes, cap 2 → halted with ungated WIP.
+        _script_episodes(monkeypatch, ["budget", "budget", "budget", "finish"])
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "2", "--no-pr"))
+        assert rc == 2
+        halted = _lineage_artifacts(git_repo)
+        halted_ids = [ep["task_id"] for ep in halted]
+        assert halted[-1]["chain"]["deferred_gate_episodes"] == halted_ids
+
+        # Continue the halted chain; script entries 3 (budget) + 4 (finish)
+        # become continuation episodes 1-2.
+        rc2 = main(
+            [
+                "work",
+                "--engine",
+                "mock",
+                "--repo",
+                str(git_repo),
+                "--max-steps",
+                "1",
+                "--continue",
+                "last",
+                "--until-done",
+                "--no-pr",
+            ]
+        )
+        assert rc2 == 0
+
+        lineage = _lineage_artifacts(git_repo)
+        final = lineage[-1]
+        # The finishing episode ran its gates — no deferral marker on it...
+        assert final["status"] == "ok"
+        assert "gates_deferred" not in final
+        # ...over the inherited union: episode 3's file reached the gate even
+        # though the finishing episode itself changed nothing.
+        assert lint_calls, "the final episode never ran the lint gate"
+        assert "episode-3.txt" in lint_calls[-1]
+        # The resumed accounting still names every deferring episode (the cut
+        # run's two + the continuation's budget episode), and not the final.
+        deferred = final["chain"]["deferred_gate_episodes"]
+        assert lineage[-2]["task_id"] in deferred
+        assert set(halted_ids) <= set(deferred)
+        assert final["task_id"] not in deferred
+
     def test_completed_gated_chain_renders_no_warning(
         self, git_repo, origin, monkeypatch, capsys
     ):
