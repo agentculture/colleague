@@ -56,6 +56,7 @@ from colleague import media
 from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity
+from colleague.chain import declared_capacity_handoff
 from colleague.config import MAX_SUBAGENT_FANOUT
 from colleague.context import (
     classify_degradable,
@@ -636,6 +637,23 @@ class _Work:
     # policy (:func:`_reject_compaction`) — armed routes an empty compaction note to
     # FINISH-WITH-HANDOFF; unarmed (the default) keeps the lossy-windowing floor.
     chain_armed: bool = False
+    # Chain-episode gate deferral (#335, c8/c10): ``chain_episode`` marks THIS run
+    # as one dispatched episode of an armed ``--until-done`` chain (threaded from
+    # ``ContextControls.chain_episode`` — dispatch-keyed, never derived from
+    # ``until_done``/``chain_armed``, so a subagent child or a plain armed run
+    # never carries it, c22). On a continuation-shaped exit
+    # (:func:`_gates_deferred_to_chain`) the four pre-finish gates are deferred to
+    # the chain's FINAL episode instead of grading an intermediate tree the next
+    # episode immediately rewrites. ``chain_prior_changed`` is the accumulated
+    # union of every PRIOR episode's changed files (from
+    # ``ContextControls.chain_prior_changed``) the final episode's gates union in
+    # (:func:`_gate_changed_set`, c23); ``()`` — a non-chained run or the chain's
+    # first episode — is byte-identical to today.
+    chain_episode: bool = False
+    chain_prior_changed: tuple[str, ...] = ()
+    # Single-element fired-once cell (the ``_fillline_capped`` pattern) guarding
+    # the deferral note against a double append — recorded ONCE per episode.
+    _gate_deferral_noted: list[bool] = field(default_factory=list)
     _fillline_offered: list[bool] = field(default_factory=list)
     _fillline_resolved: list[bool] = field(default_factory=list)
     # The prompt-token count that tripped the fill line — captured when the decision
@@ -3390,6 +3408,74 @@ _LINT_FIX_PROMPT = (
 )
 
 
+def _gates_deferred_to_chain(ctx: _Work, outcome: str, aborted: Exception | None) -> bool:
+    """True when this chain episode's exit is continuation-shaped — defer the gates (#335).
+
+    The continuation shape is derived from the SAME signals the chain driver
+    continues on (colleague/chain.py, imported — not mirrored): the budget
+    outcome (``should_continue``'s allow-list is exactly the budget-exhausted
+    reason, c24) or a declared fill-line finish-with-handoff
+    (:func:`colleague.chain.declared_capacity_handoff`, deviation d1/c23). The
+    next episode rewrites this tree, so mid-chain gates would burn per-episode
+    budget grading an intermediate state; the chain's FINAL (finish-shaped)
+    episode runs them over the accumulated union instead
+    (:func:`_gate_changed_set`). Three arms, each honest on its own:
+
+    - ``aborted`` never defers: an error/timeout exit is a chain HALT (never in
+      the allow-list) — and run()'s ``outcome`` still holds its pre-try
+      ``budget`` initial value on that path, the trap this arm exists for;
+    - ``chain_episode`` keys on the DISPATCH marker (c22): a subagent child or
+      a plain ``until_done`` run without a chain dispatch gates as today;
+    - a chain that then HALTS anyway (cap / no-progress) keeps the skip —
+      spec'd, no backfill; the deferral note on the episode artifact stays the
+      honest record.
+    """
+    if aborted is not None or not ctx.chain_episode:
+        return False
+    return outcome == _EXIT_BUDGET or declared_capacity_handoff(ctx.result)
+
+
+def _record_gate_deferral(ctx: _Work) -> None:
+    """Record ONCE per episode that the pre-finish gates were deferred (#335).
+
+    The :func:`_record_fillline_cap` precedent: append the note to
+    ``result.capacity_warning`` (the artifact) and fire a phase notice (the
+    stderr/cockpit/flight feeds — never a step, so ``step_count`` is untouched),
+    so the skip is observable on the trace rather than silent.
+    ``_gate_deferral_noted`` guards the once.
+    """
+    if ctx._gate_deferral_noted:
+        return
+    ctx._gate_deferral_noted[:] = [True]
+    note = (
+        "chain-armed continuation exit — pre-finish gates (lint/coherence/"
+        "test-integrity/affected-tests) deferred to the chain's final episode (#335)"
+    )
+    existing = ctx.result.capacity_warning
+    ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
+    _emit_phase(ctx, note)
+
+
+def _gate_changed_set(ctx: _Work) -> list[str]:
+    """The changed-set the four pre-finish gates grade (#335, c23).
+
+    A non-chained run (and the chain's first episode) has an empty
+    ``chain_prior_changed`` and gets EXACTLY today's set — ``sorted(
+    ctx.executor.changed)``, no filter — byte-identical. A chained final
+    episode gates over union(this episode's changed, the accumulated
+    ``prior_changed``), filtered to paths that exist in the episode worktree:
+    prior episodes' files reach it via the chain's tree carry, while a path a
+    later episode deleted (or that never survived) must not feed a linter a
+    missing file.
+    """
+    changed = sorted(ctx.executor.changed)
+    if not ctx.chain_prior_changed:
+        return changed
+    union = set(changed) | set(ctx.chain_prior_changed)
+    root = Path(ctx.task.repo_path)
+    return sorted(path for path in union if (root / path).exists())
+
+
 def _maybe_run_lint_gate(
     ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
 ) -> None:
@@ -3414,7 +3500,7 @@ def _maybe_run_lint_gate(
     if aborted is not None or not ctx.lint_enabled:
         return
     with suppress(Exception):
-        changed = sorted(ctx.executor.changed)
+        changed = _gate_changed_set(ctx)
         if not changed:
             return
         report = _lint.run_lint_gate(ctx.task.repo_path, changed)
@@ -3424,7 +3510,7 @@ def _maybe_run_lint_gate(
         while report.residual and retries > 0:
             _run_lint_fix_turn(ctx, complete, report.residual)
             retries -= 1
-            next_report = _lint.run_lint_gate(ctx.task.repo_path, sorted(ctx.executor.changed))
+            next_report = _lint.run_lint_gate(ctx.task.repo_path, _gate_changed_set(ctx))
             if next_report is None:
                 break
             report = next_report
@@ -3474,7 +3560,7 @@ def _maybe_run_coherence_gate(ctx: _Work, aborted: Exception | None) -> None:
     if aborted is not None or not ctx.coherence_enabled:
         return
     with suppress(Exception):
-        changed = sorted(ctx.executor.changed)
+        changed = _gate_changed_set(ctx)
         if not changed:
             return
         report = _coherencemod.run_coherence_gate(
@@ -3647,7 +3733,7 @@ def _maybe_run_test_integrity_gate(
     if aborted is not None or not ctx.testintegrity_enabled:
         return
     with suppress(Exception):
-        changed = sorted(ctx.executor.changed)
+        changed = _gate_changed_set(ctx)
         if not changed:
             return
         report = _testintegrity.detect_mirror(ctx.task.repo_path, changed)
@@ -3660,7 +3746,7 @@ def _maybe_run_test_integrity_gate(
         while report.findings and retries > 0:
             _run_test_integrity_fix_turn(ctx, complete, report.findings)
             retries -= 1
-            report = _testintegrity.detect_mirror(ctx.task.repo_path, sorted(ctx.executor.changed))
+            report = _testintegrity.detect_mirror(ctx.task.repo_path, _gate_changed_set(ctx))
             ctx.result.test_integrity_report = report if report.findings else None
         # Diverse-model reviewer — the robust guard: a same-model re-examine turn can
         # re-confirm its own mirror, so spawn a DIFFERENT model to re-derive the real
@@ -3753,7 +3839,7 @@ def _maybe_run_affected_tests_gate(
         return
     with suppress(Exception):
         override = shlex.split(ctx.affectedtests_override) if ctx.affectedtests_override else None
-        changed = sorted(ctx.executor.changed)
+        changed = _gate_changed_set(ctx)
         if not changed and override is None:
             return
         report = _affectedtests.run_affected_tests(
@@ -3773,7 +3859,7 @@ def _maybe_run_affected_tests_gate(
             retries -= 1
             next_report = _affectedtests.run_affected_tests(
                 ctx.task.repo_path,
-                sorted(ctx.executor.changed),
+                _gate_changed_set(ctx),
                 depth=ctx.affectedtests_depth,
                 max_files=ctx.affectedtests_max_files,
                 pytest_args=override,
@@ -4080,6 +4166,8 @@ def run(
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         chain_armed=_context.chain_armed,
+        chain_episode=_context.chain_episode,
+        chain_prior_changed=tuple(_context.chain_prior_changed or ()),
         compaction_cap=_context.compaction_cap,
         mapping_fanout_files=_context.fanout_files,
         review_fanout_folders=_context.review_fanout_folders,
@@ -4190,36 +4278,51 @@ def run(
     # ephemeral (a no-op when the work item was not a flight).
     _reap_flight(ctx)
 
-    # Pre-finish lint gate (#200): on a NON-aborted exit, run the repo's configured
-    # linters on the changed files and auto-fix what they can; if reporter violations
-    # remain after a clean finish, inject ONE bounded model fix-turn (capped by
-    # lint_fix_retries). Runs BEFORE the changed_files snapshot + stats below so any
-    # fix-turn edits are captured. Non-blocking: the handoff always proceeds. The
-    # aborted guard + the best-effort wrapping live in the helper (so it can never
-    # abort run(), #209 review) — call it unconditionally to keep run() flat.
-    _maybe_run_lint_gate(ctx, complete, outcome, aborted)
+    # Chain-episode gate deferral (#335, c8/c10): a chain episode exiting on a
+    # continuation shape (budget-exhausted, or a declared fill-line
+    # finish-with-handoff — the SAME signals colleague/chain.py continues on)
+    # skips the four pre-finish gates: the next episode rewrites this tree, so
+    # mid-chain gates would spend per-episode budget grading intermediate state.
+    # Recorded ONCE per episode on the artifact (the _record_fillline_cap
+    # precedent) — never silent. The chain's FINAL (finish-shaped) episode runs
+    # them over union(this episode's changed, prior_changed) via
+    # _gate_changed_set (c23), keeping the live-loop fix-turn / re-examine paths
+    # intact — the post-hoc gate shape was rejected for exactly that loss. A
+    # non-chained run never defers (byte-identical), incl. an until_done run
+    # without a chain dispatch and every subagent child (c22).
+    if _gates_deferred_to_chain(ctx, outcome, aborted):
+        _record_gate_deferral(ctx)
+    else:
+        # Pre-finish lint gate (#200): on a NON-aborted exit, run the repo's configured
+        # linters on the changed files and auto-fix what they can; if reporter violations
+        # remain after a clean finish, inject ONE bounded model fix-turn (capped by
+        # lint_fix_retries). Runs BEFORE the changed_files snapshot + stats below so any
+        # fix-turn edits are captured. Non-blocking: the handoff always proceeds. The
+        # aborted guard + the best-effort wrapping live in the helper (so it can never
+        # abort run(), #209 review) — call it unconditionally to keep run() flat.
+        _maybe_run_lint_gate(ctx, complete, outcome, aborted)
 
-    # Pre-finish coherence gate (#294, colleague#291 S3): on a NON-aborted exit,
-    # score the changed .md files via the coherence CLI and record the result on
-    # result.coherence_report (omit-when-None). Advisory + warn-only — no fix-turn,
-    # never blocks the handoff; runs after the lint gate so it sees the lint-fixed
-    # changed set. The aborted guard + best-effort wrapping live in the helper so
-    # it can never abort run().
-    _maybe_run_coherence_gate(ctx, aborted)
+        # Pre-finish coherence gate (#294, colleague#291 S3): on a NON-aborted exit,
+        # score the changed .md files via the coherence CLI and record the result on
+        # result.coherence_report (omit-when-None). Advisory + warn-only — no fix-turn,
+        # never blocks the handoff; runs after the lint gate so it sees the lint-fixed
+        # changed set. The aborted guard + best-effort wrapping live in the helper so
+        # it can never abort run().
+        _maybe_run_coherence_gate(ctx, aborted)
 
-    # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
-    # signature on the changed files and record it on result.test_integrity_report.
-    # Advisory + non-blocking (never blocks the handoff, no network); the aborted
-    # guard + best-effort wrapping live in the helper so it can never abort run().
-    # Runs after the lint gate so it sees the lint-fixed changed set.
-    _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
+        # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
+        # signature on the changed files and record it on result.test_integrity_report.
+        # Advisory + non-blocking (never blocks the handoff, no network); the aborted
+        # guard + best-effort wrapping live in the helper so it can never abort run().
+        # Runs after the lint gate so it sees the lint-fixed changed set.
+        _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
 
-    # Pre-finish affected-tests gate (#213): on a NON-aborted exit, run the tests that
-    # (transitively) import the changed module(s) and record the outcome on
-    # result.affected_tests_report. Advisory + non-blocking; runs after lint +
-    # test-integrity so it sees their fixed changed set. The aborted guard + best-effort
-    # wrapping live in the helper so it can never abort run().
-    _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
+        # Pre-finish affected-tests gate (#213): on a NON-aborted exit, run the tests
+        # that (transitively) import the changed module(s) and record the outcome on
+        # result.affected_tests_report. Advisory + non-blocking; runs after lint +
+        # test-integrity so it sees their fixed changed set. The aborted guard +
+        # best-effort wrapping live in the helper so it can never abort run().
+        _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
 
     # Deepthink tool-call records (t5 / spec c14): snapshot the executor's
     # accumulated records BEFORE the self-check (which may append its own), in
