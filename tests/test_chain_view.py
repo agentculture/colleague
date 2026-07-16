@@ -294,3 +294,20 @@ def test_gates_deferred_missing_or_null_reads_false() -> None:
     assert TaskResult.from_dict(data).gates_deferred is False
     data["gates_deferred"] = None
     assert TaskResult.from_dict(data).gates_deferred is False
+
+
+def test_gates_deferred_truthy_junk_degrades_false() -> None:
+    # Artifacts are external inputs (#341): only the JSON boolean ``true``
+    # reads True — any other type/value (a "false" or "true" string, an int,
+    # a dict) degrades to False, never guessed (the ChainView.from_dict
+    # degrade-to-empty stance on malformed payloads).
+    data = TaskResult(task_id="abc", status=OK, summary="done").to_dict()
+    for junk in ("false", "true", 1, {}):
+        data["gates_deferred"] = junk
+        assert TaskResult.from_dict(data).gates_deferred is False
+
+
+def test_gates_deferred_json_true_still_reads_true() -> None:
+    data = TaskResult(task_id="abc", status=OK, summary="done").to_dict()
+    data["gates_deferred"] = True
+    assert TaskResult.from_dict(data).gates_deferred is True
