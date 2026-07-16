@@ -866,6 +866,12 @@ class ChainView:
     total_prompt_tokens / total_completion_tokens / total_tokens:
         Sums of the per-episode exact :class:`Usage` fields (same names,
         ``total_`` prefixed) across episodes 1..this one.
+    deferred_gate_episodes:
+        Task ids of the episodes (1..this one, in chain order) that deferred
+        their pre-finish gates to the chain (#335 exits, recorded via
+        ``TaskResult.gates_deferred`` — #341). ``()`` — no deferral so far —
+        is omitted from the artifact, so an all-gated chain stays
+        byte-identical.
     """
 
     episode_index: int
@@ -874,6 +880,7 @@ class ChainView:
     total_prompt_tokens: int
     total_completion_tokens: int
     total_tokens: int
+    deferred_gate_episodes: tuple[str, ...] = ()
 
     @classmethod
     def accumulate(cls, prior: Optional["ChainView"], result: "TaskResult") -> "ChainView":
@@ -885,6 +892,11 @@ class ChainView:
         ``result.stats`` — sums of exacts, never estimates (h19).
         """
         index = (prior.episode_index if prior else 0) + 1
+        deferred = prior.deferred_gate_episodes if prior else ()
+        # getattr: accumulate is a public seam and a caller may pass a minimal
+        # result stand-in predating the #341 marker.
+        if getattr(result, "gates_deferred", False):
+            deferred = deferred + (result.task_id,)
         return cls(
             episode_index=index,
             episode_count=index,
@@ -896,10 +908,11 @@ class ChainView:
                 (prior.total_completion_tokens if prior else 0) + result.usage.completion_tokens
             ),
             total_tokens=(prior.total_tokens if prior else 0) + result.usage.total_tokens,
+            deferred_gate_episodes=deferred,
         )
 
-    def to_dict(self) -> dict[str, int]:
-        return {
+    def to_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {
             "episode_index": self.episode_index,
             "episode_count": self.episode_count,
             "total_steps": self.total_steps,
@@ -907,6 +920,10 @@ class ChainView:
             "total_completion_tokens": self.total_completion_tokens,
             "total_tokens": self.total_tokens,
         }
+        # Omit-when-empty (#341): an all-gated chain's artifact is byte-identical.
+        if self.deferred_gate_episodes:
+            data["deferred_gate_episodes"] = list(self.deferred_gate_episodes)
+        return data
 
     @classmethod
     def from_dict(cls, data: Any) -> "ChainView":
@@ -918,6 +935,12 @@ class ChainView:
         artifact."""
         if not isinstance(data, dict):
             return cls(0, 0, 0, 0, 0, 0)
+        raw_deferred = data.get("deferred_gate_episodes")
+        # Best-effort like the counters: a non-list payload degrades to (),
+        # non-string entries are dropped — never raises (#341).
+        deferred: tuple[str, ...] = ()
+        if isinstance(raw_deferred, (list, tuple)):
+            deferred = tuple(item for item in raw_deferred if isinstance(item, str))
         return cls(
             episode_index=_coerce_count(data.get("episode_index")),
             episode_count=_coerce_count(data.get("episode_count")),
@@ -925,6 +948,7 @@ class ChainView:
             total_prompt_tokens=_coerce_count(data.get("total_prompt_tokens")),
             total_completion_tokens=_coerce_count(data.get("total_completion_tokens")),
             total_tokens=_coerce_count(data.get("total_tokens")),
+            deferred_gate_episodes=deferred,
         )
 
 
@@ -1298,6 +1322,12 @@ class TaskResult:
     assessment exceeds even the in-repo split capacity (#156), else ``None``. The
     operator performs the cross-repo split; colleague only warns. Omitted from the
     artifact (not null) when ``None``."""
+    gates_deferred: bool = False
+    """True when this chain episode deferred its pre-finish gates to the chain's
+    final episode (#335 exit shapes) — the structured marker (#341) recorded by
+    the loop alongside the ``capacity_warning`` deferral note, so chain
+    accounting and artifact consumers never string-match prose. ``False`` is
+    OMITTED from the artifact (a non-deferring run stays byte-identical)."""
     lint_report: Optional[LintReport] = None
     """The lint pre-finish gate's report, or ``None`` when linting did not run
     (disabled, or no linters configured). Like destination/capacity_decision,
@@ -1473,6 +1503,10 @@ class TaskResult:
             d["capacity_decision"] = self.capacity_decision.to_dict()
         if self.capacity_warning is not None:
             d["capacity_warning"] = self.capacity_warning
+        # gates_deferred gets omit-when-False treatment (#341): only a chain
+        # episode that actually deferred its gates carries the key.
+        if self.gates_deferred:
+            d["gates_deferred"] = True
         if self.lint_report is not None:
             d["lint_report"] = self.lint_report.to_dict()
         if self.coherence_report is not None:
@@ -1578,6 +1612,7 @@ class TaskResult:
                 else None
             ),
             capacity_warning=data.get("capacity_warning"),
+            gates_deferred=bool(data.get("gates_deferred") or False),
             lint_report=(
                 LintReport.from_dict(data["lint_report"]) if data.get("lint_report") else None
             ),

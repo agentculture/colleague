@@ -224,3 +224,73 @@ def test_read_chain_view_none_without_chain(tmp_path: Path) -> None:
 
 def test_read_chain_view_none_for_missing_artifact(tmp_path: Path) -> None:
     assert artifact.read_chain_view(tmp_path, "no-such-task") is None
+
+
+# ── deferred_gate_episodes: chain gate-deferral accounting (#341) ─────────
+
+
+def test_deferred_gate_episodes_default_empty_and_omitted() -> None:
+    view = ChainView(1, 1, 5, 100, 20, 120)
+    assert view.deferred_gate_episodes == ()
+    # Omit-when-empty: an all-gated chain's artifact stays byte-identical.
+    assert "deferred_gate_episodes" not in view.to_dict()
+
+
+def test_deferred_gate_episodes_serializes_and_round_trips() -> None:
+    view = ChainView(2, 2, 9, 300, 60, 360, deferred_gate_episodes=("ep1", "ep2"))
+    assert view.to_dict()["deferred_gate_episodes"] == ["ep1", "ep2"]
+    assert ChainView.from_dict(view.to_dict()) == view
+
+
+def test_deferred_gate_episodes_from_dict_degrades_to_empty() -> None:
+    base = ChainView(1, 1, 1, 1, 1, 2).to_dict()
+    for junk in (None, "not-a-list", 7, {"a": 1}):
+        data = dict(base)
+        data["deferred_gate_episodes"] = junk
+        assert ChainView.from_dict(data).deferred_gate_episodes == ()
+    # Non-string entries are dropped, string entries kept — never raises.
+    data = dict(base)
+    data["deferred_gate_episodes"] = ["ep1", 3, None, "ep2"]
+    assert ChainView.from_dict(data).deferred_gate_episodes == ("ep1", "ep2")
+
+
+def test_accumulate_appends_deferring_episode_ids() -> None:
+    ep1 = _episode("e1", prompt=100, completion=30, steps=4)
+    ep1.gates_deferred = True
+    ep2 = _episode("e2", prompt=250, completion=75, steps=7)
+    ep3 = _episode("e3", prompt=40, completion=10, steps=2)
+    ep3.gates_deferred = True
+    view: ChainView | None = None
+    for ep in (ep1, ep2, ep3):
+        view = ChainView.accumulate(view, ep)
+    assert view is not None
+    # Only the deferring episodes' ids, in chain order.
+    assert view.deferred_gate_episodes == ("e1", "e3")
+
+
+def test_accumulate_without_deferral_stays_empty() -> None:
+    ep1 = _episode("e1", prompt=100, completion=30, steps=4)
+    view = ChainView.accumulate(None, ep1)
+    assert view.deferred_gate_episodes == ()
+
+
+# ── TaskResult.gates_deferred: the structured deferral marker (#341) ──────
+
+
+def test_gates_deferred_default_false_and_omitted() -> None:
+    result = TaskResult(task_id="abc", status=OK, summary="done")
+    assert result.gates_deferred is False
+    assert "gates_deferred" not in result.to_dict()
+
+
+def test_gates_deferred_true_serializes_and_round_trips() -> None:
+    result = TaskResult(task_id="ep1", status=OK, summary="done", gates_deferred=True)
+    assert result.to_dict()["gates_deferred"] is True
+    assert TaskResult.from_dict(result.to_dict()).gates_deferred is True
+
+
+def test_gates_deferred_missing_or_null_reads_false() -> None:
+    data = TaskResult(task_id="abc", status=OK, summary="done").to_dict()
+    assert TaskResult.from_dict(data).gates_deferred is False
+    data["gates_deferred"] = None
+    assert TaskResult.from_dict(data).gates_deferred is False
