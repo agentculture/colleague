@@ -643,13 +643,17 @@ class _Work:
     # the slightly different count of the declaring turn). Cleared with the re-arm so
     # each crossing's decision records its own numbers.
     _fillline_used: list[int] = field(default_factory=list)
-    # Per-run compaction cap (indefinite-run t1): ``_fillline_compactions`` is a
-    # counted cell ([n], the ``_unknown_tool_streak`` pattern) tallying compaction
-    # turns; at ``fillline.DEFAULT_COMPACTION_CAP`` further offers are suppressed
-    # (anti-thrash — lossy windowing remains the floor). ``_fillline_capped`` marks
-    # the suppression recorded once on the trace (never re-noted per crossing).
+    # Per-run compaction cap (indefinite-run t1, resolved knob #334):
+    # ``_fillline_compactions`` is a counted cell ([n], the ``_unknown_tool_streak``
+    # pattern) tallying compaction turns; at ``compaction_cap`` (threaded from
+    # ``ContextControls.compaction_cap`` / ``EngineConfig.compaction_cap``, falling
+    # back to ``fillline.DEFAULT_COMPACTION_CAP`` when unset — a direct ``run`` caller
+    # with no config) further offers are suppressed (anti-thrash — lossy windowing
+    # remains the floor). ``_fillline_capped`` marks the suppression recorded once on
+    # the trace (never re-noted per crossing).
     _fillline_compactions: list[int] = field(default_factory=list)
     _fillline_capped: list[bool] = field(default_factory=list)
+    compaction_cap: int | None = None
     # Mapping fan-out advisory (#188): ``mapping_fanout_files`` is the files-read count
     # at which the runtime injects ONE advisory recommendation to fan a wide read-only
     # survey out across folders via the ``subagents`` tool (instead of grinding serially
@@ -1247,12 +1251,15 @@ def _reject_compaction(ctx: _Work, budget: int) -> None:
 def _fillline_cap_reached(ctx: _Work) -> bool:
     """True when this run's compaction turns exhausted the per-run cap (t1).
 
-    Reads ``fillline.DEFAULT_COMPACTION_CAP`` at call time — a module constant for
-    now (the operator-tunable config knob is t3's; ``cap_reached`` already treats
-    ``cap <= 0`` as unlimited so the knob can wire in without touching this seam).
+    Reads the RESOLVED cap — ``ctx.compaction_cap`` (threaded from
+    ``ContextControls.compaction_cap`` / ``EngineConfig.compaction_cap``, the
+    operator-tunable knob landed by #334) — falling back to
+    ``fillline.DEFAULT_COMPACTION_CAP`` when unset (a direct ``run`` caller with no
+    config). ``cap_reached`` already treats ``cap <= 0`` as unlimited.
     """
     count = ctx._fillline_compactions[0] if ctx._fillline_compactions else 0
-    return _fillline.cap_reached(count, _fillline.DEFAULT_COMPACTION_CAP)
+    cap = ctx.compaction_cap if ctx.compaction_cap is not None else _fillline.DEFAULT_COMPACTION_CAP
+    return _fillline.cap_reached(count, cap)
 
 
 def _record_fillline_cap(ctx: _Work) -> None:
@@ -1263,11 +1270,13 @@ def _record_fillline_cap(ctx: _Work) -> None:
     notice (the stderr/cockpit/flight feeds), so the suppression is observable on
     the trace rather than silent. Lossy windowing remains the floor for the rest of
     the run. ``_fillline_capped`` guards the once — later capped crossings no-op.
+    The note names the RESOLVED cap (``ctx.compaction_cap``, #334), falling back to
+    ``fillline.DEFAULT_COMPACTION_CAP`` when unset, mirroring :func:`_fillline_cap_reached`.
     """
     if ctx._fillline_capped:
         return
     ctx._fillline_capped[:] = [True]
-    cap = _fillline.DEFAULT_COMPACTION_CAP
+    cap = ctx.compaction_cap if ctx.compaction_cap is not None else _fillline.DEFAULT_COMPACTION_CAP
     note = (
         f"fill-line compaction cap reached ({cap} compaction turns this run) — "
         "no further capacity offers; lossy windowing remains the floor"
@@ -2507,6 +2516,14 @@ class ContextControls:
     # lossy-windowing floor — dormant, byte-identical. The chain driver (t5) threads
     # ``config.until_done`` here; nothing sets it from ``from_config`` yet.
     chain_armed: bool = False
+    # Per-run compaction-turn cap (indefinite-run follow-up, issue #334): bounds
+    # how many fill-line ``compact`` moves a single run may spend before further
+    # compaction offers are suppressed (:func:`_fillline_cap_reached` /
+    # :func:`_record_fillline_cap`). ``None`` (the default — a direct ``run`` caller
+    # with no config) falls back to ``fillline.DEFAULT_COMPACTION_CAP``, byte-identical
+    # to pre-#334 behavior; ``cap_reached`` already treats ``<= 0`` as unlimited.
+    # Forwarded by every backend from ``config.compaction_cap`` (all-engines rule).
+    compaction_cap: int | None = None
     # Mapping fan-out advisory (#188): the files-read count at which the runtime
     # injects ONE advisory recommendation to fan a wide read-only survey out across
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
@@ -2697,6 +2714,10 @@ class ContextControls:
             # ``until_done`` the chain loop arms on (t10's integration catch:
             # nothing set this before, leaving the armed branch unreachable).
             chain_armed=bool(getattr(config, "until_done", False)),
+            # Per-run compaction cap (#334): the same resolved value every backend
+            # sees (``EngineConfig.compaction_cap``, env > config.json > the
+            # fillline default) — the single source for the all-engines guarantee.
+            compaction_cap=getattr(config, "compaction_cap", None),
             media_bridge=bool(
                 config.deepthink is not None and getattr(config.deepthink, "multimodal", False)
             ),
@@ -4033,6 +4054,7 @@ def run(
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
         chain_armed=_context.chain_armed,
+        compaction_cap=_context.compaction_cap,
         mapping_fanout_files=_context.fanout_files,
         review_fanout_folders=_context.review_fanout_folders,
         plan_offer_tokens=_context.plan_offer_tokens,
