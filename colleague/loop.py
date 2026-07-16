@@ -2516,6 +2516,23 @@ class ContextControls:
     # lossy-windowing floor — dormant, byte-identical. The chain driver (t5) threads
     # ``config.until_done`` here; nothing sets it from ``from_config`` yet.
     chain_armed: bool = False
+    # Chain-episode dispatch marker (indefinite-run follow-up, issue #335, decision
+    # c22): ``True`` exactly when THIS run is one episode of an armed
+    # ``--until-done`` chain — keyed on the chain option's PRESENCE at dispatch
+    # (``EngineConfig.chain_episode``, set by ``execute_work`` from its
+    # ``chain: ChainEpisodeOptions | None`` parameter), NEVER on
+    # ``config.until_done``/``chain_armed`` above: a plain run with
+    # ``until_done=True`` but no chain dispatch leaves this ``False``. A subagent
+    # child of a chained episode never carries it (``run_subagent`` resets the
+    # marker on the child config — c22). Consumed by the NEXT task (t6, the
+    # gate-skip guard); dormant today — reading it changes nothing yet.
+    chain_episode: bool = False
+    # The UNION of every prior episode's ``result.changed_files`` (sorted,
+    # deduped) an armed chain has accumulated so far — ``()`` on the chain's
+    # first episode and for every non-chained run. Forwarded from
+    # ``EngineConfig.chain_prior_changed`` alongside ``chain_episode`` above;
+    # same t6 consumer, same dormant-today caveat.
+    chain_prior_changed: tuple[str, ...] = ()
     # Per-run compaction-turn cap (indefinite-run follow-up, issue #334): bounds
     # how many fill-line ``compact`` moves a single run may spend before further
     # compaction offers are suppressed (:func:`_fillline_cap_reached` /
@@ -2714,6 +2731,15 @@ class ContextControls:
             # ``until_done`` the chain loop arms on (t10's integration catch:
             # nothing set this before, leaving the armed branch unreachable).
             chain_armed=bool(getattr(config, "until_done", False)),
+            # Chain-episode dispatch marker + accumulated changed files (#335,
+            # c22): threaded from the runtime-only ``EngineConfig.chain_episode``
+            # / ``chain_prior_changed`` execute_work sets PER-CALL from the
+            # PRESENCE of its ``chain`` parameter — deliberately NOT derived from
+            # ``config.until_done`` (that stays ``chain_armed`` above). ``getattr``
+            # defaults keep a direct ``run()`` caller (no config, or a config
+            # object predating this field) byte-identical.
+            chain_episode=bool(getattr(config, "chain_episode", False)),
+            chain_prior_changed=tuple(getattr(config, "chain_prior_changed", None) or ()),
             # Per-run compaction cap (#334): the same resolved value every backend
             # sees (``EngineConfig.compaction_cap``, env > config.json > the
             # fillline default) — the single source for the all-engines guarantee.

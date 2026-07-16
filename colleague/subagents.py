@@ -328,9 +328,18 @@ def run_subagent(
     # that share upstream. dataclasses.replace keeps base_url/api_key/... intact
     # and leaves the parent object untouched. The cast is purely for the static
     # analyser (Sonar models replace()'s return as a generic DataclassInstance).
+    #
+    # ``chain_episode``/``chain_prior_changed`` are reset UNCONDITIONALLY (#335,
+    # c22): ``execute_work`` sets those runtime-only fields on ``parent_config``
+    # IN PLACE (mutation, not replace) when the parent is one episode of an
+    # armed ``--until-done`` chain, so a naive ``dataclasses.replace`` would
+    # otherwise copy ``True``/the accumulated tuple onto every subagent child —
+    # a child is never itself a chain episode, so it must never see the marker.
     replace_kwargs: dict = {
         "model": (model or parent_config.model),
         "role": role,
+        "chain_episode": False,
+        "chain_prior_changed": (),
     }
     if spec.max_steps is not None:
         replace_kwargs["max_steps"] = spec.max_steps

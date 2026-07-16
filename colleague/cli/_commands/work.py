@@ -587,6 +587,13 @@ class ChainEpisodeOptions:
     #: first episode); this episode's ``result.chain`` accumulates onto it
     #: (sums of per-episode exact usage, c20/h19).
     prior_view: ChainView | None = None
+    #: The UNION of every prior episode's ``result.changed_files`` so far
+    #: (sorted, deduped) — ``()`` on the chain's first episode. Accumulated by
+    #: :func:`execute_work_chain`'s loop and threaded by :func:`execute_work`
+    #: into :class:`~colleague.loop.ContextControls.chain_prior_changed`
+    #: (indefinite-run follow-up, issue #335, decision c22). Read by the NEXT
+    #: task's gate-skip guard — dormant plumbing here.
+    prior_changed: tuple[str, ...] = ()
 
 
 def _build_run_presence(
@@ -747,6 +754,15 @@ def execute_work(
     # Memory targets the OPERATOR repo (spec R1 / plan t2): an isolated run's
     # worktree is reaped after handoff, so a lesson written there would be lost.
     config.memory_root = str(repo)
+    # Chain-episode dispatch marker (#335, c22): keyed on ``chain``'s PRESENCE
+    # for THIS call, never on ``config.until_done`` — set unconditionally
+    # (including the False/() branch) so a config object reused across
+    # dispatches (the session's one long-lived EngineConfig) never leaks a
+    # prior chained call's marker onto a later unchained one. A subagent
+    # child never sees a True value regardless: run_subagent resets both
+    # fields on the child config it builds via dataclasses.replace.
+    config.chain_episode = chain is not None
+    config.chain_prior_changed = chain.prior_changed if chain is not None else ()
     # Interruption safety (#222): on the isolated path, a SIGTERM (a caller's
     # `timeout`) / Ctrl-C now commits the model's WIP to colleague/<id> before the
     # process exits, instead of stranding it as uncommitted files in an orphan
@@ -1405,6 +1421,10 @@ def execute_work_chain(
     episode_task = task
     prior_branch: str | None = None
     episode_branches: list[str] = []
+    # Cumulative changed-files union across episodes (#335, c22): each episode
+    # sees every PRIOR episode's touched files, sorted+deduped, on
+    # ``ChainEpisodeOptions.prior_changed`` — ``()`` on the first episode.
+    changed_so_far: set[str] = set()
 
     while True:
         result, artifact_path = execute_work(
@@ -1420,9 +1440,14 @@ def execute_work_chain(
             display=display,
             mode=mode,
             continued_from=continued_from,
-            chain=ChainEpisodeOptions(base_ref=prior_branch, prior_view=prior_view),
+            chain=ChainEpisodeOptions(
+                base_ref=prior_branch,
+                prior_view=prior_view,
+                prior_changed=tuple(sorted(changed_so_far)),
+            ),
         )
         prior_view = result.chain
+        changed_so_far |= set(result.changed_files)
         episode_branch = result.branch or branch_name(episode_task.id, episode_task.instruction)
         episode_branches.append(episode_branch)
 
