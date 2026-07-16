@@ -178,16 +178,22 @@ Both are runtime-owned (all-engines): they fire identically for `mock` and
 - **Pre-finish gate deferral** (#335): a chain-dispatched episode whose exit is
   continuation-shaped (budget-exhausted, or a declared finish-with-handoff)
   skips the four pre-finish gates (lint #200, coherence #294, test-integrity
-  #203, affected-tests #213) and records one deferral note on its artifact
-  (`capacity_warning`); the final finish-shaped episode runs all four gates
-  over the union of its own changed files plus every prior episode's changed
-  files that still exist in its worktree. Honest limits: a HALTED chain
-  (no-progress / cap / error) keeps its skipped gates — recorded, never
-  backfilled; the narrow corner where an episode declares finish-with-handoff
-  and then finishes clean halts the chain ok with that episode's gates skipped
-  (the deferral note stays on the artifact); the skip keys on the chain-dispatch
-  marker, never `config.until_done`, so subagent children of an armed run still
-  run their gates.
+  #203, affected-tests #213) and stamps a typed marker `TaskResult.gates_deferred`
+  on its artifact; the chain accumulates deferring episode ids on
+  `ChainView.deferred_gate_episodes` (omit-when-empty). The final finish-shaped
+  episode runs all four gates over the union of its own changed files plus every
+  prior episode's changed files that still exist in its worktree. Honest limits:
+  a HALTED chain (no-progress / cap / error) keeps its skipped gates — recorded,
+  never backfilled; its outcome line names the deferring episodes and the kept
+  WIP branches. A COMPLETED chain whose final episode deferred (ok-finish +
+  declared fill-line handoff, #340) warns on the outcome line and carries the
+  warning in the handoff PR body. Detection-only stance: halted chains keep
+  ungated WIP by design; `work --continue` is the remedy (its finishing episode
+  re-gates over the inherited union). The union paths the gate existence filter
+  removes are recorded once per run on `capacity_warning`
+  ("N prior-episode path(s) no longer exist and were not graded", #342). The skip
+  keys on the chain-dispatch marker, never `config.until_done`, so subagent
+  children of an armed run still run their gates.
 - **Read-only chains bypass the commit-evidence half of the no-progress
   guard**: a read-only role structurally cannot commit or change files, so the
   guard's evidence inputs don't apply (`progressed=None`); the episode cap

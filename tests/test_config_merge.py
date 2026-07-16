@@ -374,3 +374,131 @@ def test_repo_chain_keys_still_beat_user_level_ones(
 
     _, _, compaction_cap = _load_chain_overrides(repo)
     assert compaction_cap == "3"
+
+
+# ── #339: the remaining override loaders honor the per-key merge ──────────
+# Each loader used to read via resolve_file (whole-file shadowing — the same
+# bug _load_chain_overrides had before PR #338); a repo config.json omitting
+# a loader's key(s) must fall through to the user-level default.
+
+
+def test_repo_config_without_lint_keys_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"lint": False, "lint_fix_retries": 3})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})  # omits every lint key
+
+    from colleague.config import _load_lint_overrides
+
+    lint, retries = _load_lint_overrides(repo)
+    assert lint == "False"
+    assert retries == "3"
+
+
+def test_repo_config_without_testintegrity_keys_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"testintegrity": False, "testintegrity_fix_retries": 2})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})
+
+    from colleague.config import _load_testintegrity_overrides
+
+    enabled, retries = _load_testintegrity_overrides(repo)
+    assert enabled == "False"
+    assert retries == "2"
+
+
+def test_repo_config_without_watch_key_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"watch": False})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})
+
+    from colleague.config import _load_watch_override
+
+    assert _load_watch_override(repo) == "False"
+
+
+def test_repo_config_without_coherence_key_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"coherence": False})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})
+
+    from colleague.config import _load_coherence_override
+
+    assert _load_coherence_override(repo) == "False"
+
+
+def test_repo_config_without_memory_key_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"memory": False})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})
+
+    from colleague.config import _load_memory_override
+
+    assert _load_memory_override(repo) == "False"
+
+
+def test_repo_config_without_affected_tests_keys_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"affected_tests": False, "affected_tests_depth": 5})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})
+
+    from colleague.config import _load_affected_tests_overrides
+
+    enabled, retries, depth, max_files = _load_affected_tests_overrides(repo)
+    assert enabled == "False"
+    assert depth == "5"
+    assert retries is None
+    assert max_files is None
+
+
+def test_repo_config_without_presence_key_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"presence": "off"})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "x"})
+
+    from colleague.config import _load_presence_override
+
+    assert _load_presence_override(repo) == "off"
+
+
+def test_repo_override_key_still_beats_user_level(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per-key precedence unchanged after the migration: repo wins where present."""
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"lint": False, "watch": False})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"lint": True, "watch": True})
+
+    from colleague.config import _load_lint_overrides, _load_watch_override
+
+    assert _load_lint_overrides(repo)[0] == "True"
+    assert _load_watch_override(repo) == "True"

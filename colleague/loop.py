@@ -654,6 +654,9 @@ class _Work:
     # Single-element fired-once cell (the ``_fillline_capped`` pattern) guarding
     # the deferral note against a double append — recorded ONCE per episode.
     _gate_deferral_noted: list[bool] = field(default_factory=list)
+    # Same pattern for the union dropped-paths note (#342): _gate_changed_set is
+    # called by all four gates (up to twice each), the note records ONCE.
+    _gate_drop_noted: list[bool] = field(default_factory=list)
     _fillline_offered: list[bool] = field(default_factory=list)
     _fillline_resolved: list[bool] = field(default_factory=list)
     # The prompt-token count that tripped the fill line — captured when the decision
@@ -3447,6 +3450,9 @@ def _record_gate_deferral(ctx: _Work) -> None:
     if ctx._gate_deferral_noted:
         return
     ctx._gate_deferral_noted[:] = [True]
+    # The STRUCTURED marker (#341): chain accounting and artifact consumers
+    # read this typed flag, never string-match the prose note below.
+    ctx.result.gates_deferred = True
     note = (
         "chain-armed continuation exit — pre-finish gates (lint/coherence/"
         "test-integrity/affected-tests) deferred to the chain's final episode (#335)"
@@ -3466,14 +3472,42 @@ def _gate_changed_set(ctx: _Work) -> list[str]:
     ``prior_changed``), filtered to paths that exist in the episode worktree:
     prior episodes' files reach it via the chain's tree carry, while a path a
     later episode deleted (or that never survived) must not feed a linter a
-    missing file.
+    missing file. What the filter removes is never silent (#342): the dropped
+    paths are recorded ONCE on the artifact via
+    :func:`_record_gate_dropped_paths`.
     """
     changed = sorted(ctx.executor.changed)
     if not ctx.chain_prior_changed:
         return changed
     union = set(changed) | set(ctx.chain_prior_changed)
     root = Path(ctx.task.repo_path)
-    return sorted(path for path in union if (root / path).exists())
+    kept = sorted(path for path in union if (root / path).exists())
+    dropped = sorted(union.difference(kept))
+    if dropped:
+        _record_gate_dropped_paths(ctx, dropped)
+    return kept
+
+
+def _record_gate_dropped_paths(ctx: _Work, dropped: list[str]) -> None:
+    """Record ONCE per run the union paths the existence filter removed (#342).
+
+    The :func:`_record_gate_deferral` precedent: append one note to
+    ``result.capacity_warning`` (the artifact) and fire a phase notice (the
+    stderr/cockpit/flight feeds — never a step), so an operator sees exactly
+    what went ungated (a deleted or renamed-away prior-episode file) instead
+    of inferring it. ``_gate_drop_noted`` guards the once — all four gates
+    call :func:`_gate_changed_set`, the note must not multiply.
+    """
+    if ctx._gate_drop_noted:
+        return
+    ctx._gate_drop_noted[:] = [True]
+    note = (
+        f"{len(dropped)} prior-episode path(s) no longer exist and were not "
+        "graded: " + ", ".join(dropped)
+    )
+    existing = ctx.result.capacity_warning
+    ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
+    _emit_phase(ctx, note)
 
 
 def _run_pre_finish_gates(

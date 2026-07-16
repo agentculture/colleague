@@ -727,17 +727,11 @@ def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]
     contract — base_url/api_key/model — must not change): the lint keys carry a
     bool / int, not an endpoint string. Returns ``(lint, lint_fix_retries)`` where
     each is the stringified config value or ``None`` when absent. A missing or
-    malformed file yields ``(None, None)`` and never raises.
+    malformed file yields ``(None, None)`` and never raises. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a repo-level
+    file that omits these keys no longer shadows a user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None, None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None
-    if not isinstance(data, dict):
-        return None, None
+    data = _merged_config_json(repo_path)
     lint = data.get("lint")
     retries = data.get("lint_fix_retries")
     return (
@@ -753,17 +747,11 @@ def _load_testintegrity_overrides(repo_path: str | Path) -> tuple[str | None, st
     :func:`load_config_file`, whose endpoint-string contract must not change): these
     keys carry a bool / int. Returns ``(testintegrity, testintegrity_fix_retries)``,
     each the stringified value or ``None`` when absent. A missing/malformed file
-    yields ``(None, None)`` and never raises.
+    yields ``(None, None)`` and never raises. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a repo-level
+    file that omits these keys no longer shadows a user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None, None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None
-    if not isinstance(data, dict):
-        return None, None
+    data = _merged_config_json(repo_path)
     enabled = data.get("testintegrity")
     retries = data.get("testintegrity_fix_retries")
     return (
@@ -802,17 +790,11 @@ def _load_watch_override(repo_path: str | Path) -> str | None:
     """Read the ``watch`` key from .colleague/config.json as a raw string (#307).
 
     Mirrors :func:`_load_coherence_override` — kept separate from
-    :func:`load_config_file` (which owns only the endpoint keys).
+    :func:`load_config_file` (which owns only the endpoint keys). Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a repo-level
+    file that omits the key no longer shadows a user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
+    data = _merged_config_json(repo_path)
     value = data.get("watch")
     return None if value is None else str(value)
 
@@ -882,17 +864,11 @@ def _load_coherence_override(repo_path: str | Path) -> str | None:
     """Read the ``coherence`` key from .colleague/config.json as a raw string.
 
     Mirrors :func:`_load_memory_override` (kept separate from
-    :func:`load_config_file`, which owns only the endpoint keys).
+    :func:`load_config_file`, which owns only the endpoint keys). Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a repo-level
+    file that omits the key no longer shadows a user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
+    data = _merged_config_json(repo_path)
     value = data.get("coherence")
     return None if value is None else str(value)
 
@@ -919,17 +895,11 @@ def _load_memory_override(repo_path: str | Path) -> str | None:
     Mirrors :func:`_load_lint_overrides` (kept separate from
     :func:`load_config_file`, whose endpoint-string contract must not change).
     Returns the stringified value or ``None`` when absent; a missing/malformed
-    file yields ``None`` and never raises.
+    file yields ``None`` and never raises. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a repo-level
+    file that omits the key no longer shadows a user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
+    data = _merged_config_json(repo_path)
     value = data.get("memory")
     return None if value is None else str(value)
 
@@ -962,17 +932,11 @@ def _load_affected_tests_overrides(
     ``(affected_tests, affected_tests_fix_retries, affected_tests_depth,
     affected_tests_max_files)``, each the stringified value or ``None`` when
     absent. A missing/malformed file yields ``(None, None, None, None)`` and
-    never raises.
+    never raises. Reads via :func:`_merged_config_json` (the at-home per-key
+    merge, #339): a repo-level file that omits these keys no longer shadows a
+    user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None, None, None, None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None, None, None
-    if not isinstance(data, dict):
-        return None, None, None, None
+    data = _merged_config_json(repo_path)
     enabled = data.get("affected_tests")
     retries = data.get("affected_tests_fix_retries")
     depth = data.get("affected_tests_depth")
@@ -1345,17 +1309,11 @@ def _load_presence_override(repo_path: str | Path) -> str | None:
     :func:`load_config_file`, whose endpoint-string contract must not change):
     a scalar knob, not the nested-section shape ``deepthink``/``senses``/
     ``voice`` use. Returns the stringified value or ``None`` when absent; a
-    missing/malformed file yields ``None`` and never raises.
+    missing/malformed file yields ``None`` and never raises. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a repo-level
+    file that omits the key no longer shadows a user-level default.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
+    data = _merged_config_json(repo_path)
     value = data.get("presence")
     return None if value is None else str(value)
 

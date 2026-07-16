@@ -14,12 +14,11 @@ Resolution precedence (highest wins):
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Optional
 
-from colleague import configdir
+from colleague.config import _merged_config_json
 
 ICON_MODES: tuple[str, ...] = ("emoji", "ascii", "none")
 DEFAULT_ICON_MODE: str = "emoji"
@@ -49,20 +48,14 @@ ICONS: dict[str, dict[str, str]] = {
 
 
 def _load_icons_config(repo_path: str | Path) -> str | None:
-    """Read the ``icons`` key from .colleague/config.json.
+    """Read the ``icons`` key from .colleague/config.json (per-key merged).
 
-    Returns the raw string value or ``None`` when absent / unreadable.
-    Never raises.
+    Uses :func:`colleague.config._merged_config_json` (the at-home per-key
+    merge, #339) so a user-level ``icons`` value survives a repo config that
+    omits the key. Returns the raw string value or ``None`` when absent /
+    unreadable. Never raises — ``_merged_config_json`` degrades to ``{}``.
     """
-    path = configdir.resolve_file(repo_path, "config.json")
-    if path is None:
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
+    data = _merged_config_json(repo_path)
     value = data.get("icons")
     if isinstance(value, str) and value:
         return value

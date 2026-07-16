@@ -96,6 +96,12 @@ Disable the gate for a run with `--no-lint`.
   other-language linters and a generic lint hook are a follow-up.
 - **Changed-files scope (not changed-lines).** In a non-conformant repo a fixer
   may widen the diff on a touched file.
+- **Model-authored edits only** (#342, scope decision 2a): the pre-finish gates
+  grade `write_file`/`edit_file` changes (plus subagent merges) that populate
+  the changed set; mutations via `run_command` (e.g. `git mv` renames, `sed -i`,
+  codegen scripts) never enter `changed_files` and remain the approval gate's
+  domain — a deliberate, recorded scope decision. A gate-time `git status` sweep
+  is a filed follow-up.
 - **Standalone `ruff.toml` / `.ruff.toml` and non-pyproject black/isort config
   are not detected in v1.** Only `pyproject.toml` sections and
   `.flake8`/`setup.cfg`/`tox.ini` `[flake8]` are recognised.

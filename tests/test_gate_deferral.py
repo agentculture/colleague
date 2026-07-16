@@ -248,6 +248,12 @@ def _union_ctx(tmp_path: Path, changed: set[str], prior: tuple[str, ...]) -> Sim
         executor=SimpleNamespace(changed=changed),
         chain_prior_changed=prior,
         task=SimpleNamespace(repo_path=str(tmp_path)),
+        # The dropped-path recorder's surface (#342): the once-cell, the result
+        # the note lands on, and the observability attrs _emit_phase reads.
+        result=TaskResult(task_id="t", status=OK),
+        _gate_drop_noted=[],
+        flight=None,
+        progress=None,
     )
 
 
@@ -264,6 +270,103 @@ def test_gate_changed_set_empty_prior_is_byte_identical(tmp_path: Path) -> None:
     changed-then-deleted path still reaches the gate as before."""
     ctx = _union_ctx(tmp_path, {"gone.py", "m.py"}, ())
     assert loop_mod._gate_changed_set(ctx) == ["gone.py", "m.py"]
+
+
+# ---------------------------------------------------------------------------
+# #342(1) — union paths the existence filter removed are recorded, ONCE
+# ---------------------------------------------------------------------------
+
+_DROP_NOTE = "no longer exist and were not graded"
+
+
+def test_gate_changed_set_records_dropped_paths_once(tmp_path: Path) -> None:
+    """The existence filter's removals land ONE note on capacity_warning even
+    though all four gates call _gate_changed_set (up to twice each)."""
+    (tmp_path / "m.py").write_text("x = 1\n")
+    ctx = _union_ctx(tmp_path, {"m.py"}, ("ghost.txt", "gone.py"))
+    for _ in range(8):
+        assert loop_mod._gate_changed_set(ctx) == ["m.py"]
+    warning = ctx.result.capacity_warning
+    assert warning is not None
+    assert warning.count(_DROP_NOTE) == 1
+    assert "2 prior-episode path(s)" in warning
+    assert "ghost.txt" in warning and "gone.py" in warning
+
+
+def test_gate_changed_set_nothing_dropped_no_note(tmp_path: Path) -> None:
+    """Every union path exists → no note, capacity_warning untouched (byte-identical)."""
+    (tmp_path / "m.py").write_text("x = 1\n")
+    (tmp_path / "prior.txt").write_text("carried\n")
+    ctx = _union_ctx(tmp_path, {"m.py"}, ("prior.txt",))
+    assert loop_mod._gate_changed_set(ctx) == ["m.py", "prior.txt"]
+    assert ctx.result.capacity_warning is None
+
+
+def test_gate_changed_set_drop_note_appends_to_existing_warning(tmp_path: Path) -> None:
+    """An earlier note (e.g. the fill-line cap) is appended to, never replaced."""
+    (tmp_path / "m.py").write_text("x = 1\n")
+    ctx = _union_ctx(tmp_path, {"m.py"}, ("ghost.txt",))
+    ctx.result.capacity_warning = "earlier note"
+    loop_mod._gate_changed_set(ctx)
+    assert ctx.result.capacity_warning.startswith("earlier note; ")
+    assert _DROP_NOTE in ctx.result.capacity_warning
+
+
+def test_final_episode_drop_note_on_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run()-level (the deleted-prior-file shape): a finish-shaped chain episode
+    whose prior_changed names a path a later episode deleted records the
+    dropped path on the final artifact's capacity_warning."""
+    _arm_gate_recorders(monkeypatch)
+    (tmp_path / "prior.txt").write_text("carried from episode 1\n")
+    result = run(
+        scripted([_finish("wrap up")]),
+        Task.new(str(tmp_path), "wrap up"),
+        max_steps=5,
+        context=_controls(chain_episode=True, chain_prior_changed=("prior.txt", "deleted.py")),
+    )
+    assert result.status == OK
+    assert result.capacity_warning is not None
+    assert result.capacity_warning.count(_DROP_NOTE) == 1
+    assert "1 prior-episode path(s)" in result.capacity_warning
+    assert "deleted.py" in result.capacity_warning
+
+
+# ---------------------------------------------------------------------------
+# #341 — the deferral stamps the STRUCTURED marker, not just the note
+# ---------------------------------------------------------------------------
+
+
+def test_gate_deferral_stamps_structured_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deferring chain episode carries gates_deferred=True on the result and
+    the artifact key — consumers never string-match capacity_warning."""
+    _arm_gate_recorders(monkeypatch)
+    result = run(
+        scripted([_write("m.py")]),
+        Task.new(str(tmp_path), "keep working"),
+        max_steps=1,
+        context=_controls(chain_episode=True),
+    )
+    assert result.gates_deferred is True
+    assert result.to_dict()["gates_deferred"] is True
+
+
+def test_gated_episode_has_no_structured_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clean-finish (gated) episode stays unmarked — key absent, byte-identical."""
+    _arm_gate_recorders(monkeypatch)
+    result = run(
+        scripted([_write("m.py"), _finish()]),
+        Task.new(str(tmp_path), "finish the work"),
+        max_steps=5,
+        context=_controls(chain_episode=True),
+    )
+    assert result.gates_deferred is False
+    assert "gates_deferred" not in result.to_dict()
 
 
 # ---------------------------------------------------------------------------

@@ -314,3 +314,44 @@ def test_strict_noop_when_unset(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("CONVERTIBLE_ICONS", raising=False)
     # No config file present
     assert icons.resolve_icons(repo_path=tmp_path) == "emoji"
+
+
+# ── per-key merge: user-level icons survives repo config that omits it ──────
+
+
+def _arm_home(tmp_path: Path, monkeypatch) -> Path:
+    """Point COLLEAGUE_HOME at a fresh, test-owned "home" directory."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("COLLEAGUE_HOME", str(home))
+    return home
+
+
+def test_user_icons_survives_repo_config_that_omits_key(tmp_path, monkeypatch) -> None:
+    """A user-level config.json icons value survives a repo config.json that
+    omits the key — per-key merge, not whole-file shadowing (task t5)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "some-model"})  # no 'icons' key
+
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"icons": "ascii"})
+
+    monkeypatch.delenv("COLLEAGUE_ICONS", raising=False)
+    monkeypatch.delenv("CONVERTIBLE_ICONS", raising=False)
+    assert icons.resolve_icons(repo_path=repo) == "ascii"
+
+
+def test_repo_icons_still_beats_user_icons(tmp_path, monkeypatch) -> None:
+    """Explicit > env > config precedence unchanged: a repo-level 'icons'
+    key still wins over a user-level one (task t5)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"icons": "none"})
+
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"icons": "ascii"})
+
+    monkeypatch.delenv("COLLEAGUE_ICONS", raising=False)
+    monkeypatch.delenv("CONVERTIBLE_ICONS", raising=False)
+    assert icons.resolve_icons(repo_path=repo) == "none"
