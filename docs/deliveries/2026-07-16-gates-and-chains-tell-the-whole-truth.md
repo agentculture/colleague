@@ -5,8 +5,9 @@ baseline: `devague summary skeleton`
 
 ## Intent
 
-Close five gate/chain/config honesty gaps in one arc (#337 #339 #340 #341
-#342): the pre-finish gates record every union path they could not grade and
+Close five gate/chain/config honesty gaps — issues #337, #339, #340, #341, #342
+— in one arc: the pre-finish gates record every union path they could
+not grade and
 the run_command blind spot gets an explicit scope decision; a halted chain
 names its ungated episodes and kept WIP branches at outcome + artifact level;
 a completed chain that hands off with its final episode's gates skipped says
