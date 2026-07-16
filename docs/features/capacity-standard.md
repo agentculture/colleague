@@ -35,9 +35,10 @@ omit-when-None; the singular field records the most recent crossing's decision):
 The fill-line fires **per crossing of the line** (the indefinite-run arc
 superseded v1's "at most once per work item"): a resolved offer re-arms once
 the run drops back under the line, so a long run can compact repeatedly. Total
-compaction turns are bounded by `DEFAULT_COMPACTION_CAP = 4` per run — a
-module constant today, not yet an operator config knob (`cap <= 0` = unlimited
-by convention); the cap reached suppresses further offers, recorded once on
+compaction turns are bounded by the compaction cap (`COLLEAGUE_COMPACTION_CAP`
+env > `config.json` top-level `compaction_cap` > default
+`DEFAULT_COMPACTION_CAP = 4`; `0` = unlimited); the cap reached suppresses
+further offers, recorded once on
 `TaskResult.capacity_warning` plus a phase notice, never silent. Lossy
 windowing remains the floor. Detail:
 [indefinite-run.md](indefinite-run.md).
@@ -61,7 +62,9 @@ across repos/instances.
 ## Key files
 
 - `colleague/fillline.py` — the pure decision helpers + `apply_compaction` +
-  `validate_compaction` + `DEFAULT_COMPACTION_CAP`.
+  `validate_compaction` + `DEFAULT_COMPACTION_CAP` (operator-tunable via
+  `COLLEAGUE_COMPACTION_CAP` env > `config.json` top-level `compaction_cap`;
+  `0` = unlimited; default `4`).
 - `colleague/capacity.py` — the coarse complexity assessment.
 - `colleague/loop.py` — injection + `_compact_history` + the decision wiring.
 
