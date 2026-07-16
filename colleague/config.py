@@ -1748,6 +1748,25 @@ class EngineConfig:
     # above — excluded from eq/repr/to_dict.
     lobes_gateway_url: Optional[str] = field(default=None, compare=False, repr=False)
 
+    # Chain-episode dispatch marker (indefinite-run follow-up, issue #335 /
+    # decision c22): ``True`` exactly when THIS dispatch is one episode of an
+    # armed ``--until-done`` chain (``execute_work`` sets it per-call from the
+    # PRESENCE of its ``chain: ChainEpisodeOptions | None`` parameter — never
+    # from ``config.until_done``, so a plain run with ``until_done=True`` but
+    # no chain dispatch leaves it ``False``). ``chain_prior_changed`` carries
+    # the UNION of every prior episode's ``result.changed_files`` (sorted,
+    # deduped), ``()`` on the chain's first episode / any non-chained run. A
+    # runtime field set imperatively by the CLI layer — the ``role``/
+    # ``memory_root`` precedent — excluded from eq/repr/to_dict. c22 requires
+    # a subagent child NOT inherit the marker even though ``dataclasses.
+    # replace`` would otherwise copy it from the parent config object
+    # ``execute_work`` mutated in place: :func:`colleague.subagents.
+    # run_subagent` resets both fields to their dormant defaults in its
+    # ``replace_kwargs`` (see that module), so every subagent child is
+    # byte-identical to an unchained dispatch regardless of its parent.
+    chain_episode: bool = field(default=False, compare=False, repr=False)
+    chain_prior_changed: tuple[str, ...] = field(default=(), compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,

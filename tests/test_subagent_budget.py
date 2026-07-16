@@ -90,6 +90,32 @@ def test_counter_increments_per_spawn(tmp_path, patch_engine):
     assert budget.count == 3
 
 
+def test_chain_episode_marker_never_inherited_by_subagent_child(tmp_path, patch_engine):
+    """c22 (indefinite-run follow-up, issue #335): ``execute_work`` mutates a
+    chained episode's ``config`` IN PLACE (``config.chain_episode = True`` /
+    ``config.chain_prior_changed = (...)``) before dispatching to ``engine.work``
+    — the SAME object a mid-run subagent spawn's ``dataclasses.replace`` would
+    otherwise copy those runtime-only fields from. A subagent child is never
+    itself a chain episode, so ``run_subagent`` must reset both fields on every
+    child regardless of what the parent config carries."""
+    recorder: list = []
+    patch_engine(_SpawningEngine(recorder))
+    parent_config = EngineConfig()
+    # Simulate what execute_work does to a chained episode's config object.
+    parent_config.chain_episode = True
+    parent_config.chain_prior_changed = ("episode-1.txt", "episode-2.txt")
+
+    spawn = make_spawn(str(tmp_path), parent_config, "mock")
+    spawn("child task")
+
+    assert recorder[0].chain_episode is False
+    assert recorder[0].chain_prior_changed == ()
+    # The parent object itself is untouched (dataclasses.replace never mutates
+    # its source) — still carries the chain state for the NEXT parent-level use.
+    assert parent_config.chain_episode is True
+    assert parent_config.chain_prior_changed == ("episode-1.txt", "episode-2.txt")
+
+
 def test_linear_nesting_bounded_by_depth_cap(tmp_path, patch_engine):
     # fanout=1 → a linear chain; the child's spawn is bound to depth+1, so the
     # depth cap stops the chain at exactly MAX_SUBAGENT_DEPTH levels (no budget).

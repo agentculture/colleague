@@ -281,6 +281,53 @@ def test_chain_completes(git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys
 
 
 # ---------------------------------------------------------------------------
+# Chain-episode marker plumbing (indefinite-run follow-up, issue #335, c22):
+# execute_work_chain accumulates each episode's result.changed_files into the
+# UNION handed to the NEXT episode's ChainEpisodeOptions.prior_changed.
+# ---------------------------------------------------------------------------
+
+
+def test_chain_accumulates_changed_files_across_episodes(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real 2-episode chain (episode 1 budget-exits after writing
+    ``episode-1.txt``, episode 2 finishes): the SECOND episode's
+    ``ChainEpisodeOptions.prior_changed`` carries episode 1's changed file, and
+    the FIRST episode's carries none (nothing to inherit yet)."""
+    from colleague.cli import main
+    from colleague.cli._commands import work as work_mod
+
+    _script_episodes(monkeypatch, ["budget", "finish"])
+    _gate_pr_boundary(monkeypatch)
+    monkeypatch.setattr(builtins, "input", _no_intervention)
+
+    seen_chains: list = []
+    orig_execute_work = work_mod.execute_work
+
+    def _spy_execute_work(**kwargs):
+        seen_chains.append(kwargs.get("chain"))
+        return orig_execute_work(**kwargs)
+
+    monkeypatch.setattr(work_mod, "execute_work", _spy_execute_work)
+
+    rc = main(_work_argv(git_repo, "--until-done", "--no-pr"))
+    assert rc == 0
+
+    episodes = _lineage_artifacts(git_repo)
+    assert len(episodes) == 2
+    assert episodes[0]["changed_files"] == ["episode-1.txt"]
+
+    # execute_work_chain dispatched exactly 2 episodes through execute_work
+    # (the chain loop's only caller of it), each carrying a ChainEpisodeOptions.
+    assert len(seen_chains) == 2
+    assert seen_chains[0] is not None
+    assert seen_chains[0].prior_changed == ()  # episode 1: nothing prior yet
+    assert seen_chains[1] is not None
+    # episode 2 inherits the UNION of every prior episode's changed files.
+    assert seen_chains[1].prior_changed == ("episode-1.txt",)
+
+
+# ---------------------------------------------------------------------------
 # Criterion 2 — chain-halts-honestly (c10/h10, c22, #313 intact)
 # ---------------------------------------------------------------------------
 
