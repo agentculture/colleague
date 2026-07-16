@@ -422,6 +422,78 @@ class TestChainGateDeferralSurfacing:
         assert set(halted_ids) <= set(deferred)
         assert final["task_id"] not in deferred
 
+    def test_continued_halt_outcome_resolves_inherited_deferred_branches(
+        self, git_repo, monkeypatch, capsys
+    ):
+        """#341 (Qodo, PR #345): a chain resumed via --continue inherits the cut
+        run's deferred_gate_episodes, but those episodes' WIP branches were
+        minted by the FIRST invocation — the resumed halt's outcome line must
+        resolve each inherited id's branch from the episode's own artifact
+        (or mark it explicitly unresolved), never render a silently shorter
+        branch list than the ids it names."""
+        from colleague.cli import main
+
+        # Cut chain: two budget episodes, cap 2 → halted with ungated WIP.
+        _script_episodes(monkeypatch, ["budget", "budget", "budget", "budget"])
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "2", "--no-pr"))
+        assert rc == 2
+        inherited = {ep["task_id"]: ep["branch"] for ep in _lineage_artifacts(git_repo)}
+        assert all(inherited.values())  # each cut episode recorded its branch
+        capsys.readouterr()  # flush the first invocation's outcome lines
+
+        # Continue the halted chain; script entries 3-4 (both budget) hit the
+        # cap again, so the CONTINUED chain also halts with inherited deferrals.
+        rc2 = main(
+            [
+                "work",
+                "--engine",
+                "mock",
+                "--repo",
+                str(git_repo),
+                "--max-steps",
+                "1",
+                "--continue",
+                "last",
+                "--until-done",
+                "--max-episodes",
+                "2",
+                "--no-pr",
+            ]
+        )
+        assert rc2 == 2
+
+        err = capsys.readouterr().err
+        deferral_lines = [ln for ln in err.splitlines() if "gates deferred on episode(s)" in ln]
+        assert deferral_lines, "the resumed halt never emitted the deferral outcome line"
+        line = deferral_lines[-1]
+        # The inherited ids are named AND each carries its real WIP branch
+        # (resolved from its artifact) or the explicit unresolved marker.
+        for task_id, branch in inherited.items():
+            assert task_id in line
+            assert branch in line or f"{task_id} (branch not resolved)" in line
+
+    def test_unresolvable_deferred_id_gets_explicit_marker(self, tmp_path, capsys):
+        """The honest fallback: a deferred id with no id→branch entry AND no
+        resolvable artifact renders '<id> (branch not resolved)' — the outcome
+        line never silently claims the branch list is complete."""
+        from types import SimpleNamespace
+
+        from colleague.cli._commands.work import _emit_chain_outcome
+
+        _emit_chain_outcome(
+            SimpleNamespace(reason="cap-reached", detail=""),
+            SimpleNamespace(episode_count=1, episode_ids=["cur1"]),
+            completed=False,
+            branches=["colleague/cur1-current-work"],
+            deferred=("cur1", "ghost1"),
+            repo=tmp_path,  # no .colleague/ dir → ghost1's artifact resolves to None
+        )
+
+        err = capsys.readouterr().err
+        line = [ln for ln in err.splitlines() if "gates deferred on episode(s)" in ln][-1]
+        assert "colleague/cur1-current-work" in line
+        assert "ghost1 (branch not resolved)" in line
+
     def test_completed_gated_chain_renders_no_warning(self, git_repo, origin, monkeypatch, capsys):
         """Byte-identity: a completed chain whose final episode ran its gates
         gets today's outcome lines exactly — no warning, --fill PR body."""
