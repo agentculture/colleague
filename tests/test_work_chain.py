@@ -136,7 +136,7 @@ def _gate_pr_boundary(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """Gate PR creation at the handoff-function boundary; return the call log."""
     calls: list[dict] = []
 
-    def fake_pr_create(repo, base_branch, title, head=None):
+    def fake_pr_create(repo, base_branch, title, head=None, body=None):
         calls.append({"repo": Path(repo), "base": base_branch, "title": title, "head": head})
         return f"https://example.test/pr/{len(calls)}"
 
