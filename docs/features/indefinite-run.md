@@ -146,8 +146,10 @@ lossy-windowing floor.
 - **Fill-line re-arms per crossing** (supersedes v1's "fires at most once per
   work item", #156): a resolved offer re-arms once the run drops back under
   the line, so a long run can compact repeatedly. Total compaction turns are
-  bounded by `DEFAULT_COMPACTION_CAP = 4` per run (`colleague/fillline.py`,
-  the `cap <= 0` = unlimited convention); the cap reached suppresses further
+  bounded by the compaction cap (`COLLEAGUE_COMPACTION_CAP` env >
+  `config.json` top-level `compaction_cap` > default `DEFAULT_COMPACTION_CAP = 4`
+  in `colleague/fillline.py`; `0` or any non-positive = unlimited; shown in
+  `colleague config show`); the cap reached suppresses further
   offers and is recorded once on `TaskResult.capacity_warning` plus a phase
   notice — never silent.
 - **Deterministic compaction validation** (`validate_compaction`): the MAIN
@@ -173,9 +175,19 @@ Both are runtime-owned (all-engines): they fire identically for `mock` and
   the no-progress guard and never halts. That is explicit operator intent —
   `0` means unlimited — and the flight-plane stop plus the heartbeat are the
   brakes.
-- **Per-episode gate cost**: the lint gate, affected-tests gate, and
-  test-integrity gate re-run on every episode; deferring them to chain end is
-  a recorded follow-up, not built.
+- **Pre-finish gate deferral** (#335): a chain-dispatched episode whose exit is
+  continuation-shaped (budget-exhausted, or a declared finish-with-handoff)
+  skips the four pre-finish gates (lint #200, coherence #294, test-integrity
+  #203, affected-tests #213) and records one deferral note on its artifact
+  (`capacity_warning`); the final finish-shaped episode runs all four gates
+  over the union of its own changed files plus every prior episode's changed
+  files that still exist in its worktree. Honest limits: a HALTED chain
+  (no-progress / cap / error) keeps its skipped gates — recorded, never
+  backfilled; the narrow corner where an episode declares finish-with-handoff
+  and then finishes clean halts the chain ok with that episode's gates skipped
+  (the deferral note stays on the artifact); the skip keys on the chain-dispatch
+  marker, never `config.until_done`, so subagent children of an armed run still
+  run their gates.
 - **Read-only chains bypass the commit-evidence half of the no-progress
   guard**: a read-only role structurally cannot commit or change files, so the
   guard's evidence inputs don't apply (`progressed=None`); the episode cap
@@ -185,9 +197,10 @@ Both are runtime-owned (all-engines): they fire identically for `mock` and
   unwatched semantics). The transition marker recreates the prior episode's
   already-reaped feed file with the marker as its only record — marker-only
   feeds are ordinary residue for `colleague clean`.
-- **The compaction cap is a module constant** (`DEFAULT_COMPACTION_CAP = 4`),
-  not an operator-tunable config knob today; `cap_reached` already treats
-  `cap <= 0` as unlimited so a knob can wire in without touching the seam.
+- **The compaction cap is operator-tunable** via `COLLEAGUE_COMPACTION_CAP` env
+  > `config.json` top-level `compaction_cap` > default
+  `DEFAULT_COMPACTION_CAP = 4` (`colleague/fillline.py`); `0` or any non-positive
+  value means unlimited; visible in `colleague config show`.
 - **Compaction validation runs on the MAIN model only** — the compaction
   prompt is the main model's own windowed history, which structurally cannot
   fit the deepthink window (the recorded window-asymmetry decision,
