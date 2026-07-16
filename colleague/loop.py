@@ -4204,7 +4204,9 @@ def run(
         capacity_threshold=_context.fillline_threshold,
         chain_armed=_context.chain_armed,
         chain_episode=_context.chain_episode,
-        chain_prior_changed=tuple(_context.chain_prior_changed or ()),
+        # No or-() guard: ContextControls defaults it to () and from_config
+        # normalizes — a bare tuple() keeps run() under the S3776 ceiling.
+        chain_prior_changed=tuple(_context.chain_prior_changed),
         compaction_cap=_context.compaction_cap,
         mapping_fanout_files=_context.fanout_files,
         review_fanout_folders=_context.review_fanout_folders,
