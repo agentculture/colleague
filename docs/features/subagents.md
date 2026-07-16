@@ -32,6 +32,10 @@ it.
 - **Engine-judged, optional.** The model decides whether to delegate per call,
   exactly like the [`devague` destination tool](destination.md). It is never a
   forced gate.
+- **Chain-safe child configs** (#337): `run_subagent` resets `until_done` to
+  `False` in child configs alongside the `chain_episode`/`chain_prior_changed`
+  resets — `chain_armed` keys on `until_done`, so children of an armed run no
+  longer arm fill-line chain consumers.
 - **No per-subagent handoff.** Only the top-level work branches, commits, and
   opens a PR — the git/PR handoff lives in the CLI `execute_work` path, never in
   `Engine.drive`. Sub-drives run purely in-process.

@@ -44,6 +44,14 @@ colleague config overview
 The `--repo` default is the cwd, so a bare `colleague doctor` outside a repo (or
 in one without `.colleague/config.json`) is unchanged — env + defaults only.
 
+## Per-key merge for all override loaders (#339)
+
+All `config.json` override loaders now read via the per-key merge: user-level
+defaults survive when a repo file omits their keys. This applies to lint,
+testintegrity, watch, coherence, memory, affected-tests, presence, and icons
+(eight loaders total). The #338 chain-overrides fix extended the per-key merge
+to all eight.
+
 ## Rename back-compat (`convertible` → `colleague`)
 
 The project was renamed from *convertible*. The import package, the

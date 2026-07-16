@@ -173,6 +173,15 @@ change.
 - `colleague/tools.py` — the seven tools (six base + `culture`) and the repo-confined `ToolExecutor`.
 - `colleague/config.py` — `EngineConfig` resolution.
 
+## Scope note: pre-finish gates grade model-authored edits only
+
+The pre-finish gates (lint, test-integrity, coherence, affected-tests) grade
+`write_file`/`edit_file` changes — plus subagent merges — that populate the
+changed set. Mutations via `run_command` (e.g. `git mv` renames, `sed -i`,
+codegen scripts) never enter `changed_files` and are the approval gate's domain.
+This is a deliberate, recorded scope decision (issue #342, 2a). A gate-time
+`git status` sweep is a filed follow-up.
+
 ## See also
 
 - [engines.md](engines.md) — the adapters that supply `complete`.
