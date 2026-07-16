@@ -845,17 +845,12 @@ def _load_chain_overrides(repo_path: str | Path) -> tuple[str | None, str | None
     missing/malformed file yields ``(None, None, None)`` and never raises.
     ``compaction_cap`` (#334) rides the same top-level-key convention as
     ``max_episodes`` — a sibling config knob, not a chain-driver setting, but
-    read here to reuse the one file-parse.
+    read here to reuse the one file-parse. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, PR #338 review):
+    a repo-level file that omits one of these keys no longer shadows a
+    user-level default for it.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None, None, None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None, None
-    if not isinstance(data, dict):
-        return None, None, None
+    data = _merged_config_json(repo_path)
     until_done = data.get("until_done")
     max_episodes = data.get("max_episodes")
     compaction_cap = data.get("compaction_cap")
