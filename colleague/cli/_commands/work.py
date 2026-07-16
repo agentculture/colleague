@@ -1397,6 +1397,32 @@ def _maybe_finalize_chain(
     )
 
 
+def _chain_deferral_surfacing(
+    result: TaskResult, completed: bool
+) -> tuple[tuple[str, ...], str | None]:
+    """The chain's gate-deferral surfacing inputs (#341/#340; extracted, S3776).
+
+    ``deferred`` is the typed chain record — accumulated per episode by
+    ``ChainView.accumulate`` off ``result.gates_deferred`` — that feeds the
+    outcome line. ``pr_body`` is non-None only on the #340 corner (a COMPLETED
+    chain whose FINAL episode deferred: ok-finish + declared fill-line
+    handoff), so the warning rides the handoff PR body and the human reviewer
+    at gate 3 sees the diff went ungated.
+    """
+    deferred = tuple(result.chain.deferred_gate_episodes) if result.chain else ()
+    pr_body: str | None = None
+    if completed and getattr(result, "gates_deferred", False):
+        pr_body = (
+            "WARNING: this chain completed via a declared fill-line "
+            "finish-with-handoff, so the pre-finish gates (lint / coherence / "
+            "test-integrity / affected-tests) were deferred on its final episode "
+            "and this diff was handed off ungated (#340). Deferring episode(s): "
+            + ", ".join(deferred)
+            + "."
+        )
+    return deferred, pr_body
+
+
 def execute_work_chain(
     *,
     repo: Path,
@@ -1544,22 +1570,7 @@ def execute_work_chain(
         _announce_episode_transition(repo, result.task_id, episode_task.id, state, task.watch)
 
     completed = verdict.reason == chainmod.HALT_OK_FINISH
-    # Gate-deferral surfacing (#341/#340): the typed chain record — accumulated
-    # per episode by ChainView.accumulate off result.gates_deferred — feeds the
-    # outcome line, and the #340 corner (a COMPLETED chain whose FINAL episode
-    # deferred: ok-finish + declared fill-line handoff) rides the PR body so
-    # the human reviewer at gate 3 sees the diff went ungated.
-    deferred = tuple(result.chain.deferred_gate_episodes) if result.chain else ()
-    pr_body: str | None = None
-    if completed and getattr(result, "gates_deferred", False):
-        pr_body = (
-            "WARNING: this chain completed via a declared fill-line "
-            "finish-with-handoff, so the pre-finish gates (lint / coherence / "
-            "test-integrity / affected-tests) were deferred on its final episode "
-            "and this diff was handed off ungated (#340). Deferring episode(s): "
-            + ", ".join(deferred)
-            + "."
-        )
+    deferred, pr_body = _chain_deferral_surfacing(result, completed)
     artifact_path = _maybe_finalize_chain(
         repo,
         result,
