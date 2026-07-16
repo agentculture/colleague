@@ -553,8 +553,16 @@ def test_gh_pr_create_body_replaces_fill(monkeypatch) -> None:
 
     ho._gh_pr_create(Path("."), "main", "title", head="colleague/x")
     assert captured[0] == [
-        "gh", "pr", "create", "--fill", "--base", "main",
-        "--title", "title", "--head", "colleague/x",
+        "gh",
+        "pr",
+        "create",
+        "--fill",
+        "--base",
+        "main",
+        "--title",
+        "title",
+        "--head",
+        "colleague/x",
     ]
 
     ho._gh_pr_create(Path("."), "main", "title", head="colleague/x", body="gates deferred")

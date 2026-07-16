@@ -1350,7 +1350,8 @@ def _emit_chain_outcome(
     id_to_branch = dict(zip(state.episode_ids, branches))
     named_branches = [id_to_branch[tid] for tid in deferred if tid in id_to_branch]
     emit_diagnostic(
-        "chain: gates deferred on episode(s) " + ", ".join(deferred)
+        "chain: gates deferred on episode(s) "
+        + ", ".join(deferred)
         + " — halted chain keeps ungated WIP on branch(es): "
         + ", ".join(named_branches)
     )

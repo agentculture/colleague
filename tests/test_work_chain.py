@@ -422,9 +422,7 @@ class TestChainGateDeferralSurfacing:
         assert set(halted_ids) <= set(deferred)
         assert final["task_id"] not in deferred
 
-    def test_completed_gated_chain_renders_no_warning(
-        self, git_repo, origin, monkeypatch, capsys
-    ):
+    def test_completed_gated_chain_renders_no_warning(self, git_repo, origin, monkeypatch, capsys):
         """Byte-identity: a completed chain whose final episode ran its gates
         gets today's outcome lines exactly — no warning, --fill PR body."""
         from colleague.cli import main
