@@ -1,0 +1,453 @@
+{
+  "slug": "gates-and-chains-tell-the-whole-truth",
+  "title": "gates and chains tell the whole truth",
+  "frame_slug": "gates-and-chains-tell-the-whole-truth",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-16T05:31:45Z",
+  "updated": "2026-07-16T05:36:38Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Five gate/chain/config honesty gaps close together: the pre-finish gates record every union path they could not grade and the run_command mutation blind spot gets an explicit scope decision (#342); a halted chain names its ungated episodes and kept WIP branches at outcome + artifact level (#341); a completed chain that hands off with its final episode's gates skipped says so on the outcome line, the artifact, and the PR body (#340); every config.json override loader honors the at-home per-key merge (#339); and an armed until_done run stops arming fill-line chain consumers inside its subagent children (#337)."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "the five issues genuinely share one arc: every change is detection/observability/hygiene on existing chain+gate seams \u2014 no routing policy, no daemon, no gate-semantics change"
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "#342(1): _gate_changed_set (colleague/loop.py:3459) filters union(episode changed, chain prior_changed) to worktree-existing paths and drops the rest SILENTLY; when the filter removes paths, append ONE note naming them to result.capacity_warning plus a phase notice (the _record_gate_deferral precedent at loop.py:3438); a run with nothing dropped stays byte-identical"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "the dropped-paths note fires ONLY when the existence filter actually removed paths; a chained e2e where episode 2 deletes an episode-1 file asserts the note names exactly that path; nothing-dropped runs stay byte-identical"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the dropped-paths note records ONCE per run even though _gate_changed_set is called by each of the four gates (up to twice each \u2014 loop.py:3540/3550/3600/3773/3786/3879/3899); the _gate_deferral_noted single-fire cell is the precedent"
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "#341(1)+(2): halted chains surface deferred-gate episodes: _record_gate_deferral stamps a STRUCTURED marker on the episode result (not only the capacity_warning string), the chain loop accumulates deferring episode ids onto ChainView.deferred_gate_episodes, and _emit_chain_outcome (work.py:1308) names the deferring episodes + kept WIP branches when any exist"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "no consumer string-matches capacity_warning: the chain loop reads the structured deferral marker; ChainView.from_dict degrades a missing/malformed deferred_gate_episodes to empty without raising"
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "#341(3): prove the continue path re-gates: a test pins that a halted-then-continued chained run ends with a gated final episode over the inherited union \u2014 continue-the-chain becomes the documented remedy for ungated halted WIP"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "the continue-regate proof drives a real halted chain (episode cap) then work --continue whose next episode finishes ok, asserting gate reports on the continuing episode artifact over the inherited union"
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "#340(B): a COMPLETED chain whose final episode carried the gate-deferral marker (ok-finish + declared finish-with-handoff, the ONE completing shape that skips gates: chain.py ok-guard at 172 vs loop.py predicate at 3435) is detected loudly: outcome-line warning, artifact flag (final episode id present in ChainView.deferred_gate_episodes), and the warning included in the handoff PR body via _chain_finalize (work.py:1198)"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "detection keys on the structured deferral marker of the FINAL episode of a COMPLETED chain only; halted chains and gated completions render byte-identical outcome lines; the PR-body warning appears only when a PR is actually opened"
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "#339: migrate the config.json override loaders still on whole-file configdir.resolve_file to the _merged_config_json per-key merge \u2014 the live count is SEVEN, not four as filed: _load_lint_overrides(732), _load_testintegrity_overrides(758), _load_watch_override(807), _load_coherence_override(887), _load_memory_override(924), _load_affected_tests_overrides(967), _load_presence_override(1350); regression tests mirror tests/test_config_merge.py::test_repo_config_without_compaction_cap_falls_through_to_user_default"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "each migrated loader falls through to the user-level default when the repo file omits its key(s) \u2014 one regression test per loader mirroring the #338 test shape; per-key precedence (repo wins where the key is present) unchanged"
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "profiles overlays are OUT of the #339 migration: config.py:2392/2400 read profiles.json (not config.json) via resolve_file exact-path \u2014 per-model isolation is deliberate (per-model-configuration exact-path rule); they stay whole-file"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "the PR diff touches no profiles.json read path (_read_profiles_file / _load_profile_overlays unchanged)"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "#337: run_subagent child config (subagents.py:338-351) resets chain_episode/chain_prior_changed unconditionally but copies until_done through dataclasses.replace; ContextControls.from_config keys chain_armed on config.until_done (loop.py:2751), arming _reject_compaction finish-with-handoff (loop.py:1263) + the budget-exhausted handoff instruction in children. Fix: reset until_done False in replace_kwargs alongside the existing c22 resets"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "a chain-armed parent spawns children with chain_armed False (unit test on the child config plus a loop-level proof that a child _reject_compaction takes the lossy-windowing floor); the armed parent own episodes still arm"
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "the chain driver verdict semantics stay untouched: should_continue ok-guard-first ordering, deviation d1 declared-handoff continuation, CONTINUABLE_REASONS == {budget-exhausted}, and the halted-chain no-backfill rule (a post-hoc gate pass loses the live fix-turn/re-examine \u2014 the rejected #335 shape). #341/#340 land detection only"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "colleague/chain.py is byte-identical in the PR diff; tests/test_chain.py passes unmodified"
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "byte-identical invariants hold everywhere: non-chained runs and chain first episodes keep exactly the current gate set (empty prior_changed short-circuit, loop.py:3472); unarmed runs and subagent children of unarmed parents see zero behavior change; empty-drop and no-deferral chains render no new notes"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the four named byte-identity tests pass unmodified: test_gate_changed_set_empty_prior_is_byte_identical, test_chain_episode_clean_finish_runs_gates_no_note, test_non_chain_budget_exit_still_runs_gates, test_subagent_shaped_until_done_run_gates_on_budget"
+    },
+    {
+      "id": "c13",
+      "kind": "audience",
+      "text": "colleague operators arming chained/armed runs and the human reviewer at handoff gate 3 (the PR), plus artifact consumers (cockpit Last-run panel, feedback export, tui snapshot) that must flag ungated WIP without string-matching capacity_warning"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "every named consumer can read the deferral state without parsing prose \u2014 deferred_gate_episodes is a typed list on the artifact JSON"
+    },
+    {
+      "id": "c14",
+      "kind": "before_state",
+      "text": "today the ONLY gate-deferral record is a capacity_warning substring per episode artifact (loop.py:3450); union paths the existence filter removes vanish with no record (loop.py:3476); a repo config.json that omits lint/testintegrity/watch/coherence/memory/affected-tests/presence keys hides the user-level default entirely (7 whole-file loaders); and every subagent child of an --until-done run arms fill-line chain consumers nobody chains (subagents.py:338 copies until_done)"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "each before-state fact is verifiable at its cited line in the pre-change tree (scope entries s1-s11 are the provenance)"
+    },
+    {
+      "id": "c15",
+      "kind": "after_state",
+      "text": "every path the gates could not grade is named on the artifact; a halted chain outcome line names its ungated episodes + kept WIP branches and ChainView carries deferred_gate_episodes; a completed chain that handed off with final-episode gates skipped says so on the outcome line, the artifact, and the PR body; user-level config defaults survive repo files that omit their keys across all seven loaders; a subagent child of an armed run behaves byte-identically to a child of an unarmed run"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "each after-state surface has at least one asserting test in the PR diff"
+    },
+    {
+      "id": "c16",
+      "kind": "why_it_matters",
+      "text": "the handoff PR is the trust boundary: a PR that skipped its gates without saying so, or a silently ungraded rename, is a silent breach of the honest-limits discipline (h4) \u2014 detection keeps the operator able to see exactly what went ungated instead of inferring it from per-episode artifacts"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "no surface claims prevention: docs say detection-only; halted chains stay ungated by design (the rejected post-hoc-gate shape is recorded, not resurrected)"
+    },
+    {
+      "id": "c17",
+      "kind": "success_signal",
+      "text": "all 5 issues (#337 #339 #340 #341 #342-part-1) close in ONE PR with 0 new dependencies; >= 4 new chained-e2e assertions land (dropped-path note, halted-chain outcome+flag, continue-regate proof, completed-chain ok-handoff detection); >= 7 config-merge regression tests (one per migrated loader); the existing 5-shape equivalence matrix and tests/test_chain.py pass unmodified; full uv run pytest -n auto green"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the counts are checked against the PR diff before merge: new tests counted, full suite run, equivalence matrix + test_chain.py verified unmodified"
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "challenge catch (#339 extension): colleague/icons.py:_load_icons_config (line 57) is an EIGHTH config.json reader on whole-file resolve_file \u2014 outside config.py, missed by the issue and the scope survey; it migrates to the per-key merge with the other seven (icons.py imports only configdir today \u2014 no cycle either direction; the merge may live in configdir or be imported from config)"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "the icons regression test proves the merge: a user-level icons value survives a repo config.json that omits the key; existing icon-mode precedence (explicit > env > config) is unchanged"
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "challenge catch (#340 b3 mechanism): _gh_pr_create (handoff.py:627) builds the PR with gh pr create --fill and accepts NO body parameter \u2014 the PR-body warning needs either a composed --body at create time (replacing --fill when a warning is present) or a post-create gh api PATCH; NEVER gh pr edit, which no-ops on agentculture repos (Projects-classic GraphQL deprecation, recorded gotcha)"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "with no deferral warning the create path stays byte-identical (--fill); with a warning the body carries the deferral text and the offline/CI degrade paths (no remote, no gh, push failure) still return local-only notes without raising"
+    },
+    {
+      "id": "c21",
+      "kind": "boundary",
+      "text": "detection never changes exit codes or blocking behavior: a completed chain that handed off with final-episode gates skipped still exits 0; all four gates stay advisory/non-blocking; the warning surfaces are diagnostics + artifact + PR body only"
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "the chained e2e asserts exit code 0 on the detected ok-handoff completion; no gate gains blocking behavior anywhere in the diff"
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "consumer UIs are NOT re-rendered this arc: the typed ChainView.deferred_gate_episodes flag is the deliverable that ENABLES the cockpit Last-run panel / feedback export / tui snapshot to flag ungated chains; adding those renderings is follow-up territory, not this PR"
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "the diff touches no cockpit/tui rendering module \u2014 the session Last-run panel and taui renderers are unchanged; the only new operator-visible lines ride the existing work.py diagnostics channel"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "contract.py: TaskResult.gates_deferred + ChainView.deferred_gate_episodes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult gains gates_deferred (bool, default False, omit-when-False in to_dict, read back in from_dict) and ChainView gains deferred_gate_episodes (tuple/list of task ids, default empty, in to_dict + from_dict)",
+        "ChainView.from_dict degrades missing, null, and junk deferred_gate_episodes to empty without raising; the malformed-payload positional fallback still constructs",
+        "ChainView.accumulate appends the episode task id when the result carries gates_deferred; round-trip tests cover both fields"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3",
+        "c13",
+        "h11"
+      ],
+      "instruction": "colleague/contract.py only (+ its test file). Keep the frozen-dataclass + _coerce_count degrade stance; mirror omit-when-None precedent (capacity_warning) for gates_deferred as omit-when-False. accumulate signature stays (prior, result)."
+    },
+    {
+      "id": "t2",
+      "summary": "loop.py: stamp the structured deferral marker + dropped-path note (once per run)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a chained e2e where episode 2 deletes an episode-1 file asserts the final artifact capacity_warning names exactly that dropped path; a run where nothing is dropped emits no note (byte-identical)",
+        "the note records ONCE per run although _gate_changed_set is called by all four gates (single-fire cell like _gate_deferral_noted)",
+        "_record_gate_deferral additionally sets result.gates_deferred=True; existing test_gate_deferral.py byte-identity tests pass unmodified"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "h16"
+      ],
+      "instruction": "colleague/loop.py: _gate_changed_set + _record_gate_deferral region (3411-3513) + a new single-fire cell on _Work; tests extend tests/test_gate_deferral.py. Do NOT touch chain.py or the gate predicates."
+    },
+    {
+      "id": "t3",
+      "summary": "handoff.py: PR body seam for the deferral warning",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "chain_handoff_finalize accepts an optional warning text; absent, gh pr create argv is byte-identical (--fill, no --body); present, the argv carries a body containing the deferral warning (no gh pr edit anywhere)",
+        "offline/CI degrade paths (no remote, no gh, push failure) return local-only notes without raising, warning present or not \u2014 proven with mocked subprocess, no live remote"
+      ],
+      "deps": [],
+      "covers": [
+        "c20",
+        "h18"
+      ],
+      "instruction": "colleague/handoff.py: _gh_pr_create (627) gains an optional body param; chain_handoff_finalize (515) threads it. gh pr create --fill and --body are mutually exclusive \u2014 when a body is passed, compose --title + --body and drop --fill. Never gh pr edit (broken on agentculture: Projects-classic)."
+    },
+    {
+      "id": "t4",
+      "summary": "config.py: migrate the seven whole-file loaders to the per-key merge",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "all seven loaders (_load_lint_overrides, _load_testintegrity_overrides, _load_watch_override, _load_coherence_override, _load_memory_override, _load_affected_tests_overrides, _load_presence_override) read via _merged_config_json; a repo config.json omitting their keys falls through to the user-level default \u2014 one regression test per loader in tests/test_config_merge.py",
+        "per-key precedence unchanged where the repo file HAS the key (repo wins); profiles.json read paths (_read_profiles_file/_load_profile_overlays) untouched in the diff"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h6",
+        "c8",
+        "h7"
+      ],
+      "instruction": "colleague/config.py only. _load_chain_overrides (853) is the migrated template from PR #338; mirror tests/test_config_merge.py::test_repo_config_without_compaction_cap_falls_through_to_user_default per loader."
+    },
+    {
+      "id": "t5",
+      "summary": "icons.py: migrate the eighth config.json reader",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a user-level config.json icons value survives a repo config.json that omits the key; explicit > env > config precedence unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c19",
+        "h17"
+      ],
+      "instruction": "colleague/icons.py:_load_icons_config (51-69). icons.py imports only configdir today; either import the merge from colleague.config (no cycle \u2014 config does not import icons) or extend configdir with the shared per-key helper if the import feels heavy. Add tests (new test file or the icons test home)."
+    },
+    {
+      "id": "t6",
+      "summary": "subagents.py: stop until_done leaking into children",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "run_subagent child config carries until_done=False when the parent is armed (unit test on the built child config)",
+        "ContextControls.from_config over the child config yields chain_armed=False; existing armed-parent chain tests pass unmodified"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h8"
+      ],
+      "instruction": "colleague/subagents.py: add \"until_done\": False to replace_kwargs (338-343) next to the existing chain_episode/chain_prior_changed resets; extend the c22 comment to name #337. Loop-level proof: a child-config _Work has chain_armed False so _reject_compaction takes the lossy-windowing floor."
+    },
+    {
+      "id": "t7",
+      "summary": "work.py: chain-side deferral accounting, halted outcome line, completed-chain detection",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a chained mock e2e halting on the episode cap asserts: the outcome line names the deferring episodes and kept WIP branches, and the final artifact chain view carries deferred_gate_episodes",
+        "a chained mock e2e whose final episode declares finish-with-handoff and finishes ok asserts: outcome warning, final episode id present in deferred_gate_episodes, PR body carries the warning, and exit code 0",
+        "halted chains and gated completions render byte-identical outcome lines to today; detection reads result.gates_deferred, never string-matches capacity_warning; no cockpit/tui rendering module touched"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c3",
+        "c5",
+        "h5",
+        "c21",
+        "h19",
+        "c22",
+        "h20",
+        "c13"
+      ],
+      "instruction": "colleague/cli/_commands/work.py: thread deferral ids through the episode loop (execute_work_chain 1444-1512) into ChainView accumulation, extend _emit_chain_outcome (1308) + _maybe_finalize_chain/_chain_finalize (1198-1350) to pass the warning into chain_handoff_finalize. VERIFY ordering first: result.gates_deferred must be set before the ChainView accumulate + artifact write (find the accumulate call site in execute_work)."
+    },
+    {
+      "id": "t8",
+      "summary": "continue-regate proof: halted chain then --continue ends gated",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test drives a chained run halted on the cap, then work --continue whose next episode finishes ok, and asserts gate reports on the continuing episode artifact over the inherited union(changed, prior_changed)"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c4",
+        "h4"
+      ],
+      "instruction": "test-only task in tests/test_gate_deferral.py (or the chained e2e home); reuse the #335 chained-e2e fixtures + continuation.py read_chain_view resume; no production code change expected."
+    },
+    {
+      "id": "t9",
+      "summary": "docs: deferral surfacing, gate scope decision (2a), before/after honesty",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/indefinite-run.md documents the structured marker, ChainView.deferred_gate_episodes, the halted outcome naming, and the completed-chain warning (detection-only stance explicit; halted chains stay ungated by design)",
+        "docs/features/lint-gate.md + docs/features/work-and-loop.md state the 2a decision: gates grade model-authored edits (write_file/edit_file + subagent merges); run_command mutations are the approval-gate domain \u2014 with the 2b follow-up issue linked"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c14",
+        "h12",
+        "c16",
+        "h14"
+      ],
+      "instruction": "Also touch docs/features/config-resolution.md (eight loaders now merged) and docs/features/subagents.md (until_done reset). Keep each edit scoped to the affected bullets; no restructuring."
+    },
+    {
+      "id": "t10",
+      "summary": "full verification: suites, byte-identity, counts",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/chain.py is byte-identical in the diff; tests/test_chain.py passes unmodified; the four named byte-identity tests pass unmodified",
+        "full uv run pytest -n auto green; >= 4 new chained-e2e assertions and >= 8 config-merge regression tests counted in the diff; every after_state surface has at least one asserting test"
+      ],
+      "deps": [
+        "t2",
+        "t4",
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ],
+      "covers": [
+        "c10",
+        "h9",
+        "c12",
+        "h10",
+        "c15",
+        "h13",
+        "c17",
+        "h15"
+      ],
+      "instruction": "Run: git diff main --stat (chain.py absent), uv run pytest -n auto, plus black/isort/flake8/bandit and teken cli doctor . --strict per CLAUDE.md. Count tests via git diff main -- tests/ | grep \"^+.*def test_\"."
+    },
+    {
+      "id": "t11",
+      "summary": "file follow-ups: 2b git-status sweep spec + UI rendering of the deferral flag",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "two issues filed on agentculture/colleague: (1) the 2b gate-time git-status sweep with its small spec sketch (git diff --name-status --find-renames vs base; weighs chain progress evidence + WorkStats; risks from #342 recorded), (2) rendering deferred_gate_episodes in cockpit Last-run / tui snapshot; both link the spec + this arc PR"
+      ],
+      "deps": [
+        "t10"
+      ],
+      "covers": [],
+      "instruction": "File with gh issue create, signed - colleague (Claude) per posting convention; reference decision q1/c18 and boundary c22 in the spec doc."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "ChainView accumulate call-site ordering: result.gates_deferred must be set before the accumulate + artifact write \u2014 verify in execute_work when wiring t7",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7"
+    },
+    {
+      "id": "r2",
+      "text": "gh pr create --fill and --body are mutually exclusive; the warned path swaps composition \u2014 argv unit tests must pin both shapes, mocked subprocess only",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r3",
+      "text": "workforce routing: loop.py + work.py surgery stays with Claude (large-file timeout gotcha, budget-exhaust on big-file reviews); colleague takes the file-scoped tasks with tight briefs",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r4",
+      "text": "the 2b git-status sweep is deliberately NOT built here \u2014 follow-up issue only (user decision q1)",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r5",
+      "text": "UI rendering of deferred_gate_episodes (cockpit Last-run panel, tui snapshot) is follow-up territory (boundary c22)",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
