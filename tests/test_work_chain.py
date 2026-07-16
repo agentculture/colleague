@@ -102,6 +102,36 @@ def _finish_turn() -> ModelResponse:
     )
 
 
+def _handoff_reply(episode: int, messages) -> ModelResponse:
+    """A REAL declared fill-line finish-with-handoff episode (the d1 shape).
+
+    The working turn's prompt_tokens cross the fill line (90 >= 0.8 * 100 with
+    ``COLLEAGUE_CONTEXT_BUDGET=100``); the fill-line decision prompt is answered
+    with finish → classified finish-with-handoff → an ok finish the chain's
+    ok-guard halts on (completed), while the loop deferred its gates (#340).
+    """
+    last = str(messages[-1].get("content") or "")
+    if "declare ONE move" in last:
+        return ModelResponse(
+            content="handing off",
+            tool_calls=[ToolCall("f", "finish", {"summary": "continuation summary"})],
+            prompt_tokens=90,
+            completion_tokens=1,
+        )
+    return ModelResponse(
+        content="",
+        tool_calls=[
+            ToolCall(
+                f"h{episode}",
+                "write_file",
+                {"path": f"episode-{episode}.txt", "content": f"episode {episode} work\n"},
+            )
+        ],
+        prompt_tokens=90,
+        completion_tokens=1,
+    )
+
+
 def _script_episodes(monkeypatch: pytest.MonkeyPatch, plan, on_episode=None) -> dict:
     """Monkeypatch the mock engine's script: one entry of *plan* per episode.
 
@@ -119,11 +149,13 @@ def _script_episodes(monkeypatch: pytest.MonkeyPatch, plan, on_episode=None) -> 
             on_episode(n)
         kind = plan[min(n, len(plan)) - 1]
 
-        def complete(_messages):
+        def complete(messages):
             if kind == "budget":
                 return _budget_turn(n)
             if kind == "idle":
                 return _idle_turn(n)
+            if kind == "handoff":
+                return _handoff_reply(n, messages)
             return _finish_turn()
 
         return complete
@@ -137,7 +169,9 @@ def _gate_pr_boundary(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     calls: list[dict] = []
 
     def fake_pr_create(repo, base_branch, title, head=None, body=None):
-        calls.append({"repo": Path(repo), "base": base_branch, "title": title, "head": head})
+        calls.append(
+            {"repo": Path(repo), "base": base_branch, "title": title, "head": head, "body": body}
+        )
         return f"https://example.test/pr/{len(calls)}"
 
     monkeypatch.setattr(ho, "gh_available", lambda: True)
@@ -259,6 +293,90 @@ class TestChainHandoffOnce:
         assert episodes[-1]["chain"]["episode_index"] == 2
         assert pr_calls == []
         assert len(_colleague_branches(git_repo)) == 2
+
+
+# ---------------------------------------------------------------------------
+# Gate-deferral surfacing (#341 halted / #340 completed) — chained e2e
+# ---------------------------------------------------------------------------
+
+
+class TestChainGateDeferralSurfacing:
+    def test_halted_chain_outcome_names_deferred_episodes(self, git_repo, monkeypatch, capsys):
+        """#341: a cap-halted chain's outcome names the deferring episodes and
+        the kept WIP branches; the final artifact's chain view carries
+        deferred_gate_episodes (typed, no string-matching)."""
+        from colleague.cli import main
+
+        _script_episodes(monkeypatch, ["budget", "budget", "budget"])
+        _gate_pr_boundary(monkeypatch)
+
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "2"))
+        assert rc == 2
+
+        episodes = _lineage_artifacts(git_repo)
+        ids = [ep["task_id"] for ep in episodes]
+        # Both budget-exited episodes deferred: per-episode marker + chain list.
+        assert all(ep.get("gates_deferred") is True for ep in episodes)
+        assert episodes[-1]["chain"]["deferred_gate_episodes"] == ids
+
+        err = capsys.readouterr().err
+        assert "gates deferred on episode(s)" in err
+        for task_id in ids:
+            assert task_id in err
+        assert "ungated WIP" in err
+        for branch in _colleague_branches(git_repo):
+            assert branch in err
+
+    def test_completed_chain_with_deferred_final_warns_everywhere(
+        self, git_repo, origin, monkeypatch, capsys
+    ):
+        """#340 B: ok-finish + declared fill-line handoff completes the chain and
+        fires the handoff with the final episode's gates skipped — the outcome
+        line, the artifact flag, and the PR body all say so; exit stays 0."""
+        from colleague.cli import main
+
+        monkeypatch.setenv("COLLEAGUE_CONTEXT_BUDGET", "100")
+        _script_episodes(monkeypatch, ["budget", "handoff"])
+        pr_calls = _gate_pr_boundary(monkeypatch)
+
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "5", "--max-steps", "3"))
+        assert rc == 0
+
+        episodes = _lineage_artifacts(git_repo)
+        assert len(episodes) == 2
+        final = episodes[-1]
+        # The final episode really took the declared-handoff shape and deferred.
+        assert final["capacity_decision"]["kind"] == "finish-with-handoff"
+        assert final["gates_deferred"] is True
+        assert final["task_id"] in final["chain"]["deferred_gate_episodes"]
+
+        # The ONE handoff fired, its PR body carrying the warning.
+        assert len(pr_calls) == 1
+        assert pr_calls[0]["body"] is not None
+        assert "gates" in pr_calls[0]["body"] and "deferred" in pr_calls[0]["body"]
+
+        err = capsys.readouterr().err
+        assert "handed off with the final episode's pre-finish gates deferred" in err
+
+    def test_completed_gated_chain_renders_no_warning(
+        self, git_repo, origin, monkeypatch, capsys
+    ):
+        """Byte-identity: a completed chain whose final episode ran its gates
+        gets today's outcome lines exactly — no warning, --fill PR body."""
+        from colleague.cli import main
+
+        _script_episodes(monkeypatch, ["budget", "finish"])
+        pr_calls = _gate_pr_boundary(monkeypatch)
+
+        rc = main(_work_argv(git_repo, "--until-done", "--max-episodes", "5"))
+        assert rc == 0
+
+        assert len(pr_calls) == 1
+        assert pr_calls[0]["body"] is None  # the --fill path, byte-identical
+
+        err = capsys.readouterr().err
+        assert "gates deferred on episode(s)" not in err
+        assert "pre-finish gates deferred" not in err
 
 
 # ---------------------------------------------------------------------------

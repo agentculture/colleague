@@ -1203,6 +1203,7 @@ def _chain_finalize(
     instruction: str,
     open_pr: bool,
     base: str,
+    pr_body: str | None = None,
 ) -> Path:
     """The chain's ONE handoff + intermediate reap, on a COMPLETED chain (c26).
 
@@ -1223,6 +1224,8 @@ def _chain_finalize(
     this function — every branch is left for the operator (the WIP rule).
     """
     final_branch = episode_branches[-1]
+    # ``pr_body`` (#340 b3): the gate-deferral warning rides the PR body so the
+    # human reviewer at gate 3 sees it; None keeps the --fill body byte-identical.
     outcome = chain_handoff_finalize(
         repo,
         result.task_id,
@@ -1230,6 +1233,7 @@ def _chain_finalize(
         instruction=instruction,
         open_pr=open_pr,
         base_branch=base,
+        body=pr_body,
     )
     result.branch = outcome.branch
     if outcome.pr_url:
@@ -1305,8 +1309,26 @@ def _announce_episode_transition(
         )
 
 
-def _emit_chain_outcome(verdict, state, *, completed: bool, branches: list[str]) -> None:
-    """The chain's terminal diagnostics (extracted for the S3776 budget)."""
+def _emit_chain_outcome(
+    verdict,
+    state,
+    *,
+    completed: bool,
+    branches: list[str],
+    deferred: tuple[str, ...] = (),
+) -> None:
+    """The chain's terminal diagnostics (extracted for the S3776 budget).
+
+    ``deferred`` is the chain's accumulated deferred-gate episode ids
+    (``ChainView.deferred_gate_episodes``, the #341 typed record — never
+    parsed out of ``capacity_warning``). A HALTED chain names the deferring
+    episodes and their kept WIP branches (#341: the per-episode note alone
+    left ungated WIP silent at the outcome level). A COMPLETED chain warns
+    only when the FINAL episode deferred — the one ok-finish + declared
+    fill-line handoff shape whose handoff fires ungated (#340 b1); every
+    other completed chain re-gated the union on its final episode, so it
+    renders byte-identically to today.
+    """
     detail = f": {verdict.detail}" if verdict.detail else ""
     emit_diagnostic(
         f"chain: {'completed' if completed else 'halted'} after "
@@ -1314,6 +1336,24 @@ def _emit_chain_outcome(verdict, state, *, completed: bool, branches: list[str])
     )
     if not completed and branches:
         emit_diagnostic("chain: episode branches kept (WIP): " + ", ".join(branches))
+    if not deferred:
+        return
+    if completed:
+        final_id = state.episode_ids[-1] if state.episode_ids else ""
+        if final_id and final_id in deferred:
+            emit_diagnostic(
+                "chain: WARNING — chain completed and handed off with the final "
+                f"episode's pre-finish gates deferred ({final_id}; ok-finish + "
+                "declared fill-line handoff, #340)"
+            )
+        return
+    id_to_branch = dict(zip(state.episode_ids, branches))
+    named_branches = [id_to_branch[tid] for tid in deferred if tid in id_to_branch]
+    emit_diagnostic(
+        "chain: gates deferred on episode(s) " + ", ".join(deferred)
+        + " — halted chain keeps ungated WIP on branch(es): "
+        + ", ".join(named_branches)
+    )
 
 
 def _maybe_finalize_chain(
@@ -1328,6 +1368,7 @@ def _maybe_finalize_chain(
     open_pr: bool,
     base: str,
     artifact_path: Path,
+    pr_body: str | None = None,
 ) -> Path:
     """Finalize a COMPLETED chain once — or honestly decline to (extracted, S3776).
 
@@ -1345,7 +1386,13 @@ def _maybe_finalize_chain(
         emit_diagnostic("chain: completed with no changes; no handoff performed")
         return artifact_path
     return _chain_finalize(
-        repo, result, branches, instruction=instruction, open_pr=open_pr, base=base
+        repo,
+        result,
+        branches,
+        instruction=instruction,
+        open_pr=open_pr,
+        base=base,
+        pr_body=pr_body,
     )
 
 
@@ -1496,6 +1543,22 @@ def execute_work_chain(
         _announce_episode_transition(repo, result.task_id, episode_task.id, state, task.watch)
 
     completed = verdict.reason == chainmod.HALT_OK_FINISH
+    # Gate-deferral surfacing (#341/#340): the typed chain record — accumulated
+    # per episode by ChainView.accumulate off result.gates_deferred — feeds the
+    # outcome line, and the #340 corner (a COMPLETED chain whose FINAL episode
+    # deferred: ok-finish + declared fill-line handoff) rides the PR body so
+    # the human reviewer at gate 3 sees the diff went ungated.
+    deferred = tuple(result.chain.deferred_gate_episodes) if result.chain else ()
+    pr_body: str | None = None
+    if completed and getattr(result, "gates_deferred", False):
+        pr_body = (
+            "WARNING: this chain completed via a declared fill-line "
+            "finish-with-handoff, so the pre-finish gates (lint / coherence / "
+            "test-integrity / affected-tests) were deferred on its final episode "
+            "and this diff was handed off ungated (#340). Deferring episode(s): "
+            + ", ".join(deferred)
+            + "."
+        )
     artifact_path = _maybe_finalize_chain(
         repo,
         result,
@@ -1507,8 +1570,11 @@ def execute_work_chain(
         open_pr=open_pr,
         base=base,
         artifact_path=artifact_path,
+        pr_body=pr_body,
     )
-    _emit_chain_outcome(verdict, state, completed=completed, branches=episode_branches)
+    _emit_chain_outcome(
+        verdict, state, completed=completed, branches=episode_branches, deferred=deferred
+    )
     return result, artifact_path
 
 
