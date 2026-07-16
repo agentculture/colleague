@@ -1612,7 +1612,11 @@ class TaskResult:
                 else None
             ),
             capacity_warning=data.get("capacity_warning"),
-            gates_deferred=bool(data.get("gates_deferred") or False),
+            # gates_deferred parses strictly (#341): artifacts are external
+            # inputs, so only the JSON boolean ``true`` reads True — any other
+            # type/value (a "false" string, an int, a dict) degrades to False,
+            # never guessed (the ChainView.from_dict degrade-to-empty stance).
+            gates_deferred=data.get("gates_deferred") is True,
             lint_report=(
                 LintReport.from_dict(data["lint_report"]) if data.get("lint_report") else None
             ),
