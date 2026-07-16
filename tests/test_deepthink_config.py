@@ -133,6 +133,7 @@ def test_absent_to_dict_matches_pre_deepthink_keys() -> None:
         "affected_tests_fix_retries",
         "affected_tests_depth",
         "affected_tests_max_files",
+        "compaction_cap",
     }
     assert set(snapshot.keys()) == expected_keys
 
