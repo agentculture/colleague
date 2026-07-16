@@ -587,6 +587,36 @@ class ChainEpisodeOptions:
     #: first episode); this episode's ``result.chain`` accumulates onto it
     #: (sums of per-episode exact usage, c20/h19).
     prior_view: ChainView | None = None
+    #: The UNION of every prior episode's ``result.changed_files`` so far
+    #: (sorted, deduped) — ``()`` on the chain's first episode. Accumulated by
+    #: :func:`execute_work_chain`'s loop and threaded by :func:`execute_work`
+    #: into :class:`~colleague.loop.ContextControls.chain_prior_changed`
+    #: (indefinite-run follow-up, issue #335, decision c22). Read by the NEXT
+    #: task's gate-skip guard — dormant plumbing here.
+    prior_changed: tuple[str, ...] = ()
+
+
+def _arm_chain_dispatch(config: EngineConfig, chain: "ChainEpisodeOptions | None") -> str | None:
+    """Stamp the chain-episode dispatch marker; return the episode base_ref (#335, c22).
+
+    Keyed on ``chain``'s PRESENCE for THIS call, never on ``config.until_done``
+    — set unconditionally (including the ``False``/``()`` branch) so a config
+    object reused across dispatches (the session's one long-lived
+    ``EngineConfig``) never leaks a prior chained call's marker onto a later
+    unchained one. A subagent child never sees a ``True`` value regardless:
+    ``run_subagent`` resets both fields on the child config it builds via
+    ``dataclasses.replace``. Returns ``chain.base_ref`` (the prior episode's
+    ``colleague/<id>`` tip, c6) for :func:`_setup_isolation`, ``None`` for an
+    unchained dispatch or the chain's first episode. Extracted from
+    :func:`execute_work` to keep its cognitive complexity under the S3776
+    ceiling (the :func:`_moded_config` precedent; PR #338 Sonar catch).
+    """
+    config.chain_episode = chain is not None
+    if chain is None:
+        config.chain_prior_changed = ()
+        return None
+    config.chain_prior_changed = chain.prior_changed
+    return chain.base_ref
 
 
 def _build_run_presence(
@@ -741,8 +771,9 @@ def execute_work(
     # caller (session explore/review, ask-colleague) inherits it identically.
     read_only_role = is_read_only(getattr(config, "role", None))
     _guard_clean_tree(repo, allow_dirty=allow_dirty or read_only_role)
+    episode_base_ref = _arm_chain_dispatch(config, chain)
     work_repo, base_sha, worktree_path, task = _setup_isolation(
-        repo, task, isolate, base_ref=chain.base_ref if chain else None
+        repo, task, isolate, base_ref=episode_base_ref
     )
     # Memory targets the OPERATOR repo (spec R1 / plan t2): an isolated run's
     # worktree is reaped after handoff, so a lesson written there would be lost.
@@ -1405,6 +1436,10 @@ def execute_work_chain(
     episode_task = task
     prior_branch: str | None = None
     episode_branches: list[str] = []
+    # Cumulative changed-files union across episodes (#335, c22): each episode
+    # sees every PRIOR episode's touched files, sorted+deduped, on
+    # ``ChainEpisodeOptions.prior_changed`` — ``()`` on the first episode.
+    changed_so_far: set[str] = set()
 
     while True:
         result, artifact_path = execute_work(
@@ -1420,9 +1455,14 @@ def execute_work_chain(
             display=display,
             mode=mode,
             continued_from=continued_from,
-            chain=ChainEpisodeOptions(base_ref=prior_branch, prior_view=prior_view),
+            chain=ChainEpisodeOptions(
+                base_ref=prior_branch,
+                prior_view=prior_view,
+                prior_changed=tuple(sorted(changed_so_far)),
+            ),
         )
         prior_view = result.chain
+        changed_so_far |= set(result.changed_files)
         episode_branch = result.branch or branch_name(episode_task.id, episode_task.instruction)
         episode_branches.append(episode_branch)
 

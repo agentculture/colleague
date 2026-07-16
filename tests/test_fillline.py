@@ -116,6 +116,7 @@ def _run(complete, task, **kwargs):
         autosplit_target=kwargs.pop("autosplit_target", 100),
         fillline_threshold=kwargs.pop("fillline_threshold", 0.8),
         chain_armed=kwargs.pop("chain_armed", False),
+        compaction_cap=kwargs.pop("compaction_cap", None),
     )
     kwargs.setdefault("system_prompt", _SYS)
     kwargs.setdefault("max_steps", 10)
@@ -541,6 +542,94 @@ def test_compaction_cap_suppresses_further_offers_and_is_recorded(tmp_path) -> N
     assert result.capacity_warning is not None
     assert "compaction cap" in result.capacity_warning
     assert result.capacity_warning.count("compaction cap") == 1
+
+
+def test_resolved_compaction_cap_suppresses_at_configured_value(tmp_path) -> None:
+    """The loop consumes the RESOLVED cap (``ContextControls.compaction_cap``, threaded
+    from ``EngineConfig.compaction_cap``, #334) instead of the module constant: with
+    the cap resolved to 2, the crossing after the 2nd compaction gets NO offer, and
+    the recorded note names 2 — not ``fillline.DEFAULT_COMPACTION_CAP`` (4)."""
+    calls: list[list] = []
+    work = {"n": 0}
+    # 2 full compact cycles (cross → offer → compact → dip re-arms), then ONE more
+    # over-the-line turn: the 3rd crossing must get no offer (cap = 2 reached).
+    tokens = iter([90, 20, 90, 20, 90, 90])
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="S", prompt_tokens=5, completion_tokens=5)
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=90, completion_tokens=1)
+        tok = next(tokens, None)
+        if tok is None:
+            return ModelResponse(
+                content="done",
+                tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+                prompt_tokens=5,
+                completion_tokens=1,
+            )
+        work["n"] += 1
+        return ModelResponse(
+            content="",
+            tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+            prompt_tokens=tok,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), max_steps=30, compaction_cap=2)
+    assert result.status == OK
+    # Exactly the resolved cap's worth of offers — the 3rd crossing was suppressed.
+    assert _offers_seen(calls) == 2
+    assert result.capacity_decision is not None
+    assert result.capacity_decision.kind == "compact"
+    assert result.capacity_warning is not None
+    assert "compaction cap" in result.capacity_warning
+    # The note names the RESOLVED cap (2), never the module default (4).
+    assert "(2 compaction turns" in result.capacity_warning
+    assert "(4 compaction turns" not in result.capacity_warning
+    assert result.capacity_warning.count("compaction cap") == 1
+
+
+def test_compaction_cap_zero_is_unlimited(tmp_path) -> None:
+    """A resolved cap of 0 follows the 0-is-unlimited convention (``max_episodes``):
+    a 5th compaction turn in one run is still permitted, and no suppression is ever
+    recorded on the trace."""
+    calls: list[list] = []
+    work = {"n": 0}
+    # 5 full compact cycles (cross → offer → compact → dip re-arms) — a count that
+    # would already be suppressed at the module-default cap of 4.
+    tokens = iter([90, 20, 90, 20, 90, 20, 90, 20, 90, 20])
+
+    def complete(messages):
+        calls.append(list(messages))
+        last = messages[-1].get("content") or ""
+        if "Summarize everything done" in last:
+            return ModelResponse(content="S", prompt_tokens=5, completion_tokens=5)
+        if "declare ONE move" in last:
+            return ModelResponse(content="compacting", prompt_tokens=90, completion_tokens=1)
+        tok = next(tokens, None)
+        if tok is None:
+            return ModelResponse(
+                content="done",
+                tool_calls=[ToolCall("f", "finish", {"summary": "done"})],
+                prompt_tokens=5,
+                completion_tokens=1,
+            )
+        work["n"] += 1
+        return ModelResponse(
+            content="",
+            tool_calls=[ToolCall(str(work["n"]), "list_dir", {"path": "."})],
+            prompt_tokens=tok,
+            completion_tokens=1,
+        )
+
+    result = _run(complete, _task(tmp_path), max_steps=40, compaction_cap=0)
+    assert result.status == OK
+    # All 5 crossings were offered — unlimited, never suppressed.
+    assert _offers_seen(calls) == 5
+    assert result.capacity_warning is None
 
 
 # ---------------------------------------------------------------------------

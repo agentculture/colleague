@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague import chain
+from colleague import chain, fillline
 from colleague.artifact import artifact_dir, write
 from colleague.chain import (
     CONTINUABLE_REASONS,
@@ -481,6 +481,79 @@ def test_knobs_absent_from_config_snapshot() -> None:
     d = EngineConfig.resolve().to_dict()
     assert "until_done" not in d
     assert "max_episodes" not in d
+
+
+# ---------------------------------------------------------------------------
+# Compaction cap (t334a, issue #334): env > config.json > the fillline
+# default (4), 0 = unlimited — mirrors the max_episodes precedent above.
+# Unlike until_done/max_episodes, compaction_cap DOES appear in to_dict()
+# (the artifact snapshot is meant to surface the effective cap).
+# ---------------------------------------------------------------------------
+
+
+def test_compaction_cap_defaults_to_fillline_constant() -> None:
+    """Unset = the fillline module default (4)."""
+    cfg = EngineConfig.resolve()
+    assert cfg.compaction_cap == fillline.DEFAULT_COMPACTION_CAP
+    assert cfg.compaction_cap == 4
+
+
+def test_env_compaction_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_COMPACTION_CAP", "9")
+    assert EngineConfig.resolve().compaction_cap == 9
+
+
+def test_env_compaction_cap_zero_is_unlimited_and_passes_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_COMPACTION_CAP", "0")
+    assert EngineConfig.resolve().compaction_cap == 0
+
+
+def test_env_compaction_cap_negative_passes_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any non-positive value resolves and passes through (fillline.cap_reached
+    treats every ``cap <= 0`` as unlimited, not just exactly 0)."""
+    monkeypatch.setenv("COLLEAGUE_COMPACTION_CAP", "-3")
+    assert EngineConfig.resolve().compaction_cap == -3
+
+
+def test_env_compaction_cap_garbage_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_COMPACTION_CAP", "many")
+    assert EngineConfig.resolve().compaction_cap == 4
+
+
+def test_convertible_compaction_cap_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CONVERTIBLE_COMPACTION_CAP", "7")
+    assert EngineConfig.resolve().compaction_cap == 7
+
+
+def test_config_file_compaction_cap(tmp_path: Path) -> None:
+    """File-beats-default: an unset env falls through to the config.json value."""
+    _write_config(tmp_path, {"compaction_cap": 3})
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.compaction_cap == 3
+
+
+def test_env_beats_config_file_compaction_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_config(tmp_path, {"compaction_cap": 3})
+    monkeypatch.setenv("COLLEAGUE_COMPACTION_CAP", "8")
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.compaction_cap == 8
+
+
+def test_malformed_config_file_compaction_cap_falls_back(tmp_path: Path) -> None:
+    """A non-numeric config.json value falls back to the default (4), never raises."""
+    _write_config(tmp_path, {"compaction_cap": "not-a-number"})
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.compaction_cap == 4
+
+
+def test_compaction_cap_in_config_snapshot() -> None:
+    """Unlike until_done/max_episodes, compaction_cap DOES appear in to_dict()."""
+    d = EngineConfig.resolve().to_dict()
+    assert d["compaction_cap"] == 4
 
 
 # ---------------------------------------------------------------------------

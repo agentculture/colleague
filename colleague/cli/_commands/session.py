@@ -3021,6 +3021,16 @@ def run_session(
         repo_path=repo,
     )
 
+    # Mode-profile explicit-knob guard (#336): mirrors cmd_work's guard
+    # (work.py:1701-1703). Every session dispatch runs with mode="work"
+    # (_run_work) — its profile's max_steps happens to equal today's built-in
+    # default, so this looked behaviour-neutral, but apply_mode_profile still
+    # refills any knob NOT named on config.explicit_knobs, so an operator
+    # --max-steps was silently clobbered back to the profile default. Marking
+    # it explicit here (once, at session start) keeps every dispatch honest.
+    if getattr(args, "max_steps", None) is not None:
+        config.explicit_knobs = frozenset({"max_steps"})
+
     # Episode chaining (indefinite-run t9): resolve the session's arming ONCE
     # at start — flag > env > config.json, via the SAME _resolve_chain_arming
     # the work front uses (the env/config legs already rode EngineConfig.resolve

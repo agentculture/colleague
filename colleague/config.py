@@ -31,6 +31,7 @@ from typing import Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit
 
 from colleague import configdir
+from colleague.fillline import DEFAULT_COMPACTION_CAP
 
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
@@ -833,29 +834,30 @@ def _resolve_watch_enabled(file_value: str | None) -> bool:
     return _DEFAULT_WATCH_ENABLED
 
 
-def _load_chain_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
-    """Read ``until_done`` / ``max_episodes`` from .colleague/config.json as raw strings.
+def _load_chain_overrides(repo_path: str | Path) -> tuple[str | None, str | None, str | None]:
+    """Read ``until_done`` / ``max_episodes`` / ``compaction_cap`` from
+    .colleague/config.json as raw strings.
 
     Mirrors :func:`_load_lint_overrides` (kept separate from
     :func:`load_config_file`, whose endpoint-string contract must not change):
-    these keys carry a bool / int. Returns ``(until_done, max_episodes)``, each
-    the stringified value or ``None`` when absent. A missing/malformed file
-    yields ``(None, None)`` and never raises.
+    these keys carry a bool / int. Returns ``(until_done, max_episodes,
+    compaction_cap)``, each the stringified value or ``None`` when absent. A
+    missing/malformed file yields ``(None, None, None)`` and never raises.
+    ``compaction_cap`` (#334) rides the same top-level-key convention as
+    ``max_episodes`` — a sibling config knob, not a chain-driver setting, but
+    read here to reuse the one file-parse. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, PR #338 review):
+    a repo-level file that omits one of these keys no longer shadows a
+    user-level default for it.
     """
-    path = configdir.resolve_file(repo_path, _CONFIG_FILENAME)
-    if path is None:
-        return None, None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None
-    if not isinstance(data, dict):
-        return None, None
+    data = _merged_config_json(repo_path)
     until_done = data.get("until_done")
     max_episodes = data.get("max_episodes")
+    compaction_cap = data.get("compaction_cap")
     return (
         None if until_done is None else str(until_done),
         None if max_episodes is None else str(max_episodes),
+        None if compaction_cap is None else str(compaction_cap),
     )
 
 
@@ -1626,6 +1628,16 @@ class EngineConfig:
     # byte-identical (h1).
     until_done: bool = _DEFAULT_UNTIL_DONE
     max_episodes: int = _DEFAULT_MAX_EPISODES
+    # Per-run compaction-turn cap (indefinite-run follow-up, issue #334):
+    # bounds how many fill-line ``compact`` moves a single run may spend
+    # before further compaction offers are suppressed (the anti-thrash floor
+    # documented on :data:`colleague.fillline.DEFAULT_COMPACTION_CAP`).
+    # Default 4, 0 = unlimited (the ``max_episodes`` convention). Precedence:
+    # COLLEAGUE_COMPACTION_CAP env > .colleague/config.json {"compaction_cap":
+    # ...} > the fillline default. Unlike ``max_episodes``/``until_done`` this
+    # DOES appear in :meth:`to_dict` — the artifact snapshot is meant to
+    # surface the effective cap (h4/h7), not stay byte-identical.
+    compaction_cap: int = DEFAULT_COMPACTION_CAP
     # Dual-model deepthink escalation target (t1). ``None`` = single-model,
     # byte-identical to today (the pre-feature default). See
     # :class:`DeepthinkConfig` and :func:`_resolve_deepthink`.
@@ -1731,6 +1743,25 @@ class EngineConfig:
     # above — excluded from eq/repr/to_dict.
     lobes_gateway_url: Optional[str] = field(default=None, compare=False, repr=False)
 
+    # Chain-episode dispatch marker (indefinite-run follow-up, issue #335 /
+    # decision c22): ``True`` exactly when THIS dispatch is one episode of an
+    # armed ``--until-done`` chain (``execute_work`` sets it per-call from the
+    # PRESENCE of its ``chain: ChainEpisodeOptions | None`` parameter — never
+    # from ``config.until_done``, so a plain run with ``until_done=True`` but
+    # no chain dispatch leaves it ``False``). ``chain_prior_changed`` carries
+    # the UNION of every prior episode's ``result.changed_files`` (sorted,
+    # deduped), ``()`` on the chain's first episode / any non-chained run. A
+    # runtime field set imperatively by the CLI layer — the ``role``/
+    # ``memory_root`` precedent — excluded from eq/repr/to_dict. c22 requires
+    # a subagent child NOT inherit the marker even though ``dataclasses.
+    # replace`` would otherwise copy it from the parent config object
+    # ``execute_work`` mutated in place: :func:`colleague.subagents.
+    # run_subagent` resets both fields to their dormant defaults in its
+    # ``replace_kwargs`` (see that module), so every subagent child is
+    # byte-identical to an unchained dispatch regardless of its parent.
+    chain_episode: bool = field(default=False, compare=False, repr=False)
+    chain_prior_changed: tuple[str, ...] = field(default=(), compare=False, repr=False)
+
     @classmethod
     def resolve(
         cls,
@@ -1790,6 +1821,7 @@ class EngineConfig:
         file_at_max_files: str | None = None
         file_until_done: str | None = None
         file_max_episodes: str | None = None
+        file_compaction_cap: str | None = None
         file_deepthink: dict[str, str] = {}
         file_senses: dict[str, str] = {}
         file_voice: dict[str, str] = {}
@@ -1803,7 +1835,9 @@ class EngineConfig:
             file_at, file_at_retries, file_at_depth, file_at_max_files = (
                 _load_affected_tests_overrides(repo_path)
             )
-            file_until_done, file_max_episodes = _load_chain_overrides(repo_path)
+            file_until_done, file_max_episodes, file_compaction_cap = _load_chain_overrides(
+                repo_path
+            )
             file_deepthink = _load_deepthink_overrides(repo_path)
             file_senses = _load_senses_overrides(repo_path)
             file_voice = _load_voice_overrides(repo_path)
@@ -2122,6 +2156,18 @@ class EngineConfig:
                 ),
                 default=_DEFAULT_MAX_EPISODES,
             ),
+            # Per-run compaction-turn cap (issue #334) — env > config.json >
+            # the fillline default (4), 0 = unlimited (the max_episodes
+            # convention above). Malformed input falls back to the default.
+            compaction_cap=_try_int(
+                _pick(
+                    None,
+                    "COLLEAGUE_COMPACTION_CAP",
+                    "CONVERTIBLE_COMPACTION_CAP",
+                    default=_file_or_default(file_compaction_cap, str(DEFAULT_COMPACTION_CAP)),
+                ),
+                default=DEFAULT_COMPACTION_CAP,
+            ),
             # Dual-model deepthink (t1) — env > config.json `deepthink` section >
             # absent (None). base_url/api_key default to the resolved MAIN
             # endpoint values computed above.
@@ -2172,6 +2218,7 @@ class EngineConfig:
             "affected_tests_fix_retries": self.affected_tests_fix_retries,
             "affected_tests_depth": self.affected_tests_depth,
             "affected_tests_max_files": self.affected_tests_max_files,
+            "compaction_cap": self.compaction_cap,
         }
         # Dual-model deepthink (t1): present ONLY when configured, so a
         # single-model snapshot is byte-identical to today (omit-when-None,

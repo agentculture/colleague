@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.48.0] - 2026-07-16
+
+### Added
+
+- COLLEAGUE_COMPACTION_CAP operator knob (#334): env > config.json top-level compaction_cap > default 4 (fillline.DEFAULT_COMPACTION_CAP); 0 or any non-positive = unlimited; visible in colleague config show
+- Chained-run gate deferral (#335): a chain-dispatched episode whose exit is continuation-shaped (budget-exhausted or a declared finish-with-handoff) skips the four pre-finish gates and records one deferral note; the final finish-shaped episode runs all four over the union of the chain's changed files still existing in its worktree; the skip keys on the chain-dispatch marker (never config.until_done) so subagent children of an armed run still run their gates; the continuation predicate is imported from colleague.chain and pinned by an equivalence test
+
+### Fixed
+
+- run_session marks --max-steps in config.explicit_knobs like cmd_work (#336), so the work-mode profile can no longer refill a session-passed --max-steps; the session-chain e2e now proves the flag path instead of the COLLEAGUE_MAX_STEPS env workaround
+
 ## [1.47.0] - 2026-07-15
 
 ### Added

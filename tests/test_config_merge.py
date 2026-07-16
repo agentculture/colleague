@@ -328,3 +328,49 @@ def test_resolve_files_skips_non_file_candidates(tmp_path: Path) -> None:
     home.mkdir()
 
     assert resolve_files(repo, "config.json", user_home=home) == []
+
+
+# ---------------------------------------------------------------------------
+# Chain overrides ride the per-key merge (#334 / PR #338 review).
+# ---------------------------------------------------------------------------
+
+
+def test_repo_config_without_compaction_cap_falls_through_to_user_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo config.json that omits the chain keys must not shadow user-level ones.
+
+    _load_chain_overrides used to read via resolve_file (whole-file shadowing,
+    the same bug _merged_config_json fixed for lobes/senses): a repo-level
+    config.json defining only e.g. ``model`` hid a user-level
+    ``compaction_cap``/``max_episodes``/``until_done`` entirely (PR #338
+    review finding 2).
+    """
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"compaction_cap": 2, "max_episodes": 7})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"model": "some-model"})  # omits every chain key
+
+    from colleague.config import _load_chain_overrides
+
+    until_done, max_episodes, compaction_cap = _load_chain_overrides(repo)
+    assert compaction_cap == "2"
+    assert max_episodes == "7"
+    assert until_done is None
+
+
+def test_repo_chain_keys_still_beat_user_level_ones(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per-key precedence is unchanged: a repo-level key wins over user-level."""
+    home = _arm_home(tmp_path, monkeypatch)
+    _write_config(home, {"compaction_cap": 9})
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _write_config(repo, {"compaction_cap": 3})
+
+    from colleague.config import _load_chain_overrides
+
+    _, _, compaction_cap = _load_chain_overrides(repo)
+    assert compaction_cap == "3"

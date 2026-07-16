@@ -1,0 +1,353 @@
+{
+  "slug": "indefinite-run-follow-ups-wrap-up",
+  "title": "indefinite-run follow-ups wrap-up",
+  "frame_slug": "indefinite-run-follow-ups-wrap-up",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-16T01:16:59Z",
+  "updated": "2026-07-16T01:19:04Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague wraps up the three indefinite-run follow-ups: a session-passed --max-steps survives mode profiles (#336), a chain-armed run defers its pre-finish gates to the final episode instead of re-running them every episode (#335), and the per-run compaction cap is an operator config knob COLLEAGUE_COMPACTION_CAP with 0=unlimited (#334)"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "the PR body carries 'Closes #334 / #335 / #336' and the full suite is green on the branch"
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "run_session (colleague/cli/_commands/session.py ~3017) resolves max_steps from args but never marks config.explicit_knobs; mirror cmd_work's marking (work.py:1701-1703: explicit_knobs = frozenset({'max_steps'}) when args.max_steps is not None) so apply_mode_profile via _moded_config (work.py:484-494, shared by both fronts inside execute_work) never refills a session-passed --max-steps"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "a unit test dispatches a session work item with --max-steps N through a mode-profiled path and asserts the effective config.max_steps == N (fails on main today)"
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "tests/test_session_chain.py:304 works around the bug with monkeypatch.setenv COLLEAGUE_MAX_STEPS=1; once fixed, the e2e should pass --max-steps as the flag it originally wanted, proving the fix end-to-end"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "tests/test_session_chain.py's e2e passes with the --max-steps flag in place of the COLLEAGUE_MAX_STEPS=1 env workaround"
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "add COLLEAGUE_COMPACTION_CAP riding the max_episodes precedent (config.py: _load_chain_overrides reads top-level config.json keys as raw strings at 836-859; resolve leg _try_int(_pick(None, ENV, default=_file_or_default(file_val, str(default)))) at 2116-2124): env > config.json top-level 'compaction_cap' > default 4; 0 = unlimited per the existing convention (fillline.cap_reached already treats cap <= 0 as unlimited)"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "precedence unit tests: COLLEAGUE_COMPACTION_CAP env beats config.json 'compaction_cap' beats the default 4; a malformed value falls back to 4; 0 resolves and is passed through as unlimited"
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "loop.py consumes the knob at its two read sites: _fillline_cap_reached (1250-1255) and _record_fillline_cap (1270) both read fillline.DEFAULT_COMPACTION_CAP at call time today; the docstring already promises 'the knob can wire in without touching this seam' since cap_reached(count, cap) takes the cap as a parameter"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "with cap resolved to 2, the third fill-line crossing in one run is suppressed and the recorded note names the resolved cap (not the constant); with the knob unset behavior is byte-identical to DEFAULT_COMPACTION_CAP=4"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "fillline.py keeps DEFAULT_COMPACTION_CAP = 4 as the module-constant default and cap_reached's signature is untouched; the knob lives in config resolution, not in fillline"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the PR's diff of colleague/fillline.py is empty or comment-only (the knob lives in config resolution + loop consumption)"
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "the new knob appears in 'colleague config show' output (EngineConfig.to_dict ~line 2150 lists sibling numeric knobs like max_steps/context_budget_tokens)"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "'colleague config show' output includes compaction_cap with its resolved value"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "the four pre-finish gates run on EVERY non-aborted loop exit (loop.py:4152-4175: lint #200, coherence #294, test-integrity #203, affected-tests #213), so a chain-armed run pays them per episode though only the final episode hands off; defer them so they run effectively once per chain"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "a chained mock e2e (>=2 episodes) asserts mid-chain episode artifacts carry NO gate reports but DO carry a recorded deferral note, and the final episode's artifact carries the gate reports"
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "unarmed runs (until_done false) are byte-identical: gates run exactly as today; the deferral activates only when chain-armed"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the existing gate test files pass unmodified (unarmed gate behavior byte-identical)"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "docs stay honest: docs/features/capacity-standard.md + indefinite-run.md currently record 'not yet an operator knob' (#334) and 'a recorded follow-up, not built' (#335) \u2014 both statements must flip when the code lands, same-PR (trim discipline / honesty h4)"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "post-change grep of docs/features/ finds no 'not yet an operator knob' (capacity-standard/indefinite-run) and no 'a recorded follow-up, not built' for #335; new statements name the shipped knob + deferral honestly including the halted-chain gap"
+    },
+    {
+      "id": "c13",
+      "kind": "audience",
+      "text": "colleague operators running --until-done chains and interactive sessions, plus this repo's CI (the gates + version-check jobs)"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "the exported spec names both fronts (work + session) per requirement so no front silently forks (the all-fronts session/work symmetry)"
+    },
+    {
+      "id": "c14",
+      "kind": "before_state",
+      "text": "today: a session-passed --max-steps is silently refilled by the mode profile (#336, worked around in tests via COLLEAGUE_MAX_STEPS env); a chain-armed run re-runs all four pre-finish gates on every episode though only the final hands off (#335); tuning the compaction cap requires a code change (#334)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "each before-state fact is reproducible on main: the session refill (test red on main), per-episode gate runs (visible in chained artifacts), the constant cap (grep fillline.py)"
+    },
+    {
+      "id": "c15",
+      "kind": "after_state",
+      "text": "after: run_session marks explicit_knobs like cmd_work so --max-steps survives profiles; a chain-armed run skips gates on continuation-shaped exits and runs them once on the final episode over the chain-cumulative changed set; COLLEAGUE_COMPACTION_CAP (env > config.json 'compaction_cap' > default 4, 0=unlimited) tunes the fill-line compaction cap; all three issues close in one PR"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "each after-state fact maps to a merged requirement claim (c2/c4/c5/c7/c8) whose honesty condition passed"
+    },
+    {
+      "id": "c16",
+      "kind": "why_it_matters",
+      "text": "mid-chain gates burn model turns + wall-clock per episode for advisory reports nobody hands off; a refilled --max-steps makes session budgeting lie to the operator; an untunable cap contradicts the operator-knob convention the same arc established for max_episodes"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the PR description states the per-episode gate cost saved and the operator knobs gained, in one paragraph an operator can verify"
+    },
+    {
+      "id": "c17",
+      "kind": "success_signal",
+      "text": "a 3-episode mock chain runs each pre-finish gate exactly 1 time (final episode only), vs 3 today; 'colleague session --max-steps 1' keeps max_steps == 1 after mode-profile application; COLLEAGUE_COMPACTION_CAP=0 permits > 4 compaction turns in one run and =2 suppresses the 3rd; unarmed single-episode runs byte-identical (full suite green)"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the named counts hold in tests: gate runs 1 vs 3 on a 3-episode chain; max_steps stays 1; cap=0 allows a 5th compaction; cap=2 suppresses the 3rd; full suite green"
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "the gate-skip predicate keys on being a chain-DISPATCHED episode \u2014 threaded from ChainEpisodeOptions (passed ONLY by execute_work_chain) through execute_work into ContextControls (e.g. chain_episode: bool) \u2014 NEVER on config.until_done: subagent children inherit the parent config verbatim (subagents.py dataclasses.replace(parent_config, ...)) and run the same loop, so an until_done-keyed skip would wrongly disable gates inside every subagent of an armed run"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "the new unit test proves a subagent-shaped run (until_done=True, no chain dispatch) still runs gates; grep shows the skip guard reads the ContextControls chain-episode field, not config.until_done"
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "the loop-side continuation-shaped predicate REUSES colleague.chain's classification helpers (or an equivalence unit test pins loop-skip <=> chain-continues) so the skip decision and the chain verdict can never drift apart"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "either the guard imports chain.py's signal helpers or a test enumerates exits {ok-finish, budget, capacity-handoff, timeout, error, empty-turn} asserting skip <=> chain-would-continue"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t336: run_session marks --max-steps in explicit_knobs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a unit test dispatching a session work item with --max-steps N through a mode-profiled path asserts effective config.max_steps == N (red on main)",
+        "tests/test_session_chain.py e2e passes with the --max-steps flag replacing the COLLEAGUE_MAX_STEPS=1 env workaround",
+        "full suite green; no other session behavior changes"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "c3",
+        "h2",
+        "h3"
+      ],
+      "instruction": "in run_session (colleague/cli/_commands/session.py ~3017, right after EngineConfig.resolve): mirror cmd_work (work.py:1701-1703) \u2014 if getattr(args, 'max_steps', None) is not None: config.explicit_knobs = frozenset({'max_steps'}). Then flip tests/test_session_chain.py:304 from monkeypatch.setenv COLLEAGUE_MAX_STEPS to passing the flag. TDD: write the red unit test first."
+    },
+    {
+      "id": "t2",
+      "summary": "t334a: COLLEAGUE_COMPACTION_CAP config resolution",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "EngineConfig gains compaction_cap resolving env COLLEAGUE_COMPACTION_CAP > config.json top-level 'compaction_cap' > default fillline.DEFAULT_COMPACTION_CAP (4); malformed falls back to 4; 0 (and any non-positive) resolves and passes through",
+        "'colleague config show' / to_dict includes compaction_cap",
+        "precedence unit tests cover env-beats-file, file-beats-default, malformed-falls-back"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "c7",
+        "h4",
+        "h7"
+      ],
+      "instruction": "follow the max_episodes precedent exactly (config.py: extend _load_chain_overrides to also return 'compaction_cap' as a raw string (836-859); add the resolve leg via _try_int(_pick(None, 'COLLEAGUE_COMPACTION_CAP', 'CONVERTIBLE_COMPACTION_CAP', default=_file_or_default(...))) near 2116; add the field near max_episodes; add to to_dict ~2150). Import DEFAULT_COMPACTION_CAP from colleague.fillline for the default (fillline imports nothing from config \u2014 no cycle); do NOT touch fillline.py."
+    },
+    {
+      "id": "t3",
+      "summary": "t334b: loop consumes the resolved compaction cap",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with cap resolved to 2, the third fill-line crossing in one run is suppressed and the recorded note names 2 (not the constant)",
+        "with cap 0, a 5th compaction turn is permitted (unlimited)",
+        "with the knob unset, behavior is byte-identical to today (existing fillline/loop tests pass unmodified)",
+        "the PR diff of colleague/fillline.py is empty or comment-only"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c5",
+        "c6",
+        "h5",
+        "h6"
+      ],
+      "instruction": "thread the resolved cap into the loop like sibling knobs: _fillline_cap_reached (loop.py ~1250) and _record_fillline_cap (~1270) read the resolved value (via ContextControls or ctx config \u2014 follow how the fill-line threshold/budget already travel) instead of _fillline.DEFAULT_COMPACTION_CAP. cap_reached already treats cap<=0 as unlimited \u2014 do not reimplement."
+    },
+    {
+      "id": "t4",
+      "summary": "t-docs: flip the honest gaps in docs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "post-change grep of docs/features/ finds no 'not yet an operator knob' (capacity-standard.md/indefinite-run.md) and no 'a recorded follow-up, not built' for #335",
+        "new statements name COLLEAGUE_COMPACTION_CAP (env > config.json > default 4, 0=unlimited) and the gate deferral incl. the halted-chain gap (skipped gates on halted chains stay skipped, recorded) and the subagent non-leak (until_done alone never skips)",
+        "markdownlint-cli2 clean on the touched docs"
+      ],
+      "deps": [
+        "t3",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c12",
+        "h11",
+        "c14",
+        "h13"
+      ],
+      "instruction": "docs/features/indefinite-run.md lines ~149/178/188 + capacity-standard.md ~38/64; also session.md only if it names max-steps/profile interplay. Keep trim discipline: state what shipped + honest limits, no history prose."
+    },
+    {
+      "id": "t5",
+      "summary": "t335a: chain-episode plumbing (chain_episode + prior_changed)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ChainEpisodeOptions gains prior_changed (cumulative changed files from prior episodes); execute_work_chain accumulates per-episode result.changed_files and passes the union to the next episode",
+        "execute_work threads a chain-episode marker + prior_changed into ContextControls; the marker is set ONLY when ChainEpisodeOptions is present \u2014 a run with config.until_done=True but no chain dispatch does NOT set it",
+        "unarmed/non-chained dispatches are byte-identical (chain=None path untouched; existing tests pass unmodified)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c22",
+        "h17"
+      ],
+      "instruction": "work.py: extend ChainEpisodeOptions (frozen dataclass ~576) with prior_changed: tuple[str, ...] = (); in execute_work_chain's loop accumulate a set from each result.changed_files and pass it; thread into the loop's ContextControls (loop.py ~630, the chain_armed precedent at 2699 \u2014 but keyed on the chain option's PRESENCE, never config.until_done, per c22: subagent children inherit until_done via dataclasses.replace). Keep S107 bundles intact."
+    },
+    {
+      "id": "t6",
+      "summary": "t335b: gate-skip guard + final-episode union gate set",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a unit test on the gate guard asserts skip fires exactly on (chain-episode AND (outcome == budget-exhausted OR capacity_decision.kind == finish-with-handoff)) and never otherwise \u2014 incl. a subagent-shaped run (until_done=True, no chain dispatch) which still runs gates on a budget exit",
+        "an equivalence test (or reuse of chain.py helpers) pins loop-skip <=> chain-would-continue across exits {ok-finish, budget, capacity-handoff, timeout, error}",
+        "mid-chain skip records ONE deferral note on the episode artifact; a chained mock e2e (>=2 episodes) asserts mid-episode artifacts carry NO lint/coherence/test-integrity/affected-tests reports but DO carry the note, and the final episode's artifact carries the reports",
+        "on the final (finish-shaped) episode the four gates operate over union(this episode's changed, prior_changed) filtered to files existing in the worktree",
+        "existing gate test files pass unmodified"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c8",
+        "h8",
+        "c10",
+        "h10",
+        "c23",
+        "h18"
+      ],
+      "instruction": "loop.py exit path (~4152-4175): guard the four _maybe_run_*_gate calls behind the skip predicate; derive continuation-shape from chain.py's signals (declared_capacity_handoff + the budget outcome) \u2014 import or mirror-with-equivalence-test. Widen the gate changed-set at the call sites via a helper unioning ctx.executor.changed with the threaded prior_changed, filtered to existing paths. The lint fix-turn / test-integrity re-examine stay untouched on the final episode (they need the live loop \u2014 the post-hoc shape was rejected: fix-turn loss + final-episode-only changed set). Record the skip via the _record_fillline_cap precedent (capacity_warning + phase notice), ONCE per episode."
+    },
+    {
+      "id": "t7",
+      "summary": "t-wrap: version bump, chained-count proof, PR",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "version bumped once (minor) with CHANGELOG entry naming all three issues; version-check CI passes",
+        "the success-signal counts hold in tests: gate runs 1x vs 3x on a 3-episode chain, session max_steps stays 1, cap=0 allows a 5th compaction, cap=2 suppresses the 3rd \u2014 test names cited in the PR body",
+        "PR body carries 'Closes #334', 'Closes #335', 'Closes #336' + one operator-verifiable paragraph on gate cost saved and knobs gained (both fronts named)"
+      ],
+      "deps": [
+        "t1",
+        "t4",
+        "t6"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c13",
+        "h12",
+        "c15",
+        "h14",
+        "c16",
+        "h15",
+        "c17",
+        "h16"
+      ],
+      "instruction": "use the version-bump skill then the cicd skill; the PR paragraph is h15's contract; cite the colleague second-opinion divergence honestly (post-hoc shape rejected; artifact 167b06e844d1 graded 4/5); note the parked v1 pre-existing fill-line until_done leak as a filed follow-up issue"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "the union changed-set on the final episode can name files a later episode deleted; the filter-to-existing rule covers it, but a RENAMED file's old path silently drops out of gating \u2014 advisory-only exposure, accepted",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "loop.py is one large file: t3 (fillline reads ~1250-1270), t5 (ContextControls ~630), t6 (gate block ~4150) touch disjoint regions but the same file \u2014 waves must serialize loop.py tasks to avoid merge friction (t3 -> t5 -> t6 ordering via deps)",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
