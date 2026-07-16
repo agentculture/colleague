@@ -495,7 +495,7 @@ def test_chain_handoff_finalize_pushes_final_branch_with_explicit_head(
 
     calls: list[dict] = []
 
-    def fake_pr(repo_arg, base_branch, title, head=None):
+    def fake_pr(repo_arg, base_branch, title, head=None, body=None):
         calls.append({"base": base_branch, "title": title, "head": head})
         return "https://example.test/pr/9"
 
@@ -529,6 +529,77 @@ def test_chain_handoff_finalize_respects_no_pr(tmp_path: Path, monkeypatch) -> N
     monkeypatch.setattr(ho, "gh_available", lambda: True)
 
     result = ho.chain_handoff_finalize(repo, "final3", "colleague/final3", open_pr=False)
+    assert result.pushed is False
+    assert result.pr_url is None
+    assert "local branches only" in result.note
+
+
+def test_gh_pr_create_body_replaces_fill(monkeypatch) -> None:
+    """--fill and --body are mutually exclusive: an explicit body (#340's
+    gate-deferral warning) replaces the commit-derived fill; no body keeps the
+    argv byte-identical to today. Never gh pr edit."""
+    captured: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = "https://example.test/pr/1\n"
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        captured.append(list(argv))
+        return _Proc()
+
+    monkeypatch.setattr(ho.subprocess, "run", fake_run)
+
+    ho._gh_pr_create(Path("."), "main", "title", head="colleague/x")
+    assert captured[0] == [
+        "gh", "pr", "create", "--fill", "--base", "main",
+        "--title", "title", "--head", "colleague/x",
+    ]
+
+    ho._gh_pr_create(Path("."), "main", "title", head="colleague/x", body="gates deferred")
+    assert "--fill" not in captured[1]
+    body_at = captured[1].index("--body")
+    assert captured[1][body_at + 1] == "gates deferred"
+    assert "edit" not in captured[1]
+
+
+def test_chain_handoff_finalize_threads_body_to_pr(tmp_path: Path, monkeypatch) -> None:
+    """The finalize passes an explicit PR body through to _gh_pr_create (#340 b3)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    bare = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True, capture_output=True)
+    _run(repo, "remote", "add", "origin", str(bare))
+    _make_branch_with_commit(repo, "colleague/final9", "work.txt")
+
+    calls: list[dict] = []
+
+    def fake_pr(repo_arg, base_branch, title, head=None, body=None):
+        calls.append({"head": head, "body": body})
+        return "https://example.test/pr/10"
+
+    monkeypatch.setattr(ho, "gh_available", lambda: True)
+    monkeypatch.setattr(ho, "_gh_pr_create", fake_pr)
+
+    warning = "warning: handoff fired with pre-finish gates deferred on the final episode"
+    result = ho.chain_handoff_finalize(
+        repo, "final9", "colleague/final9", instruction="chain work", body=warning
+    )
+    assert result.pr_url == "https://example.test/pr/10"
+    assert calls == [{"head": "colleague/final9", "body": warning}]
+
+    # No body → None threads through (the --fill path stays the default).
+    ho.chain_handoff_finalize(repo, "final9", "colleague/final9", instruction="chain work")
+    assert calls[1]["body"] is None
+
+
+def test_chain_handoff_finalize_body_offline_degrades(tmp_path: Path) -> None:
+    """A warning body never breaks the offline/no-remote degrade (h18)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _make_branch_with_commit(repo, "colleague/final10", "work.txt")
+    result = ho.chain_handoff_finalize(repo, "final10", "colleague/final10", body="warn")
     assert result.pushed is False
     assert result.pr_url is None
     assert "local branches only" in result.note

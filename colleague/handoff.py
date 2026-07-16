@@ -520,6 +520,7 @@ def chain_handoff_finalize(
     instruction: str = "",
     open_pr: bool = True,
     base_branch: str = "main",
+    body: str | None = None,
 ) -> HandoffResult:
     """The chain's ONE handoff, at chain end (indefinite-run c26).
 
@@ -535,6 +536,11 @@ def chain_handoff_finalize(
     did) and never switches branches: the push names the branch by refspec and
     ``gh pr create`` gets an explicit ``--head``, so the operator's checkout is
     untouched. Push/PR failures degrade to the local-only outcome, never raise.
+
+    ``body`` (#340 b3): optional explicit PR body — the gate-deferral warning
+    the human reviewer at gate 3 must see; ``None`` keeps today's ``--fill``
+    body. Threaded verbatim to :func:`_gh_pr_create`; every degrade path
+    behaves identically with or without it.
     """
     repo = Path(repo_path).resolve()
     result = HandoffResult(branch=branch, committed=True)
@@ -545,7 +551,7 @@ def chain_handoff_finalize(
     try:
         _git(repo, "push", "-u", "origin", branch)
         result.pushed = True
-        result.pr_url = _gh_pr_create(repo, base_branch, subject, head=branch)
+        result.pr_url = _gh_pr_create(repo, base_branch, subject, head=branch, body=body)
         result.note = "chain final: pushed and opened PR"
     except HandoffError as exc:
         if result.pushed:
@@ -624,15 +630,32 @@ def _with_ignored(note: str, ignored: list[str], pollution: list[str] | None = N
     return note
 
 
-def _gh_pr_create(repo: Path, base_branch: str, title: str, head: str | None = None) -> str | None:
+def _gh_pr_create(
+    repo: Path,
+    base_branch: str,
+    title: str,
+    head: str | None = None,
+    body: str | None = None,
+) -> str | None:
     """Open the PR via ``gh pr create``; ``head`` names the source branch explicitly.
 
     Without ``head`` the head branch is inferred from the checkout (the
     per-work-item :func:`handoff` path, which runs while checked out on the
     work branch). The chain's final handoff (:func:`chain_handoff_finalize`)
     runs from the operator's own ref, so it must pass ``head`` explicitly.
+
+    ``body`` (#340 b3): an explicit PR body — the chain's gate-deferral
+    warning. ``--fill`` and ``--body`` are mutually exclusive, so a body
+    REPLACES the commit-derived fill; ``None`` keeps the argv byte-identical
+    to today. Deliberately never ``gh pr edit`` (no-ops on Projects-classic
+    repos — recorded gotcha).
     """
-    argv = ["gh", "pr", "create", "--fill", "--base", base_branch, "--title", title]
+    argv = ["gh", "pr", "create"]
+    if body is None:
+        argv.append("--fill")
+    argv += ["--base", base_branch, "--title", title]
+    if body is not None:
+        argv += ["--body", body]
     if head:
         argv += ["--head", head]
     proc = subprocess.run(  # nosec B603 B607 - fixed 'gh' argv, no shell
