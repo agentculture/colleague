@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.49.0] - 2026-07-16
+
+### Added
+
+- Gate dropped-path note (#342): the chained union gate set records once per run every prior-episode path its existence filter removed ("N prior-episode path(s) no longer exist and were not graded"), on capacity_warning + a phase notice; nothing-dropped runs byte-identical
+- Structured gate-deferral marker (#341): TaskResult.gates_deferred (omit-when-False) + ChainView.deferred_gate_episodes (accumulated deferring episode ids, omit-when-empty, degrade-to-empty from_dict) — consumers never string-match capacity_warning
+- Halted-chain deferral surfacing (#341): the chain outcome line names the deferring episodes and their kept ungated WIP branches; a continue-regate test pins work --continue as the documented remedy (the finishing episode gates over the inherited union)
+- Completed-chain deferral detection (#340 option B): the one completing shape that skips final gates (ok-finish + declared fill-line handoff) warns on the outcome line and carries the warning in the handoff PR body (composed --body; the no-warning path keeps gh pr create --fill byte-identical; never gh pr edit)
+- Follow-ups filed: #343 (gate-time git-status sweep, decision 2a+file-2b on #342 part 2) and #344 (render deferred_gate_episodes in cockpit/tui)
+
+### Changed
+
+- All eight config.json override loaders read via the at-home per-key merge (#339): lint, testintegrity, watch, coherence, memory, affected-tests, presence (config.py) and icons (icons.py) — a repo file omitting a key no longer hides the user-level default; one regression test per loader
+- Docs record the gate scope decision (#342, 2a): pre-finish gates grade model-authored edits (write_file/edit_file + subagent merges); run_command mutations are the approval-gate domain (lint-gate.md, work-and-loop.md)
+
+### Fixed
+
+- until_done no longer leaks into subagent children via config inheritance (#337): run_subagent resets it alongside the c22 chain-marker resets, so children of an armed run no longer arm the fill-line chain consumers
+
 ## [1.48.0] - 2026-07-16
 
 ### Added
