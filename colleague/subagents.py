@@ -335,11 +335,17 @@ def run_subagent(
     # armed ``--until-done`` chain, so a naive ``dataclasses.replace`` would
     # otherwise copy ``True``/the accumulated tuple onto every subagent child —
     # a child is never itself a chain episode, so it must never see the marker.
+    # ``until_done`` is reset for the same reason (#337): the loop keys
+    # ``ContextControls.chain_armed`` on it, so an inherited flag would arm the
+    # fill-line chain consumers (budget-exhausted handoff instruction, the
+    # unrepairable-compaction finish-with-handoff route) inside a child nobody
+    # chains.
     replace_kwargs: dict = {
         "model": (model or parent_config.model),
         "role": role,
         "chain_episode": False,
         "chain_prior_changed": (),
+        "until_done": False,
     }
     if spec.max_steps is not None:
         replace_kwargs["max_steps"] = spec.max_steps

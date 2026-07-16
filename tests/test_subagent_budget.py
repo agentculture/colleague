@@ -116,6 +116,30 @@ def test_chain_episode_marker_never_inherited_by_subagent_child(tmp_path, patch_
     assert parent_config.chain_prior_changed == ("episode-1.txt", "episode-2.txt")
 
 
+def test_until_done_never_inherited_by_subagent_child(tmp_path, patch_engine):
+    """#337: config inheritance copied ``until_done`` into subagent children,
+    arming the fill-line chain consumers (``ContextControls.chain_armed`` keys
+    on ``config.until_done``) inside children nobody chains — the
+    budget-exhausted handoff instruction and the unrepairable-compaction route.
+    ``run_subagent`` resets it alongside the c22 chain-marker resets; the armed
+    parent object stays untouched for its own next episode."""
+    recorder: list = []
+    patch_engine(_SpawningEngine(recorder))
+    parent_config = EngineConfig(until_done=True)
+
+    spawn = make_spawn(str(tmp_path), parent_config, "mock")
+    spawn("child task")
+
+    assert recorder[0].until_done is False
+    # Loop-level proof: the controls every backend builds from the child config
+    # stay unarmed, so a child _reject_compaction keeps the lossy-windowing
+    # floor instead of the finish-with-handoff route.
+    from colleague.loop import ContextControls
+
+    assert ContextControls.from_config(recorder[0]).chain_armed is False
+    assert parent_config.until_done is True
+
+
 def test_linear_nesting_bounded_by_depth_cap(tmp_path, patch_engine):
     # fanout=1 → a linear chain; the child's spawn is bound to depth+1, so the
     # depth cap stops the chain at exactly MAX_SUBAGENT_DEPTH levels (no budget).
