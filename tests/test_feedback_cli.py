@@ -250,3 +250,64 @@ def test_feedback_list_shows_drives_with_grade(
     rows = json.loads(capsys.readouterr().out)
     assert len(rows) == 1
     assert rows[0]["request"] == "build the thing" and rows[0]["rating"] == 3
+
+
+def test_record_chain_tail_grades_every_episode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One record call on a chain tail stamps every episode (indefinite-run c30)."""
+    adir = tmp_path / ".colleague"
+    adir.mkdir()
+    base = {"status": "incomplete", "summary": "s", "changed_files": [], "steps": [], "usage": {}}
+    (adir / "e1.json").write_text(json.dumps({**base, "task_id": "e1"}), encoding="utf-8")
+    (adir / "e2.json").write_text(
+        json.dumps({**base, "task_id": "e2", "continued_from": "e1"}), encoding="utf-8"
+    )
+    (adir / "e3.json").write_text(
+        json.dumps({**base, "task_id": "e3", "continued_from": "e2"}), encoding="utf-8"
+    )
+    rc = main(
+        [
+            "feedback",
+            "record",
+            "e3",
+            "--rating",
+            "5",
+            "--by",
+            "ori",
+            "--repo",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert rec["chain_episodes"] == ["e3", "e2", "e1"]
+    for tid in ("e1", "e2", "e3"):
+        rc = main(["feedback", "show", tid, "--repo", str(tmp_path), "--json"])
+        assert rc == 0
+        shown = json.loads(capsys.readouterr().out)
+        assert shown["rating"] == 5 and shown["chain"] is True
+
+
+def test_record_ordinary_item_keeps_single_record_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A lineage-less grade keeps today's persisted shape — no chain key at all."""
+    rc = main(
+        [
+            "feedback",
+            "record",
+            "d9",
+            "--rating",
+            "3",
+            "--by",
+            "ori",
+            "--repo",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert "chain" not in rec and "chain_episodes" not in rec

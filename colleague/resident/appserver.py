@@ -1124,7 +1124,7 @@ class AppserverHarness:
         ``execute_work``'s ``progress_sink`` seam, so cadence-gated proactive
         updates fire reply-to-origin at the SAME progress boundaries the cockpit
         uses — no new thread, no loop.py change."""
-        from colleague.cli._commands.work import execute_work
+        from colleague.cli._commands.work import DisplayOptions, execute_work
 
         return execute_work(
             repo=Path(self._repo_path),
@@ -1135,7 +1135,7 @@ class AppserverHarness:
             config=config,
             allow_dirty=self._allow_dirty,
             isolate=True,
-            progress_sink=presence_sink,
+            display=DisplayOptions(sink=presence_sink),
         )
 
     def replies(self) -> AsyncIterator[Message]:

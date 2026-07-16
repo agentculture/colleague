@@ -44,7 +44,7 @@ class _RecordingWork:
         command_name: str | None = None,
         tui: bool | None = None,
         tui_events: str | None = None,
-        progress_sink: object = None,
+        display: object = None,
         mode: str | None = None,
     ) -> tuple[TaskResult, Path]:
         self.calls.append(

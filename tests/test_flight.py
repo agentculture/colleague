@@ -209,3 +209,100 @@ def test_reap_orphans_dry_run_lists_without_deleting(tmp_path):
     would = flight.reap_orphans(tmp_path, dry_run=True)
     assert flight.feed_path(tmp_path, "d") in would
     assert flight.feed_path(tmp_path, "d").exists()  # not deleted in dry-run
+
+
+# --- t6: episode-transition marker + between-episode stop read ---------------
+# (indefinite-run t6: chain continuity + episode-transition observability)
+
+
+def test_transition_announcement_exact_form():
+    txt = flight.transition_announcement("abc123", 2, 5)
+    assert txt == "episode 2 of 5: continuing abc123"
+
+
+def test_transition_announcement_unlimited_cap():
+    # cap 0 (and any non-positive cap) reads "unlimited" — the c21 convention.
+    assert flight.transition_announcement("abc123", 4, 0) == (
+        "episode 4 of unlimited: continuing abc123"
+    )
+    assert flight.transition_announcement("abc123", 4, -1) == (
+        "episode 4 of unlimited: continuing abc123"
+    )
+
+
+def test_append_episode_transition_marker_shape(tmp_path):
+    flight.append_episode_transition(
+        tmp_path, "prior-id", next_task_id="next-id", episode_index=2, cap=5
+    )
+    lines = flight.feed_path(tmp_path, "prior-id").read_text().splitlines()
+    records = [json.loads(line) for line in lines if line.strip()]
+    assert len(records) == 1
+    marker = records[0]
+    assert marker["type"] == "episode-transition"
+    assert marker["next_task_id"] == "next-id"
+    assert marker["episode_index"] == 2
+    assert marker["cap"] == 5
+    # The common marker keys (the #308 convention) so an existing feed reader
+    # (`colleague talk` grounding, `flight status`) never KeyErrors on it.
+    assert marker["step_index"] == 0
+    assert marker["tool"] is None
+    assert marker["stats"] == {}
+    assert "at" in marker
+    # The intent IS the pilot-facing announcement — hop-by-hop followable.
+    assert marker["intent"] == "episode 2 of 5: continuing prior-id"
+
+
+def test_append_episode_transition_recreates_a_reaped_feed(tmp_path):
+    # The loop reaps an episode's feed at finish; the boundary marker append
+    # must recreate it best-effort so a pilot can still find the next hop.
+    sess = flight.arm(tmp_path, "t-prior")
+    sess.reap()
+    assert not flight.feed_path(tmp_path, "t-prior").exists()
+    flight.append_episode_transition(tmp_path, "t-prior", next_task_id="n1", episode_index=2, cap=0)
+    records = [
+        json.loads(line) for line in flight.feed_path(tmp_path, "t-prior").read_text().splitlines()
+    ]
+    assert records[0]["next_task_id"] == "n1"
+    assert records[0]["cap"] == 0
+
+
+def test_append_episode_transition_unwritable_dir_never_raises(tmp_path):
+    import os
+
+    fd = flight.flight_dir(tmp_path)
+    fd.mkdir(parents=True)
+    os.chmod(fd, 0o500)  # read+exec only: the append cannot create the feed file
+    try:
+        # Best-effort: an unwritable flight dir must never crash the chain.
+        flight.append_episode_transition(
+            tmp_path, "prior", next_task_id="next", episode_index=2, cap=5
+        )
+    finally:
+        os.chmod(fd, 0o700)
+    assert not flight.feed_path(tmp_path, "prior").exists()
+
+
+def test_read_stop_absent_and_malformed_are_false(tmp_path):
+    # absent control file (and even an absent flight dir) reads as no-stop
+    assert flight.read_stop(tmp_path, "t-x") is False
+    flight.arm(tmp_path, "t-x")
+    assert flight.read_stop(tmp_path, "t-x") is False
+    flight.control_path(tmp_path, "t-x").write_text("{not json")
+    assert flight.read_stop(tmp_path, "t-x") is False
+
+
+def test_read_stop_true_after_write_stop(tmp_path):
+    flight.write_stop(tmp_path, "t-y")
+    assert flight.read_stop(tmp_path, "t-y") is True
+
+
+def test_read_stop_is_a_pure_peek_never_consumes_guidance(tmp_path):
+    # read_stop must not advance any guidance cursor — a later FlightSession
+    # reader still sees every guidance message.
+    flight.append_guidance(tmp_path, "t-z", "g1")
+    flight.write_stop(tmp_path, "t-z")
+    assert flight.read_stop(tmp_path, "t-z") is True
+    sess = flight.FlightSession(repo_path=tmp_path, task_id="t-z")
+    control = sess.read_control()
+    assert control.stop is True
+    assert control.guidance == ["g1"]

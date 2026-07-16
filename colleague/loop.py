@@ -625,15 +625,31 @@ class _Work:
     # ``context_budget`` at which the runtime offers the one capacity decision; armed
     # only when degradation is active and the threshold is in ``(0, 1]``.
     # ``_fillline_offered`` / ``_fillline_resolved`` are single-element mutable cells
-    # (the ``_split_recommended`` pattern) so the decision is offered + recorded at
-    # most once per work item through the frozen binding.
+    # (the ``_split_recommended`` pattern) holding PER-CROSSING state (indefinite-run
+    # t1, superseding v1's at-most-once-per-work-item): the decision is offered +
+    # recorded once per crossing, and ``_maybe_offer_fillline`` clears the cells once
+    # the declaration is consumed AND the run drops back under the line, re-arming
+    # the next crossing.
     capacity_threshold: float | None = None
+    # Continuation chaining armed (indefinite-run t2, decision c23), threaded from
+    # ``ContextControls.chain_armed``: read ONLY by the unrepairable-compaction-note
+    # policy (:func:`_reject_compaction`) — armed routes an empty compaction note to
+    # FINISH-WITH-HANDOFF; unarmed (the default) keeps the lossy-windowing floor.
+    chain_armed: bool = False
     _fillline_offered: list[bool] = field(default_factory=list)
     _fillline_resolved: list[bool] = field(default_factory=list)
     # The prompt-token count that tripped the fill line — captured when the decision
     # is OFFERED so the recorded reason matches the number named in the prompt (not
-    # the slightly different count of the declaring turn).
+    # the slightly different count of the declaring turn). Cleared with the re-arm so
+    # each crossing's decision records its own numbers.
     _fillline_used: list[int] = field(default_factory=list)
+    # Per-run compaction cap (indefinite-run t1): ``_fillline_compactions`` is a
+    # counted cell ([n], the ``_unknown_tool_streak`` pattern) tallying compaction
+    # turns; at ``fillline.DEFAULT_COMPACTION_CAP`` further offers are suppressed
+    # (anti-thrash — lossy windowing remains the floor). ``_fillline_capped`` marks
+    # the suppression recorded once on the trace (never re-noted per crossing).
+    _fillline_compactions: list[int] = field(default_factory=list)
+    _fillline_capped: list[bool] = field(default_factory=list)
     # Mapping fan-out advisory (#188): ``mapping_fanout_files`` is the files-read count
     # at which the runtime injects ONE advisory recommendation to fan a wide read-only
     # survey out across folders via the ``subagents`` tool (instead of grinding serially
@@ -1110,7 +1126,9 @@ def _offer_fillline(ctx: _Work, prompt_tokens: int) -> None:
 
     Names the three moves + the capacity numbers (reusing the autosplit child-count
     maths for the split option) and points the model at how to declare each by its
-    next action. Offered at most once per work item via ``_fillline_offered``.
+    next action. Offered at most once per CROSSING via ``_fillline_offered``
+    (re-armed by :func:`_maybe_offer_fillline` once a resolved crossing drops back
+    under the line — indefinite-run t1).
     """
     budget = int(ctx.context_budget)
     target = ctx.autosplit_target if isinstance(ctx.autosplit_target, int) else budget
@@ -1131,7 +1149,10 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
 
     The reason names the offer-time token count (``_fillline_used``) so it matches the
     number stated in the decision prompt, not the declaring turn's slightly different
-    prompt size.
+    prompt size. With the per-crossing re-arm (indefinite-run t1) a run can declare
+    more than once; the singular contract field keeps the LATEST declaration (the
+    contract shape is unchanged here — earlier moves stay visible as their effects:
+    compaction notes in the history, subagent results, usage).
     """
     budget = int(ctx.context_budget)
     used = ctx._fillline_used[0] if ctx._fillline_used else 0
@@ -1141,14 +1162,25 @@ def _record_fillline_decision(ctx: _Work, kind: str) -> None:
 
 
 def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
-    """Compact the working history into a model-authored summary (compact branch, #156).
+    """Compact the working history into a validated model-authored summary (#156, t2/c4).
 
-    Runs ONE bounded summarization turn over the windowed history and replaces the
-    working history (after the preserved head ``messages[:2]``) with the summary, so
+    Runs ONE bounded summarization turn over the windowed history, cross-checks the
+    note against the run's own evidence (goal/original request + changed-file paths —
+    :func:`fillline.validate_compaction`, pure and deterministic: the MAIN model's
+    summary only, no second-model call, non-goal c12), and replaces the working
+    history (after the preserved head ``messages[:2]``) with the validated note, so
     the model continues from a compact note instead of losing older context silently.
     The summary turn is accounted like any other turn (counts against the step
-    budget). If it raises a *degradable* error (the summary itself cannot fit), the
-    loop falls back to today's lossy windowing — the documented floor.
+    budget).
+
+    Two floors, never an abort:
+
+    - a *degradable* completion error (the summary turn itself cannot fit / timed
+      out) → today's lossy windowing, unchanged;
+    - an UNREPAIRABLE note (empty/whitespace, rejected by the validator — it never
+      replaces history; the old ``(no summary produced)`` silent-amnesia placeholder
+      is gone from this path, h4) → :func:`_reject_compaction` (armed:
+      finish-with-handoff, decision c23; unarmed: the lossy-windowing floor).
     """
     budget = int(ctx.context_budget)
     request = _fillline.build_compaction_request(ctx.messages, budget, ctx.count_tokens)
@@ -1165,28 +1197,119 @@ def _compact_history(ctx: _Work, complete: CompleteFn) -> None:
             return
         raise
     _account_turn(ctx, resp)
-    ctx.messages[:] = _fillline.apply_compaction(ctx.messages, resp.content)
+    # Validate against the run's own evidence (t2, c4). Changed-file paths come from
+    # the live ``executor.changed`` set — the same set the end-of-run
+    # ``result.changed_files`` snapshot is taken from (mid-run the snapshot is still
+    # empty, so the populated field is honoured first, then the live set).
+    changed = ctx.result.changed_files or sorted(ctx.executor.changed)
+    text, ok = _fillline.validate_compaction(
+        resp.content, ctx.task.goal or ctx.task.instruction, changed
+    )
+    if not ok:
+        _reject_compaction(ctx, budget)
+        return
+    ctx.messages[:] = _fillline.apply_compaction(ctx.messages, text)
     # auto-compact-on-finish (t3): preserve the compaction summary on its own cell so
     # it survives later turns and can serve as the FALLBACK clean summary at a
     # stop/budget exit when forced synthesis yields nothing (_resolve_terminal_summary).
+    # The RAW model text, not the repaired note: the evidence block protects the
+    # continuation context; the terminal-summary fallback stays byte-identical.
     if resp.content:
         ctx._compacted_summary[:] = [resp.content]
 
 
-def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
-    """Offer the fill-line decision once, when the last turn's context crossed it (#156).
+def _reject_compaction(ctx: _Work, budget: int) -> None:
+    """Handle an UNREPAIRABLE (empty) compaction note — it never replaces history (c4/h4).
 
-    A strict no-op when dormant (not armed), already offered, or still under the
-    threshold — so a work item that never fills its context is byte-identical to today.
+    Armed (``chain_armed`` — continuation chaining, decision c23): inject the
+    deterministic FINISH-WITH-HANDOFF instruction as ONE user message, so the model
+    finishes with a continuation summary the next episode resumes from (the per-turn
+    windowing still bounds the next completion). Unarmed: keep today's
+    lossy-windowing floor, exactly like the degradable-error fallback. Either way the
+    rejection is announced as a phase notice (#206) — observable on the feeds, never
+    silent, and a phase notice never advances ``step_count``.
     """
-    if (
-        _fillline_armed(ctx)
-        and not ctx._fillline_offered
-        and _fillline.crossed(
-            last_prompt_tokens, int(ctx.context_budget), float(ctx.capacity_threshold)
-        )
-    ):
-        _offer_fillline(ctx, last_prompt_tokens)
+    move = (
+        "taking finish-with-handoff (chaining armed)"
+        if ctx.chain_armed
+        else "lossy windowing remains the floor"
+    )
+    _emit_phase(
+        ctx,
+        f"compaction produced an empty summary — rejected (history not replaced); {move}",
+    )
+    if ctx.chain_armed:
+        ctx.messages.append({"role": "user", "content": _fillline.build_handoff_instruction()})
+        return
+    _window_in_place(ctx, budget)
+
+
+def _fillline_cap_reached(ctx: _Work) -> bool:
+    """True when this run's compaction turns exhausted the per-run cap (t1).
+
+    Reads ``fillline.DEFAULT_COMPACTION_CAP`` at call time — a module constant for
+    now (the operator-tunable config knob is t3's; ``cap_reached`` already treats
+    ``cap <= 0`` as unlimited so the knob can wire in without touching this seam).
+    """
+    count = ctx._fillline_compactions[0] if ctx._fillline_compactions else 0
+    return _fillline.cap_reached(count, _fillline.DEFAULT_COMPACTION_CAP)
+
+
+def _record_fillline_cap(ctx: _Work) -> None:
+    """Record ONCE that the compaction cap suppressed further fill-line offers (t1).
+
+    Follows the backpressure-advisory precedent (:func:`_record_turn_latency`):
+    append the note to ``result.capacity_warning`` (the artifact) and fire a phase
+    notice (the stderr/cockpit/flight feeds), so the suppression is observable on
+    the trace rather than silent. Lossy windowing remains the floor for the rest of
+    the run. ``_fillline_capped`` guards the once — later capped crossings no-op.
+    """
+    if ctx._fillline_capped:
+        return
+    ctx._fillline_capped[:] = [True]
+    cap = _fillline.DEFAULT_COMPACTION_CAP
+    note = (
+        f"fill-line compaction cap reached ({cap} compaction turns this run) — "
+        "no further capacity offers; lossy windowing remains the floor"
+    )
+    existing = ctx.result.capacity_warning
+    ctx.result.capacity_warning = f"{existing}; {note}" if existing else note
+    _emit_phase(ctx, note)
+
+
+def _maybe_offer_fillline(ctx: _Work, last_prompt_tokens: int) -> None:
+    """Offer the fill-line decision at each crossing of the line (#156, t1).
+
+    Per-crossing, not once-per-run (indefinite-run t1 supersedes the v1 "fires at
+    most once per work item" line): a RESOLVED offer re-arms once the run drops back
+    under the line — a resolved-but-still-over boundary never immediately re-offers,
+    because the declaring turn's own prompt is naturally still over the line — so a
+    long run can compact repeatedly. Total compaction turns are bounded by the
+    per-run cap: the cap reached = no further offers, recorded once on the trace
+    (:func:`_record_fillline_cap`). A strict no-op when dormant (not armed), pending,
+    or under the threshold — a work item that never fills its context is
+    byte-identical to today.
+    """
+    if not _fillline_armed(ctx):
+        return
+    over = _fillline.crossed(
+        last_prompt_tokens, int(ctx.context_budget), float(ctx.capacity_threshold)
+    )
+    if ctx._fillline_resolved and not over:
+        # The declaration was consumed and the run dropped back under the line —
+        # this crossing is spent. Clear the per-crossing cells so the NEXT crossing
+        # offers again (clearing ``_fillline_used`` keeps the next decision's
+        # recorded reason naming its own crossing's token count).
+        ctx._fillline_offered.clear()
+        ctx._fillline_resolved.clear()
+        ctx._fillline_used.clear()
+        return
+    if ctx._fillline_offered or not over:
+        return
+    if _fillline_cap_reached(ctx):
+        _record_fillline_cap(ctx)
+        return
+    _offer_fillline(ctx, last_prompt_tokens)
 
 
 def _files_read(ctx: _Work) -> int:
@@ -1311,6 +1434,13 @@ def _resolve_fillline(ctx: _Work, resp: ModelResponse, complete: CompleteFn) -> 
     kind = _fillline.classify_declaration(tool_names)
     _record_fillline_decision(ctx, kind)
     if kind == _fillline.MOVE_COMPACT:
+        # Count the compaction turn against the per-run cap (indefinite-run t1)
+        # BEFORE running it: a compaction that falls back to lossy windowing (the
+        # summary turn overflowed) still spent a model call, so it still counts.
+        # Only compact declarations count — split/handoff moves are bounded by
+        # their own machinery (subagent caps / the finish path).
+        count = ctx._fillline_compactions[0] if ctx._fillline_compactions else 0
+        ctx._fillline_compactions[:] = [count + 1]
         _compact_history(ctx, complete)
     return kind
 
@@ -2368,6 +2498,15 @@ class ContextControls:
     # ``None`` or out of ``(0, 1]`` leaves the proactive decision dormant — a strict
     # no-op (degradation + reactive auto-split still apply).
     fillline_threshold: float | None = None
+    # Continuation chaining armed (indefinite-run t2, decision c23): governs ONLY the
+    # unrepairable-compaction-note policy in :func:`_compact_history` — when True, an
+    # empty compaction summary (rejected by ``fillline.validate_compaction``; it never
+    # replaces history) routes the run to FINISH-WITH-HANDOFF: the loop injects the
+    # deterministic handoff instruction so the model finishes with a continuation
+    # summary the next episode resumes from. False (the default) keeps today's
+    # lossy-windowing floor — dormant, byte-identical. The chain driver (t5) threads
+    # ``config.until_done`` here; nothing sets it from ``from_config`` yet.
+    chain_armed: bool = False
     # Mapping fan-out advisory (#188): the files-read count at which the runtime
     # injects ONE advisory recommendation to fan a wide read-only survey out across
     # folders via the ``subagents`` tool. ``None``/<= 0 leaves it dormant — a strict
@@ -2551,6 +2690,13 @@ class ContextControls:
             affectedtests_max_files=config.affected_tests_max_files,
             affectedtests_override=config.affected_tests_override,
             deepthink_run=deepthink_run,
+            # Continuation chaining armed (decision c23): an armed invocation's
+            # episodes prefer finish-with-handoff over the lossy-windowing floor
+            # when a compaction note is unrepairable — the chain driver restarts
+            # from the clean artifact seed. Threaded from the SAME resolved
+            # ``until_done`` the chain loop arms on (t10's integration catch:
+            # nothing set this before, leaving the armed branch unreachable).
+            chain_armed=bool(getattr(config, "until_done", False)),
             media_bridge=bool(
                 config.deepthink is not None and getattr(config.deepthink, "multimodal", False)
             ),
@@ -3886,6 +4032,7 @@ def run(
         senses_media_bridge=_context.senses_media_bridge,
         autosplit_target=_context.autosplit_target,
         capacity_threshold=_context.fillline_threshold,
+        chain_armed=_context.chain_armed,
         mapping_fanout_files=_context.fanout_files,
         review_fanout_folders=_context.review_fanout_folders,
         plan_offer_tokens=_context.plan_offer_tokens,

@@ -110,6 +110,16 @@ minds. The architecture, part by part:
   heal (`colleague/heal.py`, consequence+undo verbatim) instead of the #149
   refusal (runtime guard untouched); the Last-run panel + post-run line carry
   the real `pr_url`, never synthesized. Doc: `session-continue-heal.md`.
+- **Indefinite run / episode chaining (`--until-done`)** — an ARMED run chains
+  bounded episodes past budget-exhausted exits (`colleague/chain.py` allow-list =
+  exactly that reason; `execute_work_chain`, both fronts + `--background`): each
+  episode's worktree bases on the prior `colleague/<id>` tip (the #222 WIP sweep
+  is best-effort → HEAD + recorded warning), handoff fires ONCE at chain end
+  (halted chains keep every branch); cap `--max-episodes` (5 armed, 0 = unlimited
+  — crawl risk is explicit operator intent, flight stop is the brake); gates
+  re-run per episode. AMBIENT (default-on): the fill-line re-arms per crossing
+  (capped 4 compactions/run) + deterministic compaction validation (an empty
+  summary never replaces history). Doc: `indefinite-run.md`.
 - **Cockpit / tui (#285/#249)** — `colleague tui` gives three headless views of one
   `TAUIState` (JSON/ANSI/Markdown) + snapshot/diagnose; the session cockpit changes
   idle→running (claiming only ENFORCED gates, never "sandboxed"); the generic cockpit
@@ -121,8 +131,8 @@ minds. The architecture, part by part:
   preserving a partial. Knobs `COLLEAGUE_CONTEXT_BUDGET`/`_MAX_OUTPUT_CHARS`/
   `_MAX_STEPS`/`_TIMEOUT`; adaptive backpressure (#255) + timeout survival (#268).
   Docs: `graceful-degradation.md`, `backpressure.md`.
-- **Capacity standard / fill-line (v1, #156)** — crossing `COLLEAGUE_FILLLINE_THRESHOLD` (0.8) injects ONE decision prompt (compact | split
-  | finish-with-handoff, `colleague/fillline.py`); **compact** = a model-authored summary — the v0→v1 graduation superseding "no LLM summary". Doc: `capacity-standard.md`.
+- **Capacity standard / fill-line (v1, #156)** — each crossing of `COLLEAGUE_FILLLINE_THRESHOLD` (0.8) injects ONE decision prompt (compact | split
+  | finish-with-handoff, `colleague/fillline.py`); **compact** = a validated model-authored summary — the v0→v1 graduation superseding "no LLM summary"; re-arms per crossing (`indefinite-run.md`). Doc: `capacity-standard.md`.
 - **Config resolution** — `colleague/configdir.py` (repo > user) + a persistent
   `.colleague/config.json` override (flag > env > config.json > default); `colleague
   config show` (redacted); includes the `convertible`→`colleague` rename

@@ -9,11 +9,26 @@ budget), the loop asks the backend to declare ONE opinionated move and acts on i
 - ``split`` — fan the work out to child instances via the existing ``subagents`` tool.
 - ``finish-with-handoff`` — stop and hand the caller a continuation summary.
 
+The decision is offered per CROSSING of the line (indefinite-run t1, superseding
+v1's at-most-once-per-work-item): a resolved offer re-arms once the run drops back
+under the line, and the total compaction turns a run may spend are bounded by
+``DEFAULT_COMPACTION_CAP`` (anti-thrash; the cap reached suppresses further offers,
+recorded on the trace).
+
+A compact summary is VALIDATED before it replaces history (indefinite-run t2, c4):
+:func:`validate_compaction` cross-checks the MAIN model's note against the run's own
+evidence (the goal/original request + the changed-file paths from the trace) and
+repairs anything missing deterministically — no second-model call (non-goal c12).
+Only an empty/whitespace note is unrepairable and REJECTED; the loop then keeps its
+lossy-windowing floor, or — with continuation chaining armed — takes
+FINISH-WITH-HANDOFF via :func:`build_handoff_instruction` (decision c23).
+
 This module owns only the *pure* pieces (threshold maths, the decision-prompt text,
-the declaration classifier, and the compaction request/apply transforms). The loop
-(`colleague/loop.py`) owns the firing, the model calls, and recording the decision —
-so every backend inherits the behaviour identically (the all-engines rule). All
-stdlib only — zero runtime dependencies; no subprocess, threading, sockets, or network.
+the declaration classifier, the compaction-cap maths, the compaction
+request/apply transforms, and the summary validator). The loop (`colleague/loop.py`)
+owns the firing, the model calls, and recording the decision — so every backend
+inherits the behaviour identically (the all-engines rule). All stdlib only — zero
+runtime dependencies; no subprocess, threading, sockets, or network.
 """
 
 from __future__ import annotations
@@ -24,21 +39,35 @@ from colleague.context import window_messages
 
 __all__ = [
     "DEFAULT_THRESHOLD",
+    "DEFAULT_COMPACTION_CAP",
     "MOVE_COMPACT",
     "MOVE_SPLIT",
     "MOVE_HANDOFF",
     "armed",
     "crossed",
+    "cap_reached",
     "build_decision_prompt",
     "classify_declaration",
     "build_compaction_request",
     "apply_compaction",
+    "validate_compaction",
+    "build_handoff_instruction",
 ]
 
 # Fraction of the context budget at which the fill-line decision is offered.
 # 0.8 leaves headroom for the decision prompt + the model's declaring turn before a
 # hard overflow. Tunable per environment via COLLEAGUE_FILLLINE_THRESHOLD.
 DEFAULT_THRESHOLD = 0.8
+
+# Per-run cap on compaction turns (indefinite-run t1). The fill-line re-arms per
+# CROSSING (superseding v1's "fires at most once per work item", #156), so a
+# degenerate run could otherwise thrash compact→fill→compact for its whole step
+# budget; the cap bounds the total compaction turns spent. The loop consumes it at
+# offer time — the cap reached suppresses further offers (recorded on the trace,
+# never silent) and lossy windowing remains the floor. A module constant for now:
+# the config knob that makes it operator-tunable is t3's (colleague/config.py is
+# deliberately untouched here).
+DEFAULT_COMPACTION_CAP = 4
 
 MOVE_COMPACT = "compact"
 MOVE_SPLIT = "split"
@@ -53,6 +82,20 @@ _COMPACTION_INSTRUCTION = (
 )
 
 _COMPACTION_PREFIX = "[Compacted summary of earlier work in this work item]\n"
+
+# Header of the deterministic evidence block :func:`validate_compaction` appends to a
+# summary missing facts from the run's own trace (indefinite-run t2, c4).
+_EVIDENCE_HEADER = "[Run evidence the summary omitted — appended by the runtime]"
+
+# The deterministic FINISH-WITH-HANDOFF instruction the loop injects when a
+# compaction note is unrepairable (empty) AND continuation chaining is armed
+# (decision c23). Mirrors the decision prompt's FINISH-WITH-HANDOFF move wording.
+_HANDOFF_INSTRUCTION = (
+    "The compaction turn produced an empty summary, so the working history cannot "
+    "be safely compacted, and continuation chaining is armed: take "
+    "FINISH-WITH-HANDOFF now — call `finish` with a continuation summary (what is "
+    "done / what remains) so the next episode can resume from it."
+)
 
 
 def armed(context_budget: Optional[int], threshold: Optional[float]) -> bool:
@@ -73,6 +116,15 @@ def armed(context_budget: Optional[int], threshold: Optional[float]) -> bool:
 def crossed(prompt_tokens: int, context_budget: int, threshold: float) -> bool:
     """True when the last turn's prompt token count crosses the fill-line threshold."""
     return prompt_tokens >= threshold * context_budget
+
+
+def cap_reached(compaction_turns: int, cap: int) -> bool:
+    """True when *compaction_turns* has exhausted the per-run *cap* (indefinite-run t1).
+
+    ``cap <= 0`` means no cap — never reached (the 0-is-unlimited convention the
+    chain knobs use, e.g. ``--max-episodes 0``).
+    """
+    return cap > 0 and compaction_turns >= cap
 
 
 def build_decision_prompt(
@@ -141,7 +193,61 @@ def apply_compaction(messages: list[dict], summary: str) -> list[dict]:
     verbatim and replaces everything after it with a single user message holding the
     summary. The result is always OpenAI-valid (no orphan tool messages): a finish /
     split / further work turn then proceeds from head + summary.
+
+    The loop validates the summary FIRST (:func:`validate_compaction`, indefinite-run
+    t2) and never routes an empty note here — an empty summary is rejected upstream,
+    so the ``(no summary produced)`` placeholder below is a last-resort guard for
+    direct callers only, no longer a loop path (the silent-amnesia fix, c4/h4).
     """
     head = messages[:2]
     text = (summary or "").strip() or "(no summary produced)"
     return head + [{"role": "user", "content": _COMPACTION_PREFIX + text}]
+
+
+def validate_compaction(
+    summary: Optional[str], goal: Optional[str], changed_files: Optional[list[str]]
+) -> tuple[str, bool]:
+    """Cross-check a compaction *summary* against the run's own evidence (t2, c4).
+
+    Pure, deterministic, and MAIN-model-only — the inputs are the summary text, the
+    run's goal/original request, and the changed-file paths from the run's own trace;
+    no second-model call is introduced (non-goal c12).
+
+    - Empty/whitespace summary → ``("", False)`` — REJECTED. An empty note carries no
+      evidence and is the one *unrepairable* case: it must never replace history
+      (the caller applies its floor/handoff policy, h4).
+    - Non-empty summary → ALWAYS repaired, never rejected: the goal's first line
+      (a case-insensitive containment heuristic) and every changed-file path must
+      appear in the text; anything missing is appended as ONE deterministic evidence
+      block → ``(repaired_text, True)``. A summary already carrying every fact passes
+      through byte-identical, and the repair is idempotent — validating a repaired
+      text appends nothing further.
+    """
+    text = (summary or "").strip()
+    if not text:
+        return ("", False)
+    missing: list[str] = []
+    goal_text = (goal or "").strip()
+    goal_line = goal_text.splitlines()[0].strip() if goal_text else ""
+    if goal_line and goal_line.lower() not in text.lower():
+        missing.append(f"goal: {goal_line}")
+    for path in changed_files or []:
+        if path and path not in text:
+            missing.append(f"changed file: {path}")
+    if not missing:
+        return (text, True)
+    block = "\n".join([_EVIDENCE_HEADER] + [f"- {item}" for item in missing])
+    return (f"{text}\n\n{block}", True)
+
+
+def build_handoff_instruction() -> str:
+    """Render the deterministic FINISH-WITH-HANDOFF instruction (decision c23).
+
+    Injected by the loop as ONE user message when a compaction note is unrepairable
+    (empty/whitespace — :func:`validate_compaction` rejected it) AND continuation
+    chaining is armed: instead of grinding on with a history that can no longer be
+    compacted, the model is told to ``finish`` with a continuation summary the next
+    episode resumes from — mirroring the decision prompt's FINISH-WITH-HANDOFF move
+    wording. No randomness, no timestamps.
+    """
+    return _HANDOFF_INSTRUCTION

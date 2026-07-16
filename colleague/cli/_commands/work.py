@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Callable
 
 from colleague import background, flight, media, registry, rig, worktrees
-from colleague.artifact import artifact_dir, failed_result, write
+from colleague.artifact import artifact_dir, failed_result, read_chain_view, write
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._presence_sink import (
     ack_packet_for_task,
@@ -45,13 +45,16 @@ from colleague.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, apply_mode_profile, resolve_engine
-from colleague.contract import INCOMPLETE, OK, Task, TaskResult
+from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult
 from colleague.feedback import set_last_work
 from colleague.handoff import (
     HandoffError,
     branch_name,
+    chain_handoff_finalize,
+    commits_ahead,
     handoff,
     head_sha,
+    reap_chain_intermediates,
     untracked_snapshot,
     working_tree_dirty,
 )
@@ -249,7 +252,7 @@ def _surface_coherence_hints(result: TaskResult) -> None:
 
 
 def _setup_isolation(
-    repo: Path, task: Task, isolate: bool
+    repo: Path, task: Task, isolate: bool, base_ref: str | None = None
 ) -> tuple[Path, str | None, str | None, Task]:
     """Worktree-isolate a write item (#196/#201); returns ``(work_repo, base_sha,
     worktree_path, task)``.
@@ -261,20 +264,38 @@ def _setup_isolation(
     the worktree creates cleanly; otherwise falls back to the in-place path so a
     work item that ran before always still runs (h7). Extracted from
     :func:`execute_work` to keep its cognitive complexity under the S3776 threshold
-    (PR #207 review)."""
+    (PR #207 review).
+
+    ``base_ref`` (indefinite-run c6, the t4 interface): a chained episode passes
+    the prior episode's branch so its worktree carries the prior TREE, not just
+    the continuation seed. Uses the outcome form
+    (:func:`~colleague.worktrees.isolation_worktree_add_outcome`) so a
+    missing/reaped base ref's HEAD degrade is *recorded* — the warning is
+    surfaced as a diagnostic (h6), never a crash. With a base ref actually
+    used, ``base_sha`` is re-read from the worktree's own HEAD (the episode's
+    true base) so the #196 self-commit detection and ``changed_files`` compare
+    against the prior tip, not the operator's HEAD; the ``base_ref=None`` path
+    is byte-identical to before."""
     if not isolate:
         return repo, None, None, task
     base_sha = head_sha(repo)
     if base_sha is None:
         return repo, None, None, task
     try:
-        worktree_path = worktrees.isolation_worktree_add(
-            str(repo), task.id, branch_name(task.id, task.instruction)
+        outcome = worktrees.isolation_worktree_add_outcome(
+            str(repo), task.id, branch_name(task.id, task.instruction), base_ref=base_ref
         )
     except Exception as exc:  # noqa: BLE001 - isolation must never break a work item
         emit_diagnostic(f"isolation worktree unavailable ({exc}); running in place")
         return repo, None, None, task
+    worktree_path = outcome.path
+    if outcome.warning:
+        emit_diagnostic(f"isolation: {outcome.warning}")
     work_repo = Path(worktree_path)
+    if outcome.base_ref is not None:
+        # A chained episode's honest base is the prior tip the worktree was
+        # actually created at — read it from the worktree itself.
+        base_sha = head_sha(work_repo) or base_sha
     # #310: the loop runs in the worktree (repo_path=work_repo) but the flight
     # plane must live in the OPERATOR repo (flight_repo_path=repo) so
     # `colleague talk` / `colleague flight` reach it and it survives the
@@ -536,6 +557,67 @@ class DisplayOptions:
     tui: bool | None = None
     #: Optional WorkStep-JSONL path (#74 A3) an agent can follow / `tui replay`.
     tui_events: str | None = None
+    #: Optional caller-supplied cockpit sink (#74 A2): the interactive
+    #: ``session`` binds one to its own ``CockpitState`` + frame-writer so a
+    #: work item renders into the session's one shared screen (replacing the
+    #: auto-constructed cockpit). ``None`` (the default) preserves the
+    #: byte-identical ``work`` path. Rides this bundle since v1.47.0
+    #: (SonarCloud S107 on ``execute_work`` — same recorded pattern).
+    sink: "CockpitProgressSink | None" = None
+
+
+#: The constraint-profile modes whose work items are read-only by INTENT
+#: (their chains use read-only progress semantics + stay handoff-free, the
+#: read-only-role treatment — t12 live-dogfood catch).
+_READ_ONLY_MODES = frozenset({"explore", "review"})
+
+
+@dataclass(frozen=True)
+class ChainEpisodeOptions:
+    """Per-episode chain-dispatch knobs (indefinite-run t5) — the S107-safe
+    bundle (the :class:`DisplayOptions` precedent). Non-``None`` exactly when
+    :func:`execute_work` is dispatched by the ``--until-done`` chain loop
+    (:func:`_run_chain`); ``None`` (every other caller) is byte-identical to
+    the pre-chain behavior."""
+
+    #: The prior episode's ``colleague/<id>`` branch — episode N+1's worktree
+    #: base (tree carry, c6/h6). ``None`` on the chain's first episode.
+    base_ref: str | None = None
+    #: The chain view stamped on the PRIOR episode's artifact (``None`` on the
+    #: first episode); this episode's ``result.chain`` accumulates onto it
+    #: (sums of per-episode exact usage, c20/h19).
+    prior_view: ChainView | None = None
+
+
+def _build_run_presence(
+    *, task: Task, config: EngineConfig, engine, external_sink
+) -> "tuple[object | None, bool]":
+    """Build the run's presence engine, if any — ``(presence, foreground)``.
+
+    The presence-builder half of :func:`execute_work` (extracted for the S3776
+    budget, the ``_preserve_isolated_wip`` precedent). Skipped entirely when an
+    external ``progress_sink`` was supplied (the interactive ``session`` already
+    runs its own middle-manager lane — wiring a second engine would double every
+    ack/update). Otherwise the watched builder is tried first, then the
+    foreground sibling — the two are gated on ``task.watch`` in opposite
+    directions, so at most one returns non-None. ``foreground`` is ``True`` only
+    for a one-shot (non-watched) presence, whose chat must be folded from the
+    snapshot (no flight plane exists to carry it). Both builds ride
+    ``suppress``: narration must never break cortex.
+    """
+    if external_sink is not None:
+        return None, False
+    presence = None
+    with suppress(Exception):
+        presence = build_watch_presence(task=task, config=config, engine=engine)
+    if presence is not None:
+        return presence, False
+    with suppress(Exception):
+        presence = build_foreground_presence(
+            task=task, config=config, engine=engine, render=emit_diagnostic
+        )
+        return presence, presence is not None
+    return None, False
 
 
 def execute_work(
@@ -550,9 +632,9 @@ def execute_work(
     isolate: bool = False,
     command_name: str | None = None,
     display: "DisplayOptions | None" = None,
-    progress_sink: "CockpitProgressSink | None" = None,
     mode: str | None = None,
     continued_from: str | None = None,
+    chain: "ChainEpisodeOptions | None" = None,
 ) -> tuple[TaskResult, Path]:
     """Shared work orchestration: load engine → loop → handoff → write artifact.
 
@@ -585,13 +667,12 @@ def execute_work(
     display:
         The bundled cockpit/TUI display knobs (:class:`DisplayOptions` —
         ``tui`` live-cockpit activation #74 A1, ``tui_events`` WorkStep-JSONL
-        path #74 A3); ``None`` (default) means both knobs at their ``None``
-        defaults, byte-identical to the pre-bundle behavior.
-    progress_sink:
-        Optional caller-supplied cockpit sink (#74 A2): the interactive ``session``
-        passes a sink bound to its own `CockpitState` + frame-writer so a work item
-        renders into the session's one shared screen. Replaces the auto-constructed
-        cockpit; ``None`` (the default) preserves the byte-identical `work` path.
+        path #74 A3, ``sink`` the caller-supplied cockpit sink #74 A2 — the
+        interactive ``session`` binds one to its own `CockpitState` +
+        frame-writer so a work item renders into the session's one shared
+        screen, replacing the auto-constructed cockpit); ``None`` (default)
+        means every knob at its ``None`` default, byte-identical to the
+        pre-bundle behavior.
     continued_from:
         The prior work item's task id when this run CONTINUES it (#167), else
         ``None``. Recorded on the result before every artifact write — the
@@ -610,6 +691,16 @@ def execute_work(
         The caller's explicit CLI knobs travel on ``config.explicit_knobs``
         (a runtime-only EngineConfig field, the ``role`` precedent) — those
         are never overwritten by the mode profile (precedence h1).
+    chain:
+        Set (a :class:`ChainEpisodeOptions`) exactly when this run is ONE
+        EPISODE of an armed ``--until-done`` chain (indefinite-run t5):
+        ``base_ref`` bases the isolation worktree on the prior episode's
+        branch tip (tree carry, c6), and the running :class:`ChainView` is
+        accumulated onto ``result.chain`` before the artifact write (c20).
+        A chained episode also SKIPS the mode-profile application here — the
+        chain loop applied it once at arming, so a mid-chain overlay-file
+        change is never re-read (inheritance c28). ``None`` (the default,
+        every non-chain caller) is byte-identical to the pre-chain behavior.
 
     Returns
     -------
@@ -623,11 +714,16 @@ def execute_work(
         before the exception is raised — honesty h5).
     """
     display = display or DisplayOptions()
-    tui, tui_events = display.tui, display.tui_events
+    tui, tui_events, progress_sink = display.tui, display.tui_events, display.sink
     # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
     # operator left untouched, BEFORE anything reads the config (extracted to
     # _moded_config for the S3776 budget). One code path for every entry door.
-    config = _moded_config(config, mode, repo)
+    # A chained episode (indefinite-run c28) arrives with the profile ALREADY
+    # applied once by the chain loop; re-applying here would re-read the mode
+    # overlay files mid-chain, so an episode could silently run under a config
+    # the operator changed after arming — exactly what c28 forbids.
+    if chain is None:
+        config = _moded_config(config, mode, repo)
 
     try:
         engine = registry.load(engine_name)
@@ -645,7 +741,9 @@ def execute_work(
     # caller (session explore/review, ask-colleague) inherits it identically.
     read_only_role = is_read_only(getattr(config, "role", None))
     _guard_clean_tree(repo, allow_dirty=allow_dirty or read_only_role)
-    work_repo, base_sha, worktree_path, task = _setup_isolation(repo, task, isolate)
+    work_repo, base_sha, worktree_path, task = _setup_isolation(
+        repo, task, isolate, base_ref=chain.base_ref if chain else None
+    )
     # Memory targets the OPERATOR repo (spec R1 / plan t2): an isolated run's
     # worktree is reaped after handoff, so a lesson written there would be lost.
     config.memory_root = str(repo)
@@ -717,21 +815,9 @@ def execute_work(
             # `emit_diagnostic` as labeled `senses:` lines; stdout (the `--json`
             # result stream) is never touched, so presence can never corrupt the
             # machine-parseable contract.
-            presence = None
-            # A foreground (one-shot, non-watched) run has no flight plane, so its
-            # chat has no other path onto the artifact — it must be folded from the
-            # snapshot (fold_chat=True). A watched run's chat rides the flight log
-            # (loop.py folds it), so folding here would duplicate it.
-            presence_foreground = False
-            if progress_sink is None:
-                with suppress(Exception):
-                    presence = build_watch_presence(task=task, config=config, engine=engine)
-                if presence is None:
-                    with suppress(Exception):
-                        presence = build_foreground_presence(
-                            task=task, config=config, engine=engine, render=emit_diagnostic
-                        )
-                        presence_foreground = presence is not None
+            presence, presence_foreground = _build_run_presence(
+                task=task, config=config, engine=engine, external_sink=progress_sink
+            )
             if presence is not None:
                 with suppress(Exception):
                     presence.acknowledge(ack_packet_for_task(task))
@@ -833,6 +919,14 @@ def execute_work(
             # Lineage (#167): recorded before the artifact write, mirroring mode
             # just above; None (an ordinary run) is omitted from the artifact.
             result.continued_from = continued_from
+            # Chain accounting (indefinite-run c20/h19): a chained episode's
+            # artifact carries the RUNNING chain view — prior totals plus this
+            # episode's exact usage/steps, accumulated before the write so
+            # every episode's artifact is self-describing (the final episode's
+            # view is the whole chain's). None (every non-chain run) keeps the
+            # serialized shape byte-identical (omit-when-None).
+            if chain is not None:
+                result.chain = ChainView.accumulate(chain.prior_view, result)
             artifact_path = write(result, artifact_dir(repo))
             # Record this as the repo's most recent work item so `colleague feedback
             # last` resolves to it. Best-effort: a pointer write must never break
@@ -1005,6 +1099,427 @@ def _validated_mode(mode: str | None) -> str | None:
     return mode
 
 
+def _resolve_chain_arming(args: argparse.Namespace, config: EngineConfig) -> tuple[int, bool]:
+    """Resolve the ``(cap, armed)`` chain pair — the standard knob precedence (c21).
+
+    Explicit flag > env > config.json > default: the env/config.json legs were
+    already folded into ``EngineConfig.resolve`` by t3
+    (``COLLEAGUE_UNTIL_DONE`` / ``COLLEAGUE_MAX_EPISODES`` →
+    ``config.until_done`` / ``config.max_episodes``), so this only lets the
+    explicit CLI flags win last — the ``max_steps`` idiom. ``--until-done``
+    is arm-only (a bare switch, no ``--no-until-done``), so a config-armed
+    chain stays armed. Cap ``0`` (or negative) means unlimited.
+    """
+    armed = bool(getattr(args, "until_done", False)) or bool(getattr(config, "until_done", False))
+    explicit_cap = getattr(args, "max_episodes", None)
+    cap = explicit_cap if explicit_cap is not None else int(getattr(config, "max_episodes", 5))
+    return cap, armed
+
+
+def _chain_should_start_next(
+    repo: Path, result: TaskResult, state, *, progressed: bool | None, watch: bool
+) -> tuple[tuple[str, str] | None, "object"]:
+    """Decide the chain's move at ONE episode boundary — the t6 extension seam.
+
+    Everything that happens BETWEEN two episodes funnels through here, in
+    order: (1) the pure verdict — ok-guard, continuable allow-list,
+    no-progress guard, episode cap (:func:`colleague.chain.should_continue`);
+    (2) the between-episode pilot stop (t6): on a WATCHED chain, read the
+    JUST-FINISHED episode's flight control — the pilot's live handle — and
+    halt (reason :data:`~colleague.chain.HALT_PILOT_STOP`) when a cooperative
+    ``stop`` landed in the boundary window, so a stop never dispatches another
+    episode (an unwatched chain ignores it, matching the in-episode unwatched
+    semantics; :func:`colleague.flight.read_stop` is a pure peek — absent
+    control file = no stop); (3) the continuation seed resolution (the
+    ok-guard and wrong-run guard live inside
+    :func:`~colleague.continuation.resolve_continuation`, wrapped by
+    :func:`~colleague.chain.resolve_chain_seed` so a ``ContinuationError`` is
+    a clean halt, never a crash).
+
+    Returns ``(seed, verdict)``: ``seed`` is ``(prior_task_id, seed_text)``
+    when episode N+1 may dispatch, else ``None``; ``verdict`` is the
+    :class:`~colleague.chain.ChainVerdict` that decided it (the halt reason,
+    or the continuable exit reason on a go).
+    """
+    # Lazy import: the chain path is opt-in; keep work's import graph flat.
+    from colleague import chain as chainmod
+
+    verdict = chainmod.should_continue(
+        result, state.episode_count, state.cap, progressed=progressed
+    )
+    if not verdict.should_continue:
+        return None, verdict
+    if watch and flight.read_stop(repo, result.task_id):
+        return None, chainmod.ChainVerdict(
+            should_continue=False,
+            reason=chainmod.HALT_PILOT_STOP,
+            detail=(
+                f"pilot stop on {result.task_id}'s flight control — episode "
+                f"{state.episode_count + 1} was never dispatched"
+            ),
+        )
+    seed, halt = chainmod.resolve_chain_seed(repo, result.task_id)
+    if halt is not None:
+        return None, halt
+    return seed, verdict
+
+
+def _chain_finalize(
+    repo: Path,
+    result: TaskResult,
+    episode_branches: list[str],
+    *,
+    instruction: str,
+    open_pr: bool,
+    base: str,
+) -> Path:
+    """The chain's ONE handoff + intermediate reap, on a COMPLETED chain (c26).
+
+    Every episode ran with push/PR suppressed, so this performs the arming
+    invocation's handoff choice exactly once: push the FINAL episode's branch
+    — which carries the cumulative diff, because each episode based its
+    worktree on the prior tip — and open the single PR
+    (:func:`~colleague.handoff.chain_handoff_finalize`, gated by the same h7
+    predicate as any handoff; ``--no-pr``/no remote/no ``gh`` stays local).
+    The final artifact is re-written so it records the REAL ``pr_url``/push
+    outcome — never a synthesized one (the #167-arc rule); the rewrite hits
+    the same path (same task id + request slug).
+
+    Then the intermediate ``colleague/<id>`` branches are reaped
+    (:func:`~colleague.handoff.reap_chain_intermediates` — ancestors of the
+    kept final branch only, so a degraded-base episode's unique work is never
+    destroyed; artifacts keep the evidence). A HALTED chain never reaches
+    this function — every branch is left for the operator (the WIP rule).
+    """
+    final_branch = episode_branches[-1]
+    outcome = chain_handoff_finalize(
+        repo,
+        result.task_id,
+        final_branch,
+        instruction=instruction,
+        open_pr=open_pr,
+        base_branch=base,
+    )
+    result.branch = outcome.branch
+    if outcome.pr_url:
+        result.pr_url = outcome.pr_url
+    if outcome.note:
+        emit_diagnostic(f"chain handoff: {outcome.note}")
+    artifact_path = write(result, artifact_dir(repo))
+    reaped = reap_chain_intermediates(repo, episode_branches[:-1], keep=final_branch)
+    reaped_refs = [r["ref"] for r in reaped if r["action"] == "reaped"]
+    if reaped_refs:
+        emit_diagnostic(
+            f"chain: reaped {len(reaped_refs)} intermediate branch(es): " + ", ".join(reaped_refs)
+        )
+    return artifact_path
+
+
+def _chain_progress(
+    repo: Path,
+    result: TaskResult,
+    state,
+    *,
+    read_only: bool,
+    prior_ref: str,
+    episode_branch: str,
+) -> bool | None:
+    """The no-progress guard's evidence for one episode (c22) — deterministic.
+
+    Feeds :func:`colleague.chain.episode_progressed` exactly two signals:
+
+    - ``new_commits`` — ``git rev-list --count <prior_ref>..<episode_branch>``
+      (:func:`~colleague.handoff.commits_ahead`), where ``prior_ref`` is the
+      prior episode's branch (or the chain-start HEAD sha for episode 1); a
+      budget-exhausted episode's WIP commit (#222) counts here.
+    - ``new_evidence`` — :meth:`~colleague.chain.ChainState.record_episode`'s
+      verdict: a changed-file path from this episode's artifact that no prior
+      episode reported.
+
+    ``record_episode`` is called for EVERY episode (it also keeps the chain's
+    episode ledger). A read-only role returns ``None`` — commits and changed
+    files are structurally impossible for it, so the c22 evidence inputs
+    cannot apply; the episode cap bounds a read-only chain instead.
+    """
+    new_evidence = state.record_episode(result.task_id, result.changed_files)
+    if read_only:
+        return None
+    new_commits = commits_ahead(repo, prior_ref, episode_branch)
+    # Lazy import mirrors _chain_should_start_next (opt-in chain path).
+    from colleague import chain as chainmod
+
+    return chainmod.episode_progressed(new_commits=new_commits, new_evidence=new_evidence)
+
+
+def _announce_episode_transition(
+    repo: Path, prior_id: str, next_id: str, state, watch: bool
+) -> None:
+    """Announce one chain hop (t6) — sink line + the flight transition marker.
+
+    Extracted from :func:`execute_work_chain` for the S3776 budget. The
+    announcement rides the #38 progress channel; the marker lands on the PRIOR
+    episode's flight feed (type="episode-transition", best-effort, watch-gated
+    like every flight write) so a pilot following episode 1 can locate every
+    later episode. Announcement text and marker intent are the same string.
+    """
+    announcement = flight.transition_announcement(prior_id, state.episode_count + 1, state.cap)
+    emit_diagnostic(f"chain: {announcement}")
+    if watch:
+        flight.append_episode_transition(
+            repo,
+            prior_id,
+            next_task_id=next_id,
+            episode_index=state.episode_count + 1,
+            cap=state.cap,
+        )
+
+
+def _emit_chain_outcome(verdict, state, *, completed: bool, branches: list[str]) -> None:
+    """The chain's terminal diagnostics (extracted for the S3776 budget)."""
+    detail = f": {verdict.detail}" if verdict.detail else ""
+    emit_diagnostic(
+        f"chain: {'completed' if completed else 'halted'} after "
+        f"{state.episode_count} episode(s) — {verdict.reason}{detail}"
+    )
+    if not completed and branches:
+        emit_diagnostic("chain: episode branches kept (WIP): " + ", ".join(branches))
+
+
+def _maybe_finalize_chain(
+    repo: Path,
+    result: TaskResult,
+    branches: list[str],
+    *,
+    completed: bool,
+    read_only: bool,
+    chain_base: str,
+    instruction: str,
+    open_pr: bool,
+    base: str,
+    artifact_path: Path,
+) -> Path:
+    """Finalize a COMPLETED chain once — or honestly decline to (extracted, S3776).
+
+    Three declines, each deliberate: a HALTED chain never pushes (the operator
+    may want the WIP); a read-only chain stays handoff-free (h21); and a
+    completed chain that landed NO commits mirrors ``handoff()``'s "no changes
+    to hand off" semantics — no push, no PR, no reap, one explicit diagnostic
+    (Qodo, PR #333; ``commits_ahead`` degrades to 0 on any git error, which
+    conservatively declines too). Returns the (possibly re-written) artifact
+    path — unchanged on every decline.
+    """
+    if not completed or read_only or not branches:
+        return artifact_path
+    if commits_ahead(repo, chain_base, branches[-1]) <= 0:
+        emit_diagnostic("chain: completed with no changes; no handoff performed")
+        return artifact_path
+    return _chain_finalize(
+        repo, result, branches, instruction=instruction, open_pr=open_pr, base=base
+    )
+
+
+def execute_work_chain(
+    *,
+    repo: Path,
+    engine_name: str,
+    task: Task,
+    open_pr: bool,
+    base: str,
+    config: EngineConfig,
+    cap: int,
+    allow_dirty: bool = False,
+    command_name: str | None = None,
+    display: "DisplayOptions | None" = None,
+    progress_sink: "CockpitProgressSink | None" = None,
+    mode: str | None = None,
+    continued_from: str | None = None,
+) -> tuple[TaskResult, Path]:
+    """The ``--until-done`` episode chain loop (indefinite-run t5/t9).
+
+    The single implementation of episode chaining, shared by BOTH fronts (the
+    h11 ``execute_work`` precedent): :func:`_run_chain` adapts ``cmd_work``'s
+    parsed argv onto it, and the interactive ``session``'s armed dispatch
+    calls it directly (``_dispatch_work`` — same kwargs shape as its
+    single-episode ``work_fn`` call, plus *cap*), so the session front can
+    never fork the chain semantics. Returns the FINAL episode's
+    ``(result, artifact_path)`` pair — the caller owns outcome emission
+    (exit-code mapping for the CLI, the feed line for the session).
+
+    Wraps :func:`execute_work`: each episode is an ordinary bounded work item
+    with its own artifact; the chain decisions are pure ``colleague.chain``
+    verdicts over the episode's persisted terminal facts. The loop owns:
+
+    - **handoff-once** (c26): every episode dispatches with ``open_pr=False``
+      (finality is unknowable before an episode runs), and a COMPLETED chain
+      (ok-finish) performs the arming invocation's push/PR choice exactly once
+      via :func:`_chain_finalize`, then reaps the intermediate branches. A
+      HALTED chain (non-continuable exit, no progress, cap, continuation
+      error) leaves every episode branch alone — the operator may want the
+      WIP — and never pushes.
+    - **verbatim inheritance** (c28/h23): every episode re-dispatches with the
+      SAME resolved locals — ``engine``, ``config`` (resolved once in
+      :func:`cmd_work`; mode profile applied once below), ``open_pr``,
+      ``allow_dirty``, display knobs, attachments — never re-reading env or
+      ``config.json`` mid-chain (the ``_CHILD_FLAG_TABLE`` background-child
+      precedent, held as locals).
+    - **tree carry** (c6): episode N+1's isolation worktree bases on episode
+      N's ``colleague/<id>`` branch tip (``ChainEpisodeOptions.base_ref``);
+      a missing/reaped tip degrades to HEAD with a recorded warning (h6).
+    - **lineage + accounting** (c20): ``continued_from`` stamps episode-to-
+      episode, and each episode's artifact carries the running
+      :class:`~colleague.contract.ChainView` (sums of exact usage, h19).
+      ``--continue`` combines: episode 1 is the continued task (dispatched at
+      HEAD, exactly like an unchained ``--continue``), and a cut CHAINED
+      run's accounting resumes via :func:`~colleague.artifact.read_chain_view`.
+
+    A halted chain returns its last episode's honest result (#313 stays
+    intact) — the CLI adapter maps it to the exit code (0 ok / 2 incomplete /
+    1 error).
+    """
+    display = display or DisplayOptions()
+    if progress_sink is not None and display.sink is None:
+        # The session front still passes its sink positionally-adjacent; fold it
+        # into the bundle execute_work reads (S107 — sink rides DisplayOptions).
+        display = replace(display, sink=progress_sink)
+    # c28: apply the mode profile ONCE at arming; every episode reuses this
+    # resolved config verbatim (execute_work skips re-application when chained,
+    # so a mid-chain overlay change is never re-read).
+    config = _moded_config(config, mode, repo)
+    attachments = task.attachments
+    arming_instruction = task.instruction
+    # Read-only chain semantics arm on the read-only ROLE or a read-only MODE
+    # (explore/review): both produce commits structurally never, so the c22
+    # commit-evidence guard cannot apply (progressed=None; the episode cap
+    # bounds the chain) and the chain stays handoff-free (h21). Live-dogfood
+    # catch (t12): a `--mode review --until-done` chain otherwise halts
+    # 'no-progress' after episode 1 — the arc's own review chain proved it.
+    read_only_chain = is_read_only(getattr(config, "role", None)) or mode in _READ_ONLY_MODES
+    # Lazy import: the chain path is opt-in; keep work's import graph flat.
+    from colleague import chain as chainmod
+
+    # --continue + --until-done: resume the cut run's chain accounting when it
+    # carried a view (an ordinary cut run yields None → fresh accounting).
+    prior_view = read_chain_view(repo, continued_from) if continued_from else None
+    chain_base = head_sha(repo) or "HEAD"
+    state = chainmod.ChainState(cap=cap)
+    episode_task = task
+    prior_branch: str | None = None
+    episode_branches: list[str] = []
+
+    while True:
+        result, artifact_path = execute_work(
+            repo=repo,
+            engine_name=engine_name,
+            task=episode_task,
+            open_pr=False,  # c26: per-episode push/PR suppressed; see _chain_finalize
+            allow_dirty=allow_dirty,
+            isolate=True,
+            base=base,
+            config=config,
+            command_name=command_name,
+            display=display,
+            mode=mode,
+            continued_from=continued_from,
+            chain=ChainEpisodeOptions(base_ref=prior_branch, prior_view=prior_view),
+        )
+        prior_view = result.chain
+        episode_branch = result.branch or branch_name(episode_task.id, episode_task.instruction)
+        episode_branches.append(episode_branch)
+
+        progressed = _chain_progress(
+            repo,
+            result,
+            state,
+            read_only=read_only_chain,
+            prior_ref=prior_branch or chain_base,
+            episode_branch=episode_branch,
+        )
+        seed, verdict = _chain_should_start_next(
+            repo, result, state, progressed=progressed, watch=task.watch
+        )
+        if seed is None:
+            break
+        emit_diagnostic(
+            f"chain: episode {state.episode_count} ({result.task_id}) exit "
+            f"{verdict.reason!r} — continuing (episode {state.episode_count + 1})"
+        )
+        continued_from, seed_text = seed
+        prior_branch = episode_branch
+        episode_task = Task.new(
+            str(repo),
+            seed_text,
+            engine=engine_name,
+            attachments=list(attachments) if attachments else None,
+        )
+        # The flight arming resolved once for the arming invocation (c28).
+        episode_task.watch = task.watch
+        _announce_episode_transition(repo, result.task_id, episode_task.id, state, task.watch)
+
+    completed = verdict.reason == chainmod.HALT_OK_FINISH
+    artifact_path = _maybe_finalize_chain(
+        repo,
+        result,
+        episode_branches,
+        completed=completed,
+        read_only=read_only_chain,
+        chain_base=chain_base,
+        instruction=arming_instruction,
+        open_pr=open_pr,
+        base=base,
+        artifact_path=artifact_path,
+    )
+    _emit_chain_outcome(verdict, state, completed=completed, branches=episode_branches)
+    return result, artifact_path
+
+
+def _run_chain(
+    args: argparse.Namespace,
+    repo: Path,
+    engine: str,
+    config: EngineConfig,
+    task: Task,
+    *,
+    command_name: str | None,
+    mode: str | None,
+) -> int:
+    """``cmd_work``'s thin adapter onto :func:`execute_work_chain` (t5/t9).
+
+    Unpacks the parsed argv (open-pr choice, display knobs, the resolved
+    ``--continue`` lineage) onto the shared chain loop and maps the FINAL
+    episode's result to the exit code via :func:`_emit_work_outcome`
+    (0 ok / 2 incomplete / 1 error — a halted chain reports its last episode
+    honestly, #313). The session front calls ``execute_work_chain`` directly,
+    so the chain semantics live in exactly one place.
+    """
+    json_mode = bool(getattr(args, "json", False))
+    cap, _ = _resolve_chain_arming(args, config)
+    try:
+        result, artifact_path = execute_work_chain(
+            repo=repo,
+            engine_name=engine,
+            task=task,
+            open_pr=not args.no_pr,
+            base=args.base,
+            config=config,
+            cap=cap,
+            allow_dirty=bool(getattr(args, "allow_dirty", False)),
+            command_name=command_name,
+            display=DisplayOptions(
+                tui=getattr(args, "tui", None), tui_events=getattr(args, "tui_events", None)
+            ),
+            mode=mode,
+            continued_from=getattr(args, "_continued_from_resolved", None),
+        )
+    except CliError as exc:
+        # An episode crash halts the chain like a single run's failure —
+        # branches stay (the operator may want the WIP); same --json
+        # partial surface as cmd_work's unchained path.
+        if json_mode and exc.result is not None:
+            emit_result(exc.result.to_dict(), json_mode=True)
+        raise
+    return _emit_work_outcome(result, engine, artifact_path, json_mode)
+
+
 # The forwardable ``work`` flags a background child inherits verbatim, in CLI
 # order: ``(args attr, flag, kind)`` where kind "value" carries an argument and
 # "bool" is a bare switch. max_steps / mode / tui / tui-events / json have
@@ -1013,6 +1528,7 @@ _CHILD_FLAG_TABLE: tuple[tuple[str, str, str], ...] = (
     ("engine", "--engine", "value"),
     ("no_pr", "--no-pr", "bool"),
     ("allow_dirty", "--allow-dirty", "bool"),
+    ("until_done", "--until-done", "bool"),
     ("no_lint", "--no-lint", "bool"),
     ("no_coherence", "--no-coherence", "bool"),
     ("no_affected_tests", "--no-affected-tests", "bool"),
@@ -1037,6 +1553,10 @@ def _child_tail_argv(args: argparse.Namespace) -> list[str]:
     tail: list[str] = []
     if getattr(args, "max_steps", None) is not None:
         tail += ["--max-steps", str(args.max_steps)]
+    # --max-episodes carries a value where 0 (explicit unlimited) is falsy, so
+    # it rides here with the max_steps `is not None` idiom, not the flag table.
+    if getattr(args, "max_episodes", None) is not None:
+        tail += ["--max-episodes", str(args.max_episodes)]
     if getattr(args, "mode", None):
         tail += ["--mode", args.mode]
     tui = getattr(args, "tui", None)
@@ -1204,6 +1724,17 @@ def cmd_work(args: argparse.Namespace) -> int:
         return _cmd_work_background(args, repo, json_mode)
 
     _arm_watch(args, task, config)
+
+    # Episode chaining (indefinite-run t5): an armed run (--until-done, or
+    # until_done via COLLEAGUE_UNTIL_DONE / config.json — c21) dispatches
+    # through the chain loop, which owns handoff-once (c26) and verbatim
+    # inheritance (c28). An unarmed run takes the single-episode path below,
+    # byte-identical to today.
+    _, chain_armed = _resolve_chain_arming(args, config)
+    if chain_armed:
+        return _run_chain(
+            args, repo, engine, config, task, command_name=command_name or None, mode=mode
+        )
 
     # Delegate the full work orchestration to the shared helper, which records
     # the originating command on the result before every artifact write.
@@ -1415,6 +1946,28 @@ def _configure_work_parser(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--api-key", default=None, help="Override the engine API key.")
     p.add_argument("--max-steps", type=int, default=None, help="Override the loop step budget.")
+    p.add_argument(
+        "--until-done",
+        action="store_true",
+        dest="until_done",
+        help=(
+            "Chain bounded episodes until the task finishes ok (or the chain halts: "
+            "a non-continuable exit, no progress, or the episode cap). Each episode "
+            "is an ordinary work item with its own artifact; push/PR happens ONCE, "
+            "at chain end. Also via COLLEAGUE_UNTIL_DONE=1 or .colleague/config.json "
+            '{"until_done": true}.'
+        ),
+    )
+    p.add_argument(
+        "--max-episodes",
+        type=int,
+        default=None,
+        dest="max_episodes",
+        help=(
+            "Episode cap for an armed --until-done chain (default 5; 0 = unlimited). "
+            'Also via COLLEAGUE_MAX_EPISODES or .colleague/config.json {"max_episodes": N}.'
+        ),
+    )
     p.add_argument(
         "--cortex-only",
         action="store_true",

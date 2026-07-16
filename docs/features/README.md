@@ -59,6 +59,7 @@ colleague's skills from a peer, [learn-from.md](learn-from.md).
 | Capacity standard / fill-line | [capacity-standard.md](capacity-standard.md) | Proactive compact \| split \| finish-with-handoff decision before the window fills | runtime (no verb) |
 | Auto-split (too-large assignment) | [auto-split.md](auto-split.md) | Recommend splitting an over-large task into child work items | `subagents` loop tool |
 | Continue-working / finish | [continue-working.md](continue-working.md) | Resume past a stall; a clean summary survives to the exit | runtime (no verb) |
+| Indefinite run / episode chaining | [indefinite-run.md](indefinite-run.md) | Armed chaining past budget-exhausted exits with tree carry + handoff-once; ambient fill-line re-arm + validated compaction | `work`/`session --until-done`, `--max-episodes` |
 | Explore never wastes a run | [explore-never-wastes.md](explore-never-wastes.md) | Forced synthesis + honest `incomplete` status on an out-of-steps explore | runtime (no verb) |
 | Escalation (agtag continuation) | [escalation.md](escalation.md) | File one tracked agtag issue on abort / step-budget exhaustion | opt-in via `COLLEAGUE_ESCALATE` |
 

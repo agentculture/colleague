@@ -205,7 +205,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
         command_name: str | None = None,
         tui: bool | None = None,
         tui_events: str | None = None,
-        progress_sink: object = None,
+        display: object = None,
         mode: str | None = None,
     ) -> tuple[TaskResult, Path]:
         result, art_path = execute_work(
@@ -217,8 +217,7 @@ def test_session_and_drive_yield_same_result_shape(tmp_path: Path) -> None:
             config=config,
             allow_dirty=allow_dirty,
             command_name=command_name,
-            display=DisplayOptions(tui=tui, tui_events=tui_events),
-            progress_sink=progress_sink,
+            display=display or DisplayOptions(tui=tui, tui_events=tui_events),
             mode=mode,
         )
         captured_results.append(result)
@@ -529,7 +528,7 @@ def test_session_failed_step_surfaces_error_popup(tmp_path: Path) -> None:
     (the in-session sink shares the session's state); visible in the ANSI frame."""
 
     def _failing(**kwargs: object) -> tuple[TaskResult, Path]:
-        sink = kwargs["progress_sink"]
+        sink = kwargs["display"].sink  # the S107 bundle carries the session sink
         sink(0, "run_command", "pytest -q", False)  # a failed step
         sink.close()
         return TaskResult(task_id="x", status=OK, summary="done"), tmp_path / "art.json"

@@ -77,22 +77,34 @@ def _now_iso() -> str:
 
 @dataclass
 class Feedback:
-    """One quality grade for a work item (single record per ``task_id``)."""
+    """One quality grade for a work item (single record per ``task_id``).
+
+    When ``chain`` is ``True``, this record was written as part of a
+    chain-aware grade (:func:`grade_chain`) that walked the
+    ``continued_from`` lineage.
+    """
 
     task_id: str
     rating: int
     notes: str = ""
     by: str = ""
     at: str = ""
+    chain: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        # ``chain`` is omit-when-False: an ordinary (non-chain) grade keeps the
+        # exact persisted shape the contract doc pins (test_contract_doc.py) —
+        # only chain-graded records carry the marker.
+        data: dict[str, Any] = {
             "task_id": self.task_id,
             "rating": self.rating,
             "notes": self.notes,
             "by": self.by,
             "at": self.at,
         }
+        if self.chain:
+            data["chain"] = True
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Feedback":
@@ -102,6 +114,7 @@ class Feedback:
             notes=str(data.get("notes", "")),
             by=str(data.get("by", "")),
             at=str(data.get("at", "")),
+            chain=bool(data.get("chain", False)),
         )
 
 
@@ -218,6 +231,72 @@ def write_feedback(
         json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return record
+
+
+def grade_chain(
+    repo_path: str | Path,
+    task_id: str,
+    *,
+    rating: int,
+    notes: str = "",
+    by: str = "",
+    at: str | None = None,
+) -> list[Feedback]:
+    """Grade every episode in a ``continued_from`` chain, starting from ``task_id``.
+
+    Walks the lineage backwards through ``continued_from`` links, writing a
+    feedback record for each episode.  Cycles are detected via a visited-set
+    (the walk stops cleanly).  A missing artifact also stops the walk
+    (no crash).
+
+    Returns the list of :class:`Feedback` records written, ordered from the
+    tail (``task_id``) back through the chain.  Each record carries
+    ``chain=True`` so callers can distinguish chain-graded records from
+    standalone grades.
+    """
+    records: list[Feedback] = []
+    visited: set[str] = set()
+
+    current_id: str | None = task_id
+    while current_id is not None:
+        if current_id in visited:
+            break  # cycle detected — stop cleanly
+        visited.add(current_id)
+
+        # Resolve the artifact for this episode.
+        artifact_path = find_artifact(repo_path, current_id)
+        if artifact_path is None:
+            break  # missing artifact — stop cleanly
+
+        # Write feedback for this episode.
+        record = write_feedback(
+            repo_path,
+            current_id,
+            rating=rating,
+            notes=notes,
+            by=by,
+            at=at,
+        )
+        record.chain = True
+        # Re-write with the chain marker so the persisted record carries it.
+        path = feedback_path(repo_path, current_id)
+        path.write_text(
+            json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        records.append(record)
+
+        # Walk to the next ancestor.
+        try:
+            data = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            break
+        parent = data.get("continued_from")
+        if not isinstance(parent, str) or not parent:
+            break
+        current_id = parent
+
+    return records
 
 
 def read_feedback(repo_path: str | Path, task_id: str) -> Optional[Feedback]:

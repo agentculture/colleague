@@ -17,10 +17,13 @@ When prompt tokens cross `COLLEAGUE_FILLLINE_THRESHOLD` (on
 `EngineConfig.fillline_threshold`, default `0.8`) of the budget, the loop injects
 one structured decision prompt with the capacity numbers. The model's next action
 declares the move, recorded on `TaskResult.capacity_decision` (`{kind, reason}`,
-omit-when-None):
+omit-when-None; the singular field records the most recent crossing's decision):
 
 - **compact** — a bounded model-authored summary turn replaces the working
-  history, preserving the head `messages[:2]`. On its own overflow it falls back
+  history, preserving the head `messages[:2]`. The summary is **validated**
+  before it replaces history (`validate_compaction`, deterministic: goal +
+  changed-file evidence appended when missing; an empty note is rejected —
+  see [indefinite-run](indefinite-run.md)). On its own overflow it falls back
   to lossy windowing (the documented floor). This is the deliberate v0→v1
   graduation: it supersedes the old "no LLM-generated summary in v0" rule,
   recorded honestly.
@@ -29,8 +32,15 @@ omit-when-None):
 - **finish-with-handoff** — a `finish` records the continuation summary via the
   existing preserve-partial path.
 
-The fill-line fires **at most once per work item** (the singular
-`capacity_decision`); repeated compaction is a documented follow-up.
+The fill-line fires **per crossing of the line** (the indefinite-run arc
+superseded v1's "at most once per work item"): a resolved offer re-arms once
+the run drops back under the line, so a long run can compact repeatedly. Total
+compaction turns are bounded by `DEFAULT_COMPACTION_CAP = 4` per run — a
+module constant today, not yet an operator config knob (`cap <= 0` = unlimited
+by convention); the cap reached suppresses further offers, recorded once on
+`TaskResult.capacity_warning` plus a phase notice, never silent. Lossy
+windowing remains the floor. Detail:
+[indefinite-run.md](indefinite-run.md).
 
 ## The "too big for one repo" warning (`colleague/capacity.py`)
 
@@ -50,7 +60,8 @@ across repos/instances.
 
 ## Key files
 
-- `colleague/fillline.py` — the pure decision helpers + `apply_compaction`.
+- `colleague/fillline.py` — the pure decision helpers + `apply_compaction` +
+  `validate_compaction` + `DEFAULT_COMPACTION_CAP`.
 - `colleague/capacity.py` — the coarse complexity assessment.
 - `colleague/loop.py` — injection + `_compact_history` + the decision wiring.
 
@@ -58,3 +69,5 @@ across repos/instances.
 
 - [`docs/specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md`](../specs/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md)
 - [`docs/plans/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md`](../plans/2026-06-06-colleague-holds-a-standard-for-its-own-capacity-it.md)
+- Superseding arc (per-crossing re-arm + validation + episode chaining):
+  [`docs/features/indefinite-run.md`](indefinite-run.md)
