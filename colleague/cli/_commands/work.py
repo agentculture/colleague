@@ -596,6 +596,29 @@ class ChainEpisodeOptions:
     prior_changed: tuple[str, ...] = ()
 
 
+def _arm_chain_dispatch(config: EngineConfig, chain: "ChainEpisodeOptions | None") -> str | None:
+    """Stamp the chain-episode dispatch marker; return the episode base_ref (#335, c22).
+
+    Keyed on ``chain``'s PRESENCE for THIS call, never on ``config.until_done``
+    — set unconditionally (including the ``False``/``()`` branch) so a config
+    object reused across dispatches (the session's one long-lived
+    ``EngineConfig``) never leaks a prior chained call's marker onto a later
+    unchained one. A subagent child never sees a ``True`` value regardless:
+    ``run_subagent`` resets both fields on the child config it builds via
+    ``dataclasses.replace``. Returns ``chain.base_ref`` (the prior episode's
+    ``colleague/<id>`` tip, c6) for :func:`_setup_isolation`, ``None`` for an
+    unchained dispatch or the chain's first episode. Extracted from
+    :func:`execute_work` to keep its cognitive complexity under the S3776
+    ceiling (the :func:`_moded_config` precedent; PR #338 Sonar catch).
+    """
+    config.chain_episode = chain is not None
+    if chain is None:
+        config.chain_prior_changed = ()
+        return None
+    config.chain_prior_changed = chain.prior_changed
+    return chain.base_ref
+
+
 def _build_run_presence(
     *, task: Task, config: EngineConfig, engine, external_sink
 ) -> "tuple[object | None, bool]":
@@ -748,21 +771,13 @@ def execute_work(
     # caller (session explore/review, ask-colleague) inherits it identically.
     read_only_role = is_read_only(getattr(config, "role", None))
     _guard_clean_tree(repo, allow_dirty=allow_dirty or read_only_role)
+    episode_base_ref = _arm_chain_dispatch(config, chain)
     work_repo, base_sha, worktree_path, task = _setup_isolation(
-        repo, task, isolate, base_ref=chain.base_ref if chain else None
+        repo, task, isolate, base_ref=episode_base_ref
     )
     # Memory targets the OPERATOR repo (spec R1 / plan t2): an isolated run's
     # worktree is reaped after handoff, so a lesson written there would be lost.
     config.memory_root = str(repo)
-    # Chain-episode dispatch marker (#335, c22): keyed on ``chain``'s PRESENCE
-    # for THIS call, never on ``config.until_done`` — set unconditionally
-    # (including the False/() branch) so a config object reused across
-    # dispatches (the session's one long-lived EngineConfig) never leaks a
-    # prior chained call's marker onto a later unchained one. A subagent
-    # child never sees a True value regardless: run_subagent resets both
-    # fields on the child config it builds via dataclasses.replace.
-    config.chain_episode = chain is not None
-    config.chain_prior_changed = chain.prior_changed if chain is not None else ()
     # Interruption safety (#222): on the isolated path, a SIGTERM (a caller's
     # `timeout`) / Ctrl-C now commits the model's WIP to colleague/<id> before the
     # process exits, instead of stranding it as uncommitted files in an orphan

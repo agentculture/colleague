@@ -3476,6 +3476,43 @@ def _gate_changed_set(ctx: _Work) -> list[str]:
     return sorted(path for path in union if (root / path).exists())
 
 
+def _run_pre_finish_gates(
+    ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
+) -> None:
+    """Run the four pre-finish gates — or record their chain deferral (#335, c8/c10).
+
+    A chain episode exiting on a continuation shape (budget-exhausted, or a
+    declared fill-line finish-with-handoff — the SAME signals
+    ``colleague/chain.py`` continues on) skips the gates: the next episode
+    rewrites this tree, so mid-chain gates would spend per-episode budget
+    grading intermediate state. Recorded ONCE per episode on the artifact (the
+    :func:`_record_fillline_cap` precedent) — never silent. The chain's FINAL
+    (finish-shaped) episode runs them over union(this episode's changed,
+    prior_changed) via :func:`_gate_changed_set` (c23), keeping the live-loop
+    fix-turn / re-examine paths intact — the post-hoc gate shape was rejected
+    for exactly that loss. A non-chained run never defers (byte-identical),
+    incl. an ``until_done`` run without a chain dispatch and every subagent
+    child (c22). Each gate keeps its own aborted guard + best-effort wrapping
+    (it can never abort :func:`run`); ordering is load-bearing — coherence,
+    test-integrity, and affected-tests all grade the lint-fixed changed set.
+    Extracted from :func:`run` so the deferral branch keeps ``run()`` under
+    the S3776 cognitive-complexity ceiling (the PR #338 Sonar catch).
+    """
+    if _gates_deferred_to_chain(ctx, outcome, aborted):
+        _record_gate_deferral(ctx)
+        return
+    # Lint (#200): auto-fix changed files; residual reporter violations after a
+    # clean finish get ONE bounded model fix-turn per remaining retry.
+    _maybe_run_lint_gate(ctx, complete, outcome, aborted)
+    # Coherence (#294, colleague#291 S3): score the changed .md files; warn-only.
+    _maybe_run_coherence_gate(ctx, aborted)
+    # Test-integrity (#203): flag the mirror signature; advisory + non-blocking.
+    _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
+    # Affected-tests (#213): run the tests transitively importing the changed
+    # module(s); advisory + non-blocking.
+    _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
+
+
 def _maybe_run_lint_gate(
     ctx: _Work, complete: CompleteFn, outcome: str, aborted: Exception | None
 ) -> None:
@@ -4278,51 +4315,12 @@ def run(
     # ephemeral (a no-op when the work item was not a flight).
     _reap_flight(ctx)
 
-    # Chain-episode gate deferral (#335, c8/c10): a chain episode exiting on a
-    # continuation shape (budget-exhausted, or a declared fill-line
-    # finish-with-handoff — the SAME signals colleague/chain.py continues on)
-    # skips the four pre-finish gates: the next episode rewrites this tree, so
-    # mid-chain gates would spend per-episode budget grading intermediate state.
-    # Recorded ONCE per episode on the artifact (the _record_fillline_cap
-    # precedent) — never silent. The chain's FINAL (finish-shaped) episode runs
-    # them over union(this episode's changed, prior_changed) via
-    # _gate_changed_set (c23), keeping the live-loop fix-turn / re-examine paths
-    # intact — the post-hoc gate shape was rejected for exactly that loss. A
-    # non-chained run never defers (byte-identical), incl. an until_done run
-    # without a chain dispatch and every subagent child (c22).
-    if _gates_deferred_to_chain(ctx, outcome, aborted):
-        _record_gate_deferral(ctx)
-    else:
-        # Pre-finish lint gate (#200): on a NON-aborted exit, run the repo's configured
-        # linters on the changed files and auto-fix what they can; if reporter violations
-        # remain after a clean finish, inject ONE bounded model fix-turn (capped by
-        # lint_fix_retries). Runs BEFORE the changed_files snapshot + stats below so any
-        # fix-turn edits are captured. Non-blocking: the handoff always proceeds. The
-        # aborted guard + the best-effort wrapping live in the helper (so it can never
-        # abort run(), #209 review) — call it unconditionally to keep run() flat.
-        _maybe_run_lint_gate(ctx, complete, outcome, aborted)
-
-        # Pre-finish coherence gate (#294, colleague#291 S3): on a NON-aborted exit,
-        # score the changed .md files via the coherence CLI and record the result on
-        # result.coherence_report (omit-when-None). Advisory + warn-only — no fix-turn,
-        # never blocks the handoff; runs after the lint gate so it sees the lint-fixed
-        # changed set. The aborted guard + best-effort wrapping live in the helper so
-        # it can never abort run().
-        _maybe_run_coherence_gate(ctx, aborted)
-
-        # Pre-finish test-integrity gate (#203): on a NON-aborted exit, flag the mirror
-        # signature on the changed files and record it on result.test_integrity_report.
-        # Advisory + non-blocking (never blocks the handoff, no network); the aborted
-        # guard + best-effort wrapping live in the helper so it can never abort run().
-        # Runs after the lint gate so it sees the lint-fixed changed set.
-        _maybe_run_test_integrity_gate(ctx, complete, outcome, aborted)
-
-        # Pre-finish affected-tests gate (#213): on a NON-aborted exit, run the tests
-        # that (transitively) import the changed module(s) and record the outcome on
-        # result.affected_tests_report. Advisory + non-blocking; runs after lint +
-        # test-integrity so it sees their fixed changed set. The aborted guard +
-        # best-effort wrapping live in the helper so it can never abort run().
-        _maybe_run_affected_tests_gate(ctx, complete, outcome, aborted)
+    # Pre-finish gates — or their chain deferral (#335): the branch lives in
+    # _run_pre_finish_gates (its docstring carries the full contract), keeping
+    # run() flat under the S3776 ceiling. Runs BEFORE the changed_files
+    # snapshot + stats below so any fix-turn edits are captured; the handoff
+    # always proceeds.
+    _run_pre_finish_gates(ctx, complete, outcome, aborted)
 
     # Deepthink tool-call records (t5 / spec c14): snapshot the executor's
     # accumulated records BEFORE the self-check (which may append its own), in
