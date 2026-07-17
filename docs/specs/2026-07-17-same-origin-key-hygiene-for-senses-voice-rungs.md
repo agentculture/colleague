@@ -48,6 +48,8 @@
 - verified by reading config.py:1972-1997 on main — resolved_api_key passes unconditionally into both fallback call sites while each role dials its own advertised endpoint
 - the threat model matches 347's: a compromised or misconfigured gateway advertising a foreign endpoint must not receive the operator's main Bearer token
 - the new tests are demonstrably red on main before the fix lands — not written green against the fixed tree only
+- on the reference rig (every role proxied at one gateway origin, cortex included) all discovered roles still inherit the main key — the anchor subtlety only bites when cortex itself advertises a foreign endpoint
+- a declared-path senses/voice config with a foreign base_url and no api_key key continues to send the main key there — pinned by the unchanged declared-path tests (c5/h5), and the docs describe inheritance as the declared-path default
 
 ## Success signals
 
@@ -65,6 +67,11 @@
 
 - resolution-layer only: no backend/engine/loop changes, so no all-engines divergence risk (mock and vllm-openai both consume the already-resolved EngineConfig); voice.py and livecheck.py consumers stay untouched under the single-api_key-field option
 
+## Assumptions
+
+- the _same_origin anchor is MAIN's dial target, which under full discovery is CORTEX's own advertised endpoint (_resolve_lobes_rung: lobes_base_url = _role_dial_base_url(lobes_roles.cortex, ...)), not the gateway origin — on a remote-cortex rig, gateway-proxied senses/voice roles are cross-origin vs main and get the default key even though the gateway is the host the operator's key was minted for; conservative in the safe direction, explicit arming covers it, and it is exact deepthink parity
+- the hygiene rule distinguishes WIRE-ADVERTISED from OPERATOR-DECLARED origins, not local from remote: a declared senses/voice base_url (with model) still inherits the main key via the preserved 'file or main' default (boundary c5) even when foreign — declaring the endpoint IS the operator's trust grant, exactly deepthink's landed semantics (_resolve_deepthink config.py:1135); after_state honesty h10's 'except by explicit operator declaration' must be read this way
+
 ## Scope exploration
 
 - `s1` — `colleague/config.py resolve() senses fallback (1972-1985) + _senses_from_lobes_role (586-608)`: passes resolved_api_key unconditionally to the discovered senses role while dialing the role's OWN endpoint (_role_dial_base_url) — the exact pre-#347 deepthink shape; no _same_origin check, no explicit-key consult
@@ -81,8 +88,22 @@
   - seeds: `c8`
 - `s7` — `docs/features/deepthink.md:63-68 + cortex-senses.md:66-85 + senses-live-presence.md:72`: deepthink.md carries the hygiene wording to mirror; cortex-senses.md line 76 and senses-live-presence.md line 72 both currently say api_key 'defaults to the MAIN api_key' with no cross-origin caveat — one line each
   - seeds: `c9`
+- `s8` — `challenge pass / adjacent-systems lens: config.py _resolve_lobes_rung main-anchor derivation`: lobes_base_url is cortex's own resolved dial target, so the hygiene anchor moves with cortex on cross-machine rigs; seeded the anchor assumption
+  - seeds: `c16`
+- `s9` — `challenge pass / counter-evidence lens: after_state h10 vs the declared path (_resolve_senses/_resolve_voice 'file or main')`: hunted counter-evidence to h10's absolute wording and found the declared path forwards the main key to declared foreign origins by design; seeded the declared-vs-advertised assumption
+  - seeds: `c17`
+- `s10` — `challenge pass / observability lens: voice.py transcribe/synthesize degrade paths + livecheck.py:72`: a 401 from a withheld key degrades to None plus ONE generic stderr notice (never raises), and the reachability probe explicitly grades 401 as server-up — so an auth-degraded role reads healthy to livecheck; routed as question q2
+- `s11` — `challenge pass / security lens: explicit-arming path endpoint trust (deepthink.md:63-68 + _deepthink_lobes_fallback)`: the explicit key follows whatever endpoint the gateway advertises — a known residual shared with the landed deepthink rung; parked as a follow-up docs caveat, not a blocker
+- `s12` — `challenge pass / concurrency lens: config.py resolve() + the new fallbacks`: clean pass — resolution is a pure single-threaded function with no locking or shared mutable state implicated; no concurrency surface in this change
+- `s13` — `challenge pass / lifecycle lens: upgrade path for existing cross-origin rigs`: a rig where the main key happens to be valid on a foreign advertised host degrades on upgrade from working calls to notice-level 401s; parked as unknown_nonblocking (no evidence any deployed rig depends on it — spark+thor proofs used same-origin proxying or explicit keys)
 
 ## Decisions
 
 - the voice rung uses the conservative single-field rule: main key inherited only when every armed role's dial target passes _same_origin vs main; any cross-origin armed role means the whole VoiceConfig resolves _DEFAULT_API_KEY, with COLLEAGUE_VOICE_API_KEY / config.json voice.api_key as the explicit arming path; the per-role stt_api_key/tts_api_key split is a documented follow-up, not built here
   - instruction: pin with a mixed-origin test: stt same-origin + tts cross-origin resolves api_key=_DEFAULT_API_KEY; note the follow-up in the voice docs line
+- the withheld-key case stays silent at resolution, mirror-exact with the landed deepthink rung — no notice lands in this change; a follow-up issue covers a unified withheld-key notice for all three discovery rungs and the livecheck.py:72 401-as-up nuance
+  - instruction: file the follow-up issue on agentculture/colleague before the PR opens and cite it from the PR body
+
+## Open / follow-up
+
+- consider a docs caveat that the explicit arming key (env or model-less section) still follows the WIRE-ADVERTISED endpoint — an operator who needs the endpoint pinned must use the fully-declared path (model + base_url + api_key); deepthink.md:63-68 carries no such caveat today, so adding one is a three-docs sweep, not part of this change
