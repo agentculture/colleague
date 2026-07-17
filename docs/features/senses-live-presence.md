@@ -96,9 +96,9 @@ cross-origin voice rung, declare the key explicitly
 even without a declared model); a wrong or absent key degrades visibly at the
 next transcribe/synthesize call, never fails the run. A per-role
 `stt_api_key`/`tts_api_key` split — letting one role inherit while a
-cross-origin sibling is withheld — is a named follow-up, not built, tracked
-alongside the unified withheld-key notice at
-[#349](https://github.com/agentculture/colleague/issues/349).
+cross-origin sibling is withheld — is a named follow-up, not built; a
+unified withheld-key stderr notice across all three discovery rungs is
+tracked as [#349](https://github.com/agentculture/colleague/issues/349).
 
 ## Two audiences, one flight plane
 
