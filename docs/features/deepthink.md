@@ -20,11 +20,11 @@ purely by operator config, from one installed colleague:
   being either/or, and the diversity between the two minds is itself a safety
   net — two models miss differently.
 
-The reference rig ("lobes") pairs **Gemma 4** (multimodal, 128K context,
-~28 tps) as main driver with **Qwen 3.6 27B** (64K context, stronger reasoner)
-as deepthink. Nothing hard-codes those names: any pair of OpenAI-compatible
-endpoints works, through the same `vllm-openai` adapter — retargeting is a
-config change, never a code change.
+The reference rig ("lobes") serves **Qwen3.6-27B** as main driver and
+**Gemma-4-31B** on thor (via the gateway muse proxy) as the deepthink reasoner,
+both with 256K windows. Nothing hard-codes those names: any pair of
+OpenAI-compatible endpoints works, through the same `vllm-openai` adapter —
+retargeting is a config change, never a code change.
 
 ## Configuration
 
@@ -50,6 +50,15 @@ chain: `COLLEAGUE_DEEPTHINK_*` env (legacy `CONVERTIBLE_DEEPTHINK_*` honored)
 Env equivalents: `COLLEAGUE_DEEPTHINK_MODEL`, `COLLEAGUE_DEEPTHINK_BASE_URL`,
 `COLLEAGUE_DEEPTHINK_API_KEY`, `COLLEAGUE_DEEPTHINK_CONTEXT_BUDGET`. The
 resolved block is visible (api_key redacted) via `colleague config show`.
+
+### Discovered from lobes (the muse role)
+
+With a lobes gateway configured and no deepthink declared via env or
+`config.json`, `EngineConfig.resolve()` fills the deepthink target from the
+gateway's advertised muse role — muse's own endpoint, the main `api_key`, and a
+`context_budget` derived from the role's advertised window at the same
+48000/65536 ratio the built-in default encodes. Env and `config.json` always
+win. No lobes or no muse role means no deepthink (byte-identical).
 
 ## The enumerated escalation surface
 
@@ -107,7 +116,7 @@ paths complete against the main model even under dual config.
 The historically out-of-scope **multi-model router / routing policy** is still
 out of scope. This feature moves the line exactly this far and no further:
 
-- **ONE** operator-declared second model — no N-model generalization;
+- **ONE** operator-declared second model — or alternatively discovered from the lobes muse role — no N-model generalization; a resolution rung only, the sixth sanctioned increment;
 - a **fixed, enumerated** escalation surface (above) — no automatic task→model
   routing policy, no per-task selection heuristics; the only "decision maker"
   is the main model's own backend-judged use of the `deepthink` tool;
