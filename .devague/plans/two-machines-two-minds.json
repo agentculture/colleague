@@ -5,7 +5,7 @@
   "schema_version": 3,
   "status": "exported",
   "created": "2026-07-17T13:13:10Z",
-  "updated": "2026-07-17T13:20:08Z",
+  "updated": "2026-07-17T13:23:18Z",
   "targets": [
     {
       "id": "c1",
@@ -273,8 +273,8 @@
       "text": "thor's real serving window for the 31B is unverified (advertised 262144; thor /v1/models reports max_model_len None) \u2014 t1 resolves it before any budget is trusted",
       "kind": "unknown_nonblocking",
       "task_id": "t1",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "verified 2026-07-17 from the serving side: thor's vLLM rejects over-ask with max_model_len=max_total_tokens=262144 (identical direct :8000 and via gateway muse proxy); deepthink context_budget sized 192000 (the 73.2 percent deepthink-precedent ratio of 262144, quarter reserved for completion)"
     },
     {
       "id": "r2",

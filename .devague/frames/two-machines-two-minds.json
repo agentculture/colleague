@@ -4,7 +4,7 @@
   "schema_version": 3,
   "status": "exported",
   "created": "2026-07-17T12:51:51Z",
-  "updated": "2026-07-17T13:12:15Z",
+  "updated": "2026-07-17T13:23:23Z",
   "claims": [
     {
       "id": "c1",
@@ -279,8 +279,8 @@
       "text": "context_budget for a thor-backed deepthink: muse and cortex BOTH advertise 262144 now (deepthink.md's 128K-main/64K-deepthink numbers are stale), and the deepthink default budget of 48000 would undersize a 256K thinker window; but the known proxied-role gap (senses once advertised the proxy-local 32K instead of the host's real window) says verify thor's actual serving config before trusting the advertised number",
       "kind": "unknown_nonblocking",
       "claim_id": null,
-      "resolved": false,
-      "resolution": "",
+      "resolved": true,
+      "resolution": "verified 2026-07-17: thor's vLLM itself reports max_model_len=262144 for the 31B (over-ask rejection, direct and via gateway) \u2014 the advertised /capabilities number is host truth here; budget sized 192000 per the deepthink ratio",
       "resolution_claim_id": null
     }
   ],
