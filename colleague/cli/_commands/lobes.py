@@ -9,7 +9,8 @@ ready, responsibilities), and the degradation rung actually in effect:
 ``not_configured`` (unarmed), ``armed_reachable``, or ``armed_unreachable``.
 Each role's ``ready`` is labeled with its ``ready_kind`` (``colleague/lobes.py``'s
 :func:`~colleague.lobes.ready_kind`) — ``"config-proxy"`` for cortex/senses/muse
-(``ready == loaded``, never an actual liveness probe) vs ``"live-probed"`` for
+(gateway-local bookkeeping, not a liveness probe; ``ready`` and ``loaded`` may
+diverge for proxied roles; see lobes-cli issue 146) vs ``"live-probed"`` for
 stt/tts (lobes-cli#89, 0.38.0: the gateway's realtime bridge health-checks the
 audio backend itself) — so an operator never conflates the two. ``muse`` is
 shown as a plain resolved role only (two-machines-two-minds arc, task t4);
