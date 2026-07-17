@@ -58,8 +58,9 @@ is a separate, later integration step — not part of this change.
 
 **``ready`` semantics differ by role (lobes-cli#89, closed in 0.38.0).** For
 ``cortex``/``senses``/``embedder``/``reranker``, the gateway's ``ready`` is a
-CONFIG PROXY: ``ready == loaded`` (the model is loaded into the serving
-process), never an actual per-request liveness probe. For ``stt``/``tts``,
+CONFIG PROXY: readiness is gateway-local bookkeeping, not a liveness probe;
+``ready`` and ``loaded`` may diverge for proxied roles (see lobes-cli issue
+146). For ``stt``/``tts``,
 0.38.0 made ``ready`` LIVE-PROBE-BACKED via the realtime bridge's own health
 check — a warming audio backend now answers HTTP 503 with a ``Retry-After``
 header instead of a bare 502 (see ``colleague/voice.py``'s bounded warming
@@ -97,7 +98,8 @@ _RESOLVED_ROLES = ("cortex", "senses")
 
 #: Roles whose ``ready`` is LIVE-PROBE-BACKED (lobes-cli#89, 0.38.0) — the
 #: gateway's realtime bridge health-checks the audio backend itself. Every
-#: other role's ``ready`` is a CONFIG PROXY (``ready == loaded``): see
+#: other role's ``ready`` is a CONFIG PROXY (gateway-local bookkeeping;
+#: ``ready`` and ``loaded`` may diverge for proxied roles): see
 #: :func:`ready_kind`.
 _LIVE_PROBED_READY_ROLES = frozenset({"stt", "tts"})
 
@@ -331,11 +333,9 @@ def ready_kind(role_name: str) -> str:
     actual reachability (a warming backend answers 503 + ``Retry-After``
     instead, see ``colleague/voice.py``). Returns ``"config-proxy"`` for every
     other role (``cortex``, ``senses``, ``embedder``, ``reranker``, ``muse``,
-    or any future/unknown name): ``ready == loaded``, true once the model is
-    loaded into the serving process — never an actual per-request liveness
-    probe. This holds even when the role is itself a gateway-side proxy to a
-    second machine (``muse``): its ``ready``/``loaded`` flags are
-    gateway-local bookkeeping, not a live reachability probe of the proxied
-    host. Never conflate the two when surfacing ``ready`` to an operator.
+    or any future/unknown name): config-proxy readiness is gateway-local
+    bookkeeping, not a liveness probe; ``ready`` and ``loaded`` may diverge
+    for proxied roles (see lobes-cli issue 146). Never conflate the two when
+    surfacing ``ready`` to an operator.
     """
     return "live-probed" if role_name in _LIVE_PROBED_READY_ROLES else "config-proxy"
