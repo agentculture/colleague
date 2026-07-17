@@ -140,6 +140,46 @@ REAL_CAPABILITIES_PAYLOAD: dict[str, object] = {
 
 
 # ---------------------------------------------------------------------------
+# The real, live-probed ``muse`` role payload (two-machines-two-minds arc,
+# task t4). Kept separate from REAL_CAPABILITIES_PAYLOAD (which stays pinned
+# to its own "six roles" docstring) so muse's present/absent/malformed tests
+# below don't perturb the existing suite. Carries the two NEW wire fields the
+# live gateway also advertises (``feasible``, ``hosted_by``, plus ``proxied``)
+# ONLY to prove RoleInfo's superset tolerance — this task deliberately does
+# NOT parse them (see colleague/lobes.py's docstring and _parse_role).
+# ---------------------------------------------------------------------------
+
+MUSE_ROLE_PAYLOAD: dict[str, object] = {
+    "role": "muse",
+    "model": "nvidia/Gemma-4-31B-IT-NVFP4",
+    "runtime": "vllm",
+    "endpoint": "http://localhost:8001",
+    "path": "/v1/chat/completions",
+    "context": 262144,
+    "quant": "modelopt",
+    "mtp": True,
+    "responsibilities": [
+        "creative_generation",
+        "long_form_writing",
+        "ideation",
+        "style_variation",
+        "divergent_second_opinion",
+    ],
+    "forbidden_responsibilities": [
+        "final_decision",
+        "repo_action",
+        "security_decision",
+    ],
+    "ready": True,
+    "loaded": False,
+    # Unparsed-on-purpose (t4 instruction): a future task's territory.
+    "feasible": False,
+    "hosted_by": "thor.tail0be7e0.ts.net:8000",
+    "proxied": True,
+}
+
+
+# ---------------------------------------------------------------------------
 # A tiny in-process HTTP server (stdlib http.server) so tests exercise the
 # real urllib transport, not a monkeypatched stand-in, for the shape-parsing
 # scenarios. Timeout/connection-refused scenarios use a real dead port
@@ -267,6 +307,86 @@ def test_resolve_roles_keeps_embedder_none_when_fixture_omits_it() -> None:
         result = resolve_roles(url)
     assert result is not None
     assert result.embedder is None
+
+
+# ---------------------------------------------------------------------------
+# muse (two-machines-two-minds arc, task t4): an OPTIONAL role, resolved with
+# the exact same present/absent/malformed contract as stt/tts/embedder — its
+# absence or malformed shape never fails resolve_roles, which stays mandatory
+# only for cortex/senses.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_roles_parses_muse_role_when_present() -> None:
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": MUSE_ROLE_PAYLOAD}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+
+    assert result is not None
+    assert result.muse is not None
+    assert result.muse.model == "nvidia/Gemma-4-31B-IT-NVFP4"
+    assert result.muse.endpoint == "http://localhost:8001"
+    assert result.muse.path == "/v1/chat/completions"
+    assert result.muse.context == 262144
+    assert result.muse.ready is True
+    assert result.muse.responsibilities == (
+        "creative_generation",
+        "long_form_writing",
+        "ideation",
+        "style_variation",
+        "divergent_second_opinion",
+    )
+    assert result.muse.forbidden_responsibilities == (
+        "final_decision",
+        "repo_action",
+        "security_decision",
+    )
+
+
+def test_resolve_roles_keeps_muse_none_when_absent() -> None:
+    """The six-role REAL_CAPABILITIES_PAYLOAD carries no muse key at all —
+    absence never fails resolution (mirrors stt/tts/embedder)."""
+    with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.muse is None
+
+
+def test_resolve_roles_keeps_muse_none_on_malformed_payload() -> None:
+    """A muse dict present but missing an expected field degrades muse to
+    None without failing the whole resolution (like a malformed stt/tts)."""
+    broken_muse = dict(MUSE_ROLE_PAYLOAD)
+    del broken_muse["context"]
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": broken_muse}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.muse is None
+
+
+def test_resolve_roles_keeps_muse_none_when_not_a_dict() -> None:
+    """A muse value that isn't even a dict (e.g. a bare string) degrades to
+    None, never raises, never fails resolution."""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": "not-a-dict"}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.muse is None
+
+
+def test_resolve_roles_tolerates_muse_unknown_wire_fields() -> None:
+    """RoleInfo stays a tolerant superset reader (t4 instruction): the live
+    muse payload's new, deliberately-unparsed fields (feasible, hosted_by,
+    proxied) must not break parsing nor leak onto RoleInfo."""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": MUSE_ROLE_PAYLOAD}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.muse is not None
+    assert not hasattr(result.muse, "feasible")
+    assert not hasattr(result.muse, "hosted_by")
+    assert not hasattr(result.muse, "proxied")
+    assert not hasattr(result.muse, "loaded")
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +540,29 @@ def test_resolve_role_base_url_falls_back_to_gateway_origin_when_endpoint_empty(
     assert resolve_role_base_url(result.stt, url) == url
 
 
+def test_resolve_role_base_url_uses_muse_own_endpoint_when_present() -> None:
+    """muse dials its OWN advertised endpoint (thor, via the gateway proxy),
+    not the gateway origin used to serve /capabilities — the identical
+    per-role dial contract every other resolved role gets."""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": MUSE_ROLE_PAYLOAD}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.muse is not None
+    assert resolve_role_base_url(result.muse, url) == "http://localhost:8001"
+
+
+def test_resolve_role_base_url_falls_back_to_gateway_origin_for_muse_when_endpoint_empty() -> None:
+    """An unwired muse (empty endpoint) falls back to the gateway origin —
+    same documented fallback as every other role."""
+    muse = dict(MUSE_ROLE_PAYLOAD)
+    muse["endpoint"] = ""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": muse}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None and result.muse is not None
+    assert resolve_role_base_url(result.muse, url) == url
+
+
 def test_resolve_role_base_url_rejects_disallowed_scheme_and_falls_back() -> None:
     """A role endpoint with a non-http(s) scheme is never dialed directly —
     the same SSRF guard :func:`resolve_roles` applies to the gateway URL
@@ -470,6 +613,12 @@ def test_ready_kind_is_config_proxy_for_embedder_and_reranker() -> None:
 def test_ready_kind_is_live_probed_for_stt_and_tts() -> None:
     assert ready_kind("stt") == "live-probed"
     assert ready_kind("tts") == "live-probed"
+
+
+def test_ready_kind_is_config_proxy_for_muse() -> None:
+    """muse's ``ready`` is a CONFIG PROXY, same as cortex/senses/embedder —
+    the gateway proxies it to another machine but never live-probes it."""
+    assert ready_kind("muse") == "config-proxy"
 
 
 # ---------------------------------------------------------------------------

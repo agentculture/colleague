@@ -4,10 +4,13 @@ re-synced to the lobes-cli 0.38.0 contract by colleague#292/291 S1).
 Colleague drives with two minds served behind one gateway: a **cortex** (the
 fast, wide-window reasoner that drives the tool loop) and **senses** (a
 tools-off front door — intake, normalization, intent classification). The
-gateway also serves four more roles today (``embedder``, ``reranker``,
-``stt``, ``tts``); colleague resolves ``cortex`` + ``senses`` (mandatory),
-``stt``/``tts`` (optional, voice-arc consumers), and, since the one-embedder
-increment (colleague#291/#292, task t19/S2), ``embedder`` (optional too) —
+gateway also serves more roles today (``embedder``, ``reranker``, ``stt``,
+``tts``, ``muse``); colleague resolves ``cortex`` + ``senses`` (mandatory),
+``stt``/``tts`` (optional, voice-arc consumers), since the one-embedder
+increment (colleague#291/#292, task t19/S2) ``embedder`` (optional too), and,
+since the two-machines-two-minds arc (task t4), ``muse`` (optional too — a
+second machine's reasoning model, proxied through the same gateway; resolved
+here as a plain role and NOT yet consumed anywhere, see :func:`ready_kind`) —
 ``reranker`` stays ignored (future follow-up territory, #277's retrieval lane).
 
 **The embedder is relayed, never consumed (S2).** Colleague itself never
@@ -88,8 +91,8 @@ _DEFAULT_TIMEOUT = 5.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 #: The roles colleague resolves. The gateway may serve more (embedder,
-#: reranker, stt, tts as of the 2026-07-03 live probe) — those are read and
-#: discarded, never an error.
+#: reranker, stt, tts, muse) — those are read and discarded unless resolved
+#: as an optional role below (stt/tts/embedder/muse), never an error.
 _RESOLVED_ROLES = ("cortex", "senses")
 
 #: Roles whose ``ready`` is LIVE-PROBE-BACKED (lobes-cli#89, 0.38.0) — the
@@ -123,11 +126,17 @@ class RoleInfo:
 class LobesRoles:
     """The cortex + senses metadata resolved from one gateway ``/capabilities`` call.
 
-    ``stt``, ``tts``, and ``embedder`` are OPTIONAL roles: their absence or
-    malformed shape leaves them ``None`` but does NOT cause :func:`resolve_roles`
-    to return ``None`` (unlike cortex/senses which are mandatory). ``embedder``
-    is parsed (S2, colleague#291/#292 task t19) but colleague never dials it
-    directly — see :func:`embed_env`.
+    ``stt``, ``tts``, ``embedder``, and ``muse`` are OPTIONAL roles: their
+    absence or malformed shape leaves them ``None`` but does NOT cause
+    :func:`resolve_roles` to return ``None`` (unlike cortex/senses which are
+    mandatory). ``embedder`` is parsed (S2, colleague#291/#292 task t19) but
+    colleague never dials it directly — see :func:`embed_env`. ``muse`` is
+    parsed the same way (two-machines-two-minds arc, task t4) — a second
+    machine's reasoning model, proxied through the same gateway — but this
+    task resolves it as a plain role only; nothing in colleague consumes it
+    yet (a later task wires it into deepthink discovery). ``RoleInfo`` stays a
+    tolerant superset reader: the live ``muse`` payload's newer wire fields
+    (``feasible``, ``hosted_by``, ``proxied``) are deliberately NOT parsed.
     """
 
     cortex: RoleInfo
@@ -135,6 +144,7 @@ class LobesRoles:
     stt: RoleInfo | None = None
     tts: RoleInfo | None = None
     embedder: RoleInfo | None = None
+    muse: RoleInfo | None = None
 
 
 def _parse_role(raw: object) -> RoleInfo | None:
@@ -195,6 +205,8 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
     unreachable gateway, connect/read timeout, a non-200 status,
     malformed/invalid JSON, a non-dict top-level body, or either the
     ``cortex`` or ``senses`` role being absent/malformed. **Never raises.**
+    ``stt``/``tts``/``embedder``/``muse`` are OPTIONAL — their absence or
+    malformed shape never fails this resolution.
 
     Re-resolves on every call — there is no disk cache (v1 decision: roles
     can flip ``ready``/``loaded`` between calls, and the gateway is cheap to
@@ -228,11 +240,12 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
             return None
         resolved[name] = role
 
-    # Voice roles (stt/tts) and the embedder are OPTIONAL: parse them but
-    # never fail resolution (the same rule for all three).
+    # Voice roles (stt/tts), the embedder, and muse are OPTIONAL: parse them
+    # but never fail resolution (the same rule for all four).
     stt_role = _parse_role(payload.get("stt"))
     tts_role = _parse_role(payload.get("tts"))
     embedder_role = _parse_role(payload.get("embedder"))
+    muse_role = _parse_role(payload.get("muse"))
 
     return LobesRoles(
         cortex=resolved["cortex"],
@@ -240,6 +253,7 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
         stt=stt_role,
         tts=tts_role,
         embedder=embedder_role,
+        muse=muse_role,
     )
 
 
@@ -316,9 +330,12 @@ def ready_kind(role_name: str) -> str:
     bridge health-checks the audio backend itself, so ``ready`` reflects
     actual reachability (a warming backend answers 503 + ``Retry-After``
     instead, see ``colleague/voice.py``). Returns ``"config-proxy"`` for every
-    other role (``cortex``, ``senses``, ``embedder``, ``reranker``, or any
-    future/unknown name): ``ready == loaded``, true once the model is loaded
-    into the serving process — never an actual per-request liveness probe.
-    Never conflate the two when surfacing ``ready`` to an operator.
+    other role (``cortex``, ``senses``, ``embedder``, ``reranker``, ``muse``,
+    or any future/unknown name): ``ready == loaded``, true once the model is
+    loaded into the serving process — never an actual per-request liveness
+    probe. This holds even when the role is itself a gateway-side proxy to a
+    second machine (``muse``): its ``ready``/``loaded`` flags are
+    gateway-local bookkeeping, not a live reachability probe of the proxied
+    host. Never conflate the two when surfacing ``ready`` to an operator.
     """
     return "live-probed" if role_name in _LIVE_PROBED_READY_ROLES else "config-proxy"
