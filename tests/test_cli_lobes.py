@@ -71,6 +71,22 @@ _TTS = RoleInfo(
     forbidden_responsibilities=(),
 )
 
+_MUSE = RoleInfo(
+    model="nvidia/Gemma-4-31B-IT-NVFP4",
+    endpoint="http://localhost:8001",
+    path="/v1/chat/completions",
+    context=262144,
+    ready=True,
+    responsibilities=(
+        "creative_generation",
+        "long_form_writing",
+        "ideation",
+        "style_variation",
+        "divergent_second_opinion",
+    ),
+    forbidden_responsibilities=("final_decision", "repo_action", "security_decision"),
+)
+
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -207,6 +223,60 @@ def test_lobes_show_text_names_ready_kind_when_voice_roles_present(
     out = capsys.readouterr().out.lower()
     assert "live-probed" in out
     assert "config-proxy" in out
+
+
+# ---------------------------------------------------------------------------
+# muse (two-machines-two-minds arc, task t4) — an OPTIONAL role like stt/tts:
+# absent by default, shown with its config-proxy ready-kind when advertised.
+# ---------------------------------------------------------------------------
+
+
+def test_lobes_show_muse_absent_by_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(_ENV_VAR, "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "colleague.cli._commands.lobes.resolve_roles",
+        lambda url, **kwargs: LobesRoles(cortex=_CORTEX, senses=_SENSES),
+    )
+    rc = main(["lobes", "show", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "muse" not in payload["roles"]
+
+
+def test_lobes_show_lists_muse_with_config_proxy_ready_kind(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(_ENV_VAR, "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "colleague.cli._commands.lobes.resolve_roles",
+        lambda url, **kwargs: LobesRoles(cortex=_CORTEX, senses=_SENSES, muse=_MUSE),
+    )
+    rc = main(["lobes", "show", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    roles = payload["roles"]
+    assert roles["muse"]["model"] == _MUSE.model
+    assert roles["muse"]["endpoint"] == "http://localhost:8001"
+    assert roles["muse"]["context"] == 262144
+    assert roles["muse"]["ready_kind"] == "config-proxy"
+
+
+def test_lobes_show_text_names_muse_when_present(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(_ENV_VAR, "http://127.0.0.1:59999")
+    monkeypatch.setattr(
+        "colleague.cli._commands.lobes.resolve_roles",
+        lambda url, **kwargs: LobesRoles(cortex=_CORTEX, senses=_SENSES, muse=_MUSE),
+    )
+    rc = main(["lobes", "show"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "muse" in out
+    assert _MUSE.model in out
+    assert "config-proxy" in out.lower()
 
 
 # ---------------------------------------------------------------------------
