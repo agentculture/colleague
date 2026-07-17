@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from colleague.config import EngineConfig, VoiceConfig
+from colleague.config import _DEFAULT_API_KEY, EngineConfig, VoiceConfig
 from colleague.lobes import LobesRoles, RoleInfo, resolve_roles
 
 # Every env var that can influence a voice resolve — cleared per test.
@@ -757,3 +757,181 @@ def test_voice_configured_alone_leaves_senses_none(
     cfg = EngineConfig.resolve()
     assert cfg.voice is not None
     assert cfg.senses is None
+
+
+# ---------------------------------------------------------------------------
+# api_key hygiene: the main key never crosses origins (colleague#348 t2,
+# mirrors the deepthink/senses discovery rungs' identical rule — the same
+# Qodo finding on colleague#347, extended here to voice). VoiceConfig keeps a
+# SINGLE api_key field (decision c15: no per-role stt_api_key/tts_api_key
+# split), so the rule is CONSERVATIVE: it takes EVERY armed role's dial
+# target into account, and a single cross-origin role sinks the whole
+# VoiceConfig to the no-auth default — never a half-armed per-field mix.
+# ---------------------------------------------------------------------------
+
+_MAIN_ORIGIN = "http://localhost:8000"
+_OTHER_ORIGIN = "http://other-host:9000"
+
+
+def _hygiene_roles(
+    *,
+    stt_endpoint: str | None = None,
+    tts_endpoint: str | None = None,
+) -> LobesRoles:
+    """A minimal LobesRoles fixture: cortex/senses always at _MAIN_ORIGIN;
+    stt/tts are armed (non-blank model) only when an endpoint is given —
+    mirrors the gateway omitting an unwired role entirely."""
+    stt_role = (
+        RoleInfo(
+            model="stt-hygiene-model",
+            endpoint=stt_endpoint,
+            path="/v1/audio/transcriptions",
+            context=0,
+            ready=True,
+            responsibilities=("transcribe",),
+            forbidden_responsibilities=(),
+        )
+        if stt_endpoint is not None
+        else None
+    )
+    tts_role = (
+        RoleInfo(
+            model="tts-hygiene-model",
+            endpoint=tts_endpoint,
+            path="/v1/audio/speech",
+            context=0,
+            ready=True,
+            responsibilities=("speech_output",),
+            forbidden_responsibilities=(),
+        )
+        if tts_endpoint is not None
+        else None
+    )
+    return LobesRoles(
+        cortex=RoleInfo(
+            model="cortex-hygiene-model",
+            endpoint=_MAIN_ORIGIN,
+            path="/v1/chat/completions",
+            context=131072,
+            ready=True,
+            responsibilities=("reasoning",),
+            forbidden_responsibilities=(),
+        ),
+        senses=RoleInfo(
+            model="senses-hygiene-model",
+            endpoint=_MAIN_ORIGIN,
+            path="/v1/chat/completions",
+            context=32768,
+            ready=True,
+            responsibilities=("intake",),
+            forbidden_responsibilities=(),
+        ),
+        stt=stt_role,
+        tts=tts_role,
+    )
+
+
+def _arm_lobes(monkeypatch: pytest.MonkeyPatch, roles: LobesRoles) -> None:
+    monkeypatch.setattr(
+        "colleague.lobes.resolve_roles",
+        lambda gateway_url, *, timeout=5.0: roles,
+    )
+    monkeypatch.setenv("COLLEAGUE_LOBES_URL", "http://gateway:8001")
+
+
+def test_cross_origin_stt_only_does_not_inherit_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An stt-only, cross-origin discovered voice role must not receive the
+    main Bearer token — it gets the no-auth default instead."""
+    _arm_lobes(monkeypatch, _hygiene_roles(stt_endpoint=_OTHER_ORIGIN))
+    monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+    cfg = EngineConfig.resolve()
+    assert cfg.voice is not None
+    assert cfg.voice.stt_model == "stt-hygiene-model"
+    assert cfg.voice.tts_model is None
+    assert cfg.voice.stt_base_url == f"{_OTHER_ORIGIN}/v1"
+    assert cfg.api_key == "main-secret-token"
+    assert cfg.voice.api_key == _DEFAULT_API_KEY
+    assert cfg.voice.api_key != cfg.api_key
+
+
+def test_cross_origin_tts_only_does_not_inherit_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same rule, mirrored onto a tts-only, cross-origin discovered role."""
+    _arm_lobes(monkeypatch, _hygiene_roles(tts_endpoint=_OTHER_ORIGIN))
+    monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+    cfg = EngineConfig.resolve()
+    assert cfg.voice is not None
+    assert cfg.voice.tts_model == "tts-hygiene-model"
+    assert cfg.voice.stt_model is None
+    assert cfg.voice.tts_base_url == f"{_OTHER_ORIGIN}/v1"
+    assert cfg.api_key == "main-secret-token"
+    assert cfg.voice.api_key == _DEFAULT_API_KEY
+    assert cfg.voice.api_key != cfg.api_key
+
+
+def test_all_armed_roles_same_origin_inherits_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both stt and tts share the main endpoint's origin (the reference
+    same-origin rig, everything proxied at one gateway) → VoiceConfig keeps
+    inheriting the main key."""
+    _arm_lobes(
+        monkeypatch,
+        _hygiene_roles(stt_endpoint=_MAIN_ORIGIN, tts_endpoint=_MAIN_ORIGIN),
+    )
+    monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+    cfg = EngineConfig.resolve()
+    assert cfg.voice is not None
+    assert cfg.voice.api_key == "main-secret-token"
+
+
+def test_mixed_origin_roles_resolves_default_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MIXED origins — stt same-origin, tts cross-origin — resolve the WHOLE
+    VoiceConfig to the no-auth default (decision c15). The conservative
+    single-field rule requires EVERY armed role to pass _same_origin; a lone
+    cross-origin role sinks the shared key, there is no per-field split to
+    fall back to."""
+    _arm_lobes(
+        monkeypatch,
+        _hygiene_roles(stt_endpoint=_MAIN_ORIGIN, tts_endpoint=_OTHER_ORIGIN),
+    )
+    monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+    cfg = EngineConfig.resolve()
+    assert cfg.voice is not None
+    assert cfg.voice.stt_base_url == f"{_MAIN_ORIGIN}/v1"
+    assert cfg.voice.tts_base_url == f"{_OTHER_ORIGIN}/v1"
+    assert cfg.api_key == "main-secret-token"
+    assert cfg.voice.api_key == _DEFAULT_API_KEY
+    assert cfg.voice.api_key != cfg.api_key
+
+
+def test_env_voice_api_key_arms_cross_origin_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """COLLEAGUE_VOICE_API_KEY arms a cross-origin discovered voice role — an
+    explicit declaration always wins over both inherit and default."""
+    _arm_lobes(monkeypatch, _hygiene_roles(stt_endpoint=_OTHER_ORIGIN))
+    monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+    monkeypatch.setenv("COLLEAGUE_VOICE_API_KEY", "voice-own-token")
+    cfg = EngineConfig.resolve()
+    assert cfg.voice is not None
+    assert cfg.voice.api_key == "voice-own-token"
+
+
+def test_config_file_voice_api_key_without_model_arms_cross_origin_role(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A config.json voice section carrying ONLY an api_key (no stt_model/
+    tts_model — so it declares no voice of its own) still supplies the key
+    to the discovered voice role, even cross-origin."""
+    _arm_lobes(monkeypatch, _hygiene_roles(tts_endpoint=_OTHER_ORIGIN))
+    _write_config(tmp_path, {"voice": {"api_key": "file-voice-token"}})
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.voice is not None
+    assert cfg.voice.tts_model == "tts-hygiene-model"
+    assert cfg.voice.api_key == "file-voice-token"
