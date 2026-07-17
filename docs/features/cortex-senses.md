@@ -111,6 +111,18 @@ makes ONE `GET /capabilities` call and:
   "every role dials the gateway origin" workaround is gone. See
   [Honest limits](#honest-limits) for what this does and doesn't cover.
 
+**api_key hygiene:** the main `api_key` is inherited only when the discovered
+senses role's dial target shares the main endpoint's origin (the reference
+rig: everything proxied at one gateway). A cross-origin senses gets the
+no-auth default instead — the main Bearer token is never forwarded to a host
+a wire payload advertised. To arm a cross-origin senses, declare the key
+explicitly (`COLLEAGUE_SENSES_API_KEY`, or a `config.json` `senses.api_key` —
+which works even without a declared model); a wrong or absent key degrades
+visibly at the next senses invocation, never fails the run. A unified
+withheld-key stderr notice across all three discovery rungs
+(deepthink/senses/voice) is a follow-up, tracked as
+[#349](https://github.com/agentculture/colleague/issues/349).
+
 Inspect the armed state, the resolved roles, and the degradation rung with
 **`colleague lobes show`** (`not_configured` / `armed_reachable` /
 `armed_unreachable`).

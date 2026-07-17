@@ -84,6 +84,22 @@ client-reachable yet). The non-lobes env/config.json path sets both fields to
 the same declared value. **Absent voice config is byte-identical** —
 `EngineConfig.voice` is `None` and omitted from `to_dict`.
 
+**api_key hygiene (conservative, single-field):** `VoiceConfig` carries ONE
+`api_key` for both `stt` and `tts`, so the main `api_key` is inherited only
+when EVERY armed role's dial target shares the main endpoint's origin — the
+reference rig: everything proxied at one gateway. A single cross-origin armed
+role withholds the main key from the WHOLE `VoiceConfig` instead — the main
+Bearer token is never forwarded to a host a wire payload advertised — falling
+back to the no-auth default even for a same-origin sibling role. To arm a
+cross-origin voice rung, declare the key explicitly
+(`COLLEAGUE_VOICE_API_KEY`, or a `config.json` `voice.api_key` — which works
+even without a declared model); a wrong or absent key degrades visibly at the
+next transcribe/synthesize call, never fails the run. A per-role
+`stt_api_key`/`tts_api_key` split — letting one role inherit while a
+cross-origin sibling is withheld — is a named follow-up, not built, tracked
+alongside the unified withheld-key notice at
+[#349](https://github.com/agentculture/colleague/issues/349).
+
 ## Two audiences, one flight plane
 
 The live presence is an operator-side foreground process riding the existing
