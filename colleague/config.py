@@ -206,6 +206,14 @@ _DEFAULT_TESTINTEGRITY_REVIEWER_MODEL = ""
 # environment with COLLEAGUE_DEEPTHINK_MODEL / _BASE_URL / _API_KEY /
 # _CONTEXT_BUDGET, or a ``deepthink`` section in .colleague/config.json.
 _DEFAULT_DEEPTHINK_CONTEXT_BUDGET = 48000
+# The deepthink model window the 48000 default was sized for (the original
+# reference reasoner's 64K window). A lobes-discovered muse role (the
+# two-machines-two-minds arc, t5) reports its OWN window; it is scaled by the
+# same headroom ratio (48000/65536 ≈ 0.73) so a 64K role reproduces the
+# hand-tuned default and any other window scales proportionally — never the
+# raw window (which leaves no completion headroom). Mirrors
+# _SENSES_DEFAULT_WINDOW below, field-for-field.
+_DEEPTHINK_DEFAULT_WINDOW = 65536
 
 # Senses config (cortex/senses arc, spec
 # docs/specs/2026-07-03-colleague-drives-with-a-cortex-and-senses-it-resol.md,
@@ -596,6 +604,52 @@ def _senses_from_lobes_role(role: object, base_url: str, api_key: str) -> "Sense
         base_url=base_url,
         api_key=api_key,
         context_budget=_senses_budget_from_window(int(getattr(role, "context", 0) or 0)),
+        multimodal=False,
+    )
+
+
+def _deepthink_budget_from_window(window: int) -> int:
+    """A deepthink context_budget derived from a role's reported window.
+
+    Applies the same headroom ratio the built-in default encodes
+    (:data:`_DEFAULT_DEEPTHINK_CONTEXT_BUDGET` / :data:`_DEEPTHINK_DEFAULT_WINDOW`),
+    so a 64K role reproduces the hand-tuned 48000 default and any other window
+    scales proportionally (thor's verified 262144 window → 192000). Floored at
+    1; a non-positive window falls back to the default (never zero — that
+    would disable the budget path). Mirrors :func:`_senses_budget_from_window`.
+    """
+    if window <= 0:
+        return _DEFAULT_DEEPTHINK_CONTEXT_BUDGET
+    ratio = _DEFAULT_DEEPTHINK_CONTEXT_BUDGET / _DEEPTHINK_DEFAULT_WINDOW
+    return max(1, int(window * ratio))
+
+
+def _deepthink_from_lobes_role(
+    role: object, base_url: str, api_key: str
+) -> "DeepthinkConfig | None":
+    """Build a :class:`DeepthinkConfig` from the gateway's muse role (t5).
+
+    The two-machines-two-minds arc's discovery rung — the sixth sanctioned
+    increment at the router-exclusion boundary: resolution only, feeding the
+    ALREADY-enumerated four-point escalation surface; no new decision point.
+    Used only when deepthink is NOT otherwise declared (env/config.json win —
+    the exact stance :func:`_senses_from_lobes_role` takes). *base_url* is the
+    muse role's OWN resolved dial target (:func:`_role_dial_base_url`);
+    api_key inherits the resolved MAIN endpoint's value. ``multimodal`` stays
+    ``False`` — declaration, never a probe (the discovered-senses rule).
+    Returns ``None`` on a blank model (presence is keyed solely on a resolved
+    model, the t1 deepthink rule). The gateway's ``loaded``/``feasible`` flags
+    are deliberately NOT consulted — for proxied roles they describe the
+    gateway host, not the serving host (lobes-cli#146).
+    """
+    model = str(getattr(role, "model", "") or "").strip()
+    if not model:
+        return None
+    return DeepthinkConfig(
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        context_budget=_deepthink_budget_from_window(int(getattr(role, "context", 0) or 0)),
         multimodal=False,
     )
 
@@ -1846,6 +1900,21 @@ class EngineConfig:
         # reviewer default backfill (t7) below can inspect the resolved
         # DeepthinkConfig before EngineConfig itself is constructed.
         resolved_deepthink = _resolve_deepthink(file_deepthink, resolved_base_url, resolved_api_key)
+        # Deepthink discovery rung (two-machines-two-minds t5): when deepthink
+        # is NOT declared via env/config.json but the lobes rung resolved a
+        # muse role, the gateway supplies the DeepthinkConfig — muse's OWN
+        # resolved dial target, main api_key, budget from the role's window.
+        # Precedence: env > config.json > lobes discovery (muse) > absent —
+        # the exact senses-rung stance below. Sits ABOVE the reviewer-default
+        # backfill (t7) so a discovered deepthink feeds it identically to a
+        # declared one.
+        if resolved_deepthink is None and lobes_roles is not None:
+            muse_role = getattr(lobes_roles, "muse", None)
+            if muse_role is not None:
+                deepthink_base_url = _role_dial_base_url(muse_role, lobes_gateway_url)
+                resolved_deepthink = _deepthink_from_lobes_role(
+                    muse_role, deepthink_base_url, resolved_api_key
+                )
         # Senses (multimodal front-door) escalation target — resolved once as a
         # local like resolved_deepthink above. Precedence: env > config.json >
         # lobes discovery (t4) > absent. When senses is NOT declared via
