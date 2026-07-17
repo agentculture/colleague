@@ -679,7 +679,28 @@ now validated live (or live + cited-deterministic where the model adds no signal
     tool-call reliability, likely rig-load/MTP-nondeterminism-correlated;
     three vLLM EngineCores were sharing the GB10 by then); NOT a
     deepthink/thor regression — `doctor --probe`'s minimal round-trip stays
-    green and a 2-tool replay parses throughout.
+    green and a 2-tool replay parses throughout. Later the same day the
+    contrast sharpened: full-featured CLI work items against the colleague
+    repo itself (layered system prompt) succeeded 2/2 with clean tool calls,
+    while every bare-loop run on the minimal calc.py fixture repo stayed
+    zero-step (8/8) — the collapse correlates with the minimal-context
+    request shape, not with the dual config. Filed as
+    [#346](https://github.com/agentculture/colleague/issues/346).
+- **Zero-model-id discovery PROVEN — 2026-07-17, two-machines-two-minds
+  arc B (t7).** With the rig's user-level config reduced to ONLY
+  `{"lobes": "http://localhost:8001"}` (explicit deepthink section moved
+  aside; no `COLLEAGUE_DEEPTHINK_*` env), `colleague config show` resolved
+  `deepthink.model = nvidia/Gemma-4-31B-IT-NVFP4`,
+  `base_url = http://localhost:8001/v1` (muse's own advertised dial target),
+  `context_budget = 192000` (derived from the advertised 262144 window at the
+  48000/65536 ratio) — zero model ids anywhere in colleague config. A live
+  judgment work item under that discovery-only config (`df50aea666ec`,
+  driven via the CLI against the colleague repo) ran
+  `read_file → read_file → deepthink → finish` and recorded
+  `DeepthinkCall(point='tool', tokens=1415, duration=60.4s, degraded=False)`
+  — the discovered thinker consulted mid-loop, non-degraded, through the
+  gateway proxy to thor; `status: ok` with a substantive judgment summary.
+  The rig's explicit config was restored afterwards.
 
 ## Substantial decomposed write (best-colleague arc h9, plan task t9)
 
