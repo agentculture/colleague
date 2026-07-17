@@ -36,6 +36,7 @@ from typing import Iterator
 import pytest
 
 from colleague.config import (
+    _DEFAULT_API_KEY,
     _DEFAULT_DEEPTHINK_CONTEXT_BUDGET,
     DeepthinkConfig,
     EngineConfig,
@@ -328,6 +329,77 @@ def test_muse_blank_model_leaves_deepthink_none(
         monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
         cfg = EngineConfig.resolve()
     assert cfg.deepthink is None
+
+
+# ---------------------------------------------------------------------------
+# api_key hygiene: the main key never crosses origins (Qodo finding, PR #347).
+# ---------------------------------------------------------------------------
+
+
+def test_cross_origin_muse_does_not_inherit_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A muse role advertising a DIFFERENT origin than main must not receive
+    the main Bearer token — it gets the no-auth default instead."""
+    payload = json.loads(json.dumps(MUSE_PAYLOAD))
+    payload["muse"]["endpoint"] = "http://other-host:9000"
+    with _serving(payload) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.deepthink is not None
+    assert cfg.deepthink.base_url == "http://other-host:9000/v1"
+    assert cfg.api_key == "main-secret-token"
+    assert cfg.deepthink.api_key == _DEFAULT_API_KEY
+    assert cfg.deepthink.api_key != cfg.api_key
+
+
+def test_same_origin_muse_inherits_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same-origin rig (the reference deployment: everything proxied at
+    one gateway) keeps inheriting the main key."""
+    with _serving(MUSE_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.deepthink is not None
+    assert cfg.deepthink.api_key == "main-secret-token"
+
+
+def test_explicit_deepthink_api_key_wins_even_cross_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """COLLEAGUE_DEEPTHINK_API_KEY arms a cross-origin discovered muse — an
+    explicit declaration always wins over both inherit and default."""
+    payload = json.loads(json.dumps(MUSE_PAYLOAD))
+    payload["muse"]["endpoint"] = "http://other-host:9000"
+    with _serving(payload) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_API_KEY", "muse-own-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.deepthink is not None
+    assert cfg.deepthink.api_key == "muse-own-token"
+
+
+def test_config_json_deepthink_api_key_without_model_arms_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A config.json deepthink section carrying ONLY an api_key (no model —
+    so it declares no deepthink of its own) still supplies the key to the
+    discovered muse, even cross-origin."""
+    payload = json.loads(json.dumps(MUSE_PAYLOAD))
+    payload["muse"]["endpoint"] = "http://other-host:9000"
+    with _serving(payload) as gateway:
+        _write_config(
+            tmp_path,
+            {"lobes": gateway, "deepthink": {"api_key": "file-muse-token"}},
+        )
+        cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.deepthink is not None
+    assert cfg.deepthink.model == _MUSE_MODEL
+    assert cfg.deepthink.api_key == "file-muse-token"
 
 
 # ---------------------------------------------------------------------------

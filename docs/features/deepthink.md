@@ -55,10 +55,19 @@ resolved block is visible (api_key redacted) via `colleague config show`.
 
 With a lobes gateway configured and no deepthink declared via env or
 `config.json`, `EngineConfig.resolve()` fills the deepthink target from the
-gateway's advertised muse role — muse's own endpoint, the main `api_key`, and a
-`context_budget` derived from the role's advertised window at the same
-48000/65536 ratio the built-in default encodes. Env and `config.json` always
-win. No lobes or no muse role means no deepthink (byte-identical).
+gateway's advertised muse role — muse's own endpoint and a `context_budget`
+derived from the role's advertised window at the same 48000/65536 ratio the
+built-in default encodes. Env and `config.json` always win. No lobes or no
+muse role means no deepthink (byte-identical).
+
+**api_key hygiene:** the main `api_key` is inherited only when muse's dial
+target shares the main endpoint's origin (the reference rig: everything
+proxied at one gateway). A cross-origin muse gets the no-auth default
+instead — the main Bearer token is never forwarded to a host a wire payload
+advertised. To arm a cross-origin muse, declare the key explicitly
+(`COLLEAGUE_DEEPTHINK_API_KEY`, or a `config.json` `deepthink.api_key` —
+which works even without a declared model); a wrong or absent key degrades
+visibly at the escalation point, never fails the run.
 
 This rung serves the operator running colleague against a multi-machine lobes
 rig (spark cortex + thor muse on the reference deployment): one gateway URL

@@ -654,6 +654,61 @@ def _deepthink_from_lobes_role(
     )
 
 
+def _same_origin(a: str, b: str) -> bool:
+    """True when *a* and *b* share scheme + host + port (case-insensitive netloc).
+
+    The credential-hygiene predicate for the deepthink discovery rung: the
+    MAIN api_key is inherited by a DISCOVERED deepthink only toward the same
+    origin the main endpoint already talks to — never forwarded to a
+    different host a wire payload advertised (Qodo finding on colleague#347).
+    """
+    sa, sb = urlsplit(a), urlsplit(b)
+    return (sa.scheme.lower(), sa.netloc.lower()) == (sb.scheme.lower(), sb.netloc.lower())
+
+
+def _deepthink_lobes_fallback(
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+    main_base_url: str,
+    main_api_key: str,
+    file_deepthink: dict[str, str],
+) -> "DeepthinkConfig | None":
+    """The muse→deepthink discovery fallback, extracted from ``resolve()`` (t5).
+
+    Extraction keeps ``resolve()`` under the SonarCloud S3776 cognitive-
+    complexity ceiling — the same move :func:`_resolve_lobes_rung` made.
+    Returns ``None`` when lobes did not resolve, no muse role is advertised,
+    or the role carries a blank model.
+
+    **api_key hygiene.** An explicitly declared deepthink key
+    (``COLLEAGUE_DEEPTHINK_API_KEY`` env or config.json ``deepthink.api_key``
+    — usable even without a declared model) always wins. Otherwise the MAIN
+    key is inherited only when muse's dial target shares the main endpoint's
+    origin (:func:`_same_origin`); a cross-origin muse gets
+    :data:`_DEFAULT_API_KEY` instead, so the main Bearer token is never
+    forwarded to a host a wire payload advertised. A wrong/absent key
+    degrades visibly at the escalation point (the c13 ladder), never fails
+    the run.
+    """
+    muse_role = getattr(lobes_roles, "muse", None) if lobes_roles is not None else None
+    if muse_role is None or lobes_gateway_url is None:
+        return None
+    deepthink_base_url = _role_dial_base_url(muse_role, lobes_gateway_url)
+    explicit_key = _pick(
+        None,
+        "COLLEAGUE_DEEPTHINK_API_KEY",
+        "CONVERTIBLE_DEEPTHINK_API_KEY",
+        default=file_deepthink.get("api_key", ""),
+    )
+    if explicit_key:
+        api_key = explicit_key
+    elif _same_origin(deepthink_base_url, main_base_url):
+        api_key = main_api_key
+    else:
+        api_key = _DEFAULT_API_KEY
+    return _deepthink_from_lobes_role(muse_role, deepthink_base_url, api_key)
+
+
 def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "VoiceConfig | None":
     """Build a :class:`VoiceConfig` from the gateway's stt/tts roles (t1).
 
@@ -1903,18 +1958,17 @@ class EngineConfig:
         # Deepthink discovery rung (two-machines-two-minds t5): when deepthink
         # is NOT declared via env/config.json but the lobes rung resolved a
         # muse role, the gateway supplies the DeepthinkConfig — muse's OWN
-        # resolved dial target, main api_key, budget from the role's window.
+        # resolved dial target, budget from the role's window, and the main
+        # api_key ONLY toward the main endpoint's own origin (see
+        # :func:`_deepthink_lobes_fallback` for the key-hygiene rule).
         # Precedence: env > config.json > lobes discovery (muse) > absent —
         # the exact senses-rung stance below. Sits ABOVE the reviewer-default
         # backfill (t7) so a discovered deepthink feeds it identically to a
         # declared one.
-        if resolved_deepthink is None and lobes_roles is not None:
-            muse_role = getattr(lobes_roles, "muse", None)
-            if muse_role is not None:
-                deepthink_base_url = _role_dial_base_url(muse_role, lobes_gateway_url)
-                resolved_deepthink = _deepthink_from_lobes_role(
-                    muse_role, deepthink_base_url, resolved_api_key
-                )
+        if resolved_deepthink is None:
+            resolved_deepthink = _deepthink_lobes_fallback(
+                lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_deepthink
+            )
         # Senses (multimodal front-door) escalation target — resolved once as a
         # local like resolved_deepthink above. Precedence: env > config.json >
         # lobes discovery (t4) > absent. When senses is NOT declared via
