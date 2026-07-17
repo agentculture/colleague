@@ -60,6 +60,18 @@ gateway's advertised muse role — muse's own endpoint, the main `api_key`, and 
 48000/65536 ratio the built-in default encodes. Env and `config.json` always
 win. No lobes or no muse role means no deepthink (byte-identical).
 
+This rung serves the operator running colleague against a multi-machine lobes
+rig (spark cortex + thor muse on the reference deployment): one gateway URL
+arms cortex, senses, *and* deepthink with zero model ids. The boundary with
+lobes-cli is the `/capabilities` contract itself — consuming `muse` required
+no gateway change, and the gateway's `loaded`/`feasible` flags are
+deliberately not consulted (for proxied roles they describe the gateway host,
+not the serving host —
+[lobes-cli#146](https://github.com/agentculture/lobes-cli/issues/146)).
+Before this rung, `colleague/lobes.py`'s `_RESOLVED_ROLES` was exactly
+`("cortex", "senses")` and an advertised muse was read and discarded. Spec:
+`docs/specs/2026-07-17-two-machines-two-minds.md`.
+
 ## The enumerated escalation surface
 
 Deepthink is reachable from exactly **four** points — enumerated in code,

@@ -41,10 +41,11 @@ explicit flag  >  COLLEAGUE_* env  >  .colleague/config.json  >  lobes discovery
 - **lobes** (`colleague/lobes.py`) is the discovery client: a single
   stdlib-`urllib` `GET {gateway}/capabilities` that returns a superset payload
   per role (`role, model, runtime, endpoint, path, context, quant, mtp,
-  responsibilities, forbidden_responsibilities, ready, loaded`). Colleague
-  resolves and uses only two of the roles the gateway serves —
-  `cortex` and `senses` — and reads the rest of the roles (`embedder`,
-  `reranker`, `stt`, `tts`) as unused, future territory (see
+  responsibilities, forbidden_responsibilities, ready, loaded`). This doc's
+  arc originally consumed only `cortex` and `senses`; later re-specs grew the
+  consumed set — `stt`/`tts` (voice), the `embedder` (env relay), and `muse`
+  (the deepthink discovery rung, [deepthink.md](deepthink.md)) — while
+  `reranker` stays read-and-discarded (#277's parked retrieval lane; see
   [Honest limits](#honest-limits) and the [#276/#277](#the-honest-line-this-is-not-a-router)
   follow-ups). `resolve_roles` degrades to `None` on **any** failure
   (unreachable gateway, timeout, non-200, malformed JSON, a missing role) and
