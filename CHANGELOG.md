@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.51.0] - 2026-07-17
+
+### Added
+
+- `_senses_lobes_fallback` and `_voice_lobes_fallback` in `colleague/config.py` — the senses and voice lobes discovery rungs now apply the same same-origin `api_key` hygiene the deepthink rung got in #347 (closes #348): an explicit key always wins (`COLLEAGUE_SENSES_API_KEY` / `COLLEAGUE_VOICE_API_KEY`, or a `config.json` `senses.api_key` / `voice.api_key` — model-less sections work, mirroring `deepthink.api_key`), otherwise the main key is inherited only toward the main endpoint's own origin, else the no-auth default.
+- Ten hygiene tests across `tests/test_config_lobes.py` and `tests/test_voice_config.py`, mirroring the deepthink block — including the mixed-origin voice case pinning the conservative single-field rule.
+- api_key-hygiene passages in `docs/features/cortex-senses.md` and `docs/features/senses-live-presence.md`, citing #349 (the follow-up unified withheld-key notice).
+
+### Changed
+
+- UPGRADE NOTE — behavior change on lobes-DISCOVERED roles only: a cross-origin discovered senses/stt/tts role that previously inherited the main `api_key` now resolves the no-auth default (`EMPTY`). If your rig serves a discovered role on a different origin than the main endpoint and relied on the inherited key, arm it explicitly via `COLLEAGUE_SENSES_API_KEY` / `COLLEAGUE_VOICE_API_KEY` or the `config.json` `senses.api_key` / `voice.api_key` keys (model-less sections work). The voice rung is conservative single-field: ONE cross-origin armed role withholds the main key from the whole `VoiceConfig` (the per-role `stt_api_key`/`tts_api_key` split is a named follow-up). Declared (env/config.json-with-model) senses/voice paths are unaffected; the deepthink rung is untouched.
+
 ## [1.50.0] - 2026-07-17
 
 ### Added

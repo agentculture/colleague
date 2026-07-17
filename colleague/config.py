@@ -709,6 +709,115 @@ def _deepthink_lobes_fallback(
     return _deepthink_from_lobes_role(muse_role, deepthink_base_url, api_key)
 
 
+def _senses_lobes_fallback(
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+    main_base_url: str,
+    main_api_key: str,
+    file_senses: dict[str, str],
+) -> "SensesConfig | None":
+    """The senses discovery fallback, extracted from ``resolve()`` (colleague#348).
+
+    Mirrors :func:`_deepthink_lobes_fallback` field-for-field — the same
+    extraction keeps ``resolve()`` under the SonarCloud S3776 cognitive-
+    complexity ceiling. Returns ``None`` when lobes did not resolve, no
+    senses role is advertised, or the role carries a blank model.
+
+    **api_key hygiene.** An explicitly declared senses key
+    (``COLLEAGUE_SENSES_API_KEY`` env or config.json ``senses.api_key`` —
+    usable even without a declared model) always wins. Otherwise the MAIN
+    key is inherited only when senses's dial target shares the main
+    endpoint's origin (:func:`_same_origin`); a cross-origin senses gets
+    :data:`_DEFAULT_API_KEY` instead, so the main Bearer token is never
+    forwarded to a host a wire payload advertised (the same Qodo finding on
+    colleague#347 the deepthink rung already closed — colleague#348 extends
+    it to senses). A wrong/absent key degrades visibly at the senses
+    call site, never fails the run.
+    """
+    senses_role = getattr(lobes_roles, "senses", None) if lobes_roles is not None else None
+    if senses_role is None or lobes_gateway_url is None:
+        return None
+    senses_base_url = _role_dial_base_url(senses_role, lobes_gateway_url)
+    explicit_key = _pick(
+        None,
+        "COLLEAGUE_SENSES_API_KEY",
+        "CONVERTIBLE_SENSES_API_KEY",
+        default=file_senses.get("api_key", ""),
+    )
+    if explicit_key:
+        api_key = explicit_key
+    elif _same_origin(senses_base_url, main_base_url):
+        api_key = main_api_key
+    else:
+        api_key = _DEFAULT_API_KEY
+    return _senses_from_lobes_role(senses_role, senses_base_url, api_key)
+
+
+def _voice_lobes_fallback(
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+    main_base_url: str,
+    main_api_key: str,
+    file_voice: dict[str, str],
+) -> "VoiceConfig | None":
+    """The stt/tts discovery fallback, extracted from ``resolve()`` (colleague#348 t2).
+
+    Same extraction shape as :func:`_senses_lobes_fallback` — keeps
+    ``resolve()`` under the SonarCloud S3776 cognitive-complexity ceiling.
+    Wraps the untouched :func:`_voice_from_lobes_roles` (which stays exactly
+    as-is for its existing callers/tests), computing only the api_key it is
+    fed. Returns ``None`` when lobes did not resolve, or neither stt nor tts
+    carries a non-blank model (no role is "armed").
+
+    **api_key hygiene — the conservative single-field rule.**
+    :class:`VoiceConfig` keeps its single ``api_key`` field — there is no
+    per-role ``stt_api_key``/``tts_api_key`` split. That split is a named,
+    unbuilt follow-up (decision c15, colleague#348): it would need its own
+    re-spec, so it stays parked here. Because one key must cover every armed
+    role, the hygiene rule is deliberately conservative rather than
+    per-role: an explicitly declared voice key (``COLLEAGUE_VOICE_API_KEY``
+    env or config.json ``voice.api_key`` — usable even without a declared
+    model; NO ``CONVERTIBLE_VOICE_API_KEY`` fallback, since voice postdates
+    the CONVERTIBLE→COLLEAGUE rename) always wins. Otherwise the MAIN key is
+    inherited only when EVERY armed role's dial target (armed = a non-blank
+    model; an unarmed role's gateway-fallback base_url is excluded from the
+    check) shares the main endpoint's origin (:func:`_same_origin`) — stt
+    and tts both same-origin inherits, but a SINGLE cross-origin role sinks
+    the whole VoiceConfig to :data:`_DEFAULT_API_KEY` instead, never a
+    half-armed mix of the main key on one field and the default on the
+    other (there is nowhere to put a per-role result with one shared field).
+    This is the same Qodo finding on colleague#347 the deepthink and senses
+    rungs already closed, extended here to voice's two-role shape. A
+    wrong/absent key degrades visibly at the voice call site, never fails
+    the run.
+    """
+    if lobes_roles is None or lobes_gateway_url is None:
+        return None
+    stt_role = getattr(lobes_roles, "stt", None)
+    tts_role = getattr(lobes_roles, "tts", None)
+    armed_roles = [
+        role
+        for role in (stt_role, tts_role)
+        if role is not None and str(getattr(role, "model", "") or "").strip()
+    ]
+    if not armed_roles:
+        return None
+    explicit_key = _pick(
+        None,
+        "COLLEAGUE_VOICE_API_KEY",
+        default=file_voice.get("api_key", ""),
+    )
+    if explicit_key:
+        api_key = explicit_key
+    else:
+        dial_targets = (_role_dial_base_url(role, lobes_gateway_url) for role in armed_roles)
+        if all(_same_origin(target, main_base_url) for target in dial_targets):
+            api_key = main_api_key
+        else:
+            api_key = _DEFAULT_API_KEY
+    return _voice_from_lobes_roles(lobes_roles, lobes_gateway_url, api_key)
+
+
 def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "VoiceConfig | None":
     """Build a :class:`VoiceConfig` from the gateway's stt/tts roles (t1).
 
@@ -1975,25 +2084,30 @@ class EngineConfig:
         # env/config.json but the lobes rung resolved, the gateway's senses role
         # supplies the SensesConfig — its OWN resolved dial target (colleague#292,
         # S1's follow-on: senses no longer reuses cortex's ``lobes_base_url``;
-        # closes lobes-cli#87 end-to-end), main api_key, budget from the role's
-        # window.
+        # closes lobes-cli#87 end-to-end), budget from the role's window, and
+        # the main api_key ONLY toward the main endpoint's own origin (see
+        # :func:`_senses_lobes_fallback` for the key-hygiene rule, colleague#348
+        # — the exact stance :func:`_deepthink_lobes_fallback` takes).
         resolved_senses = _resolve_senses(file_senses, resolved_base_url, resolved_api_key)
-        if resolved_senses is None and lobes_roles is not None:
-            senses_base_url = _role_dial_base_url(lobes_roles.senses, lobes_gateway_url)
-            resolved_senses = _senses_from_lobes_role(
-                lobes_roles.senses, senses_base_url, resolved_api_key
+        if resolved_senses is None:
+            resolved_senses = _senses_lobes_fallback(
+                lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_senses
             )
         # Voice (stt/tts) escalation target (senses live-presence + voice arc) —
         # resolved once as a local, mirroring senses. Precedence: env >
         # config.json > lobes discovery > absent. When voice is NOT declared via
         # env/config.json but the lobes rung resolved, the gateway's stt/tts roles
         # supply the VoiceConfig — EACH role's own resolved dial target
-        # (colleague#292, S1's follow-on: closes lobes-cli#87 end-to-end), main
-        # api_key.
+        # (colleague#292, S1's follow-on: closes lobes-cli#87 end-to-end), and
+        # the main api_key ONLY toward roles whose dial target shares the main
+        # endpoint's own origin (see :func:`_voice_lobes_fallback` for the
+        # key-hygiene rule, colleague#348 t2 — the same conservative stance
+        # :func:`_senses_lobes_fallback`/:func:`_deepthink_lobes_fallback`
+        # take, extended to voice's two-role, single-key shape).
         resolved_voice = _resolve_voice(file_voice, resolved_base_url, resolved_api_key)
-        if resolved_voice is None and lobes_roles is not None:
-            resolved_voice = _voice_from_lobes_roles(
-                lobes_roles, lobes_gateway_url, resolved_api_key
+        if resolved_voice is None:
+            resolved_voice = _voice_lobes_fallback(
+                lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_voice
             )
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
