@@ -1,0 +1,288 @@
+{
+  "slug": "two-machines-two-minds",
+  "title": "two machines, two minds",
+  "frame_slug": "two-machines-two-minds",
+  "schema_version": 3,
+  "status": "exported",
+  "created": "2026-07-17T13:13:10Z",
+  "updated": "2026-07-17T13:20:08Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague drives with both machines: Qwen3-on-spark stays the working mind while Gemma4-31B-on-thor answers the judgment calls \u2014 thinker and worker over the existing deepthink surface, discovered from the lobes muse role"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "arc A ships with ZERO colleague code changes, and arc B changes resolution only \u2014 after both arcs the escalation surface is still exactly the four enumerated points, and the code-vs-doc drift test over deepthink.md stays green"
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "the thinker/worker split lands on the EXISTING deepthink surface as a config change: main = Qwen3.6-27B on spark, deepthink = Gemma-4-31B on thor dialed through the lobes gateway's muse proxy (localhost:8001/v1, model nvidia/Gemma-4-31B-IT-NVFP4) \u2014 the four enumerated escalation points (deepthink tool, plan-mode proposals, acceptance self-check, reviewer default) ARE the thinker-consultation surface"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "a .colleague/config.json deepthink section naming the muse model against the gateway resolves visibly in config show AND a live rig run records a non-degraded DeepthinkCall \u2014 on today's colleague main, unpatched"
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "the code increment is ONE new lobes discovery rung: deepthink resolved from the advertised muse role (mirroring how senses feeds a default SensesConfig), so a bare {\"lobes\": \"http://localhost:8001\"} arms cortex + senses + deepthink with zero model ids; this is a SIXTH increment at the router-exclusion boundary and needs its own re-spec before it lands"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "with lobes armed and no deepthink declared anywhere, resolve() fills a default DeepthinkConfig from the advertised muse role; env and config.json always win (the exact precedence senses discovery uses); lobes absent or muse missing from /capabilities means no deepthink \u2014 byte-identical to today"
+    },
+    {
+      "id": "c5",
+      "kind": "boundary",
+      "text": "no routing policy moves in: the only decision-maker stays the main model's backend-judged deepthink tool call. Issue #332's deterministic trigger table (complexity/uncertainty/impact -> consult thinker), independent parallel deliberation, synthesis, the trace verb, and phase-5 adaptive orchestration all stay OUT pending their own re-spec \u2014 a deterministic task->model trigger table is still a task->model routing policy under the v1 hold-line"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "no new decision point lands anywhere: after A+B the only caller-side chooser is still the main model's backend-judged deepthink tool call \u2014 no trigger table, no per-task model-selection heuristic appears in colleague/"
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "senses territory is untouched, and #332's perception/transcriber rows are ALREADY-LANDED surfaces: the live gateway serves senses (gemma-4-12B, now proxied from orin, 32K), stt (parakeet-tdt-0.6b) and tts (chatterbox) \u2014 colleague already consumes all of cortex/senses/stt/tts; this idea adds exactly ONE new consumed role (the thinker), nothing else moves"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the arc A diff is zero lines; the arc B diff touches resolution (lobes.py, config.py) plus docs and tests only \u2014 senses.py, senses_loop.py, frontdoor.py, and voice.py are untouched"
+    },
+    {
+      "id": "c10",
+      "kind": "audience",
+      "text": "operators running colleague on a multi-machine lobes rig (spark cortex + thor muse + orin senses) who want every machine contributing to a work item; secondarily the lobes-cli maintainers, who own the shared /capabilities role contract"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the spec serves the operator without demanding anything from lobes-cli: consuming muse as advertised requires no gateway change, and any lobes-cli note (loaded/feasible semantics on proxied roles) is filed as a courtesy issue, never a dependency"
+    },
+    {
+      "id": "c11",
+      "kind": "after_state",
+      "text": "after arc A, a config-only deepthink section pointed at the gateway's muse proxy has Gemma-31B-on-thor answering colleague's judgment calls while Qwen-on-spark drives the loop; after arc B, a bare lobes gateway URL in config arms cortex + senses + deepthink with zero model ids \u2014 both machines contribute to every hard run"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "each after-state is demonstrated live before it is claimed: the arc A proof runs before the arc B spec is written, and neither is recorded as proven ahead of its run"
+    },
+    {
+      "id": "c12",
+      "kind": "before_state",
+      "text": "thor's Gemma-4-31B sits idle during every colleague run: deepthink is unconfigured on the rig, and the gateway's advertised muse role is read off /capabilities and discarded \u2014 _RESOLVED_ROLES in colleague/lobes.py is exactly ('cortex', 'senses')"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the before-state is cited, not asserted: _RESOLVED_ROLES excludes muse in colleague/lobes.py at frame time, and the rig had no deepthink section configured when the frame was opened"
+    },
+    {
+      "id": "c13",
+      "kind": "why_it_matters",
+      "text": "the rig's strongest reasoner joins the loop exactly where judgment is needed, and two models that miss differently become a safety net \u2014 model diversity is the recorded motivation of dual-model colleague (deepthink.md), now realized across machines instead of leaving thor idle"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "the diversity rationale is quoted from deepthink.md (two models miss differently), and the spec does not claim measured quality improvement \u2014 quality stays with the operator feedback loop"
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "a live work item on the rig records TaskResult.deepthink with >= 1 non-degraded record (point tool or acceptance_selfcheck) served by nvidia/Gemma-4-31B-IT-NVFP4 through the gateway; after arc B, colleague config show with ONLY the lobes URL configured resolves deepthink.model to the advertised muse model with 0 model ids in colleague's own config"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "the success signal is measured from TaskResult artifacts and config show output only \u2014 runtime facts, never a quality score; a degraded-only run does NOT count as success"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Verify thor's real serving window for Gemma-31B and size the deepthink context budget (arc A prep)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "thor's actual max context for nvidia/Gemma-4-31B-IT-NVFP4 is confirmed from the serving side (model-gear/vllm launch config or logs; probe fallback), not read off /capabilities",
+        "the chosen deepthink context_budget is derived from the VERIFIED window with its ratio stated, and the v2 risk is resolved or re-parked with the verified number"
+      ],
+      "deps": [],
+      "covers": [
+        "c2"
+      ],
+      "instruction": "check thor via model-gear or the vllm launch config for max_model_len (thor's /v1/models reports None); if unreachable, binary-search a long-prompt probe through the gateway; then size budget with the senses precedent (~73 percent of window, quarter reserved for completion) and record the recipe for t2"
+    },
+    {
+      "id": "t2",
+      "summary": "Arc A rig retarget: deepthink section resolves against the gateway muse proxy on unpatched main",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the rig config carries a deepthink section naming nvidia/Gemma-4-31B-IT-NVFP4 at the gateway origin with the t1-sized budget, and colleague config show resolves the block (model, base_url, budget; api_key redacted) on unpatched colleague main",
+        "deepthink.base_url equals the main base_url (gateway origin), arming the same-endpoint test-integrity reviewer default"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h2"
+      ],
+      "instruction": "config change ONLY \u2014 if anything appears to need a code patch, STOP and record the h2 breach honestly instead of patching; verify with colleague config show --json and colleague doctor --probe"
+    },
+    {
+      "id": "t3",
+      "summary": "Arc A live proof: Gemma-31B-on-thor answers a judgment call in a real work item",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a live work item on the rig records TaskResult.deepthink with >= 1 non-degraded record (point tool or acceptance_selfcheck) served through the gateway by the muse model; a degraded-only run FAILS this criterion",
+        "the proof is recorded in docs/live-testing.md with work-item ids, token counts, and durations \u2014 runtime facts only, no quality score"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c11",
+        "c14",
+        "h2",
+        "h7",
+        "h10"
+      ],
+      "instruction": "drive a judgment-heavy task: give it acceptance criteria (triggers the acceptance self-check point) and a brief that invites the deepthink tool; COLLEAGUE_TIMEOUT=300; inspect the artifact JSON for the deepthink records before claiming anything"
+    },
+    {
+      "id": "t4",
+      "summary": "Arc B: lobes.py parses and resolves the muse role",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "resolve_roles returns muse as a RoleInfo when advertised, with optional-role semantics (absent or malformed muse leaves it None without failing resolution, like stt/tts)",
+        "resolve_role_base_url dials muse's own endpoint with the gateway-origin fallback; colleague lobes show lists muse with its ready-kind classification (config-proxy)",
+        "tests mirror the senses discovery suite for muse: present, absent, malformed payloads"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "c12"
+      ],
+      "instruction": "touch colleague/lobes.py, colleague/cli/_commands/lobes.py, and their tests only; do NOT start parsing the new feasible wire field or inferring loaded semantics \u2014 RoleInfo stays a tolerant superset reader"
+    },
+    {
+      "id": "t5",
+      "summary": "Arc B: the deepthink discovery rung in EngineConfig.resolve()",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with lobes armed and no deepthink declared via env or config.json, resolve() fills a default DeepthinkConfig from the advertised muse role (model, per-role endpoint, budget derived from the advertised window the same way senses derives its default); env and config.json always win",
+        "lobes absent, or muse missing from /capabilities, yields deepthink None \u2014 byte-identity pinned by extending the e2e shape tests; the four-point escalation surface is unchanged and the code-vs-doc drift test stays green",
+        "no task-to-model selection code appears in the diff; config show renders the discovered deepthink block with api_key redacted"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c4",
+        "h3",
+        "c5",
+        "h4",
+        "h1"
+      ],
+      "instruction": "mirror _resolve_senses and _resolve_lobes_rung field-for-field; presence keyed solely on a resolved model; touch colleague/config.py and its tests only"
+    },
+    {
+      "id": "t6",
+      "summary": "Arc B docs: record the sixth sanctioned increment and update stale numbers",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "deepthink.md gains the muse discovery rung and corrects the stale 128K/64K context numbers; CLAUDE.md's v1 scope line and the honest-line sections record the SIXTH increment in the same fixed-enumerated-surface language as the first five, with the #332 remainder (trigger table, parallel deliberation, synthesis) explicitly still OUT",
+        "docs name the rig operator audience and the lobes /capabilities contract as the lobes-cli boundary; the before-state is cited from code (_RESOLVED_ROLES) and the diversity rationale is quoted from deepthink.md, not restated; doc-test alignment passes",
+        "PR-time diff inspection confirms arc B touched lobes.py, config.py, cli lobes command, docs, and tests only"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c1",
+        "c5",
+        "c7",
+        "h1",
+        "h5",
+        "c10",
+        "h6",
+        "c13",
+        "h9",
+        "h8"
+      ],
+      "instruction": "write docs after t5's shape settles; keep the no-routing-policy wording verbatim from the spec's boundary claims; run the doc-test-alignment skill before the PR"
+    },
+    {
+      "id": "t7",
+      "summary": "Arc B live proof: zero-model-id discovery arms the thinker",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on the rig with ONLY the lobes URL configured (deepthink section moved aside; no model ids anywhere in colleague config), config show resolves deepthink.model to nvidia/Gemma-4-31B-IT-NVFP4",
+        "a live work item under discovery-only config records >= 1 non-degraded deepthink record; recorded in docs/live-testing.md; the rig's explicit config is restored afterwards"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c11",
+        "c14",
+        "h3",
+        "h7",
+        "h10"
+      ],
+      "instruction": "temporarily move the rig's deepthink config section aside so the discovery rung is provably the only source; restore it after the proof; runtime facts only in the record"
+    },
+    {
+      "id": "t8",
+      "summary": "Courtesy lobes-cli issue: loaded/feasible semantics on proxied roles",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a lobes-cli issue exists carrying the 2026-07-17 probe evidence (muse loaded=false feasible=false while the host answered HTTP 200 in under 1s) and asks for documented per-field semantics on proxied roles; filed as a courtesy \u2014 no colleague task blocks on it"
+      ],
+      "deps": [],
+      "covers": [
+        "h6"
+      ],
+      "instruction": "file via the communicate skill (agtag-backed, auto-signed); quote the probe numbers verbatim; link the two-machines-two-minds spec for context"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "thor's real serving window for the 31B is unverified (advertised 262144; thor /v1/models reports max_model_len None) \u2014 t1 resolves it before any budget is trusted",
+      "kind": "unknown_nonblocking",
+      "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "the deepthink dial through the gateway needs the Bearer key present in the environment; a missing key degrades visibly (degraded records), never silently",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}
