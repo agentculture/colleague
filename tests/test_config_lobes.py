@@ -53,6 +53,7 @@ from typing import Iterator
 import pytest
 
 from colleague.config import (
+    _DEFAULT_API_KEY,
     _DEFAULT_MODEL,
     EngineConfig,
     SensesConfig,
@@ -138,6 +139,8 @@ _ALL_ENV = (
     "CONVERTIBLE_SENSES_MODEL",
     "COLLEAGUE_SENSES_BASE_URL",
     "CONVERTIBLE_SENSES_BASE_URL",
+    "COLLEAGUE_SENSES_API_KEY",
+    "CONVERTIBLE_SENSES_API_KEY",
     "COLLEAGUE_SENSES_CONTEXT_BUDGET",
     "CONVERTIBLE_SENSES_CONTEXT_BUDGET",
     "COLLEAGUE_SENSES_MULTIMODAL",
@@ -372,6 +375,79 @@ def test_declared_senses_beats_lobes_senses(monkeypatch: pytest.MonkeyPatch) -> 
         cfg = EngineConfig.resolve()
     assert cfg.senses is not None
     assert cfg.senses.model == "declared-senses-model"
+
+
+# ---------------------------------------------------------------------------
+# api_key hygiene: the main key never crosses origins (colleague#348, mirrors
+# the deepthink discovery rung's identical rule, PR #347 / test_config_lobes_
+# deepthink.py's block of the same name).
+# ---------------------------------------------------------------------------
+
+
+def test_cross_origin_senses_does_not_inherit_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A senses role advertising a DIFFERENT origin than main must not receive
+    the main Bearer token — it gets the no-auth default instead."""
+    payload = json.loads(json.dumps(LOBES_PAYLOAD))
+    payload["senses"]["endpoint"] = "http://other-host:9000"
+    with _serving(payload) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.senses is not None
+    assert cfg.senses.base_url == "http://other-host:9000/v1"
+    assert cfg.api_key == "main-secret-token"
+    assert cfg.senses.api_key == _DEFAULT_API_KEY
+    assert cfg.senses.api_key != cfg.api_key
+
+
+def test_same_origin_senses_inherits_main_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same-origin rig (the reference deployment: everything proxied at
+    one gateway) keeps inheriting the main key."""
+    with _serving(LOBES_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.senses is not None
+    assert cfg.senses.api_key == "main-secret-token"
+
+
+def test_explicit_senses_api_key_wins_even_cross_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """COLLEAGUE_SENSES_API_KEY arms a cross-origin discovered senses — an
+    explicit declaration always wins over both inherit and default."""
+    payload = json.loads(json.dumps(LOBES_PAYLOAD))
+    payload["senses"]["endpoint"] = "http://other-host:9000"
+    with _serving(payload) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        monkeypatch.setenv("COLLEAGUE_SENSES_API_KEY", "senses-own-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.senses is not None
+    assert cfg.senses.api_key == "senses-own-token"
+
+
+def test_config_json_senses_api_key_without_model_arms_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A config.json senses section carrying ONLY an api_key (no model — so it
+    declares no senses of its own) still supplies the key to the discovered
+    senses role, even cross-origin."""
+    payload = json.loads(json.dumps(LOBES_PAYLOAD))
+    payload["senses"]["endpoint"] = "http://other-host:9000"
+    with _serving(payload) as gateway:
+        _write_config(
+            tmp_path,
+            {"lobes": gateway, "senses": {"api_key": "file-senses-token"}},
+        )
+        cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.senses is not None
+    assert cfg.senses.model == _SENSES_MODEL
+    assert cfg.senses.api_key == "file-senses-token"
 
 
 # ---------------------------------------------------------------------------
