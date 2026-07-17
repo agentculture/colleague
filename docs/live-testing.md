@@ -643,6 +643,64 @@ now validated live (or live + cited-deterministic where the model adds no signal
   reasoner deepthink) awaits serving both with tool parsers, and the
   wall-clock/quality benchmark (`scripts/bench_dual.py`) has not been run —
   the mechanism rows above are what this validates.
+- **Cross-machine retarget PROVEN (partial) — 2026-07-17, two-machines-two-minds
+  arc A (t3).** Deepthink retargeted to **Gemma-4-31B on thor** via the lobes
+  gateway's `muse` proxy: main = `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`
+  (spark), deepthink = `nvidia/Gemma-4-31B-IT-NVFP4` (thor,
+  `hosted_by http://thor.tail0be7e0.ts.net:8000`, proxied at the gateway
+  origin `http://localhost:8001/v1` — same endpoint string as main, so the
+  same-endpoint test-integrity reviewer default arms). Config-only on
+  unpatched main: `context_budget 192000` (73.2% of thor's serving-side
+  verified `max_model_len=262144` — vLLM's own over-ask rejection, identical
+  direct and via proxy). `COLLEAGUE_DUAL_E2E=1
+  COLLEAGUE_DEEPTHINK_MODEL=nvidia/Gemma-4-31B-IT-NVFP4 uv run pytest
+  tests/test_dual_live.py`:
+  - *deepthink tool:* **PASSED** (first run of the day, 110.5s pair) — the
+    passing assert requires ≥ 1 NON-degraded `DeepthinkCall`, so the tool-point
+    escalation demonstrably reached Gemma-31B through the proxy. (The
+    artifact's exact tokens/duration were lost to pytest tmp GC before they
+    were copied out — recorded as a process miss, not re-fabricated.)
+  - *acceptance self-check:* **NOT yet proven on this pairing.** The bare
+    read-and-report task produced a zero-step stop (the 27B answered with
+    literal pseudo-tool-call markup; honestly recorded as
+    `incompletion.reason: no-progress-zero-steps`), so the clean finish the
+    self-check keys on never happened. `_ACCEPTANCE_TASK` now carries the
+    #122-style explicit `read_file`+`finish` invite (the same fix the
+    judgment task already documents).
+  - *cortex-side flake (independent of the retarget):* from ~40 min after the
+    pass, every rerun (5/5) zero-stepped: the 27B emits a malformed
+    `<tool_call>` dialect the serving-side parser cannot convert. Offline
+    bisect with the loop's captured payload: the full loop shape (≈4K system
+    prompt + 15 tool schemas) intermittently collapses the format at ANY
+    temperature, while dropping EITHER the system prompt OR the 13 extra
+    schemas parses cleanly — and the identical payload had passed earlier.
+    Same family as [#66](https://github.com/agentculture/colleague/issues/66)/
+    [#109](https://github.com/agentculture/colleague/issues/109) (serving-side
+    tool-call reliability, likely rig-load/MTP-nondeterminism-correlated;
+    three vLLM EngineCores were sharing the GB10 by then); NOT a
+    deepthink/thor regression — `doctor --probe`'s minimal round-trip stays
+    green and a 2-tool replay parses throughout. Later the same day the
+    contrast sharpened: full-featured CLI work items against the colleague
+    repo itself (layered system prompt) succeeded 2/2 with clean tool calls,
+    while every bare-loop run on the minimal calc.py fixture repo stayed
+    zero-step (8/8) — the collapse correlates with the minimal-context
+    request shape, not with the dual config. Filed as
+    [#346](https://github.com/agentculture/colleague/issues/346).
+- **Zero-model-id discovery PROVEN — 2026-07-17, two-machines-two-minds
+  arc B (t7).** With the rig's user-level config reduced to ONLY
+  `{"lobes": "http://localhost:8001"}` (explicit deepthink section moved
+  aside; no `COLLEAGUE_DEEPTHINK_*` env), `colleague config show` resolved
+  `deepthink.model = nvidia/Gemma-4-31B-IT-NVFP4`,
+  `base_url = http://localhost:8001/v1` (muse's own advertised dial target),
+  `context_budget = 192000` (derived from the advertised 262144 window at the
+  48000/65536 ratio) — zero model ids anywhere in colleague config. A live
+  judgment work item under that discovery-only config (`df50aea666ec`,
+  driven via the CLI against the colleague repo) ran
+  `read_file → read_file → deepthink → finish` and recorded
+  `DeepthinkCall(point='tool', tokens=1415, duration=60.4s, degraded=False)`
+  — the discovered thinker consulted mid-loop, non-degraded, through the
+  gateway proxy to thor; `status: ok` with a substantive judgment summary.
+  The rig's explicit config was restored afterwards.
 
 ## Substantial decomposed write (best-colleague arc h9, plan task t9)
 

@@ -4,16 +4,19 @@ re-synced to lobes-cli 0.38.0's ready semantics by colleague#292/291 S1).
 ``lobes show`` reports the ARMED state of colleague's connection to a lobes
 gateway (``colleague/lobes.py``'s :func:`~colleague.lobes.resolve_roles`), the
 resolved ``cortex``/``senses`` (and, when the gateway serves them, ``stt``/
-``tts``) role metadata when reachable (model, context, endpoint, ready,
-responsibilities), and the degradation rung actually in effect:
+``tts``/``muse``) role metadata when reachable (model, context, endpoint,
+ready, responsibilities), and the degradation rung actually in effect:
 ``not_configured`` (unarmed), ``armed_reachable``, or ``armed_unreachable``.
 Each role's ``ready`` is labeled with its ``ready_kind`` (``colleague/lobes.py``'s
-:func:`~colleague.lobes.ready_kind`) — ``"config-proxy"`` for cortex/senses
-(``ready == loaded``, never an actual liveness probe) vs ``"live-probed"`` for
+:func:`~colleague.lobes.ready_kind`) — ``"config-proxy"`` for cortex/senses/muse
+(gateway-local bookkeeping, not a liveness probe; ``ready`` and ``loaded`` may
+diverge for proxied roles; see lobes-cli issue 146) vs ``"live-probed"`` for
 stt/tts (lobes-cli#89, 0.38.0: the gateway's realtime bridge health-checks the
-audio backend itself) — so an operator never conflates the two. ``lobes
-overview`` describes the noun (satisfying the agent-first rubric: any noun
-with action-verbs must also expose ``overview``).
+audio backend itself) — so an operator never conflates the two. ``muse`` is
+shown as a plain resolved role only (two-machines-two-minds arc, task t4);
+nothing here consumes it yet. ``lobes overview`` describes the noun
+(satisfying the agent-first rubric: any noun with action-verbs must also
+expose ``overview``).
 
 **Armed-signal precedence:** ``lobes show`` uses the same resolution as the
 runtime: ``COLLEAGUE_LOBES_URL`` env (``CONVERTIBLE_LOBES_URL`` honored as
@@ -65,8 +68,12 @@ def _lobes_sections() -> list[dict[str, object]]:
             "items": [
                 "cortex — the fast, wide-window reasoning mind that drives the tool loop",
                 "senses — the tools-off multimodal front door (intake/normalize/speak-back)",
-                "The gateway may serve more roles (embedder, reranker, stt, tts); this"
-                " noun reports only cortex + senses (colleague resolves nothing else)",
+                "muse — a second machine's reasoning model, proxied through the gateway"
+                " (shown when advertised; not consumed elsewhere yet)",
+                "stt/tts — optional voice-arc roles, shown when the gateway serves them",
+                "The gateway may also serve embedder/reranker; this noun does not list"
+                " them (embedder is relayed elsewhere, never shown here; reranker is"
+                " ignored entirely)",
             ],
         },
         {
@@ -173,12 +180,14 @@ def _lobes_show(repo: str = ".") -> object:
     lines = [f"lobes: armed at {url} — reachable"]
     lines += _role_lines("cortex", roles.cortex)
     lines += _role_lines("senses", roles.senses)
-    # stt/tts are OPTIONAL voice roles (senses live-presence + voice arc) — show
-    # them, live-probed ready label and all, only when the gateway serves them.
-    for voice_name, voice_role in (("stt", roles.stt), ("tts", roles.tts)):
-        if voice_role is not None:
-            payload["roles"][voice_name] = _role_info_to_dict(voice_name, voice_role)
-            lines += _role_lines(voice_name, voice_role)
+    # stt/tts (senses live-presence + voice arc) and muse (a second machine's
+    # reasoning model, proxied through the gateway; two-machines-two-minds
+    # arc, task t4) are OPTIONAL roles — show them, ready-kind label and all,
+    # only when the gateway actually serves them.
+    for opt_name, opt_role in (("stt", roles.stt), ("tts", roles.tts), ("muse", roles.muse)):
+        if opt_role is not None:
+            payload["roles"][opt_name] = _role_info_to_dict(opt_name, opt_role)
+            lines += _role_lines(opt_name, opt_role)
     return rendered(payload, "\n".join(lines))
 
 

@@ -46,8 +46,9 @@ minds. The architecture, part by part:
   read-only role **provably cannot mutate the tree**; caps depth 4 / total 24. Doc:
   `subagent-roles.md`.
 - **Rig budget** — a file-based cooperative slot across separate colleague processes sharing one endpoint; a caller degrades OPEN, never deadlocks. Doc: `rig-budget.md`.
-- **Deepthink / dual-model** — a MAIN model + an operator-declared **deepthink**
-  reasoner on an **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
+- **Deepthink / dual-model** — a MAIN model + a **deepthink** reasoner
+  (operator-declared, or discovered from the lobes `muse` role) on an
+  **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
 - **Media input** — images/audio ride to a multimodal main model;
@@ -184,7 +185,7 @@ two backends: `mock` (the contract reference) and `vllm-openai`.
 
 **Out of scope for v0** — do not add without re-speccing: **a multi-backend
 router / routing policy** (equally the multi-model router: any automatic
-task→model or task→backend routing decision). **Five sanctioned increments** have landed at this line, each a
+task→model or task→backend routing decision). **Six sanctioned increments** have landed at this line, each a
 re-spec'd, FIXED, ENUMERATED surface — never a routing policy (fuller descriptions
 in the architecture bullets above + their docs): (1) **dual-model deepthink
 escalation** (ONE declared second model); (2) **cortex/senses role split** (TWO
@@ -199,9 +200,14 @@ fronts, closes #300; one recorded break: an off-TTY/piped session with senses ar
 carries labeled `senses:` lines, `--json` stays machine-parseable); (5)
 **talking-to-one-teammate senses front door** (#276/senses-direct as a FIXED,
 repo-untouching surface via a deterministic classifier, ambiguous→cortex;
-SUPERSEDES "#276 stays parked").
+SUPERSEDES "#276 stays parked"); (6) **deepthink discovered from the lobes
+`muse` role** (two-machines-two-minds arc — a RESOLUTION rung only: with lobes
+armed and no deepthink declared, the advertised `muse` role fills the ONE
+deepthink target onto the SAME four-point enumerated surface; env/config.json
+always win, no muse = byte-identical; the #332 remainder — trigger tables,
+parallel deliberation, synthesis — stays OUT).
 
-Anything beyond those five is still the excluded router; document the distinction
+Anything beyond those six is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only

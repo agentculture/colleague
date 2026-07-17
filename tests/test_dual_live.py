@@ -176,9 +176,17 @@ def test_live_dual_model_escalates_via_deepthink_tool(
 #    weak rig may legitimately degrade the call, per spec h5).
 # ---------------------------------------------------------------------------
 
+# The read invite is EXPLICIT for the same reason _JUDGMENT_TASK's deepthink
+# invite is: on the bare ask the served 27B answers in a single no-tool-call
+# turn (observed live 2026-07-17 — a zero-step stop whose summary carried
+# literal pseudo-tool-call markup, honestly recorded as
+# ``incompletion.reason: no-progress-zero-steps``), which never reaches the
+# clean finish the acceptance self-check keys on. This row proves the
+# selfcheck ESCALATION PLUMBING, not spontaneous tool use.
 _ACCEPTANCE_TASK = (
-    "Read calc.py and report, in one sentence, what the add_all function "
-    "computes. Do not change any code."
+    "Use the read_file tool to read calc.py, then call finish with a "
+    "one-sentence report of what the add_all function computes. Do not "
+    "change any code."
 )
 _ACCEPTANCE_CRITERIA = ["the finish summary states what add_all computes"]
 

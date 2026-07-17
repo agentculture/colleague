@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.50.0] - 2026-07-17
+
+### Added
+
+- Deepthink discovery rung (two-machines-two-minds arc, the SIXTH sanctioned increment): with lobes armed and no deepthink declared via env/config.json, EngineConfig.resolve() fills the deepthink target from the gateway's advertised muse role — muse's own dial target, main api_key, and a context_budget derived from the role's window at the deepthink default ratio (48000/65536); env/config.json always win, no muse = byte-identical (colleague/config.py, tests/test_config_lobes_deepthink.py)
+- lobes.py resolves the muse role as a fifth optional role (present/absent/malformed tolerated like stt/tts); colleague lobes show lists it with its config-proxy ready-kind (colleague/lobes.py, colleague/cli/_commands/lobes.py)
+
+### Changed
+
+- CLAUDE.md scope line records six sanctioned increments (deepthink-from-muse as a resolution rung; the #332 remainder — trigger tables, parallel deliberation, synthesis — stays OUT)
+- deepthink.md documents the muse rung + the current rig pairing (Qwen3.6-27B main on spark, Gemma-4-31B deepthink on thor via the gateway muse proxy, both 256K); cortex-senses.md consumed-roles list de-staled
+- docs/live-testing.md records the cross-machine retarget proof (tool point, partial) and the zero-model-id discovery proof (DeepthinkCall point=tool tokens=1415 duration=60.4s degraded=False under a lobes-URL-only config)
+- test_dual_live.py acceptance task carries the #122-style explicit read_file+finish invite (bare ask zero-stepped live)
+
 ## [1.49.0] - 2026-07-16
 
 ### Added
