@@ -31,11 +31,18 @@ import threading
 import time
 
 import pytest
-import websocket  # the real [voice]-extra dependency this test file exercises directly
 
-from colleague import realtime
-from colleague.cli._errors import CliError
-from colleague.config import RealtimeConfig
+# The real [voice]-extra dependency this whole file exercises directly: every
+# test here drives colleague.realtime's REAL websocket-client against the fake
+# server below, so absence of the extra skips the FILE (CI runs a plain
+# `uv sync` with no extras). The absence-degrade pins deliberately live in
+# tests/test_realtime.py, which needs no extra — nothing is hidden by this
+# whole-file gate (the media-arc importorskip lesson).
+websocket = pytest.importorskip("websocket")
+
+from colleague import realtime  # noqa: E402
+from colleague.cli._errors import CliError  # noqa: E402
+from colleague.config import RealtimeConfig  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # A minimal RFC 6455 SERVER — stdlib-only, lives in tests only. Modelled on
