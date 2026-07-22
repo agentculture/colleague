@@ -68,6 +68,87 @@ Two DIFFERENT failure classes are handled deliberately differently:
 This module is otherwise a thin layer: config is resolved ELSEWHERE
 (``colleague/config.py``'s ``RealtimeConfig``) and consumed here verbatim —
 this module never re-resolves an env var or a config.json section itself.
+
+Continuous audio: capture, playback, the half-duplex gate (plan task t4)
+--------------------------------------------------------------------------
+Task t3 above wired the WS session; this task wires actual sound to and from
+it. Three pieces, all in THIS module (sequential by design — the plan groups
+t3+t4 in one file):
+
+* :func:`start_capture` — opens a mono PCM16 ``sounddevice.InputStream`` at
+  :data:`_DEFAULT_SAMPLE_RATE` (24kHz, the bridge's own ``CLIENT_SAMPLE_RATE``
+  — see ``../lobes-cli/lobes/realtime/protocol.py``) and forwards every
+  captured frame into a :class:`RealtimeSession` via :meth:`RealtimeSession.
+  send_audio`. Captured **directly as int16** (``dtype="int16"``) rather than
+  float32-then-converted — the plan brief permits either
+  ("float32->int16 (or capture int16 directly)"); requesting int16 straight
+  from PortAudio needs no numpy arithmetic on this module's side at all,
+  which keeps the capture path exactly as thin as the WS codec above. The
+  samplerate is requested directly from the device (the "or configure"
+  half of "resample-or-configure to 24000 Hz") — no resampler is implemented;
+  a device that cannot open at 24kHz degrades like any other bad device (see
+  below), it does not silently resample.
+* :func:`play_wav_bytes` — plays a WAV (bytes or a path) through
+  ``sounddevice.play``/``wait``, **holding the half-duplex gate** for the
+  whole duration (:meth:`RealtimeSession.mute` before the first sample,
+  :meth:`RealtimeSession.unmute` after the last — never leaving the gate
+  held past playback, even on failure).
+* The half-duplex gate itself is :class:`RealtimeSession`'s existing
+  ``threading.Event`` (``mute``/``unmute``/``muted``, t3) — t4 adds no new
+  gate primitive, it adds the two callers that actually hold it. The check
+  is STRUCTURAL and belongs to the CAPTURE side: :func:`_forward_captured_frame`
+  checks :attr:`RealtimeSession.muted` and returns WITHOUT calling
+  ``send_audio`` at all while held — a captured frame during playback is
+  dropped before it ever reaches the encode step, the send lock, or the
+  wire (``RealtimeSession.send_audio`` itself *also* checks ``muted`` — t3's
+  own belt; this is the capture lane's suspenders, and the seam
+  ``tests/test_realtime_devices.py`` drives directly with synthetic frames,
+  no PortAudio involved, per the plan's own "design the seams so logic is
+  provable without PortAudio" method note).
+
+Client-edge mute, not an AEC substitute banned elsewhere
+-----------------------------------------------------------
+``../lobes-cli``'s Astro browser client (``site/src/scripts/mic-capture.ts``)
+deliberately does NOT auto-mute during playback — deviation d1 there records
+that the browser's own ``echoCancellation`` constraint owns AEC, and an
+automatic mute would defeat barge-in. This machine's actual hardware
+(Reachy Mini USB audio, an Arducam mic, an HDMI sink) has no such
+echo-cancelling front end reachable from Python/PortAudio, so the SAME
+deviation d1 places the AEC-substitute responsibility at exactly this
+client edge instead (see ``../lobes-cli/scripts/realtime-voice-loop.py``'s
+own ``muted = threading.Event()`` mic-feed gate, the direct precedent this
+module's gate mirrors) — colleague's mute here is that substitute, not a
+violation of the browser-side ban (a different client, a different hardware
+reality, the same documented rationale).
+
+Nested/sequential holds: never unmute out from under an outer caller
+-------------------------------------------------------------------------
+:func:`play_wav_bytes` only calls :meth:`RealtimeSession.unmute` in its
+``finally`` block when THIS call is the one that transitioned the gate
+closed (``already_muted`` was ``False`` on entry) — a caller stitching a
+multi-segment spoken reply together (mute once, call
+:func:`play_wav_bytes` once per segment, unmute once at the very end) never
+sees the gate flicker open between segments, which is what "a queued/
+duplicate playback never lets frames leak between segments" requires.
+
+Device selection: never assume device 0
+-------------------------------------------
+:func:`_resolve_device` resolves :class:`~colleague.config.RealtimeConfig`'s
+``input_device``/``output_device`` (a PortAudio index as a numeric string, or
+a case-insensitive name substring — e.g. ``"Reachy Mini"``, ``"Arducam"``)
+against ``sounddevice.query_devices()``, filtered by the requested kind
+(``max_input_channels`` / ``max_output_channels`` > 0) so a name that only
+exists as the WRONG kind of device never silently matches. ``None``/blank
+resolves to ``None`` — the library's own default, never a hardcoded index
+(this machine alone has at least: HDMI outputs 0-3, a Reachy Mini USB capture
+device, an Arducam capture device, and PipeWire's own aggregate/default
+nodes — "device 0" is a genuinely different piece of hardware on every box).
+A device that fails to open (a bad id, an unmatched name, a PortAudioError)
+is caught by :func:`start_capture`/:func:`play_wav_bytes` and degrades with
+exactly ONE ``colleague: ...`` stderr notice NAMING the configured value —
+never a traceback, and the session itself stays usable in the turn-based/
+text lane either way (this is additive to :class:`RealtimeSession`, not a
+replacement for it).
 """
 
 from __future__ import annotations
@@ -442,3 +523,276 @@ def open_session(
     session = RealtimeSession(ws, on_transcript=on_transcript, on_event=on_event)
     session.start()
     return session
+
+
+# ---------------------------------------------------------------------------
+# Continuous audio streams + the half-duplex gate + device selection
+# (realtime-speech arc, plan task t4). Same module as the WS client above,
+# sequential by design — see the module docstring's "Continuous audio"
+# section for the full rationale.
+# ---------------------------------------------------------------------------
+
+_DEVICE_INSTALL_HINT = _INSTALL_HINT  # same [voice] extra covers sounddevice/soundfile too.
+
+
+def _import_sounddevice() -> Any:
+    """Lazily import ``sounddevice`` only (mic capture needs no WAV container —
+    just raw PCM16 frames straight off the device, so ``soundfile`` is not
+    needed here). Mirrors :func:`_import_ws`/``colleague.voice_devices.
+    _import_audio``: raises a clean :class:`CliError` naming
+    ``pip install colleague[voice]`` when the extra is absent, never a raw
+    ``ImportError``.
+    """
+    try:
+        import sounddevice  # type: ignore
+
+        return sounddevice
+    except Exception as exc:  # noqa: BLE001 - any import failure names the extra
+        raise CliError(
+            1,
+            f"realtime audio device support is not installed ({type(exc).__name__})",
+            remediation=_DEVICE_INSTALL_HINT,
+        ) from exc
+
+
+def _import_sounddevice_and_soundfile() -> Any:
+    """Lazily import BOTH ``sounddevice`` and ``soundfile`` (playback needs
+    ``soundfile`` to decode the WAV container before ``sounddevice`` can play
+    the raw samples). Returns ``(sounddevice, soundfile)``; raises a clean
+    :class:`CliError` naming ``pip install colleague[voice]`` when either is
+    absent — mirrors :func:`_import_sounddevice`.
+    """
+    try:
+        import sounddevice  # type: ignore
+        import soundfile  # type: ignore
+
+        return sounddevice, soundfile
+    except Exception as exc:  # noqa: BLE001 - any import failure names the extra
+        raise CliError(
+            1,
+            f"realtime audio device support is not installed ({type(exc).__name__})",
+            remediation=_DEVICE_INSTALL_HINT,
+        ) from exc
+
+
+def _resolve_device(sounddevice_module: Any, value: Optional[str], *, kind: str) -> Any:
+    """Resolve *value* (a PortAudio id, a name substring, or ``None``) to
+    whatever sounddevice's own ``device=`` kwarg accepts, for the given
+    *kind* (``"input"`` or ``"output"``).
+
+    ``None`` or a blank/whitespace-only string resolves to ``None`` — the
+    audio library's own default device, NEVER a hard-coded index (see the
+    module docstring's "Device selection: never assume device 0" section). A
+    purely-numeric string (e.g. ``"2"``, allowing a leading ``-``) resolves
+    to that integer PortAudio index directly. Anything else is matched as a
+    CASE-INSENSITIVE SUBSTRING against ``sounddevice_module.query_devices()``'s
+    device names, restricted to devices that support *kind* (an ``"input"``
+    match requires ``max_input_channels > 0``, an ``"output"`` match requires
+    ``max_output_channels > 0`` — a name that only exists as the wrong kind of
+    device never silently matches); the first match (lowest index) wins.
+
+    Raises :class:`ValueError` when a non-blank name matches no device of the
+    right kind — the caller (:func:`start_capture`/:func:`play_wav_bytes`)
+    catches this alongside any ``PortAudioError`` from actually opening the
+    stream and degrades with ONE stderr notice naming *value*; this function
+    itself never prints anything and never degrades on its own.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    bare = stripped[1:] if stripped[0] == "-" else stripped
+    if bare.isdigit():
+        return int(stripped)
+    channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
+    needle = stripped.lower()
+    for index, info in enumerate(sounddevice_module.query_devices()):
+        name = str(info.get("name", ""))
+        channels = info.get(channel_key, 0)
+        if channels and channels > 0 and needle in name.lower():
+            return index
+    raise ValueError(f"no {kind} device matching {value!r}")
+
+
+def _forward_captured_frame(session: RealtimeSession, pcm16_bytes: bytes) -> bool:
+    """Forward one captured PCM16 mono frame to *session* — UNLESS the
+    half-duplex gate is held.
+
+    THE structural half-duplex check (see the module docstring): while
+    :attr:`RealtimeSession.muted` is ``True`` (the playback lane is holding
+    the gate via :func:`play_wav_bytes`), this returns ``False`` WITHOUT
+    calling :meth:`RealtimeSession.send_audio` at all — the captured frame is
+    dropped before it ever reaches the encode step, the send lock, or the
+    wire. ``RealtimeSession.send_audio`` has its own internal mute check too
+    (t3's own belt); this is the capture lane's suspenders, and it is the
+    exact seam ``tests/test_realtime_devices.py`` drives directly with
+    synthetic frames — no PortAudio, no real device — to pin "zero frames
+    forwarded during a synthetic playback window".
+    """
+    if session.muted:
+        return False
+    return session.send_audio(pcm16_bytes)
+
+
+def _make_capture_callback(session: RealtimeSession) -> Callable[[Any, int, Any, Any], None]:
+    """Build the ``sounddevice.InputStream`` callback that forwards each
+    captured frame to *session* via :func:`_forward_captured_frame`.
+
+    Extracted as its own function (not an inline closure body) so tests can
+    drive it directly with synthetic ``indata`` values — no PortAudio, no
+    real device involved (see ``tests/test_realtime_devices.py``). The
+    callback itself must NEVER raise past this boundary: a raising
+    ``sounddevice`` stream callback kills the whole audio stream, so any
+    conversion/forwarding failure is swallowed here (mirrors this module's
+    degrade-never-raise stance everywhere else).
+    """
+
+    def _callback(indata: Any, _frames: int, _time_info: Any, _status: Any) -> None:
+        with contextlib.suppress(Exception):
+            _forward_captured_frame(session, bytes(indata))
+
+    return _callback
+
+
+class CaptureHandle:
+    """A started capture stream returned by :func:`start_capture`.
+
+    Wraps the underlying ``sounddevice`` stream so a caller holds ONE object
+    for the capture lane's lifecycle. PortAudio owns the actual audio
+    thread/callback invocation (see the module docstring's thread-sanction
+    rationale in ``tests/test_boundary.py``) — this class spawns no
+    ``threading.Thread`` of its own; it only owns start/stop of the stream.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    def stop(self) -> None:
+        """Stop and close the underlying stream. Idempotent; never raises."""
+        with contextlib.suppress(Exception):
+            self._stream.stop()
+        with contextlib.suppress(Exception):
+            self._stream.close()
+
+
+def start_capture(
+    session: RealtimeSession,
+    config: "Optional[RealtimeConfig]" = None,
+    *,
+    samplerate: int = _DEFAULT_SAMPLE_RATE,
+    blocksize: int = 0,
+) -> Optional[CaptureHandle]:
+    """Open a mono int16 PCM16 capture stream at *samplerate* Hz (default
+    :data:`_DEFAULT_SAMPLE_RATE`, 24kHz — the bridge's ``CLIENT_SAMPLE_RATE``)
+    and start forwarding every captured frame into *session* (gated by the
+    half-duplex mute — see :func:`_forward_captured_frame`).
+
+    Device resolves from ``config.input_device`` (an id or a name substring;
+    see :func:`_resolve_device`) — absent/``None`` config resolves to the
+    ``sounddevice`` library's own default input device.
+
+    Two failure classes, deliberately different (mirrors :func:`open_session`
+    and ``colleague.voice_devices.record``): the ``[voice]`` extra missing
+    raises a clean :class:`CliError` naming ``pip install colleague[voice]``
+    (checked FIRST, before *config* is even read — starting capture is a
+    deliberate operator action that genuinely cannot proceed without the
+    extra). Once the extra IS installed, a bad/missing device (a
+    ``PortAudioError``, an unmatched name — anything :func:`_resolve_device`
+    or opening the stream itself raises) degrades: ONE ``colleague: ...``
+    stderr notice naming the configured device value, and returns ``None`` —
+    never a traceback, and *session* itself stays usable in the turn-based/
+    text lane (this is additive, not a replacement).
+    """
+    sounddevice = _import_sounddevice()
+    device_value = config.input_device if config is not None else None
+    try:
+        device = _resolve_device(sounddevice, device_value, kind="input")
+        stream = sounddevice.InputStream(
+            samplerate=samplerate,
+            channels=1,
+            dtype="int16",
+            device=device,
+            blocksize=blocksize,
+            callback=_make_capture_callback(session),
+        )
+        stream.start()
+    except Exception as exc:  # noqa: BLE001 - degrade-never-raise at the device boundary
+        _notice(
+            f"realtime capture device unavailable (input_device={device_value!r}, "
+            f"{type(exc).__name__}) — falling back to the turn-based path"
+        )
+        return None
+    return CaptureHandle(stream)
+
+
+def _read_wav(soundfile_module: Any, wav: Any) -> tuple[Any, int]:
+    """Decode *wav* (raw WAV bytes, or a path) via *soundfile_module*, returning
+    ``(samples, samplerate)`` exactly as ``soundfile.read`` returns them.
+
+    Raw ``bytes``/``bytearray`` is wrapped in an in-memory buffer (``soundfile``
+    needs a seekable file-like object, not a bare ``bytes``); a path
+    (``str``/``os.PathLike``) is passed straight through — ``soundfile``
+    already accepts either directly.
+    """
+    if isinstance(wav, (bytes, bytearray)):
+        import io
+
+        return soundfile_module.read(io.BytesIO(bytes(wav)))
+    return soundfile_module.read(wav)
+
+
+def play_wav_bytes(
+    session: RealtimeSession,
+    wav: Any,
+    config: "Optional[RealtimeConfig]" = None,
+) -> bool:
+    """Play a WAV (raw bytes or a path) through ``sounddevice``, HOLDING
+    *session*'s half-duplex gate for the whole duration.
+
+    :meth:`RealtimeSession.mute` fires before the first sample plays;
+    :meth:`RealtimeSession.unmute` fires after the last sample finishes (in a
+    ``finally``, so a mid-playback failure still releases the gate — this
+    function never leaves a session permanently deaf). Nested/sequential-safe
+    (see the module docstring): if *session* was ALREADY muted on entry (an
+    outer caller stitching a multi-segment reply together), this call does
+    NOT unmute at the end — only the call that actually closed the gate
+    reopens it, so "a queued/duplicate playback never lets frames leak
+    between segments."
+
+    Device resolves from ``config.output_device`` (see :func:`_resolve_device`)
+    — absent/``None`` config resolves to the ``sounddevice`` library's own
+    default output device.
+
+    Degrade-never-raise, ADDITIVE (mirrors ``colleague.voice_devices.play``):
+    a missing ``[voice]`` extra, a bad/missing device, or any playback error
+    prints ONE ``colleague: ...`` stderr notice and returns ``False`` — never
+    raises. The missing-extra case is checked BEFORE *session* is touched at
+    all (so the gate is never spuriously toggled when nothing can play).
+    """
+    try:
+        sounddevice, soundfile = _import_sounddevice_and_soundfile()
+    except CliError as exc:
+        _notice(
+            f"realtime playback unavailable ({exc}, {exc.remediation}) — "
+            "falling back to the turn-based path"
+        )
+        return False
+    device_value = config.output_device if config is not None else None
+    already_muted = session.muted
+    session.mute()
+    try:
+        data, samplerate = _read_wav(soundfile, wav)
+        device = _resolve_device(sounddevice, device_value, kind="output")
+        sounddevice.play(data, samplerate, device=device)
+        sounddevice.wait()
+        return True
+    except Exception as exc:  # noqa: BLE001 - degrade-never-raise
+        _notice(
+            f"realtime playback failed (output_device={device_value!r}, "
+            f"{type(exc).__name__}) — falling back to the turn-based path"
+        )
+        return False
+    finally:
+        if not already_muted:
+            session.unmute()

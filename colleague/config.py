@@ -260,10 +260,13 @@ _SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget
 
 _VOICE_CONFIG_KEYS = frozenset({"stt_model", "tts_model", "base_url", "api_key"})
 # Recognised keys inside the NESTED "realtime" section of .colleague/config.json
-# (realtime-speech arc, plan task t1). ``url`` is the presence signal (the
-# "model IS presence" rule every sibling rung takes, adapted: realtime has no
-# model of its own — see :func:`_resolve_realtime`).
-_REALTIME_CONFIG_KEYS = frozenset({"url", "api_key"})
+# (realtime-speech arc, plan task t1; ``input_device``/``output_device`` added
+# task t4). ``url`` is the presence signal (the "model IS presence" rule every
+# sibling rung takes, adapted: realtime has no model of its own — see
+# :func:`_resolve_realtime`). ``input_device``/``output_device`` are PURE LOCAL
+# knobs (a PortAudio device id or name substring on THIS machine) — see
+# :func:`_resolve_realtime_devices`.
+_REALTIME_CONFIG_KEYS = frozenset({"url", "api_key", "input_device", "output_device"})
 # Recognised key inside the NESTED "lobes" section of .colleague/config.json
 # (the lobes discovery rung, task t4). A bare string is also accepted as the
 # gateway URL directly (``{"lobes": "http://..."}``).
@@ -490,8 +493,9 @@ def _load_realtime_overrides(repo_path: str | Path) -> dict[str, str]:
 
     Mirrors :func:`_load_voice_overrides` field-for-field (realtime-speech arc,
     plan task t1) — reads a *nested* object (``{"realtime": {...}}``) for the
-    recognised keys (``url``, ``api_key``). No file defining ``realtime``, or
-    an absent/non-dict ``realtime`` section wherever it IS defined, yields an
+    recognised keys (``url``, ``api_key``, ``input_device``, ``output_device``
+    — the latter two added task t4). No file defining ``realtime``, or an
+    absent/non-dict ``realtime`` section wherever it IS defined, yields an
     empty dict and never raises. Merge granularity is the top-level
     ``realtime`` key itself — see :func:`_merged_config_json`.
     """
@@ -914,6 +918,35 @@ def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "V
     )
 
 
+def _resolve_realtime_devices(file_realtime: dict[str, str]) -> tuple[str | None, str | None]:
+    """Resolve the LOCAL-MACHINE input/output device knobs (plan task t4).
+
+    Precedence per key: ``COLLEAGUE_REALTIME_INPUT_DEVICE``/
+    ``COLLEAGUE_REALTIME_OUTPUT_DEVICE`` env > the ``realtime`` section of
+    .colleague/config.json > absent (``None`` — the audio library's own
+    default device). These are PURE LOCAL knobs — an id (e.g. ``"2"``) or a
+    name substring (e.g. ``"Reachy Mini"``) naming a PortAudio device on THIS
+    machine — so, unlike every other RealtimeConfig field, they are resolved
+    IDENTICALLY on BOTH the explicit rung (:func:`_resolve_realtime`) and the
+    lobes discovery fallback (:func:`_realtime_lobes_fallback`): a discovered
+    dial target says nothing about which physical mic/speaker this box
+    should use, so both rungs call this ONE helper with the same
+    *file_realtime* dict. A blank/whitespace-only value resolves to ``None``,
+    same stance as every other blank-string field in this module.
+    """
+    input_device = _pick(
+        None,
+        "COLLEAGUE_REALTIME_INPUT_DEVICE",
+        default=file_realtime.get("input_device", ""),
+    ).strip()
+    output_device = _pick(
+        None,
+        "COLLEAGUE_REALTIME_OUTPUT_DEVICE",
+        default=file_realtime.get("output_device", ""),
+    ).strip()
+    return (input_device or None, output_device or None)
+
+
 def _resolve_realtime(
     file_realtime: dict[str, str],
     main_api_key: str,
@@ -953,7 +986,14 @@ def _resolve_realtime(
         "COLLEAGUE_REALTIME_API_KEY",
         default=file_realtime.get("api_key") or main_api_key,
     )
-    return RealtimeConfig(available=True, ws_url=_realtime_ws_url(url.strip()), api_key=api_key)
+    input_device, output_device = _resolve_realtime_devices(file_realtime)
+    return RealtimeConfig(
+        available=True,
+        ws_url=_realtime_ws_url(url.strip()),
+        api_key=api_key,
+        input_device=input_device,
+        output_device=output_device,
+    )
 
 
 def _realtime_lobes_fallback(
@@ -1014,7 +1054,14 @@ def _realtime_lobes_fallback(
         api_key = main_api_key
     else:
         api_key = _DEFAULT_API_KEY
-    return RealtimeConfig(available=True, ws_url=_realtime_ws_url(origin), api_key=api_key)
+    input_device, output_device = _resolve_realtime_devices(file_realtime)
+    return RealtimeConfig(
+        available=True,
+        ws_url=_realtime_ws_url(origin),
+        api_key=api_key,
+        input_device=input_device,
+        output_device=output_device,
+    )
 
 
 def _emit_lobes_unreachable_notice(gateway_url: str) -> None:
@@ -1898,11 +1945,25 @@ class RealtimeConfig:
     re-derive the scheme swap. ``api_key`` follows the #348 same-origin
     hygiene rule on the discovery rung; the explicit rung inherits the main
     key unconditionally (trusted operator intent) unless it declares its own.
+
+    ``input_device``/``output_device`` (plan task t4) are PURE LOCAL knobs —
+    a PortAudio device id (e.g. ``"2"``) or a name substring (e.g.
+    ``"Reachy Mini"``) naming which mic/speaker on THIS machine the session
+    lane's capture/playback functions (``colleague/realtime.py``) should open.
+    Unlike every other field on this class, they resolve IDENTICALLY
+    regardless of which rung produced this object — a discovered dial target
+    says nothing about which physical device this box should use, so both
+    :func:`_resolve_realtime` and :func:`_realtime_lobes_fallback` read the
+    SAME env/config.json knobs via :func:`_resolve_realtime_devices`.
+    ``None`` (the default) means "let the audio library pick its own
+    default device" — never a forced index.
     """
 
     available: bool
     ws_url: str
     api_key: str
+    input_device: str | None = None
+    output_device: str | None = None
 
 
 @dataclass(frozen=True)

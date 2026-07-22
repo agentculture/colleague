@@ -42,6 +42,7 @@ from colleague.config import (
     EngineConfig,
     RealtimeConfig,
     _realtime_lobes_fallback,
+    _resolve_realtime_devices,
 )
 from colleague.lobes import (
     REALTIME_VAD_RESPONSIBILITY,
@@ -64,6 +65,8 @@ _ALL_REALTIME_ENV = (
     "COLLEAGUE_VOICE_API_KEY",
     "COLLEAGUE_REALTIME_URL",
     "COLLEAGUE_REALTIME_API_KEY",
+    "COLLEAGUE_REALTIME_INPUT_DEVICE",
+    "COLLEAGUE_REALTIME_OUTPUT_DEVICE",
     "COLLEAGUE_LOBES_URL",
 )
 
@@ -617,3 +620,117 @@ def test_to_dict_realtime_includes_available_and_ws_url(
         "available": True,
         "ws_url": "ws://realtime-endpoint:9090/v1/realtime",
     }
+
+
+# ---------------------------------------------------------------------------
+# Device selection (plan task t4): input_device/output_device are PURE LOCAL
+# knobs (a PortAudio device id or name substring on THIS machine), resolved
+# identically regardless of which rung (explicit knob or lobes discovery)
+# produced the RealtimeConfig — see colleague.config._resolve_realtime_devices.
+# ---------------------------------------------------------------------------
+
+
+def test_realtime_config_devices_default_to_none() -> None:
+    rc = RealtimeConfig(
+        available=True,
+        ws_url="ws://realtime:8080/v1/realtime",
+        api_key="key-realtime",
+    )
+    assert rc.input_device is None
+    assert rc.output_device is None
+
+
+def test_resolve_realtime_devices_absent_everywhere_is_none() -> None:
+    assert _resolve_realtime_devices({}) == (None, None)
+
+
+def test_resolve_realtime_devices_from_file_dict() -> None:
+    file_realtime = {"input_device": "Arducam", "output_device": "2"}
+    assert _resolve_realtime_devices(file_realtime) == ("Arducam", "2")
+
+
+def test_resolve_realtime_devices_blank_file_values_are_none() -> None:
+    file_realtime = {"input_device": "   ", "output_device": ""}
+    assert _resolve_realtime_devices(file_realtime) == (None, None)
+
+
+def test_resolve_realtime_devices_env_wins_over_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_REALTIME_INPUT_DEVICE", "env-mic")
+    monkeypatch.setenv("COLLEAGUE_REALTIME_OUTPUT_DEVICE", "env-speaker")
+    file_realtime = {"input_device": "file-mic", "output_device": "file-speaker"}
+    assert _resolve_realtime_devices(file_realtime) == ("env-mic", "env-speaker")
+
+
+def test_env_realtime_input_device_activates_on_explicit_rung(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COLLEAGUE_REALTIME_URL", "http://realtime-endpoint:9090")
+    monkeypatch.setenv("COLLEAGUE_REALTIME_INPUT_DEVICE", "Reachy Mini")
+    monkeypatch.setenv("COLLEAGUE_REALTIME_OUTPUT_DEVICE", "3")
+    cfg = EngineConfig.resolve()
+    assert cfg.realtime is not None
+    assert cfg.realtime.input_device == "Reachy Mini"
+    assert cfg.realtime.output_device == "3"
+
+
+def test_config_file_realtime_devices_on_explicit_rung(tmp_path: Path) -> None:
+    _write_config(
+        tmp_path,
+        {
+            "realtime": {
+                "url": "http://file-realtime:9090",
+                "input_device": "Arducam_12MP",
+                "output_device": "hdmi",
+            }
+        },
+    )
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.realtime is not None
+    assert cfg.realtime.input_device == "Arducam_12MP"
+    assert cfg.realtime.output_device == "hdmi"
+
+
+def test_no_device_knob_leaves_devices_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLLEAGUE_REALTIME_URL", "http://realtime-endpoint:9090")
+    cfg = EngineConfig.resolve()
+    assert cfg.realtime is not None
+    assert cfg.realtime.input_device is None
+    assert cfg.realtime.output_device is None
+
+
+def test_env_realtime_device_resolves_on_lobes_discovery_rung_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Device knobs are a LOCAL-machine concern independent of which rung
+    produced the RealtimeConfig — the lobes discovery rung reads the SAME
+    env vars as the explicit rung (see _resolve_realtime_devices)."""
+    _arm_lobes(
+        monkeypatch,
+        _roles_with_stt(
+            stt_endpoint="http://realtime:8080",
+            stt_responsibilities=("transcribe", "realtime_vad_session"),
+        ),
+    )
+    monkeypatch.setenv("COLLEAGUE_REALTIME_INPUT_DEVICE", "Arducam")
+    cfg = EngineConfig.resolve()
+    assert cfg.realtime is not None
+    assert cfg.realtime.ws_url == "ws://realtime:8080/v1/realtime"
+    assert cfg.realtime.input_device == "Arducam"
+    assert cfg.realtime.output_device is None
+
+
+def test_config_file_realtime_device_resolves_on_lobes_discovery_rung_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _arm_lobes(
+        monkeypatch,
+        _roles_with_stt(
+            stt_endpoint="http://realtime:8080",
+            stt_responsibilities=("transcribe", "realtime_vad_session"),
+        ),
+    )
+    _write_config(tmp_path, {"realtime": {"output_device": "reachymini_audio_sink"}})
+    cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.realtime is not None
+    assert cfg.realtime.output_device == "reachymini_audio_sink"
+    assert cfg.realtime.input_device is None
