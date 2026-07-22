@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.52.0] - 2026-07-22
+
+### Added
+
+- Realtime speech — the SEVENTH sanctioned increment: talk to senses by voice while cortex works, over the rig lobes gateway /v1/realtime WebSocket. An EARS-ONLY session (never response.create — senses stays the mind; replies ride the existing synthesize() lane): colleague/realtime.py (sync websocket-client behind [voice], ONE sanctioned pump thread, base64 event codec, degrade-never-raise), RealtimeConfig discovery via the stt role realtime_vad_session advert (env/config.json outranks; #348 same-origin key rule on the WS dial), continuous capture + client-edge half-duplex gate + device selection, session /voice + --voice opt-in (mic NEVER hot by default, c27) with honest off/live/muted/degraded lane state and bounded teardown, run_realtime_check + ALL ProofResult runners wired into colleague livecheck, byte-identical negative-space proofs, seventh-increment docs, and the first real-microphone live validation of the whole stack (Reachy Mini mic; p50 4.60s under the spoken-brevity shape / 5.63s default, honestly recorded in docs/live-testing.md).
+
 ## [1.51.1] - 2026-07-22
 
 ### Changed
