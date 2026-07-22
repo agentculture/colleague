@@ -155,7 +155,7 @@ The talk lane, injection recording, and voice plumbing fire identically for
   (sibling of lobes-cli#87). **2026-07-22: fixed (lobes-cli#89/#92 closed) and
   both lanes PASS live through colleague's own wire clients** — a verbatim stt
   round-trip and a real tts wav; see `docs/live-testing.md`'s dated
-  2026-07-22 section (closes colleague#304).
+  2026-07-22 section (closes #304).
 - **The crux latency proof PASSES**: a senses answer WHILE cortex loads the
   shared GPU measured **1.14s alone / 2.33s p50** under a concurrent 27B cortex
   generation (target p50<3s / p95<8s) — the cross-model-concurrency assumption
