@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import os
+import queue
 import statistics
 import struct
 import subprocess
@@ -25,11 +26,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from colleague import media
+from colleague.cli._errors import CliError
 from colleague.config import EngineConfig, resolve_lobes_gateway_url
 from colleague.contract import Task
 from colleague.engines.vllm_openai import VllmOpenAIEngine
 from colleague.lobes import resolve_roles
 from colleague.oilcheck.reachability import _PROBE_TIMEOUT
+from colleague.realtime import open_session
 from colleague.senses import run_senses_intake, run_senses_speakback, senses_engine_config
 
 
@@ -1267,3 +1270,210 @@ def classify_at_home_check(leg: str, **evidence: object) -> tuple[str, str]:
     if grade is None:
         return "skipped", f"unknown at-home proof leg {leg!r} — nothing to grade"
     return grade(evidence)
+
+
+# ---------------------------------------------------------------------------
+# Realtime session live proof (realtime-speech arc, task t7, spec c12/h9):
+# does the ears-only realtime lane (colleague/realtime.py, tasks t1-t4) dial,
+# authenticate, and get the server genuinely talking back? Graded from the
+# SAME evidence discipline as every check above — never a fabricated pass.
+# The PASS bar is deliberately a SESSION + EVENT handshake, not a transcript
+# round-trip: an honest transcript needs real spoken audio, which this proof
+# cannot honestly synthesize (see :func:`classify_realtime_check`'s docstring
+# for exactly what a PASS proves and does not prove).
+# ---------------------------------------------------------------------------
+
+#: How long run_realtime_check waits for at least one server event after
+#: opening the session and sending the silence burst, before grading the
+#: handshake a FAIL (a real regression: the wire opened but stayed silent).
+_REALTIME_CHECK_TIMEOUT_SECONDS = 5.0
+
+
+def _silence_burst_pcm16(*, duration_seconds: float = 0.2, sample_rate: int = 24000) -> bytes:
+    """A short, honestly-named silence burst: raw 16-bit mono PCM, all-zero samples.
+
+    Not synthesized speech — colleague has no text-to-PCM16 path wired into
+    this proof, and fabricating a "spoken" clip here would misrepresent what
+    the check actually sent. It is just enough real wire traffic to exercise
+    the ``input_audio_buffer.append`` codec over a live connection. Never
+    claimed as speech; see :func:`classify_realtime_check`'s docstring for
+    what a PASS here does and does not prove.
+    """
+    frame_count = int(duration_seconds * sample_rate)
+    return b"\x00\x00" * frame_count
+
+
+def classify_realtime_check(
+    *, opened: bool, event_count: int, reason: str | None = None
+) -> tuple[str, str]:
+    """Grade the realtime session-handshake proof (t7) from evidence alone.
+
+    The PASS bar is deliberately a SESSION + EVENT handshake — a real dial
+    that opens (the 101 upgrade plus an accepted ``session.update``) AND at
+    least one server event received within a bounded timeout (a session
+    lifecycle, VAD, or transcription event — any real event on the wire
+    counts). This is REAL evidence the lane is live, not merely "no
+    exception was raised while opening a socket that then sits silent".
+
+    What a PASS here proves: the realtime lane dials, authenticates, and the
+    server is genuinely talking back over the wire end-to-end.
+
+    What a PASS here does NOT prove: a speech-to-text TRANSCRIPT round-trip.
+    Producing an honest transcript needs real spoken audio; this proof sends
+    a silence burst (:func:`_silence_burst_pcm16`), which a genuine VAD/ASR
+    pipeline may legitimately never transcribe. This check never claims a
+    transcript was produced — only that the session+event wire is live. A
+    real microphone transcript round-trip is task t9's live-rig proof
+    (docs/live-testing.md), not this one.
+
+    SKIPs (never a fabricated pass) when *opened* is ``False``, naming
+    *reason* — the extra/config/rig-lane absence :func:`run_realtime_check`
+    already diagnosed before ever reaching this grade. FAILs when the session
+    opened but produced ZERO server events within the bounded timeout — a
+    real regression (the wire is silent, not merely quiet, once a dial
+    genuinely succeeded). PASSes only when both hold.
+    """
+    if not opened:
+        return "skipped", reason or "realtime session did not open — nothing to grade"
+    if event_count < 1:
+        return (
+            "failed",
+            "session opened (101 handshake + session.update accepted) but received "
+            "ZERO server events within the bounded timeout — no evidence of a live "
+            "event stream (this does not mean a transcript was never produced — a "
+            "transcript round-trip needs real spoken audio, which this check never "
+            "sends; see the docstring)",
+        )
+    return (
+        "passed",
+        f"session opened and received {event_count} server event(s) within the "
+        "bounded timeout — proves the handshake+event wire is live; does NOT "
+        "prove a transcript round-trip (that needs real spoken audio, see the "
+        "docstring)",
+    )
+
+
+def run_realtime_check(
+    repo: str | Path,
+    *,
+    model: str | None = None,
+    timeout: float = _REALTIME_CHECK_TIMEOUT_SECONDS,
+) -> ProofResult:
+    """Live proof (t7): open the ears-only realtime session end-to-end.
+
+    Resolves the repo's :class:`~colleague.config.RealtimeConfig`
+    (``config.realtime``) and, when available, dials
+    :func:`colleague.realtime.open_session`, sends one short silence burst
+    (:func:`_silence_burst_pcm16`), and waits up to *timeout* seconds for at
+    least one server event — graded by :func:`classify_realtime_check`, whose
+    docstring states exactly what a PASS proves and does not prove.
+
+    SKIPs honestly (never a fabricated pass) on any of three absences, each
+    named in the detail — exactly the three the acceptance criterion names:
+
+    - **the extra is absent** — the ``[voice]`` extra is not installed, so
+      :func:`colleague.realtime.open_session` raises
+      :class:`~colleague.cli._errors.CliError`, caught here and reported as a
+      SKIP naming the extra;
+    - **the config is absent** — ``config.realtime`` is ``None`` (or,
+      defensively, not ``available``): no realtime lane resolved at all, so
+      nothing is ever dialed;
+    - **the rig lane is absent** — the extra is installed and a target is
+      configured, but the dial/handshake itself fails and
+      :func:`colleague.realtime.open_session` degrades to ``None`` (a
+      configured endpoint that is not actually serving ``/v1/realtime``).
+
+    Only once the session genuinely opens does this hand off to
+    :func:`classify_realtime_check` for the final PASS/FAIL grade — never
+    raises past this function's boundary; the session is always closed
+    (bounded join) before returning, success or failure.
+    """
+    repo_path = str(repo)
+    config = EngineConfig.resolve(repo_path=repo_path, model=model)
+    realtime_config = getattr(config, "realtime", None)
+    if realtime_config is None or not getattr(realtime_config, "available", False):
+        return ProofResult(
+            file="realtime",
+            status="skipped",
+            detail=(
+                "no realtime lane resolved (config.realtime absent/unavailable) "
+                "— nothing to dial"
+            ),
+        )
+
+    events: "queue.Queue[dict]" = queue.Queue()
+
+    try:
+        session = open_session(realtime_config, on_event=events.put)
+    except CliError as exc:
+        return ProofResult(
+            file="realtime",
+            status="skipped",
+            detail=f"[voice] extra not installed: {exc.message}",
+        )
+    except Exception as exc:  # noqa: BLE001 - a live proof degrades, it never crashes the caller
+        return ProofResult(
+            file="realtime", status="skipped", detail=f"proof error opening session: {exc}"
+        )
+
+    if session is None:
+        return ProofResult(
+            file="realtime",
+            status="skipped",
+            detail=(
+                "realtime session did not open (dial/handshake failed) — the rig "
+                "lane is not actually serving /v1/realtime; see the stderr notice"
+            ),
+        )
+
+    try:
+        session.send_audio(_silence_burst_pcm16())
+        try:
+            events.get(timeout=timeout)
+            event_count = 1 + events.qsize()
+        except queue.Empty:
+            event_count = 0
+    finally:
+        session.close()
+
+    status, detail = classify_realtime_check(opened=True, event_count=event_count)
+    return ProofResult(file="realtime", status=status, detail=detail)
+
+
+# ---------------------------------------------------------------------------
+# Runner-check registry (task t7): closes the no-production-caller gap found
+# in /scope — every one of these ProofResult-returning functions above
+# previously had NO production caller at all; colleague/cli/_commands/
+# livecheck.py's cmd_livecheck only ever ran the pytest-file proofs
+# (_KNOWN_PROOFS via run_proofs). run_runner_checks executes every registered
+# runner and returns their ProofResults so the CLI verb can report them in
+# the SAME table/JSON as the pytest-file proofs.
+# ---------------------------------------------------------------------------
+
+_RUNNER_CHECKS: tuple[Callable[..., ProofResult], ...] = (
+    run_presence_narration_check,
+    run_media_image_check,
+    run_media_audio_check,
+    run_cortex_senses_check,
+    run_realtime_check,
+)
+
+
+def run_runner_checks(repo: str | Path, *, model: str | None = None) -> list[ProofResult]:
+    """Run every registered ProofResult runner check against *repo*.
+
+    Each runner already degrades to "skipped" on its own absent-config/rig
+    paths (never raises past its own boundary, per its own docstring); this
+    wrapper still catches any unexpected exception per-runner so ONE runner's
+    bug can never crash the whole ``colleague livecheck`` verb — an
+    unexpected exception is itself reported as a "skipped" row, never a
+    fabricated pass and never a crash.
+    """
+    results: list[ProofResult] = []
+    for runner in _RUNNER_CHECKS:
+        try:
+            results.append(runner(repo, model=model))
+        except Exception as exc:  # noqa: BLE001 - one runner's bug must not crash the verb
+            name = getattr(runner, "__name__", "runner")
+            results.append(ProofResult(file=name, status="skipped", detail=f"runner error: {exc}"))
+    return results
