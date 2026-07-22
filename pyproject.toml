@@ -58,13 +58,22 @@ tui = [
     "rich>=13",
     "textual>=0.50",
 ]
-# VOICE (senses live-presence + voice arc, task t3): operator-side mic capture +
-# speaker playback deps. Opt-in — a base install carries NO audio deps; colleague
-# consumes stt/tts over HTTP (colleague/voice.py) at base, and only `colleague
-# talk --audio` / spoken replies need this. Install: pip install "colleague[voice]".
+# VOICE (senses live-presence + voice arc, task t3; extended by the realtime
+# speech arc, plan task t2): operator-side mic capture + speaker playback deps,
+# plus the SYNC WebSocket client for the /v1/realtime session lane. Opt-in — a
+# base install carries NO audio/WS deps; colleague consumes stt/tts over HTTP
+# (colleague/voice.py) at base, and only `colleague talk --audio` / spoken
+# replies / an armed realtime session need this. websocket-client is imported
+# lazily inside colleague/realtime.py, exactly like sounddevice/soundfile are
+# lazily imported inside colleague/voice_devices.py — a base install stays
+# import-clean. It is SYNC by design: tests/test_boundary.py forbids `import
+# asyncio` anywhere outside colleague/resident/, so the realtime client drives
+# a synchronous WS API from its sanctioned pump thread, never asyncio.
+# Install: pip install "colleague[voice]".
 voice = [
     "sounddevice>=0.4",
     "soundfile>=0.12",
+    "websocket-client>=1.6",
 ]
 # RESIDENT (appserver mode, plan task t13): colleague consumes
 # agent-lifecycle's runtime as a LIBRARY EMBED — colleague.resident.appserver
