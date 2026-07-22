@@ -14,8 +14,14 @@ def test_module_imports_without_the_extra():
     assert hasattr(voice_devices, "play")
 
 
-def test_record_without_extra_raises_clean_clierror():
-    # No [voice] extra on the test machine -> record raises a CliError naming the extra.
+def test_record_without_extra_raises_clean_clierror(monkeypatch):
+    # [voice] absence SIMULATED via a sys.modules blocker (env-independent —
+    # holds even in a venv synced with --extra voice, where a real record()
+    # would otherwise capture 0.1s from an actual microphone).
+    import sys
+
+    for name in ("sounddevice", "soundfile"):
+        monkeypatch.setitem(sys.modules, name, None)
     with pytest.raises(CliError) as exc:
         voice_devices.record("/tmp/whatever.wav", seconds=0.1)
     assert "colleague[voice]" in (exc.value.remediation or "")

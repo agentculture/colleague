@@ -58,8 +58,11 @@ arm via monkeypatch in the first place; the harness matches
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from colleague.cli._commands import session as session_mod
 from colleague.cli._commands.session import (
@@ -302,28 +305,36 @@ def test_session_and_realtime_modules_import_clean_without_the_extra() -> None:
     """Mirrors ``tests/test_realtime.py``'s own import-cleanliness pin, checked
     again from the SESSION side: importing the session command module (which
     imports ``colleague.realtime`` at module load, per its own top-level
-    ``from colleague import ... realtime ...``) must not have pulled in any of
-    the third-party packages the ``[voice]`` extra alone provides."""
-    assert "colleague.cli._commands.session" in sys.modules
-    assert "colleague.realtime" in sys.modules
-    assert "websocket" not in sys.modules
-    assert "sounddevice" not in sys.modules
-    assert "soundfile" not in sys.modules
+    ``from colleague import ... realtime ...``) must not pull in any of the
+    third-party packages the ``[voice]`` extra alone provides. Runs in a
+    HERMETIC subprocess so the verdict is env-independent (a voice-synced
+    venv, or sibling test files in this xdist worker, can't contaminate it)."""
+    code = (
+        "import sys; import colleague.cli._commands.session; "
+        "bad = [m for m in ('websocket', 'sounddevice', 'soundfile') "
+        "if m in sys.modules]; sys.exit(1 if bad else 0)"
+    )
+    proc = subprocess.run(  # noqa: S603 - fixed argv, no untrusted input
+        [sys.executable, "-c", code], capture_output=True, timeout=60
+    )
+    assert proc.returncode == 0
 
 
 def test_voice_toggle_mid_work_item_degrades_with_clean_install_hint_and_continues(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Colour TTY, realtime + senses armed, operator types ``/voice`` WHILE a
     work item is running (the only path that actually dials — see
     ``_toggle_voice``'s ``self._talk_active and self._voice_gate_open()``
     guard). No seam is installed: the REAL ``colleague.realtime.open_session``
-    runs, hits ``_import_ws()`` with the ``[voice]`` extra genuinely absent in
-    this environment, and raises a clean ``CliError`` naming
+    runs, hits ``_import_ws()`` with the ``[voice]`` extra absent (SIMULATED
+    via a sys.modules blocker — env-independent), and raises a clean ``CliError`` naming
     ``pip install colleague[voice]`` — caught inside ``_arm_voice_capture``,
     which degrades the lane and renders the hint onto the conversation. The
     session must not raise, and must continue cleanly afterward (teardown is
     an idempotent no-op since no real session/capture handle was ever set)."""
+    for _name in ("websocket", "sounddevice", "soundfile"):
+        monkeypatch.setitem(sys.modules, _name, None)
     sess, _out, _err = _session(tmp_path, config=_config(realtime=True), view="ansi")
     task = Task.new(str(tmp_path), "scan")
     sess._begin_talk_lane(task)  # arms the talk lane; renders the ONE offer line
@@ -349,11 +360,15 @@ def test_voice_toggle_mid_work_item_degrades_with_clean_install_hint_and_continu
     assert isinstance(still_alive, str)
 
 
-def test_voice_flag_wanted_before_any_work_item_degrades_same_way(tmp_path: Path) -> None:
+def test_voice_flag_wanted_before_any_work_item_degrades_same_way(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The ``--voice``-at-launch path (rather than a mid-run ``/voice``) hits
     the SAME real extra-absent degrade inside ``_arm_voice_capture`` via
     ``_begin_voice_lane`` — exercised through the natural ``_begin_talk_lane``
     entry point a work line takes, with no seam installed."""
+    for _name in ("websocket", "sounddevice", "soundfile"):
+        monkeypatch.setitem(sys.modules, _name, None)
     sess, _out, _err = _session(
         tmp_path, config=_config(realtime=True), view="ansi", voice_wanted=True
     )
