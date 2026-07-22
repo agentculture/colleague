@@ -4,7 +4,7 @@
   "schema_version": 3,
   "status": "exported",
   "created": "2026-07-22T11:19:31Z",
-  "updated": "2026-07-22T13:39:26Z",
+  "updated": "2026-07-22T14:07:19Z",
   "claims": [
     {
       "id": "c1",
@@ -316,12 +316,140 @@
       "hard_questions": [],
       "links": [],
       "instruction": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "v1 is HALF-DUPLEX: mic capture is gated (not forwarded) while senses audio plays \u2014 otherwise server VAD hears senses' own speech through the operator's speakers and self-triggers a feedback loop (the bridge defaults AECMode NONE; server_vad segments whatever arrives); barge-in/AEC stay parked",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "while senses audio plays, ZERO operator audio frames are forwarded (test-pinned on the event stream), and a synthetic senses-speech playback never triggers a VAD turn",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "the WS client is SYNCHRONOUS: tests/test_boundary.py flags 'import asyncio' anywhere outside colleague/resident/, so the realtime module must drive a sync WS API from the sanctioned pump thread \u2014 no asyncio in colleague's own source",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "tests/test_boundary.py passes unchanged with the realtime module in tree \u2014 no 'import asyncio' outside colleague/resident/, no 'import socket' anywhere",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c23",
+      "kind": "boundary",
+      "text": "the WS handshake carries VoiceConfig's api_key under the #348 same-origin rule only \u2014 probed live 2026-07-22: /v1/realtime answers 401 WWW-Authenticate: Bearer without the key and 101 Switching Protocols with it; the main Bearer is never forwarded to a cross-origin realtime target",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "a cross-origin realtime dial target gets NO main-key Authorization header (unit-proven); a same-origin target authenticates and upgrades (the live 401-then-101 probe shape)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "teardown follows the owned-input-line template: capture/playback/pump threads are daemon threads with a stop event, poll-wake, and BOUNDED join \u2014 session exit, work-item end, and Ctrl-C never hang on a parked blocking read; stop-promptness is proven on REAL devices/pipes, not fakes (io.StringIO cannot reproduce a blocking read \u2014 the #315 lesson)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "a session killed mid-capture exits within the bounded join on a REAL PTY/device stream \u2014 measured stop-promptness, never proven only on fakes",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "audio devices are operator-selectable (config/env), never hardcoded defaults: the reference operator machine's capture devices are the Reachy Mini USB audio and an Arducam camera mic, and default playback is an HDMI sink \u2014 a wrong default device is a realistic first-run failure",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "input/output devices resolve from config/env with a documented way to list them; a wrong/missing device degrades to turn-based with ONE notice naming the device, never a traceback",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "the session shows the voice-lane state honestly \u2014 live / muted / degraded-to-turn-based / off \u2014 following the cockpit label-state-consequence policy: an operator must be able to distinguish 'silent because muted' from 'silent because the lane died'",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "every voice-lane state transition renders exactly one honest indicator, and the muted state renders visibly differently from the degraded/dead state (test-pinned)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c27",
+      "kind": "decision",
+      "text": "the mic is never hot by default: lobes discovery makes the realtime lane AVAILABLE, and capture starts only on an explicit per-session opt-in ('/voice' toggle or --voice flag) \u2014 refines confirmed c7: arming means availability, never an open mic (resolved q4, operator decision 2026-07-22)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
     }
   ],
   "open_vagueness": [
     {
       "id": "v1",
       "text": "barge-in and AEC scope for v1: the bridge supports server_vad, conversational-floor management and AEC modes \u2014 whether colleague's first realtime increment lets the operator interrupt senses mid-speech (and whether a wake word stays out) is a design-time choice, not discoverable from the code",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "whether the shared GPU sustains the full realtime loop (continuous VAD + per-turn STT + per-reply TTS synth + cortex + senses generation) inside the < 5s p50 target \u2014 row 19 measured a single senses completion under cortex load, not this sustained pattern; measured only when the lane is live",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -422,6 +550,66 @@
       "id": "s12",
       "surface": "colleague thread/subprocess conventions (tests/test_boundary.py structural test 6) + lobes/realtime/{_floor,_segmenter}.py + protocol.py AECMode",
       "finding": "the open decisions above are real: threads need a recorded sanction, the extra split is a packaging choice, and the bridge offers more conversation machinery (floor, AEC, VAD) than a minimal v1 client must consume",
+      "seeds": []
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / security lens: gateway /v1/realtime auth (live curl probes 2026-07-22)",
+      "finding": "route 401s bare and 101-upgrades with the Bearer key \u2014 the WS dial is inside the #348 key-hygiene perimeter, seeded the same-origin boundary",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "challenge pass / failure-modes lens: lobes/realtime protocol.py (AECMode default NONE) + _segmenter.py server_vad",
+      "finding": "no echo cancellation by default + VAD segments whatever arrives = senses' own speaker output can self-trigger turns; seeded the half-duplex requirement",
+      "seeds": [
+        "c21"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / hidden-deps lens: tests/test_boundary.py:281-295 asyncio regex",
+      "finding": "plain 'import asyncio' is flagged outside colleague/resident/ \u2014 the WS client must be sync-API; seeded the sync-client requirement",
+      "seeds": [
+        "c22"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / lifecycle lens: colleague/cli/_commands/_input_line.py teardown template + fake-streams-hide-blocking-reader-bugs lesson (#315)",
+      "finding": "daemon thread + stop event + poll-wake + bounded join is the proven in-repo teardown discipline; seeded the teardown requirement",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / hardware lens: arecord -l / aplay -l device inventory on the reference operator machine",
+      "finding": "capture = Reachy Mini USB audio + Arducam camera mic, playback defaults to NVIDIA HDMI sinks \u2014 device selection is a real first-run hazard; seeded the device-selection requirement",
+      "seeds": [
+        "c25"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / observability lens: cockpit-ux label-state-consequence policy (docs/features/cockpit-ux.md)",
+      "finding": "the session cockpit already claims only enforced states honestly; the voice lane needs the same so muted is distinguishable from dead; seeded the lane-state requirement",
+      "seeds": [
+        "c26"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / overlooked-actors lens: hot-mic privacy (ambient speech -> VAD segments -> transcripts in flight chat + TaskResult.senses.chat)",
+      "finding": "confirmed c7's discovery-first arming makes the mic hot by default on an advertising rig; routed as question q4 \u2014 a user decision, not a guess",
+      "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / concurrency + adjacent-systems lenses: session select-polling + owned-input-line reader + new pump/callback threads; shared-GPU sustained load",
+      "finding": "examined: thread interplay is covered by the c18 sanction + c24 teardown discipline (typed/spoken floor contention is plan-level sequencing); GPU sustained load stays genuinely unknown \u2014 parked as v2, to be re-examined at plan time as a plan risk",
       "seeds": []
     }
   ]

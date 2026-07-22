@@ -29,6 +29,16 @@
   - honesty: killing the WS mid-session (in test AND live) leaves the run alive: the lane degrades to turn-based/text with ONE stderr notice, no exception escapes, and task output is unaffected
 - livecheck grows realtime proofs on the same evidence discipline (never a fabricated pass): a session-open/round-trip check that SKIPs honestly when the extra, mic, or rig lane is absent — and the existing gap gets fixed on the way: run_presence_narration_check has NO production caller today (the livecheck verb only runs the _KNOWN_PROOFS pytest files), so proof-runner checks get wired into the verb or explicitly recorded as manual
   - honesty: after the arc, 'colleague livecheck' executes or explicitly reports the ProofResult runner checks (including the new realtime proof) — a proof that cannot run SKIPs honestly, never fabricates a pass
+- v1 is HALF-DUPLEX: mic capture is gated (not forwarded) while senses audio plays — otherwise server VAD hears senses' own speech through the operator's speakers and self-triggers a feedback loop (the bridge defaults AECMode NONE; server_vad segments whatever arrives); barge-in/AEC stay parked
+  - honesty: while senses audio plays, ZERO operator audio frames are forwarded (test-pinned on the event stream), and a synthetic senses-speech playback never triggers a VAD turn
+- the WS client is SYNCHRONOUS: tests/test_boundary.py flags 'import asyncio' anywhere outside colleague/resident/, so the realtime module must drive a sync WS API from the sanctioned pump thread — no asyncio in colleague's own source
+  - honesty: tests/test_boundary.py passes unchanged with the realtime module in tree — no 'import asyncio' outside colleague/resident/, no 'import socket' anywhere
+- teardown follows the owned-input-line template: capture/playback/pump threads are daemon threads with a stop event, poll-wake, and BOUNDED join — session exit, work-item end, and Ctrl-C never hang on a parked blocking read; stop-promptness is proven on REAL devices/pipes, not fakes (io.StringIO cannot reproduce a blocking read — the #315 lesson)
+  - honesty: a session killed mid-capture exits within the bounded join on a REAL PTY/device stream — measured stop-promptness, never proven only on fakes
+- audio devices are operator-selectable (config/env), never hardcoded defaults: the reference operator machine's capture devices are the Reachy Mini USB audio and an Arducam camera mic, and default playback is an HDMI sink — a wrong default device is a realistic first-run failure
+  - honesty: input/output devices resolve from config/env with a documented way to list them; a wrong/missing device degrades to turn-based with ONE notice naming the device, never a traceback
+- the session shows the voice-lane state honestly — live / muted / degraded-to-turn-based / off — following the cockpit label-state-consequence policy: an operator must be able to distinguish 'silent because muted' from 'silent because the lane died'
+  - honesty: every voice-lane state transition renders exactly one honest indicator, and the muted state renders visibly differently from the degraded/dead state (test-pinned)
 
 ## Honesty conditions
 
@@ -39,6 +49,7 @@
 - capture is continuous with SERVER-side VAD deciding turn end — no fixed N-second window and no push-to-talk keypress required; typed input during an armed voice session still works
 - the pre-change doc line reads exactly 'turn-based (record -> transcribe -> work -> speak) — no streaming, no barge-in, no wake word' (docs/features/senses-live-presence.md honest limits)
 - the p50/p95 numbers are MEASURED on the reference rig under concurrent cortex load with the method recorded in docs/live-testing.md — never estimated, never extrapolated from a quiet GPU
+- a cross-origin realtime dial target gets NO main-key Authorization header (unit-proven); a same-origin target authenticates and upgrades (the live 401-then-101 probe shape)
 
 ## Success signals
 
@@ -49,6 +60,7 @@
 
 - no socket code lands in colleague's own source: tests/test_boundary.py structurally forbids 'import socket' (+ socketserver/http.server/server-side asyncio) across colleague/ — the realtime transport must be a third-party WS client imported lazily inside the extra (the [mcp] precedent: the blocking loop is agentfront's, not colleague's), never a hand-rolled stdlib socket client, and never a listening socket or daemon anywhere
 - this is a SEVENTH sanctioned increment at the router-exclusion line and gets its own recorded re-spec (this scope→think→spec-to-plan flow IS that re-spec): CLAUDE.md's v1 scope list and docs/features/senses-live-presence.md's honest-limits line ('voice v1 is turn-based — no streaming, no barge-in, no wake word') are updated as recorded convention changes, never silently breached
+- the WS handshake carries VoiceConfig's api_key under the #348 same-origin rule only — probed live 2026-07-22: /v1/realtime answers 401 WWW-Authenticate: Bearer without the key and 101 Switching Protocols with it; the main Bearer is never forwarded to a cross-origin realtime target
 
 ## Non-goals
 
@@ -84,6 +96,20 @@
 - `s11` — `colleague/cli/_commands/livecheck.py cmd_livecheck + colleague/livecheck.py select_proofs/_KNOWN_PROOFS`: select_proofs returns only gated pytest files; the ProofResult runner functions (presence narration, voice lane) are library-level with no CLI caller — #304's DoD was only provable by invoking the function directly, a wiring gap this arc should close or record
   - seeds: `c12`
 - `s12` — `colleague thread/subprocess conventions (tests/test_boundary.py structural test 6) + lobes/realtime/{_floor,_segmenter}.py + protocol.py AECMode`: the open decisions above are real: threads need a recorded sanction, the extra split is a packaging choice, and the bridge offers more conversation machinery (floor, AEC, VAD) than a minimal v1 client must consume
+- `s13` — `challenge pass / security lens: gateway /v1/realtime auth (live curl probes 2026-07-22)`: route 401s bare and 101-upgrades with the Bearer key — the WS dial is inside the #348 key-hygiene perimeter, seeded the same-origin boundary
+  - seeds: `c23`
+- `s14` — `challenge pass / failure-modes lens: lobes/realtime protocol.py (AECMode default NONE) + _segmenter.py server_vad`: no echo cancellation by default + VAD segments whatever arrives = senses' own speaker output can self-trigger turns; seeded the half-duplex requirement
+  - seeds: `c21`
+- `s15` — `challenge pass / hidden-deps lens: tests/test_boundary.py:281-295 asyncio regex`: plain 'import asyncio' is flagged outside colleague/resident/ — the WS client must be sync-API; seeded the sync-client requirement
+  - seeds: `c22`
+- `s16` — `challenge pass / lifecycle lens: colleague/cli/_commands/_input_line.py teardown template + fake-streams-hide-blocking-reader-bugs lesson (#315)`: daemon thread + stop event + poll-wake + bounded join is the proven in-repo teardown discipline; seeded the teardown requirement
+  - seeds: `c24`
+- `s17` — `challenge pass / hardware lens: arecord -l / aplay -l device inventory on the reference operator machine`: capture = Reachy Mini USB audio + Arducam camera mic, playback defaults to NVIDIA HDMI sinks — device selection is a real first-run hazard; seeded the device-selection requirement
+  - seeds: `c25`
+- `s18` — `challenge pass / observability lens: cockpit-ux label-state-consequence policy (docs/features/cockpit-ux.md)`: the session cockpit already claims only enforced states honestly; the voice lane needs the same so muted is distinguishable from dead; seeded the lane-state requirement
+  - seeds: `c26`
+- `s19` — `challenge pass / overlooked-actors lens: hot-mic privacy (ambient speech -> VAD segments -> transcripts in flight chat + TaskResult.senses.chat)`: confirmed c7's discovery-first arming makes the mic hot by default on an advertising rig; routed as question q4 — a user decision, not a guess
+- `s20` — `challenge pass / concurrency + adjacent-systems lenses: session select-polling + owned-input-line reader + new pump/callback threads; shared-GPU sustained load`: examined: thread interplay is covered by the c18 sanction + c24 teardown discipline (typed/spoken floor contention is plan-level sequencing); GPU sustained load stays genuinely unknown — parked as v2, to be re-examined at plan time as a plan risk
 
 ## Decisions
 
@@ -91,3 +117,4 @@
 - continuous-audio + WS-pump threads are sanctioned as a recorded convention entry: PortAudio callbacks + one WS receive pump, confined to ONE realtime client module, extra-gated, degrading to turn-based on any failure (resolved q2, the input-line-reader precedent)
 - the first increment is the senses talk lane only — presence beats keep writing .wav files beside the run, no live-streamed narration (resolved q3)
 - #304 closed separately via docs PR #355 (merged as 6ef5b8e) — the realtime arc starts from a clean, live-proven turn-based floor
+- the mic is never hot by default: lobes discovery makes the realtime lane AVAILABLE, and capture starts only on an explicit per-session opt-in ('/voice' toggle or --voice flag) — refines confirmed c7: arming means availability, never an open mic (resolved q4, operator decision 2026-07-22)
