@@ -66,6 +66,15 @@ check — a warming audio backend now answers HTTP 503 with a ``Retry-After``
 header instead of a bare 502 (see ``colleague/voice.py``'s bounded warming
 retry). :func:`ready_kind` classifies which is which so a caller never
 conflates a config proxy with real liveness.
+
+**Realtime availability (realtime-speech arc, plan task t1).** The stt role's
+``responsibilities`` list is the live availability signal for a server-VAD
+realtime session: :func:`stt_supports_realtime` checks for
+:data:`REALTIME_VAD_RESPONSIBILITY` (``"realtime_vad_session"``, probed live
+2026-07-22 against the reference rig's parakeet-backed stt role). No new wire
+field — this reads the SAME ``responsibilities`` field every role already
+carries; :mod:`colleague.config`'s ``RealtimeConfig`` discovery rung is the
+one consumer.
 """
 
 from __future__ import annotations
@@ -102,6 +111,17 @@ _RESOLVED_ROLES = ("cortex", "senses")
 #: ``ready`` and ``loaded`` may diverge for proxied roles): see
 #: :func:`ready_kind`.
 _LIVE_PROBED_READY_ROLES = frozenset({"stt", "tts"})
+
+#: The stt role's responsibility string that signals live realtime VAD-session
+#: support (realtime-speech arc, plan task t1) — probed live 2026-07-22 against
+#: the reference rig's parakeet-backed stt role, whose ``/capabilities``
+#: ``responsibilities`` list carries exactly this string when the realtime
+#: bridge is ready+loaded+feasible. This is a plain string match over the
+#: EXISTING ``responsibilities`` field :class:`RoleInfo` already parses for
+#: every role (no new wire field, no new shape) — see
+#: :func:`stt_supports_realtime`, the one place colleague consults this
+#: signal. :mod:`colleague.config`'s realtime discovery rung is the consumer.
+REALTIME_VAD_RESPONSIBILITY = "realtime_vad_session"
 
 
 @dataclass(frozen=True)
@@ -323,6 +343,19 @@ def embed_env(roles: "LobesRoles", gateway_url: str) -> dict[str, str]:
         "COHERENCE_EMBED_URL": base_url,
         "COHERENCE_EMBED_MODEL": model,
     }
+
+
+def stt_supports_realtime(role: "RoleInfo | None") -> bool:
+    """True when *role* (the resolved ``stt`` :class:`RoleInfo`) advertises
+    :data:`REALTIME_VAD_RESPONSIBILITY` in its ``responsibilities`` (the ONE
+    live availability signal :mod:`colleague.config`'s realtime discovery rung,
+    plan task t1, consults). ``None`` — no stt role resolved (the gateway
+    didn't advertise one, or lobes is unreachable) — is never available.
+    Never raises: a plain tuple-membership check over already-validated data
+    (:func:`_parse_role` guarantees ``responsibilities`` is a tuple of str
+    whenever a :class:`RoleInfo` exists at all).
+    """
+    return role is not None and REALTIME_VAD_RESPONSIBILITY in role.responsibilities
 
 
 def ready_kind(role_name: str) -> str:
