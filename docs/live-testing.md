@@ -931,19 +931,25 @@ honestly and NEVER reports a fabricated pass.
   answer + a `-> cortex:` relay landing on the shared flight plane. A live
   end-to-end demo across both audiences waits on the same tool-calling-cortex
   rig gap (#66).
-- **Row 22 — stt round-trip (verbatim transcript in). ⏭ SKIP.** The gateway's
-  `POST /v1/audio/transcriptions` returned **HTTP 502** (probed 2026-07-03)
-  even though `/capabilities` reports `stt` (parakeet) `ready: true` — the
-  rig-side speech proxy is down (sibling of lobes-cli#87). `colleague/voice.py`
-  `transcribe` degrades correctly (None + one notice); the classifier SKIPs
-  honestly and flips to a real verbatim grade the day the proxy serves audio.
-- **Row 23 — tts spoken reply (audio out). ⏭ SKIP.** The gateway's `POST
-  /v1/audio/speech` returned **HTTP 502 `{"error":"TTS backend returned no
-  audio"}`** (probed 2026-07-03). `colleague/voice.py` `synthesize` degrades to
-  None + one notice, the resident/session/talk text reply stays byte-identical
-  (audio is strictly additive), and the classifier SKIPs honestly. The wav
-  file-link surface (resident replies, `colleague talk`) is proven via a mocked
-  `synthesize`; live audio waits on the rig-side proxy fix.
+- **Row 22 — stt round-trip (verbatim transcript in). ⏭ SKIP → ✅ PASS
+  (2026-07-22).** The gateway's `POST /v1/audio/transcriptions` returned
+  **HTTP 502** (probed 2026-07-03) even though `/capabilities` reports `stt`
+  (parakeet) `ready: true` — the rig-side speech proxy was down (sibling of
+  lobes-cli#87). `colleague/voice.py` `transcribe` degraded correctly (None +
+  one notice); the classifier SKIPped honestly. **2026-07-22 re-probe: the
+  proxy is fixed (lobes-cli#89/#92 closed) and the lane PASSES through
+  colleague's own wire client** — `transcribe()` on a rig-synthesized wav
+  returned `'The quick brown fox jumps over the lazy dog.'` **verbatim** in
+  0.11s (the v1 verbatim invariant holds live, no trim/normalize).
+- **Row 23 — tts spoken reply (audio out). ⏭ SKIP → ✅ PASS (2026-07-22).**
+  The gateway's `POST /v1/audio/speech` returned **HTTP 502 `{"error":"TTS
+  backend returned no audio"}`** (probed 2026-07-03). `colleague/voice.py`
+  `synthesize` degraded to None + one notice, the resident/session/talk text
+  reply stayed byte-identical (audio is strictly additive), and the classifier
+  SKIPped honestly. **2026-07-22 re-probe: `synthesize()` wrote a real
+  119,084-byte RIFF/WAVE file (24kHz mono PCM16, chatterbox) in 1.45s** — the
+  wav file-link surface previously proven via a mocked `synthesize` now has
+  live audio behind it.
 
 Reproduce the latency measurement and the stt/tts probes:
 
@@ -956,10 +962,12 @@ python - <<'PY'
 PY
 ```
 
-The voice lanes are the honest limit of this arc on today's rig: the code is
-complete and degrades cleanly, but the gateway speech proxy 502s for BOTH stt
-and tts, so those two rows SKIP (never a fabricated pass) until the rig-side
-proxy is fixed — exactly the degradation contract the spec requires.
+The voice lanes were the honest limit of this arc on the 2026-07-03 rig: the
+code was complete and degraded cleanly, but the gateway speech proxy 502'd for
+BOTH stt and tts, so those two rows SKIPped (never a fabricated pass) until the
+rig-side proxy was fixed — exactly the degradation contract the spec requires.
+**As of 2026-07-22 both rows PASS live** (see the dated section below, which
+closes #304).
 
 ## Presence default everywhere (spec 2026-07-08, the fourth increment)
 
@@ -1009,8 +1017,10 @@ artifact. The re-run (above) passed.
   no-op) and the loop self-corrects once feed accumulates. Honest, not silent.
 - The dispatch-ack in senses' OWN words is best-effort — an empty `ack` field
   degrades to the fixed dispatch notice (never a fabricated understanding).
-- tts narration of updates still SKIPs (the gateway speech proxy 502s —
-  lobes-cli#89/#92); the text lane is byte-identical.
+- tts narration of updates SKIPped at proof time (the gateway speech proxy
+  502'd — lobes-cli#89/#92); the text lane is byte-identical. **2026-07-22:
+  the proxy is fixed and the narration proof PASSES** (see the dated #304
+  section below).
 - The interactive "keep talking to senses while cortex works" session lane and
   the resident reply-to-origin lane are unit- + boundary-proven; a fully
   interactive live capture (typing mid-run over a TTY) is left to hands-on use.
@@ -1063,3 +1073,64 @@ was 4.43s.
 - **CLAUDE.md cut — measured.** 158,454 → 25,564 bytes (~39,613 → ~6,391
   est. tokens at bytes/4): every session in this repo reclaims ~33K tokens of
   context.
+
+## 2026-07-22 — Voice lanes live: stt/tts/presence-narration flip SKIP → PASS (closes #304)
+
+The rig-side blocker behind rows 22/23 and the presence-narration proof is
+gone: lobes-cli#89 closed, the gateway speech proxy serves both audio lanes,
+and `/capabilities` reports `stt` (`nvidia/parakeet-tdt-0.6b-v2`, parakeet
+runtime) and `tts` (`ResembleAI/chatterbox`, chatterbox runtime) as
+`ready: true, loaded: true, feasible: true` — the stt role now also advertises
+the `realtime_vad_session` responsibility (the gateway's `/v1/realtime`
+WebSocket session capability, unconsumed by colleague today). All probes below
+ran through colleague's OWN wire clients (`colleague/voice.py`), voice config
+resolved via lobes discovery (both lanes dialing the gateway origin `/v1`), on
+2026-07-22:
+
+- **tts (row 23) — ✅ PASS.** `synthesize("The quick brown fox jumps over the
+  lazy dog.")` → a real **119,084-byte** RIFF/WAVE file (24kHz mono PCM16) in
+  **1.45s**. A raw curl probe agrees (`200 audio/wav`, 40,364 bytes for a
+  two-word input).
+- **stt (row 22) — ✅ PASS, verbatim.** `transcribe()` on that rig-synthesized
+  wav returned `'The quick brown fox jumps over the lazy dog.'` — the server
+  transcript **exactly**, in **0.11s**. The v1 verbatim invariant (never
+  trim/normalize a transcript) holds live.
+- **presence narration (#304, presence-default-everywhere t12) — ✅ PASS.**
+  `run_presence_narration_check(".")` →
+  `ProofResult(file='presence_narration', status='passed', detail='a rendered
+  presence beat was narrated to a real .wav file')`. The SKIP-honestly
+  classifier flipped to a real grade the day the rig served audio, exactly as
+  designed — no colleague code change was needed.
+
+Honest limits of this record:
+
+- `run_presence_narration_check` has **no production caller** — the
+  `colleague livecheck` verb runs only the `_KNOWN_PROOFS` pytest files
+  (`select_proofs`), so this proof was driven directly
+  (`python -c "from colleague.livecheck import run_presence_narration_check;
+  print(run_presence_narration_check('.'))"`). Wiring the ProofResult runner
+  checks into the verb is follow-up work (recorded in the realtime-speech
+  scope frame).
+- The stt round-trip input was rig-synthesized speech (chatterbox → parakeet),
+  not a human microphone recording; a human-mic capture pass rides the
+  `[voice]` extra and stays a hands-on check.
+
+Reproduce:
+
+```bash
+uv run python - <<'PY'
+from colleague.config import EngineConfig
+from colleague.livecheck import run_presence_narration_check
+from colleague.voice import transcribe, synthesize
+import tempfile, pathlib
+v = EngineConfig.resolve(repo_path=".").voice
+with tempfile.TemporaryDirectory() as d:
+    wav = synthesize("The quick brown fox jumps over the lazy dog.",
+                     tts_model=v.tts_model, base_url=v.tts_base_url,
+                     out_path=pathlib.Path(d) / "rt.wav", api_key=v.api_key)
+    print("tts:", wav, wav and wav.stat().st_size)
+    print("stt:", repr(transcribe(wav, stt_model=v.stt_model,
+                                  base_url=v.stt_base_url, api_key=v.api_key)))
+print(run_presence_narration_check("."))
+PY
+```
