@@ -411,12 +411,20 @@ class RealtimeSession:
     # -- receive pump (the ONE sanctioned thread body) ------------------------
 
     def _degrade(self, reason: str) -> None:
-        """Flip to the degraded state and print exactly ONE stderr notice."""
+        """Flip to the degraded state and print exactly ONE stderr notice.
+
+        A failure that lands DURING teardown (``close()`` shuts the socket
+        under the pump, whose recv then errors) is not a degradation the
+        operator can act on — the state still flips (callers may read
+        ``.degraded``), but the notice is suppressed so "degraded" never
+        prints after ``close()`` returned.
+        """
         if self._degraded_event.is_set():
             return
         self._degraded_event.set()
         self._degrade_reason = reason
-        _notice(f"realtime session degraded to the turn-based path ({reason})")
+        if not self._stop_event.is_set():
+            _notice(f"realtime session degraded to the turn-based path ({reason})")
 
     def _pump(self) -> None:
         """The receive-pump thread body: poll-wake via ``ws.settimeout``, degrade on failure.
@@ -468,11 +476,17 @@ class RealtimeSession:
 def _is_recv_timeout(exc: Exception) -> bool:
     """True when *exc* is the poll-wake timeout, not a real disconnect.
 
-    Duck-typed on the exception's class name rather than importing
-    ``websocket`` at module level (this function may be called from a pump
-    thread whose ``websocket`` module reference is already lazily imported by
-    :func:`open_session`, but this helper itself must stay import-clean).
+    Prefers a real ``isinstance`` check against the class from the
+    already-imported ``websocket`` module (looked up via ``sys.modules`` so
+    this helper itself stays import-clean — it may run on the pump thread
+    after :func:`open_session` lazily imported the package), falling back to
+    the class-name comparison only when that lookup yields nothing (e.g. a
+    test double raising a same-named exception).
     """
+    ws_mod = sys.modules.get("websocket")
+    timeout_cls = getattr(ws_mod, "WebSocketTimeoutException", None) if ws_mod else None
+    if isinstance(timeout_cls, type) and isinstance(exc, timeout_cls):
+        return True
     return type(exc).__name__ == "WebSocketTimeoutException"
 
 
@@ -779,6 +793,11 @@ def play_wav_bytes(
         )
         return False
     device_value = config.output_device if config is not None else None
+    # TOCTOU note: between reading ``session.muted`` and ``session.mute()``
+    # a PortAudio callback could forward at most ONE already-in-flight frame
+    # (~1.7ms of audio at 24kHz int16 blocks) — far below the server VAD's
+    # speech threshold, so the gate stays effective without a lock around
+    # the transition; ``send_audio``'s own mute re-check narrows it further.
     already_muted = session.muted
     session.mute()
     try:
