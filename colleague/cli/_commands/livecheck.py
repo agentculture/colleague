@@ -17,7 +17,13 @@ import argparse
 from pathlib import Path
 
 from colleague.cli._output import JSON_HELP, emit_result
-from colleague.livecheck import ProofResult, probe_endpoint, run_proofs, select_proofs
+from colleague.livecheck import (
+    ProofResult,
+    probe_endpoint,
+    run_proofs,
+    run_runner_checks,
+    select_proofs,
+)
 
 _LIVECHECK_HELP = (
     "Probe the configured endpoint and run gated live proofs, reporting "
@@ -55,10 +61,20 @@ def cmd_livecheck(args: argparse.Namespace) -> int:
             _print_skip_report(endpoint, probe["reason"])
         return 0
 
-    # Step 2: select and run proofs
+    # Step 2: select and run the pytest-file proofs, plus the ProofResult
+    # runner checks (presence narration, media image/audio, cortex/senses,
+    # realtime — task t7 closes the no-production-caller gap found in
+    # /scope: these functions previously had no caller in this verb at all).
+    # A runner check is independently self-gating (its own config/reachability
+    # check) so it still runs even when the repo has none of the
+    # _KNOWN_PROOFS pytest files on disk.
     proofs = select_proofs(repo)
-    if not proofs:
-        # No proofs found — report that
+    known_results = run_proofs(proofs, repo) if proofs else []
+    runner_results = run_runner_checks(repo)
+    results = known_results + runner_results
+
+    if not results:
+        # Nothing at all to report — report that.
         no_proofs = {
             "endpoint": endpoint,
             "reachable": True,
@@ -69,8 +85,6 @@ def cmd_livecheck(args: argparse.Namespace) -> int:
         else:
             print(f"endpoint {endpoint!r} reachable, no live proofs found")
         return 0
-
-    results = run_proofs(proofs, repo)
 
     # Build output
     proof_rows = []
