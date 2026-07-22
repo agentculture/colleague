@@ -53,6 +53,27 @@ def test_import_ws_without_extra_raises_clean_clierror():
     assert "colleague[voice]" in (exc.value.remediation or "")
 
 
+def test_start_capture_without_extra_raises_clean_clierror():
+    """Task t4: starting capture is a deliberate operator action that
+    genuinely cannot proceed without [voice] — mirrors open_session's own
+    "extra missing raises a clean CliError" stance. Checked FIRST, before
+    *session*/*config* are touched at all, so passing None here is safe."""
+    with pytest.raises(CliError) as exc:
+        realtime.start_capture(None)
+    assert "colleague[voice]" in (exc.value.remediation or "")
+
+
+def test_play_wav_bytes_without_extra_degrades_to_false(capsys):
+    """Task t4: playback is ADDITIVE (mirrors colleague.voice_devices.play) —
+    a missing extra degrades to False + one stderr notice, never raises, and
+    never touches *session* (checked before session.mute() would fire)."""
+    ok = realtime.play_wav_bytes(None, b"RIFF....WAVEdata")
+    assert ok is False
+    err = capsys.readouterr().err
+    assert "colleague[voice]" in err
+    assert err.count("colleague:") == 1
+
+
 def test_realtime_module_has_no_module_level_websocket_import():
     """The third-party WS client must appear ONLY inside a function body (lazy)."""
     src = Path(realtime.__file__).read_text(encoding="utf-8")
