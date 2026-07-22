@@ -147,13 +147,15 @@ The talk lane, injection recording, and voice plumbing fire identically for
 
 ## Honest limits
 
-- **The reference rig's gateway speech proxy 502s for BOTH `stt` and `tts`**
+- **The reference rig's gateway speech proxy 502'd for BOTH `stt` and `tts`**
   (probed 2026-07-03: `/audio/speech` → `{"error":"TTS backend returned no
   audio"}`, `/audio/transcriptions` → HTTP 502), even though `/capabilities`
-  reports both roles `ready`. So the voice round-trip live proofs **SKIP
-  honestly** (never a fabricated pass) until the rig-side proxy is fixed
-  (sibling of lobes-cli#87). The code is complete and degrades cleanly; the wav
-  file-link surface is proven via a mocked `synthesize`.
+  reported both roles `ready`. The voice round-trip live proofs **SKIPped
+  honestly** (never a fabricated pass) until the rig-side proxy was fixed
+  (sibling of lobes-cli#87). **2026-07-22: fixed (lobes-cli#89/#92 closed) and
+  both lanes PASS live through colleague's own wire clients** — a verbatim stt
+  round-trip and a real tts wav; see `docs/live-testing.md`'s dated
+  2026-07-22 section (closes colleague#304).
 - **The crux latency proof PASSES**: a senses answer WHILE cortex loads the
   shared GPU measured **1.14s alone / 2.33s p50** under a concurrent 27B cortex
   generation (target p50<3s / p95<8s) — the cross-model-concurrency assumption

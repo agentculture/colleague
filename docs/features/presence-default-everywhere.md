@@ -128,8 +128,10 @@ stayed parseable, the chat folded onto the artifact, and
 - **Resident clarify-first is timeout-to-dispatch (v1).** Under the async mesh
   transport a clarify question is asked but work dispatches immediately (clarify
   can never withhold work); richer round-trip threading is a follow-up.
-- **tts narration SKIPs** while the rig's speech proxy 502s
-  (lobes-cli#89/#92) — the code is complete and degrades clean.
+- **tts narration SKIPped** while the rig's speech proxy 502'd
+  (lobes-cli#89/#92) — the code was complete and degraded clean. **2026-07-22:
+  the proxy is fixed and `run_presence_narration_check` PASSES live** (a real
+  presence-beat `.wav`; `docs/live-testing.md` dated section, closes #304).
 - **Cadence + latency numbers are conservative defaults**, parked pending live
   tuning (`COLLEAGUE_SENSES_UPDATE_STEPS`/`_PHASE`/`_CAP`,
   `COLLEAGUE_SENSES_LOOP_CAP`).

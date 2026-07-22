@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.51.1] - 2026-07-22
+
+### Changed
+
+- docs: voice-lane live proofs flipped SKIP -> PASS and recorded (closes #304) — the rig speech proxy 502 is fixed (lobes-cli#89/#92 closed): stt round-trips a VERBATIM transcript, tts returns real wav audio, and run_presence_narration_check reports passed live (probed 2026-07-22); docs/live-testing.md rows 22/23 + the presence-narration limit, docs/features/senses-live-presence.md and docs/features/presence-default-everywhere.md honest limits updated. No code change.
+
 ## [1.51.0] - 2026-07-17
 
 ### Added
