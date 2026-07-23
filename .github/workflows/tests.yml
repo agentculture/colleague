@@ -27,10 +27,20 @@ jobs:
 
       - run: uv python install 3.12
 
-      # Install the opt-in [culture] extra so the resident seam tests RUN (not
-      # skip). The base install stays dep-free — enforced by tests/test_zero_deps.py
-      # — so this only adds test coverage, never a runtime dependency.
-      - run: uv sync --extra culture
+      # Install the opt-in [culture] + [voice] extras so the resident seam and
+      # realtime WebSocket-client tests RUN (not skip). [voice] carries
+      # websocket-client, which tests/test_realtime_client.py genuinely needs —
+      # it dials colleague's REAL sync WS client against its own stdlib fake
+      # server, and without the extra that whole file skips and its ~86 covered
+      # lines of colleague/realtime.py read as uncovered new code. sounddevice/
+      # soundfile ride along but need no PortAudio here: every realtime device
+      # test fakes the lazy import (tests/test_realtime_devices.py), and
+      # colleague's own `_import_sounddevice` catches the bare-runner OSError
+      # like any other import failure. The base install stays dep-free —
+      # enforced by tests/test_zero_deps.py — so this only adds test coverage,
+      # never a runtime dependency. The sibling `test` job below deliberately
+      # keeps a plain `uv sync`, so the extra-ABSENT degrade paths stay proven.
+      - run: uv sync --extra culture --extra voice
 
       - run: uv run pytest -n auto --cov=colleague --cov-report=xml:coverage.xml --cov-report=term -v
 

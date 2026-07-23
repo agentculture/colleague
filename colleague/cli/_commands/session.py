@@ -64,7 +64,7 @@ from agentfront.taui.state import WorkItem
 from agentfront.taui.widgets.prompt_input import plain_prompt
 from agentfront.taui.widgets.slash_autocomplete import GROUP_ICON, format_tags
 
-from colleague import cockpit, feedback, flight, handoff, icons, layers, registry
+from colleague import cockpit, feedback, flight, handoff, icons, layers, realtime, registry
 from colleague.artifact import artifact_dir
 from colleague.artifact import write as _write_artifact
 from colleague.attribution import cortex_working_line, senses_line
@@ -191,6 +191,46 @@ _NEXT_ITEM_ID = "next.action"
 #: layout (cumulative session totals are parked as a follow-up — spec v4).
 _ACTIVE_RUN_PANEL_ID = "active_run"
 _LAST_RUN_PANEL_ID = "last_run"
+
+#: Voice lane (realtime-speech arc, t5) state-line surface — the cockpit
+#: ``label · state · consequence`` honesty grammar (docs/features/cockpit-ux.md).
+#: ``muted`` (the operator paused the mic) MUST read differently from
+#: ``degraded`` (the realtime lane fell back / a device won't open) — a
+#: test-pinned distinction, so a paused mic never looks like a broken one.
+_VOICE_STATE_LINES: dict[str, str] = {
+    "off": "voice · off · /voice (or --voice) to talk to senses by voice",
+    "live": "voice · live · mic hot — a spoken turn relays to cortex",
+    "muted": "voice · muted · mic paused by /voice — /voice again resumes it",
+    "degraded": "voice · degraded · realtime fell back — the typed lane still works",
+}
+#: The ONE c27 offer line: realtime availability NEVER starts capture; it only
+#: tells the operator how to opt in.
+_VOICE_OFFER_LINE = "voice · available · type /voice (or restart with --voice) to talk by voice"
+#: The ONE honest notice for ``--voice`` when nothing resolved to dial.
+_VOICE_UNAVAILABLE_LINE = (
+    "voice · unavailable · no realtime endpoint resolved — staying on the typed lane"
+)
+
+
+def _reply_text_from_turns(turns: object) -> str:
+    """Join the operator-facing text of a senses agentic loop's returned turns.
+
+    Voice needs senses' rendered answer to speak it back; the ``loop`` rung's
+    :meth:`PresenceEngine.on_operator_message` returns the
+    :class:`~colleague.senses_loop.LoopTurn` list it just rendered, each turn's
+    ``chat_entry`` carrying ``text`` (ack/clarify) or ``answer`` (a talk reply).
+    Mirrors :meth:`PresenceEngine._render_turn`'s own extraction so the spoken
+    text is exactly what was displayed. Tolerant of ``None`` / a bare list.
+    """
+    parts: list[str] = []
+    for turn in turns or []:
+        entry = getattr(turn, "chat_entry", None)
+        if entry is None:
+            continue
+        text = str(entry.get("text") or entry.get("answer") or "").strip()
+        if text:
+            parts.append(text)
+    return " ".join(parts).strip()
 
 
 def _goal_text(instruction: str) -> str:
@@ -625,6 +665,32 @@ class _Session:
         # True only inside the genuine live interactive loop (``run`` with no
         # test ``input_fn`` and the ANSI view). Gates real-TTY owned-line arming.
         self._live = False
+
+        # Voice lane (realtime-speech arc, t5): opt-in mic capture + a spoken
+        # senses reply, wired into the SAME typed-input path (ONE senses path).
+        # All dormant unless armed → byte-identical (t6 pins the off-TTY / unarmed
+        # zero-output floor). ``_voice_wanted`` is the c27 opt-in (the --voice flag,
+        # set post-construction by ``run_session``, or a ``/voice`` toggle);
+        # realtime *availability* NEVER starts capture on its own. ``_voice_session``
+        # / ``_voice_capture`` are the live ears-only realtime resources, armed per
+        # work line (like the owned line) when wanted + the gate passes, and reaped
+        # on work-item / session exit with their bounded joins. ``_voice_state`` is
+        # the honest lane state (off / live / muted / degraded — muted ≠ degraded).
+        # ``_voice_transcripts`` is the pump-thread → main-thread hand-off: a final
+        # VAD transcript is ENQUEUED on the pump thread (``_on_voice_transcript``)
+        # and drained at the SAME poll boundary a typed line is (``_poll_talk_lane``
+        # → ``_drain_voice_transcripts``), so a voice turn never mutates session
+        # state concurrently. ``_last_talk_reply`` captures senses' rendered answer
+        # so a voice turn can speak it back (additive). The two once-flags keep the
+        # offer line / unavailable notice to exactly one emission per session.
+        self._voice_wanted = False
+        self._voice_session: Optional[object] = None
+        self._voice_capture: Optional[object] = None
+        self._voice_state = "off"
+        self._voice_transcripts: "deque[str]" = deque()
+        self._voice_offer_shown = False
+        self._voice_unavailable_noticed = False
+        self._last_talk_reply = ""
 
         # Middle-manager presence lane (talking-to-one arc, t6): the session-side
         # record of this work line's ack/update exchanges (folded onto
@@ -1334,10 +1400,12 @@ class _Session:
                 break
             if not self._handle(line):
                 break
-        # Safety net: a work item's own finally already disarms the owned line,
-        # but a break out of the loop mid-arm (or a future path) must never leave
-        # the reader thread running. stop() is bounded + idempotent.
+        # Safety net: a work item's own finally already disarms the owned line +
+        # reaps the voice lane, but a break out of the loop mid-arm (or a future
+        # path) must never leave the reader thread or the realtime pump running.
+        # Both stops are bounded + idempotent.
         self._disarm_owned_line()
+        self._end_voice_lane()
         self.err("(session ended)")
         return 0
 
@@ -2167,6 +2235,7 @@ class _Session:
         self._talk_packet = getattr(task, "context_packet", None)
         self._maybe_build_presence_engine()
         self._arm_owned_line()
+        self._begin_voice_lane()
 
     def _maybe_build_presence_engine(self) -> None:
         """Build the senses agentic loop for this work line on the ``loop`` rung.
@@ -2222,6 +2291,7 @@ class _Session:
         self._talk_task_id = None
         self._talk_packet = None
         self._disarm_owned_line()
+        self._end_voice_lane()
 
     # ── owned mid-run input line (at-home arc, t5) ───────────────────────────
 
@@ -2287,9 +2357,15 @@ class _Session:
         When the owned input line is armed (t5) this does NOT read stdin — the
         reader thread owns it and enqueues each submitted line — so here it only
         drains that queue (on THIS, the main thread) into ``_handle_talk_input``,
-        keeping talk handling single-threaded and each line verbatim."""
+        keeping talk handling single-threaded and each line verbatim.
+
+        Voice turns (realtime-speech arc, t5) drain HERE too — at the SAME poll
+        boundary a typed line is consumed — into the identical handler + a spoken
+        reply (:meth:`_drain_voice_transcripts`), so there is ONE senses-talk
+        path. A no-op unless the voice lane armed."""
         if not self._talk_active:
             return
+        self._drain_voice_transcripts()
         if self._owned_line is not None:
             while self._owned_talk_queue:
                 try:
@@ -2362,9 +2438,14 @@ class _Session:
         coordination move (reply / guide-cortex / read-flight …) rather than a
         single fixed talk turn — with the loop enforcing the verbatim-to-cortex
         invariant on any relay. The engine renders + records; the exchange folds
-        onto the artifact at finalize (:meth:`_finalize_split_run`)."""
+        onto the artifact at finalize (:meth:`_finalize_split_run`).
+
+        The rendered answer is captured onto ``_last_talk_reply`` so a
+        voice-originated turn (t5) can speak it back (additive) — harmless for a
+        typed turn, which never triggers playback."""
         if self._presence_engine is not None:
-            self._presence_engine.on_operator_message(text)
+            turns = self._presence_engine.on_operator_message(text)
+            self._last_talk_reply = _reply_text_from_turns(turns)
             if self.view == "ansi":
                 self.emit()
             return
@@ -2384,6 +2465,7 @@ class _Session:
         )
         if record is None:
             return
+        self._last_talk_reply = record["answer"]
         self._history_append("operator", text)
         self._history_append("senses", record["answer"])
         self._log(f"senses: {record['answer']}")
@@ -2428,6 +2510,240 @@ class _Session:
         if wi is None:
             return None
         return {"step": wi.step_count, "running": wi.running}
+
+    # ── voice lane (realtime-speech arc, t5) ─────────────────────────────────
+
+    def _voice_available(self) -> bool:
+        """Whether the config resolved a genuinely dialable realtime target.
+
+        Absence (``EngineConfig.realtime is None``) means the voice lane makes
+        ZERO dial attempts — the c27 contract that availability alone is the
+        gate for the offer line, never for capture."""
+        return getattr(self.config, "realtime", None) is not None
+
+    def _voice_gate_open(self) -> bool:
+        """The c27 arming gate: an interactive colour TTY (``view == "ansi"``) +
+        senses armed + realtime available + not a session-wide ``--cortex-only``
+        bypass. Reuses :meth:`_talk_lane_enabled` (the SAME colour-TTY + senses +
+        not-cortex-only gate the typed talk lane uses) and adds realtime
+        availability — so voice never arms anywhere the typed talk lane wouldn't,
+        and off-TTY / no-senses / unavailable stays byte-identical."""
+        return self._talk_lane_enabled() and self._voice_available()
+
+    def _begin_voice_lane(self) -> None:
+        """Arm (or merely OFFER) the voice lane for the running work item.
+
+        c27, decisively: realtime *availability* NEVER starts capture. With the
+        gate open and the operator NOT opted in, this renders exactly ONE offer
+        line and dials nothing; only ``--voice`` / a prior ``/voice`` toggle
+        (:attr:`_voice_wanted`) actually dials + captures (:meth:`_arm_voice_capture`).
+        ``--voice`` asked for while realtime is unavailable prints exactly ONE
+        honest notice, no dial. A strict no-op (byte-identical, zero output) when
+        the talk lane isn't active — i.e. off-TTY / no senses / ``--cortex-only``,
+        the same surfaces the typed talk lane stays silent on."""
+        if not self._talk_active:
+            return
+        if not self._voice_available():
+            if self._voice_wanted and not self._voice_unavailable_noticed:
+                self._voice_unavailable_noticed = True
+                self._render_voice_line(_VOICE_UNAVAILABLE_LINE)
+            return
+        if self._voice_wanted:
+            self._arm_voice_capture()
+        elif not self._voice_offer_shown:
+            self._voice_offer_shown = True
+            self._render_voice_line(_VOICE_OFFER_LINE)
+
+    def _arm_voice_capture(self) -> None:
+        """Dial the EARS-ONLY realtime session and start mic capture, wiring final
+        VAD transcripts into the SAME typed-input path (:meth:`_on_voice_transcript`).
+
+        Consumes the t3/t4 building blocks verbatim: :func:`realtime.open_session`
+        (ears-only; the spoken reply rides the batch TTS lane, never this socket)
+        and :func:`realtime.start_capture` (server-VAD turn ends — no fixed window,
+        no push-to-talk). Degrade-never-raise and ADDITIVE: a missing ``[voice]``
+        extra (``CliError``), a failed dial (``None``), or a device that won't open
+        (``start_capture`` → ``None``) degrades the lane to ``degraded`` with one
+        honest line and leaves the TYPED lane fully usable — the run never fails."""
+        if self._voice_session is not None:
+            return  # already armed for this work line
+        cfg = getattr(self.config, "realtime", None)
+        try:
+            session = realtime.open_session(cfg, on_transcript=self._on_voice_transcript)
+        except CliError as exc:
+            self._voice_state = "degraded"
+            self._render_voice_line(
+                f"voice · degraded · {exc.message} ({exc.remediation}) — typed lane only"
+            )
+            return
+        except Exception:  # noqa: BLE001 - degrade-never-raise at the lane boundary
+            self._voice_state = "degraded"
+            self._render_voice_state()
+            return
+        if session is None:
+            self._voice_state = "degraded"
+            self._render_voice_state()
+            return
+        capture = realtime.start_capture(session, cfg)
+        if capture is None:
+            # No mic → this socket can never carry a voice turn (a transcript
+            # only ever arrives from captured audio), so reap it NOW rather
+            # than holding an idle WS + pump thread until _end_voice_lane().
+            # Leaves the lane in exactly the dial-failure shape above —
+            # ``_voice_session is None`` + ``degraded`` — so every downstream
+            # reader (drain / speak / toggle) takes the identical path.
+            self._voice_state = "degraded"
+            with contextlib.suppress(Exception):
+                session.close()  # bounded join
+        else:
+            self._voice_session = session
+            self._voice_capture = capture
+            self._voice_state = "live"
+        self._render_voice_state()
+
+    def _on_voice_transcript(self, text: str) -> None:
+        """``on_transcript`` callback fired on the realtime PUMP thread: only
+        enqueue the final VAD transcript (a thread-safe ``deque`` append). The
+        main thread drains it at the next progress-sink boundary
+        (:meth:`_drain_voice_transcripts`), so a voice turn never mutates session
+        state concurrently with the work loop — the exact ``_enqueue_talk`` model
+        the owned-line reader thread uses for a typed line."""
+        stripped = (text or "").strip()
+        if stripped:
+            self._voice_transcripts.append(stripped)
+
+    def _drain_voice_transcripts(self) -> None:
+        """Drain pump-enqueued VAD transcripts into the IDENTICAL typed-input
+        handler, on THIS (the main) thread, then speak senses' reply.
+
+        This is the ONE senses path: each transcript goes through the same
+        :meth:`_handle_talk_input` → :meth:`_talk_senses` → ``run_senses_talk`` +
+        ``flight.append_guidance`` call sites a typed line takes, so a voice turn
+        lands on ``TaskResult.senses.chat``/``injections`` identically. After the
+        answer renders, :meth:`_speak_reply` synthesizes + plays it (additively).
+        Also reflects a pump degrade into the honest lane state. A strict no-op
+        when the voice lane never armed."""
+        if self._voice_session is None:
+            return
+        if getattr(self._voice_session, "degraded", False) and self._voice_state not in (
+            "degraded",
+            "off",
+        ):
+            self._voice_state = "degraded"
+            self._render_voice_state()
+        while self._voice_transcripts:
+            try:
+                text = self._voice_transcripts.popleft()
+            except IndexError:
+                break
+            if not text:
+                continue
+            self._last_talk_reply = ""
+            with contextlib.suppress(Exception):
+                self._handle_talk_input(text)  # THE identical typed-input handler
+            self._speak_reply(self._last_talk_reply)
+
+    def _speak_reply(self, text: str) -> None:
+        """Speak senses' just-rendered reply through the EXISTING batch TTS lane
+        (:func:`colleague.voice.synthesize`) + local playback
+        (:func:`realtime.play_wav_bytes`, which HOLDS the half-duplex gate for the
+        playback duration so the mic never re-hears the speaker).
+
+        ADDITIVE, degrade-never-raise: no reply / no voice session / no ``tts``
+        configured / a synth or playback failure all leave the already-rendered
+        TEXT byte-identical — audio never affects the text path."""
+        if not text or self._voice_session is None:
+            return
+        voice_cfg = getattr(self.config, "voice", None)
+        tts_model = getattr(voice_cfg, "tts_model", None) if voice_cfg is not None else None
+        if not tts_model:
+            return
+        from colleague import voice as voicemod
+
+        try:
+            out_dir = artifact_dir(self.repo)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            self._voice_reply_n = getattr(self, "_voice_reply_n", 0) + 1
+            out_path = out_dir / f"voice-reply-{self._voice_reply_n:04d}.wav"
+            wav = voicemod.synthesize(
+                text,
+                tts_model=tts_model,
+                base_url=getattr(voice_cfg, "tts_base_url", "") or "",
+                out_path=out_path,
+                api_key=getattr(voice_cfg, "api_key", "") or "",
+            )
+            if wav is None:
+                return  # synth degraded — the text reply already stands, nothing to play
+            realtime.play_wav_bytes(
+                self._voice_session, str(wav), getattr(self.config, "realtime", None)
+            )
+        except Exception:  # nosec B110 # noqa: BLE001 - additive and degrade-never-raise
+            pass
+
+    def _voice_state_line(self) -> str:
+        return _VOICE_STATE_LINES.get(self._voice_state, _VOICE_STATE_LINES["off"])
+
+    def _render_voice_state(self) -> None:
+        """Render the current honest lane state through the session's existing
+        feed-line surface (the same ``_log`` + ``emit`` path the senses/presence
+        lines use). ``muted`` and ``degraded`` render as DISTINCT lines."""
+        self._render_voice_line(self._voice_state_line())
+
+    def _render_voice_line(self, line: str) -> None:
+        self._log(line)
+        if self.view == "ansi":
+            self.emit()
+
+    def _toggle_voice(self) -> str:
+        """``/voice`` — the c27 opt-in toggle, returning a confirmation string.
+
+        Realtime unavailable → one honest notice, no dial. On a running lane the
+        FIRST toggle opts in and starts capture (off → live); toggling again mutes
+        (live → muted: ``session.mute`` + stop forwarding) and once more resumes
+        (muted → live). ``degraded`` stays degraded — a toggle can't un-break a
+        dead lane. Off a work item (no talk lane) it flips the wanted preference,
+        which the next work item's talk lane honors."""
+        if not self._voice_available():
+            return _VOICE_UNAVAILABLE_LINE
+        self._voice_wanted = True
+        session = self._voice_session
+        if session is None:
+            if self._talk_active and self._voice_gate_open():
+                self._arm_voice_capture()
+                return self._voice_state_line()
+            return "voice · on · capture starts when the next work item runs"
+        if self._voice_state == "muted":
+            with contextlib.suppress(Exception):
+                session.unmute()
+            self._voice_state = "live"
+        elif self._voice_state == "live":
+            with contextlib.suppress(Exception):
+                session.mute()
+            self._voice_state = "muted"
+        # degraded: no live/muted transition — the line still reports it honestly.
+        self._render_voice_state()
+        return self._voice_state_line()
+
+    def _end_voice_lane(self) -> None:
+        """Tear down the voice lane on work-item / session exit (or a mid-capture
+        interrupt), within bounded joins. Stops mic capture
+        (:meth:`CaptureHandle.stop`) then closes the realtime session
+        (:meth:`RealtimeSession.close`, a BOUNDED pump join) — both idempotent and
+        never-raising, so teardown can never hang or leave an orphan thread. The
+        wanted PREFERENCE persists (a later work item re-arms); only the live
+        resources are reaped, and the state resets to ``off``."""
+        capture = self._voice_capture
+        session = self._voice_session
+        self._voice_capture = None
+        self._voice_session = None
+        self._voice_transcripts.clear()
+        self._voice_state = "off"
+        if capture is not None:
+            with contextlib.suppress(Exception):
+                capture.stop()
+        if session is not None:
+            with contextlib.suppress(Exception):
+                session.close()  # bounded join
 
     def _resave_artifact(self, result: TaskResult) -> None:
         """Re-write the work item's artifact after folding session-side senses
@@ -2715,6 +3031,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         ("media", "config"),
     ),
     SlashSpec(
+        "voice",
+        "",
+        "toggle the realtime voice lane (opt in / mute) — needs realtime + senses",
+        "runtime",
+        ("voice", "interactive"),
+    ),
+    SlashSpec(
         "learn-from",
         "<source> [name…]",
         "learn skills from a peer (e.g. claude) into .colleague/skills/",
@@ -2934,6 +3257,16 @@ def _act_attach(s: "_Session", rest: list[str]) -> str:
     )
 
 
+def _act_voice(s: "_Session", rest: list[str]) -> str:
+    """``/voice`` — the c27 opt-in toggle for the realtime voice lane.
+
+    Delegates to :meth:`_Session._toggle_voice`: opt in + start capture, or
+    toggle a running lane live⇄muted. Realtime unavailable is one honest line,
+    no dial — never raises (so the slash dispatcher renders it as a plain
+    confirmation, like every other config action)."""
+    return s._toggle_voice()
+
+
 def _act_learn_from(s: "_Session", rest: list[str]) -> str:
     """Learn skills from a peer in-session via the real ``learn-from`` verb.
 
@@ -2956,6 +3289,7 @@ _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "base": _act_base,
     "pr": _act_pr,
     "attach": _act_attach,
+    "voice": _act_voice,
     "learn-from": _act_learn_from,
 }
 
@@ -3063,6 +3397,10 @@ def run_session(
     session.chain_fn = _chain_fn
     if chain_armed:
         session.chain_cap = chain_cap
+    # Voice lane opt-in (realtime-speech arc, t5, c27): --voice arms the WANTED
+    # preference; capture still only starts when a work item's talk lane begins
+    # AND the colour-TTY + senses + realtime gate passes. Unset → byte-identical.
+    session._voice_wanted = bool(getattr(args, "voice", False))
     return session.run(input_fn)
 
 
@@ -3138,6 +3476,17 @@ def _configure_session_parser(p: argparse.ArgumentParser) -> None:
         "--debug-senses",
         action="store_true",
         help="Print the senses ContextPacket to stderr after each intake (cortex/senses arc).",
+    )
+    p.add_argument(
+        "--voice",
+        action="store_true",
+        help=(
+            "Opt in to the realtime voice lane: while a work item runs, talk to "
+            "senses by voice (server-VAD turns) and hear its reply spoken. Needs a "
+            "colour TTY + senses armed + a resolved realtime endpoint; /voice "
+            "toggles it live. The mic is NEVER hot without this flag or /voice "
+            "(c27); realtime unavailable is one honest notice. (realtime-speech arc)"
+        ),
     )
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
     p.add_argument("--model", default=None, help="Override the engine model name.")

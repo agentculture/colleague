@@ -59,6 +59,12 @@ minds. The architecture, part by part:
   the artifact contract + `feedback export`. Index: `docs/organs.md`.
 - **Senses live presence + voice** — the operator converses with **senses** while cortex drives; words → guidance at the next tool-call boundary; audio
   via `stt`/`tts` (`[voice]` extra); senses never produces the task answer. Doc: `senses-live-presence.md`.
+- **Realtime speech** — the senses talk lane over the rig's `/v1/realtime`
+  WebSocket (`colleague/realtime.py`, the ears-only client — never
+  `response.create`; senses stays the mind); client-edge half-duplex mute
+  (lobes d1) replaces AEC; mic live only on explicit per-session opt-in
+  (`/voice`, `--voice`, c27); turn-based voice is the degrade floor. Doc:
+  `realtime-speech.md`.
 - **Talking to one (middle-manager presence)** — in `colleague session` senses
   acks/narrates/clarifies + delivers conversationally; cortex still does the task;
   clarify never withholds work. Doc: `talking-to-one.md`.
@@ -185,7 +191,7 @@ two backends: `mock` (the contract reference) and `vllm-openai`.
 
 **Out of scope for v0** — do not add without re-speccing: **a multi-backend
 router / routing policy** (equally the multi-model router: any automatic
-task→model or task→backend routing decision). **Six sanctioned increments** have landed at this line, each a
+task→model or task→backend routing decision). **Seven sanctioned increments** have landed at this line, each a
 re-spec'd, FIXED, ENUMERATED surface — never a routing policy (fuller descriptions
 in the architecture bullets above + their docs): (1) **dual-model deepthink
 escalation** (ONE declared second model); (2) **cortex/senses role split** (TWO
@@ -205,9 +211,13 @@ SUPERSEDES "#276 stays parked"); (6) **deepthink discovered from the lobes
 armed and no deepthink declared, the advertised `muse` role fills the ONE
 deepthink target onto the SAME four-point enumerated surface; env/config.json
 always win, no muse = byte-identical; the #332 remainder — trigger tables,
-parallel deliberation, synthesis — stays OUT).
+parallel deliberation, synthesis — stays OUT); (7) **realtime speech** (senses
+talk lane over the rig's `/v1/realtime` WebSocket — an EARS-ONLY session
+(never `response.create`; senses stays the mind), client-edge half-duplex, mic
+live only on explicit per-session opt-in (`/voice`, `--voice`); turn-based
+voice is the degrade floor).
 
-Anything beyond those six is still the excluded router; document the distinction
+Anything beyond those seven is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only

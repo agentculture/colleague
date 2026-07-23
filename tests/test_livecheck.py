@@ -227,12 +227,14 @@ class TestCliTextOutput:
     """CLI renders a per-row table in text mode."""
 
     @patch("colleague.cli._commands.livecheck.probe_endpoint")
+    @patch("colleague.cli._commands.livecheck.run_runner_checks")
     @patch("colleague.cli._commands.livecheck.run_proofs")
     @patch("colleague.cli._commands.livecheck.select_proofs")
     def test_text_table(
         self,
         mock_select: MagicMock,
         mock_run: MagicMock,
+        mock_runners: MagicMock,
         mock_probe: MagicMock,
     ) -> None:
         """Text mode prints a table with header, rows, and summary."""
@@ -249,6 +251,7 @@ class TestCliTextOutput:
             ProofResult("tests/test_vllm_live.py", "passed", ""),
             ProofResult("tests/test_dual_live.py", "failed", "AssertionError"),
         ]
+        mock_runners.return_value = []
 
         from colleague.cli._commands.livecheck import cmd_livecheck
 
@@ -278,12 +281,14 @@ class TestCliJsonOutput:
     """CLI renders structured JSON with --json."""
 
     @patch("colleague.cli._commands.livecheck.probe_endpoint")
+    @patch("colleague.cli._commands.livecheck.run_runner_checks")
     @patch("colleague.cli._commands.livecheck.run_proofs")
     @patch("colleague.cli._commands.livecheck.select_proofs")
     def test_json_shape(
         self,
         mock_select: MagicMock,
         mock_run: MagicMock,
+        mock_runners: MagicMock,
         mock_probe: MagicMock,
     ) -> None:
         """--json produces {endpoint, reachable, proofs: [...]}."""
@@ -298,6 +303,7 @@ class TestCliJsonOutput:
         mock_run.return_value = [
             ProofResult("tests/test_vllm_live.py", "passed", ""),
         ]
+        mock_runners.return_value = []
 
         from colleague.cli._commands.livecheck import cmd_livecheck
 
@@ -322,3 +328,230 @@ class TestCliJsonOutput:
         assert len(parsed["proofs"]) == 1
         assert parsed["proofs"][0]["file"] == "tests/test_vllm_live.py"
         assert parsed["proofs"][0]["status"] == "passed"
+
+
+class TestRunnerChecksWiring:
+    """Task t7: the ProofResult runner checks (presence narration, media
+    image/audio, cortex/senses, realtime) are executed by the CLI verb
+    alongside the _KNOWN_PROOFS pytest files, and reported in the SAME
+    table/JSON — closing the no-production-caller gap found in /scope."""
+
+    @patch("colleague.cli._commands.livecheck.probe_endpoint")
+    @patch("colleague.cli._commands.livecheck.run_runner_checks")
+    @patch("colleague.cli._commands.livecheck.run_proofs")
+    @patch("colleague.cli._commands.livecheck.select_proofs")
+    def test_runner_rows_included_alongside_pytest_proofs(
+        self,
+        mock_select: MagicMock,
+        mock_run: MagicMock,
+        mock_runners: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """Runner rows land in the same proofs list as the pytest-file rows."""
+        mock_probe.return_value = {
+            "endpoint": "http://localhost:8000/v1",
+            "reachable": True,
+            "reason": None,
+        }
+        mock_select.return_value = [{"file": "tests/test_vllm_live.py", "label": "basic"}]
+        mock_run.return_value = [ProofResult("tests/test_vllm_live.py", "passed", "")]
+        mock_runners.return_value = [
+            ProofResult("presence_narration", "skipped", "tts not configured"),
+            ProofResult("realtime", "skipped", "no realtime lane resolved"),
+        ]
+
+        from colleague.cli._commands.livecheck import cmd_livecheck
+
+        args = argparse.Namespace(repo=".", json=True)
+
+        import io
+        import sys
+
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = captured
+        try:
+            exit_code = cmd_livecheck(args)
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+        parsed = json.loads(captured.getvalue())
+        files = [p["file"] for p in parsed["proofs"]]
+        assert files == ["tests/test_vllm_live.py", "presence_narration", "realtime"]
+        mock_runners.assert_called_once_with(Path("."))
+
+    @patch("colleague.cli._commands.livecheck.probe_endpoint")
+    @patch("colleague.cli._commands.livecheck.run_runner_checks")
+    @patch("colleague.cli._commands.livecheck.run_proofs")
+    @patch("colleague.cli._commands.livecheck.select_proofs")
+    def test_runner_skip_never_flips_exit_code(
+        self,
+        mock_select: MagicMock,
+        mock_run: MagicMock,
+        mock_runners: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """All pytest proofs pass, all runner checks skip -> exit 0 (runner SKIPs
+        must not affect the exit code)."""
+        mock_probe.return_value = {
+            "endpoint": "http://localhost:8000/v1",
+            "reachable": True,
+            "reason": None,
+        }
+        mock_select.return_value = [{"file": "tests/test_vllm_live.py", "label": "basic"}]
+        mock_run.return_value = [ProofResult("tests/test_vllm_live.py", "passed", "")]
+        mock_runners.return_value = [
+            ProofResult("presence_narration", "skipped", "not configured"),
+            ProofResult("media_image", "skipped", "endpoint unreachable"),
+            ProofResult("media_audio", "skipped", "endpoint unreachable"),
+            ProofResult("cortex_senses", "skipped", "not serving"),
+            ProofResult("realtime", "skipped", "no realtime lane resolved"),
+        ]
+
+        from colleague.cli._commands.livecheck import cmd_livecheck
+
+        args = argparse.Namespace(repo=".", json=False)
+
+        import io
+        import sys
+
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = captured
+        try:
+            exit_code = cmd_livecheck(args)
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+        assert "skipped" in captured.getvalue()
+
+    @patch("colleague.cli._commands.livecheck.probe_endpoint")
+    @patch("colleague.cli._commands.livecheck.run_runner_checks")
+    @patch("colleague.cli._commands.livecheck.run_proofs")
+    @patch("colleague.cli._commands.livecheck.select_proofs")
+    def test_runner_fail_still_flips_exit_code(
+        self,
+        mock_select: MagicMock,
+        mock_run: MagicMock,
+        mock_runners: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """A runner FAIL follows the existing exit-1-on-failed rule even when
+        every pytest-file proof passed."""
+        mock_probe.return_value = {
+            "endpoint": "http://localhost:8000/v1",
+            "reachable": True,
+            "reason": None,
+        }
+        mock_select.return_value = [{"file": "tests/test_vllm_live.py", "label": "basic"}]
+        mock_run.return_value = [ProofResult("tests/test_vllm_live.py", "passed", "")]
+        mock_runners.return_value = [
+            ProofResult("realtime", "failed", "zero server events"),
+        ]
+
+        from colleague.cli._commands.livecheck import cmd_livecheck
+
+        args = argparse.Namespace(repo=".", json=False)
+
+        import io
+        import sys
+
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = captured
+        try:
+            exit_code = cmd_livecheck(args)
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 1
+
+    @patch("colleague.cli._commands.livecheck.probe_endpoint")
+    @patch("colleague.cli._commands.livecheck.run_runner_checks")
+    @patch("colleague.cli._commands.livecheck.select_proofs")
+    def test_runner_rows_report_even_with_no_known_proof_files(
+        self,
+        mock_select: MagicMock,
+        mock_runners: MagicMock,
+        mock_probe: MagicMock,
+    ) -> None:
+        """A repo with none of the _KNOWN_PROOFS files still reports the
+        (self-gating) runner rows rather than short-circuiting to 'no live
+        proofs found'."""
+        mock_probe.return_value = {
+            "endpoint": "http://localhost:8000/v1",
+            "reachable": True,
+            "reason": None,
+        }
+        mock_select.return_value = []
+        mock_runners.return_value = [ProofResult("realtime", "skipped", "no realtime lane")]
+
+        from colleague.cli._commands.livecheck import cmd_livecheck
+
+        args = argparse.Namespace(repo=".", json=True)
+
+        import io
+        import sys
+
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = captured
+        try:
+            exit_code = cmd_livecheck(args)
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+        parsed = json.loads(captured.getvalue())
+        assert len(parsed["proofs"]) == 1
+        assert parsed["proofs"][0]["file"] == "realtime"
+
+
+class TestRunRunnerChecksAggregation:
+    """run_runner_checks (colleague/livecheck.py) executes the registered
+    runners and never lets one runner's bug crash the whole aggregation."""
+
+    def test_aggregates_every_registered_runner_in_order(self, monkeypatch) -> None:
+        import colleague.livecheck as livecheck_mod
+
+        calls: list[str] = []
+
+        def _make(name: str, status: str):
+            def _runner(repo, *, model=None):
+                calls.append(name)
+                return ProofResult(file=name, status=status, detail="")
+
+            return _runner
+
+        fake_registry = (
+            _make("a", "passed"),
+            _make("b", "skipped"),
+            _make("c", "failed"),
+        )
+        monkeypatch.setattr(livecheck_mod, "_RUNNER_CHECKS", fake_registry)
+
+        results = livecheck_mod.run_runner_checks(".")
+
+        assert calls == ["a", "b", "c"]
+        assert [r.file for r in results] == ["a", "b", "c"]
+        assert [r.status for r in results] == ["passed", "skipped", "failed"]
+
+    def test_one_runner_exception_does_not_crash_the_others(self, monkeypatch) -> None:
+        import colleague.livecheck as livecheck_mod
+
+        def _boom(repo, *, model=None):
+            raise RuntimeError("kaboom")
+
+        def _ok(repo, *, model=None):
+            return ProofResult(file="ok", status="passed", detail="")
+
+        monkeypatch.setattr(livecheck_mod, "_RUNNER_CHECKS", (_boom, _ok))
+
+        results = livecheck_mod.run_runner_checks(".")
+
+        assert len(results) == 2
+        assert results[0].status == "skipped"
+        assert "kaboom" in results[0].detail
+        assert results[1].status == "passed"

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.52.1] - 2026-07-23
+
+### Added
+
+- tests: degrade-path pins for the realtime lane's previously untested new code — bounded handshake-failure close, send-failure degrade (exactly one notice), six defensive pump frame-handling cases, a raising on_event callback, and the session lane's no-op/idempotence/dial-failure/speak-degrade/drain-race paths.
+
+### Fixed
+
+- realtime: a FAILED handshake now closes the WebSocket under the module's bounded `_WS_CLOSE_TIMEOUT_SECONDS` (the same bound `RealtimeSession.close()` enforces) — a misconfigured/unauthorized rig that never acks the close frame could otherwise stall session startup for websocket-client's 3s default (Qodo review, PR #356).
+- session: a voice lane whose `start_capture()` fails now reaps the dialled realtime session AT the failure (bounded close + pump-thread join) instead of holding an idle WebSocket + pump thread until `_end_voice_lane()`. The lane is left in exactly the dial-failure shape (`_voice_session is None` + degraded), so drain/speak/toggle all take one path (Qodo review, PR #356).
+- CI/coverage: the coverage job now syncs --extra voice. tests/test_realtime_client.py genuinely needs websocket-client (it dials colleague's REAL sync WS client against a stdlib fake server); without the extra that whole file skipped and its exercised lines of colleague/realtime.py read as UNCOVERED new code. Pinned by a test so it cannot silently regress; the sibling plain-`uv sync` test job stays extra-free, keeping the extra-ABSENT degrade paths proven.
+- tests: dropped the whole-file pytest.importorskip("sounddevice") from tests/test_realtime_devices.py — the imported name was never used (every test fakes the lazy import), so the gate bought nothing and silently skipped 22 tests on any run without the [voice] extra. The media-arc "whole-file importorskip hides pins" lesson, landing again.
+- sonar: fixed 5 OPEN issues on the arc's new code — 2x S7632 (a comma inside a `# noqa: CODE - explanation` trailer reads as a second, bogus suppression code) and 3x S5778 (hoisted the non-throwing constructor out of three pytest.raises blocks).
+
+## [1.52.0] - 2026-07-22
+
+### Added
+
+- Realtime speech — the SEVENTH sanctioned increment: talk to senses by voice while cortex works, over the rig lobes gateway /v1/realtime WebSocket. An EARS-ONLY session (never response.create — senses stays the mind; replies ride the existing synthesize() lane): colleague/realtime.py (sync websocket-client behind [voice], ONE sanctioned pump thread, base64 event codec, degrade-never-raise), RealtimeConfig discovery via the stt role realtime_vad_session advert (env/config.json outranks; #348 same-origin key rule on the WS dial), continuous capture + client-edge half-duplex gate + device selection, session /voice + --voice opt-in (mic NEVER hot by default, c27) with honest off/live/muted/degraded lane state and bounded teardown, run_realtime_check + ALL ProofResult runners wired into colleague livecheck, byte-identical negative-space proofs, seventh-increment docs, and the first real-microphone live validation of the whole stack (Reachy Mini mic; p50 4.60s under the spoken-brevity shape / 5.63s default, honestly recorded in docs/live-testing.md).
+
 ## [1.51.1] - 2026-07-22
 
 ### Changed

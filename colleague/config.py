@@ -28,7 +28,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Collection, Mapping, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from colleague import configdir
 from colleague.fillline import DEFAULT_COMPACTION_CAP
@@ -259,6 +259,14 @@ _DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_bud
 _SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
 
 _VOICE_CONFIG_KEYS = frozenset({"stt_model", "tts_model", "base_url", "api_key"})
+# Recognised keys inside the NESTED "realtime" section of .colleague/config.json
+# (realtime-speech arc, plan task t1; ``input_device``/``output_device`` added
+# task t4). ``url`` is the presence signal (the "model IS presence" rule every
+# sibling rung takes, adapted: realtime has no model of its own — see
+# :func:`_resolve_realtime`). ``input_device``/``output_device`` are PURE LOCAL
+# knobs (a PortAudio device id or name substring on THIS machine) — see
+# :func:`_resolve_realtime_devices`.
+_REALTIME_CONFIG_KEYS = frozenset({"url", "api_key", "input_device", "output_device"})
 # Recognised key inside the NESTED "lobes" section of .colleague/config.json
 # (the lobes discovery rung, task t4). A bare string is also accepted as the
 # gateway URL directly (``{"lobes": "http://..."}``).
@@ -480,6 +488,28 @@ def _load_voice_overrides(repo_path: str | Path) -> dict[str, str]:
     }
 
 
+def _load_realtime_overrides(repo_path: str | Path) -> dict[str, str]:
+    """Read the NESTED ``realtime`` section of .colleague/config.json, per-key merged.
+
+    Mirrors :func:`_load_voice_overrides` field-for-field (realtime-speech arc,
+    plan task t1) — reads a *nested* object (``{"realtime": {...}}``) for the
+    recognised keys (``url``, ``api_key``, ``input_device``, ``output_device``
+    — the latter two added task t4). No file defining ``realtime``, or an
+    absent/non-dict ``realtime`` section wherever it IS defined, yields an
+    empty dict and never raises. Merge granularity is the top-level
+    ``realtime`` key itself — see :func:`_merged_config_json`.
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get("realtime")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _REALTIME_CONFIG_KEYS and value is not None
+    }
+
+
 def _load_lobes_override(repo_path: str | Path) -> str | None:
     """Read the lobes gateway URL from the ``lobes`` key of config.json, per-key merged.
 
@@ -546,6 +576,33 @@ def _lobes_base_url(origin_url: str) -> str:
     """
     suffix = urlsplit(_DEFAULT_BASE_URL).path.rstrip("/")
     return origin_url.rstrip("/") + suffix
+
+
+#: Scheme swap applied by :func:`_realtime_ws_url` — any scheme not in this
+#: map (e.g. an operator who already supplied ``ws://``/``wss://``) passes
+#: through unchanged.
+_WS_SCHEME_MAP = {"http": "ws", "https": "wss"}
+
+
+def _realtime_ws_url(origin: str) -> str:
+    """Derive the ws(s) ``/v1/realtime`` dial target from an http(s) *origin*
+    (realtime-speech arc, plan task t1).
+
+    The one shape rule: scheme swaps http->ws / https->wss via
+    :data:`_WS_SCHEME_MAP` (any other scheme passes through unchanged, so an
+    operator who already declares a ``ws://``/``wss://`` knob is idempotent),
+    the netloc (host[:port]) is preserved exactly, and the path is ALWAYS the
+    literal ``/v1/realtime`` — the OpenAI-compatible realtime session path the
+    lobes gateway tunnels (probed live 2026-07-22, docs/specs/2026-07-22-
+    realtime-speech.md decision c23: ``/v1/realtime`` answers 401 bare and
+    101-upgrades with a Bearer key). Any query/fragment on *origin* is
+    dropped — this derives a DIAL TARGET, not a general URL rewrite. Never
+    raises; a malformed *origin* degrades to whatever :func:`urlsplit`
+    tolerates, matching this module's degrade-never-raise stance elsewhere.
+    """
+    parts = urlsplit(origin)
+    scheme = _WS_SCHEME_MAP.get(parts.scheme.lower(), parts.scheme.lower())
+    return urlunsplit((scheme, parts.netloc, "/v1/realtime", "", ""))
 
 
 def _role_dial_base_url(role: object, gateway_url: str) -> str:
@@ -858,6 +915,152 @@ def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "V
         stt_base_url=stt_base_url,
         tts_base_url=tts_base_url,
         api_key=api_key,
+    )
+
+
+def _resolve_realtime_devices(file_realtime: dict[str, str]) -> tuple[str | None, str | None]:
+    """Resolve the LOCAL-MACHINE input/output device knobs (plan task t4).
+
+    Precedence per key: ``COLLEAGUE_REALTIME_INPUT_DEVICE``/
+    ``COLLEAGUE_REALTIME_OUTPUT_DEVICE`` env > the ``realtime`` section of
+    .colleague/config.json > absent (``None`` — the audio library's own
+    default device). These are PURE LOCAL knobs — an id (e.g. ``"2"``) or a
+    name substring (e.g. ``"Reachy Mini"``) naming a PortAudio device on THIS
+    machine — so, unlike every other RealtimeConfig field, they are resolved
+    IDENTICALLY on BOTH the explicit rung (:func:`_resolve_realtime`) and the
+    lobes discovery fallback (:func:`_realtime_lobes_fallback`): a discovered
+    dial target says nothing about which physical mic/speaker this box
+    should use, so both rungs call this ONE helper with the same
+    *file_realtime* dict. A blank/whitespace-only value resolves to ``None``,
+    same stance as every other blank-string field in this module.
+    """
+    input_device = _pick(
+        None,
+        "COLLEAGUE_REALTIME_INPUT_DEVICE",
+        default=file_realtime.get("input_device", ""),
+    ).strip()
+    output_device = _pick(
+        None,
+        "COLLEAGUE_REALTIME_OUTPUT_DEVICE",
+        default=file_realtime.get("output_device", ""),
+    ).strip()
+    return (input_device or None, output_device or None)
+
+
+def _resolve_realtime(
+    file_realtime: dict[str, str],
+    main_api_key: str,
+) -> "RealtimeConfig | None":
+    """Resolve the EXPLICIT operator-declared realtime dial-target knob
+    (realtime-speech arc, plan task t1).
+
+    Precedence per key: ``COLLEAGUE_REALTIME_URL``/``COLLEAGUE_REALTIME_API_KEY``
+    env > the ``realtime`` section of .colleague/config.json > absent
+    (``None``). No ``CONVERTIBLE_*`` fallback — realtime postdates the
+    CONVERTIBLE->COLLEAGUE rename, the same stance
+    ``COLLEAGUE_VOICE_API_KEY`` already takes (see :func:`_resolve_voice`).
+
+    Realtime is PRESENT iff the resolved ``url`` is a non-empty,
+    non-whitespace string — the "the url IS the presence signal" stance every
+    sibling rung takes with its own model field (deepthink/senses/voice); an
+    operator-set ``api_key`` with no ``url`` is not a realtime declaration on
+    its own (mirrors :func:`_resolve_voice`'s ``stt_model``/``tts_model``
+    gate) — it can still arm a DISCOVERED cross-origin role's key, see
+    :func:`_realtime_lobes_fallback`.
+
+    This is the OPERATOR-DECLARED rung ONLY — it never consults lobes; the
+    discovery fallback (:func:`_realtime_lobes_fallback`) is a SEPARATE,
+    lower-precedence rung consulted only when this resolves ``None``.
+    ``api_key`` defaults to *main_api_key* with NO same-origin check — an
+    explicit operator declaration is trusted intent (the same stance
+    :func:`_resolve_voice`/:func:`_resolve_senses`/:func:`_resolve_deepthink`
+    take for their own explicit config); same-origin hygiene (#348) applies
+    ONLY to the lobes-derived fallback below, whose dial target comes from an
+    untrusted wire payload.
+    """
+    url = _pick(None, "COLLEAGUE_REALTIME_URL", default=file_realtime.get("url", ""))
+    if not url.strip():
+        return None
+    api_key = _pick(
+        None,
+        "COLLEAGUE_REALTIME_API_KEY",
+        default=file_realtime.get("api_key") or main_api_key,
+    )
+    input_device, output_device = _resolve_realtime_devices(file_realtime)
+    return RealtimeConfig(
+        available=True,
+        ws_url=_realtime_ws_url(url.strip()),
+        api_key=api_key,
+        input_device=input_device,
+        output_device=output_device,
+    )
+
+
+def _realtime_lobes_fallback(
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+    main_base_url: str,
+    main_api_key: str,
+    file_realtime: dict[str, str],
+    voice: "VoiceConfig | None",
+) -> "RealtimeConfig | None":
+    """The stt ``realtime_vad_session`` -> RealtimeConfig discovery fallback
+    (realtime-speech arc, plan task t1).
+
+    Mirrors :func:`_voice_lobes_fallback`'s extraction shape and api_key
+    hygiene. Returns ``None`` unless ALL of: lobes resolved (*lobes_roles*/
+    *lobes_gateway_url* both non-``None``), voice is ALREADY armed (*voice* is
+    not ``None`` — the spec requirement's "realtime arms only when voice is
+    armed"), the gateway advertises an ``stt`` role, and that role carries
+    :data:`colleague.lobes.REALTIME_VAD_RESPONSIBILITY` in its
+    ``responsibilities`` (:func:`colleague.lobes.stt_supports_realtime` — the
+    ONE live availability signal, probed 2026-07-22). In practice a
+    successfully-parsed stt :class:`~colleague.lobes.RoleInfo` always carries
+    a non-blank model, which already arms ``voice`` via
+    :func:`_voice_lobes_fallback` — the *voice* check here is a stated,
+    defensive gate matching the requirement text verbatim, not a
+    reachable-in-practice branch through the public resolution path.
+
+    **api_key hygiene (the #348 rule, extended to realtime).** An explicitly
+    declared realtime key (``COLLEAGUE_REALTIME_API_KEY`` env or config.json
+    ``realtime.api_key`` — usable even without a declared ``url``) always
+    wins. Otherwise the MAIN key is inherited only when the stt role's OWN
+    resolved dial origin (:func:`colleague.lobes.resolve_role_base_url`)
+    shares the main endpoint's origin (:func:`_same_origin`); a cross-origin
+    stt role gets :data:`_DEFAULT_API_KEY` instead, so the main Bearer token
+    is never forwarded to a host a wire payload advertised — the identical
+    Qodo finding on colleague#347/#348 the deepthink/senses/voice rungs
+    already close. A wrong/absent key degrades visibly at the realtime dial
+    site (a later task), never fails resolution here.
+    """
+    if voice is None or lobes_roles is None or lobes_gateway_url is None:
+        return None
+    stt_role = getattr(lobes_roles, "stt", None)
+    # Lazy import mirrors every other lobes-consulting helper in this module
+    # (keeps config's module import graph unchanged; lets tests monkeypatch it).
+    from colleague import lobes as _lobes
+
+    if not _lobes.stt_supports_realtime(stt_role):
+        return None
+    origin = _lobes.resolve_role_base_url(stt_role, lobes_gateway_url)
+    explicit_key = _pick(
+        None,
+        "COLLEAGUE_REALTIME_API_KEY",
+        default=file_realtime.get("api_key", ""),
+    )
+    if explicit_key:
+        api_key = explicit_key
+    elif _same_origin(origin, main_base_url):
+        api_key = main_api_key
+    else:
+        api_key = _DEFAULT_API_KEY
+    input_device, output_device = _resolve_realtime_devices(file_realtime)
+    return RealtimeConfig(
+        available=True,
+        ws_url=_realtime_ws_url(origin),
+        api_key=api_key,
+        input_device=input_device,
+        output_device=output_device,
     )
 
 
@@ -1715,6 +1918,55 @@ class VoiceConfig:
 
 
 @dataclass(frozen=True)
+class RealtimeConfig:
+    """A resolved realtime (server-VAD live speech session) dial target.
+
+    Realtime-speech arc (spec docs/specs/2026-07-22-realtime-speech.md, plan
+    task t1). Optional: present on :attr:`EngineConfig.realtime` only when
+    realtime is genuinely AVAILABLE — either an EXPLICIT operator knob
+    (``COLLEAGUE_REALTIME_URL``/``COLLEAGUE_REALTIME_API_KEY`` env, or a
+    ``realtime`` section in .colleague/config.json — see
+    :func:`_resolve_realtime`) declares a dial target, or the lobes discovery
+    rung (:func:`_realtime_lobes_fallback`) finds the gateway's ``stt`` role
+    advertising the ``realtime_vad_session`` responsibility AND voice is
+    already armed. Absence (``None``) means the session lane (a later task)
+    must make ZERO WebSocket dial attempts — nothing is resolved to dial.
+
+    ``available`` is always ``True`` when this object exists — there is no
+    "declared but unavailable" state; unavailability is represented entirely
+    by ``EngineConfig.realtime is None``. The field exists so a downstream
+    consumer (a later task's session front) can render an honest state
+    without re-deriving presence from "is not None" wherever it reads this
+    config, and so the resolved shape is self-documenting in the artifact
+    snapshot (:meth:`EngineConfig.to_dict`).
+
+    ``ws_url`` is the ws(s) ``/v1/realtime`` dial target (see
+    :func:`_realtime_ws_url`) — never an http(s) URL, so a caller never has to
+    re-derive the scheme swap. ``api_key`` follows the #348 same-origin
+    hygiene rule on the discovery rung; the explicit rung inherits the main
+    key unconditionally (trusted operator intent) unless it declares its own.
+
+    ``input_device``/``output_device`` (plan task t4) are PURE LOCAL knobs —
+    a PortAudio device id (e.g. ``"2"``) or a name substring (e.g.
+    ``"Reachy Mini"``) naming which mic/speaker on THIS machine the session
+    lane's capture/playback functions (``colleague/realtime.py``) should open.
+    Unlike every other field on this class, they resolve IDENTICALLY
+    regardless of which rung produced this object — a discovered dial target
+    says nothing about which physical device this box should use, so both
+    :func:`_resolve_realtime` and :func:`_realtime_lobes_fallback` read the
+    SAME env/config.json knobs via :func:`_resolve_realtime_devices`.
+    ``None`` (the default) means "let the audio library pick its own
+    default device" — never a forced index.
+    """
+
+    available: bool
+    ws_url: str
+    api_key: str
+    input_device: str | None = None
+    output_device: str | None = None
+
+
+@dataclass(frozen=True)
 class ResolveOverrides:
     """Bundle of secondary numeric-knob explicit overrides for :meth:`EngineConfig.resolve`.
 
@@ -1826,6 +2078,11 @@ class EngineConfig:
     # ``None`` = no voice declared, byte-identical to today. See
     # :class:`VoiceConfig` and :func:`_resolve_voice`.
     voice: Optional[VoiceConfig] = None
+    # Realtime (server-VAD live speech session) dial target (realtime-speech
+    # arc, plan task t1). ``None`` = no realtime declared/discovered,
+    # byte-identical to today. See :class:`RealtimeConfig`,
+    # :func:`_resolve_realtime`, and :func:`_realtime_lobes_fallback`.
+    realtime: Optional[RealtimeConfig] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -2001,6 +2258,7 @@ class EngineConfig:
         file_deepthink: dict[str, str] = {}
         file_senses: dict[str, str] = {}
         file_voice: dict[str, str] = {}
+        file_realtime: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -2017,6 +2275,7 @@ class EngineConfig:
             file_deepthink = _load_deepthink_overrides(repo_path)
             file_senses = _load_senses_overrides(repo_path)
             file_voice = _load_voice_overrides(repo_path)
+            file_realtime = _load_realtime_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -2108,6 +2367,23 @@ class EngineConfig:
         if resolved_voice is None:
             resolved_voice = _voice_lobes_fallback(
                 lobes_roles, lobes_gateway_url, resolved_base_url, resolved_api_key, file_voice
+            )
+        # Realtime (server-VAD live speech session) dial target
+        # (realtime-speech arc, plan task t1) — resolved once as a local,
+        # mirroring senses/voice. Precedence: env > config.json > lobes
+        # discovery (the stt role's realtime_vad_session responsibility,
+        # gated on voice already being armed) > absent. Resolved AFTER voice
+        # since the discovery fallback consults the just-resolved
+        # ``resolved_voice`` (see :func:`_realtime_lobes_fallback`).
+        resolved_realtime = _resolve_realtime(file_realtime, resolved_api_key)
+        if resolved_realtime is None:
+            resolved_realtime = _realtime_lobes_fallback(
+                lobes_roles,
+                lobes_gateway_url,
+                resolved_base_url,
+                resolved_api_key,
+                file_realtime,
+                resolved_voice,
             )
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
@@ -2373,6 +2649,10 @@ class EngineConfig:
             # resolved MAIN endpoint values computed above.
             senses=resolved_senses,
             voice=resolved_voice,
+            # Realtime dial target (realtime-speech arc, task t1) — env >
+            # config.json `realtime` section > lobes discovery (stt's
+            # realtime_vad_session responsibility) > absent (None).
+            realtime=resolved_realtime,
             # Embedder env overrides (S2, task t19) — {} when lobes is
             # unarmed/unreachable or the gateway doesn't advertise an embedder
             # (see :func:`_resolve_lobes_rung` / :func:`colleague.lobes.embed_env`).
@@ -2446,6 +2726,15 @@ class EngineConfig:
                 "tts_model": self.voice.tts_model,
                 "stt_base_url": self.voice.stt_base_url,
                 "tts_base_url": self.voice.tts_base_url,
+            }
+        # Realtime (server-VAD live speech session, realtime-speech arc):
+        # present ONLY when configured (omit-when-None, same convention as
+        # voice/senses/deepthink above). The realtime api_key is absent from
+        # the sub-dict, never included.
+        if self.realtime is not None:
+            data["realtime"] = {
+                "available": self.realtime.available,
+                "ws_url": self.realtime.ws_url,
             }
         return data
 

@@ -1,0 +1,412 @@
+{
+  "slug": "realtime-speech",
+  "title": "realtime speech",
+  "frame_slug": "realtime-speech",
+  "schema_version": 3,
+  "status": "exported",
+  "created": "2026-07-22T14:15:18Z",
+  "updated": "2026-07-22T14:46:04Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague speaks and listens in realtime: the operator talks to senses by voice while cortex works \u2014 a live session over the rig's OpenAI-compatible /v1/realtime lane (server VAD in, spoken senses replies out), with turn-based voice as the degrade floor; and the #304 presence-narration live proof records PASSED, closing the issue"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a live rig session demonstrates speech -> transcript -> senses answer -> spoken reply WHILE a cortex work item runs, recorded in docs/live-testing.md; with the extra absent or the lane down the same session degrades to today's behavior"
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "close #304 first as its own deliverable: the blocker is gone \u2014 probed 2026-07-22, POST /v1/audio/speech returns 200 audio/wav (40KB, 24kHz PCM) and /v1/audio/transcriptions round-trips the transcript; run_presence_narration_check('.') returns status=passed live; remaining work is recording the flip in docs/live-testing.md (rows 22/23 SKIP + the narration row) and commenting/closing the issue"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "issue #304 is CLOSED with PR #355 merged (6ef5b8e) and docs/live-testing.md carries the dated 2026-07-22 PASS section \u2014 verifiable today"
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "realtime speech rides the EXISTING senses lane, transport-swapped: a final STT transcript lands exactly where typed session input lands today (run_senses_talk \u2192 answer displayed, relay \u2192 flight guidance injected at the next tool-call boundary), and senses' answer is spoken back over the realtime TTS lane; senses still never produces the task answer and cortex remains the only repo actor"
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "voice transcripts flow through the SAME run_senses_talk + flight-guidance path as typed input (no second repo-touching lane); senses stays structurally tools-off; voice turns land on TaskResult.senses.chat/injections identically to typed turns"
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "the WebSocket client and continuous audio streams live behind an opt-in extra with LAZY in-function imports, mirroring colleague/voice_devices.py exactly: a base install imports every module fine, carries zero new deps, and only errors (cleanly naming the pip install hint) when a realtime function is actually called without the extra; base install stays byte-identical"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "a base install (no extras) imports every colleague module and passes the full suite with the WS/audio deps absent; tests/test_zero_deps.py still allow-lists exactly agentfront"
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "no socket code lands in colleague's own source: tests/test_boundary.py structurally forbids 'import socket' (+ socketserver/http.server/server-side asyncio) across colleague/ \u2014 the realtime transport must be a third-party WS client imported lazily inside the extra (the [mcp] precedent: the blocking loop is agentfront's, not colleague's), never a hand-rolled stdlib socket client, and never a listening socket or daemon anywhere"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "tests/test_boundary.py stays authoritative: no import of socket/socketserver/http.server/server-side asyncio anywhere in colleague/, including the new realtime module (lazy third-party import only)"
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "arming is discovery-first with the standard precedence chain: realtime arms only when voice is armed AND the advertised stt role carries the realtime_vad_session responsibility (or an explicit env/config.json realtime knob outranks discovery, matching flag > env > config.json > lobes discovery > absent); absent or unarmed = byte-identical to today's turn-based lanes"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "tests prove the precedence chain: an explicit env/config knob overrides discovery; with no realtime_vad_session advert and no knob, the session lane is never attempted (zero WS dials observed)"
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "turn-based voice stays the degrade floor: a realtime session that fails to open, drops mid-session, or hits a warming backend degrades to today's turn-based record\u2192transcribe\u2192speak lane, which itself degrades to text-only \u2014 degrade-never-raise at every layer, one stderr notice per degradation, and the text lane output stays byte-identical to an audio-less run"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "killing the WS mid-session (in test AND live) leaves the run alive: the lane degrades to turn-based/text with ONE stderr notice, no exception escapes, and task output is unaffected"
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "this is a SEVENTH sanctioned increment at the router-exclusion line and gets its own recorded re-spec (this scope\u2192think\u2192spec-to-plan flow IS that re-spec): CLAUDE.md's v1 scope list and docs/features/senses-live-presence.md's honest-limits line ('voice v1 is turn-based \u2014 no streaming, no barge-in, no wake word') are updated as recorded convention changes, never silently breached"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the SAME PR that lands the code updates CLAUDE.md's v1 scope list (seventh increment) and rewrites the senses-live-presence.md 'turn-based, no streaming' honest-limit line \u2014 no silent breach"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "livecheck grows realtime proofs on the same evidence discipline (never a fabricated pass): a session-open/round-trip check that SKIPs honestly when the extra, mic, or rig lane is absent \u2014 and the existing gap gets fixed on the way: run_presence_narration_check has NO production caller today (the livecheck verb only runs the _KNOWN_PROOFS pytest files), so proof-runner checks get wired into the verb or explicitly recorded as manual"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "after the arc, 'colleague livecheck' executes or explicitly reports the ProofResult runner checks (including the new realtime proof) \u2014 a proof that cannot run SKIPs honestly, never fabricates a pass"
+    },
+    {
+      "id": "c13",
+      "kind": "audience",
+      "text": "the colleague operator at a colour TTY in 'colleague session', with a mic + speaker and the [voice] extra installed; the unchanged secondary audience is every other consumer \u2014 agent callers, off-TTY/piped/--json sessions, the resident \u2014 who must observe zero change"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "off-TTY / piped / --json sessions show ZERO realtime surface \u2014 proven byte-identical by test, the same gate the presence arc used"
+    },
+    {
+      "id": "c14",
+      "kind": "after_state",
+      "text": "while cortex drives a work item the operator simply talks: continuous mic capture streams to the gateway's /v1/realtime session, server VAD ends the turn, the final transcript lands exactly where typed input lands today (labeled senses answer, 'cortex:' relay as flight guidance), and senses' reply plays back as spoken audio with the text still rendered; typed input keeps working throughout"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "capture is continuous with SERVER-side VAD deciding turn end \u2014 no fixed N-second window and no push-to-talk keypress required; typed input during an armed voice session still works"
+    },
+    {
+      "id": "c15",
+      "kind": "before_state",
+      "text": "voice v1 is turn-based: '/say FILE' or a fixed N-second record() -> transcribe -> work -> speak; no live speech lane, no VAD, no barge-in \u2014 talking to colleague mid-run means typing (the recorded honest limit in docs/features/senses-live-presence.md)"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "the pre-change doc line reads exactly 'turn-based (record -> transcribe -> work -> speak) \u2014 no streaming, no barge-in, no wake word' (docs/features/senses-live-presence.md honest limits)"
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "on the reference rig a spoken turn round-trips live: VAD speech-end to first audible senses reply < 5s p50 / < 10s p95 while cortex loads the shared GPU; the realtime livecheck proof PASSes (SKIPs honestly off-rig or extra-absent, never fabricated); with realtime unarmed the session is byte-identical to v1.51.1 (0 output diffs in the off-TTY/piped tests)"
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the p50/p95 numbers are MEASURED on the reference rig under concurrent cortex load with the method recorded in docs/live-testing.md \u2014 never estimated, never extrapolated from a quiet GPU"
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "v1 is HALF-DUPLEX: mic capture is gated (not forwarded) while senses audio plays \u2014 otherwise server VAD hears senses' own speech through the operator's speakers and self-triggers a feedback loop (the bridge defaults AECMode NONE; server_vad segments whatever arrives); barge-in/AEC stay parked"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "while senses audio plays, ZERO operator audio frames are forwarded (test-pinned on the event stream), and a synthetic senses-speech playback never triggers a VAD turn"
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "the WS client is SYNCHRONOUS: tests/test_boundary.py flags 'import asyncio' anywhere outside colleague/resident/, so the realtime module must drive a sync WS API from the sanctioned pump thread \u2014 no asyncio in colleague's own source"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "tests/test_boundary.py passes unchanged with the realtime module in tree \u2014 no 'import asyncio' outside colleague/resident/, no 'import socket' anywhere"
+    },
+    {
+      "id": "c23",
+      "kind": "boundary",
+      "text": "the WS handshake carries VoiceConfig's api_key under the #348 same-origin rule only \u2014 probed live 2026-07-22: /v1/realtime answers 401 WWW-Authenticate: Bearer without the key and 101 Switching Protocols with it; the main Bearer is never forwarded to a cross-origin realtime target"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "a cross-origin realtime dial target gets NO main-key Authorization header (unit-proven); a same-origin target authenticates and upgrades (the live 401-then-101 probe shape)"
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "teardown follows the owned-input-line template: capture/playback/pump threads are daemon threads with a stop event, poll-wake, and BOUNDED join \u2014 session exit, work-item end, and Ctrl-C never hang on a parked blocking read; stop-promptness is proven on REAL devices/pipes, not fakes (io.StringIO cannot reproduce a blocking read \u2014 the #315 lesson)"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "a session killed mid-capture exits within the bounded join on a REAL PTY/device stream \u2014 measured stop-promptness, never proven only on fakes"
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "audio devices are operator-selectable (config/env), never hardcoded defaults: the reference operator machine's capture devices are the Reachy Mini USB audio and an Arducam camera mic, and default playback is an HDMI sink \u2014 a wrong default device is a realistic first-run failure"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "input/output devices resolve from config/env with a documented way to list them; a wrong/missing device degrades to turn-based with ONE notice naming the device, never a traceback"
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "the session shows the voice-lane state honestly \u2014 live / muted / degraded-to-turn-based / off \u2014 following the cockpit label-state-consequence policy: an operator must be able to distinguish 'silent because muted' from 'silent because the lane died'"
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "every voice-lane state transition renders exactly one honest indicator, and the muted state renders visibly differently from the degraded/dead state (test-pinned)"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Discovery + config rung: realtime availability and dial target",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with lobes armed and the stt role advertising realtime_vad_session, RealtimeConfig resolves available=True with the ws URL derived from the role's dial origin; no advert and no knob resolves None and the session lane makes ZERO dial attempts (test-pinned)",
+        "precedence proven by tests: explicit env/config.json knob > lobes discovery > absent; flag wins over env",
+        "a cross-origin realtime target gets NO main-key Authorization (unit test); same-origin inherits per the #348 rule; explicit voice/realtime api_key always wins"
+      ],
+      "deps": [],
+      "covers": [
+        "c7",
+        "h6",
+        "c23",
+        "h16"
+      ],
+      "instruction": "Extend colleague/lobes.py role parsing to surface the stt role's responsibilities list (realtime_vad_session is the availability signal, probed live 2026-07-22) and colleague/config.py with a RealtimeConfig resolved on EngineConfig like VoiceConfig (reuse resolve_role_base_url + the #348 same-origin key helper; ws URL = http(s) origin with ws(s) scheme + /v1/realtime). New tests in tests/test_config_realtime.py. Do NOT touch session.py or voice.py."
+    },
+    {
+      "id": "t2",
+      "summary": "Boundary convention entry + [voice] packaging for the realtime deps",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_boundary.py gains the recorded sanction: threading confined to colleague/realtime.py (stop-event + bounded-join discipline stated), with the socket/asyncio regexes still enforced on it \u2014 the full suite passes with the entry present",
+        "pyproject [voice] gains the sync WS client dep (websocket-client); base install stays zero-third-party-beyond-agentfront (tests/test_zero_deps.py green, allow-list unchanged)",
+        "a base install (no extras) imports every colleague module including colleague.realtime cleanly (import smoke test)"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h5",
+        "c5",
+        "h4"
+      ],
+      "instruction": "Mirror how the input-line reader thread was sanctioned (q1, at-home arc): a named entry in test_boundary.py's thread-confinement test for colleague/realtime.py with the stated reason. Add websocket-client>=1.6 to the voice extra ONLY. Create colleague/realtime.py as an import-clean stub with lazy imports so the smoke test is real; t2 fills it."
+    },
+    {
+      "id": "t3",
+      "summary": "Sync WS session client: dial, event codec, receive pump, degrade",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "colleague/realtime.py dials ws(s)://<origin>/v1/realtime with Bearer auth, sends session.update (server_vad, pcm16), encodes/decodes the base64 audio events, and runs ONE receive pump thread with stop event + poll-wake + bounded join",
+        "no 'import asyncio' / 'import socket' in colleague's own source \u2014 test_boundary.py green (sync websocket-client API only, lazily imported)",
+        "a mid-session WS kill (fake server closes) degrades to the turn-based path with ONE stderr notice and no escaping exception; pump join is bounded on a REAL os.pipe-backed stream, not a fake (the #315 lesson)"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c22",
+        "h15",
+        "c8"
+      ],
+      "instruction": "Model the pump on colleague/cli/_commands/_input_line.py (daemon thread, _stop_event, poll-wake via recv timeout, bounded join); websocket-client's settimeout gives the poll-wake. THE SESSION IS EARS-ONLY: never send response.create \u2014 the bridge's own LLM turn (its model + DEFAULT_SYSTEM_PROMPT, not senses' grounded context) must never arm; colleague consumes VAD boundaries + transcription events only. Reference implementations: ../lobes-cli/scripts/realtime-smoke.py (base64 append/delta event codec, offline-tested in tests/test_realtime_smoke_helpers.py) and lobes/realtime/_session.py (event schema). Test against a threaded stdlib fake WS server INSIDE tests only (tests may open sockets; colleague/ may not)."
+    },
+    {
+      "id": "t4",
+      "summary": "Continuous audio streams + half-duplex gate + device selection",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "while playback is active, ZERO captured frames are forwarded (test pins the event stream over a synthetic playback window) \u2014 half-duplex is structural, and a synthetic senses-speech playback never yields a VAD turn",
+        "input/output devices resolve from RealtimeConfig (env/config.json ids or names); a wrong/missing device degrades to turn-based with ONE notice naming the device \u2014 never a traceback",
+        "sounddevice/soundfile stay lazy in-function imports; PCM converts to 24kHz mono PCM16 for the wire (the bridge's CLIENT_SAMPLE_RATE)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c21",
+        "h14",
+        "c25",
+        "h18"
+      ],
+      "instruction": "Same file as t3 (colleague/realtime.py) \u2014 sequential by design. sounddevice InputStream/OutputStream callbacks (PortAudio threads live inside the sanctioned module); the half-duplex gate is a threading.Event the playback path holds \u2014 this is CLIENT-EDGE mute, exactly where lobes' d1 deviation says AEC-substitute belongs (their server forbids automatic mute; the client edge owns it), and t5 makes the muted state visible. Reference client for the event dance + mic/playback handling: ../lobes-cli/site/ (the Astro browser harness) and scripts/realtime-smoke.py. Devices on this machine: Reachy Mini USB audio (capture+speaker), Arducam mic, HDMI default sink \u2014 never assume device 0. float32->int16 + 24kHz (CLIENT_SAMPLE_RATE)."
+    },
+    {
+      "id": "t5",
+      "summary": "Session front: /voice opt-in, lane state, same-lane transcript wiring, teardown",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the mic is NEVER hot by default: realtime available shows an offer line only; capture starts on '/voice' toggle or --voice flag (c27) and '/voice' again mutes \u2014 test-pinned on the session loop",
+        "a final VAD transcript enters EXACTLY the typed-input path (same run_senses_talk + flight-guidance relay call sites; voice turns land on TaskResult.senses.chat/injections identically) and senses' reply plays as audio with the text still rendered",
+        "the voice lane renders honest state \u2014 live / muted / degraded / off \u2014 with muted visibly different from degraded (test-pinned), following the cockpit label-state-consequence policy",
+        "session exit / work-item end / Ctrl-C mid-capture tears down within the bounded join on a REAL PTY-driven test \u2014 measured stop-promptness, no hang, no orphan thread",
+        "capture uses server-side VAD turn ends \u2014 no fixed N-second window, no push-to-talk key held; typed input still works while the lane is live"
+      ],
+      "deps": [
+        "t3",
+        "t4"
+      ],
+      "covers": [
+        "c4",
+        "h3",
+        "c14",
+        "h11",
+        "c26",
+        "h19",
+        "c24",
+        "h17"
+      ],
+      "instruction": "colleague/cli/_commands/session.py only (+ SlashSpec catalog for /voice). Wire transcripts into the existing stdin-lane handler so there is ONE senses-talk path \u2014 do not duplicate relay logic. The spoken reply uses the EXISTING colleague.voice.synthesize() batch lane + local playback (the realtime socket stays ears-only; senses is the mind, per the t3 instruction). Lane state rides the existing presence/cockpit line surfaces. Teardown hooks where the session already reaps the input line + flight plane. Gate everything on: colour TTY + senses armed + realtime available + operator opt-in (c27)."
+    },
+    {
+      "id": "t6",
+      "summary": "Negative-space proofs: byte-identical unarmed / off-TTY / extra-absent",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an off-TTY / piped / --json session shows ZERO realtime surface \u2014 output byte-identical to the pre-arc fixture (diff-pinned)",
+        "an armed-but-not-opted-in session makes zero WS dials and zero device opens (spy-pinned)",
+        "with the [voice] extra absent the full suite passes and the session degrades with the clean install hint"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c13",
+        "h10"
+      ],
+      "instruction": "New test files only (tests/test_session_realtime_byteident.py etc.) \u2014 no production edits; if a diff appears, the fix belongs in t5. Reuse the presence arc's byte-identical fixtures where they exist. Remember conftest scrubs COLLEAGUE_* env \u2014 arm explicitly per-test via monkeypatch."
+    },
+    {
+      "id": "t7",
+      "summary": "Livecheck: realtime proof + wire the ProofResult runners into the verb",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "run_realtime_check exists: opens an ears-only session end-to-end when armed and PASSes on a real transcript round-trip; SKIPs honestly (named reason) when the extra, config, or rig lane is absent \u2014 never a fabricated pass",
+        "'colleague livecheck' now executes the ProofResult runner checks (presence narration, voice lanes, realtime) alongside the _KNOWN_PROOFS pytest files and reports them in table + JSON \u2014 closing the no-production-caller gap found in /scope"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c12",
+        "h9"
+      ],
+      "instruction": "colleague/livecheck.py + colleague/cli/_commands/livecheck.py only. Follow the classify_/run_ pair pattern (run_presence_narration_check); grade from evidence, SKIP-honestly discipline. Keep exit-1-on-failed semantics; runner SKIPs must not flip exit codes."
+    },
+    {
+      "id": "t8",
+      "summary": "Docs + the recorded seventh increment: scope line, feature doc, honest limits",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md's v1 scope list gains the seventh sanctioned increment (realtime senses talk lane, ears-only session, half-duplex, opt-in mic) in the SAME PR as the code \u2014 an enumerated surface, not a router",
+        "docs/features/senses-live-presence.md's honest-limit line ('turn-based ... no streaming, no barge-in, no wake word') is rewritten to the new truth quoting the superseded line; a new docs/features/realtime-speech.md links spec + plan and records the client-edge-mute rationale (lobes d1)",
+        "the #304 closure evidence is cited (issue CLOSED via PR #355 merged 6ef5b8e; docs/live-testing.md dated 2026-07-22 section) \u2014 verifying c2/h2 hold at delivery"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c10",
+        "h8",
+        "c15",
+        "h12",
+        "c2",
+        "h2"
+      ],
+      "instruction": "Docs only. Quote the before-state line verbatim when superseding it (trim discipline). CHANGELOG + version bump ride the arc's PR workflow, not this task. Keep the CLAUDE.md increment entry in the established compressed style with a Doc: pointer."
+    },
+    {
+      "id": "t9",
+      "summary": "Live proof on the rig: real-mic session, latency numbers, degrade drills",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a live session on the reference rig demonstrates speech -> transcript -> senses answer -> spoken reply WHILE a cortex work item runs, recorded in docs/live-testing.md \u2014 using the REAL Reachy Mini mic (the first real-microphone validation of the whole realtime stack; every rig-side run so far used synthesized audio)",
+        "VAD speech-end to first audible senses reply measured over >= 10 spoken turns under concurrent cortex load: p50 < 5s, p95 < 10s, method + numbers recorded \u2014 measured, never estimated",
+        "degrade drills pass live: killing the WS mid-session degrades to turn-based with ONE notice (h7); the VAD-unavailable path and an extra-absent box degrade cleanly; the realtime livecheck grades PASS (or records why not, honestly)"
+      ],
+      "deps": [
+        "t5",
+        "t7"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c16",
+        "h13",
+        "h7"
+      ],
+      "instruction": "Run against the gateway at :8001 (Bearer from COLLEAGUE_API_KEY). Use the Reachy Mini USB audio capture device explicitly. Record everything in a dated docs/live-testing.md section (the #304-section format: probes, numbers, honest limits, reproduce steps). Note in the record that this is also the first rig-side real-mic evidence (lobes-cli evidence file 2026-07-22 lists a real microphone as NOT VALIDATED)."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "shared-GPU sustained load: continuous VAD + per-turn STT + per-reply TTS + cortex + senses generation has never been measured as one loop \u2014 row 19 measured a single senses completion; the < 5s p50 may need cadence tuning or fail on this rig (frame park v2)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "rig-side realtime unknowns carried from lobes-cli's 2026-07-22 evidence: real microphone unvalidated, VAD-unavailable path unvalidated, concurrent sessions unvalidated, barge-in measured broken (pacing fix 0.54.1 unverified) \u2014 t9 is downstream of all four",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

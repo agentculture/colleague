@@ -590,10 +590,14 @@ def test_boundary_sanctioned_lists_unchanged() -> None:
             "colleague/experiment.py",
         }
     )
+    # colleague/realtime.py joined this list under the realtime-speech arc
+    # (plan task t2), unrelated to this one — the chain/dispatch layer still
+    # joined neither list, which is the only claim this test makes.
     assert _THREADS_ALLOWED == frozenset(
         {
             "colleague/subagents.py",
             "colleague/cli/_commands/_input_line.py",
+            "colleague/realtime.py",
         }
     )
 

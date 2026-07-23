@@ -164,8 +164,14 @@ The talk lane, injection recording, and voice plumbing fire identically for
   tool-calling cortex backend — today's 27B emits into `reasoning` with
   `content: null` and does not drive a real tool loop (the standing #66 gap).
   The injection channel itself is proven deterministically at the loop level.
-- Voice v1 is **turn-based** (record → transcribe → work → speak) — no
-  streaming, no barge-in, no wake word.
+- Superseded 2026-07-22: this doc used to read "Voice v1 is **turn-based**
+  (record → transcribe → work → speak) — no streaming, no barge-in, no wake
+  word." Streaming speech now ships as the **seventh sanctioned increment** —
+  see `docs/features/realtime-speech.md`. Turn-based voice (this section,
+  otherwise unchanged) is now the **degrade floor** the realtime lane falls
+  back to, not the only lane. Barge-in and wake word remain OUT in v1 — the
+  realtime lane is half-duplex (client-edge mute during playback), not
+  full-duplex conversation.
 - The session lane and `talk` verb are parallel implementations of the same lane
   for two surfaces; unifying their turn-processing is a possible follow-up.
 

@@ -1134,3 +1134,85 @@ with tempfile.TemporaryDirectory() as d:
 print(run_presence_narration_check("."))
 PY
 ```
+
+## 2026-07-22 — Realtime speech live proofs (plan t9): first real-microphone validation
+
+Rig: lobes gateway `:8001` (Bearer-authed), realtime bridge with server VAD
+(silero) + parakeet stt + chatterbox tts; cortex
+`sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP`, senses
+`coolthor/gemma-4-12B-it-NVFP4A16`. Audio: the **physical Reachy Mini USB
+mic** captured via the pipewire layer (`COLLEAGUE_REALTIME_INPUT_DEVICE=
+pipewire` — see the honest limits), stimuli and replies played aloud through
+`reachymini_audio_sink` (speaker → air → mic, a genuine acoustic path).
+This is the **first real-microphone validation of the whole realtime
+stack** — lobes-cli's own acceptance evidence
+(`docs/evidence/2026-07-22-accept-realtime-voice-to-voice-spark.txt`) lists
+a real microphone as NOT VALIDATED (every rig-side run used synthesized
+audio injected on the wire).
+
+- **`run_realtime_check` — ✅ PASS live.** `ProofResult(file='realtime',
+  status='passed')`: the ears-only session opened (101 + `session.update`)
+  and a server event arrived within the bounded timeout. Its own honest bar:
+  proves the handshake+event wire, NOT transcription.
+- **Acoustic real-mic transcript (drill A) — ✅ PASS.** A chatterbox-spoken
+  "The quick brown fox jumps over the lazy dog." played aloud was VAD-
+  segmented (`speech_started` 0.38s into playback, `speech_stopped` 0.73s
+  after it ended) and transcribed **0.79s after speech end** as `'A quick
+  brown fox jumps over the lazy dog.'` — verbatim delivery of the server
+  transcript, with one honest acoustic-path substitution (The→A).
+- **10-turn E2E latency under cortex load (drill B, default reply shape) —
+  ⚠️ p50 MISS / p95 met, measured honestly.** Ten spoken questions played
+  aloud; per turn: VAD speech-end → transcript → senses answer (one spoken-
+  style sentence, `max_tokens` 60) → chatterbox synth of the reply.
+  **p50 = 5.63s (target < 5s: MISS), p95 = 8.28s (target < 10s: met)**,
+  min 4.67s / max 8.28s, 10/10 turns transcribed. Breakdown: transcript
+  ≈ 0.10s after VAD-end, senses answer by ≈ 2.3s — **reply-TTS synthesis
+  (~3.3s) dominates**, exactly the frame-park/plan-risk r1 prediction. A
+  1200-token cortex generation was in flight continuously (1 completed
+  mid-run).
+- **Drill C — the brevity lever, ✅ target met.** Same loop with the spoken
+  reply capped ("AT MOST 8 words", `max_tokens` 24): **p50 = 4.60s,
+  p95 = 5.48s** (min 3.92s), 10/10 transcribed, cortex generation in flight
+  throughout. Verdict for success-signal c16/h13: the < 5s p50 is met
+  **under a spoken-brevity reply shape**; the session's spoken replies do
+  not apply that cap today — wiring a brevity knob into the spoken-reply
+  path is a named follow-up, and the default shape's honest number is
+  drill B's.
+- **Degrade drills — ✅ live.** A dead dial target degrades instantly
+  (`ConnectionRefusedError` → one `colleague:` notice, `open_session` →
+  `None`, 0.00s); the extra-absent path raises the clean
+  `pip install colleague[voice]` CliError (unit + live verified); a
+  **mid-session WS kill** degrades with one notice — proven against the
+  in-repo fake-server kill (`tests/test_realtime_client.py`), not re-proven
+  live (no way to kill only the gateway's socket on a shared rig).
+
+Honest limits of this record:
+
+- **The Reachy Mini hw mic is 16kHz-native and `start_capture` has no
+  resampler** — opening it directly at the wire's 24kHz degrades with the
+  device-naming notice (itself verified live). Capturing via the pipewire
+  device works (pipewire resamples to 24kHz); the feature doc should steer
+  fixed-rate hw devices through a resampling layer, and an in-module
+  resample is a follow-up candidate.
+- Every spoken turn was **synthesized speech over the acoustic path** — a
+  real mic and real air, but chatterbox prosody, not a human voice. Two of
+  twenty turns garbled acoustically ("budget" → "battery"; one longer
+  mid-run garble). A human-voiced session pass is still pending hands-on
+  use.
+- Still unvalidated rig-side (carried from lobes-cli's evidence + plan risk
+  r2): the VAD-unavailable path, concurrent realtime sessions, barge-in
+  (out of scope in v1 regardless — half-duplex).
+- The measurement harness drives the same client modules the session uses
+  (`open_session`/`start_capture`/`synthesize`) but not the interactive
+  session loop itself; the session lane's own behavior is pinned by
+  `tests/test_session_voice.py` (26 tests) including a real-PTY teardown
+  proof.
+
+Reproduce: the drill scripts live in the session scratchpad
+(`t9_drill_a.py` / `t9_drill_b.py` / `t9_drill_c.py`, session
+8295ced9); each resolves `EngineConfig` from the repo, arms
+`COLLEAGUE_REALTIME_INPUT_DEVICE=pipewire`, plays stimuli through
+`reachymini_audio_sink`, and measures from the `input_audio_buffer.
+speech_stopped` event to reply-wav-ready. `run_realtime_check` reproduces
+via `uv run python -c "from colleague.livecheck import run_realtime_check;
+print(run_realtime_check('.'))"`.
