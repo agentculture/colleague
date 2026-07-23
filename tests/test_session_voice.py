@@ -24,12 +24,14 @@ Pins the t5 contract on the interactive ``colleague session`` cockpit:
 
 Fakes injected at the ``open_session`` / ``start_capture`` / ``play_wav_bytes``
 seams keep every test hardware-free and network-free — the session logic is
-provable without the ``[voice]`` extra (which the CI env does not install).
+provable without the ``[voice]`` extra (which CI's plain-``uv sync`` test job
+does not install — only the coverage job does).
 GOTCHA (tests/conftest.py scrubs COLLEAGUE_* env): arm per-test via monkeypatch.
 """
 
 from __future__ import annotations
 
+import collections
 import os
 import threading
 import time
@@ -487,6 +489,32 @@ def test_capture_failure_renders_degraded_not_muted(tmp_path: Path, monkeypatch)
     assert "degraded" in conv
 
 
+def test_capture_failure_reaps_the_realtime_session_immediately(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A dialled socket whose capture never starts is reaped AT the failure, not
+    held open until ``_end_voice_lane``.
+
+    Without a mic there is no path by which a transcript can ever arrive, so an
+    open WS + parked pump thread would idle for the whole work item buying
+    nothing. The lane is left in exactly the dial-failure shape
+    (``_voice_session is None`` + ``degraded``) so every downstream reader takes
+    one path. (Qodo review, PR #356.)
+    """
+    rec = _install_seams(monkeypatch, capture_ok=False, session_park=True)
+    sess, _o, _e = _session(tmp_path)
+    sess._voice_wanted = True
+    task = Task.new(str(tmp_path), "scan")
+    sess._begin_talk_lane(task)
+
+    fake = rec["session"]
+    assert fake is not None, "the lane must still have dialled"
+    assert fake.closed is True, "the failed lane's socket was left open"
+    assert not fake.pump_alive(), "the failed lane orphaned its pump thread"
+    assert sess._voice_session is None
+    assert sess._voice_state == "degraded"
+
+
 def test_pump_degrade_reflects_into_lane_state(tmp_path: Path, monkeypatch) -> None:
     """When the realtime pump degrades mid-session, the next poll reflects it into
     the honest lane state (degraded), once."""
@@ -555,6 +583,136 @@ def test_ctrl_c_mid_capture_tears_down(tmp_path: Path, monkeypatch) -> None:
     assert rec["session"].closed is True  # reaped by the finally
     assert not rec["session"].pump_alive()
     assert sess._voice_session is None
+
+
+# ---------------------------------------------------------------------------
+# The lane's remaining degrade paths — every one of these leaves the TYPED lane
+# fully usable and the rendered text byte-identical (the arc's degrade-never-
+# raise contract). Pinned in PR #356's triage, which measured them as the
+# arc's uncovered new code.
+# ---------------------------------------------------------------------------
+
+
+def test_begin_voice_lane_is_a_strict_noop_off_the_talk_lane(tmp_path: Path, monkeypatch) -> None:
+    """No talk lane (off-TTY / no senses / --cortex-only) → zero dial, zero output."""
+    rec = _install_seams(monkeypatch)
+    sess, _o, _e = _session(tmp_path)
+    sess._talk_active = False
+    sess._voice_wanted = True
+    before = len(sess.state.conversation)
+
+    sess._begin_voice_lane()
+
+    assert rec["open_calls"] == []
+    assert len(sess.state.conversation) == before
+    assert sess._voice_state == "off"
+
+
+def test_arm_voice_capture_is_idempotent_within_a_work_item(tmp_path: Path, monkeypatch) -> None:
+    """Already armed → the second call dials nothing (one socket per work item)."""
+    rec = _install_seams(monkeypatch)
+    sess, _o, _e = _session(tmp_path)
+    _arm_live_lane(sess, rec, monkeypatch)
+    assert len(rec["open_calls"]) == 1
+
+    sess._arm_voice_capture()
+
+    assert len(rec["open_calls"]) == 1
+
+
+def test_dial_returning_none_degrades_the_lane(tmp_path: Path, monkeypatch) -> None:
+    """``open_session`` → None (the dial-failure contract) degrades, never raises."""
+    monkeypatch.setattr(session_mod.realtime, "open_session", lambda cfg, **kw: None)
+    sess, _o, _e = _session(tmp_path)
+    sess._talk_active = True
+    sess._voice_wanted = True
+
+    sess._arm_voice_capture()
+
+    assert sess._voice_session is None
+    assert sess._voice_state == "degraded"
+
+
+def test_dial_raising_an_unexpected_error_degrades_the_lane(tmp_path: Path, monkeypatch) -> None:
+    """Not every failure is the modelled CliError/None pair — an unexpected raise
+    at the lane boundary still degrades rather than failing the work item."""
+
+    def _boom(cfg, **kw):
+        raise RuntimeError("the rig hung up mid-dial")
+
+    monkeypatch.setattr(session_mod.realtime, "open_session", _boom)
+    sess, _o, _e = _session(tmp_path)
+    sess._talk_active = True
+    sess._voice_wanted = True
+
+    sess._arm_voice_capture()  # must not raise
+
+    assert sess._voice_session is None
+    assert sess._voice_state == "degraded"
+
+
+def test_speak_reply_without_a_tts_model_plays_nothing(tmp_path: Path, monkeypatch) -> None:
+    """Realtime armed but no ``tts`` role configured: the text reply already
+    stands, and nothing is synthesized or played."""
+    rec = _install_seams(monkeypatch)
+    sess, _o, _e = _session(tmp_path, config=_config(voice=False))
+    _arm_live_lane(sess, rec, monkeypatch)
+    spoken = _spoken(monkeypatch)
+
+    sess._speak_reply("reading the config")
+
+    assert spoken["synth"] == [] and spoken["play"] == []
+
+
+def test_speak_reply_swallows_a_synth_exception(tmp_path: Path, monkeypatch) -> None:
+    """A synth that RAISES (not merely returns None) is still additive — the
+    already-rendered text stands and nothing escapes."""
+    rec = _install_seams(monkeypatch)
+    sess, _o, _e = _session(tmp_path)
+    _arm_live_lane(sess, rec, monkeypatch)
+
+    def _boom(text, **kw):
+        raise RuntimeError("tts endpoint down")
+
+    played: list = []
+    monkeypatch.setattr(voicemod, "synthesize", _boom)
+    monkeypatch.setattr(session_mod.realtime, "play_wav_bytes", lambda *a, **k: played.append(a))
+
+    sess._speak_reply("reading the config")  # must not raise
+
+    assert played == []
+
+
+def test_drain_skips_an_empty_transcript(tmp_path: Path, monkeypatch) -> None:
+    """A blank transcript that reached the deque (the pump-thread callback strips,
+    but the drain does not trust that) is skipped, not handed to the talk lane."""
+    rec = _install_seams(monkeypatch)
+    sess, _o, _e = _session(tmp_path)
+    _arm_live_lane(sess, rec, monkeypatch)
+    handled: list[str] = []
+    monkeypatch.setattr(sess, "_handle_talk_input", lambda t: handled.append(t))
+    sess._voice_transcripts.append("")
+
+    sess._drain_voice_transcripts()
+
+    assert handled == []
+
+
+def test_drain_survives_a_concurrently_emptied_queue(tmp_path: Path, monkeypatch) -> None:
+    """The drain's ``popleft`` race guard: the pump thread appends while the main
+    thread drains, so a queue that reads non-empty can be empty one line later.
+    Simulated here with a deque whose ``popleft`` always loses that race."""
+
+    class _RacingDeque(collections.deque):
+        def popleft(self):
+            raise IndexError("drained concurrently")
+
+    rec = _install_seams(monkeypatch)
+    sess, _o, _e = _session(tmp_path)
+    _arm_live_lane(sess, rec, monkeypatch)
+    sess._voice_transcripts = _RacingDeque(["never read"])
+
+    sess._drain_voice_transcripts()  # must break out, not spin or raise
 
 
 def _wait_for(predicate, timeout: float = 3.0) -> bool:

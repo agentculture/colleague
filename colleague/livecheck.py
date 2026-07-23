@@ -1411,7 +1411,7 @@ def run_realtime_check(
             status="skipped",
             detail=f"[voice] extra not installed: {exc.message}",
         )
-    except Exception as exc:  # noqa: BLE001 - a live proof degrades, it never crashes the caller
+    except Exception as exc:  # noqa: BLE001 - a live proof degrades and never crashes
         return ProofResult(
             file="realtime", status="skipped", detail=f"proof error opening session: {exc}"
         )

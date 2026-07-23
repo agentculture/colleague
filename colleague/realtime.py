@@ -530,8 +530,11 @@ def open_session(
             f"realtime handshake failed ({type(exc).__name__}) — "
             "falling back to the turn-based path"
         )
+        # Bounded exactly like RealtimeSession.close() — a peer that never acks
+        # the close frame must not hang the failure path either (see that
+        # method's docstring for why the library default 3s is too long).
         with contextlib.suppress(Exception):
-            ws.close()
+            ws.close(timeout=_WS_CLOSE_TIMEOUT_SECONDS)
         return None
 
     session = RealtimeSession(ws, on_transcript=on_transcript, on_event=on_event)

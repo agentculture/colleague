@@ -1,21 +1,24 @@
 """Task t4 (realtime-speech arc): continuous audio streams, the half-duplex
 gate, and device selection.
 
-Needs the ``[voice]`` extra importable (``sounddevice``) — gated via
-``pytest.importorskip`` below, mirroring tests/test_realtime_client.py's own
-whole-file gate for websocket-client (CI runs a plain ``uv sync`` with no
-extras, so this file skips cleanly there; the absence-degrade pins live in
-tests/test_realtime.py instead, which needs NO extra — see that file's
-docstring for the same split rationale).
-
-NO PortAudio hardware is used anywhere in this file, and none is required:
-every test drives colleague.realtime's PURE seams directly
+Needs NO extra and NO PortAudio hardware — and deliberately does not gate on
+either: every test drives colleague.realtime's PURE seams directly
 (``_resolve_device``, ``_forward_captured_frame``, ``_make_capture_callback``)
 or monkeypatches the module's lazy ``_import_sounddevice``/
 ``_import_sounddevice_and_soundfile`` functions with a FAKE in-process
 stand-in. Real-device tests are explicitly OUT of scope for CI (the plan
 task t4 brief's own method note: "design the seams so logic is provable
 without PortAudio") — this file is that proof.
+
+This file carried a whole-file ``pytest.importorskip("sounddevice")`` until
+PR #356's triage measured what it cost: because the imported name was never
+used (the fakes above stand in for it everywhere), the gate bought nothing
+and silently skipped 22 tests / 55 covered lines of colleague/realtime.py on
+every CI run that lacked the ``[voice]`` extra — the media-arc
+"whole-file importorskip hides pins" lesson, landing again. The genuine
+extra-dependent gate lives in tests/test_realtime_client.py, which really
+does dial its fake server with the REAL websocket-client; the
+absence-degrade pins live in tests/test_realtime.py, which needs no extra.
 """
 
 from __future__ import annotations
@@ -24,10 +27,8 @@ from typing import Any
 
 import pytest
 
-sounddevice = pytest.importorskip("sounddevice")
-
-from colleague import realtime  # noqa: E402
-from colleague.config import RealtimeConfig  # noqa: E402
+from colleague import realtime
+from colleague.config import RealtimeConfig
 
 
 class _FakeSession:
@@ -185,13 +186,15 @@ def test_resolve_device_name_substring_is_case_insensitive() -> None:
 def test_resolve_device_name_filters_by_kind() -> None:
     """A name that only exists as an INPUT device must not match an OUTPUT
     query — never assume device 0 / never assume kind."""
+    devices = _FakeDevices(_THIS_MACHINE_DEVICES)
     with pytest.raises(ValueError, match="Arducam"):
-        realtime._resolve_device(_FakeDevices(_THIS_MACHINE_DEVICES), "Arducam", kind="output")
+        realtime._resolve_device(devices, "Arducam", kind="output")
 
 
 def test_resolve_device_unmatched_name_raises_value_error() -> None:
+    devices = _FakeDevices([])
     with pytest.raises(ValueError, match="nonexistent-device"):
-        realtime._resolve_device(_FakeDevices([]), "nonexistent-device", kind="input")
+        realtime._resolve_device(devices, "nonexistent-device", kind="input")
 
 
 # ---------------------------------------------------------------------------

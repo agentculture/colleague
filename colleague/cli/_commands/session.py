@@ -2584,11 +2584,19 @@ class _Session:
             self._voice_state = "degraded"
             self._render_voice_state()
             return
-        self._voice_session = session
         capture = realtime.start_capture(session, cfg)
         if capture is None:
+            # No mic → this socket can never carry a voice turn (a transcript
+            # only ever arrives from captured audio), so reap it NOW rather
+            # than holding an idle WS + pump thread until _end_voice_lane().
+            # Leaves the lane in exactly the dial-failure shape above —
+            # ``_voice_session is None`` + ``degraded`` — so every downstream
+            # reader (drain / speak / toggle) takes the identical path.
             self._voice_state = "degraded"
+            with contextlib.suppress(Exception):
+                session.close()  # bounded join
         else:
+            self._voice_session = session
             self._voice_capture = capture
             self._voice_state = "live"
         self._render_voice_state()
@@ -2669,7 +2677,7 @@ class _Session:
             realtime.play_wav_bytes(
                 self._voice_session, str(wav), getattr(self.config, "realtime", None)
             )
-        except Exception:  # nosec B110 # noqa: BLE001 - additive, degrade-never-raise
+        except Exception:  # nosec B110 # noqa: BLE001 - additive and degrade-never-raise
             pass
 
     def _voice_state_line(self) -> str:

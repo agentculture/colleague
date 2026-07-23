@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.52.1] - 2026-07-23
+
+### Added
+
+- tests: degrade-path pins for the realtime lane's previously untested new code — bounded handshake-failure close, send-failure degrade (exactly one notice), six defensive pump frame-handling cases, a raising on_event callback, and the session lane's no-op/idempotence/dial-failure/speak-degrade/drain-race paths.
+
+### Fixed
+
+- realtime: a FAILED handshake now closes the WebSocket under the module's bounded `_WS_CLOSE_TIMEOUT_SECONDS` (the same bound `RealtimeSession.close()` enforces) — a misconfigured/unauthorized rig that never acks the close frame could otherwise stall session startup for websocket-client's 3s default (Qodo review, PR #356).
+- session: a voice lane whose `start_capture()` fails now reaps the dialled realtime session AT the failure (bounded close + pump-thread join) instead of holding an idle WebSocket + pump thread until `_end_voice_lane()`. The lane is left in exactly the dial-failure shape (`_voice_session is None` + degraded), so drain/speak/toggle all take one path (Qodo review, PR #356).
+- CI/coverage: the coverage job now syncs --extra voice. tests/test_realtime_client.py genuinely needs websocket-client (it dials colleague's REAL sync WS client against a stdlib fake server); without the extra that whole file skipped and its exercised lines of colleague/realtime.py read as UNCOVERED new code. Pinned by a test so it cannot silently regress; the sibling plain-`uv sync` test job stays extra-free, keeping the extra-ABSENT degrade paths proven.
+- tests: dropped the whole-file pytest.importorskip("sounddevice") from tests/test_realtime_devices.py — the imported name was never used (every test fakes the lazy import), so the gate bought nothing and silently skipped 22 tests on any run without the [voice] extra. The media-arc "whole-file importorskip hides pins" lesson, landing again.
+- sonar: fixed 5 OPEN issues on the arc's new code — 2x S7632 (a comma inside a `# noqa: CODE - explanation` trailer reads as a second, bogus suppression code) and 3x S5778 (hoisted the non-throwing constructor out of three pytest.raises blocks).
+
 ## [1.52.0] - 2026-07-22
 
 ### Added

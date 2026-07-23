@@ -34,8 +34,12 @@ import pytest
 
 # The real [voice]-extra dependency this whole file exercises directly: every
 # test here drives colleague.realtime's REAL websocket-client against the fake
-# server below, so absence of the extra skips the FILE (CI runs a plain
-# `uv sync` with no extras). The absence-degrade pins deliberately live in
+# server below, so absence of the extra skips the FILE. This gate is GENUINE
+# (unlike the one PR #356's triage removed from tests/test_realtime_devices.py,
+# which never touched the package it gated on) — but a skipped file still reads
+# as UNCOVERED new code, so CI's coverage job now syncs `--extra voice`, pinned
+# by test_coverage_ci_job_installs_the_voice_extra. The plain-`uv sync` test job
+# stays extra-free, and the absence-degrade pins deliberately live in
 # tests/test_realtime.py, which needs no extra — nothing is hidden by this
 # whole-file gate (the media-arc importorskip lesson).
 websocket = pytest.importorskip("websocket")
@@ -546,10 +550,9 @@ def test_open_session_raises_clierror_when_extra_absent(monkeypatch):
         )
 
     monkeypatch.setattr(realtime, "_import_ws", _boom)
+    config = RealtimeConfig(available=True, ws_url="ws://x/v1/realtime", api_key="")
     with pytest.raises(CliError) as exc:
-        realtime.open_session(
-            RealtimeConfig(available=True, ws_url="ws://x/v1/realtime", api_key="")
-        )
+        realtime.open_session(config)
     assert "colleague[voice]" in (exc.value.remediation or "")
 
 
