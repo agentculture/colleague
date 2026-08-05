@@ -52,6 +52,18 @@
 - with no three-tier configuration, behavior and serialized artifacts stay byte-identical — the same gate every prior increment shipped under (cortex-only byte-identical, no-muse byte-identical)
   - instruction: run the byte-identical suite on both backends: no-config runs produce identical behavior and serialized artifacts
   - honesty: the no-config path is proven byte-identical by test on BOTH backends (mock + vllm-openai, the all-engines rule): same behavior, same serialized artifacts — the identical gate cortex-only and no-muse shipped under
+- attribution honesty extends to seats: in three-tier mode every operator-facing surface that names the actor — attribution.py's `CORTEX_STATUS_LABEL` ('cortex ▸ working…'), livecheck's 'cortex is working' narration, cockpit/TAUI states, presence lines — names the WORKER as the acting seat; no surface may claim cortex is working when the worker acts (the voice that cannot claim work it did not do applies to colleague's own labels)
+  - instruction: grep the three-tier diff for actor-naming surfaces; test that a three-tier run renders worker-attributed status lines and a legacy run renders the unchanged cortex ones
+  - honesty: a three-tier live run's transcript/cockpit contains zero 'cortex ▸ working…' lines while the worker acts (worker-attributed lines appear instead); a legacy run's lines are byte-identical to today's — both pinned by test
+- the worker seat's dial inherits the #347/#348 same-origin api-key hygiene verbatim: the main key is forwarded only when the worker's dial target shares the main endpoint's origin; a cross-origin worker gets the withheld-key default plus the withheld-key notice — never a silently forwarded Bearer token
+  - instruction: mirror the deepthink/senses hygiene tests (`_same_origin`) onto the worker rung; test the cross-origin withholding path
+  - honesty: the cross-origin worker test proves the main Bearer token never appears in a request to a host only a wire payload advertised; the same-origin case inherits exactly as deepthink/senses do today
+- v1 cortex review is SYNCHRONOUS: proposals are computed before episode 1 and in the between-episode window of the chain driver, on the calling thread — no new thread, no concurrent-with-episode review; `test_boundary.py`'s sanctioned thread list (subagents.py + `_input_line.py`) is untouched
+  - instruction: verify the three-tier diff adds no threading/concurrent.futures import anywhere new; the boundary suite stays green unmodified
+  - honesty: the merged three-tier diff introduces no new threading/concurrent.futures import (boundary suite unmodified and green); cortex proposal latency is bounded and recorded in the between-episode window
+- doctor gains a three-tier readiness group: worker role advertised + dialable + structured-tool-calling probe passes + served model id matches the advert — so the #363 §7 stale-model-id deafness (role discovery fine, explicit dial 404s, mesh agents healthy-looking and deaf) fails LOUD at the operator's health check
+  - instruction: extend the doctor rubric + --probe with the worker checks; test the mismatch case names the failing model id exactly
+  - honesty: doctor --probe against a rig with a mismatched worker model id reports the exact failing id (\[FAIL\] naming it), exits 1, while role discovery alone still passes — the trap case is a committed test
 
 ## Honesty conditions
 
@@ -87,6 +99,8 @@
 ## Assumptions
 
 - ground truth for the three seats is the actually-served models, not the current stale /capabilities adverts: thor serves cortex unsloth/Qwen3.6-27B-NVFP4 + worker unsloth/Qwen3.6-35B-A3B-NVFP4 (both live in /v1/models); orin serves senses unsloth gemma4 12b via the mesh; muse is absent — the operator is updating the lobes CLI/gateway adverts to match
+- the worker emits clean structured tool calls through the served parser on colleague-shaped schemas — probed live 2026-08-05 (`finish_reason`=`tool_calls`, well-formed `read_file` payload, first try); experiment B's protocol-level feasibility risk is retired, quality remains the open question
+- the worker's true context window is 262144 (over-ask probe 2026-08-05: `max_model_len`=`max_total_tokens`=262144), matching cortex's envelope — the parked window unknown is measured; only the `max_tokens` truncation budget still needs live tuning before experiment B
 
 ## Scope exploration
 
@@ -122,12 +136,33 @@
   - seeds: `c11`, `c12`
 - `s16` — `gateway /v1/models (localhost:8001, probed 2026-08-05)`: actually-served set is cortex Qwen3.6-27B + worker Qwen3.6-35B-A3B + embedders/reranker — NO gemma and NO muse Gemma-31B served through the gateway, corroborating that the muse and senses /capabilities adverts are both stale; senses (orin unsloth gemma4 12b) reaches the mesh outside this list until the operator's CLI/gateway update lands
   - seeds: `c16`
+- `s17` — `challenge pass / probe: worker tool-calling (live rig 2026-08-05)`: one-shot chat completion with a colleague-shaped `read_file` schema against unsloth/Qwen3.6-35B-A3B-NVFP4 returned `finish_reason`=`tool_calls` with a well-formed function payload on the first try — the served parser handles the worker natively; protocol feasibility for experiment B retired
+  - seeds: `c28`
+- `s18` — `challenge pass / probe: worker window over-ask (live rig 2026-08-05)`: `max_tokens`=9000000 request returned the vLLM error naming `max_model_len`=`max_total_tokens`=262144 — the worker's window equals cortex's 262144; park v1's window half is measured, the `max_tokens` truncation budget half remains for live tuning
+  - seeds: `c29`
+- `s19` — `challenge pass / adjacent-systems lens: attribution.py + livecheck.py + cockpit/TAUI surfaces`: the cortex-acts framing is hard-coded operator-facing (attribution.py:19 `CORTEX_STATUS_LABEL`='cortex ▸ working…', livecheck.py:544 'cortex is working on your request') — in three-tier mode these labels would misattribute the worker's work to cortex, the exact claim-anothers-work failure the split exists to prevent
+  - seeds: `c24`
+- `s20` — `challenge pass / security lens: config.py same-origin key hygiene rungs (#347/#348)`: deepthink and senses dials carry explicit same-origin key hygiene (`_same_origin`; cross-origin gets the withheld default); the spec was silent on the worker's dial — a cross-origin worker advert could otherwise receive the main Bearer token
+  - seeds: `c25`
+- `s21` — `challenge pass / concurrency lens: tests/test_boundary.py rule 6 + chain.py between-episode window`: threading/concurrent.futures are STRUCTURALLY confined to subagents.py + `_input_line.py`; #364's 'an episode may be reviewed while it runs' would need a new thread — colleague's v1 answer is synchronous review at the boundary, keeping the sanctioned list untouched
+  - seeds: `c26`
+- `s22` — `challenge pass / observability lens: doctor rubric + #363 §7 operational traps`: doctor's six groups cover identity/provider/usage/engines/otel/environment but nothing seat-shaped; the #363 §7 record (three mesh agents healthy-looking and deaf on a stale model id, doctor --probe the only surface that named it) shows the worker seat needs its own loud readiness checks
+  - seeds: `c27`
+- `s23` — `challenge pass / contradiction hunt: c4 (finish_reason for everyone) vs c11 (byte-identical artifacts)`: delivery step 1 propagates `finish_reason` unconditionally, so unconfigured runs' artifacts gain fields — c11's 'byte-identical serialized artifacts' cannot stay literally true unless the recording is gated; routed to the user as q3 (recommended: unconditional, a recorded observability change, c11 scoped to behavior + existing fields)
+  - seeds: `c4`, `c11`
+- `s24` — `challenge pass / lifecycle lens: subagents.py + continuation.py`: continuation is clean by design (config discarded at task end; a continued run re-resolves fresh); child-config inheritance inside a worker-driven episode is genuinely unstated — parked v2 with a plan-time default (inherit via the episode's resolved EngineConfig)
+- `s25` — `challenge pass / reversibility + failure-mode lens: c9 replay contract + media path (clean)`: T8 (constructor-seeded baseline invisible to the report) is covered because c9 requires the digest to derive from event replay ALONE — the baseline must itself be an event; per-seat degradation is covered by c4/c21; media --attach to a non-multimodal worker degrades via the existing flatten+retry path (residual, nonblocking: no image comprehension path to the worker seat)
+- `s26` — `challenge pass / live rig state at pass time`: operator reports muse advert removed, but /capabilities still serves it at probe time (2026-08-05, re-probed after pause) — likely gateway restart/cache lag; until it drops, the lingering advert is ALSO a ready-made live fixture for c12's arms-nothing test (three-tier config + muse advert present constructs no DeepthinkConfig)
+  - seeds: `c12`
 
 ## Decisions
 
 - operator decision (2026-08-05): the arc's LAST step before the delivery summary and the cicd PR leg is a LIVE test on the rig proving colleague PERFORMS BETTER — the worker-promotion comparison (experiment B: three-tier worker-as-actor vs the current acting cortex on colleague's real surface) must return a supporting verdict, live, before anything is summarized or a PR opened
   - instruction: run experiment B pre-registered on the live rig (worker Qwen3.6-35B-A3B vs cortex Qwen3.6-27B baseline) and commit the result; summary + cicd only after the verdict supports promotion
+- operator decision (2026-08-05, resolves q3): `finish_reason` propagation is unconditional observability for ALL runs — a recorded convention change like always-on WorkStats and #313; the no-config byte-identical gate (c11) is scoped to BEHAVIOR plus existing artifact fields, with the new finish/truncation fields the one sanctioned artifact addition; nothing about them is gated behind three-tier config
+  - instruction: record the convention change in the spec + feature doc the way #313 and WorkStats were recorded; the byte-identical suite asserts behavior and existing-field identity, plus presence of the new fields on both backends
 
 ## Open parks
 
 - [unknown_nonblocking] worker's usable context window and `max_tokens` budget on the new Qwen3.6-35B-A3B MoE are unmeasured (the embodiment live session truncated 5/6 actor turns at 16000, and proxied roles have historically advertised the local window, not the serving box's) — `finish_reason` propagation (delivery step 1) makes this measurable before experiment B
+- [unknown_nonblocking] whether subagent children spawned inside a worker-driven episode inherit the episode's immutable configuration (strategist section + narrowed tool ceiling) or run bare — default proposal at plan time: inherit, since config rides the episode's resolved EngineConfig and immutability-within-episode then extends to children
