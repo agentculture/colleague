@@ -1582,7 +1582,7 @@ class _Session:
         # Visible hand-off (c11): when the middle-manager lane is armed, name the
         # mind now taking over so the operator sees cortex pick the work up.
         if is_free_text and self._presence_enabled():
-            self._log(cortex_working_line())
+            self._log(cortex_working_line(three_tier=self.config.three_tier))
         self._run_work(task, command_name, senses_mode=senses_mode, intake_record=intake_record)
 
     def _route_free_text(self, stripped: str) -> bool:
