@@ -542,7 +542,7 @@ def run_presence_narration_check(repo: str | Path, *, model: str | None = None) 
     with tempfile.TemporaryDirectory() as tmp_dir:
         narrate = build_presence_narrator(voice_config, tmp_dir)
         assert narrate is not None  # a tts_model was just confirmed present
-        seat = acting_seat_label(three_tier=config.three_tier)
+        seat = acting_seat_label(three_tier=getattr(config, "three_tier", False))
         narrate(f"colleague: {seat}")
         wav_path = Path(tmp_dir) / "presence-0001.wav"
         narrated = wav_path.is_file() and wav_path.stat().st_size > 0
