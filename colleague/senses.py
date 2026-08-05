@@ -851,6 +851,42 @@ def _enforce_fidelity(
     return worker, False, repetition, True
 
 
+def _apply_worker_answer_fidelity(
+    result: dict[str, Any],
+    answer: str,
+    worker_answer: Optional[str],
+    history: "Optional[list[dict[str, str]]]",
+    truncated_prompt: bool,
+) -> None:
+    """Fold the structural fidelity check (task t2) onto *result* in place.
+
+    A strict no-op when *worker_answer* is blank/``None`` — byte-identical to
+    before this parameter existed. Otherwise checks (in code, via
+    :func:`_enforce_fidelity`) that the displayed answer CONTAINS
+    *worker_answer* verbatim, folds the four fidelity counters onto *result*,
+    and — on a fidelity failure — additionally flips ``result["degraded"]``
+    True (task t2, AC2), even though the completion itself succeeded.
+    Extracted from :func:`run_senses_talk` to keep it under the SonarCloud
+    S3776 ceiling (mirrors how the module already extracts
+    :func:`_enforce_fidelity` / :func:`_format_talk_context` / etc.).
+    """
+    if not worker_answer:
+        return
+    knowledge_snippets = [entry.get("text") for entry in (history or []) if isinstance(entry, dict)]
+    final_answer, verbatim_presence, knowledge_repetition, fallback = _enforce_fidelity(
+        answer, worker_answer, knowledge_snippets
+    )
+    result["answer"] = final_answer
+    result["verbatim_presence"] = verbatim_presence
+    result["knowledge_repetition"] = knowledge_repetition
+    result["fallback"] = fallback
+    result["truncated"] = truncated_prompt
+    if fallback:
+        # A fidelity failure IS a degradation, even though the
+        # completion itself succeeded (task t2, AC2).
+        result["degraded"] = True
+
+
 def run_senses_talk(
     message: str,
     *,
@@ -993,22 +1029,7 @@ def run_senses_talk(
             "degraded": False,
             "tokens": meter.value,
         }
-        if worker_answer:
-            knowledge_snippets = [
-                entry.get("text") for entry in (history or []) if isinstance(entry, dict)
-            ]
-            final_answer, verbatim_presence, knowledge_repetition, fallback = _enforce_fidelity(
-                answer, worker_answer, knowledge_snippets
-            )
-            result["answer"] = final_answer
-            result["verbatim_presence"] = verbatim_presence
-            result["knowledge_repetition"] = knowledge_repetition
-            result["fallback"] = fallback
-            result["truncated"] = truncated_prompt
-            if fallback:
-                # A fidelity failure IS a degradation, even though the
-                # completion itself succeeded (task t2, AC2).
-                result["degraded"] = True
+        _apply_worker_answer_fidelity(result, answer, worker_answer, history, truncated_prompt)
         return result
     except Exception:
         latency = time.monotonic() - start

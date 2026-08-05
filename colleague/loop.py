@@ -2500,6 +2500,29 @@ def _resolve_reading_budget(context: "ContextControls", max_steps: int) -> int:
     return max_steps
 
 
+def _complete_turn_or_retry(ctx: _Work, complete: CompleteFn) -> ModelResponse | None:
+    """Call ``complete`` for this turn, or signal "retry without accounting".
+
+    Thin wrapper around :func:`_complete_with_degradation` that folds in the
+    reactive-auto-split give-up handling: on an EXHAUSTED degradable error that
+    :func:`_handle_degradable_exhaustion` turns into ONE injected split
+    recommendation, returns ``None`` so the caller's ``continue`` re-enters the
+    loop without accounting a turn; any other error re-raises unchanged
+    (byte-identical to the pre-feature loop). Extracted from :func:`_work_loop`
+    to keep its cognitive complexity within budget (SonarCloud S3776).
+    """
+    try:
+        return _complete_with_degradation(ctx, complete)
+    except Exception as exc:  # noqa: BLE001
+        # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
+        # #154) — inject ONE recommendation and continue BEFORE the error would
+        # reach run()'s abort+escalate path; otherwise re-raise unchanged so
+        # escalation remains the fallback (byte-identical to the pre-feature loop).
+        if _handle_degradable_exhaustion(ctx, exc):
+            return None
+        raise
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -2553,16 +2576,9 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # rather than keep reading serially. No-op when dormant / already offered /
         # under the distinct-folders threshold.
         _maybe_offer_review_fanout(ctx)
-        try:
-            resp = _complete_with_degradation(ctx, complete)
-        except Exception as exc:  # noqa: BLE001
-            # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
-            # #154) — inject ONE recommendation and continue BEFORE the error would
-            # reach run()'s abort+escalate path; otherwise re-raise unchanged so
-            # escalation remains the fallback (byte-identical to the pre-feature loop).
-            if _handle_degradable_exhaustion(ctx, exc):
-                continue
-            raise
+        resp = _complete_turn_or_retry(ctx, complete)
+        if resp is None:
+            continue
         _account_turn(ctx, resp)
         last_prompt_tokens = resp.prompt_tokens
         # Episode-boundary config lifecycle loop seam (t6): record the pinned
@@ -4232,6 +4248,26 @@ def _resolve_runtime_defaults(
     )
 
 
+def _resolve_run_collaborators(
+    spawns: Spawns | None,
+    context: ContextControls | None,
+    executor: ToolExecutor | None,
+    task: Task,
+) -> tuple[Spawns, ContextControls, ToolExecutor]:
+    """Default the three run-scoped collaborators (spawns/context/executor) when a
+    caller didn't inject them. Kept out of ``run()`` so the per-field ``or``
+    defaults don't inflate its cognitive complexity (mirrors
+    ``_resolve_runtime_defaults``). Byte-identical to the inline defaulting:
+    ``executor`` defaults to one confined to ``task.repo_path`` and wired to the
+    resolved ``spawns``."""
+    _spawns = spawns or Spawns()
+    _context = context or ContextControls()
+    _executor = executor or ToolExecutor(
+        task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
+    )
+    return _spawns, _context, _executor
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -4310,11 +4346,7 @@ def run(
     :class:`WorkAborted` carrying that result, so the work path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
-    _spawns = spawns or Spawns()
-    _context = context or ContextControls()
-    executor = executor or ToolExecutor(
-        task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
-    )
+    _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
     # hooks/telemetry/policy each default from the repo (or the environment, for
     # telemetry) when not injected — see _resolve_runtime_defaults for the
     # per-field contract (byte-identical to the prior inline defaulting).

@@ -166,20 +166,28 @@ def _apply_change(snapshot: EpisodeConfigSnapshot, change: ChangeUnit) -> Episod
     them before they are ever queued.
     """
     if change.target is Target.WORKER_TOOLS:
-        return replace(snapshot, tool_set=tuple(change.tool_ids))
+        # A typed local (not a bare `return replace(...)`) so the declared
+        # type checks: dataclasses.replace()'s stub returns the generic
+        # DataclassInstance protocol, which a static checker cannot narrow
+        # back to EpisodeConfigSnapshot from the call expression alone
+        # (SonarCloud S5886) — the explicit annotation pins it.
+        updated: EpisodeConfigSnapshot = replace(snapshot, tool_set=tuple(change.tool_ids))
+        return updated
     if change.target is Target.WORKER_KNOWLEDGE:
         added = tuple(
             json.dumps(entry, sort_keys=True, separators=(",", ":"))
             for entry in change.knowledge_entries
         )
-        return replace(snapshot, knowledge_entries=snapshot.knowledge_entries + added)
+        updated = replace(snapshot, knowledge_entries=snapshot.knowledge_entries + added)
+        return updated
     if change.target is Target.WORKER_PROMPT_STRATEGIST:
         # Opaque marker (see the module docstring): a real strategist SECTION's
         # composed text is layers.py's (t5) concern; what this module must prove
         # is only that the digest moves exactly once per applied proposal, and
         # only at a sanctioned window.
         marker = f"{change.origin.value}#{len(snapshot.strategist_sections) + 1}"
-        return replace(snapshot, strategist_sections=snapshot.strategist_sections + (marker,))
+        updated = replace(snapshot, strategist_sections=snapshot.strategist_sections + (marker,))
+        return updated
     # Unreachable: propose() refuses every non-worker target before queuing.
     raise ConfigLifecycleError(f"cannot apply out-of-scope target {change.target!r}")
 

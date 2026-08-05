@@ -227,7 +227,7 @@ def counts_by_kind(events: Sequence[ConfigEvent]) -> dict[str, int]:
     """A ``{kind: count}`` tally derived purely from ``events`` — every kind
     in :data:`EVENT_KINDS` is present in the result (0 when absent from
     ``events``), so a caller never needs a presence check before indexing."""
-    counts: dict[str, int] = {kind: 0 for kind in EVENT_KINDS}
+    counts: dict[str, int] = dict.fromkeys(EVENT_KINDS, 0)
     for event in events:
         counts[event.kind] = counts.get(event.kind, 0) + 1
     return counts
