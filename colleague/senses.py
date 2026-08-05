@@ -55,26 +55,45 @@ functions above (:func:`run_senses_intake`, :func:`run_senses_speakback`,
 keyword-only ``history`` — a rolling list of ``{"role": "operator"|"senses",
 "text": "..."}`` entries (the session-side record of prior exchanges: ack,
 updates, talk, clarify). When present and non-empty, :func:`_fold_history`
-folds it into the USER message as a "Conversation so far" block (oldest
-first), positioned BEFORE the function's own existing payload (the request /
-feed tail / summary) so the model reads prior exchanges before the current
-turn. The block participates in the same :func:`_window_text`-style budget
-accounting: when the combined prompt would exceed the senses model's own
-``context_budget_tokens``, the OLDEST history entries are dropped first
-(whole entries, never sliced) until it fits — the function's own payload
-always wins, since it already fits the send budget alone before history is
-folded in. ``history=None``/``[]`` (or an entry :func:`_history_lines`
-defensively skips — an unrecognized role, missing/blank text) is a strict
-no-op: the prompt is byte-identical to the pre-t4 shape. This is orthogonal to
-the verbatim-original invariant above — history only ever touches the
-*prompt sent to the model*, never ``ContextPacket.original``.
+folds it into the USER message as an "Optional background" block (task t2's
+:data:`_BACKGROUND_LABEL`; oldest first), positioned BEFORE the function's own
+existing payload (the request / feed tail / summary) so the model reads prior
+exchanges before the current turn, labeled plainly as background rather than
+authoritative for it. The block participates in the same
+:func:`_window_text`-style budget accounting: when the combined prompt would
+exceed the senses model's own ``context_budget_tokens``, the OLDEST history
+entries are dropped first (whole entries, never sliced) until it fits — the
+function's own payload always wins, since it already fits the send budget
+alone before history is folded in. ``history=None``/``[]`` (or an entry
+:func:`_history_lines` defensively skips — an unrecognized role, missing/blank
+text) is a strict no-op: the prompt is byte-identical to the pre-t4 shape.
+This is orthogonal to the verbatim-original invariant above — history only
+ever touches the *prompt sent to the model*, never ``ContextPacket.original``.
+
+Structural senses relay fidelity (three-tier-execution arc, task t2): every
+prompt-bearing surface in this module (and the senses coordination loop,
+:mod:`colleague.senses_loop`) composes two clauses into its system prompt —
+the grounding clause (:data:`_GROUNDING_CLAUSE`, "you can see only the status
+block you are given") and the fidelity clause (:data:`_FIDELITY_CLAUSE`,
+"answer the current message from the current result first; background
+knowledge never replaces it") — but prompt wording alone is hope, not a
+guarantee. :func:`run_senses_talk`'s optional ``worker_answer`` parameter
+carries the acting mind's ("today cortex's; the seat name is never
+hard-coded") current result for the current message, and
+:func:`_enforce_fidelity` enforces STRUCTURALLY, in code, that the text
+finally displayed to the operator CONTAINS it verbatim — falling back to the
+raw ``worker_answer`` and recording a degradation when it does not. The same
+guarantee is enforced in :mod:`colleague.senses_loop` for the coordination
+loop's ``reply_to_operator`` move. Four additive counters
+(``verbatim_presence``, ``knowledge_repetition``, ``fallback``, ``truncated``)
+land on the :class:`~colleague.contract.SensesRecord` surface.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, cast
 
 from colleague import media, registry
 from colleague.config import EngineConfig
@@ -91,6 +110,28 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: senses model is ever truncated; ``ContextPacket.original`` always carries the
 #: caller's full verbatim input regardless.
 _TRUNCATION_NOTE = "[senses digest truncated to fit budget]"
+
+#: The grounding clause (structural senses relay fidelity, three-tier-execution
+#: arc, task t2): composed into every prompt-bearing senses surface (all five
+#: system prompts below plus :data:`colleague.senses_loop._LOOP_SYSTEM_PROMPT`)
+#: so the model is told, in every call, that its view is bounded to exactly
+#: what this prompt hands it — never the wider run, never its own general
+#: knowledge, as if it had eyes on anything else.
+_GROUNDING_CLAUSE = (
+    "You can see only the status block you are given below — nothing else about the run."
+)
+
+#: The fidelity clause (task t2): composed alongside :data:`_GROUNDING_CLAUSE`
+#: into every prompt-bearing senses surface. Names the exact failure this arc
+#: guards against structurally (in code, via :func:`_enforce_fidelity` /
+#: :func:`_repeats_background` — this clause is prompt hygiene, never the sole
+#: guarantee): a live embodiment session once had senses recite its
+#: background "knowledge" block on 6 of 6 turns instead of relaying the
+#: current answer.
+_FIDELITY_CLAUSE = (
+    "Answer the current message from the current result first; background "
+    "knowledge never replaces it."
+)
 
 #: Fixed invocation-point labels recorded on each :class:`SensesRecord`.
 INTAKE_POINT = "senses-intake"
@@ -116,7 +157,7 @@ _INTAKE_SYSTEM_PROMPT = (
     'what "interpretation"/"task_type"/"omissions" above already say: no new '
     "claim, no promise about the outcome, nothing the rest of this reply doesn't "
     "already assert. Do NOT echo the original request text back. No prose "
-    "outside the JSON."
+    "outside the JSON. " + _GROUNDING_CLAUSE + " " + _FIDELITY_CLAUSE
 )
 
 _SPEAKBACK_SYSTEM_PROMPT = (
@@ -124,7 +165,10 @@ _SPEAKBACK_SYSTEM_PROMPT = (
     "operator. Rewrite the cortex model's raw work summary below into a clear, "
     "concise, conversational reply for a human. Preserve every concrete fact "
     "(files changed, decisions, caveats); do not invent anything that is not in "
-    "the summary. Reply with ONLY the reply text — no JSON, no preamble."
+    "the summary. Reply with ONLY the reply text — no JSON, no preamble. "
+    + _GROUNDING_CLAUSE
+    + " "
+    + _FIDELITY_CLAUSE
 )
 
 _TALK_SYSTEM_PROMPT = (
@@ -140,7 +184,7 @@ _TALK_SYSTEM_PROMPT = (
     "message should be forwarded to the cortex model as guidance for the "
     'running work item, false otherwise; "relay_text" is the exact text to '
     "inject into cortex when relay is true (default to the operator's own "
-    "message). No prose outside the JSON."
+    "message). No prose outside the JSON. " + _GROUNDING_CLAUSE + " " + _FIDELITY_CLAUSE
 )
 
 _UPDATE_SYSTEM_PROMPT = (
@@ -150,7 +194,7 @@ _UPDATE_SYSTEM_PROMPT = (
     "RIGHT NOW. Quote or paraphrase real feed lines; if the feed shows nothing new, "
     "say exactly that. NEVER invent progress, files, or results not present in the "
     'feed. Reply with ONLY a JSON object of the form: {"update": "..."}. '
-    "No prose outside the JSON."
+    "No prose outside the JSON. " + _GROUNDING_CLAUSE + " " + _FIDELITY_CLAUSE
 )
 
 
@@ -164,7 +208,10 @@ _FRONTDOOR_SYSTEM_PROMPT = (
     "say, say PLAINLY that you don't know and that cortex can check, rather "
     "than fabricating an answer. This is a front-door answer only: you do not "
     "act, read, or write anything — cortex does the repo work. Reply with ONLY "
-    'a JSON object of the form: {"answer": "..."}. No prose outside the JSON.'
+    'a JSON object of the form: {"answer": "..."}. No prose outside the JSON. '
+    + _GROUNDING_CLAUSE
+    + " "
+    + _FIDELITY_CLAUSE
 )
 
 
@@ -329,6 +376,16 @@ def _history_lines(history: "Optional[list[dict[str, str]]]") -> "list[str]":
     return lines
 
 
+#: The label prefixing a folded history block (task t2): explicitly names it
+#: as OPTIONAL BACKGROUND, never authoritative for the current turn — the
+#: knowledge-entries-labeled-and-ordered half of the structural fidelity fix
+#: (the other half is :func:`_enforce_fidelity`'s code-level containment
+#: check). Kept in exactly ONE place so every prompt-bearing senses surface
+#: that folds history (all five functions in this module plus the senses
+#: coordination loop) gets the SAME label, never a re-typed variant.
+_BACKGROUND_LABEL = "Optional background (may not relate to the current message):"
+
+
 def _fold_history(
     primary_body: str,
     history: "Optional[list[dict[str, str]]]",
@@ -337,16 +394,19 @@ def _fold_history(
     budget: int,
     count_tokens: "Callable[[list[dict[str, Any]]], int]",
 ) -> str:
-    """Prefix *primary_body* with a windowed "Conversation so far" block (t4).
+    """Prefix *primary_body* with a windowed, labeled background block (t4/t2).
 
-    Folds *history* (oldest first) into a clearly-delimited "Conversation so
-    far" block placed BEFORE *primary_body* — the caller's already-assembled
-    request/feed/summary payload — so the model reads prior exchanges before
-    the current turn. Participates in the SAME budget accounting as
-    :func:`_window_text` (identical quarter-of-budget completion reserve):
-    when the combined ``[system, user=block+primary_body]`` prompt would
-    exceed the send budget, the OLDEST history entries are dropped first
-    (whole entries, never sliced mid-entry) until it fits.
+    Folds *history* (oldest first) into a clearly-delimited block, headed
+    :data:`_BACKGROUND_LABEL`, placed BEFORE *primary_body* — the caller's
+    already-assembled request/feed/summary payload — so the model reads
+    prior exchanges before the current turn, but is told plainly that they
+    are optional background, not a substitute for answering the current
+    message (structural senses relay fidelity, task t2). Participates in the
+    SAME budget accounting as :func:`_window_text` (identical
+    quarter-of-budget completion reserve): when the combined ``[system,
+    user=block+primary_body]`` prompt would exceed the send budget, the
+    OLDEST history entries are dropped first (whole entries, never sliced
+    mid-entry) until it fits.
 
     *primary_body* is NEVER trimmed here — callers window it via
     :func:`_window_text` first, so it already fits the send budget alone;
@@ -374,7 +434,7 @@ def _fold_history(
     def _combine(remaining: "list[str]") -> str:
         if not remaining:
             return primary_body
-        block = "Conversation so far:\n" + "\n".join(remaining)
+        block = f"{_BACKGROUND_LABEL}\n" + "\n".join(remaining)
         return f"{block}\n\n{primary_body}"
 
     remaining = list(lines)
@@ -687,15 +747,23 @@ def _relay_prefix_override(message: str, relay_prefix: str) -> Optional[str]:
     return message[len(relay_prefix) :].strip()
 
 
-def _format_talk_context(message: str, packet: Optional[ContextPacket], task_state: Any) -> str:
+def _format_talk_context(
+    message: str,
+    packet: Optional[ContextPacket],
+    task_state: Any,
+    worker_answer: Optional[str] = None,
+) -> str:
     """Build the FIXED (never-windowed) portion of a talk-lane prompt.
 
     Carries the operator's original request + prior interpretation (from
-    *packet*, when present), the caller-supplied *task_state* snapshot, and the
-    live *message* itself — everything the talk turn needs EXCEPT the flight
-    feed tail, which :func:`run_senses_talk` windows separately so a long-
-    running conversation's feed history never crowds out the message being
-    asked right now.
+    *packet*, when present), the caller-supplied *task_state* snapshot, the
+    acting mind's *worker_answer* (its current result for *message*, when
+    given — task t2), and the live *message* itself — everything the talk
+    turn needs EXCEPT the flight feed tail, which :func:`run_senses_talk`
+    windows separately so a long-running conversation's feed history never
+    crowds out the message being asked right now. *worker_answer* is CURRENT
+    content, not background — it stays here, never in the folded-history
+    "optional background" block :func:`_fold_history` builds.
     """
     lines: list[str] = []
     if packet is not None:
@@ -707,8 +775,80 @@ def _format_talk_context(message: str, packet: Optional[ContextPacket], task_sta
             lines.append(f"Senses' prior interpretation: {interpretation}")
     if task_state:
         lines.append(f"Current task state: {task_state}")
+    if worker_answer:
+        lines.append(
+            "Current result from the acting mind (answer the message from "
+            f"this first): {worker_answer}"
+        )
     lines.append(f"Operator's live message: {message}")
     return "\n".join(lines)
+
+
+#: Minimum length (characters) a background/knowledge snippet must reach
+#: before a verbatim match against it counts as "unrelated-knowledge
+#: repetition" (task t2) — a short common phrase (e.g. "ok") would
+#: false-positive on coincidence; a real recited fact/history block is
+#: comfortably longer than this floor.
+_KNOWLEDGE_REPEAT_FLOOR = 20
+
+
+def _repeats_background(text: str, snippets: "Iterable[Any]") -> bool:
+    """True when *text* verbatim-reproduces a meaningful chunk of *snippets*.
+
+    The structural signature of the fidelity failure this arc guards against
+    (task t2): senses reciting its background/"knowledge" content (rolling
+    history entries, curated facts) instead of relaying the current answer.
+    Any snippet at least :data:`_KNOWLEDGE_REPEAT_FLOOR` characters long found
+    verbatim inside *text* counts as a repetition; shorter or non-string
+    snippets are skipped defensively. Never raises: a falsy *text* or an
+    empty *snippets* iterable returns ``False``.
+    """
+    body = (text or "").strip()
+    if not body:
+        return False
+    for snippet in snippets:
+        if not isinstance(snippet, str):
+            continue
+        candidate = snippet.strip()
+        if len(candidate) >= _KNOWLEDGE_REPEAT_FLOOR and candidate in body:
+            return True
+    return False
+
+
+def _enforce_fidelity(
+    answer: str,
+    worker_answer: Optional[str],
+    knowledge_snippets: "Iterable[Any]",
+) -> "tuple[str, bool, bool, bool]":
+    """Structural containment (task t2): when *worker_answer* is given, the
+    text about to be displayed to the operator must CONTAIN it verbatim —
+    enforced HERE in code, never left to the prompt alone (the two composed
+    clauses, :data:`_GROUNDING_CLAUSE`/:data:`_FIDELITY_CLAUSE`, are prompt
+    hygiene; this function is the actual guarantee).
+
+    Returns ``(final_text, verbatim_presence, knowledge_repetition,
+    fallback)``:
+
+    - No *worker_answer* (``None``/blank after stripping) — *answer* passes
+      through completely unchanged, all three flags ``False`` (nothing to
+      check; the byte-identical no-op path).
+    - *answer* already contains *worker_answer* verbatim — passes through
+      unchanged, ``verbatim_presence=True``, the other two flags ``False``.
+    - *answer* does NOT contain it — a fidelity failure: *final_text* becomes
+      *worker_answer* itself (trivially verbatim, the raw-answer fallback),
+      ``fallback=True``. When *answer* itself verbatim-reproduces a chunk of
+      *knowledge_snippets* (:func:`_repeats_background`) instead of the
+      current result, ``knowledge_repetition=True`` too — the "recited its
+      knowledge block instead of the answer" failure shape a real embodiment
+      live session exhibited.
+    """
+    worker = (worker_answer or "").strip()
+    if not worker:
+        return answer, False, False, False
+    if worker in (answer or ""):
+        return answer, True, False, False
+    repetition = _repeats_background(answer, knowledge_snippets)
+    return worker, False, repetition, True
 
 
 def run_senses_talk(
@@ -722,6 +862,7 @@ def run_senses_talk(
     make_count_tokens: "Optional[Callable[[list[dict[str, Any]]], int]]" = None,
     relay_prefix: str = "cortex:",
     history: "Optional[list[dict[str, str]]]" = None,
+    worker_answer: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """Hold ONE live, tools-off conversational turn with the operator (t4).
 
@@ -768,6 +909,19 @@ def run_senses_talk(
     dropped first when it doesn't fit; the fixed context + feed always win).
     ``None``/``[]`` is byte-identical to before this parameter existed.
 
+    Structural relay fidelity (task t2): an optional *worker_answer* —  the
+    acting mind's ("today cortex's; the seat name is never hard-coded")
+    current result for *message*, when the caller has one — is folded into
+    the FIXED context (never trimmed, never treated as background) and,
+    after the completion returns, the displayed ``answer`` is checked in
+    CODE (:func:`_enforce_fidelity`) to CONTAIN *worker_answer* verbatim.
+    When it does not — a fidelity failure — the raw *worker_answer* is
+    presented instead (a guaranteed-verbatim fallback) and ``degraded`` is
+    set ``True``, even though the completion itself may have succeeded.
+    ``worker_answer=None`` (the default) is byte-identical to before this
+    parameter existed: no fidelity keys are added to the returned dict at
+    all.
+
     Returns ``None`` when *senses_config* is ``None`` (senses unarmed) — the
     signal the caller uses to degrade to a watch-only view, no talk lane.
     Otherwise NEVER raises: any failure (unreachable endpoint, request error,
@@ -783,7 +937,10 @@ def run_senses_talk(
         a :class:`~colleague.contract.SensesRecord`; the caller wraps this into
         one, tagged :data:`TALK_POINT`, for the artifact). ``tokens`` is the
         exact summed prompt+completion tokens on success, ``None`` on
-        degradation (never estimated).
+        degradation (never estimated). When *worker_answer* is given
+        (non-blank), the dict ADDITIONALLY carries ``verbatim_presence``,
+        ``knowledge_repetition``, ``fallback``, and ``truncated`` (all
+        ``bool``) — the four structural fidelity counters (task t2).
     """
     if senses_config is None:
         return None
@@ -793,13 +950,14 @@ def run_senses_talk(
     meter = _TokenMeter()
     try:
         counter = make_count_tokens if make_count_tokens is not None else count_tokens_chars
-        fixed_context = _format_talk_context(message, packet, task_state)
+        fixed_context = _format_talk_context(message, packet, task_state, worker_answer)
         windowed_feed = _window_text(
             feed_tail or "",
             system_prompt=f"{_TALK_SYSTEM_PROMPT}\n\n{fixed_context}",
             budget=senses_config.context_budget_tokens,
             count_tokens=counter,
         )
+        truncated_prompt = _TRUNCATION_NOTE in windowed_feed
         user_prompt = (
             f"{fixed_context}\n\nRecent flight feed (most recent last):\n"
             f"{windowed_feed or '(no feed yet)'}"
@@ -827,7 +985,7 @@ def run_senses_talk(
         relay = relay_override is not None or model_relay
         relay_text = relay_override if relay_override is not None else model_relay_text
         latency = time.monotonic() - start
-        return {
+        result: dict[str, Any] = {
             "answer": answer,
             "relay": relay,
             "relay_text": relay_text,
@@ -835,6 +993,23 @@ def run_senses_talk(
             "degraded": False,
             "tokens": meter.value,
         }
+        if worker_answer:
+            knowledge_snippets = [
+                entry.get("text") for entry in (history or []) if isinstance(entry, dict)
+            ]
+            final_answer, verbatim_presence, knowledge_repetition, fallback = _enforce_fidelity(
+                answer, worker_answer, knowledge_snippets
+            )
+            result["answer"] = final_answer
+            result["verbatim_presence"] = verbatim_presence
+            result["knowledge_repetition"] = knowledge_repetition
+            result["fallback"] = fallback
+            result["truncated"] = truncated_prompt
+            if fallback:
+                # A fidelity failure IS a degradation, even though the
+                # completion itself succeeded (task t2, AC2).
+                result["degraded"] = True
+        return result
     except Exception:
         latency = time.monotonic() - start
         relay = relay_override is not None
@@ -1097,7 +1272,11 @@ def run_senses_frontdoor(
     meter = _TokenMeter()
     try:
         counter = make_count_tokens if make_count_tokens is not None else count_tokens_chars
-        primary_body = f"Architecture facts:\n{facts}\n\nOperator's message: {text}"
+        primary_body = (
+            f"{_BACKGROUND_LABEL} architecture facts.\n{facts}\n\n"
+            f"Operator's message (answer this; the facts above are background, "
+            f"never a substitute for answering it): {text}"
+        )
         user_prompt = _window_text(
             primary_body,
             system_prompt=_FRONTDOOR_SYSTEM_PROMPT,

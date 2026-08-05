@@ -793,8 +793,11 @@ class TestSensesHistory:
         ]
         fake = _FakeEngine()
         # Room for the system prompt + "do it" comfortably, but not enough
-        # left over for all three history entries.
-        budget = 1800
+        # left over for all three history entries. (Budget sized generously
+        # above the system prompt's own length — task t2 composed the
+        # grounding + fidelity clauses into it, and relabeled the folded
+        # history block "Optional background (...)" — both grew it.)
+        budget = 2200
         config = _senses_config(context_budget_tokens=budget)
 
         packet, record = run_senses_intake("do it", config, fake, history=history)

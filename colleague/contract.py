@@ -646,20 +646,69 @@ class SensesRecord:
         ``True`` iff the senses call fell back / never completed against the
         senses model (a dead endpoint, request error, or overflow) instead of
         actually completing. Default ``False``.
+    verbatim_presence:
+        ``True`` iff this record's presented text was checked against an
+        acting-mind ("worker") answer and was found to CONTAIN it verbatim —
+        the structural containment guarantee (three-tier-execution arc, task
+        t2). Additive: ``False`` by default, and a record produced from a
+        call that carried no worker answer to check leaves this at its
+        default. See :func:`colleague.senses._enforce_fidelity`.
+    knowledge_repetition:
+        ``True`` iff, on a fidelity failure, the presented text was found to
+        verbatim-reproduce a meaningful chunk of background/"knowledge"
+        content (rolling history, curated facts) instead of the current
+        worker answer — the structural signature of the embodiment failure
+        this field is named for ("senses recited its knowledge block instead
+        of relaying the current answer"). Only ever set alongside
+        ``fallback=True``. Default ``False``.
+    fallback:
+        ``True`` iff a fidelity failure (the presented text did NOT contain
+        the worker answer verbatim) forced the caller to fall back to
+        presenting the raw worker answer instead of the model's shaped
+        reply. A fallback always also sets ``degraded=True`` — a fidelity
+        failure IS a degradation, even though the completion itself may have
+        succeeded. Default ``False``.
+    truncated:
+        ``True`` iff the prompt sent for this invocation had to be
+        truncated to fit the senses model's own send budget (the existing
+        :data:`colleague.senses._TRUNCATION_NOTE` windowing marker was
+        applied). Default ``False``.
+
+    ``verbatim_presence``/``knowledge_repetition``/``fallback``/``truncated``
+    are OMITTED from :meth:`to_dict` while at their ``False`` default, so a
+    record from before this field existed — or one that never exercised
+    fidelity-tracking — serializes to the exact pre-existing
+    ``{point, latency, tokens, degraded}`` shape (the same
+    omit-when-default convention as :attr:`ContextPacket.ack`).
     """
 
     point: str
     latency: Optional[float] = None
     tokens: Optional[int] = None
     degraded: bool = False
+    verbatim_presence: bool = False
+    knowledge_repetition: bool = False
+    fallback: bool = False
+    truncated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "point": self.point,
             "latency": self.latency,
             "tokens": self.tokens,
             "degraded": self.degraded,
         }
+        # Additive counters (task t2): omitted while False so a pre-arc /
+        # fidelity-inactive record stays byte-identical to the old 4-key shape.
+        if self.verbatim_presence:
+            d["verbatim_presence"] = True
+        if self.knowledge_repetition:
+            d["knowledge_repetition"] = True
+        if self.fallback:
+            d["fallback"] = True
+        if self.truncated:
+            d["truncated"] = True
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SensesRecord":
@@ -669,7 +718,9 @@ class SensesRecord:
         cannot be parsed as ``float``/``int`` falls back to ``None`` rather than
         raising and aborting the whole ``TaskResult.from_dict`` call — exactly
         as :meth:`DeepthinkCall.from_dict` handles ``duration``/``tokens``.
-        ``point``/``degraded`` still survive from the rest of the entry.
+        ``point``/``degraded`` still survive from the rest of the entry. The
+        four fidelity counters default to ``False`` when absent — tolerant of
+        a legacy artifact recorded before this field existed.
         """
         raw_latency = data.get("latency")
         raw_tokens = data.get("tokens")
@@ -686,6 +737,10 @@ class SensesRecord:
             latency=latency,
             tokens=tokens,
             degraded=bool(data.get("degraded", False)),
+            verbatim_presence=bool(data.get("verbatim_presence", False)),
+            knowledge_repetition=bool(data.get("knowledge_repetition", False)),
+            fallback=bool(data.get("fallback", False)),
+            truncated=bool(data.get("truncated", False)),
         )
 
 

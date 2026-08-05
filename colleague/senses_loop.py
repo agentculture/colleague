@@ -55,7 +55,15 @@ from colleague.config import EngineConfig
 from colleague.context import count_tokens_chars
 from colleague.contract import SENSES_LOOP_POINT_PREFIX, ContextPacket, SensesRecord
 from colleague.plan.cli_driver import robust_simple_complete
-from colleague.senses import _fold_history, _TokenMeter, _window_text
+from colleague.senses import (
+    _FIDELITY_CLAUSE,
+    _GROUNDING_CLAUSE,
+    _TRUNCATION_NOTE,
+    _enforce_fidelity,
+    _fold_history,
+    _TokenMeter,
+    _window_text,
+)
 from colleague.senses_moves import (
     MOVE_CLARIFY,
     MOVE_DISPATCH_TO_CORTEX,
@@ -109,7 +117,7 @@ _LOOP_SYSTEM_PROMPT = (
     "read the flight status and reply. Ground every move strictly in the given "
     "context — the operator's words, the task state, and the recent flight feed. "
     "Never invent progress, files, or results not present in the feed; say "
-    "plainly when you don't know."
+    "plainly when you don't know. " + _GROUNDING_CLAUSE + " " + _FIDELITY_CLAUSE
 )
 
 
@@ -140,7 +148,15 @@ class BoundaryContext:
     (a proactive-update tick), or :data:`BOUNDARY_FEED_CHANGE` (the run's feed
     advanced). ``feed_tail`` is the recent flight-feed lines (a string or a list),
     ``packet`` the run's :class:`~colleague.contract.ContextPacket`, and
-    ``task_state`` a short caller-supplied snapshot.
+    ``task_state`` a short caller-supplied snapshot. ``worker_answer`` (task
+    t2) is the acting mind's ("today cortex's; the seat name is never
+    hard-coded") current result for the current message, when the caller has
+    one — CURRENT content, never folded history's "optional background".
+    When present, a ``reply_to_operator`` move's displayed text is checked
+    structurally to CONTAIN it verbatim (:func:`colleague.senses.
+    _enforce_fidelity`), falling back to the raw ``worker_answer`` on a
+    fidelity failure. ``None`` (the default) is byte-identical to before this
+    field existed.
     """
 
     kind: str
@@ -148,6 +164,7 @@ class BoundaryContext:
     feed_tail: Any = ""
     packet: Optional[ContextPacket] = None
     task_state: Any = None
+    worker_answer: Optional[str] = None
 
 
 @dataclass
@@ -308,13 +325,16 @@ class SensesLoopDriver:
         boundary_degraded = False
 
         for _ in range(self._cap):
-            move_obj, latency, tokens, degraded = self._one_completion(boundary, scratch, history)
+            move_obj, latency, tokens, degraded, truncated = self._one_completion(
+                boundary, scratch, history
+            )
             if degraded:
                 record = SensesRecord(
                     point=f"{SENSES_LOOP_POINT_PREFIX}degraded",
                     latency=latency,
                     tokens=None,
                     degraded=True,
+                    truncated=truncated,
                 )
                 self.records.append(record)
                 turns.append(LoopTurn(move="degraded", record=record, degraded=True))
@@ -334,8 +354,9 @@ class SensesLoopDriver:
                 latency=latency,
                 tokens=tokens,
                 degraded=result.degraded,
+                truncated=truncated,
             )
-            turn = self._build_turn(move, move_obj, result, record, boundary)
+            turn = self._build_turn(move, move_obj, result, record, boundary, history)
             self._absorb(turn)
             turns.append(turn)
 
@@ -357,14 +378,18 @@ class SensesLoopDriver:
         boundary: BoundaryContext,
         scratch: "list[tuple[str, str]]",
         history: "Optional[list[dict[str, str]]]",
-    ) -> "tuple[Optional[dict[str, Any]], float, Optional[int], bool]":
+    ) -> "tuple[Optional[dict[str, Any]], float, Optional[int], bool, bool]":
         """Issue ONE tools-off senses completion; return (move_obj, latency,
-        tokens, degraded). Never raises: any failure degrades to
-        ``(None, latency, None, True)``."""
+        tokens, degraded, truncated). Never raises: any failure degrades to
+        ``(None, latency, None, True, False)``. ``truncated`` (task t2) is
+        ``True`` iff the assembled prompt for THIS completion had to be
+        windowed down to fit the send budget (:data:`colleague.senses.
+        _TRUNCATION_NOTE` marker present)."""
         start = time.monotonic()
         meter = _TokenMeter()
         try:
             user_prompt = self._build_prompt(boundary, scratch, history)
+            truncated = _TRUNCATION_NOTE in user_prompt
             # Tools-off ALWAYS: an explicit empty tool list, never ``None`` — a
             # senses loop turn structurally cannot carry a tool schema on the wire.
             complete = self._make_complete(self._senses_config, tools=[])
@@ -373,9 +398,9 @@ class SensesLoopDriver:
             if not raw.strip():
                 raise ValueError("empty senses loop completion")
             move_obj = parse_move(raw)  # never raises
-            return move_obj, time.monotonic() - start, meter.value, False
+            return move_obj, time.monotonic() - start, meter.value, False, truncated
         except Exception:
-            return None, time.monotonic() - start, None, True
+            return None, time.monotonic() - start, None, True, False
 
     def _build_prompt(
         self,
@@ -417,6 +442,15 @@ class SensesLoopDriver:
                 parts.append(f"Senses' prior interpretation: {interpretation}")
         if boundary.task_state:
             parts.append(f"Current task state: {boundary.task_state}")
+        if boundary.worker_answer:
+            # CURRENT content (task t2), never folded history's "optional
+            # background" — the result a reply_to_operator move must answer
+            # from FIRST, enforced structurally after the completion returns
+            # (see _apply_fidelity), not left to this wording alone.
+            parts.append(
+                "Current result from the acting mind (answer from this "
+                f"first): {boundary.worker_answer}"
+            )
         if scratch:
             taken = "; ".join(f"{move}->{outcome}" for move, outcome in scratch)
             parts.append(f"Moves you already took this turn: {taken}")
@@ -473,6 +507,7 @@ class SensesLoopDriver:
         result: Any,
         record: SensesRecord,
         boundary: BoundaryContext,
+        history: "Optional[list[dict[str, str]]]" = None,
     ) -> LoopTurn:
         at = time.time()
         if result.refused:
@@ -487,6 +522,10 @@ class SensesLoopDriver:
             chat_entry = {"kind": "ack", "text": ack, "fixed": not raw_ack, "at": at}
         elif move == MOVE_REPLY_TO_OPERATOR:
             text = str(move_obj.get("text") or "").strip()
+            # Structural relay fidelity (task t2): when the boundary carries a
+            # worker answer, the DISPLAYED text must contain it verbatim —
+            # enforced here in code, never left to the prompt alone.
+            text = self._apply_fidelity(text, boundary, history, record)
             # kind omitted → implied "talk" (t3 mapping), the flight-talk shape.
             chat_entry = {"message": boundary.operator_input or "", "answer": text, "at": at}
         elif move == MOVE_CLARIFY:
@@ -503,8 +542,43 @@ class SensesLoopDriver:
             chat_entry=chat_entry,
             injection=injection,
             outcome=result.outcome,
-            degraded=result.degraded,
+            degraded=record.degraded,
         )
+
+    def _apply_fidelity(
+        self,
+        text: str,
+        boundary: BoundaryContext,
+        history: "Optional[list[dict[str, str]]]",
+        record: SensesRecord,
+    ) -> str:
+        """Structural containment for a ``reply_to_operator`` move (task t2).
+
+        A no-op (returns *text* unchanged, *record* untouched) when
+        ``boundary.worker_answer`` is absent — the byte-identical path for
+        every boundary that predates this arc. Otherwise delegates to
+        :func:`colleague.senses._enforce_fidelity` and mutates *record* IN
+        PLACE with the four additive counters
+        (``verbatim_presence``/``knowledge_repetition``/``fallback``/
+        ``degraded``) — the literal ``SensesRecord`` surface AC2 requires,
+        not a side dict. "Knowledge" here is the boundary's folded rolling
+        ``history`` text entries, mirroring :func:`run_senses_talk`'s use of
+        the same signal.
+        """
+        knowledge_snippets = [
+            entry.get("text") for entry in (history or []) if isinstance(entry, dict)
+        ]
+        final_text, verbatim_presence, knowledge_repetition, fallback = _enforce_fidelity(
+            text, boundary.worker_answer, knowledge_snippets
+        )
+        record.verbatim_presence = verbatim_presence
+        record.knowledge_repetition = knowledge_repetition
+        record.fallback = fallback
+        if fallback:
+            # A fidelity failure IS a degradation, even though the move's own
+            # callback may have succeeded (task t2, AC2).
+            record.degraded = True
+        return final_text
 
     def _absorb(self, turn: LoopTurn) -> None:
         self.records.append(turn.record)
