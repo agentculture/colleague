@@ -170,12 +170,16 @@ def _parse_response(data: dict[str, Any]) -> ModelResponse:
     # ``reasoning_content``. Tokens are still taken EXACTLY from ``usage`` (this
     # server reports no completion_tokens_details, so there is no reasoning-token
     # breakdown — the loop measures reasoning by length, never estimates tokens).
+    # Carry the raw finish_reason out unchanged (plan task t1, covers c4/h4) —
+    # previously never read on the blocking path at all. "" when the server
+    # omits the field, matching every other honest-default field above.
     return ModelResponse(
         content=message.get("content") or "",
         tool_calls=calls,
         prompt_tokens=int(usage.get("prompt_tokens", 0)),
         completion_tokens=int(usage.get("completion_tokens", 0)),
         reasoning=message.get("reasoning") or message.get("reasoning_content") or "",
+        finish_reason=str(choices[0].get("finish_reason") or ""),
     )
 
 
@@ -309,6 +313,11 @@ class _StreamAccumulator:
     tool_call_fragments: dict[int, dict[str, str]] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
     saw_finish_reason: bool = False
+    # The actual raw finish_reason value (plan task t1, covers c4/h4) — kept
+    # alongside ``saw_finish_reason`` (which only the stream-completeness check
+    # below needs) rather than replacing it, so a legitimate "" value from a
+    # server is never confused with "never saw one" via truthiness.
+    finish_reason: str = ""
 
 
 def _emit_content_and_reasoning_deltas(
@@ -360,8 +369,12 @@ def _apply_stream_frame(
         delta = choices[0].get("delta") or {}
         _emit_content_and_reasoning_deltas(delta, acc, on_delta)
         _accumulate_frame_tool_calls(delta, acc)
-        if choices[0].get("finish_reason") is not None:
+        raw_finish_reason = choices[0].get("finish_reason")
+        if raw_finish_reason is not None:
             acc.saw_finish_reason = True
+            # Carry the value out (t1) — previously only the boolean above
+            # survived; the string itself was dropped at stream termination.
+            acc.finish_reason = str(raw_finish_reason)
     _capture_frame_usage(frame, acc)
 
 
@@ -451,6 +464,7 @@ def _post_json_stream(
         prompt_tokens=int(acc.usage.get("prompt_tokens", 0)),
         completion_tokens=int(acc.usage.get("completion_tokens", 0)),
         reasoning="".join(acc.reasoning_parts),
+        finish_reason=acc.finish_reason,
     )
 
 

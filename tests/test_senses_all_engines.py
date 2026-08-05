@@ -57,6 +57,7 @@ _PRE_SENSES_TASKRESULT_KEYS = {
     "steps",
     "usage",
     "stats",
+    "finish_states",
     "artifacts_path",
     "error",
     "branch",

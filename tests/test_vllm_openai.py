@@ -53,6 +53,29 @@ def test_parse_response_tolerates_plain_text() -> None:
     assert resp.tool_calls == []
 
 
+def test_parse_response_carries_finish_reason_out_of_the_response() -> None:
+    """Plan task t1 (c4/h4): the blocking path's ``finish_reason`` previously
+    went unread entirely — it must now reach ``ModelResponse.finish_reason``
+    verbatim for every value an OpenAI-compatible server can send."""
+    for raw in ("stop", "length", "tool_calls", "content_filter"):
+        data = _message_with_tool_call("write_file", {"path": "a", "content": "b"})
+        data["choices"][0]["finish_reason"] = raw
+        resp = _parse_response(data)
+        assert resp.finish_reason == raw
+
+
+def test_parse_response_defaults_finish_reason_to_empty_string_when_absent() -> None:
+    """A server that omits finish_reason entirely degrades to the honest ""
+    default — never None, matching every other string field on ModelResponse."""
+    resp = _parse_response({"choices": [{"message": {"content": "just text"}}]})
+    assert resp.finish_reason == ""
+
+
+def test_parse_response_defaults_finish_reason_when_explicitly_null() -> None:
+    resp = _parse_response({"choices": [{"message": {"content": "x"}, "finish_reason": None}]})
+    assert resp.finish_reason == ""
+
+
 def test_post_json_preserves_vllm_error_body(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Response:
         def read(self) -> bytes:

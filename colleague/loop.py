@@ -68,11 +68,15 @@ from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
     ERROR,
+    FINISH_DELIBERATE,
+    FINISH_EMPTY,
+    FINISH_TRUNCATED,
     INCOMPLETE,
     NO_RESULT_PRODUCED,
     OK,
     CapacityDecision,
     ContextPacket,
+    FinishRecord,
     HookFiring,
     SensesBlock,
     SensesRecord,
@@ -80,6 +84,7 @@ from colleague.contract import (
     Task,
     TaskResult,
 )
+from colleague.finishstate import classify_finish_state
 from colleague.hooks import HookConfig, HookDecision, hook_approval_verdict, load_hooks, run_hook
 from colleague.incompletion import classify_incompletion
 from colleague.neighbours import NeighbourManager
@@ -376,6 +381,17 @@ class ModelResponse:
     to a file, so the loop measures it as the "thought" portion of a work item
     (char/byte lengths in :class:`~colleague.contract.WorkStats`). Empty for
     servers/models that do not emit a reasoning field.
+
+    ``finish_reason`` is the raw backend-reported reason THIS turn's completion
+    ended (OpenAI-compatible ``choices[0].finish_reason``, e.g. ``"stop"`` /
+    ``"tool_calls"`` / ``"length"`` / ``"content_filter"``), carried out of the
+    vLLM adapter's blocking AND streaming SSE paths unchanged (plan task t1,
+    covers c4/h4) — previously read only to detect SSE stream termination and
+    then dropped. ``""`` for a backend/engine that never reports the field (the
+    mock engine still sets a representative deliberate value). The loop's own
+    per-work-item classification onto the five ``FINISH_*`` states
+    (:mod:`colleague.finishstate`) reads the LAST turn's value via a private
+    tracking cell, never re-derives it from ``content``/``tool_calls``.
     """
 
     content: str = ""
@@ -383,6 +399,7 @@ class ModelResponse:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     reasoning: str = ""
+    finish_reason: str = ""
 
 
 # A ``complete`` performs one model turn given the running message list.
@@ -615,6 +632,13 @@ class _Work:
     # mutable list[str] (single element) so the frozen ``_Work`` dataclass can
     # still update it through the binding.
     _last_substantive: list[str] = field(default_factory=list)
+    # Last ``resp.finish_reason`` seen across ALL turns (plan task t1, covers
+    # c4/h4) — updated unconditionally on every ``_account_turn`` call
+    # (including a "" value), mirroring the ``_last_substantive`` mutable-cell
+    # pattern above so the frozen ``_Work`` dataclass can still update it
+    # through the binding. Read by ``_finalize_finish_states`` at every exit
+    # path to classify the "main" seat's terminal ``FINISH_*`` state.
+    _last_finish_reason: list[str] = field(default_factory=list)
     # auto-compact-on-finish (t3): the model-authored summary produced by the last
     # fill-line compaction, kept on a dedicated cell so a later stall cannot
     # overwrite it (unlike ``_last_substantive``); used as the FALLBACK clean summary
@@ -1869,6 +1893,10 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
     if resp.content:
         ctx._last_substantive[:] = [resp.content]
+    # Track the LAST turn's raw finish_reason (t1, c4/h4) — unconditional
+    # (even a "" value overwrites), matching the wire's own semantics of "the
+    # last completion's own reason", not merely the last non-empty one.
+    ctx._last_finish_reason[:] = [resp.finish_reason]
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
@@ -2066,6 +2094,71 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
             "(see incompletion)."
         )
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
+
+
+def _senses_finish_record(senses: "SensesBlock | None") -> "FinishRecord | None":
+    """Derive the "senses" seat's :class:`FinishRecord`, or ``None`` (t1, c4/h4/c30).
+
+    :class:`SensesRecord` carries no raw wire ``finish_reason`` — senses.py's
+    completion call sites never thread one through (unlike the main loop's
+    ``ModelResponse``) — so ``degraded`` is the honest, already-existing proxy:
+    a degraded senses call fell back / never completed against the senses
+    model (dead endpoint, request error, overflow), the same "nothing usable
+    produced" fact ``FINISH_EMPTY`` represents elsewhere; a clean completion is
+    ``FINISH_DELIBERATE`` (the tools-off senses lane has no
+    truncation/stop/timeout concept of its own today — a finer classification
+    is future work for whichever task enriches ``SensesRecord`` itself, not
+    this one). Returns ``None`` when no senses config ran (``senses`` is
+    ``None`` or carries zero records), so an unconfigured/cortex-only run's
+    ``finish_states`` carries only the "main" seat.
+    """
+    if senses is None or not senses.records:
+        return None
+    degraded = senses.records[-1].degraded
+    state = FINISH_EMPTY if degraded else FINISH_DELIBERATE
+    return FinishRecord(seat="senses", finish_reason="", state=state, truncated=False)
+
+
+def _finalize_finish_states(
+    ctx: "_Work", outcome: str, *, aborted: Exception | None = None
+) -> None:
+    """Populate ``result.finish_states`` — ALWAYS-on, every exit path (t1, c4/h4/c30).
+
+    Called from TWO places in :func:`run`: the aborted (:class:`WorkAborted`)
+    path (right before it raises, ``aborted`` set) and the normal exit path
+    (after :func:`_resolve_terminal_summary` has finalized ``result.summary``,
+    ``aborted`` left ``None``) — mirroring how ``stats``/``WorkStats`` is
+    finalized on every exit (#106). The "main" seat is always recorded from
+    the last-tracked ``ctx._last_finish_reason``; a "senses" seat record is
+    appended too when :func:`_senses_finish_record` finds one.
+
+    A real ``timeout`` classification (:func:`colleague.context.classify_degradable`
+    on ``str(aborted)``) takes precedence even on the aborted path; any other
+    abort (a non-timeout engine exception, or a degradation give-up at the
+    floor) maps to ``FINISH_EMPTY`` — ``result.summary`` on that path is
+    already a diagnostic fallback note, never a real deliverable.
+    """
+    timed_out = aborted is not None and classify_degradable(str(aborted)) == "timeout"
+    main_finish_reason = ctx._last_finish_reason[0] if ctx._last_finish_reason else ""
+    main_state = classify_finish_state(
+        summary=ctx.result.summary,
+        finish_reason=main_finish_reason,
+        outcome=outcome,
+        timed_out=timed_out,
+        aborted=aborted is not None,
+    )
+    finish_states = [
+        FinishRecord(
+            seat="main",
+            finish_reason=main_finish_reason,
+            state=main_state,
+            truncated=main_state == FINISH_TRUNCATED,
+        )
+    ]
+    senses_record = _senses_finish_record(ctx.result.senses)
+    if senses_record is not None:
+        finish_states.append(senses_record)
+    ctx.result.finish_states = finish_states
 
 
 # Bounded eidetic-CLI wait for the two in-loop memory calls (t2): a recall/remember
@@ -4414,6 +4507,10 @@ def run(
             or _last_sub
             or (f"aborted after {len(result.steps)} step(s): {result.error}")
         )
+        # Per-seat finish state (t1, c4/h4/c30) — ALWAYS-on, even the aborted
+        # path, so a crashed/timed-out partial artifact still carries an
+        # honest finish state (mirrors the stats finalization discipline).
+        _finalize_finish_states(ctx, outcome, aborted=aborted)
         # Escalation seam — aborted path (#106 t3): best-effort, observe-only.
         # A timeout / context-overflow / engine error is a limit worth escalating.
         # Wrapped in suppress so any escalation failure never masks the work item result.
@@ -4444,6 +4541,11 @@ def run(
     # _resolve_terminal_summary — extracted so run() stays under the S3776 threshold
     # and so synthesis runs BEFORE the compaction fallback (the stale-summary fix).
     _resolve_terminal_summary(ctx, outcome, complete, _last_sub)
+
+    # Per-seat finish state (t1, c4/h4/c30) — ALWAYS-on; runs AFTER summary
+    # resolution so a NO_RESULT_PRODUCED sentinel assigned by the fallback
+    # chain above is visible to the classifier.
+    _finalize_finish_states(ctx, outcome)
 
     # Honest-incompletion (colleague#313): flag a run that produced no expected
     # deliverable — after summary resolution so it composes with finish_recovered.

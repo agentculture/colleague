@@ -63,6 +63,7 @@ def _delta_frame(
     reasoning: str | None = None,
     reasoning_content: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
+    finish_reason: str | None = None,
 ) -> dict[str, Any]:
     delta: dict[str, Any] = {}
     if content is not None:
@@ -73,7 +74,10 @@ def _delta_frame(
         delta["reasoning_content"] = reasoning_content
     if tool_calls is not None:
         delta["tool_calls"] = tool_calls
-    return {"choices": [{"delta": delta}]}
+    choice: dict[str, Any] = {"delta": delta}
+    if finish_reason is not None:
+        choice["finish_reason"] = finish_reason
+    return {"choices": [choice]}
 
 
 def _usage_frame(prompt_tokens: int, completion_tokens: int) -> dict[str, Any]:
@@ -182,6 +186,65 @@ def test_assembled_response_matches_blocking_equivalent_shape(
     assert call.arguments == {"path": "a", "content": "b"}
     assert resp.prompt_tokens == 11
     assert resp.completion_tokens == 4
+
+
+# ── (b2) finish_reason survives the SSE accumulator (plan task t1, c4/h4) ──
+
+
+def test_finish_reason_reaches_the_model_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The accumulator previously only recorded a BOOLEAN (``saw_finish_reason``)
+    and dropped the actual value at stream termination — this proves the raw
+    string now survives, unchanged, into ``ModelResponse.finish_reason``."""
+    frames = [
+        _delta_frame(content="hi"),
+        _delta_frame(finish_reason="stop"),
+    ]
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen(_sse_lines(frames), captured={}))
+
+    resp = _post_json_stream(
+        "http://x/v1/chat/completions",
+        {"model": "m", "messages": []},
+        api_key="EMPTY",
+        timeout=5,
+        on_delta=lambda _c: None,
+    )
+
+    assert resp.finish_reason == "stop"
+
+
+@pytest.mark.parametrize("raw", ["stop", "length", "tool_calls", "content_filter"])
+def test_every_wire_finish_reason_value_survives_verbatim(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    frames = [_delta_frame(content="x"), _delta_frame(finish_reason=raw)]
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen(_sse_lines(frames), captured={}))
+
+    resp = _post_json_stream(
+        "http://x/v1/chat/completions",
+        {"model": "m", "messages": []},
+        api_key="EMPTY",
+        timeout=5,
+        on_delta=lambda _c: None,
+    )
+
+    assert resp.finish_reason == raw
+
+
+def test_no_finish_reason_frame_defaults_to_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stream that terminates via [DONE] alone (no delta ever carried a
+    non-null finish_reason) degrades to the honest "" default."""
+    frames = [_delta_frame(content="hi")]
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen(_sse_lines(frames), captured={}))
+
+    resp = _post_json_stream(
+        "http://x/v1/chat/completions",
+        {"model": "m", "messages": []},
+        api_key="EMPTY",
+        timeout=5,
+        on_delta=lambda _c: None,
+    )
+
+    assert resp.finish_reason == ""
 
 
 # ── (c) tool_calls accumulate correctly across fragmented chunks ───────────
@@ -551,6 +614,7 @@ def test_full_loop_over_a_streamed_turn_matches_blocking_shape(
                     }
                 ]
             ),
+            _delta_frame(finish_reason="stop"),
             _usage_frame(6, 3),
         ]
     )
@@ -589,3 +653,7 @@ def test_full_loop_over_a_streamed_turn_matches_blocking_shape(
     # turn 1 (5+2) + turn 2 (6+3) == 16.
     assert result.usage.total_tokens == 16
     assert len(deltas) > 0  # the seam really streamed something
+    # Plan task t1 (c4/h4): the finishing turn's real wire finish_reason
+    # ("stop") reached the artifact's per-seat finish state, end to end.
+    assert result.finish_states[0].finish_reason == "stop"
+    assert result.finish_states[0].state == "deliberate"

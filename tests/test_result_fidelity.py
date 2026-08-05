@@ -219,6 +219,7 @@ class TestNoFinishResultFidelity:
             "steps",
             "usage",
             "stats",
+            "finish_states",
             "artifacts_path",
             "error",
             "branch",

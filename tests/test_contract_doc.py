@@ -27,6 +27,7 @@ from colleague.contract import (
     CoherenceReport,
     ContextPacket,
     DeepthinkCall,
+    FinishRecord,
     HookFiring,
     LintReport,
     SensesBlock,
@@ -92,6 +93,10 @@ def _maximal_task_result() -> TaskResult:
             answer_chars=20,
             answer_bytes=20,
         ),
+        finish_states=[
+            FinishRecord(seat="main", finish_reason="stop", state="deliberate", truncated=False),
+            FinishRecord(seat="senses", finish_reason="", state="deliberate", truncated=False),
+        ],
         artifacts_path=".colleague/max1.json",
         error=None,
         branch="colleague/max1",
@@ -190,6 +195,17 @@ def test_top_level_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
 def test_stats_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
     result = _maximal_task_result()
     assert set(result.to_dict()["stats"].keys()) == doc_blocks["stats"]
+
+
+def test_finish_states_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
+    """finish_states is ALWAYS-on (decision c30) — present even without any
+    optional feature firing, unlike every other nested-shape key checked
+    below (which all live under an omit-when-None parent)."""
+    result = _maximal_task_result()
+    entries = result.to_dict()["finish_states"]
+    assert len(entries) == 2  # main + senses, from the maximal fixture above
+    for entry in entries:
+        assert set(entry.keys()) == doc_blocks["finish_record"]
 
 
 def test_usage_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:

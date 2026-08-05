@@ -487,6 +487,7 @@ class TestAnnouncementHonesty:
             "steps",
             "usage",
             "stats",
+            "finish_states",
             "artifacts_path",
             "error",
             "branch",
