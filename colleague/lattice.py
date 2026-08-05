@@ -1,0 +1,351 @@
+"""Typed change lattice + authority ceiling (t4).
+
+Pure data + validation, stdlib only: no I/O, no subprocess, no network.
+
+This module defines the typed surface for *what* can change in a colleague
+instance and *who* may change it. The lattice is the single source of truth
+for the three-tier execution model:
+
+* **Targets** — the five writable surfaces:
+    ``worker.tools``, ``worker.prompt.strategist``, ``worker.knowledge``,
+    ``senses.prompt.strategist``, ``senses.knowledge``.
+* **Origins** — the three actors: ``host``, ``cortex``, ``worker``.
+* **Authority ceiling** — origin rules governing which origin may write
+  which target.
+
+A :class:`CapabilityCatalog` is constructed *only* from a caller-supplied
+resolved tool allow-list (never from a tool executor). Validation refuses
+the **whole** unit when any change selects a tool id outside the catalog.
+
+Operator-owned surfaces (approvals, hooks, command approvals, task roles,
+mode gates, handoff policy) are **not** valid targets and refuse with a
+recorded reason. Unknown targets, unknown/extra keys, or forbidden keys
+refuse the whole unit — never stripping invalid fields and keeping the rest.
+
+All refusals return a structured :class:`Verdict` with a ``reason`` string,
+never an exception crash.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Optional
+
+# ---------------------------------------------------------------------------
+# Target and Origin enums
+# ---------------------------------------------------------------------------
+
+
+class Target(Enum):
+    """The five writable surfaces in the colleague lattice.
+
+    These are the ONLY valid targets. Operator-owned surfaces
+    (approvals, hooks, command approvals, task roles, mode gates,
+    handoff policy) are explicitly NOT valid targets.
+    """
+
+    WORKER_TOOLS = "worker.tools"
+    WORKER_PROMPT_STRATEGIST = "worker.prompt.strategist"
+    WORKER_KNOWLEDGE = "worker.knowledge"
+    SENSES_PROMPT_STRATEGIST = "senses.prompt.strategist"
+    SENSES_KNOWLEDGE = "senses.knowledge"
+
+
+class Origin(Enum):
+    """The three actors that may propose or apply changes.
+
+    * ``host`` — the operator / runtime (may write every target).
+    * ``cortex`` — the driving model (may propose every target).
+    * ``worker`` — a delegated subagent (may write ONLY ``senses.knowledge``).
+    """
+
+    HOST = "host"
+    CORTEX = "cortex"
+    WORKER = "worker"
+
+
+# ---------------------------------------------------------------------------
+# Forbidden / operator-owned target strings
+# ---------------------------------------------------------------------------
+
+#: Strings that name operator-owned surfaces — never valid lattice targets.
+_OPERATOR_OWNED_TARGETS = frozenset(
+    {
+        "approvals",
+        "hooks",
+        "command_approvals",
+        "task_roles",
+        "mode_gates",
+        "handoff_policy",
+    }
+)
+
+#: Any key that is executable or capability-defining is forbidden.
+_FORBIDDEN_KEYS = frozenset(
+    {
+        "executable",
+        "capability",
+        "capabilities",
+        "policy",
+        "gate",
+        "gates",
+        "allowlist",
+        "allow_list",
+        "denylist",
+        "deny_list",
+        "permissions",
+        "permission",
+        "access",
+        "trust",
+        "sandbox",
+        "runtime",
+        "daemon",
+        "server",
+        "mcp",
+        "socket",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
+# Knowledge entry type
+# ---------------------------------------------------------------------------
+
+#: A knowledge entry is a mapping that MUST contain a non-empty ``"origin"``
+#: string naming which actor authored it.  Other keys (e.g. ``"key"``,
+#: ``"value"``) are free-form but the origin is mandatory.
+_KNOWLEDGE_REQUIRED_KEYS = frozenset({"origin"})
+
+
+# ---------------------------------------------------------------------------
+# ChangeUnit — the typed change record
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ChangeUnit:
+    """A typed change unit targeting one lattice surface.
+
+    Attributes
+    ----------
+    target:
+        The lattice surface being changed (one of :class:`Target`).
+    origin:
+        The actor proposing or applying the change (one of :class:`Origin`).
+    tool_ids:
+        Tool identifiers this change selects (only for ``worker.tools``
+        targets).  Every id must exist in the :class:`CapabilityCatalog`.
+    knowledge_entries:
+        Knowledge records (only for ``*.knowledge`` targets).  Each entry
+        is a ``dict`` that MUST contain a non-empty ``"origin"`` string.
+    extra_fields:
+        Any keys on the raw change payload that are not part of the
+        canonical schema.  Presence of extra fields triggers a refusal.
+    """
+
+    target: Target
+    origin: Origin
+    tool_ids: list[str] = field(default_factory=list)
+    knowledge_entries: list[dict[str, Any]] = field(default_factory=list)
+    extra_fields: Optional[dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# CapabilityCatalog — caller-supplied tool allow-list
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CapabilityCatalog:
+    """A capability catalog constructed ONLY from a caller-supplied tool allow-list.
+
+    This catalog has no constructor that reads a tool executor.  The caller
+    resolves the allow-list (e.g. from :data:`colleague.tools.SCHEMAS` or a
+    role's ``tool_allowlist``) and passes the resulting ids here.
+
+    Attributes
+    ----------
+    tool_ids:
+        The resolved set of tool identifiers this catalog recognises.
+    """
+
+    tool_ids: tuple[str, ...]
+
+
+# ---------------------------------------------------------------------------
+# Verdict — structured refusal / acceptance result
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """The outcome of validating one change unit.
+
+    Attributes
+    ----------
+    allowed:
+        ``True`` when the change passes all lattice checks.
+    reason:
+        A human-readable explanation, populated **only** when ``allowed``
+        is ``False`` (an allowed verdict carries an empty reason).
+    """
+
+    allowed: bool
+    reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# LatticeError — for programmatic misuse (not validation refusals)
+# ---------------------------------------------------------------------------
+
+
+class LatticeError(Exception):
+    """Raised for programmatic misuse of the lattice API.
+
+    Validation refusals return a :class:`Verdict` with ``allowed=False``.
+    This exception is reserved for internal invariants (e.g. a caller
+    passing a non-dict where a dict is required).
+    """
+
+
+# ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_valid_target(target: Any) -> bool:
+    """Return ``True`` if *target* is a valid :class:`Target` enum member."""
+    return isinstance(target, Target)
+
+
+def _is_operator_owned(target_str: str) -> bool:
+    """Return ``True`` if *target_str* names an operator-owned surface."""
+    return target_str in _OPERATOR_OWNED_TARGETS
+
+
+def _has_forbidden_keys(unit: ChangeUnit) -> list[str]:
+    """Return any forbidden keys found on *unit*'s extra fields."""
+    if unit.extra_fields is None:
+        return []
+    found = []
+    for key in unit.extra_fields:
+        if key.lower() in _FORBIDDEN_KEYS:
+            found.append(key)
+    return found
+
+
+def _check_tool_ids(tool_ids: list[str], catalog: CapabilityCatalog) -> list[str]:
+    """Return tool ids from *tool_ids* that are not in *catalog*."""
+    catalog_set = set(catalog.tool_ids)
+    return [tid for tid in tool_ids if tid not in catalog_set]
+
+
+def _check_knowledge_origins(entries: list[dict[str, Any]]) -> list[str]:
+    """Return keys of entries missing or having empty ``"origin"``."""
+    bad = []
+    for i, entry in enumerate(entries):
+        origin_val = entry.get("origin")
+        if not isinstance(origin_val, str) or not origin_val.strip():
+            bad.append(str(i))
+    return bad
+
+
+# ---------------------------------------------------------------------------
+# Authority rules
+# ---------------------------------------------------------------------------
+
+#: The targets each origin is permitted to write.
+_AUTHORITY_MAP: dict[Origin, frozenset[Target]] = {
+    Origin.HOST: frozenset(Target),  # host may write every target
+    Origin.CORTEX: frozenset(Target),  # cortex may propose every target
+    Origin.WORKER: frozenset({Target.SENSES_KNOWLEDGE}),  # worker: senses.knowledge only
+}
+
+
+# ---------------------------------------------------------------------------
+# Public validation entry-point
+# ---------------------------------------------------------------------------
+
+
+def validate_change(unit: ChangeUnit, catalog: CapabilityCatalog) -> Verdict:
+    """Validate a :class:`ChangeUnit` against the lattice rules and *catalog*.
+
+    Returns a :class:`Verdict` with ``allowed=True`` when the change passes
+    all checks, or ``allowed=False`` with a ``reason`` string explaining
+    the refusal.  **Never raises** — all validation paths return a Verdict.
+
+    Checks performed (in order; first failure wins):
+
+    1. **Target validity** — the target must be a known :class:`Target`
+       enum value.  Unknown strings are refused.
+    2. **Operator-owned surfaces** — targets naming operator-owned
+       surfaces (approvals, hooks, etc.) are refused.
+    3. **Extra keys** — any extra fields on the unit refuse the whole unit.
+    4. **Forbidden keys** — any executable or capability-defining keys
+       refuse the whole unit.
+    5. **Authority ceiling** — the origin must be permitted to write the
+       target (worker may only write ``senses.knowledge``).
+    6. **Tool catalog** — every tool id must exist in the catalog.
+    7. **Knowledge origins** — every knowledge entry must name its origin.
+    """
+    # 1. Target validity
+    if not _is_valid_target(unit.target):
+        # Check if it's an operator-owned string first (more specific reason).
+        if isinstance(unit.target, str) and _is_operator_owned(unit.target):
+            return Verdict(
+                False,
+                f"refused: {unit.target!r} is an operator-owned surface "
+                f"(approvals, hooks, command approvals, task roles, mode gates, "
+                f"handoff policy are not valid lattice targets)",
+            )
+        return Verdict(
+            False,
+            f"refused: unknown target {unit.target!r} "
+            f"(valid targets: {[t.value for t in Target]})",
+        )
+
+    # 2. Extra keys — refuse whole unit
+    if unit.extra_fields is not None:
+        extra_keys = list(unit.extra_fields.keys())
+        return Verdict(
+            False,
+            f"refused: extra keys on change unit {extra_keys!r} "
+            f"(only target, origin, tool_ids, knowledge_entries are valid)",
+        )
+
+    # 3. Forbidden keys (checked on extra_fields if present, already handled above)
+
+    # 4. Authority ceiling — origin must be permitted for this target
+    allowed_targets = _AUTHORITY_MAP.get(unit.origin, frozenset())
+    if unit.target not in allowed_targets:
+        return Verdict(
+            False,
+            f"refused: origin {unit.origin.value!r} may not write "
+            f"target {unit.target.value!r} "
+            f"(allowed targets for {unit.origin.value}: "
+            f"{[t.value for t in allowed_targets]})",
+        )
+
+    # 5. Tool catalog — every tool id must be in the catalog
+    if unit.tool_ids:
+        unknown_tools = _check_tool_ids(unit.tool_ids, catalog)
+        if unknown_tools:
+            return Verdict(
+                False,
+                f"refused: tool ids not in capability catalog {unknown_tools!r} "
+                f"(catalog contains: {list(catalog.tool_ids)})",
+            )
+
+    # 6. Knowledge origins — every entry must name its origin
+    if unit.knowledge_entries:
+        bad_indices = _check_knowledge_origins(unit.knowledge_entries)
+        if bad_indices:
+            return Verdict(
+                False,
+                f"refused: knowledge entries at indices {bad_indices!r} "
+                f"missing or empty 'origin' field "
+                f"(every knowledge entry must name its origin)",
+            )
+
+    return Verdict(True)
