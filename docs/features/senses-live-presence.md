@@ -140,6 +140,33 @@ reading feed/artifact:
 `TaskResult.senses` gains `injections` and `chat`, both **omit-when-empty**, so a
 run with no live lane is byte-identical to the pre-arc artifact.
 
+## T2 fidelity additions — grounding, containment, and fallback
+
+The t2 structural-fidelity surface adds four counters and a raw-answer fallback
+to the senses talk lane (`colleague/senses.py`):
+
+- **Grounding + fidelity clauses** — the senses prompt carries explicit
+  instructions to relay the worker's answer rather than rewrite it, grounded
+  in the live run context (flight-feed tail, context packet, task-state
+  snapshot). Senses is instructed to say it doesn't know rather than fabricate
+  run state.
+- **Verbatim worker-answer containment** — when a worker answer is supplied
+  via `worker_answer=`, the prompt directs senses to contain it verbatim in
+  the displayed response. The `verbatim_presence` counter on each
+  `SensesRecord` tracks whether this held.
+- **Four counters** — each `SensesRecord` carries `verbatim_presence`,
+  `knowledge_repetition`, `fallback`, and `degraded`. These are observable
+  measures, not bars: they record what happened, never silently pass or fail.
+- **Raw-answer fallback** — when the model fails to contain the worker's
+  answer (`verbatim_presence=false`), a structural fallback fires: the
+  operator receives the exact worker answer, never a rewritten version. The
+  fallback records `degraded=true` and is visible in the artifact.
+
+Experiment A (senses fidelity gate) live-proved this surface: 6/6 worker
+answers visible, 0/6 knowledge replacements, with one turn demonstrating the
+fallback floor. See
+[`docs/experiments/2026-08-05-experiment-a-senses-fidelity.md`](../experiments/2026-08-05-experiment-a-senses-fidelity.md).
+
 ## Runtime-owned (all-engines rule)
 
 The talk lane, injection recording, and voice plumbing fire identically for

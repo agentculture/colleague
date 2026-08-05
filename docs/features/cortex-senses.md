@@ -297,6 +297,22 @@ router-boundary re-spec before it can land:
   exposes) but colleague consumes only `cortex`/`senses`; `stt`/`tts`/
   `embedder`/`reranker` are read and discarded.
 
+## Three-tier mode — legacy vs three-tier distinction
+
+In **legacy mode** (no `three_tier` config), the cortex-only semantics are
+unchanged: the cortex drives the tool loop, senses operates as the
+tools-off front door, and deepthink is available for judgment escalation.
+The `--cortex-only` flag keeps its meaning — it bypasses the senses front
+door for one run.
+
+In **three-tier mode** (opt-in via `config.json` `three_tier` or
+`COLLEAGUE_THREE_TIER`), the worker role resolves as the acting dial — the
+model that drives the tool loop. Senses carries structural fidelity clauses
+(verbatim worker-answer containment, raw-answer fallback). The cortex is
+available for the opt-in configurator (default off). Deepthink is absent
+in three-tier mode. See [three-tier.md](three-tier.md) for the full
+feature doc.
+
 ## Honest limits
 
 - **The senses intake window is 32K, and it is windowed — `original` never

@@ -143,6 +143,21 @@ out of scope. This feature moves the line exactly this far and no further:
   is the main model's own backend-judged use of the `deepthink` tool;
 - absent config = **byte-identical** single-model colleague.
 
+## Three-tier mode — legacy vs three-tier distinction
+
+In **legacy mode** (no `three_tier` config), the deepthink escalation surface
+is unchanged: the main model drives the loop, and the deepthink reasoner is
+available at the four enumerated escalation points. The `muse` role discovery
+from the lobes gateway works as described above — with lobes armed and no
+deepthink declared, the advertised `muse` role fills the deepthink target.
+
+In **three-tier mode** (opt-in via `config.json` `three_tier` or
+`COLLEAGUE_THREE_TIER`), deepthink is **absent**. The worker acts, senses
+relays, and the cortex (if armed) configures — but there is no dual-model
+judgment escalation. Three-tier mode and dual-model mode are distinct
+configurations, not layered features. See
+[three-tier.md](three-tier.md) for the full feature doc.
+
 ## Honest limits
 
 - **The live proof is PENDING.** The reference rig does not yet serve a
