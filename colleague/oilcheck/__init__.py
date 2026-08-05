@@ -120,6 +120,7 @@ from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see abo
     otel,
     provider,
     stale_refs,
+    three_tier,
     usage,
 )
 
@@ -139,13 +140,14 @@ CHECK_GROUPS: List[CheckGroup] = [
     environment.checks,
     stale_refs.checks,
     organs.checks,
+    three_tier.checks,
 ]
 
 #: Check-groups whose ``checks()`` accepts a ``repo_path=`` kwarg (they read
 #: ``.colleague/config.json`` / repo-relative state); every other group is a
 #: bare zero-arg callable. Kept as an explicit set (not a signature probe) so
 #: the aggregator's dispatch stays simple and testable.
-_REPO_AWARE_GROUPS = frozenset({provider.checks, organs.checks})
+_REPO_AWARE_GROUPS = frozenset({provider.checks, organs.checks, three_tier.checks})
 
 
 def diagnose(probe: bool = False, repo_path=None) -> dict:
@@ -194,5 +196,8 @@ def diagnose(probe: bool = False, repo_path=None) -> dict:
         # Organism reachability (#291/S10): opt-in lobes /capabilities probe,
         # never a registered group (see organs.probe_checks' own docstring).
         checks.extend(organs.probe_checks(repo_path=repo_path))
+        # Three-tier worker readiness (plan task t10): opt-in probe of the
+        # worker seat — role, dialability, tool-calling, model-id match.
+        checks.extend(three_tier.probe_checks(repo_path=repo_path))
     healthy = not any(c["severity"] == "error" and not c["passed"] for c in checks)
     return {"healthy": healthy, "checks": checks}
