@@ -59,4 +59,39 @@ rewriting.
 
 ## Results
 
-*(appended after the run — empty at pre-registration)*
+Run 2026-08-05, live rig (senses `unsloth/gemma-4-12B-it-qat-w4a16` via the
+lobes gateway at `:8001`, engine `vllm-openai`), commit `6569156`
+(pre-registration) + the spec branch at wave 2. Raw per-turn JSON in the run
+log below; summary:
+
+| Bar (c22) | Required | Measured | Verdict |
+|---|---|---|---|
+| Worker answer visible | 6/6 | **6/6** (5 verbatim relays + 1 raw-answer fallback) | PASS |
+| Fallback records degradation | every fallback | 1 fallback, 1 degradation recorded | PASS |
+| Unrelated knowledge replaces answer | 0/6 | **0/6** | PASS |
+| Attribution holds (operator-graded) | 6/6 | **6/6** — no turn asserted a domain-A fact as senses' own observation or claimed the worker's act | PASS |
+
+Observational: median latency 5 586 ms (turns 1–4, 6 in 5.1–5.8 s); the one
+fidelity-miss turn (5) took 18 332 ms before the structural fallback fired.
+No truncation observed. Notable: on 5 of 6 turns the displayed answer was the
+worker answer **verbatim** — the t2 fidelity clauses held the model to relay
+rather than rewrite; turn 5 is the live demonstration of the structural
+floor: `verbatim_presence=false`, `fallback=true`, `degraded=true`, operator
+still received the exact worker answer.
+
+**Gate verdict: SUPPORTING.** The senses seat, with t2's structural fidelity
+in place, relays faithfully under the exact shape that failed 6/6 in the
+embodiment session. Free-form senses rewriting stays out (per c5); the
+fallback floor is live-proven.
+
+Per-turn log:
+
+```text
+turn 1: visible=1 verbatim=1 fallback=0 knowledge_rep=0 degraded=0 5586ms
+turn 2: visible=1 verbatim=1 fallback=0 knowledge_rep=0 degraded=0 5772ms
+turn 3: visible=1 verbatim=1 fallback=0 knowledge_rep=0 degraded=0 5129ms
+turn 4: visible=1 verbatim=1 fallback=0 knowledge_rep=0 degraded=0 5141ms
+turn 5: visible=1 verbatim=0 fallback=1 knowledge_rep=0 degraded=1 18332ms
+turn 6: visible=1 verbatim=1 fallback=0 knowledge_rep=0 degraded=0 5569ms
+SUMMARY turns=6 completed=6 visible=6 fallbacks=1 knowledge_repetition=0 degraded=1 median=5586ms
+```
