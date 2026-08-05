@@ -195,6 +195,45 @@ def test_every_engine_exposes_the_culture_tools_identically() -> None:
     assert vllm_openai.SCHEMAS is SCHEMAS
 
 
+def test_mock_and_vllm_engines_record_deliberate_finish_states_on_a_clean_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plan task t1 (c4/h4/c30): both engines' clean, unconfigured runs record a
+    "main"-seat ``FinishRecord`` classified ``deliberate`` — the mock sets a
+    representative ``finish_reason="stop"`` on its scripted turns for exactly
+    this reason (never a real wire truncation), and the live-shaped vLLM mock
+    HTTP fixture's turns carry no explicit ``finish_reason`` (so it degrades to
+    the honest ``""`` default) yet still classifies ``deliberate`` since the
+    run finished cleanly with a real summary. ``finish_states`` is present
+    (never omitted) on both, per decision c30's unconditional-observability
+    convention.
+    """
+    _mock_vllm_http(monkeypatch)
+    cfg = EngineConfig.resolve()
+    mock_repo = tmp_path / "mock"
+    vllm_repo = tmp_path / "vllm"
+    mock_repo.mkdir()
+    vllm_repo.mkdir()
+
+    mock_result = registry.load("mock").work(Task.new(str(mock_repo), "do work"), cfg)
+    vllm_result = registry.load("vllm-openai").work(Task.new(str(vllm_repo), "do work"), cfg)
+
+    for result in (mock_result, vllm_result):
+        assert result.status == OK
+        assert "finish_states" in result.to_dict()
+        assert len(result.finish_states) == 1  # no senses config armed
+        main = result.finish_states[0]
+        assert main.seat == "main"
+        assert main.state == "deliberate"
+        assert main.truncated is False
+
+    # The mock's representative wire value survives verbatim; the un-set vLLM
+    # fixture turns degrade to the honest "" default — both still classify
+    # deliberate, proving the classification is NOT a bare finish_reason echo.
+    assert mock_result.finish_states[0].finish_reason == "stop"
+    assert vllm_result.finish_states[0].finish_reason == ""
+
+
 def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Path) -> None:
     """A normal mock drive that sets NO destination serializes byte-identically to
     the pre-feature shape (c8/h8): ``to_dict()`` must NOT contain ``destination``
@@ -233,6 +272,7 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         "steps",
         "usage",
         "stats",
+        "finish_states",
         "artifacts_path",
         "error",
         "branch",
@@ -276,6 +316,7 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         "steps",
         "usage",
         "stats",
+        "finish_states",
         "artifacts_path",
         "error",
         "branch",
@@ -344,6 +385,7 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         "steps",
         "usage",
         "stats",
+        "finish_states",
         "artifacts_path",
         "error",
         "branch",

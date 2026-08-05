@@ -31,7 +31,7 @@ artifact from a plain `colleague work "<task>"` with none of the optional
 features active is byte-for-byte the same shape it always was, no matter how
 many optional features colleague has grown.
 
-### Always-on top-level keys (15)
+### Always-on top-level keys (16)
 
 Present on every artifact, regardless of which features fired.
 
@@ -44,6 +44,7 @@ Present on every artifact, regardless of which features fired.
 | `steps` | Step[] | The full tool-call trace — see [`step`](#step-steps-item). |
 | `usage` | Usage | Exact API-reported token accounting — see [`usage`](#usage-usage--sub_resultsusage). |
 | `stats` | WorkStats | Always-on cost/shape statistics — see [`stats`](#workstats-stats). |
+| `finish_states` | FinishRecord[] | Always-on per-seat finish/truncation state (decision c30) — see [`finish_record`](#finishrecord-finish_states-item). |
 | `artifacts_path` | string \| null | Absolute path to this artifact's own JSON file. |
 | `error` | string \| null | Set only when `status == "error"`. |
 | `branch` | string \| null | The git handoff branch, or `null` when the run stayed local. |
@@ -103,6 +104,7 @@ deepthink
 destination
 error
 finish_recovered
+finish_states
 hook_firings
 lint_report
 media
@@ -152,6 +154,35 @@ tool_counts
 ```
 
 `tool_counts` is a `{tool_name: count}` map, not a fixed key set.
+
+#### `FinishRecord` (`finish_states[]` item)
+
+Always-on, per-seat finish-state + truncation record (`colleague/contract.py`
+`FinishRecord`; plan task t1, decision c30 — the one sanctioned unconditional
+artifact addition since this contract froze, exactly like `stats`/WorkStats
+itself: never omit-when-empty, present on every artifact including an
+unconfigured run). `seat` is a free-form string, not a closed enum — today
+always `"main"` (the acting mind's own turns), plus `"senses"` when a
+cortex/senses split ran.
+
+<!-- contract:keys:finish_record -->
+```text
+finish_reason
+seat
+state
+truncated
+```
+
+`state` is one of `"deliberate"` \| `"truncated"` \| `"stopped"` \|
+`"timeout"` \| `"empty"` (`colleague.contract.FINISH_STATES`) —
+`colleague/finishstate.py`'s `classify_finish_state` maps the loop's own
+terminal outcome plus the raw backend `finish_reason` onto these five states;
+`"empty"` is the state guaranteed whenever the work item's `summary` is the
+`NO_RESULT_PRODUCED` sentinel — it never reports `"deliberate"`. `truncated`
+is `true` iff `state == "truncated"`. `finish_reason` is the raw
+backend-reported value for the seat's LAST completion (e.g. `"stop"` \|
+`"tool_calls"` \| `"length"`), or `""` when the backend/engine never reports
+one (e.g. the `"senses"` seat, which has no raw wire value of its own).
 
 #### `Usage` (`usage` / `sub_results[].usage`)
 
@@ -539,6 +570,7 @@ steps
 | New optional (omit-when-absent) key in the artifact/feedback/export shape | minor bump |
 | Removed/renamed key, changed type, changed exit-code meaning | major bump (this contract's version, above) |
 | New `colleague feedback` verb / new export flag | minor bump |
+| New always-on (never omit-when-absent) top-level key | minor bump — a rare, deliberately RECORDED convention change (the same class of change as `stats`/WorkStats becoming always-on, and #313's `incompletion`); `finish_states` (decision c30) is the first since this contract froze at version `1`. |
 
 A consumer that shells out to `colleague` and parses its JSON should pin a
 package version and re-validate this document on upgrade — exactly the

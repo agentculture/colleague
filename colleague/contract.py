@@ -47,6 +47,74 @@ DECISION_OBSERVE = "observe"
 # content and a caller would misclassify a real result as the empty case.
 NO_RESULT_PRODUCED = "__COLLEAGUE_NO_RESULT_PRODUCED__"
 
+# Five distinguishable finish states (plan task t1, covers c4/h4/c30) — the
+# loop's OWN classification of how one seat's work concluded, independent of
+# any one backend's raw wire vocabulary (a vLLM ``finish_reason`` of
+# ``"stop"``/``"tool_calls"``/``"length"``/... is the wire-level signal these
+# are normalized FROM; see :func:`colleague.finishstate.classify_finish_state`
+# for the mapping). ``FINISH_EMPTY`` is the one state guaranteed to apply
+# whenever ``summary == NO_RESULT_PRODUCED`` — the sentinel must never be
+# reported as ``FINISH_DELIBERATE`` (a completed answer).
+FINISH_DELIBERATE = "deliberate"
+FINISH_TRUNCATED = "truncated"
+FINISH_STOPPED = "stopped"
+FINISH_TIMEOUT = "timeout"
+FINISH_EMPTY = "empty"
+
+#: Every valid :class:`FinishRecord` ``state`` value, in the fixed reading
+#: order used above — importable so a caller/test can assert exhaustiveness
+#: without hand-listing the five strings again.
+FINISH_STATES = (FINISH_DELIBERATE, FINISH_TRUNCATED, FINISH_STOPPED, FINISH_TIMEOUT, FINISH_EMPTY)
+
+
+@dataclass
+class FinishRecord:
+    """One seat's finish-state classification for a work item (t1, c4/h4/c30).
+
+    ``seat`` distinguishes WHICH acting mind produced this record — today
+    always ``"main"`` (the single acting mind's own turns, driven by
+    :func:`colleague.loop.run`) or ``"senses"`` (a senses-lane completion, see
+    :class:`SensesRecord`) — a free-form string (not a closed enum) so a
+    future seat (e.g. the three-tier ``worker``) can be distinguished without
+    a shape change (see docs/plans/2026-08-05-three-tier-execution.md task
+    t1's "per-seat" design note).
+
+    ``finish_reason`` is the raw value a backend's wire format reported for
+    the LAST completion on this seat (``""`` when the backend/engine never
+    reports the field — the mock engine's deliberate finishes still set a
+    representative value; a degraded/tools-off seat like ``senses`` has none
+    to report and stays ``""``). ``state`` is the loop's classification onto
+    one of the five :data:`FINISH_STATES` — the single normalized source of
+    truth a caller should branch on, never re-derived by re-inspecting
+    ``finish_reason`` (one raw wire value can mean different things on
+    different backends). ``truncated`` is ``True`` iff
+    ``state == FINISH_TRUNCATED``, kept as its own boolean (not re-derived at
+    read time) so a caller filtering on truncation alone need not know the
+    full state vocabulary.
+    """
+
+    seat: str
+    finish_reason: str = ""
+    state: str = FINISH_DELIBERATE
+    truncated: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "seat": self.seat,
+            "finish_reason": self.finish_reason,
+            "state": self.state,
+            "truncated": self.truncated,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "FinishRecord":
+        return cls(
+            seat=str(data.get("seat", "")),
+            finish_reason=str(data.get("finish_reason", "")),
+            state=str(data.get("state", FINISH_DELIBERATE)),
+            truncated=bool(data.get("truncated", False)),
+        )
+
 
 @dataclass
 class HookFiring:
@@ -1343,6 +1411,19 @@ class TaskResult:
     cost — and, with a feedback record, its ROI — readable from the artifact.
     Unlike destination/sub_results this key is ALWAYS serialized (it is never
     empty for a real drive); the e2e shape test pins it on every backend."""
+    finish_states: list[FinishRecord] = field(default_factory=list)
+    """Per-seat finish-state + truncation record for this work item (plan task
+    t1, covers c4/h4, decision c30) — a :class:`FinishRecord` per seat that
+    completed at least one turn (today: ``"main"`` always, plus ``"senses"``
+    when a cortex/senses split ran). Like ``stats``, this key is ALWAYS
+    serialized on EVERY run — unconfigured runs included (decision c30: the
+    one sanctioned unconditional artifact addition, a recorded convention
+    change exactly like always-on ``WorkStats`` and #313's ``incompletion``
+    detector) — never omit-when-None/empty, so a caller can always read
+    ``result.finish_states[0].state`` without a presence check. Populated by
+    the loop (:func:`colleague.loop.run`) on every exit path, including the
+    aborted (:class:`WorkAborted`) path, so even a crashed/timed-out partial
+    artifact carries an honest finish state."""
     artifacts_path: Optional[str] = None
     error: Optional[str] = None
     branch: Optional[str] = None
@@ -1532,6 +1613,9 @@ class TaskResult:
             "steps": [s.to_dict() for s in self.steps],
             "usage": self.usage.to_dict(),
             "stats": self.stats.to_dict(),
+            # ALWAYS serialized, like "stats" above — decision c30 (t1): the one
+            # sanctioned unconditional artifact addition, never omit-when-empty.
+            "finish_states": [f.to_dict() for f in self.finish_states],
             "artifacts_path": self.artifacts_path,
             "error": self.error,
             "branch": self.branch,
@@ -1652,6 +1736,11 @@ class TaskResult:
             steps=[Step.from_dict(s) for s in data.get("steps", [])],
             usage=Usage.from_dict(data.get("usage", {})),
             stats=WorkStats.from_dict(data.get("stats", {})),
+            finish_states=[
+                FinishRecord.from_dict(f)
+                for f in data.get("finish_states", [])
+                if isinstance(f, dict)
+            ],
             artifacts_path=data.get("artifacts_path"),
             error=data.get("error"),
             branch=data.get("branch"),
