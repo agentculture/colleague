@@ -1,0 +1,47 @@
+{
+  "plan_slug": "three-tier-execution",
+  "schema_version": 1,
+  "created": "2026-08-05T20:52:42Z",
+  "updated": "2026-08-05T22:03:45Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "experiments A/B/C cannot literally run 'through the experiment noun': colleague/experiment.py is the sloth TRAINING-run launcher (#291 S5 \u2014 validates a [run] TOML and detaches 'sloth train'), not a generic pre-registered experiment surface; the plan claim was an assumption reality contradicts. Alternative vehicle: each promotion gate ships as a pre-registered protocol document + committed runner script under docs/experiments/ + tools/experiments/, protocol committed BEFORE any measurement (preserving the pre-registration property h10/h19 actually protect), results appended and committed after; the embodiment failure-shape fixture already landed as tests/test_senses_fidelity.py (t2)",
+      "task_ref": "t13",
+      "reason": "the spec/plan wording bound the gates to a vehicle that is training-shaped; the pre-registration property, not the vehicle, is the promotion-gate substance",
+      "affects": [
+        "t13",
+        "t14",
+        "t15"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d2",
+      "what": "the change-content consumption lane is not wired in v1: lattice ChangeUnit (t4) carries no free-text content field, so a worker.prompt.strategist proposal is an opaque marker \u2014 applied changes are real at the lifecycle/digest/artifact level (snapshot, events, windows all live) but proposal content does not yet flow into the next episode's composed prompt (t5's compose_strategist_section exists and is tested, unconnected) or tool schema; no confirmed claim requires that wiring (c19/h16 typed-units-only, c7/h7 composition primitive, c8/h8 lifecycle, c9/h9 events all hold), and the live proof will demonstrate an applied change at the recorded-lifecycle level honestly",
+      "task_ref": "t11",
+      "reason": "the plan under-specified snapshot-to-surface consumption; wiring it now would be unplanned surgery outside any confirmed task's ownership",
+      "affects": [
+        "t16",
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d3",
+      "what": "the work front does not arm the config plane: work.py constructs no EpisodeConfigLifecycle and never calls run_configurator_window, so a live CLI run cannot yet carry a cortex change end-to-end onto its artifact \u2014 the t17 live proof therefore demonstrates at two stated levels: CLI-level for worker-acts + seat attribution + finish_states + byte-identical (all real), and module-level for the configurator window (real cortex dial, real lifecycle, real event stream, through the SAME sanctioned chain.run_configurator_window/apply_config_window functions the CLI will call once #366 wires the front)",
+      "task_ref": "t17",
+      "reason": "t11 kept the wiring surface deliberately tiny (chain hooks only); no confirmed task owned work-front arming \u2014 same root as d2, recorded separately so h1's live-proof claim is scoped honestly",
+      "affects": [
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    }
+  ]
+}
