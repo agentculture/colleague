@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
+from colleague import configlifecycle as _configlifecycle
 from colleague.continuation import ContinuationError, resolve_continuation
 from colleague.contract import ERROR, OK, TaskResult
 
@@ -294,3 +295,47 @@ def resolve_chain_seed(
             detail=str(exc),
         )
     return resolved, None
+
+
+# ---------------------------------------------------------------------------
+# Episode-boundary config lifecycle window (plan task t6, decisions c8/c26)
+# ---------------------------------------------------------------------------
+#
+# The three-tier-execution design (#364/#363) lets cortex propose task-local
+# config changes (colleague/lattice.py ChangeUnits, applied through
+# colleague/configlifecycle.py's EpisodeConfigLifecycle). This module already
+# treats the episode as the unit (CONTINUABLE_REASONS, the between-episode
+# halt/continue verdict above) — the configuration boundary maps onto the
+# SAME seam: a proposal queued mid-episode may only take effect in the
+# window BETWEEN two dispatched episodes, or before the very first one.
+# ``apply_config_window`` is the ONE function that may call
+# ``EpisodeConfigLifecycle.apply_window`` — the sanctioned call site colleague/
+# configlifecycle.py's docstring names. Synchronous on the calling thread; this
+# module imports no threading primitive and no bounded-pool executor.
+
+#: Re-exported here so a chain driver names its own windows without importing
+#: colleague.configlifecycle directly — this module is the documented home of
+#: "the between-episode window" the plan task names.
+WINDOW_BEFORE_EPISODE_1 = _configlifecycle.WINDOW_BEFORE_EPISODE_1
+WINDOW_BETWEEN_EPISODES = _configlifecycle.WINDOW_BETWEEN_EPISODES
+
+
+def apply_config_window(
+    lifecycle: _configlifecycle.EpisodeConfigLifecycle,
+    window: str,
+) -> _configlifecycle.ConfigApplication:
+    """Apply *lifecycle*'s queued config proposals at a sanctioned window.
+
+    The ONLY two sanctioned call sites (decision c8/c26): BEFORE episode 1
+    ever dispatches (``window=WINDOW_BEFORE_EPISODE_1``), and in the chain
+    driver's between-episode window, after :func:`should_continue` verdicts a
+    go and before episode N+1 dispatches (``window=WINDOW_BETWEEN_EPISODES``).
+    A mid-episode call is never made — nothing in ``colleague/loop.py``'s
+    turn loop calls this function or ``EpisodeConfigLifecycle.apply_window``
+    directly. Delegates the actual queue-drain + digest work to
+    :meth:`~colleague.configlifecycle.EpisodeConfigLifecycle.apply_window`
+    (which independently refuses any *window* outside the sanctioned set) —
+    this wrapper exists so "chain.py's between-episode window" has one named
+    home a caller imports from, matching the plan instruction verbatim.
+    """
+    return lifecycle.apply_window(window)

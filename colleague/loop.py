@@ -48,6 +48,7 @@ from colleague import affectedtests as _affectedtests
 from colleague import autosplit as _autosplit
 from colleague import backpressure
 from colleague import coherence as _coherencemod
+from colleague import configlifecycle as _configlifecycle
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
@@ -819,6 +820,20 @@ class _Work:
     affectedtests_depth: int = 3
     affectedtests_max_files: int = 20
     affectedtests_override: "str | None" = None
+    # Episode-boundary config lifecycle (three-tier-execution plan task t6,
+    # decisions c8/h8/c26/h22): the WORKER episode's
+    # ``configlifecycle.EpisodeConfigLifecycle``, threaded from
+    # ``ContextControls.config_lifecycle``. The loop is a READ-ONLY consumer:
+    # ``_work_loop`` calls ``observe_turn()`` once per completed model turn
+    # (proving the effective-config digest is pinned constant within the
+    # episode — nothing here ever calls ``apply_window``, which is reachable
+    # ONLY through ``colleague.chain.apply_config_window`` at a sanctioned
+    # window), and ``run()`` calls ``end_episode()`` exactly once, on EVERY
+    # exit path (the T1 regression fix: a no-tool episode end counts as a
+    # boundary exactly like a tool-driven one). ``None`` (the default — a
+    # direct ``run`` caller, or a config object predating this field via
+    # ``getattr``) is a strict no-op: byte-identical to the pre-t6 loop.
+    config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = None
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -2550,6 +2565,13 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
             raise
         _account_turn(ctx, resp)
         last_prompt_tokens = resp.prompt_tokens
+        # Episode-boundary config lifecycle loop seam (t6): record the pinned
+        # effective-config digest for THIS completed model turn. A strict
+        # no-op without a lifecycle; when present, every recorded digest
+        # within one ``run()`` call is identical by construction — nothing
+        # between two ``observe_turn()`` calls ever mutates the snapshot.
+        if ctx.config_lifecycle is not None:
+            ctx.config_lifecycle.observe_turn()
         # Delivered-vs-dropped verification (t9, decision c25): classify the
         # task's attachments from the FIRST media-bearing completion's
         # token-contribution signal; a strict no-op afterwards and for
@@ -2790,6 +2812,20 @@ class ContextControls:
     # load-bearing — byte-identical when empty.
     senses_model: str = ""
     lobes_gateway: str = ""
+    # Episode-boundary config lifecycle (three-tier-execution plan task t6,
+    # decisions c8/h8/c26/h22): the WORKER episode's
+    # ``configlifecycle.EpisodeConfigLifecycle`` — queues cortex-authored
+    # lattice proposals and applies them ONLY at the two sanctioned windows
+    # (``colleague/chain.py``'s ``apply_config_window``, before episode 1 /
+    # between episodes), never mid-episode. ``None`` (the default) is a
+    # strict no-op: no digest tracking, no boundary counting, byte-identical
+    # to the pre-t6 loop. Not yet forwarded by ``EngineConfig`` (that is a
+    # later task's wiring, e.g. t11's cortex configurator) — ``from_config``
+    # reads it via ``getattr`` so a config object predating this field stays
+    # byte-identical, exactly like ``chain_prior_changed`` above.
+    config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = field(
+        default=None, compare=False, repr=False
+    )
 
     @classmethod
     def from_config(
@@ -2874,6 +2910,12 @@ class ContextControls:
                 else ""
             ),
             lobes_gateway=getattr(config, "lobes_gateway_url", None) or "",
+            # Episode-boundary config lifecycle (t6): forward-compatible via
+            # getattr — no EngineConfig field exists yet (a later task, e.g.
+            # t11's cortex configurator, adds one), so today every backend
+            # reads back ``None`` and stays byte-identical (the
+            # ``chain_prior_changed`` precedent above).
+            config_lifecycle=getattr(config, "config_lifecycle", None),
         )
 
 
@@ -4352,6 +4394,7 @@ def run(
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
+        config_lifecycle=_context.config_lifecycle,
         **_affectedtests_controls(_context),
     )
 
@@ -4423,6 +4466,15 @@ def run(
         aborted = exc
         result.status = ERROR
         result.error = f"{type(exc).__name__}: {exc}"
+
+    # Episode-boundary config lifecycle (t6, decisions c8/h8/c26/h22): mark ONE
+    # boundary — on EVERY loop exit (model finish / no-tool stop / budget /
+    # pilot-stop / tool-protocol-broken / an aborted engine raise above), never
+    # gated on which ``_EXIT_*`` reason ended the episode. This is the T1
+    # regression fix: a prior tool-step-only boundary rule would silently skip
+    # the no-tool-call stop path. A strict no-op without a lifecycle threaded in.
+    if ctx.config_lifecycle is not None:
+        ctx.config_lifecycle.end_episode()
 
     # finish — once, on every loop exit (model finish / empty turn / budget / error).
     # Observe-only this increment; requeue/re-drive is out of scope.
