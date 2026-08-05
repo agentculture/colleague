@@ -51,6 +51,11 @@ minds. The architecture, part by part:
   **enumerated** escalation surface; absent = byte-identical. Doc: `deepthink.md`.
 - **Cortex / senses** — minds resolved **by role** from an operator `lobes` gateway:
   cortex drives, senses is a tools-off front door; absent = byte-identical. Doc: `cortex-senses.md`.
+- **Three-tier execution** — worker acts / senses relays / cortex configures,
+  resolved BY ROLE NAME from the lobes gateway (worker role), opt-in via config;
+  byte-identical when unconfigured; deepthink absent in three-tier mode;
+  the configurator a further opt-in (default off); NEVER a routing policy.
+  Doc: `three-tier.md`.
 - **Media input** — images/audio ride to a multimodal main model;
   delivery **verified** onto `TaskResult.media`.
   Doc: `media-input.md`.
@@ -191,7 +196,7 @@ two backends: `mock` (the contract reference) and `vllm-openai`.
 
 **Out of scope for v0** — do not add without re-speccing: **a multi-backend
 router / routing policy** (equally the multi-model router: any automatic
-task→model or task→backend routing decision). **Seven sanctioned increments** have landed at this line, each a
+task→model or task→backend routing decision). **Eight sanctioned increments** have landed at this line, each a
 re-spec'd, FIXED, ENUMERATED surface — never a routing policy (fuller descriptions
 in the architecture bullets above + their docs): (1) **dual-model deepthink
 escalation** (ONE declared second model); (2) **cortex/senses role split** (TWO
@@ -215,9 +220,14 @@ parallel deliberation, synthesis — stays OUT); (7) **realtime speech** (senses
 talk lane over the rig's `/v1/realtime` WebSocket — an EARS-ONLY session
 (never `response.create`; senses stays the mind), client-edge half-duplex, mic
 live only on explicit per-session opt-in (`/voice`, `--voice`); turn-based
-voice is the degrade floor).
+voice is the degrade floor); (8) **three-tier execution mode** (worker acts /
+senses relays / cortex configures — THREE declared roles with FIXED authority
+boundary, resolved BY ROLE NAME from `lobes`; opt-in via `config.json`
+`three_tier` or `COLLEAGUE_THREE_TIER`; byte-identical when unconfigured;
+deepthink absent in three-tier mode; the configurator a further opt-in, default
+off; NEVER an automatic task-to-model routing policy).
 
-Anything beyond those seven is still the excluded router; document the distinction
+Anything beyond those eight is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only
