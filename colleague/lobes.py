@@ -5,12 +5,17 @@ Colleague drives with two minds served behind one gateway: a **cortex** (the
 fast, wide-window reasoner that drives the tool loop) and **senses** (a
 tools-off front door — intake, normalization, intent classification). The
 gateway also serves more roles today (``embedder``, ``reranker``, ``stt``,
-``tts``, ``muse``); colleague resolves ``cortex`` + ``senses`` (mandatory),
-``stt``/``tts`` (optional, voice-arc consumers), since the one-embedder
-increment (colleague#291/#292, task t19/S2) ``embedder`` (optional too), and,
-since the two-machines-two-minds arc (task t4), ``muse`` (optional too — a
-second machine's reasoning model, proxied through the same gateway; resolved
-here as a plain role and NOT yet consumed anywhere, see :func:`ready_kind`) —
+``tts``, ``muse``, ``worker``); colleague resolves ``cortex`` + ``senses``
+(mandatory), ``stt``/``tts`` (optional, voice-arc consumers), since the
+one-embedder increment (colleague#291/#292, task t19/S2) ``embedder``
+(optional too), since the two-machines-two-minds arc (task t4) ``muse``
+(optional too — a second machine's reasoning model, proxied through the same
+gateway; resolved here as a plain role and NOT yet consumed anywhere, see
+:func:`ready_kind`), and, since the three-tier-execution arc (plan task t3),
+``worker`` (optional too — the bounded-tool-loop actor seat for three-tier
+execution; resolved here as a plain role — :mod:`colleague.config`'s explicit
+``three_tier`` arming block is the ONE consumer, and RESOLUTION ONLY: nothing
+wires the worker into the acting loop yet, a later task's territory) —
 ``reranker`` stays ignored (future follow-up territory, #277's retrieval lane).
 
 **The embedder is relayed, never consumed (S2).** Colleague itself never
@@ -101,8 +106,9 @@ _DEFAULT_TIMEOUT = 5.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 #: The roles colleague resolves. The gateway may serve more (embedder,
-#: reranker, stt, tts, muse) — those are read and discarded unless resolved
-#: as an optional role below (stt/tts/embedder/muse), never an error.
+#: reranker, stt, tts, muse, worker) — those are read and discarded unless
+#: resolved as an optional role below (stt/tts/embedder/muse/worker), never
+#: an error.
 _RESOLVED_ROLES = ("cortex", "senses")
 
 #: Roles whose ``ready`` is LIVE-PROBE-BACKED (lobes-cli#89, 0.38.0) — the
@@ -148,17 +154,23 @@ class RoleInfo:
 class LobesRoles:
     """The cortex + senses metadata resolved from one gateway ``/capabilities`` call.
 
-    ``stt``, ``tts``, ``embedder``, and ``muse`` are OPTIONAL roles: their
-    absence or malformed shape leaves them ``None`` but does NOT cause
-    :func:`resolve_roles` to return ``None`` (unlike cortex/senses which are
-    mandatory). ``embedder`` is parsed (S2, colleague#291/#292 task t19) but
-    colleague never dials it directly — see :func:`embed_env`. ``muse`` is
+    ``stt``, ``tts``, ``embedder``, ``muse``, and ``worker`` are OPTIONAL
+    roles: their absence or malformed shape leaves them ``None`` but does NOT
+    cause :func:`resolve_roles` to return ``None`` (unlike cortex/senses which
+    are mandatory). ``embedder`` is parsed (S2, colleague#291/#292 task t19)
+    but colleague never dials it directly — see :func:`embed_env`. ``muse`` is
     parsed the same way (two-machines-two-minds arc, task t4) — a second
-    machine's reasoning model, proxied through the same gateway — but this
-    task resolves it as a plain role only; nothing in colleague consumes it
-    yet (a later task wires it into deepthink discovery). ``RoleInfo`` stays a
-    tolerant superset reader: the live ``muse`` payload's newer wire fields
-    (``feasible``, ``hosted_by``, ``proxied``) are deliberately NOT parsed.
+    machine's reasoning model, proxied through the same gateway — and is
+    consumed by :mod:`colleague.config`'s deepthink discovery rung. ``worker``
+    is parsed the same way again (three-tier-execution arc, plan task t3) —
+    the bounded-tool-loop actor seat for three-tier execution, proxied
+    through the same gateway — but THIS task resolves it as a plain role
+    only; :mod:`colleague.config`'s explicit ``three_tier`` arming block is
+    the ONE consumer, and RESOLUTION ONLY (nothing wires the worker into the
+    acting loop yet — a later task's territory). ``RoleInfo`` stays a
+    tolerant superset reader: the live ``muse``/``worker`` payloads' newer
+    wire fields (``feasible``, ``hosted_by``, ``proxied``) are deliberately
+    NOT parsed.
     """
 
     cortex: RoleInfo
@@ -167,6 +179,7 @@ class LobesRoles:
     tts: RoleInfo | None = None
     embedder: RoleInfo | None = None
     muse: RoleInfo | None = None
+    worker: RoleInfo | None = None
 
 
 def _parse_role(raw: object) -> RoleInfo | None:
@@ -227,8 +240,8 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
     unreachable gateway, connect/read timeout, a non-200 status,
     malformed/invalid JSON, a non-dict top-level body, or either the
     ``cortex`` or ``senses`` role being absent/malformed. **Never raises.**
-    ``stt``/``tts``/``embedder``/``muse`` are OPTIONAL — their absence or
-    malformed shape never fails this resolution.
+    ``stt``/``tts``/``embedder``/``muse``/``worker`` are OPTIONAL — their
+    absence or malformed shape never fails this resolution.
 
     Re-resolves on every call — there is no disk cache (v1 decision: roles
     can flip ``ready``/``loaded`` between calls, and the gateway is cheap to
@@ -262,12 +275,13 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
             return None
         resolved[name] = role
 
-    # Voice roles (stt/tts), the embedder, and muse are OPTIONAL: parse them
-    # but never fail resolution (the same rule for all four).
+    # Voice roles (stt/tts), the embedder, muse, and worker are OPTIONAL:
+    # parse them but never fail resolution (the same rule for all five).
     stt_role = _parse_role(payload.get("stt"))
     tts_role = _parse_role(payload.get("tts"))
     embedder_role = _parse_role(payload.get("embedder"))
     muse_role = _parse_role(payload.get("muse"))
+    worker_role = _parse_role(payload.get("worker"))
 
     return LobesRoles(
         cortex=resolved["cortex"],
@@ -276,6 +290,7 @@ def resolve_roles(gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT) -> Lob
         tts=tts_role,
         embedder=embedder_role,
         muse=muse_role,
+        worker=worker_role,
     )
 
 
@@ -366,7 +381,7 @@ def ready_kind(role_name: str) -> str:
     actual reachability (a warming backend answers 503 + ``Retry-After``
     instead, see ``colleague/voice.py``). Returns ``"config-proxy"`` for every
     other role (``cortex``, ``senses``, ``embedder``, ``reranker``, ``muse``,
-    or any future/unknown name): config-proxy readiness is gateway-local
+    ``worker``, or any future/unknown name): config-proxy readiness is gateway-local
     bookkeeping, not a liveness probe; ``ready`` and ``loaded`` may diverge
     for proxied roles (see lobes-cli issue 146). Never conflate the two when
     surfacing ``ready`` to an operator.

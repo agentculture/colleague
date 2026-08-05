@@ -79,6 +79,7 @@ def test_to_dict_has_expected_keys() -> None:
         "affected_tests_depth",
         "affected_tests_max_files",
         "compaction_cap",
+        "three_tier",  # three-tier-execution arc, plan task t3
     }
     assert set(snapshot.keys()) == expected_keys
 
