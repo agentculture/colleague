@@ -31,6 +31,7 @@ Never raises: any unexpected error becomes a failed check.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import urllib.error
 import urllib.request
@@ -62,9 +63,10 @@ def _three_tier_armed(repo_path=None) -> bool:
     env = os.environ.get("COLLEAGUE_THREE_TIER")
     if env is not None and env.strip() != "":
         return env.strip().lower() not in ("0", "false", "no", "")
-    # Check config.json
+    # Check config.json — an unreadable config resolves to unarmed, the same
+    # degrade-to-legacy stance resolution itself takes.
     if repo_path is not None:
-        try:
+        with contextlib.suppress(Exception):
             from colleague.config import _merged_config_json
 
             data = _merged_config_json(repo_path)
@@ -73,8 +75,6 @@ def _three_tier_armed(repo_path=None) -> bool:
                 if isinstance(section, dict):
                     return bool(section.get("enabled", True))
                 return bool(section)
-        except Exception:
-            pass
     return False
 
 
