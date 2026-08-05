@@ -249,6 +249,8 @@ class TestNoFinishResultFidelity:
             "continued_from",  # continue lineage (#167)
             "chain",  # chain-of-episodes accounting (indefinite-run c20)
             "gates_deferred",  # structured gate-deferral marker (#341)
+            "config_events",  # append-only config event stream (plan task t7, c9/h9)
+            "config_digest",  # deterministic digest over config_events (plan task t7)
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields

@@ -17,6 +17,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from colleague.configevents import ConfigEvent
+
 if TYPE_CHECKING:
     from colleague.affectedtests import AffectedTestsReport
     from colleague.testintegrity import TestIntegrityReport
@@ -1603,6 +1605,27 @@ class TaskResult:
     numbers, never merged. Set by the chain dispatch loop, not by the
     engine/loop. Like ``continued_from``, the serialized key is OMITTED (not
     null) when ``None``, so a non-chained run serializes byte-identically."""
+    config_events: list[ConfigEvent] = field(default_factory=list)
+    """The append-only config event stream for this work item (plan task t7,
+    covers c9/h9) — the ordered ``baseline``/``proposed``/``refused``/
+    ``verified``/``applied``/``reverted`` moves recorded by
+    :mod:`colleague.configevents`. BASELINE IS AN EVENT KIND (the T8 trap): a
+    seeded starting config must appear here as an ordinary event, never as an
+    invisible constructor default, because ``config_digest`` is a pure
+    function of THIS list alone (see :func:`colleague.configevents.effective_digest`).
+    Empty when no config-event activity occurred (today's common case — the
+    t11 configurator that populates this in earnest is a later task). Like
+    ``sub_results``, the serialized key is OMITTED (not an empty list) when
+    this list is empty, so a run with no recorded config events serializes
+    byte-identically to today's artifact."""
+    config_digest: Optional[str] = None
+    """The deterministic sha256 digest of ``config_events``
+    (:func:`colleague.configevents.effective_digest`), recomputed from the
+    REPLAYED event sequence alone — no ambient state. ``None`` when
+    ``config_events`` is empty (nothing to digest). Like
+    ``continued_from``/``chain``, the serialized key is OMITTED (not null)
+    when ``None``, so a run with no config-event activity serializes
+    byte-identically to today's artifact."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1724,6 +1747,14 @@ class TaskResult:
         # run serializes byte-identically (no extra key).
         if self.chain is not None:
             extra["chain"] = self.chain.to_dict()
+        # config_events/config_digest get the same omit-when-empty/None
+        # treatment as sub_results/continued_from (plan task t7): a run with
+        # no recorded config-event activity serializes byte-identically to
+        # today's artifact (no extra keys).
+        if self.config_events:
+            extra["config_events"] = [e.to_dict() for e in self.config_events]
+        if self.config_digest is not None:
+            extra["config_digest"] = self.config_digest
         return extra
 
     @classmethod
@@ -1804,6 +1835,8 @@ class TaskResult:
             chain=(
                 ChainView.from_dict(data["chain"]) if isinstance(data.get("chain"), dict) else None
             ),
+            config_events=_coerce_config_events(data.get("config_events")),
+            config_digest=data.get("config_digest"),
         )
 
 
@@ -1904,6 +1937,27 @@ def _coerce_deepthink_calls(
             continue
         calls.append(DeepthinkCall.from_dict(entry))
     return calls
+
+
+def _coerce_config_events(raw: Optional[list[Any]]) -> list[ConfigEvent]:
+    """Coerce a raw ``config_events`` payload read back from an artifact.
+
+    ``None``/absent in, ``[]`` out (no config-event activity — the common
+    case, matching ``sub_results``'s own default-empty-list stance rather
+    than ``deepthink``'s default-``None`` stance, since ``config_events`` is
+    itself list-shaped and omit-when-**empty**, not omit-when-None). A
+    malformed (non-dict) entry is dropped rather than raising, matching the
+    codebase's best-effort stance on optional structured payloads read back
+    from JSON (see :func:`_coerce_deepthink_calls`).
+    """
+    if not raw:
+        return []
+    events: list[ConfigEvent] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        events.append(ConfigEvent.from_dict(entry))
+    return events
 
 
 # ── lazy import helper (avoids circular import at module level) ─────────
