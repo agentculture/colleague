@@ -42,4 +42,34 @@ live tasks with outcome deltas) becomes possible only after #366.
 
 ## Results
 
-*(appended after the run — empty at pre-registration)*
+Run 2026-08-06, live rig (cortex `unsloth/Qwen3.6-27B-NVFP4` via the lobes
+gateway), 4 trials per arm, serial. One runner serialization fix
+(`ConfiguratorReviewResult` list fields → counts) was applied before the
+first completed measurement; no protocol change.
+
+| Bar | Required | Measured | Verdict |
+|---|---|---|---|
+| Corrective detection (mismatch arm) | ≥ 3/4 | **4/4** — every trial proposed exactly one unit targeting `worker.knowledge` | PASS |
+| False intervention (control arm) | ≤ 1/4 | **0/4** — zero proposals on the matched control | PASS |
+
+Observational: median latency 24.7 s (mismatch) vs 18.5 s (control); no
+degradations; no truncation.
+
+**Gate verdict: SUPPORTING** — the first positive strategist evidence under
+a pre-registered design (the prior three negatives gave the strategist
+nothing to fix; this one did, and it noticed 4/4 while staying silent 4/4 on
+the control).
+
+**Honest nuance, recorded:** every mismatch proposal was then **refused** by
+lattice validation (`verified=0`): a diagnostic probe captured the exact
+reason — the model-authored knowledge entry omitted its `origin` field
+(`refused: knowledge entries at indices ['0'] missing or empty 'origin'`),
+while the corrective CONTENT was substantively right ("This is a Python
+package using uv … Do NOT use Gradle commands or look for src/main/java").
+Refuse-whole worked as designed; the obvious v1.1 improvement — the
+configurator auto-stamping entry-level origins (they are host-known, the
+model's claim adds nothing) — is folded into the #366 follow-up rather than
+patched post-hoc into a measured run. Consistent with the pre-registration,
+the strategist REMAINS opt-in and off by default: the off-default test stays
+until a verdict on a build with the origin-stamping fix repeats this result
+end-to-end (proposed → verified → applied).

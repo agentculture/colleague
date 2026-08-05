@@ -103,14 +103,25 @@ def main() -> int:
                 engine_name="vllm-openai",
             )
             wall_ms = int((time.monotonic() - t0) * 1000)
-            proposed_targets = [ev.target for ev in stream.replay() if ev.kind == "proposed"]
+            proposed_targets = [
+                str(getattr(ev.target, "value", ev.target))
+                for ev in stream.replay()
+                if ev.kind == "proposed"
+            ]
+
+            def _n(value):
+                try:
+                    return len(value)
+                except TypeError:
+                    return int(value or 0)
+
             row = {
                 "arm": arm,
                 "trial": trial,
-                "proposed": result.proposed,
-                "verified": result.verified,
-                "refused": result.refused,
-                "degraded": result.degraded,
+                "proposed": _n(result.proposed),
+                "verified": _n(result.verified),
+                "refused": _n(result.refused),
+                "degraded": bool(result.degraded),
                 "degraded_reason": result.degraded_reason,
                 "corrective": any(t in CORRECTIVE_TARGETS for t in proposed_targets),
                 "targets": proposed_targets,
