@@ -504,7 +504,8 @@ def test_resolve_role_base_url_uses_worker_own_endpoint_when_present() -> None:
     payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": WORKER_ROLE_PAYLOAD}
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.worker is not None
+    assert result is not None
+    assert result.worker is not None
     assert resolve_role_base_url(result.worker, url) == "http://localhost:8000"
 
 
@@ -518,7 +519,8 @@ def test_resolve_role_base_url_falls_back_to_gateway_origin_for_worker_when_endp
     payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": worker}
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.worker is not None
+    assert result is not None
+    assert result.worker is not None
     assert resolve_role_base_url(result.worker, url) == url
 
 
@@ -663,7 +665,8 @@ def test_resolve_role_base_url_uses_each_roles_own_endpoint_when_present() -> No
     assert resolve_role_base_url(result.cortex, url) == "http://localhost:8000"
     assert resolve_role_base_url(result.senses, url) == "http://localhost:8000"
     # stt/tts report a genuinely distinct origin (the realtime bridge).
-    assert result.stt is not None and result.tts is not None
+    assert result.stt is not None
+    assert result.tts is not None
     assert resolve_role_base_url(result.stt, url) == "http://realtime:8080"
     assert resolve_role_base_url(result.tts, url) == "http://realtime:8080"
 
@@ -675,7 +678,8 @@ def test_resolve_role_base_url_falls_back_to_gateway_origin_when_endpoint_empty(
     payload["stt"]["endpoint"] = ""
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.stt is not None
+    assert result is not None
+    assert result.stt is not None
     assert resolve_role_base_url(result.stt, url) == url
 
 
@@ -686,7 +690,8 @@ def test_resolve_role_base_url_uses_muse_own_endpoint_when_present() -> None:
     payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": MUSE_ROLE_PAYLOAD}
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.muse is not None
+    assert result is not None
+    assert result.muse is not None
     assert resolve_role_base_url(result.muse, url) == "http://localhost:8001"
 
 
@@ -698,7 +703,8 @@ def test_resolve_role_base_url_falls_back_to_gateway_origin_for_muse_when_endpoi
     payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": muse}
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.muse is not None
+    assert result is not None
+    assert result.muse is not None
     assert resolve_role_base_url(result.muse, url) == url
 
 
@@ -770,7 +776,8 @@ def test_ready_kind_is_config_proxy_for_muse() -> None:
 def test_embed_env_builds_eidetic_and_coherence_vars_from_resolved_embedder() -> None:
     with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is not None
+    assert result is not None
+    assert result.embedder is not None
 
     env = embed_env(result, url)
 
@@ -795,7 +802,8 @@ def test_embed_env_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
     payload["embedder"]["endpoint"] = ""
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is not None
+    assert result is not None
+    assert result.embedder is not None
 
     env = embed_env(result, url)
     assert env["EIDETIC_EMBED_URL"] == url + "/v1"
@@ -809,7 +817,8 @@ def test_embed_env_keeps_bare_relay_for_pathless_or_bare_embeddings_path() -> No
     payload["embedder"]["path"] = "/embeddings"
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is not None
+    assert result is not None
+    assert result.embedder is not None
 
     env = embed_env(result, url)
     assert env["COHERENCE_EMBED_URL"] == "http://localhost:8000"
@@ -819,7 +828,8 @@ def test_embed_env_is_empty_when_no_embedder_resolved() -> None:
     partial = {k: v for k, v in REAL_CAPABILITIES_PAYLOAD.items() if k != "embedder"}
     with _serving(_payload_bytes(partial)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is None
+    assert result is not None
+    assert result.embedder is None
 
     assert embed_env(result, url) == {}
 

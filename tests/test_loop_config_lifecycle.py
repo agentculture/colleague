@@ -190,8 +190,9 @@ def test_aborted_episode_end_still_increments_the_boundary_counter(tmp_path: Pat
         raise TimeoutError("timed out")
 
     task = Task.new(str(tmp_path), "time out immediately")
+    context = ContextControls(config_lifecycle=lifecycle)
     with pytest.raises(WorkAborted) as excinfo:
-        run(flaky, task, max_steps=10, context=ContextControls(config_lifecycle=lifecycle))
+        run(flaky, task, max_steps=10, context=context)
 
     assert excinfo.value.result.status == ERROR
     assert lifecycle.boundary_count == 1

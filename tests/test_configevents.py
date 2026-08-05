@@ -152,7 +152,9 @@ def test_stream_has_no_mutation_or_removal_api() -> None:
 
 
 def test_digest_of_empty_sequence_is_deterministic() -> None:
-    assert ce.effective_digest([]) == ce.effective_digest([])
+    first_digest = ce.effective_digest([])
+    second_digest = ce.effective_digest([])
+    assert first_digest == second_digest
 
 
 def test_digest_is_a_sha256_hex_string() -> None:
@@ -229,7 +231,9 @@ def test_baseline_must_be_an_explicit_event_to_affect_the_digest() -> None:
     assert ce.effective_digest(seeded.replay()) != ce.effective_digest(unseeded.replay())
     # And replaying the seeded stream's OWN sequence alone (no other input)
     # reproduces its own digest, byte for byte, every time.
-    assert ce.effective_digest(seeded.replay()) == ce.effective_digest(seeded.replay())
+    first_replay_digest = ce.effective_digest(seeded.replay())
+    second_replay_digest = ce.effective_digest(seeded.replay())
+    assert first_replay_digest == second_replay_digest
 
 
 def test_digest_matches_manual_sha256_over_canonical_join() -> None:

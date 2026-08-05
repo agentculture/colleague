@@ -54,7 +54,8 @@ def test_no_result_produced_does_not_contain_step_count():
     assert "completed" not in NO_RESULT_PRODUCED
     # Collision-resistant: machine-oriented affixes, not natural prose the model
     # could plausibly emit as its own last substantive content.
-    assert NO_RESULT_PRODUCED.startswith("__") and NO_RESULT_PRODUCED.endswith("__")
+    assert NO_RESULT_PRODUCED.startswith("__")
+    assert NO_RESULT_PRODUCED.endswith("__")
     assert " " not in NO_RESULT_PRODUCED
 
 

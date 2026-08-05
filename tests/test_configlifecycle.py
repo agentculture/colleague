@@ -93,7 +93,9 @@ def test_snapshot_digest_changes_with_content() -> None:
 def test_default_snapshot_digest_is_stable() -> None:
     # A fresh default snapshot always digests the same — used by reset() /
     # a fresh top-level task's starting point.
-    assert EpisodeConfigSnapshot().digest() == EpisodeConfigSnapshot().digest()
+    first_digest = EpisodeConfigSnapshot().digest()
+    second_digest = EpisodeConfigSnapshot().digest()
+    assert first_digest == second_digest
 
 
 # ===========================================================================

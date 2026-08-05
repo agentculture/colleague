@@ -480,7 +480,8 @@ class TestPerEntryProcessing:
         )
 
         assert result.verified == []
-        assert "hooks" in result.refused[0][1] and "scope" in result.refused[0][1]
+        assert "hooks" in result.refused[0][1]
+        assert "scope" in result.refused[0][1]
 
     def test_senses_target_is_out_of_this_lifecycle_scope_and_refused(self) -> None:
         """senses.* is a VALID lattice target for cortex authority-wise, but
