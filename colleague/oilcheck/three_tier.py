@@ -407,7 +407,7 @@ def _worker_model_match(gateway_url: str, worker_model: str) -> dict:
         "error",
         (
             f"worker model {worker_model!r} is NOT served by gateway "
-            f"{gateway_url!r}; served: {served_desc}",
+            f"{gateway_url!r}; served: {served_desc}"
         ),
         remediation=(
             f"ensure the gateway serves {worker_model!r}, or update the "
