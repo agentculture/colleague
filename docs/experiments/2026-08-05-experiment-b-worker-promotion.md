@@ -53,4 +53,38 @@ affected runs re-measured ONCE (recorded, not silently).
 
 ## Results
 
-*(appended after the run — empty at pre-registration)*
+Run 2026-08-06, live rig, otherwise idle, serial: 4 tasks × 2 arms = 8
+`colleague work` runs, identical env except `COLLEAGUE_THREE_TIER`. Raw
+per-run JSON in the runner log; verification re-ran each worker repo's suite
+by hand.
+
+| Measure (bars per c23) | baseline (cortex 27B acts) | worker (35B-A3B acts) |
+|---|---|---|
+| completion (status ok) | **0/4** | **4/4** |
+| operator-graded quality (0–3 × 4) | **0** (nothing landed) | **12** (fix-divide 4 passed; add-mean 6 passed; rename-acc 4 passed; write-usage documents all 3 public functions — the 1 red test there is the fixture's deliberate seeded bug, untouched by a docs-only task) |
+| tool-protocol failures (zero-step) | **4/4** | **0/4** |
+| truncated turns (finish_states) | 0 | 0 |
+| wall clock (sum) | 127 s (all runs died early) | 222 s |
+
+**Verdict: PROMOTES (SUPPORTING).** Completion rate greater (4/4 vs 0/4),
+quality strictly greater (12 vs 0), protocol failures not more frequent
+(0 vs 4). Truncation never fired, so the r1 max_tokens re-tuning clause was
+not invoked.
+
+**Honest caveats, recorded:**
+
+- Every baseline failure is the known **zero-step markup collapse** (issue
+  #346): the 27B cortex answered 3 model turns of markup-as-text and exited
+  `no-progress-zero-steps` on each tiny fixture repo. That is the real,
+  pre-existing behavior of the current acting seat on exactly this surface —
+  and the worker, on byte-identical inputs, never exhibited it — but the tiny
+  minimal-context fixture is also the environment #346 says amplifies the
+  collapse. The comparison is honest about what it measured: on this
+  pre-registered task set the worker performs strictly better; a broad-repo
+  comparison remains future evidence, not claimed here.
+- The runner's token capture read non-existent stats keys (`WorkStats`
+  carries no prompt/completion token fields at the stats level), so the
+  observational token measure was NOT captured — recorded as a runner
+  limitation, not re-run (tokens were observational, no bar depends on them).
+- Worker runs committed `__pycache__` junk into their drive branches on 3 of
+  4 tasks — a quality wart worth a hygiene follow-up, not a bar failure.
