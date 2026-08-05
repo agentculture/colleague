@@ -112,10 +112,12 @@ _FORBIDDEN_KEYS = frozenset(
 # Knowledge entry type
 # ---------------------------------------------------------------------------
 
-#: A knowledge entry is a mapping that MUST contain a non-empty ``"origin"``
-#: string naming which actor authored it.  Other keys (e.g. ``"key"``,
-#: ``"value"``) are free-form but the origin is mandatory.
-_KNOWLEDGE_REQUIRED_KEYS = frozenset({"origin"})
+#: The targets whose changes carry ``knowledge_entries`` (a knowledge entry is
+#: a mapping that MUST contain a non-empty ``"origin"`` string naming which
+#: actor authored it; other keys are free-form).  ``tool_ids`` are valid only
+#: on :attr:`Target.WORKER_TOOLS` — a field on a target it does not belong to
+#: is a malformed unit and refuses whole.
+_KNOWLEDGE_TARGETS = frozenset({Target.WORKER_KNOWLEDGE, Target.SENSES_KNOWLEDGE})
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +307,18 @@ def validate_change(unit: ChangeUnit, catalog: CapabilityCatalog) -> Verdict:
             f"(valid targets: {[t.value for t in Target]})",
         )
 
-    # 2. Extra keys — refuse whole unit
+    # 2. Forbidden keys — the more specific refusal, checked first so the
+    # recorded reason names the executable/capability-defining key exactly.
+    forbidden = _has_forbidden_keys(unit)
+    if forbidden:
+        return Verdict(
+            False,
+            f"refused: forbidden executable/capability-defining keys "
+            f"{forbidden!r} on change unit (no such key is ever a valid "
+            f"lattice field)",
+        )
+
+    # 3. Extra keys — refuse whole unit
     if unit.extra_fields is not None:
         extra_keys = list(unit.extra_fields.keys())
         return Verdict(
@@ -314,7 +327,22 @@ def validate_change(unit: ChangeUnit, catalog: CapabilityCatalog) -> Verdict:
             f"(only target, origin, tool_ids, knowledge_entries are valid)",
         )
 
-    # 3. Forbidden keys (checked on extra_fields if present, already handled above)
+    # 3b. Field/target shape — a field on a target it does not belong to is a
+    # malformed unit: tool_ids ride only worker.tools, knowledge_entries ride
+    # only the *.knowledge targets. Refuse whole, never ignore.
+    if unit.tool_ids and unit.target is not Target.WORKER_TOOLS:
+        return Verdict(
+            False,
+            f"refused: tool_ids are only valid on "
+            f"{Target.WORKER_TOOLS.value!r}, not {unit.target.value!r}",
+        )
+    if unit.knowledge_entries and unit.target not in _KNOWLEDGE_TARGETS:
+        return Verdict(
+            False,
+            f"refused: knowledge_entries are only valid on "
+            f"{sorted(t.value for t in _KNOWLEDGE_TARGETS)!r}, "
+            f"not {unit.target.value!r}",
+        )
 
     # 4. Authority ceiling — origin must be permitted for this target
     allowed_targets = _AUTHORITY_MAP.get(unit.origin, frozenset())

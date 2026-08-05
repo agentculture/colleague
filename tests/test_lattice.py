@@ -481,3 +481,62 @@ def test_lattice_module_imports_stdlib_only() -> None:
         if not (is_stdlib or is_colleague or is_builtin):
             third_party.append(name)
     assert not third_party, f"colleague.lattice leaked third-party imports: {third_party}"
+
+
+class TestIntegratorTightening:
+    """Merge-gate additions: distinct forbidden-key reason + field/target shape."""
+
+    def test_forbidden_key_gets_specific_reason(self):
+        from colleague.lattice import (
+            CapabilityCatalog,
+            ChangeUnit,
+            Origin,
+            Target,
+            validate_change,
+        )
+
+        unit = ChangeUnit(
+            target=Target.WORKER_TOOLS,
+            origin=Origin.CORTEX,
+            extra_fields={"permissions": "everything"},
+        )
+        verdict = validate_change(unit, CapabilityCatalog(tool_ids=("read_file",)))
+        assert not verdict.allowed
+        assert "forbidden" in verdict.reason
+        assert "permissions" in verdict.reason
+
+    def test_tool_ids_on_knowledge_target_refuse_whole(self):
+        from colleague.lattice import (
+            CapabilityCatalog,
+            ChangeUnit,
+            Origin,
+            Target,
+            validate_change,
+        )
+
+        unit = ChangeUnit(
+            target=Target.SENSES_KNOWLEDGE,
+            origin=Origin.CORTEX,
+            tool_ids=["read_file"],
+        )
+        verdict = validate_change(unit, CapabilityCatalog(tool_ids=("read_file",)))
+        assert not verdict.allowed
+        assert "tool_ids" in verdict.reason
+
+    def test_knowledge_entries_on_tools_target_refuse_whole(self):
+        from colleague.lattice import (
+            CapabilityCatalog,
+            ChangeUnit,
+            Origin,
+            Target,
+            validate_change,
+        )
+
+        unit = ChangeUnit(
+            target=Target.WORKER_TOOLS,
+            origin=Origin.CORTEX,
+            knowledge_entries=[{"origin": "cortex", "value": "x"}],
+        )
+        verdict = validate_change(unit, CapabilityCatalog(tool_ids=("read_file",)))
+        assert not verdict.allowed
+        assert "knowledge_entries" in verdict.reason
