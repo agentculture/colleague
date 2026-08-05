@@ -72,9 +72,14 @@ def _three_tier_armed(repo_path=None) -> bool:
             data = _merged_config_json(repo_path)
             section = data.get("three_tier")
             if section is not None:
+                # String-tolerant like config._parse_bool — bool("false") is
+                # True and would report an explicitly disabled config as
+                # armed (the same misparse Qodo flagged in config.py).
+                from colleague.config import _parse_bool
+
                 if isinstance(section, dict):
-                    return bool(section.get("enabled", True))
-                return bool(section)
+                    return _parse_bool(str(section.get("enabled", True)))
+                return _parse_bool(str(section))
     return False
 
 

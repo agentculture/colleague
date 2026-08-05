@@ -703,3 +703,106 @@ def test_three_tier_not_armed_muse_advert_still_resolves_deepthink(
     assert cfg.three_tier is False
     assert cfg.deepthink is not None
     assert cfg.deepthink.model == _MUSE_MODEL
+
+
+class TestQodo367Fixes:
+    """Regression pins for the two Qodo #367 bugs (threads 4 and 5)."""
+
+    def test_string_false_in_config_json_disarms_three_tier(self, tmp_path, monkeypatch):
+        import json
+
+        from colleague.config import _load_three_tier_override, _parse_bool
+
+        monkeypatch.delenv("COLLEAGUE_THREE_TIER", raising=False)
+        cfgdir = tmp_path / ".colleague"
+        cfgdir.mkdir()
+        (cfgdir / "config.json").write_text(json.dumps({"three_tier": {"enabled": "false"}}))
+        raw = _load_three_tier_override(tmp_path)
+        assert raw is not None
+        assert _parse_bool(raw) is False
+
+    def test_oilcheck_three_tier_enabled_honors_string_false(self, tmp_path):
+        import json
+
+        from colleague.oilcheck.three_tier import _three_tier_armed
+
+        cfgdir = tmp_path / ".colleague"
+        cfgdir.mkdir()
+        (cfgdir / "config.json").write_text(json.dumps({"three_tier": {"enabled": "false"}}))
+        assert _three_tier_armed(tmp_path) is False
+
+    def test_cortex_dial_never_inherits_the_acting_worker_key(self, monkeypatch):
+        from dataclasses import replace as dc_replace
+
+        from colleague.config import _DEFAULT_API_KEY, EngineConfig, WorkerConfig
+        from colleague.configurator import resolve_cortex_dial
+
+        monkeypatch.delenv("COLLEAGUE_API_KEY", raising=False)
+        monkeypatch.delenv("CONVERTIBLE_API_KEY", raising=False)
+
+        class _FakeRole:
+            model = "cortex/model"
+            endpoint = "http://gateway.example:8001"
+            context = 1000
+
+        class _FakeRoles:
+            cortex = _FakeRole()
+
+        monkeypatch.setattr("colleague.lobes.resolve_roles", lambda url: _FakeRoles())
+        monkeypatch.setattr(
+            "colleague.lobes.resolve_role_base_url",
+            lambda role, url: "http://gateway.example:8001/v1",
+        )
+        base = EngineConfig()
+        cfg = dc_replace(
+            base,
+            api_key="WORKER-SECRET",
+            lobes_gateway_url="http://gateway.example:8001",
+            worker=WorkerConfig(
+                model="worker/model",
+                base_url="http://gateway.example:8001/v1",
+                api_key="WORKER-SECRET",
+                context=1000,
+            ),
+        )
+        dial = resolve_cortex_dial(cfg)
+        assert dial is not None
+        assert dial.api_key != "WORKER-SECRET"
+        assert dial.api_key == _DEFAULT_API_KEY
+
+    def test_cortex_dial_inherits_operator_declared_env_key(self, monkeypatch):
+        from dataclasses import replace as dc_replace
+
+        from colleague.config import EngineConfig, WorkerConfig
+        from colleague.configurator import resolve_cortex_dial
+
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "OPERATOR-KEY")
+
+        class _FakeRole:
+            model = "cortex/model"
+            endpoint = "http://gateway.example:8001"
+            context = 1000
+
+        class _FakeRoles:
+            cortex = _FakeRole()
+
+        monkeypatch.setattr("colleague.lobes.resolve_roles", lambda url: _FakeRoles())
+        monkeypatch.setattr(
+            "colleague.lobes.resolve_role_base_url",
+            lambda role, url: "http://gateway.example:8001/v1",
+        )
+        base = EngineConfig()
+        cfg = dc_replace(
+            base,
+            api_key="WORKER-SECRET",
+            lobes_gateway_url="http://gateway.example:8001",
+            worker=WorkerConfig(
+                model="worker/model",
+                base_url="http://gateway.example:8001/v1",
+                api_key="WORKER-SECRET",
+                context=1000,
+            ),
+        )
+        dial = resolve_cortex_dial(cfg)
+        assert dial is not None
+        assert dial.api_key == "OPERATOR-KEY"

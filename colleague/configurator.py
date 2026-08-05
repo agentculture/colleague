@@ -212,7 +212,21 @@ def resolve_cortex_dial(
     if not model:
         return None
     base_url = _lobes_base_url(_lobes.resolve_role_base_url(cortex_role, url))
-    api_key = config.api_key if _same_origin(base_url, url) else _DEFAULT_API_KEY
+    # Same-origin inherit — but never the ACTING key: in three-tier mode
+    # EngineConfig.resolve() repoints config.api_key to the WORKER's key
+    # (t8), and forwarding it to the cortex endpoint would ship the wrong
+    # Bearer (Qodo #367 review, thread 5). Legacy (no worker) keeps the
+    # main key; three-tier inherits the operator-DECLARED key (env) or
+    # degrades to the withheld default — visible at the call point, the
+    # same c13 ladder every other rung uses. A config.json-declared main
+    # key is not reachable here (no repo_path); env is the declared source.
+    if not _same_origin(base_url, url):
+        api_key = _DEFAULT_API_KEY
+    elif config.worker is None:
+        api_key = config.api_key
+    else:
+        declared = os.environ.get("COLLEAGUE_API_KEY") or os.environ.get("CONVERTIBLE_API_KEY")
+        api_key = declared if declared else _DEFAULT_API_KEY
     context = int(getattr(cortex_role, "context", 0) or 0)
     return replace(
         config,

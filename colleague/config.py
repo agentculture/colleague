@@ -555,7 +555,10 @@ def _load_three_tier_override(repo_path: str | Path) -> str | None:
     if section is None:
         return None
     if isinstance(section, dict):
-        return str(bool(section.get("enabled", True)))
+        # Preserve the RAW value so _parse_bool downstream handles string
+        # booleans — bool("false") is True, which would arm three-tier on an
+        # explicit {"enabled": "false"} disable (Qodo #367 review, thread 4).
+        return str(section.get("enabled", True))
     return str(section)
 
 
