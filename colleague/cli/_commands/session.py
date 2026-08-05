@@ -2281,6 +2281,7 @@ class _Session:
                 io=io,
                 cadence=self._update_cadence,
                 history_provider=lambda: list(self._history) or None,
+                three_tier=getattr(self.config, "three_tier", False),
             )
         except Exception:  # noqa: BLE001 — a build failure degrades to the fixed-beat lane
             self._presence_engine = None
