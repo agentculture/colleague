@@ -35,11 +35,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import TYPE_CHECKING, Callable, Iterable, Optional
 
 from colleague import configlifecycle as _configlifecycle
 from colleague.continuation import ContinuationError, resolve_continuation
 from colleague.contract import ERROR, OK, TaskResult
+
+if TYPE_CHECKING:
+    from colleague.config import EngineConfig
+    from colleague.configevents import ConfigEventStream
+    from colleague.configurator import ConfiguratorReviewInput, ConfiguratorWindowResult
+    from colleague.engine import Engine
+    from colleague.lattice import CapabilityCatalog
 
 # The continuable-exit ALLOW-LIST (decision c24): incompletion reasons —
 # exact literals from colleague/incompletion.py — whose episode the chain may
@@ -339,3 +346,70 @@ def apply_config_window(
     home a caller imports from, matching the plan instruction verbatim.
     """
     return lifecycle.apply_window(window)
+
+
+# ---------------------------------------------------------------------------
+# Opt-in cortex configurator window (plan task t11, decisions c19/h16)
+# ---------------------------------------------------------------------------
+#
+# colleague/configurator.py (t11) is the ONE new producer that turns "cortex
+# looked at an episode" into validated colleague.lattice.ChangeUnit proposals.
+# It never applies anything itself — this function is the SMALL hook that
+# runs the (opt-in, off-by-default) review right beside apply_config_window,
+# at the SAME sanctioned window, so a proposal that survives review is queued
+# and drained in the same synchronous call this module already makes. The
+# import is LAZY (mirrors colleague/config.py's own lazy `colleague.lobes`
+# import in _role_dial_base_url) so a chain that never arms the configurator
+# never pays for colleague.configurator's own import graph.
+
+
+def run_configurator_window(
+    lifecycle: _configlifecycle.EpisodeConfigLifecycle,
+    window: str,
+    *,
+    armed: bool,
+    review_input: "ConfiguratorReviewInput",
+    catalog: "CapabilityCatalog",
+    stream: "ConfigEventStream",
+    config: "EngineConfig",
+    engine_name: str,
+    engine_loader: "Optional[Callable[[str], Engine]]" = None,
+) -> "ConfiguratorWindowResult":
+    """Run the opt-in cortex configurator review, then apply *window*.
+
+    A strict no-op when *armed* is ``False`` (the default — see
+    :func:`colleague.configurator.configurator_enabled`): returns
+    ``ConfiguratorWindowResult(reviewed=False)`` without touching *lifecycle*,
+    *stream*, or issuing any completion — byte-identical to a pre-t11 chain
+    that never heard of a configurator.
+
+    When *armed*: resolves the CORTEX dial independently of *config* (which,
+    in three-tier mode, already carries the WORKER's acting resolution — see
+    :func:`colleague.configurator.resolve_cortex_dial`), runs ONE synchronous
+    review (:func:`colleague.configurator.review_and_queue` — queues every
+    verified :class:`~colleague.lattice.ChangeUnit` onto *lifecycle*, records
+    proposed/verified/refused on *stream*, never raises), applies THIS SAME
+    window via :func:`apply_config_window`, and folds the applied units back
+    onto *stream* as ``"applied"`` events (:func:`colleague.configurator.
+    record_applied`).
+    """
+    from colleague import configurator as _configurator
+
+    if not armed:
+        return _configurator.ConfiguratorWindowResult(reviewed=False)
+
+    cortex_config = _configurator.resolve_cortex_dial(config)
+    review = _configurator.review_and_queue(
+        review_input,
+        catalog=catalog,
+        lifecycle=lifecycle,
+        stream=stream,
+        cortex_config=cortex_config,
+        engine_name=engine_name,
+        engine_loader=engine_loader,
+    )
+    application = apply_config_window(lifecycle, window)
+    _configurator.record_applied(stream, review, application)
+    return _configurator.ConfiguratorWindowResult(
+        reviewed=True, review=review, application=application
+    )
