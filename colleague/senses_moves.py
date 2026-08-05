@@ -89,7 +89,11 @@ MOVE_SCHEMA: "dict[str, dict[str, Any]]" = {
     },
     MOVE_REPLY_TO_OPERATOR: {
         "params": ("text",),
-        "description": "say something conversational to the operator",
+        "description": (
+            "say something conversational to the operator — answer the current "
+            "message from the current result first; background knowledge never "
+            "replaces it"
+        ),
         "example": {"move": MOVE_REPLY_TO_OPERATOR, "text": "..."},
     },
     MOVE_CLARIFY: {
