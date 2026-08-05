@@ -2666,6 +2666,20 @@ class EngineConfig:
             resolved_api_key,
             file_worker,
         )
+        # Deepthink absent in three-tier mode (plan task t8; covers c12/h12).
+        # Once three_tier is armed, no DeepthinkConfig is EVER constructed —
+        # neither a DECLARED (env/config.json) deepthink nor one discovered
+        # from the lobes muse role above (``resolved_deepthink`` may already
+        # hold either) survives. Three-tier's own strong-reasoning seat is
+        # the worker itself (arc summary: "strategist absent, deepthink
+        # absent") — forcing this HERE, before the reviewer-default backfill
+        # just below reads ``resolved_deepthink``, means that backfill (t7)
+        # also sees no deepthink to borrow a reviewer model from, staying
+        # consistent with deepthink's total absence. Legacy (three_tier
+        # False) is completely untouched: resolved_deepthink keeps whatever
+        # _resolve_deepthink/_deepthink_lobes_fallback already computed above.
+        if resolved_three_tier:
+            resolved_deepthink = None
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -2690,15 +2704,51 @@ class EngineConfig:
         else:
             model_default = _DEFAULT_MODEL
 
+        resolved_model = _pick(
+            model,
+            "COLLEAGUE_MODEL",
+            "CONVERTIBLE_MODEL",
+            default=model_default,
+        )
+        resolved_context_budget_tokens = int(
+            _pick(
+                _str(ov.context_budget_tokens),
+                "COLLEAGUE_CONTEXT_BUDGET",
+                "CONVERTIBLE_CONTEXT_BUDGET",
+                default=str(_DEFAULT_CONTEXT_BUDGET),
+            )
+        )
+        # Worker-as-actor wiring (three-tier-execution arc, plan task t8;
+        # covers c12/h12). Once three_tier is ARMED and the worker seat
+        # resolved above, the ACTING dial — model/base_url/api_key/
+        # context_budget_tokens, exactly what the vllm-openai engine drives
+        # the bounded tool loop with — becomes the WORKER's own resolution,
+        # never cortex's ("the worker drives the tool loop and cortex does
+        # not act"). cortex's own resolved base_url/api_key/model (the
+        # ``resolved_*`` locals above) still feed the senses/voice/deepthink
+        # default-to-main rungs UNCHANGED — this override happens only here,
+        # at the very end of resolution, so it can never leak backwards into
+        # another rung's "defaults to the main endpoint" precedent.
+        # ``resolved_worker`` is guaranteed non-None whenever
+        # ``resolved_three_tier`` is True (a broken worker already raised a
+        # loud refusal above, via :func:`_resolve_worker`), so this is a
+        # plain presence check, never a second refusal path. The loop itself
+        # (colleague/loop.py) is UNTOUCHED by this task — it simply drives
+        # whatever ``EngineConfig`` hands back, exactly as it always has.
+        acting_model = resolved_model
+        acting_base_url = resolved_base_url
+        acting_api_key = resolved_api_key
+        acting_context_budget_tokens = resolved_context_budget_tokens
+        if resolved_worker is not None:
+            acting_model = resolved_worker.model
+            acting_base_url = resolved_worker.base_url
+            acting_api_key = resolved_worker.api_key
+            acting_context_budget_tokens = resolved_worker.context
+
         return cls(
-            base_url=resolved_base_url,
-            api_key=resolved_api_key,
-            model=_pick(
-                model,
-                "COLLEAGUE_MODEL",
-                "CONVERTIBLE_MODEL",
-                default=model_default,
-            ),
+            base_url=acting_base_url,
+            api_key=acting_api_key,
+            model=acting_model,
             max_steps=int(
                 _pick(
                     _str(max_steps),
@@ -2723,14 +2773,7 @@ class EngineConfig:
                     default=str(_DEFAULT_TIMEOUT),
                 )
             ),
-            context_budget_tokens=int(
-                _pick(
-                    _str(ov.context_budget_tokens),
-                    "COLLEAGUE_CONTEXT_BUDGET",
-                    "CONVERTIBLE_CONTEXT_BUDGET",
-                    default=str(_DEFAULT_CONTEXT_BUDGET),
-                )
-            ),
+            context_budget_tokens=acting_context_budget_tokens,
             max_output_chars=int(
                 _pick(
                     _str(ov.max_output_chars),

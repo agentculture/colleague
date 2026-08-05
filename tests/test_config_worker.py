@@ -117,6 +117,9 @@ _ALL_ENV = (
     "CONVERTIBLE_MODEL",
     "COLLEAGUE_THREE_TIER",
     "COLLEAGUE_WORKER_API_KEY",
+    # t8: worker-as-actor wiring tests set/clear these directly.
+    "COLLEAGUE_DEEPTHINK_MODEL",
+    "CONVERTIBLE_DEEPTHINK_MODEL",
 )
 
 
@@ -456,9 +459,19 @@ def test_cross_origin_worker_does_not_inherit_main_api_key(
         cfg = EngineConfig.resolve()
     assert cfg.worker is not None
     assert cfg.worker.base_url == "http://other-host:9000/v1"
-    assert cfg.api_key == "main-secret-token"
+    # The worker's OWN key-hygiene stance (t3): a cross-origin worker never
+    # inherits the main endpoint's Bearer token — it gets the withheld
+    # default instead.
     assert cfg.worker.api_key == _DEFAULT_API_KEY
-    assert cfg.worker.api_key != cfg.api_key
+    assert cfg.worker.api_key != "main-secret-token"
+    # t8: the ACTING dial (cfg.api_key/base_url/model/context_budget_tokens
+    # — what the vllm-openai engine actually drives the loop with) IS the
+    # worker's own resolution once three_tier is armed, never cortex's main
+    # key — "cortex's dial must not be the acting engine's". Before t8 wired
+    # this (WorkerConfig was RESOLUTION ONLY), cfg.api_key stayed the main
+    # key even when armed; now it correctly tracks cfg.worker.api_key.
+    assert cfg.api_key == cfg.worker.api_key
+    assert cfg.api_key != "main-secret-token"
 
 
 def test_same_origin_worker_inherits_main_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -532,3 +545,158 @@ def test_to_dict_carries_worker_when_armed_and_omits_api_key(
         "context": _WORKER_WINDOW,
     }
     assert "sk-worker-secret" not in str(snapshot)
+
+
+# ---------------------------------------------------------------------------
+# t8: worker-as-actor wiring (delivery step 4, covers c12/h12).
+#
+# With three_tier armed and the worker resolved, the ACTING dial (the
+# model/base_url/api_key/context_window the vllm-openai engine actually
+# drives the bounded tool loop with) becomes the WORKER's own resolution,
+# never cortex's — "the worker drives the tool loop and cortex does not
+# act". And deepthink is unconditionally absent in three-tier mode: neither
+# a DECLARED (env/config.json) deepthink nor one discovered from the lobes
+# muse role ever survives once three_tier is armed (strategist absent,
+# deepthink absent). The loop itself (colleague/loop.py) is untouched by
+# this task — this is resolution-only wiring; whatever EngineConfig hands
+# back is what the loop already drives with.
+# ---------------------------------------------------------------------------
+
+
+def test_armed_worker_becomes_the_acting_model_and_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance criterion 1: with three-tier config the worker drives the
+    tool loop — cortex's own resolved model/endpoint never leaks onto the
+    acting dial."""
+    with _serving(WORKER_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_THREE_TIER", "1")
+        cfg = EngineConfig.resolve()
+    assert cfg.model == _WORKER_MODEL
+    assert cfg.model != _CORTEX_MODEL
+    assert cfg.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
+    assert cfg.context_budget_tokens == _WORKER_WINDOW
+
+
+def test_armed_worker_api_key_becomes_the_acting_api_key_cross_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cross-origin worker with its own declared api_key becomes the
+    ACTING api_key too — the main endpoint's Bearer token never drives the
+    tool loop when a different worker endpoint answers for it."""
+    payload = {**BASE_PAYLOAD, "worker": _worker_role(endpoint="http://other-host:9000")}
+    with _serving(payload) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_THREE_TIER", "1")
+        monkeypatch.setenv("COLLEAGUE_API_KEY", "main-secret-token")
+        monkeypatch.setenv("COLLEAGUE_WORKER_API_KEY", "worker-own-token")
+        cfg = EngineConfig.resolve()
+    assert cfg.worker is not None
+    assert cfg.worker.api_key == "worker-own-token"
+    assert cfg.api_key == "worker-own-token"
+
+
+def test_not_armed_acting_dial_stays_cortex(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy stance (three_tier not armed): the acting dial is untouched —
+    resolve() still surfaces cortex's own resolved model/base_url, exactly
+    as before this task (an advertised worker role is read and discarded)."""
+    with _serving(WORKER_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        cfg = EngineConfig.resolve()
+    assert cfg.three_tier is False
+    assert cfg.worker is None
+    assert cfg.model == _CORTEX_MODEL
+    assert cfg.base_url == _ROLE_ENDPOINT.rstrip("/") + "/v1"
+
+
+_MUSE_MODEL = "lobes-muse-sentinel-model"
+
+
+def _muse_role() -> dict[str, object]:
+    return {
+        "role": "muse",
+        "model": _MUSE_MODEL,
+        "runtime": "vllm",
+        "endpoint": _ROLE_ENDPOINT,
+        "path": "/v1/chat/completions",
+        "context": 262144,
+        "quant": "modelopt",
+        "mtp": True,
+        "responsibilities": ["ideation", "divergent_second_opinion"],
+        "forbidden_responsibilities": [
+            "final_decision",
+            "repo_action",
+            "security_decision",
+        ],
+        "ready": True,
+        # The live gateway reports loaded=false for proxied roles while the
+        # host serves fine (lobes-cli#146) — irrelevant here: deepthink
+        # presence is keyed solely on a resolved model, never ready/loaded.
+        "loaded": False,
+    }
+
+
+WORKER_MUSE_PAYLOAD: dict[str, object] = {**WORKER_PAYLOAD, "muse": _muse_role()}
+
+
+def test_three_tier_armed_with_muse_advert_constructs_no_deepthink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acceptance criterion 1 (config.py side): a muse advert present
+    alongside an armed three-tier config must never construct a
+    DeepthinkConfig — the strategist stays absent when the worker is the
+    acting seat (c12/h12). Mirrors
+    tests/test_config_lobes_deepthink.py's muse discovery fixture."""
+    with _serving(WORKER_MUSE_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_THREE_TIER", "1")
+        cfg = EngineConfig.resolve()
+    assert cfg.three_tier is True
+    assert cfg.worker is not None
+    assert cfg.deepthink is None
+
+
+def test_three_tier_armed_with_declared_deepthink_env_constructs_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DECLARED deepthink (env), not just a discovered muse, is likewise
+    forced absent once three_tier is armed — deepthink absent is
+    unconditional in three-tier mode, never just a discovery-rung stance."""
+    with _serving(WORKER_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        monkeypatch.setenv("COLLEAGUE_THREE_TIER", "1")
+        monkeypatch.setenv("COLLEAGUE_DEEPTHINK_MODEL", "declared-deepthink-model")
+        cfg = EngineConfig.resolve()
+    assert cfg.deepthink is None
+
+
+def test_three_tier_armed_with_declared_deepthink_config_json_constructs_none(
+    tmp_path: Path,
+) -> None:
+    with _serving(WORKER_PAYLOAD) as gateway:
+        _write_config(
+            tmp_path,
+            {
+                "lobes": gateway,
+                "three_tier": True,
+                "deepthink": {"model": "declared-deepthink-model"},
+            },
+        )
+        cfg = EngineConfig.resolve(repo_path=tmp_path)
+    assert cfg.deepthink is None
+
+
+def test_three_tier_not_armed_muse_advert_still_resolves_deepthink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Byte-identical control: WITHOUT three_tier armed, the exact same muse
+    advert still resolves a DeepthinkConfig exactly as the
+    two-machines-two-minds rung already does — this task changes nothing
+    about the legacy (not-armed) muse-discovery path."""
+    with _serving(WORKER_MUSE_PAYLOAD) as gateway:
+        monkeypatch.setenv("COLLEAGUE_LOBES_URL", gateway)
+        cfg = EngineConfig.resolve()
+    assert cfg.three_tier is False
+    assert cfg.deepthink is not None
+    assert cfg.deepthink.model == _MUSE_MODEL
