@@ -188,6 +188,7 @@ def test_check_groups_registered_in_order() -> None:
         otel,
         provider,
         stale_refs,
+        three_tier,
         usage,
     )
 
@@ -200,6 +201,7 @@ def test_check_groups_registered_in_order() -> None:
         environment.checks,
         stale_refs.checks,
         organs.checks,
+        three_tier.checks,
     ]
 
 
