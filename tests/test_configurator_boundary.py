@@ -155,7 +155,11 @@ class TestActingCompletionSeamNeverWrapped:
             assert (
                 tools_kw is not None
             ), f"make_complete( call at line {call.lineno} must pass tools= explicitly"
-            assert isinstance(tools_kw.value, ast.List) and len(tools_kw.value.elts) == 0, (
+            assert isinstance(tools_kw.value, ast.List), (
+                f"make_complete( call at line {call.lineno} must pass tools=[] "
+                "literally (tools-off always)"
+            )
+            assert len(tools_kw.value.elts) == 0, (
                 f"make_complete( call at line {call.lineno} must pass tools=[] "
                 "literally (tools-off always)"
             )

@@ -123,7 +123,8 @@ def test_same_task_yields_identical_result_shape_across_engines(
     # Identical shape: same keys top-level and in every nested structure (h11/h14).
     assert _key_shape(mock_result.to_dict()) == _key_shape(vllm_result.to_dict())
     # Both actually edited their repo.
-    assert mock_result.changed_files and vllm_result.changed_files
+    assert mock_result.changed_files
+    assert vllm_result.changed_files
 
 
 def test_no_linter_repo_omits_lint_report_byte_identical(

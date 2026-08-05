@@ -39,7 +39,8 @@ def test_every_check_has_exactly_five_keys_and_valid_severity() -> None:
     assert report["checks"]
     for check in report["checks"]:
         assert set(check) == _CHECK_KEYS, check
-        assert isinstance(check["id"], str) and check["id"]
+        assert isinstance(check["id"], str)
+        assert check["id"]
         assert isinstance(check["passed"], bool)
         assert check["severity"] in _VALID_SEVERITIES
         assert isinstance(check["message"], str)
@@ -209,7 +210,8 @@ def test_identity_group_is_non_empty() -> None:
     from colleague.oilcheck import identity
 
     checks = identity.checks()
-    assert isinstance(checks, list) and checks
+    assert isinstance(checks, list)
+    assert checks
     for check in checks:
         assert set(check) == _CHECK_KEYS
 

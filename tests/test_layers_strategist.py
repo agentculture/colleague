@@ -190,7 +190,8 @@ class TestSystemPromptForStrategist:
             strategist_section="CORTEX-AUTHORED-NOTE",
             strategist_seat=STRATEGIST_SEAT_WORKER,
         )
-        assert baseline is not None and configured is not None
+        assert baseline is not None
+        assert configured is not None
         assert baseline != configured
 
         prefix = f"{_BASE_PROMPT}\n\nAGENTS-LAYER\n\n"
@@ -292,7 +293,8 @@ class TestComposeRolePromptStrategist:
             strategist_section="CORTEX-AUTHORED-NOTE",
             strategist_seat=STRATEGIST_SEAT_SENSES,
         )
-        assert baseline is not None and configured is not None
+        assert baseline is not None
+        assert configured is not None
         assert baseline != configured
 
         prefix = f"{_BASE_PROMPT}\n\nAGENTS-LAYER\n\nROLE-FRAGMENT\n\n"

@@ -322,8 +322,9 @@ def test_work_front_refuses_loudly_when_three_tier_armed_without_worker(
     from colleague.cli._commands.work import cmd_work
 
     monkeypatch.setenv("COLLEAGUE_THREE_TIER", "1")
+    namespace = _work_namespace(git_repo)
     with pytest.raises(CliError) as exc_info:
-        cmd_work(_work_namespace(git_repo))
+        cmd_work(namespace)
     message = exc_info.value.message.lower()
     assert "three-tier" in message
     assert "lobes" in message
@@ -343,10 +344,12 @@ def test_session_front_refuses_loudly_when_three_tier_armed_without_worker(
         raise AssertionError("the session loop must never start reading input")
         yield  # pragma: no cover - unreachable, satisfies the generator shape
 
+    namespace = _session_namespace(git_repo)
+    input_iter = _boom_input()
     with pytest.raises(CliError) as exc_info:
         run_session(
-            _session_namespace(git_repo),
-            input_fn=_boom_input(),
+            namespace,
+            input_fn=input_iter,
             out=lambda *a, **k: None,
             err=lambda *a, **k: None,
             _color=False,
@@ -495,7 +498,8 @@ def test_default_pytest_config_carries_no_marker_filter_that_could_exclude_this_
     body = rest if next_section == -1 else rest[:next_section]
 
     assert '"tests"' in body  # testpaths still targets the whole tests/ tree
-    assert " -m " not in body and not body.strip().startswith("-m ")  # no marker filter
+    assert " -m " not in body  # no marker filter
+    assert not body.strip().startswith("-m ")  # no marker filter
     assert " -k " not in body  # no keyword filter that could exclude this module by name
 
 

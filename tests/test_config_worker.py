@@ -412,8 +412,9 @@ def test_cmd_work_refuses_loudly_on_broken_three_tier(
     from colleague.cli._commands.work import cmd_work
 
     monkeypatch.setenv("COLLEAGUE_THREE_TIER", "1")
+    namespace = _work_namespace(git_repo)
     with pytest.raises(CliError) as exc_info:
-        cmd_work(_work_namespace(git_repo))
+        cmd_work(namespace)
     assert "three-tier" in exc_info.value.message.lower()
 
 
@@ -431,10 +432,12 @@ def test_run_session_refuses_loudly_on_broken_three_tier(
         raise AssertionError("the session loop must never start reading input")
         yield  # pragma: no cover - unreachable, satisfies generator shape
 
+    namespace = _session_namespace(git_repo)
+    input_iter = _boom_input()
     with pytest.raises(CliError) as exc_info:
         run_session(
-            _session_namespace(git_repo),
-            input_fn=_boom_input(),
+            namespace,
+            input_fn=input_iter,
             out=lambda *a, **k: None,
             err=lambda *a, **k: None,
             _color=False,

@@ -878,10 +878,7 @@ class TestCheckShape:
 
         from colleague.oilcheck import three_tier
 
-        try:
-            result = three_tier.checks()
-        except Exception as exc:  # pragma: no cover
-            pytest.fail(f"checks() raised unexpectedly: {exc}")
+        result = three_tier.checks()
         assert isinstance(result, list)
 
     def test_probe_checks_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -898,8 +895,5 @@ class TestCheckShape:
 
         from colleague.oilcheck import three_tier
 
-        try:
-            result = three_tier.probe_checks()
-        except Exception as exc:  # pragma: no cover
-            pytest.fail(f"probe_checks() raised unexpectedly: {exc}")
+        result = three_tier.probe_checks()
         assert isinstance(result, list)

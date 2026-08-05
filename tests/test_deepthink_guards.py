@@ -178,7 +178,8 @@ def test_dual_config_acceptance_selfcheck_degrades_and_run_still_completes(
     # "call.duration is the measured wall-clock seconds up to the failure,
     # always >= 0").
     assert call.tokens is None
-    assert call.duration is not None and call.duration >= 0
+    assert call.duration is not None
+    assert call.duration >= 0
 
     # The degradation is recorded, never emitted as an error / raised exception --
     # the artifact still serializes cleanly with the deepthink key present.
