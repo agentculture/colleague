@@ -255,7 +255,12 @@ def _build_presence_engine_for_talk(
         make_count_tokens=make_count_tokens,
         initial_rung=rung,
     )
-    return PresenceEngine(driver=driver, io=io, cadence=cadence_from_env(os.environ))
+    return PresenceEngine(
+        driver=driver,
+        io=io,
+        cadence=cadence_from_env(os.environ),
+        three_tier=getattr(config, "three_tier", False),
+    )
 
 
 def _make_progress_boundary(

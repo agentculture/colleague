@@ -17,12 +17,23 @@ from __future__ import annotations
 #: place so the two lobes stay visually distinct without drifting apart.
 SENSES_LABEL = "senses:"
 CORTEX_STATUS_LABEL = "cortex ▸ working…"
+WORKER_STATUS_LABEL = "worker ▸ working…"
 
 #: Raw ANSI SGR escape codes — senses gets cyan, cortex gets magenta, distinct
 #: hues so the two lobes are never confusable on a colour TTY.
 _SENSES_SGR = "\x1b[36m"
 _CORTEX_SGR = "\x1b[35m"
 _SGR_RESET = "\x1b[0m"
+
+
+def acting_seat_label(*, three_tier: bool = False) -> str:
+    """Return the status label for the *acting* seat.
+
+    Returns :data:`WORKER_STATUS_LABEL` when three-tier execution is armed
+    (the worker is the bounded-tool-loop actor), :data:`CORTEX_STATUS_LABEL`
+    otherwise (legacy two-tier mode).
+    """
+    return WORKER_STATUS_LABEL if three_tier else CORTEX_STATUS_LABEL
 
 
 def senses_line(text: str, *, color: bool = False) -> str:
@@ -38,15 +49,19 @@ def senses_line(text: str, *, color: bool = False) -> str:
     return f"{_SENSES_SGR}{line}{_SGR_RESET}"
 
 
-def cortex_working_line(detail: str = "", *, color: bool = False) -> str:
-    """Render one cortex status line: ``"cortex ▸ working… {detail}"``.
+def cortex_working_line(detail: str = "", *, color: bool = False, three_tier: bool = False) -> str:
+    """Render one status line: ``"{seat} ▸ working… {detail}"``.
 
     ``detail`` is optional context (e.g. the current step) appended after the
     fixed status label; omitted when empty. Plain (no ANSI at all) unless
-    ``color=True``, in which case the whole line is wrapped in cortex's
+    ``color=True``, in which case the whole line is wrapped in the seat's
     colour code — a different hue from :func:`senses_line`.
+
+    When ``three_tier=True`` the worker label is used (the worker is the
+    bounded-tool-loop actor); otherwise the legacy cortex label is emitted.
     """
-    line = f"{CORTEX_STATUS_LABEL} {detail}" if detail else CORTEX_STATUS_LABEL
+    label = acting_seat_label(three_tier=three_tier)
+    line = f"{label} {detail}" if detail else label
     if not color:
         return line
     return f"{_CORTEX_SGR}{line}{_SGR_RESET}"
