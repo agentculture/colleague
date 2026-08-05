@@ -1216,3 +1216,45 @@ Reproduce: the drill scripts live in the session scratchpad
 speech_stopped` event to reply-wav-ready. `run_realtime_check` reproduces
 via `uv run python -c "from colleague.livecheck import run_realtime_check;
 print(run_realtime_check('.'))"`.
+
+## 2026-08-06 — three-tier execution: the live three-seat proof (t17, spec h1/h17)
+
+Rig re-probed at proof time: cortex `unsloth/Qwen3.6-27B-NVFP4`, senses
+`unsloth/gemma-4-12B-it-qat-w4a16`, worker `unsloth/Qwen3.6-35B-A3B-NVFP4`
+all ready:true through the one `:8001` gateway (a stale muse advert lingers
+ready:false; legacy discovery would still arm it — known, rig-side).
+
+One live session, all three seats, recorded facts:
+
+- **Worker acted (CLI level).** `COLLEAGUE_THREE_TIER=1 colleague work` on a
+  throwaway fixture repo: status ok, 6 steps, real fix landed (suite green),
+  artifact names the acting model `unsloth/Qwen3.6-35B-A3B-NVFP4` and carries
+  `finish_states: [{seat: main, finish_reason: tool_calls, state:
+  deliberate, truncated: false}]` — the t1 spine recording the real wire
+  value.
+- **Seat attribution.** The shipped surface renders `worker ▸ working…` under
+  three-tier and the byte-identical `cortex ▸ working…` legacy line (t9).
+- **Senses relayed the worker's actual answer (production lane, live).** The
+  run's summary went through `run_senses_talk(worker_answer=…)`: senses
+  paraphrased, the STRUCTURAL FALLBACK fired (`verbatim_presence=false,
+  fallback=true`, degradation recorded) and the operator-visible answer
+  contains the worker's answer verbatim — the t2 floor doing its job live
+  (experiment A's 6/6 record is the fuller measurement).
+- **Cortex configured between episodes (module level — deviation d3).**
+  `chain.run_configurator_window(armed=True)` against the live cortex dial,
+  fed the episode digest (docs-only follow-up queued): cortex proposed
+  narrowing `worker.tools` to `["write_file", "finish"]` — a CORRECT
+  narrowing for the described next episode — the unit validated and APPLIED
+  at the sanctioned between-episodes window: events proposed → verified →
+  applied, snapshot digest `43e085e7…` → `81ec1f24…`, application latency
+  0.2 ms, review latency 27.0 s. Counters advanced; nothing reported alive
+  from `armed` alone. (The work FRONT does not arm this plane yet — issue
+  #366 / deviations d2+d3; this proof passes through the same sanctioned
+  window functions the front will call.)
+- **Byte-identical at wrap.** `tests/test_three_tier_gates.py` re-run: 12
+  passed (no-config behavior + existing-field identity + sanctioned new
+  fields, loud refusal on both fronts, five distinguishable finish states).
+
+Promotion-gate verdicts backing this proof: experiment A SUPPORTING,
+experiment B PROMOTES (the c23 performs-better gate), experiment C
+SUPPORTING — all pre-registered under `docs/experiments/`.
