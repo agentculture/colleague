@@ -291,7 +291,7 @@ def _check_target_validity(unit: ChangeUnit) -> Optional[Verdict]:
         )
     return Verdict(
         False,
-        f"refused: unknown target {unit.target!r} " f"(valid targets: {[t.value for t in Target]})",
+        f"refused: unknown target {unit.target!r} (valid targets: {[t.value for t in Target]})",
     )
 
 

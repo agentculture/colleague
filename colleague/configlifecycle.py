@@ -58,7 +58,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, replace
-from typing import Optional
+from typing import Optional, cast
 
 from colleague.lattice import CapabilityCatalog, ChangeUnit, Target, Verdict, validate_change
 
@@ -165,29 +165,34 @@ def _apply_change(snapshot: EpisodeConfigSnapshot, change: ChangeUnit) -> Episod
     :data:`WORKER_TARGETS` never reach this function: :meth:`propose` refuses
     them before they are ever queued.
     """
+    # typing.cast on each return: dataclasses.replace()'s stub returns the
+    # generic DataclassInstance protocol, which a static checker cannot
+    # narrow back to EpisodeConfigSnapshot from the call expression alone
+    # (SonarCloud S5886/S5890) — the cast states the true runtime type.
     if change.target is Target.WORKER_TOOLS:
-        # A typed local (not a bare `return replace(...)`) so the declared
-        # type checks: dataclasses.replace()'s stub returns the generic
-        # DataclassInstance protocol, which a static checker cannot narrow
-        # back to EpisodeConfigSnapshot from the call expression alone
-        # (SonarCloud S5886) — the explicit annotation pins it.
-        updated: EpisodeConfigSnapshot = replace(snapshot, tool_set=tuple(change.tool_ids))
-        return updated
+        return cast(EpisodeConfigSnapshot, replace(snapshot, tool_set=tuple(change.tool_ids)))
     if change.target is Target.WORKER_KNOWLEDGE:
         added = tuple(
             json.dumps(entry, sort_keys=True, separators=(",", ":"))
             for entry in change.knowledge_entries
         )
-        updated = replace(snapshot, knowledge_entries=snapshot.knowledge_entries + added)
-        return updated
+        return cast(
+            EpisodeConfigSnapshot,
+            replace(snapshot, knowledge_entries=snapshot.knowledge_entries + added),
+        )
     if change.target is Target.WORKER_PROMPT_STRATEGIST:
         # Opaque marker (see the module docstring): a real strategist SECTION's
         # composed text is layers.py's (t5) concern; what this module must prove
         # is only that the digest moves exactly once per applied proposal, and
         # only at a sanctioned window.
         marker = f"{change.origin.value}#{len(snapshot.strategist_sections) + 1}"
-        updated = replace(snapshot, strategist_sections=snapshot.strategist_sections + (marker,))
-        return updated
+        return cast(
+            EpisodeConfigSnapshot,
+            replace(
+                snapshot,
+                strategist_sections=snapshot.strategist_sections + (marker,),
+            ),
+        )
     # Unreachable: propose() refuses every non-worker target before queuing.
     raise ConfigLifecycleError(f"cannot apply out-of-scope target {change.target!r}")
 

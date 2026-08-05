@@ -2,8 +2,8 @@
 
 Promotion gate C of the three-tier arc (spec claims c10/h10, plan task t15;
 deviation d1 explains the committed-runner vehicle). This is the experiment
-#363 §5 says never existed in either repo: give the strategist a genuinely
-**misconfigured actor** and ask whether the tier notices — three prior
+that issue #363 §5 says never existed in either repo: give the strategist a
+genuinely **misconfigured actor**, asking whether the tier notices — three prior
 independent measurements were negative precisely because nothing needed
 fixing.
 
