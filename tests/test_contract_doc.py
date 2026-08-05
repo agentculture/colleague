@@ -19,6 +19,7 @@ import pytest
 
 from colleague import feedback as fb
 from colleague.affectedtests import AffectedTestsReport
+from colleague.configevents import ConfigEvent
 from colleague.contract import (
     OK,
     SENSES_CHAT_KINDS,
@@ -177,6 +178,13 @@ def _maximal_task_result() -> TaskResult:
                 }
             ],
         ),
+        config_events=[
+            ConfigEvent(kind="baseline", target="worker.tools", origin="host", seq=0),
+            ConfigEvent(
+                kind="refused", target="worker.tools", origin="cortex", reason="ceiling", seq=1
+            ),
+        ],
+        config_digest="deadbeef",
     )
 
 
@@ -270,6 +278,15 @@ def test_acceptance_outcome_keys_match_doc(doc_blocks: dict[str, set[str]]) -> N
 def test_deepthink_call_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
     result = _maximal_task_result()
     assert set(result.to_dict()["deepthink"][0].keys()) == doc_blocks["deepthink_call"]
+
+
+def test_config_event_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:
+    result = _maximal_task_result()
+    d = result.to_dict()
+    assert d["config_digest"] == "deadbeef"
+    assert len(d["config_events"]) == 2
+    for entry in d["config_events"]:
+        assert set(entry.keys()) == doc_blocks["config_event"]
 
 
 def test_memory_keys_match_doc(doc_blocks: dict[str, set[str]]) -> None:

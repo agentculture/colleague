@@ -54,7 +54,7 @@ Present on every artifact, regardless of which features fired.
 | `not_finished` | boolean | `true` iff the step budget was exhausted without a `finish` call (and without an abort). |
 | `stopped_without_finish` | boolean | `true` iff the run ended on a no-tool-call turn and never called `finish`, even after the nudge. |
 
-### Optional (omit-when-absent) top-level keys (16)
+### Optional (omit-when-absent) top-level keys (19)
 
 Each key below is **entirely absent** from the JSON — not present as `null` —
 when the corresponding feature never fired for this work item. `sub_results`
@@ -80,6 +80,8 @@ serialized as `[]`).
 | `memory` | dict | The eidetic memory recall/remember cycle ran — see [`memory`](#memory-dict). |
 | `media` | dict | The task carried attachments and their delivery was classified — see [`media`](#media-dict). |
 | `senses` | SensesBlock | A cortex/senses split (or live-presence talk lane) ran — see [`senses`](#sensesblock-senses). |
+| `config_events` | ConfigEvent[] | At least one config event (baseline/proposed/refused/verified/applied/reverted) was recorded — see [`config_event`](#configevent-config_events-item). |
+| `config_digest` | string | `config_events` is non-empty — the deterministic digest over that replayed sequence, see [`config_event`](#configevent-config_events-item). |
 
 ### The maximal key set (drift-tested)
 
@@ -100,6 +102,8 @@ capacity_warning
 changed_files
 command
 coherence_report
+config_digest
+config_events
 deepthink
 destination
 error
@@ -351,6 +355,40 @@ tokens
 
 `tokens` / `duration` are `null` when not measured (e.g. a degraded call that
 never reached the wire).
+
+#### `ConfigEvent` (`config_events[]` item)
+
+One entry in the append-only config event stream (plan task t7, covers
+c9/h9; `colleague/configevents.py`) — the audit trail a three-tier cortex
+configurator (a later task) proposes/refuses/verifies/applies/reverts
+changes onto. `kind` is one of `"baseline"` \| `"proposed"` \| `"refused"` \|
+`"verified"` \| `"applied"` \| `"reverted"`. **`"baseline"` is itself an event
+kind** — a seeded starting config must be recorded as an ordinary event, not
+an invisible constructor default, because `config_digest` is a deterministic
+sha256 computed from the REPLAYED `config_events` sequence **alone** (no
+ambient state); a starting config that never became an explicit `baseline`
+event can never be reconstructed from, or verified against, the digest (the
+"T8 trap" the acceptance criteria name). `target`/`origin` are free-form
+strings (e.g. `target="worker.tools"`, `origin="cortex"` — matching
+`colleague.lattice.Target`/`Origin` string values when a configurator
+populates them, though this stream is not itself coupled to that enum).
+`reason` is populated for a `"refused"` event and empty otherwise by
+convention. `seq` is a monotonically increasing position in the stream,
+assigned by `colleague.configevents.ConfigEventStream.append`.
+
+<!-- contract:keys:config_event -->
+```text
+kind
+origin
+reason
+seq
+target
+```
+
+`config_events` is `[]`/omitted when a work item recorded no config-event
+activity — today's common case, since the stream is populated by
+`colleague.configevents` but nothing in the runtime writes to it yet this
+wave. `config_digest` is `null`/omitted alongside it.
 
 #### `memory` (dict)
 
