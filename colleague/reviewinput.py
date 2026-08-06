@@ -12,8 +12,10 @@ never a message list.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from colleague.configurator import ConfiguratorReviewInput
-from colleague.contract import Task, TaskResult
+from colleague.contract import LintReport, Task, TaskResult
 
 #: Default maximum digest length — large enough for typical instructions and
 #: result summaries, small enough to keep the configurator prompt lean.
@@ -70,6 +72,63 @@ def assemble_before_episode(
     return ConfiguratorReviewInput(digest=_truncate(digest, max_chars))
 
 
+def _format_lint_report(lint: LintReport) -> str:
+    """Format a LintReport's fixed/residual/skipped parts, or "clean" when none."""
+    parts: list[str] = []
+    if lint.fixed:
+        parts.append(f"fixed: {', '.join(lint.fixed)}")
+    if lint.residual:
+        parts.append(f"residual: {', '.join(lint.residual)}")
+    if lint.skipped:
+        parts.append(f"skipped: {', '.join(lint.skipped)}")
+    return ", ".join(parts) if parts else "clean"
+
+
+def _gate_outcome_lines(result: TaskResult) -> list[str]:
+    """Format the pre-finish gate outcomes (lint/test-integrity/affected-tests/coherence)."""
+    lines: list[str] = []
+    if result.lint_report is not None:
+        lines.append(f"Lint: {_format_lint_report(result.lint_report)}")
+    if result.test_integrity_report is not None:
+        lines.append(f"Test integrity: {result.test_integrity_report}")
+    if result.affected_tests_report is not None:
+        lines.append(f"Affected tests: {result.affected_tests_report}")
+    if result.coherence_report is not None:
+        lines.append(f"Coherence: {result.coherence_report.status}")
+    return lines
+
+
+def _finish_states_line(result: TaskResult) -> Optional[str]:
+    """Format the finish-states line, or None when the result has none."""
+    if not result.finish_states:
+        return None
+    states = ", ".join(f"{fs.seat}:{fs.state}" for fs in result.finish_states)
+    return f"Finish states: {states}"
+
+
+def _sub_results_line(result: TaskResult) -> Optional[str]:
+    """Format the sub-results line, or None when the result has none."""
+    if not result.sub_results:
+        return None
+    sub_summaries = [f"{sr.task_id}: {sr.status}" for sr in result.sub_results]
+    return f"Sub-results: {', '.join(sub_summaries)}"
+
+
+def _acceptance_outcomes_line(result: TaskResult) -> Optional[str]:
+    """Format the acceptance-outcomes line, or None when there are none to report."""
+    if result.acceptance_outcomes is None:
+        return None
+    outcomes = []
+    for ao in result.acceptance_outcomes:
+        if isinstance(ao, dict):
+            criterion = ao.get("criterion", "?")
+            met = ao.get("met", "?")
+            outcomes.append(f"{criterion}: {'met' if met else 'not met'}")
+    if not outcomes:
+        return None
+    return f"Acceptance: {'; '.join(outcomes)}"
+
+
 def assemble_between_episodes(
     task: Task,
     result: TaskResult,
@@ -108,53 +167,15 @@ def assemble_between_episodes(
         f"Changed files ({len(result.changed_files)}): {_format_file_list(result.changed_files)}"
     )
 
-    # Gate outcomes
-    if result.lint_report is not None:
-        lint = result.lint_report
-        lint_parts: list[str] = []
-        if lint.fixed:
-            lint_parts.append(f"fixed: {', '.join(lint.fixed)}")
-        if lint.residual:
-            lint_parts.append(f"residual: {', '.join(lint.residual)}")
-        if lint.skipped:
-            lint_parts.append(f"skipped: {', '.join(lint.skipped)}")
-        if lint_parts:
-            lines.append(f"Lint: {', '.join(lint_parts)}")
-        else:
-            lines.append("Lint: clean")
+    lines.extend(_gate_outcome_lines(result))
 
-    if result.test_integrity_report is not None:
-        tir = result.test_integrity_report
-        lines.append(f"Test integrity: {tir}")
-
-    if result.affected_tests_report is not None:
-        atr = result.affected_tests_report
-        lines.append(f"Affected tests: {atr}")
-
-    if result.coherence_report is not None:
-        cr = result.coherence_report
-        lines.append(f"Coherence: {cr.status}")
-
-    # Finish state
-    if result.finish_states:
-        states = ", ".join(f"{fs.seat}:{fs.state}" for fs in result.finish_states)
-        lines.append(f"Finish states: {states}")
-
-    # Sub-results
-    if result.sub_results:
-        sub_summaries = [f"{sr.task_id}: {sr.status}" for sr in result.sub_results]
-        lines.append(f"Sub-results: {', '.join(sub_summaries)}")
-
-    # Acceptance outcomes
-    if result.acceptance_outcomes is not None:
-        outcomes = []
-        for ao in result.acceptance_outcomes:
-            if isinstance(ao, dict):
-                criterion = ao.get("criterion", "?")
-                met = ao.get("met", "?")
-                outcomes.append(f"{criterion}: {'met' if met else 'not met'}")
-        if outcomes:
-            lines.append(f"Acceptance: {'; '.join(outcomes)}")
+    for extra_line in (
+        _finish_states_line(result),
+        _sub_results_line(result),
+        _acceptance_outcomes_line(result),
+    ):
+        if extra_line is not None:
+            lines.append(extra_line)
 
     digest = "\n".join(lines)
     return ConfiguratorReviewInput(digest=_truncate(digest, max_chars))

@@ -267,7 +267,8 @@ class TestMockEngineConsumesNarrowing:
         res = MockEngine().work(Task.new(str(git_repo), "do it", engine="mock"), cfg)
         assert res.changed_files == [], "a narrowed-away write_file must not have executed"
         refusal_steps = [s for s in res.steps if s.tool == "write_file"]
-        assert refusal_steps and refusal_steps[0].ok is False
+        assert refusal_steps
+        assert refusal_steps[0].ok is False
         assert "not allowed for this role" in refusal_steps[0].result
 
     def test_narrowing_permits_a_kept_write_tool(self, git_repo: Path) -> None:
@@ -353,7 +354,8 @@ class TestVllmEngineConsumesNarrowing:
 
         assert res.changed_files == []
         write_steps = [s for s in res.steps if s.tool == "write_file"]
-        assert write_steps and write_steps[0].ok is False
+        assert write_steps
+        assert write_steps[0].ok is False
         assert "not allowed for this role" in write_steps[0].result
 
     def test_tool_set_entry_outside_role_surface_never_offered(

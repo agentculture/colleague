@@ -425,6 +425,50 @@ def _preserve_non_ok_wip(
         result.branch = branch_name(task.id, task.instruction)
 
 
+def _finalize_run_outcome(
+    *,
+    result: TaskResult,
+    read_only_role: bool,
+    work_repo: Path,
+    task: Task,
+    baseline_untracked: list[str],
+    open_pr: bool,
+    base: str,
+    telemetry: Telemetry,
+    base_sha: str | None,
+    worktree_path: str | None,
+    chain: "ChainEpisodeOptions | None",
+) -> None:
+    """Land the run's outcome: handoff on OK, else preserve non-OK isolated WIP.
+
+    A read-only role (explorer/reviewer/planner/validator) never triggers the
+    handoff sweep — there is nothing to sweep, and a read-only handoff would
+    silently revert the operator's own uncommitted WIP (Qodo, PR #245). A
+    non-OK isolated exit instead preserves the model's WIP on
+    ``colleague/<id>`` (#222) via :func:`_preserve_non_ok_wip`. Extracted
+    from :func:`execute_work` to keep its cognitive complexity under the
+    S3776 ceiling (the :func:`_moded_config` precedent).
+    """
+    if result.status == OK and not read_only_role:
+        _handoff_result(
+            repo=work_repo,
+            task=task,
+            result=result,
+            baseline_untracked=baseline_untracked,
+            open_pr=open_pr,
+            base=base,
+            telemetry=telemetry,
+            base_sha=base_sha,
+        )
+    elif result.status != OK:
+        # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
+        # on OK, so preserve the model's WIP on colleague/<id> before teardown.
+        # A no-op when not isolated (worktree_path is None). A chained
+        # episode additionally records its WIP branch on the result
+        # (Qodo, PR #345 — see _preserve_non_ok_wip).
+        _preserve_non_ok_wip(worktree_path, result, task, chained=chain is not None)
+
+
 def _engine_failure_error(
     exc: Exception,
     *,
@@ -972,6 +1016,30 @@ def _build_run_presence(
     return None, False
 
 
+def _resolve_config_plane(
+    chain: "ChainEpisodeOptions | None",
+    config: EngineConfig,
+    *,
+    repo: Path,
+    task: Task,
+    engine_name: str,
+) -> "_ConfigPlaneState | None":
+    """Resolve THIS call's config-plane state (change-content consumption
+    lane, plan task t9 — h22): a chained episode reuses the state
+    :func:`execute_work_chain` already constructed once at arming (one
+    lifecycle per top-level task); a standalone (non-chained) call arms its
+    OWN state here, before its single dispatch. Both stay ``None`` — a
+    strict no-op — unless three-tier is armed (``config.worker is not
+    None``). Extracted from :func:`execute_work` to keep its cognitive
+    complexity under the S3776 ceiling (the :func:`_moded_config` precedent).
+    """
+    if chain is not None:
+        return chain.config_plane
+    if config.worker is not None:
+        return _arm_config_plane(config, repo=repo, task=task, engine_name=engine_name)
+    return None
+
+
 def execute_work(
     *,
     repo: Path,
@@ -1091,11 +1159,9 @@ def execute_work(
     # OWN state here, before the first (only) dispatch. Both are a strict
     # no-op (`config_plane` stays None) unless three-tier is armed
     # (config.worker is not None) — byte-identical to today either way.
-    config_plane: "_ConfigPlaneState | None" = None
-    if chain is not None:
-        config_plane = chain.config_plane
-    elif config.worker is not None:
-        config_plane = _arm_config_plane(config, repo=repo, task=task, engine_name=engine_name)
+    config_plane = _resolve_config_plane(
+        chain, config, repo=repo, task=task, engine_name=engine_name
+    )
 
     # A read-only role (explorer/reviewer/planner/validator) provably writes
     # nothing, so it (a) bypasses the dirty-tree guard — there is no handoff sweep
@@ -1255,24 +1321,19 @@ def execute_work(
             if presence is not None:
                 fold_presence_snapshot(result, presence, fold_chat=presence_foreground)
 
-            if result.status == OK and not read_only_role:
-                _handoff_result(
-                    repo=work_repo,
-                    task=task,
-                    result=result,
-                    baseline_untracked=baseline_untracked,
-                    open_pr=open_pr,
-                    base=base,
-                    telemetry=telemetry,
-                    base_sha=base_sha,
-                )
-            elif result.status != OK:
-                # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
-                # on OK, so preserve the model's WIP on colleague/<id> before teardown.
-                # A no-op when not isolated (worktree_path is None). A chained
-                # episode additionally records its WIP branch on the result
-                # (Qodo, PR #345 — see _preserve_non_ok_wip).
-                _preserve_non_ok_wip(worktree_path, result, task, chained=chain is not None)
+            _finalize_run_outcome(
+                result=result,
+                read_only_role=read_only_role,
+                work_repo=work_repo,
+                task=task,
+                baseline_untracked=baseline_untracked,
+                open_pr=open_pr,
+                base=base,
+                telemetry=telemetry,
+                base_sha=base_sha,
+                worktree_path=worktree_path,
+                chain=chain,
+            )
 
             work_span.set(
                 status=result.status,

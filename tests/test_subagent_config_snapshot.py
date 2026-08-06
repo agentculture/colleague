@@ -47,7 +47,7 @@ from colleague.subagents import (
 _STRATEGIST_NOTE = "Focus on the auth module."
 
 
-@pytest.fixture()
+@pytest.fixture
 def git_repo(tmp_path: Path) -> Path:
     """A minimal git repo with one commit (subagent worktree spawns need it)."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
@@ -133,7 +133,7 @@ class _NestingEngine:
         return self._real.work(task, config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def patch_engine(monkeypatch):
     def _install(engine):
         monkeypatch.setattr("colleague.subagents.registry.load", lambda name: engine)
