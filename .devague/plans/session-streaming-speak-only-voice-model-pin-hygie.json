@@ -5,7 +5,7 @@
   "schema_version": 4,
   "status": "exported",
   "created": "2026-08-06T14:29:46Z",
-  "updated": "2026-08-06T14:37:57Z",
+  "updated": "2026-08-06T18:12:46Z",
   "targets": [
     {
       "id": "c1",
@@ -549,6 +549,23 @@
         "c15"
       ],
       "instruction": "follow the bullet + pointer-doc pattern; update the senses-live-presence / realtime-speech bullets where the speak lane touches them; name the q4 resolution (replies-only default) explicitly"
+    },
+    {
+      "id": "t14",
+      "summary": "t14 \u2014 NEBULA RUN: upgraded Colleague co-designs and builds an agent-first game under guidance",
+      "origin": "user",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the game is agent-first: a programmatic play interface (engine API / protocol an agent-written bot can drive) AND human keyboard play both work; a sample agent player script plays a full run",
+        "feature complexity lands: ship upgrades, level-ups, engine, enemies with enemy levels, resources and goals, side quests, persistent state between runs, points, sensors, weapons, shields, generator \u2014 each present and exercised by tests or the agent player",
+        "the design and code are COLLEAGUE-authored: Colleague proposes the ideas, drives its own devague frame/plan (colleague plan, operator-gated), and implements via its own work loops; the operator guides and TDD-gates but does not write the game",
+        "the full conversation and Colleague's inner workings (session transcripts, work artifacts with step traces, flight feeds, plan gates, senses records) are saved into an analysis bundle"
+      ],
+      "deps": [
+        "t13"
+      ],
+      "covers": [],
+      "instruction": "run AFTER t13 in a fresh game repo (not colleague's); vehicle: colleague plan for the spec->plan arc with the operator confirming gates, then wave-wise colleague work loops (pin CONVERTIBLE_MODEL, COLLEAGUE_TIMEOUT=300, cap 2 concurrent, stall watchdogs per #372); the operator guides with briefs + flight guidance, verifies every landed change (diff + tests), grades every work item (ROI loop); archive .colleague/artifacts, flight feeds, and the operator-side transcript into the bundle; the upgraded lanes (streaming, narration, stale-pin refresh) stay armed \u2014 this run is ALSO their field trial"
     }
   ],
   "risks": [

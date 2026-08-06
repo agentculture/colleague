@@ -2,7 +2,7 @@
   "plan_slug": "session-streaming-speak-only-voice-model-pin-hygie",
   "schema_version": 1,
   "created": "2026-08-06T15:06:38Z",
-  "updated": "2026-08-06T15:16:17Z",
+  "updated": "2026-08-06T16:02:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -23,6 +23,36 @@
       "origin": "llm",
       "status": "proposed",
       "classification": "acceptable"
+    },
+    {
+      "id": "d3",
+      "what": "t1 reassigned from colleague (27B cortex) to the main agent mid-wave: the colleague run hung client-side after step 7 \u2014 process alive, rig healthy (2ms /v1/models, fresh completions fine), but heartbeat feed + stderr frozen 22+ min, past the raised 600s request timeout; SIGTERM'd per #222, WIP tests salvaged from its branch",
+      "task_ref": "t1",
+      "reason": "GPU-serialized wave cannot wait indefinitely and t2 depends on t1; the split-plan model column changes (colleague -> fable main), the task contract is unchanged",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d4",
+      "what": "c2 names three streaming surfaces (direct-answer / talk / speak-back) but the senses reply envelopes differ per surface: front-door moves carry a 'text' key (extractor's target), run_senses_talk replies carry 'answer', and speak-back is plain text with no envelope \u2014 talk-lane streaming would decline to zero display deltas today (clean fallback, h2 intact)",
+      "task_ref": "t2",
+      "reason": "fixed in-arc: EnvelopeStream gains a target-field parameter (integrator commit) and the t3 rendering task arms field='answer' for the talk lane and raw pass-through for envelope-less speak-back",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d5",
+      "what": "live event during t11's run: t9's call-time refresh fired on a DEEPTHINK call \u2014 muse (Gemma-4-31B, advertised-but-not-loaded, the known lobes lingering-advert bug) filled deepthink, its 404 was mislabeled 'cortex model' and refreshed to the cortex id, crossing roles muse->cortex against h8's same-role rule",
+      "task_ref": "t9",
+      "reason": "complete() computes the seat as worker-or-cortex and never verifies whose model 404'd; fix in-arc: call-time refresh arms for the MAIN seat only (matching c8/c11's 'MAIN model' language) \u2014 deepthink/senses replaced configs disarm it and keep their own degrade paths",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "risky"
     }
   ]
 }

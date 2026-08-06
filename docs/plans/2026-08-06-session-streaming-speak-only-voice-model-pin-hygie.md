@@ -120,6 +120,16 @@ slug: `session-streaming-speak-only-voice-model-pin-hygie` · status: `exported`
   - docs/features/ gains the arc's doc (streaming, narration labels, speak-only default-off, stale-pin refresh, honest limits incl. the off-TTY h12 invariant) linked from a new CLAUDE.md architecture bullet per the trim discipline
   - the version is bumped with a CHANGELOG entry so the version-check CI job passes
 
+### t14 — t14 — NEBULA RUN: upgraded Colleague co-designs and builds an agent-first game under guidance
+
+- instruction: run AFTER t13 in a fresh game repo (not colleague's); vehicle: colleague plan for the spec->plan arc with the operator confirming gates, then wave-wise colleague work loops (pin `CONVERTIBLE_MODEL`, `COLLEAGUE_TIMEOUT`=300, cap 2 concurrent, stall watchdogs per #372); the operator guides with briefs + flight guidance, verifies every landed change (diff + tests), grades every work item (ROI loop); archive .colleague/artifacts, flight feeds, and the operator-side transcript into the bundle; the upgraded lanes (streaming, narration, stale-pin refresh) stay armed — this run is ALSO their field trial
+- depends on: t13
+- acceptance:
+  - the game is agent-first: a programmatic play interface (engine API / protocol an agent-written bot can drive) AND human keyboard play both work; a sample agent player script plays a full run
+  - feature complexity lands: ship upgrades, level-ups, engine, enemies with enemy levels, resources and goals, side quests, persistent state between runs, points, sensors, weapons, shields, generator — each present and exercised by tests or the agent player
+  - the design and code are COLLEAGUE-authored: Colleague proposes the ideas, drives its own devague frame/plan (colleague plan, operator-gated), and implements via its own work loops; the operator guides and TDD-gates but does not write the game
+  - the full conversation and Colleague's inner workings (session transcripts, work artifacts with step traces, flight feeds, plan gates, senses records) are saved into an analysis bundle
+
 ## Risks
 
 - [unknown_nonblocking] q4 is open: speak-only is built replies-only by default; the user may resolve it to also speak narration lines — t8's gating is written so the change is a one-line scope widen (task t8)
