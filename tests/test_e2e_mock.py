@@ -282,6 +282,7 @@ def test_no_destination_drive_omits_destination_keys_byte_identical(tmp_path: Pa
         "command",
         "not_finished",
         "stopped_without_finish",
+        "warnings",
     }
 
 
@@ -326,6 +327,7 @@ def test_no_subagent_drive_omits_sub_results_key_byte_identical(tmp_path: Path) 
         "command",
         "not_finished",
         "stopped_without_finish",
+        "warnings",
     }
     assert set(serialized.keys()) == expected_keys
 
@@ -395,6 +397,7 @@ def test_no_policy_file_artifact_is_byte_identical_to_policy_free_run(
         "command",
         "not_finished",
         "stopped_without_finish",
+        "warnings",
     }
     assert (
         set(dict_a.keys()) == expected_keys

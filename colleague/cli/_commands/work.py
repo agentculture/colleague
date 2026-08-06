@@ -27,7 +27,7 @@ import os
 import signal
 import sys
 from contextlib import suppress
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -1364,6 +1364,11 @@ def execute_work(
             # serialized shape byte-identical (omit-when-None).
             if chain is not None:
                 result.chain = ChainView.accumulate(chain.prior_view, result)
+            # Stale-pin refresh warnings (t11): fold config's refresh warnings
+            # into the result before the artifact write, so background/one-shot
+            # runs surface them after the fact (h21). No-op when empty.
+            if config.model_refresh_warnings:
+                result.warnings.extend(asdict(w) for w in config.model_refresh_warnings)
             artifact_path = write(result, artifact_dir(repo))
             # The cumulative config-plane fold (t9, acceptance criterion 3):
             # AFTER the base artifact is durably written, land the combined

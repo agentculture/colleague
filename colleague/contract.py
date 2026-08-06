@@ -1473,6 +1473,14 @@ class TaskResult:
     the loop alongside the ``capacity_warning`` deferral note, so chain
     accounting and artifact consumers never string-match prose. ``False`` is
     OMITTED from the artifact (a non-deferring run stays byte-identical)."""
+    warnings: list[dict[str, str]] = field(default_factory=list)
+    """Structured stale-pin refresh warnings folded into the run artifact (t11).
+    Each entry is a plain dict with keys ``role``, ``stale_id``, ``source``,
+    ``refreshed_id``, ``point`` — mirroring
+    :class:`~colleague.lobes.ModelRefreshWarning.to_dict``. Always serialized
+    (like ``steps``), so a background/one-shot artifact is greppable with no TTY
+    (h21). An artifact written before this field still loads with
+    ``warnings == []`` (back-compat)."""
     lint_report: Optional[LintReport] = None
     """The lint pre-finish gate's report, or ``None`` when linting did not run
     (disabled, or no linters configured). Like destination/capacity_decision,
@@ -1654,6 +1662,7 @@ class TaskResult:
             "command": self.command,
             "not_finished": self.not_finished,
             "stopped_without_finish": self.stopped_without_finish,
+            "warnings": list(self.warnings),
         }
         # destination and announcement are OMITTED (not emitted as null) when
         # None.  This preserves byte-identical output for the no-destination
@@ -1844,6 +1853,7 @@ class TaskResult:
             ),
             config_events=_coerce_config_events(data.get("config_events")),
             config_digest=data.get("config_digest"),
+            warnings=list(data.get("warnings", [])),
         )
 
 
