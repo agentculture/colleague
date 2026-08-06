@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Sequence
 
 from colleague.configevents import (
     EVENT_KIND_APPLIED,
@@ -2126,33 +2126,53 @@ def map_configlifecycle_events(
     applied_iter = iter(applied_units)
     mapped: list[ConfigEvent] = []
     for seq, event in enumerate(events):
-        kind = str(getattr(event, "kind", ""))
-        mapped_kind = _LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND.get(kind, kind)
-        # "refused records stay reason-only" (acceptance 2): every other kind
-        # keeps reason empty, matching ConfigEvent's own stated convention
-        # ("populated for a refused event ... empty for every other kind").
-        reason = str(getattr(event, "detail", "")) if kind == "refused" else ""
-        content = ""
-        if kind == "applied":
-            unit = next(applied_iter, None)
-            if unit is not None:
-                target = getattr(unit, "target", None)
-                target_value = getattr(target, "value", target)
-                unit_content = str(getattr(unit, "content", "") or "")
-                if target_value == _STRATEGIST_TARGET_VALUE and unit_content:
-                    content = unit_content.strip()
-        base_kwargs: dict[str, Any] = {
-            "kind": mapped_kind,
-            "target": str(getattr(event, "target", "")),
-            "origin": str(getattr(event, "origin", "")),
-            "reason": reason,
-            "seq": seq,
-        }
-        if content:
-            mapped.append(ConfigEventRecord(content=content, **base_kwargs))
-        else:
-            mapped.append(ConfigEvent(**base_kwargs))
+        mapped.append(_map_one_lifecycle_event(seq, event, applied_iter))
     return mapped
+
+
+def _applied_unit_content(applied_iter: Iterator[Any]) -> str:
+    """Pull the next applied :class:`~colleague.lattice.ChangeUnit` (if any)
+    off *applied_iter* and return its content when it targets the strategist
+    prompt — the "content only on applied strategist records" rule (see
+    :func:`map_configlifecycle_events`). Returns ``""`` when the iterator is
+    exhausted or the applied unit carries no strategist content.
+    """
+    unit = next(applied_iter, None)
+    if unit is None:
+        return ""
+    target = getattr(unit, "target", None)
+    target_value = getattr(target, "value", target)
+    unit_content = str(getattr(unit, "content", "") or "")
+    if target_value == _STRATEGIST_TARGET_VALUE and unit_content:
+        return unit_content.strip()
+    return ""
+
+
+def _map_one_lifecycle_event(seq: int, event: Any, applied_iter: Iterator[Any]) -> ConfigEvent:
+    """Map a single lifecycle event onto a durable :class:`ConfigEvent` (or
+    :class:`ConfigEventRecord` when it carries applied strategist content).
+
+    Extracted from :func:`map_configlifecycle_events` to keep the caller's
+    cognitive complexity under the S3776 ceiling (the ``_moded_config``
+    precedent, PR #338).
+    """
+    kind = str(getattr(event, "kind", ""))
+    mapped_kind = _LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND.get(kind, kind)
+    # "refused records stay reason-only" (acceptance 2): every other kind
+    # keeps reason empty, matching ConfigEvent's own stated convention
+    # ("populated for a refused event ... empty for every other kind").
+    reason = str(getattr(event, "detail", "")) if kind == "refused" else ""
+    content = _applied_unit_content(applied_iter) if kind == "applied" else ""
+    base_kwargs: dict[str, Any] = {
+        "kind": mapped_kind,
+        "target": str(getattr(event, "target", "")),
+        "origin": str(getattr(event, "origin", "")),
+        "reason": reason,
+        "seq": seq,
+    }
+    if content:
+        return ConfigEventRecord(content=content, **base_kwargs)
+    return ConfigEvent(**base_kwargs)
 
 
 def config_digest_for(events: Sequence[ConfigEvent]) -> Optional[str]:

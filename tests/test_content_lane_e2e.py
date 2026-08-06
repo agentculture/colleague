@@ -287,7 +287,8 @@ class TestStrategistAndToolNarrowingHermeticEndToEnd:
         # never executed.
         assert result.changed_files == []
         write_steps = [s for s in result.steps if s.tool == "write_file"]
-        assert write_steps and write_steps[0].ok is False
+        assert write_steps
+        assert write_steps[0].ok is False
         assert "not allowed for this role" in write_steps[0].result
         assert config.config_lifecycle is not None
         assert config.config_lifecycle.snapshot.tool_set == ("list_dir", "read_file", "finish")
@@ -295,7 +296,9 @@ class TestStrategistAndToolNarrowingHermeticEndToEnd:
         # -- lane (c): the front's armed windows folded config_events onto
         # BOTH the in-memory result and the on-disk artifact.
         kinds = [e.kind for e in result.config_events]
-        assert "proposed" in kinds and "verified" in kinds and "applied" in kinds
+        assert "proposed" in kinds
+        assert "verified" in kinds
+        assert "applied" in kinds
         applied = [e for e in result.config_events if e.kind == "applied"]
         assert len(applied) == 2  # the strategist unit + the tools unit
         assert result.config_digest is not None
@@ -641,7 +644,8 @@ class TestContainment:
         # Refused whole — never folded onto the effective snapshot.
         assert config.config_lifecycle.snapshot.strategist_sections == ()
         refused = [e for e in result.config_events if e.kind == "refused"]
-        assert refused and refused[0].target == "worker.prompt.strategist"
+        assert refused
+        assert refused[0].target == "worker.prompt.strategist"
         applied = [e for e in result.config_events if e.kind == "applied"]
         assert applied == []
         # And it never reached the composed prompt.

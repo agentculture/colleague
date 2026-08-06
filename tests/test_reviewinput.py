@@ -162,7 +162,8 @@ def test_between_episodes_truncates_long_file_list() -> None:
     )
     result = assemble_between_episodes(task, result_obj, max_chars=500)
     # Should contain "+N more" indicator
-    assert "+" in result.digest and "more" in result.digest.lower()
+    assert "+" in result.digest
+    assert "more" in result.digest.lower()
 
 
 def test_between_episodes_includes_gate_outcomes() -> None:
