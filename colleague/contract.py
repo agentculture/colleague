@@ -2159,9 +2159,16 @@ def _map_one_lifecycle_event(seq: int, event: Any, applied_iter: Iterator[Any]) 
     kind = str(getattr(event, "kind", ""))
     mapped_kind = _LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND.get(kind, kind)
     # "refused records stay reason-only" (acceptance 2): every other kind
-    # keeps reason empty, matching ConfigEvent's own stated convention
-    # ("populated for a refused event ... empty for every other kind").
-    reason = str(getattr(event, "detail", "")) if kind == "refused" else ""
+    # keeps reason empty, matching ConfigEvent's own stated convention —
+    # except "degraded" (stream-only, the #363 visibility rung), whose reason
+    # IS the degradation. The source attribute differs by producer: the
+    # lifecycle's internal events carry ``detail``, the configurator stream's
+    # durable events carry ``reason`` — read whichever is present so this
+    # mapper serves both (the fold sources the configurator CYCLE from the
+    # stream precisely because pre-propose refusals exist only there).
+    reason = ""
+    if kind in ("refused", "degraded"):
+        reason = str(getattr(event, "detail", "") or getattr(event, "reason", ""))
     content = _applied_unit_content(applied_iter) if kind == "applied" else ""
     base_kwargs: dict[str, Any] = {
         "kind": mapped_kind,

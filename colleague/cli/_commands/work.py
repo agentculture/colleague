@@ -846,51 +846,47 @@ def _run_between_episodes_window(
 
 
 def _combined_config_events(state: "_ConfigPlaneState") -> list:
-    """Combine the lifecycle's own event trail with the configurator
-    stream's EXCLUSIVE kinds — never double-counted (spec requirement: "pick
-    ONE source of truth for overlapping kinds").
+    """Fold the config plane's two append-only records into ONE durable trail
+    — never double-counted (spec requirement: "pick ONE source of truth for
+    overlapping kinds").
 
-    Both :func:`colleague.configurator.review_and_queue` (appending onto
-    *state.stream*) and the :class:`~colleague.configlifecycle.
-    EpisodeConfigLifecycle` it drives (``propose``/``apply_window``,
-    appending onto the lifecycle's OWN internal event list) record
-    proposed/refused/applied for the exact SAME review-then-apply cycle —
-    folding both verbatim would double-count every one of those three kinds.
+    The CONFIGURATOR STREAM is the source of truth for the whole review
+    cycle — proposed / verified / refused / applied / degraded — because it
+    is the only record that sees EVERY refusal shape (a malformed reply or
+    a change entry that fails to build refuses BEFORE ``lifecycle.propose``
+    is ever called, so the lifecycle's own trail is silent about it — Qodo
+    #369 review, thread 1) and because it records the cycle in true causal
+    order (proposed -> verified -> applied per unit; the previous
+    lifecycle-first construction appended every "verified" after every
+    "applied" — thread 2). Stream events pass through
+    :func:`colleague.contract.map_configlifecycle_events` for the
+    class-selective applied-content enrichment (q5, via
+    *state.applied_units* — the stream's applied events are 1:1 and
+    same-order with the accumulated applied units) and reason preservation.
 
-    This picks the LIFECYCLE (via :func:`colleague.contract.
-    map_configlifecycle_events`) as the source of truth for the three
-    overlapping kinds plus its own "boundary" (mapped onto
+    The LIFECYCLE contributes ONLY its "boundary" events (mapped onto
     ``EVENT_KIND_BASELINE`` — an episode-boundary marker the stream has no
-    equivalent of at all, recorded once per ``run()`` exit regardless of
-    whether the configurator produced anything). It is also the ONLY path
-    that can carry an applied strategist unit's verbatim content (q5, via
-    *state.applied_units*) — the stream's own "applied" event never carries
-    content.
+    equivalent of, recorded once per ``run()`` exit), appended after the
+    cycle trail. For a single-episode run this IS chronological (the
+    boundary fires at run exit, after the one window); on a chain the
+    per-window interleave is approximated — each boundary event carries its
+    own boundary index and effective-config digest, which is what anchors
+    it to a config state, not its list position (documented approximation,
+    deliberate).
 
-    The stream contributes only the two kinds the lifecycle has NO
-    equivalent of: "verified" (a step finer than the lifecycle's own
-    proposed/refused split — cortex answered and the lattice accepted the
-    unit, distinct from it having been APPLIED yet) and "degraded" (the
-    #363 armed-is-not-alive visibility — a degraded review never even
-    reaches ``lifecycle.propose()``, so the lifecycle's own trail is silent
-    about it).
-
-    ``seq`` is renumbered across the COMBINED list (mapped lifecycle events
-    first, in lifecycle order, then the stream's exclusive events in stream
-    order) — a monotonic index into what ``TaskResult.config_events``
-    actually carries, never trusted from either source's own internal
-    numbering (which start at 0 independently and would otherwise collide).
+    ``seq`` is renumbered across the COMBINED list — a monotonic index into
+    what ``TaskResult.config_events`` actually carries, never trusted from
+    either source's own internal numbering.
     """
     from dataclasses import replace as _replace
 
-    from colleague.configevents import EVENT_KIND_DEGRADED, EVENT_KIND_VERIFIED
     from colleague.contract import map_configlifecycle_events
 
-    mapped = map_configlifecycle_events(state.lifecycle.events(), applied_units=state.applied_units)
-    exclusive = [
-        e for e in state.stream.replay() if e.kind in (EVENT_KIND_VERIFIED, EVENT_KIND_DEGRADED)
-    ]
-    combined = mapped + exclusive
+    cycle = map_configlifecycle_events(state.stream.replay(), applied_units=state.applied_units)
+    boundaries = map_configlifecycle_events(
+        [e for e in state.lifecycle.events() if getattr(e, "kind", "") == "boundary"]
+    )
+    combined = cycle + boundaries
     return [_replace(event, seq=i) for i, event in enumerate(combined)]
 
 

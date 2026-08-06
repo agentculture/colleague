@@ -519,7 +519,10 @@ class TestAutoStampedKnowledgeOrigins:
         assert applied[0].origin == "cortex"
 
         data = _read_artifact(artifact_path)
-        assert data["config_events"][-1]["origin"] == "cortex"
+        # The trail's LAST record is the run-exit boundary marker (baseline,
+        # no origin) — the applied record is what carries the stamped origin.
+        artifact_applied = [e for e in data["config_events"] if e["kind"] == "applied"]
+        assert artifact_applied[-1]["origin"] == "cortex"
 
 
 # ===========================================================================

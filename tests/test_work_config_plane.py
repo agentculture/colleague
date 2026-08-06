@@ -582,3 +582,86 @@ class TestCumulativeFold:
 
         assert observed["existed_before_update"] is True
         assert observed["had_config_events_before_update"] is False
+
+
+class TestCombinedTrailSourcesTheStream:
+    """Regression pins for the Qodo #369 review findings on the fold.
+
+    Thread 1: a refusal that happens BEFORE ``lifecycle.propose()`` (a
+    malformed reply / a change entry that fails to build) exists ONLY on the
+    configurator stream — the previous lifecycle-first fold dropped it from
+    ``TaskResult.config_events`` entirely.
+
+    Thread 2: the previous fold appended the stream's "verified" events
+    after ALL mapped lifecycle events, so a verified record could land after
+    its own applied record — breaking the cycle's causal order
+    (proposed -> verified -> applied).
+    """
+
+    def _state(self):
+        from colleague.cli._commands.work import _ConfigPlaneState
+        from colleague.configevents import ConfigEventStream
+        from colleague.configlifecycle import EpisodeConfigLifecycle
+        from colleague.lattice import CapabilityCatalog
+
+        catalog = CapabilityCatalog(tool_ids=("read_file", "finish"))
+        return _ConfigPlaneState(
+            lifecycle=EpisodeConfigLifecycle(catalog=catalog),
+            stream=ConfigEventStream(),
+            catalog=catalog,
+        )
+
+    def test_pre_propose_refusal_is_visible_on_the_folded_trail(self):
+        """A stream-only refusal (never proposed onto the lifecycle) survives
+        the fold — pre-change this list was empty of it (Qodo thread 1)."""
+        from colleague.cli._commands.work import _combined_config_events
+        from colleague.configevents import EVENT_KIND_REFUSED
+
+        state = self._state()
+        state.stream.append(
+            EVENT_KIND_REFUSED,
+            origin="cortex",
+            reason="malformed configurator reply: no JSON object found",
+        )
+        folded = _combined_config_events(state)
+        refused = [e for e in folded if e.kind == EVENT_KIND_REFUSED]
+        assert len(refused) == 1
+        assert "malformed configurator reply" in refused[0].reason
+
+    def test_verified_precedes_applied_in_the_folded_trail(self):
+        """The cycle's causal order (proposed -> verified -> applied) is
+        preserved verbatim from the stream — pre-change every verified event
+        trailed every applied event (Qodo thread 2)."""
+        from colleague.cli._commands.work import _combined_config_events
+        from colleague.configevents import (
+            EVENT_KIND_APPLIED,
+            EVENT_KIND_PROPOSED,
+            EVENT_KIND_VERIFIED,
+        )
+        from colleague.lattice import ChangeUnit, Origin, Target
+
+        state = self._state()
+        unit = ChangeUnit(
+            target=Target.WORKER_PROMPT_STRATEGIST,
+            origin=Origin.CORTEX,
+            content="Verify before editing.",
+        )
+        target = Target.WORKER_PROMPT_STRATEGIST.value
+        state.stream.append(EVENT_KIND_PROPOSED, target=target, origin="cortex")
+        state.stream.append(EVENT_KIND_VERIFIED, target=target, origin="cortex")
+        state.stream.append(EVENT_KIND_APPLIED, target=target, origin="cortex")
+        state.applied_units.append(unit)
+        assert state.lifecycle.propose(unit).allowed
+        state.lifecycle.apply_window("before-episode-1")
+        state.lifecycle.end_episode()
+
+        folded = _combined_config_events(state)
+        kinds = [e.kind for e in folded]
+        assert kinds.index(EVENT_KIND_VERIFIED) < kinds.index(EVENT_KIND_APPLIED)
+        # the applied record still carries the verbatim content (q5)
+        applied = [e for e in folded if e.kind == EVENT_KIND_APPLIED]
+        assert getattr(applied[0], "content", "") == "Verify before editing."
+        # the boundary marker survives as the trailing baseline record
+        assert kinds[-1] == "baseline"
+        # seq is monotonic across the combined trail
+        assert [e.seq for e in folded] == list(range(len(folded)))
