@@ -91,6 +91,29 @@ def test_config_events_from_dict_drops_malformed_entries() -> None:
     assert result.config_digest == "somehash"
 
 
+def test_config_events_round_trip_carries_a_degraded_event() -> None:
+    """EVENT_KIND_DEGRADED (added for the change-content-consumption-lane
+    configurator visibility requirement) round-trips through TaskResult's
+    existing coercion with no contract.py change needed -- ConfigEvent.kind
+    is a free string field there, validated only by
+    ConfigEventStream.append's sanctioned construction path, never by the
+    contract's own coercion."""
+    events = [
+        ConfigEvent(
+            kind="degraded", target="", origin="cortex", reason="no cortex dial resolvable", seq=0
+        ),
+    ]
+    original = TaskResult(
+        task_id="abc",
+        status="ok",
+        config_events=events,
+        config_digest=effective_digest(events),
+    )
+    restored = TaskResult.from_dict(original.to_dict())
+    assert restored == original
+    assert restored.config_events[0].kind == "degraded"
+
+
 def test_config_events_absent_from_dict_defaults_to_empty_list() -> None:
     data = {"task_id": "x", "status": "ok"}
     result = TaskResult.from_dict(data)

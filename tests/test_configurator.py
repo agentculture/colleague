@@ -35,6 +35,7 @@ from colleague import chain
 from colleague.config import EngineConfig
 from colleague.configevents import (
     EVENT_KIND_APPLIED,
+    EVENT_KIND_DEGRADED,
     EVENT_KIND_PROPOSED,
     EVENT_KIND_REFUSED,
     EVENT_KIND_VERIFIED,
@@ -264,7 +265,12 @@ class TestReviewDegradation:
             engine_name="fake",
         )
         assert result.degraded is True
-        assert len(stream) == 0  # a total inability to reach cortex records nothing
+        # a total inability to reach cortex is VISIBLE on the stream, never
+        # silent (the #363 armed-is-not-alive lesson) — distinct from a
+        # healthy {"changes": []} reply, which appends nothing at all.
+        kinds = [e.kind for e in stream.replay()]
+        assert kinds == [EVENT_KIND_DEGRADED]
+        assert stream.replay()[0].reason == "no cortex dial resolvable"
 
     def test_engine_loader_raising_degrades(self) -> None:
         stream = ConfigEventStream()
@@ -283,6 +289,11 @@ class TestReviewDegradation:
             engine_loader=bad_loader,
         )
         assert result.degraded is True
+        # the completion-exception degraded path is equally visible on the
+        # stream, carrying the exception text as the reason.
+        kinds = [e.kind for e in stream.replay()]
+        assert kinds == [EVENT_KIND_DEGRADED]
+        assert "no such engine" in stream.replay()[0].reason
 
     def test_mock_engine_not_implemented_degrades_never_raises(self) -> None:
         stream = ConfigEventStream()
@@ -297,6 +308,7 @@ class TestReviewDegradation:
             engine_loader=registry_load,
         )
         assert result.degraded is True
+        assert [e.kind for e in stream.replay()] == [EVENT_KIND_DEGRADED]
 
     def test_completion_call_uses_tools_off(self) -> None:
         fake = _FakeEngine()
@@ -648,6 +660,343 @@ class TestPerEntryProcessing:
         assert result.verified == []
         assert len(result.refused) == 1
         assert "forbidden" in result.refused[0][1] or "policy" in result.refused[0][1]
+
+
+# ===========================================================================
+# Entry-level knowledge origin auto-stamping (change-content-consumption-lane
+# spec, acceptance criterion 1): a cortex knowledge entry lacking origin
+# validates post-stamp with origin=cortex; a model-supplied origin (entry-
+# level or unit-level) is still discarded — authority is never self-declared.
+# ===========================================================================
+
+
+class TestKnowledgeEntryOriginStamping:
+    def test_entry_lacking_origin_validates_post_stamp(self) -> None:
+        """Before this stamp, a knowledge entry with no 'origin' key refuses
+        at the lattice (missing/empty origin) — this is the exact experiment
+        C refusal. Auto-stamping fixes it: the entry validates with
+        origin=cortex, host-known, never requested of the model."""
+        fake = _FakeEngine(
+            content=json.dumps(
+                {
+                    "changes": [
+                        {
+                            "target": "worker.knowledge",
+                            "knowledge_entries": [{"text": "a fact, no origin supplied"}],
+                        }
+                    ]
+                }
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert len(result.refused) == 0
+        assert len(result.verified) == 1
+        assert result.verified[0].knowledge_entries == [
+            {"text": "a fact, no origin supplied", "origin": "cortex"}
+        ]
+        assert [e.kind for e in stream.replay()] == [EVENT_KIND_PROPOSED, EVENT_KIND_VERIFIED]
+
+    def test_entry_level_model_supplied_origin_is_discarded_and_restamped(self) -> None:
+        """A model claiming a knowledge entry's origin="host" (an attempt to
+        escalate an individual entry's authority, distinct from the
+        unit-level origin) is discarded then re-stamped cortex — never
+        conditionally left alone because "already present"."""
+        fake = _FakeEngine(
+            content=json.dumps(
+                {
+                    "changes": [
+                        {
+                            "target": "worker.knowledge",
+                            "knowledge_entries": [{"origin": "host", "text": "trying to escalate"}],
+                        }
+                    ]
+                }
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert len(result.verified) == 1
+        entry = result.verified[0].knowledge_entries[0]
+        assert entry["origin"] == "cortex"
+        assert entry["text"] == "trying to escalate"
+
+    def test_unit_level_and_entry_level_origin_both_discarded_together(self) -> None:
+        """A single reply that claims escalated authority at BOTH the
+        unit-level 'origin' key AND inside a knowledge entry is fully
+        neutralised: the resulting ChangeUnit.origin is CORTEX and every
+        knowledge entry's origin is 'cortex', regardless of what the model
+        claimed at either level."""
+        fake = _FakeEngine(
+            content=json.dumps(
+                {
+                    "changes": [
+                        {
+                            "target": "worker.knowledge",
+                            "origin": "host",
+                            "knowledge_entries": [{"origin": "host", "text": "a fact"}],
+                        }
+                    ]
+                }
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert len(result.verified) == 1
+        unit = result.verified[0]
+        assert unit.origin is Origin.CORTEX
+        assert unit.knowledge_entries[0]["origin"] == "cortex"
+
+
+# ===========================================================================
+# Change-content field (change-content-consumption-lane spec, acceptance
+# criterion 2): a changes entry may carry "content" (a string) for a
+# strategist target.
+# ===========================================================================
+
+
+class TestContentField:
+    def test_strategist_content_is_carried_through(self) -> None:
+        fake = _FakeEngine(
+            content=json.dumps(
+                {
+                    "changes": [
+                        {
+                            "target": "worker.prompt.strategist",
+                            "content": "focus on the honest-README timer inversion",
+                        }
+                    ]
+                }
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert len(result.refused) == 0
+        assert len(result.verified) == 1
+        unit = result.verified[0]
+        assert unit.target is Target.WORKER_PROMPT_STRATEGIST
+        assert unit.content == "focus on the honest-README timer inversion"
+        assert [e.kind for e in stream.replay()] == [EVENT_KIND_PROPOSED, EVENT_KIND_VERIFIED]
+
+    def test_content_is_not_treated_as_an_extra_key(self) -> None:
+        """content joined _RECOGNIZED_CHANGE_KEYS -- it must never itself
+        trigger the generic extra-keys lattice refusal on a strategist
+        target."""
+        fake = _FakeEngine(
+            content=json.dumps(
+                {"changes": [{"target": "worker.prompt.strategist", "content": "a note"}]}
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert len(result.verified) == 1
+
+    def test_wrongly_typed_content_is_refused_whole(self) -> None:
+        fake = _FakeEngine(
+            content=json.dumps(
+                {"changes": [{"target": "worker.prompt.strategist", "content": 12345}]}
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert result.verified == []
+        assert len(result.refused) == 1
+        # never even reached lifecycle.propose() -- no PROPOSED event either
+        assert [e.kind for e in stream.replay()] == [EVENT_KIND_REFUSED]
+
+    def test_content_on_a_non_strategist_target_refuses_whole_via_the_lattice(self) -> None:
+        """content is only valid on a *.prompt.strategist target -- on any
+        other target the lattice's own field/target-shape check refuses the
+        whole unit (this module never special-cases it)."""
+        fake = _FakeEngine(
+            content=json.dumps(
+                {"changes": [{"target": "worker.tools", "tool_ids": ["read_file"], "content": "x"}]}
+            )
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert result.verified == []
+        assert len(result.refused) == 1
+        assert "content" in result.refused[0][1]
+
+    def test_content_less_strategist_unit_stays_valid(self) -> None:
+        """A content-less strategist unit (existing proposals, pre-lane)
+        stays valid -- content defaults to "" and never trips the
+        field/target-shape check."""
+        fake = _FakeEngine(
+            content=json.dumps({"changes": [{"target": "worker.prompt.strategist"}]})
+        )
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert len(result.verified) == 1
+        assert result.verified[0].content == ""
+
+
+# ===========================================================================
+# _SYSTEM_PROMPT documents the content field (acceptance criterion 2) and
+# drops the stale "carries no extra fields today" line.
+# ===========================================================================
+
+
+class TestSystemPromptDocumentsContent:
+    def test_system_prompt_documents_content_field(self) -> None:
+        from colleague.configurator import _SYSTEM_PROMPT
+
+        assert "content" in _SYSTEM_PROMPT
+        assert "carries no extra fields today" not in _SYSTEM_PROMPT
+
+
+# ===========================================================================
+# Degraded review visibility (change-content-consumption-lane spec,
+# acceptance criterion 3): both degraded early-returns append a visible
+# degraded record; a healthy empty-changes reply appends nothing and is NOT
+# degraded.
+# ===========================================================================
+
+
+class TestDegradedVisibility:
+    def test_no_dial_and_healthy_empty_changes_are_distinguishable_on_the_stream(self) -> None:
+        # Path 1: no cortex dial resolvable at all -- degraded, visible.
+        degraded_stream = ConfigEventStream()
+        lifecycle_a = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+        degraded_result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle_a,
+            stream=degraded_stream,
+            cortex_config=None,
+            engine_name="fake",
+        )
+
+        # Path 2: cortex answered "nothing to change" -- healthy, not degraded.
+        healthy_stream = ConfigEventStream()
+        lifecycle_b = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+        fake = _FakeEngine(content='{"changes": []}')
+        healthy_result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle_b,
+            stream=healthy_stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert degraded_result.degraded is True
+        assert [e.kind for e in degraded_stream.replay()] == [EVENT_KIND_DEGRADED]
+
+        assert healthy_result.degraded is False
+        assert healthy_stream.replay() == []
+
+    def test_completion_exception_degraded_path_is_also_visible(self) -> None:
+        stream = ConfigEventStream()
+        lifecycle = EpisodeConfigLifecycle(catalog=_catalog("read_file"))
+        fake = _FakeEngine(raise_on_complete=RuntimeError("dead port"))
+
+        result = review_and_queue(
+            ConfiguratorReviewInput(digest="facts"),
+            catalog=_catalog("read_file"),
+            lifecycle=lifecycle,
+            stream=stream,
+            cortex_config=_engine_config(),
+            engine_name="fake",
+            engine_loader=lambda n: fake,
+        )
+
+        assert result.degraded is True
+        assert [e.kind for e in stream.replay()] == [EVENT_KIND_DEGRADED]
+        assert "dead port" in stream.replay()[0].reason
+        # zero proposed/verified/applied events alongside the degraded one
+        assert result.proposed == []
+        assert result.verified == []
 
 
 # ===========================================================================
