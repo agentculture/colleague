@@ -15,9 +15,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
-from colleague.configevents import ConfigEvent
+from colleague.configevents import (
+    EVENT_KIND_APPLIED,
+    EVENT_KIND_BASELINE,
+    EVENT_KIND_PROPOSED,
+    EVENT_KIND_REFUSED,
+    ConfigEvent,
+    effective_digest,
+)
 
 if TYPE_CHECKING:
     from colleague.affectedtests import AffectedTestsReport
@@ -1949,6 +1956,17 @@ def _coerce_config_events(raw: Optional[list[Any]]) -> list[ConfigEvent]:
     malformed (non-dict) entry is dropped rather than raising, matching the
     codebase's best-effort stance on optional structured payloads read back
     from JSON (see :func:`_coerce_deepthink_calls`).
+
+    An entry carrying a non-empty ``"content"`` key (t8) is parsed via
+    :meth:`ConfigEventRecord.from_dict` instead of the bare
+    :class:`ConfigEvent`'s own ``from_dict`` — every OTHER entry (the common
+    case: an old artifact predating ``content``, or any event this fold never
+    attaches content to) stays a plain :class:`ConfigEvent`, so
+    ``restored.config_events == original_events`` keeps holding for every
+    pre-t8 round-trip test that compares against hand-built
+    :class:`ConfigEvent` instances (dataclass equality requires the SAME
+    class). Content-bearing entries opt into the richer subclass; everything
+    else round-trips byte-for-byte and class-for-class exactly as before.
     """
     if not raw:
         return []
@@ -1956,8 +1974,203 @@ def _coerce_config_events(raw: Optional[list[Any]]) -> list[ConfigEvent]:
     for entry in raw:
         if not isinstance(entry, dict):
             continue
-        events.append(ConfigEvent.from_dict(entry))
+        if entry.get("content"):
+            events.append(ConfigEventRecord.from_dict(entry))
+        else:
+            events.append(ConfigEvent.from_dict(entry))
     return events
+
+
+# ---------------------------------------------------------------------------
+# Config event fold (three-tier-execution plan task t8, covers c6/h6/c36/h29)
+# ---------------------------------------------------------------------------
+#
+# colleague.configlifecycle.EpisodeConfigLifecycle keeps its OWN small,
+# in-memory event log (kind in {"proposed", "refused", "applied", "boundary"}
+# — a deliberate subset of the full configevents vocabulary; see that
+# module's own docstring) plus a per-window application history. Neither of
+# those lifecycle-native shapes is what TaskResult.config_events carries —
+# this section is the ONE mapper that turns the lifecycle's own records into
+# durable configevents.ConfigEvent entries, reusing the vocabulary
+# configevents.py already owns rather than inventing a parallel one here.
+# configevents.py itself belongs to a sibling task (t6) this wave and is
+# never touched by this mapper or by ConfigEventRecord below — both are
+# contract.py's own compatible extension of ConfigEvent's shape.
+
+
+#: Lifecycle kind -> the honest configevents.py kind it maps onto.
+#: "proposed"/"refused"/"applied" share their literal string with
+#: configevents' own EVENT_KIND_* constants (imported, not re-typed here, so
+#: a rename on either side cannot silently drift the mapping out of sync).
+#: "boundary" has no durable counterpart of its own in configevents.py: an
+#: episode boundary marks a RESTING config STATE observed at that instant
+#: (never a change action) — which is exactly what EVENT_KIND_BASELINE
+#: already means in that module's vocabulary (a "starting config, seeded"
+#: checkpoint the T8-trap guard requires to be explicit). Every OTHER kind in
+#: EVENT_KINDS (proposed/refused/verified/applied/reverted/degraded)
+#: describes a mutation, so baseline is the one honest existing kind a
+#: boundary can map onto without inventing a new one.
+_LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND: dict[str, str] = {
+    "proposed": EVENT_KIND_PROPOSED,
+    "refused": EVENT_KIND_REFUSED,
+    "applied": EVENT_KIND_APPLIED,
+    "boundary": EVENT_KIND_BASELINE,
+}
+
+#: The one lattice target string whose APPLIED unit carries content worth
+#: folding onto the artifact. Mirrors
+#: ``colleague.lattice.Target.WORKER_PROMPT_STRATEGIST.value`` — duck-typed
+#: here (a plain string compare) rather than importing ``colleague.lattice``,
+#: so this mapper stays exactly as decoupled from the lattice's typed surface
+#: as ``colleague/configevents.py`` itself already is (that module's own
+#: docstring: "target/origin are free-form strings here ... so this stream
+#: stays usable by any future producer").
+_STRATEGIST_TARGET_VALUE = "worker.prompt.strategist"
+
+
+@dataclass
+class ConfigEventRecord(ConfigEvent):
+    """A :class:`~colleague.configevents.ConfigEvent` extended with the
+    verbatim applied strategist ``content`` (plan task t8, decision q5).
+
+    ``configevents.py`` belongs to a sibling task this wave and is not
+    touched here — this subclass is contract.py's own COMPATIBLE extension
+    of the base dataclass's ``to_dict``/``from_dict`` shape: ``content`` is
+    OMITTED (not emitted as an empty string) whenever it is empty, so an
+    ordinary proposed/refused/applied-non-strategist/baseline record
+    serializes byte-identically to a plain :class:`ConfigEvent`, and an
+    artifact written before this field existed loads with ``content=""``
+    (falsy — round-trips right back to the same omitted shape old artifacts
+    always had). Only an APPLIED ``worker.prompt.strategist`` record ever
+    carries a non-empty ``content``; refused records stay reason-only
+    (acceptance 2) — nothing here special-cases that, it simply follows from
+    :func:`map_configlifecycle_events` never setting ``content`` on anything
+    but an applied strategist record.
+
+    A plain :class:`ConfigEvent` (e.g. one another producer like
+    :mod:`colleague.configurator` appends directly onto a
+    :class:`~colleague.configevents.ConfigEventStream`) is left completely
+    alone by this subclass's existence — its own ``to_dict`` is unaffected,
+    since Python dispatches on each instance's *actual* class.
+    """
+
+    content: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        d = super().to_dict()
+        if self.content:
+            d["content"] = self.content
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ConfigEventRecord":
+        base = ConfigEvent.from_dict(data)
+        return cls(
+            kind=base.kind,
+            target=base.target,
+            origin=base.origin,
+            reason=base.reason,
+            seq=base.seq,
+            content=str(data.get("content", "") or ""),
+        )
+
+
+def map_configlifecycle_events(
+    events: Sequence[Any],
+    *,
+    applied_units: Sequence[Any] = (),
+) -> list[ConfigEvent]:
+    """Map one :meth:`~colleague.configlifecycle.EpisodeConfigLifecycle.events`
+    replay (append-only, kind in ``{"proposed", "refused", "applied",
+    "boundary"}``) onto durable :class:`ConfigEvent` entries — the shape
+    :attr:`TaskResult.config_events` carries. A mapped event that carries
+    applied strategist content (see *applied_units* below) is a
+    :class:`ConfigEventRecord`; every other mapped event is a PLAIN
+    :class:`ConfigEvent` — the same class-selection rule
+    :func:`_coerce_config_events` uses reading an artifact back, so mapper
+    output and a round-tripped artifact are indistinguishable.
+
+    *events* is duck-typed (each item needs only ``.kind``/``.target``/
+    ``.origin``/``.detail`` attributes) so this function never imports
+    ``colleague.configlifecycle`` — mirroring ``colleague/configevents.py``'s
+    own "free-form, usable by any future producer" stance. Kinds map
+    honestly (see :data:`_LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND`); an
+    unrecognized kind passes through UNCHANGED rather than being invented
+    into something new — unreachable today (the lifecycle emits only the
+    four kinds named above), a signal that a future lifecycle kind needs its
+    own deliberate mapping decision if this fallback ever actually fires.
+    ``seq`` is assigned by THIS function from each event's position in
+    *events* (the lifecycle's own ``ConfigEvent`` carries no ``seq`` of its
+    own — only :class:`~colleague.configevents.ConfigEventStream` does).
+
+    *applied_units* supplies the actual :class:`~colleague.lattice.ChangeUnit`
+    objects that were applied — matched POSITIONALLY, one per "applied"-kind
+    lifecycle event, in the same order
+    :meth:`~colleague.configlifecycle.EpisodeConfigLifecycle.apply_window`
+    drained its queue (a caller accumulates this across every sanctioned
+    window it has run so far — e.g. ``colleague.chain.run_configurator_
+    window``'s ``ConfiguratorWindowResult.review.verified`` units — since the
+    applied CONTENT lives on neither the lifecycle event nor
+    :class:`~colleague.configlifecycle.ConfigApplication`; only the
+    originally-queued :class:`~colleague.lattice.ChangeUnit` carries it).
+    Content rides the mapped record ONLY when the paired unit targets
+    ``worker.prompt.strategist`` (the lattice's only content-bearing target
+    this lifecycle ever applies — ``senses.*`` proposals are refused before
+    they ever queue). Every other applied unit (worker.tools/
+    worker.knowledge) contributes nothing to ``content``, matching the
+    "refused records stay reason-only, content only on applied strategist
+    records" acceptance (criterion 2). *applied_units* shorter than the
+    number of "applied" events in *events* is tolerated (the trailing
+    applied events simply get no content) — this function never raises.
+    """
+    applied_iter = iter(applied_units)
+    mapped: list[ConfigEvent] = []
+    for seq, event in enumerate(events):
+        kind = str(getattr(event, "kind", ""))
+        mapped_kind = _LIFECYCLE_KIND_TO_CONFIG_EVENT_KIND.get(kind, kind)
+        # "refused records stay reason-only" (acceptance 2): every other kind
+        # keeps reason empty, matching ConfigEvent's own stated convention
+        # ("populated for a refused event ... empty for every other kind").
+        reason = str(getattr(event, "detail", "")) if kind == "refused" else ""
+        content = ""
+        if kind == "applied":
+            unit = next(applied_iter, None)
+            if unit is not None:
+                target = getattr(unit, "target", None)
+                target_value = getattr(target, "value", target)
+                unit_content = str(getattr(unit, "content", "") or "")
+                if target_value == _STRATEGIST_TARGET_VALUE and unit_content:
+                    content = unit_content.strip()
+        base_kwargs: dict[str, Any] = {
+            "kind": mapped_kind,
+            "target": str(getattr(event, "target", "")),
+            "origin": str(getattr(event, "origin", "")),
+            "reason": reason,
+            "seq": seq,
+        }
+        if content:
+            mapped.append(ConfigEventRecord(content=content, **base_kwargs))
+        else:
+            mapped.append(ConfigEvent(**base_kwargs))
+    return mapped
+
+
+def config_digest_for(events: Sequence[ConfigEvent]) -> Optional[str]:
+    """``TaskResult.config_digest`` for *events* — :func:`colleague.
+    configevents.effective_digest` over the sequence, or ``None`` when
+    *events* is empty.
+
+    Mirrors ``config_digest``'s own omit-when-``None`` field convention, and
+    exists so the "digest is a pure function of ``config_events``" invariant
+    stays true from ONE call site — a caller that just changed
+    ``config_events`` (the front folding a window, or
+    :func:`colleague.artifact.update_config_events` rewriting an
+    already-persisted artifact) recomputes ``config_digest`` from here rather
+    than each re-deriving the omit-when-empty rule independently.
+    """
+    if not events:
+        return None
+    return effective_digest(list(events))
 
 
 # ── lazy import helper (avoids circular import at module level) ─────────
