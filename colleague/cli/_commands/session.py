@@ -164,6 +164,13 @@ _SUGGESTION_PREFIXES = ("Safest next:", "⚠ Safest next:")
 #: hand-off to cortex ONLY — never a fabricated understanding of the request.
 _ACK_DISPATCH_NOTICE = "taking your request to cortex now."
 
+#: Streaming containment marker (ssv task t5, covers c25/h20): the ONE legible
+#: line printed when a senses stream died mid-reply AFTER at least one
+#: transient paint — matches the session's existing ``error:`` line style
+#: (grep for ``f"error: {exc}"`` elsewhere in this module) so a live-tty
+#: operator recognizes it as the same class of notice, not a new vocabulary.
+_STREAM_CUT_MARKER = "error: senses stream cut mid-reply — showing partial text"
+
 #: The Session panel's goal item id (spec R3 / plan t9 / #256) — the running
 #: work item's instruction, so the operator always sees WHAT is being driven.
 _GOAL_ITEM_ID = "session.goal"
@@ -569,7 +576,25 @@ class _SensesStreamPainter:
         self._session = session
         self._tail = DeltaTail()
         #: Paints performed — the AC1 measurement seam (>= 2 on a real PTY).
+        #: Doubles as the t5 "did I paint anything this turn" signal: a
+        #: caller degrading this turn checks ``paints > 0`` before finalizing
+        #: partial text, rather than a fresh flag re-deriving the same fact.
         self.paints = 0
+
+    @property
+    def painted_text(self) -> str:
+        """The current display tail — task t5's smallest seam.
+
+        Whatever text this painter has folded so far (:func:`fold_delta`'s
+        trailing window), whether or not a repaint has actually reached the
+        screen yet (the cadence throttles WRITES, not the fold — see
+        :meth:`on_display_delta`). The session's mid-stream-death
+        containment reads this to finalize the partial reply as a real line
+        when the completion degrades after painting occurred — the ONE
+        piece of painter state that wasn't already exposed (``paints`` above
+        already answers "did I paint anything").
+        """
+        return self._tail.text
 
     def on_display_delta(self, piece: str) -> None:
         """Fold ONE display delta; repaint at the cockpit's own cadence."""
@@ -1966,6 +1991,51 @@ class _Session:
             return _SensesStreamPainter(self)
         return None
 
+    def _finalize_cut_stream(self, painter: Optional[_SensesStreamPainter]) -> bool:
+        """Contain a senses turn whose stream died mid-reply (ssv task t5,
+        covers c25/h20) — the turn seam every streamed surface degrades
+        through.
+
+        When *painter* already painted at least one transient row THIS turn
+        (``painter.paints > 0``), the partial text it holds
+        (:attr:`_SensesStreamPainter.painted_text`) is finalized as a REAL
+        line (:meth:`_log` — a newline-terminated conversation entry, never
+        overwritten by a later transient paint) followed by the ONE legible
+        marker line (:data:`_STREAM_CUT_MARKER`), printed via :meth:`_error`
+        — the session's EXISTING ``error:`` seam/prefix, reused verbatim,
+        never a new one. This is how a streamed reply that never finished is
+        contained: the operator sees exactly what senses had said so far,
+        plus an honest note that it was cut short — never a traceback, and
+        never silently replaced by an unrelated canned fallback message.
+
+        The caller decides WHEN to call this — typically ``degraded and
+        painter is not None`` — reusing the run function's own ``degraded``
+        signal, which is itself derived from the engine's stream-
+        completeness accounting (a missing terminal frame / finish_reason
+        surfaces as an exception the run function's own try/except already
+        degrades into that flag, colleague/engines/vllm_openai.py's
+        ``_StreamIncomplete`` chief among the shapes). This function never
+        re-derives completeness itself, only acts on what's already known.
+
+        Returns ``True`` when it fired (the caller then skips ITS OWN
+        generic fallback-answer render for this turn — the partial text +
+        marker already said everything there is to say). Returns ``False``
+        — a strict no-op — when nothing was ever painted (``painter is
+        None`` or ``painter.paints == 0``): the caller's existing
+        fallback-text render stays byte-identical to before this task (the
+        golden, no-streaming path).
+
+        Never raises: a rendering hiccup here must never crash the turn or
+        let a traceback escape (AC1) — suppressed exactly like every other
+        painter write in this module.
+        """
+        if painter is None or painter.paints == 0:
+            return False
+        with contextlib.suppress(Exception):
+            self._log(senses_line(painter.painted_text))
+            self._error(_STREAM_CUT_MARKER)
+        return True
+
     def _prepare_senses(self, task: Task, is_free_text: bool):
         """Run senses intake for a free-text work line; return ``(mode, record)``.
 
@@ -2049,7 +2119,7 @@ class _Session:
         if pair is None:
             return None
         senses_config, engine = pair
-        return run_frontdoor(
+        outcome = run_frontdoor(
             text,
             senses_config=senses_config,
             make_complete=engine.make_complete,
@@ -2065,6 +2135,15 @@ class _Session:
             config=self.config,
             gateway_url=resolve_lobes_gateway_url(self.repo),
         )
+        # Streaming containment (task t5): a degraded front-door turn already
+        # falls through to cortex with NO senses-direct render at all (by
+        # design — an unanswerable/ambiguous turn defers to cortex, c19) —
+        # but a partial paint from BEFORE the degrade must still be
+        # finalized, or the next redraw silently wipes it with no
+        # explanation. A strict no-op when nothing painted this turn.
+        if outcome.degraded:
+            self._finalize_cut_stream(painter)
+        return outcome
 
     def _render_senses_direct(self, text: str, outcome) -> None:
         """Speak senses' direct answer to a non-repo turn — NO cortex work item.
@@ -2624,10 +2703,22 @@ class _Session:
         )
         if record is None:
             return
-        self._last_talk_reply = record["answer"]
+        # Streaming containment (task t5): a completion that degraded AFTER
+        # painting at least one transient row finalizes that partial text +
+        # the cut-stream marker (below) instead of the generic fallback
+        # answer — the reply the operator already watched streaming in is
+        # never silently replaced by an unrelated canned message ("senses is
+        # unavailable right now."). A turn that never streamed (painter
+        # unarmed, or armed but nothing painted yet) takes the unchanged
+        # fallback-answer path — byte-identical to before this task.
+        cut = bool(record["degraded"]) and self._finalize_cut_stream(painter)
+        self._last_talk_reply = (
+            painter.painted_text if cut and painter is not None else record["answer"]
+        )
         self._history_append("operator", text)
-        self._history_append("senses", record["answer"])
-        self._log(f"senses: {record['answer']}")
+        self._history_append("senses", self._last_talk_reply)
+        if not cut:
+            self._log(f"senses: {record['answer']}")
         with contextlib.suppress(Exception):
             flight.append_chat(
                 self.repo,
