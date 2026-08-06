@@ -147,6 +147,92 @@ def _raise_legible_connection_error(url: str, exc: urllib.error.URLError) -> Non
     ) from exc
 
 
+# ── same-role stale-pin refresh, call-time rung (plan task t9, spec c10/c11,
+# honesty h7/h8) ─────────────────────────────────────────────────────────────
+#
+# A pinned model id the provider no longer serves is STALE CONFIG, not a
+# reason to die: the intended target — the ROLE — never changed, only its
+# served id rotated. The resolution-time half of this refresh lives in
+# ``colleague/config.py`` (``_refresh_stale_model_pin``, consulted once per
+# ``EngineConfig.resolve()`` call against a successfully-fetched
+# ``/v1/models`` list); this is the CALL-TIME half — the provider's model
+# roster can still rotate between resolution and the actual completion
+# request, and a live 404 is unambiguous ground truth a resolution-time
+# snapshot can't be. Both halves build the SAME
+# ``colleague.lobes.ModelRefreshWarning`` shape.
+
+
+def _is_model_not_found_404(exc: urllib.error.HTTPError) -> bool:
+    """True for exactly the "provider explicitly reports the pinned id
+    unserved" shape (h8) — an HTTP 404 whose (already legible —
+    ``_raise_legible_http_error`` folds the body into ``str(exc)`` before
+    this is ever reached) message carries ``model_not_found``. Any other
+    404 (a genuinely wrong URL, a missing route) — or any other status
+    entirely — is a real failure a refresh can't fix and must propagate
+    unguarded, exactly as before this task.
+    """
+    return exc.code == 404 and "model_not_found" in str(exc)
+
+
+def _same_role_call_time_refresh(
+    config: EngineConfig, role: str, exc: urllib.error.HTTPError
+) -> str | None:
+    """Resolve the SAME role's currently-discovered id for a call-time
+    stale-pin refresh, or ``None`` when the refresh cannot/must not fire.
+
+    Fires ONLY when ALL of:
+
+    - *exc* is exactly a 404 ``model_not_found`` (:func:`_is_model_not_found_404`)
+      — never any other HTTP error;
+    - lobes is armed (``config.lobes_gateway_url`` is not ``None`` —
+      acceptance 2: "with lobes unarmed ... the original error surfaces
+      unchanged");
+    - a FRESH live lobes lookup (never cached — the same no-disk-cache
+      convention :func:`colleague.lobes.resolve_roles` already documents;
+      the gateway may have already rotated again since resolution time)
+      advertises a non-blank model for *role* (acceptance 2: "the role
+      advertising no model" also leaves the original error to surface);
+    - that discovered id actually differs from the stale one (else there is
+      nothing to refresh to — retrying identically would just repeat the
+      same 404).
+
+    *role* is NEVER substituted for a different one — "cortex" only ever
+    resolves against ``roles.cortex``, "worker" only ever against
+    ``roles.worker`` (never crosses roles). Emits the SAME structured
+    :class:`~colleague.lobes.ModelRefreshWarning` the resolution-time rung
+    does — stderr, plus appended to ``config.model_refresh_warnings`` (a NEW
+    tuple assigned in place, never a shared-list mutation, so a subagent
+    child holding the same config value via ``dataclasses.replace`` is never
+    cross-contaminated) — for a later task (t11) to fold into the run
+    artifact.
+    """
+    if not _is_model_not_found_404(exc):
+        return None
+    if config.lobes_gateway_url is None:
+        return None
+    # Lazy import mirrors every other lobes-consulting call site (keeps this
+    # module's import graph unchanged; lets tests monkeypatch it).
+    from colleague import lobes as _lobes
+
+    roles = _lobes.resolve_roles(config.lobes_gateway_url)
+    if roles is None:
+        return None
+    role_info = getattr(roles, role, None)
+    refreshed_id = (getattr(role_info, "model", "") or "").strip()
+    if not refreshed_id or refreshed_id == config.model:
+        return None
+    warning = _lobes.ModelRefreshWarning(
+        role=role,
+        stale_id=config.model,
+        source="call-time-404",
+        refreshed_id=refreshed_id,
+        point="call",
+    )
+    _lobes.emit_model_refresh_warning(warning)
+    config.model_refresh_warnings = config.model_refresh_warnings + (warning,)
+    return refreshed_id
+
+
 def _parse_response(data: dict[str, Any]) -> ModelResponse:
     """Translate an OpenAI chat-completion response into a :class:`ModelResponse`."""
     choices = data.get("choices") or [{}]
@@ -703,6 +789,12 @@ class VllmOpenAIEngine(Engine):
         # subset (#t4) when work() resolved a role. Captured once (per-config, not
         # per-turn). make_complete()/plan mode pass no tools → full SCHEMAS.
         offered_tools = tools if tools is not None else SCHEMAS
+        # The acting seat this completion drives (same-role stale-pin refresh,
+        # plan task t9): mirrors work()'s own seat computation (line ~833) —
+        # "worker" in three-tier mode, "cortex" otherwise — so a call-time
+        # refresh (below) queries the lobes gateway for the SAME role that is
+        # actually driving this loop, never a different one.
+        role_name = "worker" if config.worker is not None else "cortex"
 
         def complete(messages: list[dict[str, Any]]) -> ModelResponse:
             payload: dict[str, Any] = {
@@ -745,19 +837,35 @@ class VllmOpenAIEngine(Engine):
                     )
                 except OSError:  # nosec B110 - diagnostic only; never mask the real work
                     pass
-            if streaming:
-                # A mid-stream failure degrades to ONE blocking request for
-                # THIS SAME turn (task t5) — the loop never sees the
-                # transport hiccup, only a normal ModelResponse.
-                return _stream_or_blocking(
-                    url,
-                    payload,
-                    api_key=config.api_key,
-                    timeout=config.timeout,
-                    on_delta=config.on_delta,
-                )
-            data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
-            return _parse_response(data)
+
+            def _invoke() -> ModelResponse:
+                if streaming:
+                    # A mid-stream failure degrades to ONE blocking request for
+                    # THIS SAME turn (task t5) — the loop never sees the
+                    # transport hiccup, only a normal ModelResponse.
+                    return _stream_or_blocking(
+                        url,
+                        payload,
+                        api_key=config.api_key,
+                        timeout=config.timeout,
+                        on_delta=config.on_delta,
+                    )
+                data = _post_json(url, payload, api_key=config.api_key, timeout=config.timeout)
+                return _parse_response(data)
+
+            try:
+                return _invoke()
+            except urllib.error.HTTPError as exc:
+                # Same-role stale-pin refresh AT CALL TIME (plan task t9, spec
+                # c10/c11, honesty h7/h8): exactly a 404 model_not_found, ONE
+                # retry, never a second catch (a repeat 404 propagates
+                # unguarded below — legible via _raise_legible_http_error's
+                # existing body-folding, exactly as before this task).
+                refreshed_id = _same_role_call_time_refresh(config, role_name, exc)
+                if refreshed_id is None:
+                    raise
+                payload["model"] = refreshed_id
+                return _invoke()
 
         return complete
 

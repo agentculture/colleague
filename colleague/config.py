@@ -49,6 +49,13 @@ if TYPE_CHECKING:
     # concrete class.
     from colleague.configlifecycle import EpisodeConfigLifecycle
 
+    # Annotation-only (same-role stale-pin refresh, plan task t9): types
+    # ``model_refresh_warnings`` below. No runtime import — the real import
+    # stays LAZY inside :func:`_refresh_stale_model_pin` (the same
+    # ``colleague.lobes`` lazy-import precedent as every other lobes-fed
+    # rung in this module).
+    from colleague.lobes import ModelRefreshWarning
+
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
 _DEFAULT_BASE_URL = "http://localhost:8001/v1"
@@ -1345,6 +1352,107 @@ def _resolve_lobes_rung(
     return lobes_base_url, lobes_model, lobes_roles, lobes_gateway_url, lobes_embed_env
 
 
+def _model_pin_source(model_arg: str | None, file_model: str | None) -> str | None:
+    """Name which layer PINNED the main model id, or ``None`` when it came from
+    lobes role discovery / the builtin default — i.e. it was never a pin at all
+    (same-role stale-pin refresh, plan task t9, honesty h7).
+
+    Mirrors ``_pick(model, "COLLEAGUE_MODEL", "CONVERTIBLE_MODEL",
+    default=model_default)``'s OWN precedence exactly — flag > COLLEAGUE_MODEL
+    env > CONVERTIBLE_MODEL env (the convertible->colleague rename back-compat
+    fallback) > config.json — so a refresh warning's ``source`` is never wrong
+    about which layer actually won. Reads NOTHING beyond these four inputs:
+    no ``Task``/instruction parameter exists on this function or on
+    :meth:`EngineConfig.resolve` at all, which is the structural half of h7's
+    "model resolution inputs are exactly {flag, env, config.json, lobes role
+    discovery} — no code path reads task content to pick a model."
+    """
+    if model_arg is not None:
+        return "flag"
+    if os.environ.get("COLLEAGUE_MODEL"):
+        return "COLLEAGUE_MODEL"
+    if os.environ.get("CONVERTIBLE_MODEL"):
+        return "CONVERTIBLE_MODEL"
+    if file_model is not None:
+        return "config.json"
+    return None
+
+
+def _refresh_stale_model_pin(
+    resolved_model: str,
+    model_arg: str | None,
+    file_model: str | None,
+    lobes_gateway_url: str | None,
+    lobes_roles: object,
+) -> "tuple[str, ModelRefreshWarning | None]":
+    """Same-role stale-pin refresh AT RESOLUTION TIME (plan task t9, spec
+    c10/c11, honesty h7/h8): a main-model id pinned via flag/env/config.json
+    that the lobes gateway's successfully-fetched ``/v1/models`` roster no
+    longer carries is STALE CONFIG, not a reason to die — substitute
+    CORTEX's own currently-discovered id (cortex is the role the MAIN model
+    resolves from in the legacy/two-tier path this rung covers — see
+    :class:`WorkerConfig`'s docstring: the three-tier worker seat has
+    deliberately NO declared-pin rung of its own, so it can never go stale
+    this way; a stale WORKER id is a ``/capabilities``-vs-actually-served
+    advert mismatch instead, ``colleague/oilcheck/three_tier.py``'s
+    territory, not a pin refresh) and record a warning naming the stale id,
+    its source layer, and the refreshed id. This is a REFRESH, never a
+    fallback/routing decision: the target role never changes, only its
+    served id.
+
+    Fires ONLY when ALL of:
+
+    - the pin has a NAMEABLE source (:func:`_model_pin_source` returns
+      non-``None``) — a value that already came from lobes discovery itself,
+      or the builtin default with no pin at all, is already the freshest
+      available id and needs no check (acceptance 2: unpinned resolves
+      byte-identically, there is nothing to warn about);
+    - lobes is armed AND reachable (*lobes_gateway_url*/*lobes_roles* both
+      non-``None``) — unarmed/unreachable leaves the pin untouched (h8);
+    - the gateway's ``/v1/models`` membership check actually RUNS
+      (:func:`colleague.lobes.fetch_served_model_ids` returns non-``None`` —
+      a fetch failure, including a bare 401, means NO refresh, per the
+      spec's explicit "a membership check that cannot run means no refresh"
+      rule — distinct from a successfully-fetched EMPTY list, which is a
+      valid "nothing served" membership result);
+    - the pinned id is absent from that fetched list (acceptance 2: a VALID
+      pin — present in the list — resolves byte-identically, untouched);
+    - cortex's OWN discovered id (from the SAME ``/capabilities`` call
+      *lobes_roles* already carries — never a second network round trip) is
+      present/non-blank (acceptance 2: "the role advertising no model" also
+      leaves the original value in place).
+
+    Returns ``(resolved_model, warning)`` — *resolved_model* is the
+    refreshed id when a refresh fired, else *resolved_model* unchanged;
+    *warning* is the structured :class:`~colleague.lobes.ModelRefreshWarning`
+    (already emitted to stderr via
+    :func:`colleague.lobes.emit_model_refresh_warning`), or ``None``.
+    """
+    pin_source = _model_pin_source(model_arg, file_model)
+    if pin_source is None or lobes_gateway_url is None or lobes_roles is None:
+        return resolved_model, None
+    # Lazy import mirrors every other lobes-consulting helper in this module
+    # (keeps config's module-level import graph unchanged; lets tests
+    # monkeypatch it).
+    from colleague import lobes as _lobes
+
+    served_ids = _lobes.fetch_served_model_ids(lobes_gateway_url)
+    if served_ids is None or resolved_model in served_ids:
+        return resolved_model, None
+    cortex_model = (getattr(lobes_roles.cortex, "model", "") or "").strip()
+    if not cortex_model:
+        return resolved_model, None
+    warning = _lobes.ModelRefreshWarning(
+        role="cortex",
+        stale_id=resolved_model,
+        source=pin_source,
+        refreshed_id=cortex_model,
+        point="resolution",
+    )
+    _lobes.emit_model_refresh_warning(warning)
+    return cortex_model, warning
+
+
 def _load_lint_overrides(repo_path: str | Path) -> tuple[str | None, str | None]:
     """Read ``lint`` / ``lint_fix_retries`` from .colleague/config.json as raw strings.
 
@@ -2458,6 +2566,23 @@ class EngineConfig:
     # above — excluded from eq/repr/to_dict.
     lobes_gateway_url: Optional[str] = field(default=None, compare=False, repr=False)
 
+    # Same-role stale-pin refresh records (plan task t9, spec c11/h8): every
+    # :class:`~colleague.lobes.ModelRefreshWarning` this config's resolution
+    # emitted (``()`` — the default — when the pin was valid, or lobes was
+    # unarmed/unreachable/couldn't run the membership check, byte-identical
+    # to today), PLUS any the vLLM engine's call-time 404 catch appends
+    # in-place during ``work()`` (``colleague/engines/vllm_openai.py``
+    # reassigns this to a NEW tuple — ``self.model_refresh_warnings +
+    # (warning,)`` — rather than mutating a shared list, so a subagent child
+    # sharing this field's value via ``dataclasses.replace`` never sees a
+    # parent's later call-time append, and vice versa). A runtime-derived
+    # plumbing value like ``lobes_gateway_url``/``embed_env`` above —
+    # excluded from eq/repr/to_dict; a downstream task (t11) is the one that
+    # folds this onto ``TaskResult``/the run artifact.
+    model_refresh_warnings: "tuple[ModelRefreshWarning, ...]" = field(
+        default=(), compare=False, repr=False
+    )
+
     # Chain-episode dispatch marker (indefinite-run follow-up, issue #335 /
     # decision c22): ``True`` exactly when THIS dispatch is one episode of an
     # armed ``--until-done`` chain (``execute_work`` sets it per-call from the
@@ -2735,6 +2860,18 @@ class EngineConfig:
             "CONVERTIBLE_MODEL",
             default=model_default,
         )
+        # Same-role stale-pin refresh AT RESOLUTION TIME (plan task t9, spec
+        # c10/c11, honesty h7/h8) — see :func:`_refresh_stale_model_pin` for
+        # the full gate. Skipped entirely when three-tier is armed
+        # (``resolved_worker is not None``): the worker, not cortex, is the
+        # ACTING seat there (the override just below), so a cortex pin
+        # refresh would be inert work against a role that never drives —
+        # never a network call this rung has no use for.
+        model_refresh_warning: ModelRefreshWarning | None = None
+        if resolved_worker is None:
+            resolved_model, model_refresh_warning = _refresh_stale_model_pin(
+                resolved_model, model, file_model, lobes_gateway_url, lobes_roles
+            )
         resolved_context_budget_tokens = int(
             _pick(
                 _str(ov.context_budget_tokens),
@@ -3020,6 +3157,13 @@ class EngineConfig:
             # is unarmed or degraded, so the self-facts ``lobes:`` line reflects
             # the state this run actually resolved with.
             lobes_gateway_url=lobes_gateway_url,
+            # Same-role stale-pin refresh records (plan task t9) — the
+            # resolution-time rung's own finding (if any); the vLLM engine's
+            # call-time 404 catch appends to this same field in place during
+            # ``work()``.
+            model_refresh_warnings=(
+                (model_refresh_warning,) if model_refresh_warning is not None else ()
+            ),
         )
 
     def to_dict(self) -> dict[str, object]:
