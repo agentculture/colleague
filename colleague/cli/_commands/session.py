@@ -350,6 +350,15 @@ def _resolve_selection(
     return task, command_name
 
 
+#: Trailing window of raw cortex-delta text retained for senses narration
+#: (ssv t6, spec assumption c24: ~500-1000 chars). The excerpt handed to a
+#: boundary beat is bounded HERE at fold time (``fold_delta``'s width) and
+#: again loop-side against senses' own context budget (``_window_text`` in
+#: ``SensesLoopDriver._build_prompt``) — a long cortex turn never blows
+#: senses' context.
+_NARRATION_DELTA_CHARS = 800
+
+
 class _WorkSink:
     """Progress sink for an in-session work item: fold each step into the session's
     one shared :class:`CockpitState` and (on the dynamic ANSI tier) redraw live.
@@ -511,8 +520,20 @@ class _WorkSink:
         creates a work step and never touches the conversation feed (the
         #206 invariant, held identically to `__call__`'s phase-notice branch).
         Cleared by the very next `__call__`.
+
+        Cortex narration capture (ssv t6, c23): every chunk ALSO folds into the
+        session's windowed narration buffer (`_fold_cortex_delta`) — BEFORE the
+        display throttle below, so the buffer never misses sub-threshold text.
+        Buffering is the ONLY thing that happens here: no senses completion is
+        ever issued inside this callback (it would stall the stream read), and
+        no thread is spawned — the boundary beats read the buffer later.
+        `getattr` keeps the sink usable against a bare state-holder in tests
+        (its documented contract), like the guards in `__call__`.
         """
         sess = self._session
+        fold_narration = getattr(sess, "_fold_cortex_delta", None)
+        if fold_narration is not None:
+            fold_narration(chunk)
         self._delta = fold_delta(self._delta, chunk)
         if not should_repaint_delta(self._delta):
             return
@@ -835,6 +856,14 @@ class _Session:
         # also fire off-TTY (the c19 pin-break). ``None`` for the beats/off rung
         # and every unarmed surface → byte-identical.
         self._presence_engine: Optional[PresenceEngine] = None
+        # Cortex narration buffer (ssv t6): a windowed tail of the running work
+        # item's raw streamed deltas, folded by `_WorkSink.on_delta` via
+        # `_fold_cortex_delta` (pure buffering — never a completion, c23) and
+        # read by the presence engine's boundary beats through
+        # `PresenceIO.delta_tail` so senses can author '<<higher self thought>>'
+        # narration. Reset per work line (`_reset_presence_lane`); pure state —
+        # an unarmed session folds it silently and renders nothing (h19).
+        self._cortex_delta_tail = DeltaTail()
         self._update_cadence = cadence_from_env(os.environ)
         self._updates_sent = 0
         self._update_last_step = 0
@@ -2184,6 +2213,33 @@ class _Session:
         # The senses agentic loop is rebuilt per work line in _begin_talk_lane
         # (loop rung) and cleared here so one line's loop never leaks to the next.
         self._presence_engine = None
+        # The cortex narration buffer resets per work line too (ssv t6) — a
+        # stale excerpt from the previous run must never feed a new line's beat.
+        self._cortex_delta_tail = DeltaTail()
+
+    def _fold_cortex_delta(self, chunk: str) -> None:
+        """Fold ONE raw cortex delta chunk into the narration buffer (ssv t6).
+
+        PURE state (c23): sanitize + append + keep the trailing
+        :data:`_NARRATION_DELTA_CHARS` window (the cockpit's own ``fold_delta``,
+        wider window). Called from ``_WorkSink.on_delta`` — inside cortex's
+        streaming read — so it must never issue a completion, render, block, or
+        raise; any failure keeps the previous tail (narration is presentation,
+        never control)."""
+        try:
+            self._cortex_delta_tail = fold_delta(
+                self._cortex_delta_tail, chunk, width=_NARRATION_DELTA_CHARS
+            )
+        except Exception:  # nosec B110 # noqa: BLE001 - capture must never disturb the stream
+            pass
+
+    def _cortex_delta_excerpt(self) -> str:
+        """The windowed live-output excerpt a boundary beat narrates from (ssv t6).
+
+        Read by the presence engine (``PresenceIO.delta_tail``) at each boundary;
+        prompt-input for that one beat only — never accumulated into senses'
+        history (c14)."""
+        return self._cortex_delta_tail.text
 
     def _history_append(self, role: str, text: str) -> None:
         """Append one exchange to the session-lifetime rolling history (t7/c11).
@@ -2487,6 +2543,10 @@ class _Session:
                 task_state=self._talk_task_state,
                 dispatch_to_cortex=lambda _i: None,  # the session runs cortex itself
                 poll_operator_input=lambda: None,  # the session polls stdin itself
+                # Cortex narration (ssv t6): the boundary beat reads the windowed
+                # live-output excerpt _WorkSink.on_delta buffered — display-only
+                # narration renders through the same `render` seam above.
+                delta_tail=self._cortex_delta_excerpt,
             )
             driver = SensesLoopDriver(
                 senses_config=senses_config,
