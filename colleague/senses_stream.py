@@ -86,7 +86,12 @@ class EnvelopeStream:
     remainder that proved to be text (``""`` under the strict rules).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, field: str = "text") -> None:
+        #: The envelope key whose string value is the display text. Senses
+        #: surfaces are key-inconsistent (d4/#374): coordination moves carry
+        #: ``"text"``, the talk lane carries ``"answer"`` — the consumer names
+        #: its surface's key; the default stays the probed coordination shape.
+        self._field = field
         self._raw: list[str] = []  #: every character fed, for .accumulated
         self._state = _PRE
         self._reason = ""  #: first failure reason, for the finish() error
@@ -129,7 +134,7 @@ class EnvelopeStream:
         if not accumulated:
             raise EnvelopeError("empty stream", accumulated)
         if self._state in (_DONE, _POST_FENCE):
-            raise EnvelopeError("envelope carried no 'text' key", accumulated)
+            raise EnvelopeError(f"envelope carried no {self._field!r} key", accumulated)
         raise EnvelopeError("envelope incomplete at end of stream", accumulated)
 
     # -- state machine -----------------------------------------------------
@@ -258,7 +263,7 @@ class EnvelopeStream:
     def _begin_value(self, ch: str, out: list[str]) -> None:
         if ch in _WS:
             return
-        is_text = "".join(self._key) == "text" and not self._text_done
+        is_text = "".join(self._key) == self._field and not self._text_done
         if ch == '"':
             if is_text:
                 self._saw_text_key = True

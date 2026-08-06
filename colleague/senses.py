@@ -276,7 +276,9 @@ def senses_engine_config(
     )
 
 
-def make_senses_display_delta(on_display_delta: Callable[[str], None]) -> Callable[[str], None]:
+def make_senses_display_delta(
+    on_display_delta: Callable[[str], None], *, field: str = "text"
+) -> Callable[[str], None]:
     """Build a raw ``on_delta`` callback that decodes a senses completion's
     streamed JSON-move envelope incrementally, forwarding display text to
     *on_display_delta* as it is decoded (plan task t2).
@@ -311,7 +313,7 @@ def make_senses_display_delta(on_display_delta: Callable[[str], None]) -> Callab
     mirroring ``_emit_delta``'s "a raising sink must never break the run"
     convention.
     """
-    stream = EnvelopeStream()
+    stream = EnvelopeStream(field=field)
 
     def on_delta(chunk: str) -> None:
         if stream.failed:

@@ -443,3 +443,35 @@ class TestEdgeCases:
 
         output = "".join(deltas)
         assert output == "ok"
+
+
+class TestTargetFieldParameter:
+    """The extractor's target key is configurable per surface (d4/#374)."""
+
+    def test_field_answer_extracts_the_answer_key(self) -> None:
+        stream = EnvelopeStream(field="answer")
+        deltas = [stream.feed('{"move": "talk", "answer": "hi there"}')]
+        deltas.append(stream.finish())
+        assert "".join(deltas) == "hi there"
+
+    def test_field_answer_skips_a_text_key(self) -> None:
+        """With field='answer', a 'text' key is just another skipped key."""
+        stream = EnvelopeStream(field="answer")
+        deltas = [stream.feed('{"text": "not me", "answer": "me"}')]
+        deltas.append(stream.finish())
+        assert "".join(deltas) == "me"
+
+    def test_missing_target_field_error_names_the_key(self) -> None:
+        stream = EnvelopeStream(field="answer")
+        stream.feed('{"text": "wrong key"}')
+        with pytest.raises(EnvelopeError) as exc_info:
+            stream.finish()
+        assert "'answer'" in str(exc_info.value)
+
+    def test_adapter_threads_the_field(self) -> None:
+        from colleague.senses import make_senses_display_delta
+
+        seen: list[str] = []
+        on_delta = make_senses_display_delta(seen.append, field="answer")
+        on_delta('{"answer": "streamed"}')
+        assert "".join(seen) == "streamed"
