@@ -221,6 +221,17 @@ _VOICE_UNAVAILABLE_LINE = (
     "voice · unavailable · no realtime endpoint resolved — staying on the typed lane"
 )
 
+#: Speak-only lane (task t8) state lines — the SAME label·state·consequence
+#: honesty grammar ``_VOICE_STATE_LINES`` uses. Only two states: speak-only has
+#: no mic to mute/degrade, so there is no ``muted``/``degraded`` distinction to
+#: draw — just an honest on/off.
+_SPEAK_STATE_LINES: dict[str, str] = {
+    "off": "speak · off · /speak (or --speak) to hear senses replies spoken aloud",
+    "on": "speak · on · senses replies play as audio — mic stays off, no realtime session",
+}
+#: The ONE honest notice for ``/speak`` when no tts endpoint resolved.
+_SPEAK_UNAVAILABLE_LINE = "speak · unavailable · no tts endpoint resolved — staying text-only"
+
 
 def _reply_text_from_turns(turns: object) -> str:
     """Join the operator-facing text of a senses agentic loop's returned turns.
@@ -231,6 +242,14 @@ def _reply_text_from_turns(turns: object) -> str:
     ``chat_entry`` carrying ``text`` (ack/clarify) or ``answer`` (a talk reply).
     Mirrors :meth:`PresenceEngine._render_turn`'s own extraction so the spoken
     text is exactly what was displayed. Tolerant of ``None`` / a bare list.
+
+    Replies-only scope (task t8, risk r1 / open q4): a ``MOVE_NARRATE`` turn
+    (the '<<higher self thought>>' narration) carries NO ``chat_entry`` at all
+    — see :meth:`~colleague.senses_loop.SensesLoopDriver._build_turn`, where
+    narration rides ``LoopTurn.narration`` instead, deliberately never stored
+    as a chat entry — so it is already excluded here structurally, never
+    spoken. Widening speech to include narration later is a ONE-LINE change:
+    also join ``getattr(turn, "narration", None)`` in the loop below.
     """
     parts: list[str] = []
     for turn in turns or []:
@@ -834,6 +853,20 @@ class _Session:
         self._voice_offer_shown = False
         self._voice_unavailable_noticed = False
         self._last_talk_reply = ""
+
+        # Speak-only lane (task t8): TTS-speaks each senses REPLY while the
+        # operator only types — no mic, no realtime session, no half-duplex
+        # gate (there is no capture stream to protect). Independent of the
+        # voice lane above: ``_speak_only`` is the ONLY writer of this state
+        # (the ``--speak`` flag, set post-construction by ``run_session``, or a
+        # ``/speak`` toggle, :meth:`_toggle_speak`) — no config default,
+        # profile, or mode ever touches it (h18/c22: this attribute is not
+        # part of ``EngineConfig``/config.json resolution at all, structurally
+        # ruling that out). Default OFF → byte-identical to today.
+        # :meth:`_speak_reply`'s own gate — (a live voice session) OR
+        # (``_speak_only``) — decides whether a reply actually gets spoken;
+        # c7/c27 stand untouched: NOTHING here ever arms the mic or stt.
+        self._speak_only = False
 
         # Middle-manager presence lane (talking-to-one arc, t6): the session-side
         # record of this work line's ack/update exchanges (folded onto
@@ -2642,7 +2675,15 @@ class _Session:
         Voice turns (realtime-speech arc, t5) drain HERE too — at the SAME poll
         boundary a typed line is consumed — into the identical handler + a spoken
         reply (:meth:`_drain_voice_transcripts`), so there is ONE senses-talk
-        path. A no-op unless the voice lane armed."""
+        path. A no-op unless the voice lane armed.
+
+        A TYPED line dispatched here (either branch below) also rides
+        :meth:`_dispatch_talk_line` (task t8) rather than calling
+        :meth:`_handle_talk_input` bare — so the speak-only lane's spoken
+        reply fires for a typed turn exactly as it does for a voice-originated
+        one, gated by :meth:`_speak_reply`'s own admission check ((a live
+        voice session) OR speak-only on) — a cheap no-op when neither is
+        armed."""
         if not self._talk_active:
             return
         self._drain_voice_transcripts()
@@ -2653,7 +2694,7 @@ class _Session:
                 except IndexError:
                     break
                 with contextlib.suppress(Exception):
-                    self._handle_talk_input(text)
+                    self._dispatch_talk_line(text)
             return
         try:
             ready, _, _ = select.select([sys.stdin], [], [], 0)
@@ -2669,7 +2710,7 @@ class _Session:
         if not text:
             return
         with contextlib.suppress(Exception):
-            self._handle_talk_input(text)
+            self._dispatch_talk_line(text)
 
     def _handle_talk_input(self, text: str) -> None:
         """Route one operator line typed mid-run: ``/say FILE`` transcribes audio
@@ -2680,6 +2721,23 @@ class _Session:
                 return
             text = transcript
         self._talk_senses(text)
+
+    def _dispatch_talk_line(self, text: str) -> None:
+        """Route one operator-submitted line — typed (either :meth:`_poll_talk_lane`
+        branch) or a drained voice transcript (:meth:`_drain_voice_transcripts`)
+        — through :meth:`_handle_talk_input`, then speak the rendered reply
+        (task t8).
+
+        Resets ``_last_talk_reply`` FIRST so a turn that produces no new
+        answer (e.g. a failed ``/say``) never re-speaks a stale reply left
+        over from the previous turn. :meth:`_speak_reply` is the single
+        admission gate for whether anything actually plays — (a live voice
+        session) OR (the speak-only toggle, ``_speak_only``) — so calling it
+        here unconditionally, from every dispatch site, is a safe, cheap
+        no-op whenever neither channel is armed (the h18 default-off floor)."""
+        self._last_talk_reply = ""
+        self._handle_talk_input(text)
+        self._speak_reply(self._last_talk_reply)
 
     def _talk_transcribe(self, path: str) -> Optional[str]:
         """Transcribe an audio FILE to text via the stt role (``/say``). Degrades to
@@ -2948,21 +3006,44 @@ class _Session:
                 break
             if not text:
                 continue
-            self._last_talk_reply = ""
             with contextlib.suppress(Exception):
-                self._handle_talk_input(text)  # THE identical typed-input handler
-            self._speak_reply(self._last_talk_reply)
+                self._dispatch_talk_line(text)  # THE identical typed-input + speak path
 
     def _speak_reply(self, text: str) -> None:
-        """Speak senses' just-rendered reply through the EXISTING batch TTS lane
-        (:func:`colleague.voice.synthesize`) + local playback
-        (:func:`realtime.play_wav_bytes`, which HOLDS the half-duplex gate for the
-        playback duration so the mic never re-hears the speaker).
+        """Speak senses' just-rendered REPLY text through the EXISTING batch TTS
+        lane (:func:`colleague.voice.synthesize`) + local playback.
 
-        ADDITIVE, degrade-never-raise: no reply / no voice session / no ``tts``
-        configured / a synth or playback failure all leave the already-rendered
-        TEXT byte-identical — audio never affects the text path."""
-        if not text or self._voice_session is None:
+        Admission gate (task t8, h5): **(a live voice session) OR (the
+        speak-only toggle, ``_speak_only``)** — either channel can arm spoken
+        playback of a reply; with neither armed this is a fast no-op, so a
+        default session (both off, h18) never imports ``colleague.voice``,
+        never touches the filesystem, never calls out. c7/c27 stand
+        untouched: nothing in this method ever constructs a realtime session
+        or starts capture — it only *plays*.
+
+        Replies-only (risk r1 / open q4): *text* is whatever the caller
+        rendered as senses' reply — never narration, ack, or a presence/status
+        line. The loop rung already narrows this at the source
+        (:func:`_reply_text_from_turns` excludes narration structurally; see
+        its docstring for the documented one-line widening spot); this method
+        trusts its caller and speaks *text* verbatim.
+
+        Playback path: with a live voice session, :func:`realtime.play_wav_bytes`
+        HOLDS the half-duplex mute gate for the duration (there is a mic to
+        protect from re-hearing the speaker). With speak-only alone — no
+        session, no mic, nothing to mute — playback rides the session-free
+        :func:`realtime.play_wav_bytes_local` instead (task t8's split): same
+        device resolution (``RealtimeConfig.output_device``, absent/``None``
+        falling back to the default output device), same
+        degrade-never-raise contract, no gate.
+
+        ADDITIVE, degrade-never-raise (h17): no reply / neither channel armed /
+        no ``tts`` configured / a synth or playback failure all leave the
+        already-rendered TEXT byte-identical — audio never affects the text
+        path, and nothing here ever raises."""
+        if not text:
+            return
+        if self._voice_session is None and not self._speak_only:
             return
         voice_cfg = getattr(self.config, "voice", None)
         tts_model = getattr(voice_cfg, "tts_model", None) if voice_cfg is not None else None
@@ -2984,9 +3065,11 @@ class _Session:
             )
             if wav is None:
                 return  # synth degraded — the text reply already stands, nothing to play
-            realtime.play_wav_bytes(
-                self._voice_session, str(wav), getattr(self.config, "realtime", None)
-            )
+            realtime_cfg = getattr(self.config, "realtime", None)
+            if self._voice_session is not None:
+                realtime.play_wav_bytes(self._voice_session, str(wav), realtime_cfg)
+            else:
+                realtime.play_wav_bytes_local(str(wav), realtime_cfg)
         except Exception:  # nosec B110 # noqa: BLE001 - additive and degrade-never-raise
             pass
 
@@ -3033,6 +3116,33 @@ class _Session:
         # degraded: no live/muted transition — the line still reports it honestly.
         self._render_voice_state()
         return self._voice_state_line()
+
+    # ── speak-only lane (task t8) ─────────────────────────────────────────
+
+    def _speak_available(self) -> bool:
+        """Whether a genuinely dialable tts endpoint resolved.
+
+        Speak-only needs ONLY ``tts_model`` — NEVER ``stt`` (c7: the mic wall
+        stands untouched) and never realtime availability (speak-only has no
+        session to dial in the first place)."""
+        voice_cfg = getattr(self.config, "voice", None)
+        return bool(getattr(voice_cfg, "tts_model", None)) if voice_cfg is not None else False
+
+    def _toggle_speak(self) -> str:
+        """``/speak`` — the speak-only opt-in toggle (task t8), returning a
+        confirmation string the ``_slash`` dispatcher logs.
+
+        TTS-speaks each senses REPLY while the operator only types — no mic,
+        no realtime session, no half-duplex gate (see :meth:`_speak_reply`).
+        Independent of ``/voice``/``--voice``: flips exactly ONE piece of
+        state, ``_speak_only`` (default OFF, h18/c22 — this toggle plus
+        ``--speak`` are its ONLY writers). No tts resolved → one honest
+        notice through the SAME label·state·consequence line seam
+        ``/voice`` uses, and stays off (never raises)."""
+        if not self._speak_available():
+            return _SPEAK_UNAVAILABLE_LINE
+        self._speak_only = not self._speak_only
+        return _SPEAK_STATE_LINES["on" if self._speak_only else "off"]
 
     def _end_voice_lane(self) -> None:
         """Tear down the voice lane on work-item / session exit (or a mid-capture
@@ -3358,6 +3468,13 @@ _SLASH_COMMANDS: list[SlashSpec] = [
         ("voice", "interactive"),
     ),
     SlashSpec(
+        "speak",
+        "",
+        "toggle speak-only playback of senses replies (no mic) — needs tts",
+        "runtime",
+        ("voice", "interactive"),
+    ),
+    SlashSpec(
         "learn-from",
         "<source> [name…]",
         "learn skills from a peer (e.g. claude) into .colleague/skills/",
@@ -3587,6 +3704,16 @@ def _act_voice(s: "_Session", rest: list[str]) -> str:
     return s._toggle_voice()
 
 
+def _act_speak(s: "_Session", rest: list[str]) -> str:
+    """``/speak`` — the speak-only opt-in toggle (task t8): TTS-speaks each
+    senses REPLY while the operator only types.
+
+    Delegates to :meth:`_Session._toggle_speak`. Independent of ``/voice`` —
+    never arms the mic or stt (c7 stands untouched). No tts resolved is one
+    honest line, no dial — never raises."""
+    return s._toggle_speak()
+
+
 def _act_learn_from(s: "_Session", rest: list[str]) -> str:
     """Learn skills from a peer in-session via the real ``learn-from`` verb.
 
@@ -3610,6 +3737,7 @@ _CONFIG_ACTIONS: dict[str, Callable[["_Session", list[str]], str]] = {
     "pr": _act_pr,
     "attach": _act_attach,
     "voice": _act_voice,
+    "speak": _act_speak,
     "learn-from": _act_learn_from,
 }
 
@@ -3721,6 +3849,10 @@ def run_session(
     # preference; capture still only starts when a work item's talk lane begins
     # AND the colour-TTY + senses + realtime gate passes. Unset → byte-identical.
     session._voice_wanted = bool(getattr(args, "voice", False))
+    # Speak-only lane opt-in (task t8, h18/c22): --speak is the ONE other
+    # writer of ``_speak_only`` besides ``/speak`` — no config default,
+    # profile, or mode ever sets it. Unset → byte-identical (default OFF).
+    session._speak_only = bool(getattr(args, "speak", False))
     return session.run(input_fn)
 
 
@@ -3806,6 +3938,17 @@ def _configure_session_parser(p: argparse.ArgumentParser) -> None:
             "colour TTY + senses armed + a resolved realtime endpoint; /voice "
             "toggles it live. The mic is NEVER hot without this flag or /voice "
             "(c27); realtime unavailable is one honest notice. (realtime-speech arc)"
+        ),
+    )
+    p.add_argument(
+        "--speak",
+        action="store_true",
+        help=(
+            "Opt in to the speak-only lane: senses' reply plays as audio after "
+            "each turn while you only type — no mic, no realtime session (c7 "
+            "stands: this NEVER arms the mic or stt). Needs a resolved tts "
+            "endpoint; /speak toggles it live. Default OFF. (speak-only lane, "
+            "task t8)"
         ),
     )
     p.add_argument("--base-url", default=None, help="Override the engine base URL.")
