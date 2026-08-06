@@ -2220,6 +2220,11 @@ class _Session:
         self._log(f"→ senses: {text}")
         self._log(senses_line(outcome.answer or ""))
         self._history_append("senses", outcome.answer or "")
+        # Speak-only / voice speak-back (ssv t8 + t12 proof C): the front door
+        # is the most common conversational turn, and it rendered silently —
+        # only the talk lane spoke. Same single seam, same admission gate
+        # (no-op unless /speak, --speak, or a live voice session).
+        self._speak_reply(outcome.answer or "")
         # A senses-direct turn produces NO work item / TaskResult, so its exchange
         # must NOT accumulate in the per-work-item `_senses_chat` buffer (which is
         # reset per work line and folded into a work item's artifact) — that would

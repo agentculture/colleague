@@ -635,3 +635,36 @@ def _run_typing_survives_playback(tmp_path: Path, monkeypatch) -> None:
             stream_in.close()
         with contextlib.suppress(Exception):
             os.close(master)
+
+
+def test_speak_only_speaks_a_front_door_direct_answer(tmp_path: Path, monkeypatch) -> None:
+    """The front door is the MOST common conversational turn — live-proven
+    2026-08-06 (t12 proof C): a senses-direct 'hi' reply rendered silently
+    because only the talk lane spoke. _render_senses_direct must feed
+    _speak_reply, under the same admission gate."""
+    sess, _o, _e = _session(tmp_path)
+    sess._speak_only = True
+    spoken = _spoken(monkeypatch)
+
+    class _Outcome:
+        answer = "hello from the front door"
+        degraded = False
+
+    sess._render_senses_direct("hi", _Outcome())
+
+    assert spoken["synth"] == ["hello from the front door"]
+    assert len(spoken["play_local"]) == 1
+    assert spoken["play_gated"] == []
+
+
+def test_front_door_direct_answer_silent_when_nothing_armed(tmp_path: Path, monkeypatch) -> None:
+    sess, _o, _e = _session(tmp_path)
+    spoken = _spoken(monkeypatch)
+
+    class _Outcome:
+        answer = "hello"
+        degraded = False
+
+    sess._render_senses_direct("hi", _Outcome())
+
+    assert spoken["synth"] == []

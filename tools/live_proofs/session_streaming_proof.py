@@ -182,9 +182,17 @@ def proof_b(root: Path) -> dict:
     repo = _tmp_repo(root, "proof-b")
     proc = subprocess.run(
         [
-            "uv", "run", "colleague", "work",
-            "say hi in one short sentence", "--repo", str(repo),
-            "--engine", "vllm-openai", "--no-pr", "--json",
+            "uv",
+            "run",
+            "colleague",
+            "work",
+            "create a file named hello.txt containing the single word hi",
+            "--repo",
+            str(repo),
+            "--engine",
+            "vllm-openai",
+            "--no-pr",
+            "--json",
         ],
         env=_proof_env(STALE_MODEL),
         cwd="/home/spark/git/colleague",
@@ -200,7 +208,7 @@ def proof_b(root: Path) -> dict:
     except ValueError:
         result["stdout_parse"] = "not json"
     disk = []
-    for artifact in (repo / ".colleague" / "artifacts").glob("*.json"):
+    for artifact in (repo / ".colleague").glob("*.json"):
         data = json.loads(artifact.read_text())
         disk.extend(data.get("warnings") or [])
     every = warnings + disk
@@ -240,7 +248,7 @@ def proof_c(root: Path) -> dict:
         result["reply_seen"] = "senses:" in out
         sess.quit()
         raw = ANSI.sub("", sess.raw.decode(errors="replace"))
-        wavs = list((repo / ".colleague" / "artifacts").glob("voice-reply-*.wav"))
+        wavs = list((repo / ".colleague").glob("voice-reply-*.wav"))
         result["tts_wavs"] = len(wavs)
         result["mic_armed"] = ("voice · live" in raw) or ("listening" in raw)
         if not result["reply_seen"]:
@@ -263,16 +271,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="")
     parser.add_argument("--keep", action="store_true", help="keep the scratch root")
+    parser.add_argument("--only", default="abc", help="lanes to run, e.g. bc")
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="ssv-live-proof-"))
     report = {"root": str(root), "rig": "http://localhost:8001", "proofs": []}
-    for fn in (proof_a, proof_b, proof_c):
+    lanes = {"a": proof_a, "b": proof_b, "c": proof_c}
+    for key, fn in lanes.items():
+        if key not in args.only:
+            continue
         try:
             report["proofs"].append(fn(root))
         except Exception as exc:  # a crashed proof is a recorded FAIL, not a crash
-            report["proofs"].append(
-                {"proof": fn.__name__, "verdict": "FAIL", "error": repr(exc)}
-            )
+            report["proofs"].append({"proof": fn.__name__, "verdict": "FAIL", "error": repr(exc)})
     out = json.dumps(report, indent=2)
     print(out)
     if args.out:
