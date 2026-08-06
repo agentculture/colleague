@@ -383,20 +383,33 @@ class _WorkSink:
 
     @property
     def wants_delta_stream(self) -> bool:
-        """Whether this sink should receive live-generation deltas (task t6).
+        """Whether this sink should arm the engine's ``on_delta`` seam (task t6,
+        extended by t4/ssv, covers c19/h16).
 
-        Only the session's dynamic ANSI tier ever redraws per sink call
-        (``sess.emit()`` in `__call__`, below) — off that tier a delta fold
-        would be computed and then never displayed until the next work
-        item's idle render, so leaving the seam unarmed there costs nothing
-        and keeps a piped/``--json``/Markdown session's ``EngineConfig.on_delta``
-        at its byte-identical default (``None`` — see the arming site,
-        ``execute_work`` in ``colleague/cli/_commands/work.py``). ``getattr``
-        degrades a bare state-holder (no ``view`` attribute at all, the
-        pattern several other guards below already use) to ``False`` — never
-        armed by accident.
+        Originally gated on the session's dynamic ANSI tier (the only tier
+        that redraws per sink call, ``sess.emit()`` in ``__call__`` below) —
+        but the seam has a SECOND job besides live display: arming it flips
+        the engine onto its incrementally-consumed streamed request path
+        (``config.on_delta is not None`` is the ONLY blocking-vs-streaming
+        decision, ``colleague/engines/vllm_openai.py``'s ``_make_complete``),
+        whose PER-READ socket timeout resets on every chunk instead of once
+        for the whole completion. A long session turn on a slow model can hit
+        the SAME request timeout a quick one comfortably clears — leaving the
+        seam unarmed off the ANSI tier was silently costing that survival, not
+        "nothing" as originally documented. Every session cortex turn now
+        arms the seam regardless of render tier; the VISIBLE redraw stays
+        ANSI-only inside ``on_delta``/``__call__`` below (unchanged) — a
+        piped/``--json``/Markdown session still computes-but-never-shows a
+        live tail, and its own frame output stays byte-identical (proven by
+        ``tests/test_cockpit_delta_tail.py``'s
+        ``test_session_markdown_tier_now_arms_deltas_but_never_redraws_them``).
+        ``getattr`` degrades a bare state-holder (no ``view`` attribute at
+        all, the pattern several other guards below already use) to
+        ``False`` — never armed by accident against a test double that never
+        declared a view tier at all. No new CLI flag: this is a resolution
+        change, not an opt-in.
         """
-        return getattr(self._session, "view", None) == "ansi"
+        return getattr(self._session, "view", None) is not None
 
     def __call__(self, step_index: int, tool: str, target: str, ok: bool) -> None:
         sess = self._session
@@ -470,19 +483,23 @@ class _WorkSink:
 
     def on_delta(self, chunk: str) -> None:
         """Fold ONE streamed text delta onto the session's live STATUS surface
-        (feels-alive arc, task t6).
+        (feels-alive arc, task t6; extended off the ANSI tier by t4/ssv).
 
-        Only ever CALLED when `wants_delta_stream` was `True` at arming time
-        (the dynamic ANSI tier — see the arming site in `execute_work`,
-        ``colleague/cli/_commands/work.py``), so this always redraws — the
-        ``sess.view == "ansi"`` check below is a defensive mirror of
-        `__call__`'s own gate, not a second arming decision. Accumulates
-        *chunk* into the current turn's `DeltaTail` and, throttled to at most
-        once per `DELTA_REPAINT_THRESHOLD` accumulated characters, folds the
+        Called whenever `wants_delta_stream` was `True` at arming time — now
+        EVERY session tier (t4/ssv), not only the dynamic ANSI one, since
+        arming has a job beyond display: it flips the engine onto its
+        per-read-timeout-resetting streamed path (see `wants_delta_stream`'s
+        docstring). The redraw itself stays ANSI-gated: ``sess.view ==
+        "ansi"`` below is the REAL arming decision for the visible frame — a
+        Markdown/``--json`` tier still folds *chunk* into `DeltaTail` and
+        `sess.state.status` (cheap, pure computation) but never calls
+        `sess.emit()`, so its own output is unaffected. Accumulates *chunk*
+        into the current turn's `DeltaTail` and, throttled to at most once
+        per `DELTA_REPAINT_THRESHOLD` accumulated characters, folds the
         sanitized tail onto ``sess.state.status`` via the SAME `fold_phase`
-        a phase notice uses and redraws exactly one frame. Never creates a
-        work step and never touches the conversation feed (the #206
-        invariant, held identically to `__call__`'s phase-notice branch).
+        a phase notice uses and (ANSI only) redraws exactly one frame. Never
+        creates a work step and never touches the conversation feed (the
+        #206 invariant, held identically to `__call__`'s phase-notice branch).
         Cleared by the very next `__call__`.
         """
         sess = self._session
