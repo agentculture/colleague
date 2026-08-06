@@ -22,7 +22,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from colleague.contract import ERROR, ChainView, TaskResult
+from colleague.configevents import ConfigEvent
+from colleague.contract import ERROR, ChainView, TaskResult, config_digest_for
 from colleague.slug import slugify
 
 DEFAULT_ARTIFACT_DIRNAME = ".colleague"
@@ -210,6 +211,92 @@ def read_chain_view(repo_path: str | Path, task_id: str) -> Optional[ChainView]:
         return None
     chain = data.get("chain")
     return ChainView.from_dict(chain) if isinstance(chain, dict) else None
+
+
+def read_artifact(repo_path: str | Path, task_id: str) -> Optional[TaskResult]:
+    """The full :class:`~colleague.contract.TaskResult` recorded for
+    ``task_id``, or ``None`` (best-effort, three-tier-execution plan task t8).
+
+    Mirrors :func:`read_request`/:func:`read_chain_view`: a missing artifact,
+    unreadable/corrupt JSON, a non-dict payload, or a payload
+    :meth:`~colleague.contract.TaskResult.from_dict` cannot parse all yield
+    ``None`` rather than raising — a caller (``--continue``, the config-plane
+    fold verifying its own write) never breaks on a gone or malformed
+    artifact. The read counterpart to :func:`update_config_events`: a caller
+    that just rewrote ``config_events`` on an already-persisted artifact can
+    read it straight back through this function and see the SAME events it
+    wrote.
+    """
+    path = find_artifact(repo_path, task_id)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        return TaskResult.from_dict(data)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def update_config_events(
+    repo_path: str | Path, task_id: str, config_events: list[ConfigEvent]
+) -> bool:
+    """Rewrite ``config_events``/``config_digest`` on an ALREADY-PERSISTED
+    artifact (three-tier-execution plan task t8, acceptance 3).
+
+    The loop writes a work item's artifact exactly once, at run end
+    (:func:`write`); the config-plane fold (the work front that arms
+    :mod:`colleague.configlifecycle`/:mod:`colleague.configurator`) happens
+    AFTER that, cumulatively across sanctioned windows (decision q2) — so the
+    in-memory :class:`~colleague.contract.TaskResult` and the on-disk
+    artifact would otherwise drift apart the moment a window applies
+    something. This is the ONE helper that keeps them in sync: it loads the
+    existing JSON payload, replaces ONLY the two ``config_events``/
+    ``config_digest`` keys — every other key on the artifact (steps, usage,
+    branch, everything) is left untouched, byte for byte — and writes it
+    back. ``config_digest`` is RECOMPUTED from *config_events* itself
+    (:func:`colleague.contract.config_digest_for`) rather than trusted from
+    any caller-supplied value, so the two keys can never independently drift
+    out of sync on disk.
+
+    Mirrors the omit-when-empty convention
+    :meth:`~colleague.contract.TaskResult.to_dict` uses: an empty
+    *config_events* list REMOVES both keys from the payload (rather than
+    writing an empty list / null), so a fold that clears back down to
+    nothing restores the pre-config-plane artifact shape exactly.
+
+    Returns ``True`` when the on-disk artifact was rewritten, ``False`` when
+    there is no artifact to update or the existing file could not be
+    read/parsed — best-effort, mirrors every other read helper in this
+    module; never raises (a caller mid-fold must never crash a run over a
+    bookkeeping write).
+    """
+    path = find_artifact(repo_path, task_id)
+    if path is None:
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    if config_events:
+        # config_digest_for(...) on a non-empty list never returns None (see
+        # its own docstring) — the digest always rides alongside the events.
+        data["config_events"] = [event.to_dict() for event in config_events]
+        data["config_digest"] = config_digest_for(config_events)
+    else:
+        data.pop("config_events", None)
+        data.pop("config_digest", None)
+    try:
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError:
+        return False
+    return True
 
 
 def _is_empty_file(path: Path) -> bool:

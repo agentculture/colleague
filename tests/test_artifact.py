@@ -5,7 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from colleague.artifact import failed_result, find_artifact, read_request, write
+from colleague.artifact import (
+    failed_result,
+    find_artifact,
+    read_artifact,
+    read_request,
+    update_config_events,
+    write,
+)
 from colleague.configevents import ConfigEvent, effective_digest
 from colleague.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage, WorkStats
 from colleague.loop import ModelResponse, ToolCall, run
@@ -312,3 +319,98 @@ def test_artifact_omits_config_events_and_digest_when_empty(tmp_path: Path) -> N
     payload = json.loads(path.read_text())
     assert "config_events" not in payload
     assert "config_digest" not in payload
+
+
+# ---------------------------------------------------------------------------
+# t8: read_artifact + the artifact update helper (fold AFTER the loop wrote it)
+# ---------------------------------------------------------------------------
+
+
+def test_read_artifact_returns_the_full_task_result(tmp_path: Path) -> None:
+    original = TaskResult(task_id="ra1", status=OK, summary="read me back")
+    write(original, tmp_path / ".colleague")
+
+    reloaded = read_artifact(tmp_path, "ra1")
+
+    assert reloaded is not None
+    assert reloaded.task_id == "ra1"
+    assert reloaded.summary == "read me back"
+
+
+def test_read_artifact_returns_none_for_a_missing_task(tmp_path: Path) -> None:
+    assert read_artifact(tmp_path, "does-not-exist") is None
+
+
+def test_read_artifact_returns_none_for_corrupt_json(tmp_path: Path) -> None:
+    out = tmp_path / ".colleague"
+    out.mkdir()
+    (out / "corrupt1.json").write_text("{not valid json", encoding="utf-8")
+    assert read_artifact(tmp_path, "corrupt1") is None
+
+
+def test_update_config_events_rewrites_an_already_persisted_artifact(tmp_path: Path) -> None:
+    """The front folds AFTER the loop wrote the artifact (t9's timing) — this
+    is the helper that performs that rewrite without touching any other key."""
+    result = TaskResult(
+        task_id="upd1", status=OK, summary="drove the worker", branch="colleague/upd1"
+    )
+    write(result, tmp_path / ".colleague")
+
+    events = [
+        ConfigEvent(kind="baseline", target="worker.tools", origin="host", seq=0),
+        ConfigEvent(kind="applied", target="worker.tools", origin="cortex", seq=1),
+    ]
+
+    ok = update_config_events(tmp_path, "upd1", events)
+
+    assert ok is True
+    reloaded = read_artifact(tmp_path, "upd1")
+    assert reloaded is not None
+    assert [e.kind for e in reloaded.config_events] == ["baseline", "applied"]
+    assert reloaded.config_digest == effective_digest(events)
+    # Every other key on the artifact is untouched.
+    assert reloaded.summary == "drove the worker"
+    assert reloaded.branch == "colleague/upd1"
+
+
+def test_update_config_events_returns_false_for_a_missing_artifact(tmp_path: Path) -> None:
+    assert update_config_events(tmp_path, "nope", []) is False
+
+
+def test_update_config_events_with_empty_list_removes_the_keys(tmp_path: Path) -> None:
+    """A fold that clears back down to nothing restores the pre-config-plane
+    artifact shape exactly (omit-when-empty, acceptance 2)."""
+    events = [ConfigEvent(kind="baseline", target="worker.tools", origin="host", seq=0)]
+    result = TaskResult(
+        task_id="upd2", status=OK, config_events=events, config_digest=effective_digest(events)
+    )
+    write(result, tmp_path / ".colleague")
+
+    ok = update_config_events(tmp_path, "upd2", [])
+
+    assert ok is True
+    payload = json.loads(find_artifact(tmp_path, "upd2").read_text())
+    assert "config_events" not in payload
+    assert "config_digest" not in payload
+
+
+def test_update_config_events_recomputes_the_digest_never_trusts_a_stale_one(
+    tmp_path: Path,
+) -> None:
+    write(TaskResult(task_id="upd3", status=OK), tmp_path / ".colleague")
+    events = [
+        ConfigEvent(kind="proposed", target="worker.knowledge", origin="cortex", seq=0),
+        ConfigEvent(kind="applied", target="worker.knowledge", origin="cortex", seq=1),
+    ]
+
+    update_config_events(tmp_path, "upd3", events)
+
+    payload = json.loads(find_artifact(tmp_path, "upd3").read_text())
+    assert payload["config_digest"] == effective_digest(events)
+
+
+def test_update_config_events_leaves_a_corrupt_artifact_alone(tmp_path: Path) -> None:
+    out = tmp_path / ".colleague"
+    out.mkdir()
+    (out / "corrupt2.json").write_text("not json at all", encoding="utf-8")
+    assert update_config_events(tmp_path, "corrupt2", []) is False

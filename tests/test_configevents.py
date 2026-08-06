@@ -46,7 +46,29 @@ def test_event_kinds_include_baseline_as_a_real_kind() -> None:
         "verified",
         "applied",
         "reverted",
+        "degraded",
     }
+
+
+def test_event_kinds_include_degraded_appended_at_the_end() -> None:
+    """``EVENT_KIND_DEGRADED`` (a configurator review that never usefully
+    reached the cortex model) is a real event kind, appended at the END of
+    :data:`EVENT_KINDS` — never re-ordered into the middle, so digests/
+    ordering pins over the original six kinds stay stable."""
+    assert ce.EVENT_KIND_DEGRADED in ce.EVENT_KINDS
+    assert ce.EVENT_KINDS[-1] == ce.EVENT_KIND_DEGRADED
+    assert ce.EVENT_KINDS.index(ce.EVENT_KIND_DEGRADED) == len(ce.EVENT_KINDS) - 1
+
+
+def test_stream_accepts_degraded_kind() -> None:
+    """A degraded review event round-trips through the sanctioned append
+    path exactly like every other recognised kind (contract coercion via
+    ``colleague.contract`` needs nothing further -- it validates a kind
+    string against no allow-list of its own)."""
+    stream = ce.ConfigEventStream()
+    event = stream.append(ce.EVENT_KIND_DEGRADED, reason="no cortex dial resolvable")
+    assert event.kind == "degraded"
+    assert [e.kind for e in stream.replay()] == ["degraded"]
 
 
 def test_config_event_defaults() -> None:

@@ -55,12 +55,18 @@ def test_apply_config_window_before_episode_1_applies_the_queue() -> None:
 
 def test_apply_config_window_between_episodes_applies_the_queue() -> None:
     lifecycle = EpisodeConfigLifecycle()
-    lifecycle.propose(ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX))
+    lifecycle.propose(
+        ChangeUnit(
+            target=Target.WORKER_PROMPT_STRATEGIST,
+            origin=Origin.CORTEX,
+            content="Strategy text",
+        )
+    )
 
     application = apply_config_window(lifecycle, WINDOW_BETWEEN_EPISODES)
 
     assert application.applied_count == 1
-    assert lifecycle.snapshot.strategist_sections == ("cortex#1",)
+    assert lifecycle.snapshot.strategist_sections == ("Strategy text",)
 
 
 def test_apply_config_window_refuses_a_mid_episode_call() -> None:

@@ -1,0 +1,731 @@
+{
+  "slug": "change-content-consumption-lane",
+  "title": "change-content consumption lane",
+  "frame_slug": "change-content-consumption-lane",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-06T05:02:16Z",
+  "updated": "2026-08-06T05:08:49Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "A three-tier colleague run now consumes what cortex configures: an applied worker.prompt.strategist note lands verbatim (bounded) in the worker's next-episode composed system prompt, an applied worker.tools narrowing filters the next episode's offered tool schema AND its executor allow-list (narrows, never adds), the work front arms the config plane itself \u2014 lifecycle constructed when three-tier is armed, configurator windows before episode 1 and between episodes, config events folded onto TaskResult.config_events \u2014 cortex knowledge entries are auto-stamped with their host-known entry-level origin, the flight feed names the seat that actually acts, and the NEBULA RUN benchmark re-runs strategist-live against the recorded pre-#366 baseline.",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "every lane the announcement names is proven by a test that FAILS on the pre-arc tree: content-bearing lattice unit, real text in the snapshot, auto-stamped origins, front-armed windows, folded config_events, prompt+schema consumption, seat-correct flight line, and the benchmark arm recorded on #366",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "ChangeUnit (colleague/lattice.py) gains an optional bounded content field valid ONLY on the *.prompt.strategist targets: refuse-whole extended \u2014 stripped length capped at layers.STRATEGIST_SECTION_MAX_CHARS (4000), content on any other target refuses whole (the _check_field_target_shape precedent), the forbidden-key scan stays",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "refuse-whole extends, never relaxes: content on any non-strategist target refuses whole; content whose stripped length exceeds STRATEGIST_SECTION_MAX_CHARS refuses whole; a content-less strategist unit stays valid (existing proposals unbroken)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "configlifecycle._apply_change folds the unit's REAL strategist text into EpisodeConfigSnapshot.strategist_sections instead of the opaque origin#N marker (configlifecycle.py:188) \u2014 canonical()/digest() already serialize the tuple, so content flows into the effective-config digest with no shape change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "the digest moves exactly once per applied strategist proposal (existing timing pins hold) and the snapshot carries the verbatim stripped text \u2014 the opaque-marker expectations in test_configlifecycle.py are UPDATED, not left green by accident",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "configurator.py auto-stamps entry-level origin on cortex knowledge_entries \u2014 host-known, and its own _SYSTEM_PROMPT already promises stamping while _build_change_unit never stamps: the exact experiment C refusal (docs/experiments/2026-08-06-experiment-c) \u2014 plus content joins _RECOGNIZED_CHANGE_KEYS and the prompt drops the carries-no-extra-fields-today line",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "a cortex knowledge entry lacking origin validates post-stamp with origin=cortex; a model-supplied origin is still discarded (authority never self-declared); re-running experiment C's mismatch fixture yields verified+applied where it previously refused",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "the work front arms the config plane when three-tier is armed (config.worker resolved): construct EpisodeConfigLifecycle + ConfigEventStream, run_configurator_window at WINDOW_BEFORE_EPISODE_1 before first dispatch and WINDOW_BETWEEN_EPISODES in execute_work_chain's go-verdict path (work.py:1577 loop) \u2014 configurator arming stays configurator_enabled(), opt-in + OFF",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "arming is provably layered: no three-tier means byte-identical (no lifecycle, no windows, no events); three-tier armed + configurator OFF means lifecycle constructed, windows run as strict no-op (reviewed=False), zero completions issued; both pinned by tests",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "lifecycle/stream events fold onto TaskResult.config_events \u2014 the contract field (contract.py:1608) exists with full serialization + digest and NOTHING stamps it today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "an armed run's final artifact carries config_events whose effective_digest matches the stream digest; an unarmed run's artifact omits the key entirely (omit-when-empty holds); round-trips through from_dict",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "prompt consumption rides the ONE base-class assembly path: Engine.system_prompt (engine.py:140, called by both mock and vllm-openai) threads the applied snapshot's strategist text into layers.system_prompt_for's EXISTING strategist_section/strategist_seat kwargs \u2014 all-engines by construction",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "mock and vllm-openai compose the SAME strategist section from the same snapshot (all-engines test on the shared base-class path); an empty/absent section composes a byte-identical prompt to today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "the consumer passes RAW strategist text \u2014 system_prompt_for composes internally, so passing an already-composed section silently double-heads (probe-verified): the wiring pins exactly ONE strategist heading in the final prompt, and a strategist-only composition still carries the engine base (the #363 T3 trap, probe-verified avoided)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "an applied worker.tools narrowing INTERSECTS the role-curated surface on BOTH halves of the existing mechanism \u2014 the curate_schemas offered list (vllm_openai.py:809) and the ToolExecutor allowlist \u2014 narrowing only ever removes, never adds (the authority ceiling)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "narrowing is intersect-only on both halves: a tool_set entry outside the role-curated surface can never ADD a schema or pass the executor; a narrowed-away tool refuses at the executor with the same refusal shape role withholding uses",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "flight.py append_run_start (line 159) stops hardcoding cortex-started: the run-start line names the seat that actually acts (worker in three-tier mode) \u2014 closing the t9 attribution miss the NEBULA baseline run caught on the flight-feed surface",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "with three-tier armed the run-start feed line names the worker seat; unarmed emits the current cortex-started line byte-identically (both arms tested)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "the structural pins re-prove WITH content flowing: cortex-authored text reaches only the composed SYSTEM prompt at episode resolution (a config surface, never the worker's message history), the acting completion seam stays unwrapped, mid-episode digest constancy holds \u2014 tests/test_configurator_boundary.py + test_loop_config_lifecycle.py extended, never weakened (c7/h7 end-to-end)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "test_configurator_boundary.py still proves loop.py never imports configurator and no cortex-authored text enters the worker's MESSAGE HISTORY (the composed system prompt is asserted as the ONLY carrier); test_loop_config_lifecycle.py proves digest constancy mid-episode with real content applied",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "colleague/loop.py's turn loop stays untouched by the content lane: consumption happens at ENGINE RESOLUTION (system prompt + offered tools resolve at work() start), and the existing ContextControls.config_lifecycle seam (observe_turn/end_episode, threaded via getattr at loop.py:2934) already suffices",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the arc's diff to colleague/loop.py's turn loop is zero \u2014 consumption lives at engine resolution, the fold lives at the front per the q2 decision",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "colleague/chain.py's decision layer needs no change: run_configurator_window + apply_config_window are complete and tested \u2014 the d3 gap is exactly that no front calls them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "the arc's diff to colleague/chain.py is zero or docstring-only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "the arc ends with the post-#366 NEBULA RUN arm: fresh ship-game repo (path free; baseline preserved in ship-game-bkp), the IDENTICAL prompt from the #366 protocol comment, three-tier + configurator armed, graded against the recorded baseline stats (2 rounds / 1315 LOC / the honest-README timer inversion as the concrete catch-hook)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the benchmark arm uses the verbatim protocol prompt and env, changing ONLY the configurator arming; mechanical stats post to #366 before any quality grading; an inert outcome (0 applied/consumed changes) is reported as-is, never smoothed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "docs/features/three-tier.md Honest limits (the d2/#366 section, lines 194-213) flips to describe the wired lane; the experiment C doc gets its origin-stamping repeat-verdict hook",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the flipped docs claim only what a cited test or the benchmark record proves; the strategist-ships-opt-in-and-OFF statement survives verbatim (defaults unchanged this arc)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "audience",
+      "text": "colleague operators running three-tier mode (the #366 thread), the workforce that builds it, and the NEBULA RUN benchmark evaluation \u2014 the value-in-anger test experiment C could not yet run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "the #366 thread carries the arc's protocol and results so the named audience can follow the arc without this session's context",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "after_state",
+      "text": "an applied change is CONSUMED, not just recorded: the worker's next episode runs under the strategist text (composed system prompt), under the narrowed tool schema (offered list + executor), and the full proposed/verified/applied audit rides TaskResult.config_events \u2014 provable hermetically on the mock engine",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the after-state is proven hermetically on mock: a scripted cortex reply's strategist content appears in the NEXT episode's composed prompt and its narrowing in the offered schema \u2014 no rig required",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "before_state",
+      "text": "post-#367 state: proposals validate, apply, and digest at the lifecycle \u2014 but no front constructs a lifecycle (d3), no window ever runs, strategist applications are opaque markers (d2), and experiment C's corrective proposals all died on a host-known missing origin field: the strategist is structurally inert at the CLI surface",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "the before-state is pinned failing-first: each lane's new test demonstrably fails against the pre-arc tree before the wiring lands",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "why_it_matters",
+      "text": "experiment B promoted the worker and experiment C proved detection (4/4, 0/4 false) \u2014 but strategist VALUE is unmeasurable while applied changes reach nothing; wiring the lane is the difference between a config plane that audits itself and one that changes what the next episode actually runs under",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "the value claim stays conditional until measured: the arc claims wiring + measurability, never that the strategist improves outcomes \u2014 that verdict belongs to the benchmark comparison",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "success_signal",
+      "text": "the post-#366 NEBULA arm runs configurator-live: >=1 change verified+applied+CONSUMED end-to-end (strategist text present in an episode-2+ composed prompt, or a narrowed schema in force), 0 entry-origin refusals on cortex knowledge entries, and the baseline-vs-live comparison table (rounds, steps, operator grade) lands on #366",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "the signal counts only verified+applied+CONSUMED changes (stream evidence AND prompt/schema evidence together), never proposals or detections alone",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "an empty tool_ids list on a worker.tools unit refuses whole at the lattice \u2014 a narrowing that selects nothing is malformed; () stays the snapshot's unset/no-narrowing default, so ambiguity between narrow-to-nothing and not-narrowed never exists",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "an empty-tool_ids worker.tools unit refuses at validate_change with a reason naming the empty narrowing; the snapshot default () keeps meaning not-narrowed everywhere it is read",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "the review-input assembly is SPECIFIED: before-episode-1 composes the digest from the task's instruction + goal/acceptance; between-episodes from the just-finished episode's terminal facts (summary, exit reason, steps, changed files, gate outcomes) \u2014 always a compact TEXT digest, never a message-history list (structural pin 1 upheld at the assembler too)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "the assembler is a pure function over TaskResult/Task fields with a size bound; no field of the worker's conversation history appears in its output (pinned alongside the existing structural pins)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "the PERSISTED artifact carries the folded config_events: the front updates the on-disk artifact after folding (the loop already wrote it at run end), read_artifact round-trips the events, and --continue reads them from disk",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "a chained run killed between fold and artifact-update loses at most the LAST window's events (crash-window stated honestly); a clean run's disk artifact and in-memory result carry identical config_events",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "successive worker.tools proposals REPLACE the narrowed set (the existing _apply_change replace semantics, now stated): the ceiling is always the role-curated surface, so recovery from an over-aggressive narrowing is possible at any later window \u2014 never a ratchet that can strand the worker",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "a second worker.tools application on top of a narrower first one WIDENS back up to (never past) the role-curated ceiling \u2014 pinned by a test exercising narrow-then-replace",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "strategist accumulation is bounded by REPLACE semantics: a later worker.prompt.strategist proposal replaces the current note (symmetric with tools-replace) \u2014 the composed section can never exceed STRATEGIST_SECTION_MAX_CHARS by accumulation, and compose_strategist_section's over-cap raise is structurally unreachable from validated units",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "two strategist applications across two windows leave exactly ONE current note (the later), the composed prompt carries exactly ONE strategist heading, and a unit whose content is at the cap composes without raising",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "a degraded configurator review is VISIBLE, never silent: both degraded early-returns in review_and_queue (no cortex dial resolvable; completion exception) record onto the stream/artifact and surface on the feed \u2014 the #363 armed-is-not-alive lesson applied to the new front wiring",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "an armed run with an unreachable cortex dial produces a visible degraded record (stream/artifact/feed) AND zero proposed/applied events \u2014 distinguishable from a healthy nothing-to-change window ({\"changes\": []}), which is NOT degraded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "boundary",
+      "text": "content containment is by construction, not heuristics: bounded (4000), rendered ONLY under the named task-local strategist heading (never interleaved as raw instructions), and flowing only when the operator armed the configurator \u2014 NO content-text scan is attempted (a heuristic scan would fake assurance); the forbidden-KEY scan stays exactly as-is",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "the containment claims are each pinned: over-cap refuses whole, the section renders under the heading in every engine's composed prompt, and an unarmed run has no code path by which cortex text reaches any prompt",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "a subagent spawned mid-episode consumes the inherited child_snapshot both ways: its curated tool schema intersects the applied tool_set (role allowlist AND narrowing, on offered schemas + executor alike) and its composed prompt carries the current strategist note; queued-but-unapplied proposals never reach a child (the r2 rule, now consumed rather than merely returned)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "a child spawned under a narrowing cannot call a narrowed-away tool (offered schema and executor both refuse, pinned by test); a child spawned with no narrowing applied is byte-identical to today; grandchildren at depth>1 inherit the same way",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "TaskResult and the persisted artifact record each APPLIED strategist unit's content verbatim (bounded by the lattice cap); refused records keep reason-only; an unarmed run's artifact shape is unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "an artifact round-trip preserves applied content byte-for-byte; content appears only on applied records; the omit-when-empty stance on unarmed runs holds",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Lattice content field + empty-narrowing refusal",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a ChangeUnit with content on worker.prompt.strategist or senses.prompt.strategist validates; content on any other target refuses whole with a reason naming the field/target shape",
+        "content whose stripped length exceeds STRATEGIST_SECTION_MAX_CHARS refuses whole; a content-less strategist unit stays valid (every existing test_lattice.py case still passes)",
+        "a worker.tools unit with an EMPTY tool_ids list refuses whole with a reason naming the empty narrowing"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c26",
+        "h20"
+      ],
+      "instruction": "colleague/lattice.py + tests/test_lattice.py only. Add optional content: str field to ChangeUnit (default empty). Extend _check_field_target_shape: content rides only the two *.prompt.strategist targets; add the length check against layers.STRATEGIST_SECTION_MAX_CHARS (import the constant, do not duplicate 4000); add the empty-tool_ids refusal to the worker.tools branch. Write the failing tests FIRST. Do not touch the forbidden-key scan."
+    },
+    {
+      "id": "t2",
+      "summary": "Flight run-start line names the acting seat",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with three-tier armed the run-start feed line names the worker seat; unarmed emits the current cortex-started line byte-identically (both arms tested against the recorded feed JSON)"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "h9"
+      ],
+      "instruction": "colleague/flight.py + its tests. Thread the seat label into append_run_start (default cortex \u2014 the unarmed byte-identical floor). Prefer resolving the seat where the flight handle is constructed (it can read the resolved config) over changing loop.py; if the loop call site must pass one arg, keep the change to the run-start emit only \u2014 the turn loop stays untouched (h11)."
+    },
+    {
+      "id": "t3",
+      "summary": "Tool-narrowing consumption: schema + executor intersect",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with an applied non-empty snapshot tool_set, the offered schema is the intersection of the role-curated surface and the tool_set, on BOTH mock and vllm-openai (all-engines test)",
+        "the executor refuses a narrowed-away tool with the same refusal shape role withholding produces; a tool_set entry outside the role surface adds nothing",
+        "an empty/absent narrowing is byte-identical to today on both engines"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h8"
+      ],
+      "instruction": "colleague/tools.py (one narrow helper beside curate_schemas), colleague/engines/vllm_openai.py, colleague/engines/mock.py, PLUS one typed field on colleague/config.py EngineConfig: config_lifecycle (Optional, default None \u2014 EngineConfig is a plain unfrozen dataclass; the loop already reads it via getattr forward-compatibly, this makes the seam typed). Read the snapshot via config.config_lifecycle at work() start -> snapshot().tool_set. Executor: compose the narrowing into the allowlist seam it already has (allowlist=role) \u2014 never a second refusal mechanism. Snapshot tool_set () means not-narrowed (c26 made narrow-to-nothing unrepresentable)."
+    },
+    {
+      "id": "t4",
+      "summary": "Review-input assembler (pure)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a pure function composes the before-episode-1 digest from Task instruction + goal/acceptance, and the between-episodes digest from a TaskResult's terminal facts (summary, exit reason, steps, changed files, gate outcomes), with a hard size bound",
+        "no field of the worker conversation history appears in the output (a history-shaped input is not even accepted by the signature)"
+      ],
+      "deps": [],
+      "covers": [
+        "c27",
+        "h21"
+      ],
+      "instruction": "NEW module colleague/reviewinput.py + tests/test_reviewinput.py. Two pure functions returning ConfiguratorReviewInput; accept only Task/TaskResult objects, never a message list (structural pin 1 at the assembler). Bound the digest (cap total chars, truncate file lists with an honest '+N more'). No I/O."
+    },
+    {
+      "id": "t5",
+      "summary": "Lifecycle folds real text; replace semantics for strategist + tools",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an applied strategist unit's verbatim stripped content lands in snapshot.strategist_sections (no more origin#N markers); the digest moves exactly once per applied proposal and only at a sanctioned window (existing timing pins still green, marker expectations UPDATED)",
+        "a second strategist application across a later window leaves exactly ONE current note (the later); a unit at the content cap applies without raising",
+        "a second worker.tools application REPLACES the narrowed set \u2014 narrow-then-replace widens back up to (never past) the role-curated ceiling in the consuming intersect"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c3",
+        "h3",
+        "c29",
+        "h23",
+        "c30",
+        "h24"
+      ],
+      "instruction": "colleague/configlifecycle.py + tests/test_configlifecycle.py. In _apply_change: WORKER_PROMPT_STRATEGIST folds (change.content.strip(),) REPLACING the tuple (not appending); WORKER_TOOLS already replaces \u2014 add the test stating it. Update the module docstring paragraphs that call the marker opaque (they become false). child_snapshot semantics unchanged here (t9 consumes it)."
+    },
+    {
+      "id": "t6",
+      "summary": "Configurator: origin auto-stamp, content key, visible degradation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a cortex knowledge entry lacking origin validates post-stamp with origin=cortex; a model-supplied origin (entry-level or unit-level) is still discarded",
+        "a changes entry may carry content (string) for a strategist target; content joins _RECOGNIZED_CHANGE_KEYS; _SYSTEM_PROMPT documents the content field and drops the carries-no-extra-fields-today line",
+        "both degraded early-returns (no cortex dial; completion exception) append a visible degraded record to the stream, distinguishable from a healthy empty-changes reply which appends nothing and is NOT degraded"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c4",
+        "h4",
+        "c31",
+        "h25"
+      ],
+      "instruction": "colleague/configurator.py + colleague/configevents.py + tests. Stamp entry origins in _build_change_unit (host-known fact \u2014 set entry['origin']='cortex' when absent; never overwrite a present one before discarding? NO: discard any model-supplied origin then stamp \u2014 authority is never self-declared). Add EVENT_KIND_DEGRADED to configevents EVENT_KINDS (contract coercion picks it up automatically); append it in review_and_queue on both degraded paths with the reason."
+    },
+    {
+      "id": "t7",
+      "summary": "Prompt consumption seam: strategist text into the composed system prompt",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with an applied strategist note on the attached lifecycle, mock and vllm-openai compose the SAME strategist section into their system prompt (all-engines test on the shared base-class path); no note composes byte-identical to today",
+        "the final composed prompt contains exactly ONE strategist heading (the RAW-text contract: engine passes snapshot content, never a pre-composed section), and a strategist-only composition still carries the engine base (the #363 T3 trap pinned)"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c7",
+        "h7",
+        "h27"
+      ],
+      "instruction": "colleague/engine.py (base system_prompt) + tests. Read getattr(config, 'config_lifecycle', None); if present and snapshot.strategist_sections non-empty, pass the single current note as strategist_section= RAW text to system_prompt_for (and compose_role_prompt path equally \u2014 check its signature; if it lacks the kwarg, thread it). layers.py should need nothing (c17); if it does, record the deviation."
+    },
+    {
+      "id": "t8",
+      "summary": "Contract + artifact: fold surface and verbatim applied content",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a mapper turns configlifecycle events + applications into configevents.ConfigEvent records (kinds mapped honestly: proposed/refused/applied/boundary); TaskResult.config_events round-trips them through to_dict/from_dict and the artifact on disk",
+        "each APPLIED strategist unit's verbatim content rides the applied record (bounded by the lattice cap); refused records stay reason-only; an unarmed run's artifact omits config_events entirely (omit-when-empty pinned)",
+        "an artifact update helper rewrites config_events on an already-persisted artifact (the front folds AFTER the loop wrote it) and read_artifact round-trips"
+      ],
+      "deps": [
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c6",
+        "h6",
+        "c36",
+        "h29"
+      ],
+      "instruction": "colleague/contract.py + colleague/artifact.py + tests. The mapper lives beside _coerce_config_events in contract.py (configevents.py belongs to t6 this wave \u2014 do not touch it). Boundary events map onto the baseline/boundary vocabulary configevents already has; pick the honest kind, never invent one here. The content field rides ConfigEvent's existing payload shape if it has one, else extend to_dict/from_dict compatibly (old artifacts must still load)."
+    },
+    {
+      "id": "t9",
+      "summary": "Work front arms the config plane",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "three-tier armed (config.worker resolved): lifecycle + stream constructed, catalog built from the run's actually-resolved tool surface, run_configurator_window at WINDOW_BEFORE_EPISODE_1 before the first dispatch (plain work AND chains) and WINDOW_BETWEEN_EPISODES in execute_work_chain's go-verdict path; lifecycle attached to config so loop + engines consume it",
+        "no three-tier: byte-identical (no lifecycle, no windows, no events; artifact shape unchanged). three-tier armed + configurator OFF: lifecycle constructed, windows are strict no-ops (reviewed=False), ZERO completions issued \u2014 both pinned",
+        "the cumulative fold updates BOTH the in-memory TaskResult and the on-disk artifact after each window (q2 decision); a run killed between fold and artifact-update loses at most the last window's events (stated in a test comment, crash-window honest)"
+      ],
+      "deps": [
+        "t4",
+        "t6",
+        "t8"
+      ],
+      "covers": [
+        "c5",
+        "h5",
+        "c28",
+        "h22"
+      ],
+      "instruction": "colleague/cli/_commands/work.py + a NEW tests/test_work_config_plane.py. Arm inside execute_work/execute_work_chain so BOTH fronts (CLI + session) inherit \u2014 never in cmd_work argv parsing. Read arming from the resolved config (config.worker is not None), configurator via configurator_enabled(repo_path). Use reviewinput assemblers (t4). Reset/fresh lifecycle per top-level task (the h22 rule); --continue rounds are fresh top-level tasks (q1 decision recorded on the frame)."
+    },
+    {
+      "id": "t10",
+      "summary": "Subagent child inheritance consumes the snapshot",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a child spawned under an applied narrowing cannot call a narrowed-away tool (offered schema and executor both refuse \u2014 pinned); its composed prompt carries the current strategist note; grandchildren at depth>1 inherit identically",
+        "a child spawned with no narrowing applied is byte-identical to today; queued-but-unapplied proposals never reach any child"
+      ],
+      "deps": [
+        "t3",
+        "t5",
+        "t7"
+      ],
+      "covers": [
+        "c35",
+        "h28"
+      ],
+      "instruction": "colleague/subagents.py + tests. Read child_snapshot() from the parent's lifecycle at spawn and hand the child a tiny FROZEN adapter that quacks like the lifecycle's read surface (snapshot() returning the frozen snapshot; nothing else) on the child config's config_lifecycle field \u2014 the t3/t7 engine seams then consume it unchanged. Never hand the child the real lifecycle object (children never propose, never observe turns). Prompt assertion needs t7's seam \u2014 dep recorded."
+    },
+    {
+      "id": "t11",
+      "summary": "Structural pins re-proven + hermetic end-to-end proof",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "test_configurator_boundary.py still proves loop.py never imports configurator AND no cortex-authored text enters the worker MESSAGE HISTORY with content flowing \u2014 the composed system prompt asserted as the ONLY carrier; test_loop_config_lifecycle.py proves mid-episode digest constancy with a real applied note",
+        "a hermetic mock end-to-end test: scripted cortex reply with strategist content + tool narrowing -> next episode's composed prompt carries the text, offered schema narrowed, artifact carries the applied content \u2014 no rig, no network",
+        "containment pinned: over-cap refuses whole, the section renders only under the named heading in every engine's prompt, an UNARMED run has no code path by which cortex text reaches any prompt (grep-level + behavioral)"
+      ],
+      "deps": [
+        "t6",
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "covers": [
+        "c10",
+        "h10",
+        "c22",
+        "h16",
+        "c23",
+        "h17",
+        "c1",
+        "h1",
+        "c32",
+        "h26"
+      ],
+      "instruction": "tests only: extend tests/test_configurator_boundary.py + tests/test_loop_config_lifecycle.py, NEW tests/test_content_lane_e2e.py. Each lane's new test must FAIL on the pre-arc tree (h17 failing-first \u2014 state the pre-arc failure in the test docstring). This task owns the c1/h1 announcement-level proof: one e2e test per announcement lane."
+    },
+    {
+      "id": "t12",
+      "summary": "Docs flip + zero-diff boundary verification",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/three-tier.md Honest limits rewritten: d2/#366 sections describe the WIRED lane citing the pinning tests; the strategist-ships-opt-in-and-OFF statement survives verbatim; the value claim stays conditional on the benchmark (h18)",
+        "boundary verification recorded: git diff main shows colleague/chain.py zero-or-docstring-only and no colleague/loop.py turn-loop changes \u2014 cited in the docs task's PR notes",
+        "docs/experiments/2026-08-06-experiment-c-strategist-value.md gains the origin-stamping fix pointer (repeat verdict lands with its own record)"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c16",
+        "h14",
+        "c24",
+        "h18",
+        "c11",
+        "h11",
+        "c12",
+        "h12"
+      ],
+      "instruction": "Docs only: docs/features/three-tier.md, docs/experiments/2026-08-06-experiment-c-strategist-value.md. Claim only what a cited test proves (h14). CLAUDE.md's three-tier bullet gets one line on the consumption lane pointing at the feature doc (trim discipline)."
+    },
+    {
+      "id": "t13",
+      "summary": "Experiment C repeat: origin-stamping fix, end-to-end verified+applied",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "re-running the committed experiment C mismatch fixture (tools/experiments/experiment_c.py) on the live rig yields verified+applied where the baseline run refused; results recorded in a dated docs/experiments/ record with the pre-registered protocol referenced",
+        "0 entry-origin refusals across the repeat's mismatch trials; the control arm still shows 0 false interventions"
+      ],
+      "deps": [
+        "t6",
+        "t9"
+      ],
+      "covers": [
+        "h4"
+      ],
+      "instruction": "Live leg (rig required). Re-run the EXISTING pre-registered runner \u2014 do not redesign the experiment. Record the repeat as a new dated file under docs/experiments/ linking the original; an inert or negative outcome is recorded as-is (h13 discipline applies here too)."
+    },
+    {
+      "id": "t14",
+      "summary": "NEBULA RUN benchmark: strategist-live arm vs recorded baseline",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "fresh ship-game repo, the VERBATIM protocol prompt and env from the #366 comment, changing ONLY the configurator arming; acting seat artifact-verified as the worker",
+        "mechanical stats (rounds, steps, wall time, finish states, files/LOC, config_events counts incl. >=1 verified+applied+CONSUMED change with artifact evidence, 0 entry-origin refusals) posted to #366 BEFORE quality grading; an inert strategist outcome reported as-is",
+        "the baseline-vs-live comparison table lands on #366 with the operator-grade column left to Ori; the #366 thread then carries protocol + results end to end (h15)"
+      ],
+      "deps": [
+        "t9",
+        "t11",
+        "t13"
+      ],
+      "covers": [
+        "c15",
+        "h13",
+        "c25",
+        "h19",
+        "c21",
+        "h15"
+      ],
+      "instruction": "Live leg, LAST by design (the c23-precedent gate: benchmark before delivery summary + PR close-out of the arc). Seed /home/spark/git/ship-game fresh (one seed commit, clean tree). Env: COLLEAGUE_THREE_TIER=1 COLLEAGUE_CONFIGURATOR=1 COLLEAGUE_TIMEOUT=420 COLLEAGUE_MAX_STEPS=80, lobes-armed. Continue policy: --continue until done, rounds counted. Consumption evidence comes from the artifact (q5 verbatim content decision) \u2014 cite task ids, not vibes."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "per-window cortex review latency on a serializing rig \u2014 one extra completion per armed window; unmeasured until t14 runs (frame park v1)",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "oilcheck/doctor configurator-armed readiness line (oilcheck/three_tier.py mirrors three-tier arming only) \u2014 follow-up, not this arc (frame park v2)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "live rig availability + model set drift for t13/t14 (worker/cortex/senses adverts have gone stale before \u2014 #363 section 7)",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

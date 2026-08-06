@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.54.0] - 2026-08-06
+
+### Added
+
+- Change-content consumption lane (#366): an applied worker.prompt.strategist note lands verbatim (bounded, 4000-char cap) in the worker's next-episode composed system prompt via the shared Engine.system_prompt path (all-engines), and an applied worker.tools narrowing intersects BOTH the offered tool schema and the executor allow-list (narrows, never adds; empty narrowing refuses at the lattice)
+- Work front arms the config plane: EpisodeConfigLifecycle + ConfigEventStream constructed when three-tier is armed, configurator windows run before episode 1 (plain work AND chains) and between chain episodes, and the cumulative fold lands config events onto TaskResult.config_events and the persisted artifact (contract.map_configlifecycle_events + artifact.update_config_events)
+- ChangeUnit.content field (strategist targets only, refuse-whole extended); lifecycle folds verbatim text with REPLACE semantics for strategist notes and tool sets (recovery from over-narrowing at any later window)
+- Configurator auto-stamps entry-level origins on cortex knowledge entries (closes the experiment C refusal nuance — repeat run: 4/4 verified, 0 refusals), accepts the content key, and records visible degraded events (EVENT_KIND_DEGRADED) on both degraded review paths
+- Subagent child inheritance: children consume a frozen snapshot adapter (narrowed tools + strategist note; never the mutable lifecycle); grandchildren inherit identically
+- Flight run-start line names the acting seat (worker in three-tier mode); hermetic content-lane e2e proof + structural pins re-proven with content flowing
+
+### Changed
+
+- docs/features/three-tier.md Honest limits: the d2/#366 content-lane gap sections flip to describe the wired lane with pinning-test citations; strategist stays opt-in + OFF; value claim stays conditional on the NEBULA benchmark arm
+
+### Fixed
+
+- Known gap recorded honestly: the engine-failure artifact path performs no config-plane fold (in-flight window events are not persisted onto a failure artifact)
+
 ## [1.53.0] - 2026-08-06
 
 ### Added

@@ -22,6 +22,7 @@ from colleague.lattice import (
     Target,
     validate_change,
 )
+from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -540,3 +541,123 @@ class TestIntegratorTightening:
         verdict = validate_change(unit, CapabilityCatalog(tool_ids=("read_file",)))
         assert not verdict.allowed
         assert "knowledge_entries" in verdict.reason
+
+
+# ===========================================================================
+# AC1 — content field on strategist targets validates; other targets refuse
+# ===========================================================================
+
+
+def test_content_on_worker_prompt_strategist_validates() -> None:
+    """A ChangeUnit with content on worker.prompt.strategist is accepted."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.WORKER_PROMPT_STRATEGIST,
+        origin=Origin.HOST,
+        content="some strategist guidance",
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is True
+
+
+def test_content_on_senses_prompt_strategist_validates() -> None:
+    """A ChangeUnit with content on senses.prompt.strategist is accepted."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.SENSES_PROMPT_STRATEGIST,
+        origin=Origin.HOST,
+        content="some strategist guidance",
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is True
+
+
+def test_content_on_worker_tools_refused() -> None:
+    """A ChangeUnit with content on worker.tools is refused with a reason
+    naming the field/target shape."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.WORKER_TOOLS,
+        origin=Origin.HOST,
+        content="some content",
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is False
+    assert "content" in result.reason
+
+
+def test_content_on_worker_knowledge_refused() -> None:
+    """A ChangeUnit with content on worker.knowledge is refused."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.WORKER_KNOWLEDGE,
+        origin=Origin.HOST,
+        content="some content",
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is False
+    assert "content" in result.reason
+
+
+def test_content_on_senses_knowledge_refused() -> None:
+    """A ChangeUnit with content on senses.knowledge is refused."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.SENSES_KNOWLEDGE,
+        origin=Origin.HOST,
+        content="some content",
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is False
+    assert "content" in result.reason
+
+
+# ===========================================================================
+# AC2 — content length exceeds STRATEGIST_SECTION_MAX_CHARS refuses whole
+# ===========================================================================
+
+
+def test_content_exceeding_max_chars_refused() -> None:
+    """Content whose stripped length exceeds STRATEGIST_SECTION_MAX_CHARS
+    refuses whole."""
+    catalog = _catalog(["read_file"])
+    oversized = "x" * (STRATEGIST_SECTION_MAX_CHARS + 1)
+    unit = ChangeUnit(
+        target=Target.WORKER_PROMPT_STRATEGIST,
+        origin=Origin.HOST,
+        content=oversized,
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is False
+    assert "content" in result.reason
+
+
+def test_contentless_strategist_unit_still_valid() -> None:
+    """A strategist unit with no content stays valid (existing behaviour preserved)."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.WORKER_PROMPT_STRATEGIST,
+        origin=Origin.HOST,
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is True
+
+
+# ===========================================================================
+# AC3 — worker.tools with empty tool_ids refuses whole
+# ===========================================================================
+
+
+def test_worker_tools_empty_tool_ids_refused() -> None:
+    """A worker.tools unit with an empty tool_ids list refuses whole with a
+    reason naming the empty narrowing."""
+    catalog = _catalog(["read_file"])
+    unit = ChangeUnit(
+        target=Target.WORKER_TOOLS,
+        origin=Origin.HOST,
+        tool_ids=[],
+    )
+    result = validate_change(unit, catalog)
+    assert result.allowed is False
+    assert "empty" in result.reason.lower()
+    assert "tool_ids" in result.reason

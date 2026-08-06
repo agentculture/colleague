@@ -49,7 +49,11 @@ own "chain.py's between-episode window is the ONLY application point"):
 2. Issue ONE tools-off completion against the cortex dial. Any failure
    anywhere — no gateway, unreachable, a dead port, a request error — degrades
    to :class:`ConfiguratorReviewResult` ``.degraded=True``, never raises (the
-   ``colleague/deepthink.py`` precedent).
+   ``colleague/deepthink.py`` precedent), and appends ONE
+   :data:`~colleague.configevents.EVENT_KIND_DEGRADED` event to the caller's
+   :class:`~colleague.configevents.ConfigEventStream` carrying the reason —
+   visible, never silent (the #363 armed-is-not-alive lesson), and distinct
+   from a healthy ``{"changes": []}`` reply, which appends nothing.
 3. Parse the reply as strict JSON (``{"changes": [...]}}``, tolerant of a
    markdown fence or surrounding prose via
    :func:`colleague.plan.cli_driver._extract_json_object` — the same
@@ -98,6 +102,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional
 from colleague.config import EngineConfig, _merged_config_json
 from colleague.configevents import (
     EVENT_KIND_APPLIED,
+    EVENT_KIND_DEGRADED,
     EVENT_KIND_PROPOSED,
     EVENT_KIND_REFUSED,
     EVENT_KIND_VERIFIED,
@@ -105,6 +110,7 @@ from colleague.configevents import (
 )
 from colleague.configlifecycle import ConfigApplication, EpisodeConfigLifecycle
 from colleague.lattice import CapabilityCatalog, ChangeUnit, Origin, Target
+from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
 from colleague.plan.cli_driver import _extract_json_object, robust_simple_complete
 
 if TYPE_CHECKING:
@@ -324,7 +330,9 @@ _SYSTEM_PROMPT = (
     "ONLY from the available set below.\n"
     '- A worker.knowledge change carries "knowledge_entries": a list of '
     "JSON objects (each will be stamped with your origin).\n"
-    "- A worker.prompt.strategist change carries no extra fields today.\n\n"
+    '- A worker.prompt.strategist change carries "content": a string note '
+    f"for the worker's next episode, capped at {STRATEGIST_SECTION_MAX_CHARS} "
+    "characters.\n\n"
     "Respond with EXACTLY one JSON object of this shape:\n"
     '{"changes": [{"target": "worker.tools", "tool_ids": ["..."]}]}\n'
     'If you have nothing to change this window, respond with {"changes": []}. '
@@ -349,7 +357,7 @@ def _build_user_prompt(review_input: ConfiguratorReviewInput, catalog: Capabilit
 #: Keys :func:`_build_change_unit` reads structurally; anything else on a
 #: change entry becomes an ``extra_fields`` key, which the lattice's own
 #: ``validate_change`` refuses whole (never re-implemented here).
-_RECOGNIZED_CHANGE_KEYS = frozenset({"target", "tool_ids", "knowledge_entries"})
+_RECOGNIZED_CHANGE_KEYS = frozenset({"target", "tool_ids", "knowledge_entries", "content"})
 
 #: Target string -> enum member, so a recognized target string reaches the
 #: lattice/lifecycle as the real :class:`~colleague.lattice.Target` it needs
@@ -394,18 +402,40 @@ def _coerce_target(raw_target: Any) -> Any:
     return raw_target
 
 
+def _stamp_knowledge_origin(entry: "dict[str, Any]") -> "dict[str, Any]":
+    """Return a COPY of *entry* with any entry-level ``"origin"`` discarded,
+    then re-stamped :data:`~colleague.lattice.Origin.CORTEX`.
+
+    Entry-level origin is host-known, exactly like the unit-level origin
+    this module already stamps: this module IS the cortex producer, so a
+    model-supplied ``"origin"`` on an individual knowledge entry (whether
+    absent, empty, or an attempt to self-declare a stronger origin like
+    ``"host"``) is never trusted — discarded first, then stamped, never
+    conditionally left alone when "already present". *entry* itself is
+    never mutated.
+    """
+    stamped = dict(entry)
+    stamped.pop("origin", None)
+    stamped["origin"] = Origin.CORTEX.value
+    return stamped
+
+
 def _build_change_unit(raw_entry: Any) -> "tuple[Optional[ChangeUnit], str]":
     """Build ONE :class:`~colleague.lattice.ChangeUnit` from *raw_entry*.
 
     Returns ``(unit, "")`` on success, or ``(None, reason)`` when *raw_entry*
     cannot be read as a change entry at all (not a JSON object, missing
-    ``target``, or a wrongly-typed ``tool_ids``/``knowledge_entries``) —
-    refused whole, never a crash, mirroring the lattice's own "refuse the
-    whole unit, never strip-and-retain" discipline.
+    ``target``, or a wrongly-typed ``tool_ids``/``knowledge_entries``/
+    ``content``) — refused whole, never a crash, mirroring the lattice's own
+    "refuse the whole unit, never strip-and-retain" discipline.
 
-    ``origin`` is ALWAYS stamped :data:`~colleague.lattice.Origin.CORTEX` —
-    a model-supplied ``"origin"`` key is read and discarded, never trusted
-    (authority is never self-declared). Any OTHER unrecognized key on the
+    ``origin`` is ALWAYS stamped :data:`~colleague.lattice.Origin.CORTEX` at
+    BOTH levels this unit can carry it — the unit's own ``origin`` field
+    (a model-supplied ``"origin"`` key on the entry itself is read and
+    discarded, never trusted) AND, via :func:`_stamp_knowledge_origin`,
+    every individual ``knowledge_entries`` dict (a host-known fact: this
+    module IS the cortex producer, so authority is never self-declared,
+    whichever level it is claimed at). Any OTHER unrecognized key on the
     entry becomes an ``extra_fields`` entry, which
     :func:`colleague.lattice.validate_change` refuses whole with its own
     reason — this function does not special-case unknown keys itself.
@@ -423,6 +453,10 @@ def _build_change_unit(raw_entry: Any) -> "tuple[Optional[ChangeUnit], str]":
     if not isinstance(knowledge_raw, list) or not all(isinstance(k, dict) for k in knowledge_raw):
         return None, "refused: 'knowledge_entries' must be a list of objects"
 
+    content_raw = raw_entry.get("content", "")
+    if not isinstance(content_raw, str):
+        return None, "refused: 'content' must be a string"
+
     extra = {k: v for k, v in raw_entry.items() if k not in _RECOGNIZED_CHANGE_KEYS}
     extra.pop("origin", None)  # never trusted, never treated as an extra key either
 
@@ -431,7 +465,8 @@ def _build_change_unit(raw_entry: Any) -> "tuple[Optional[ChangeUnit], str]":
             target=_coerce_target(raw_entry.get("target")),
             origin=Origin.CORTEX,
             tool_ids=list(tool_ids_raw),
-            knowledge_entries=list(knowledge_raw),
+            knowledge_entries=[_stamp_knowledge_origin(k) for k in knowledge_raw],
+            content=content_raw,
             extra_fields=extra or None,
         ),
         "",
@@ -461,13 +496,22 @@ def review_and_queue(
     raise (mirrors :func:`colleague.deepthink.run_deepthink`'s
     degrade-never-raise contract).
 
+    A degraded review is VISIBLE, never silent (the #363 armed-is-not-alive
+    lesson applied here): both early-return paths below append ONE
+    :data:`~colleague.configevents.EVENT_KIND_DEGRADED` event onto *stream*,
+    carrying the degradation reason, before returning — distinguishable from
+    a healthy ``{"changes": []}`` reply (nothing to change this window),
+    which appends nothing at all and is never degraded.
+
     Application is NOT performed here — see the module docstring's step 5:
     the caller (``colleague/chain.py``'s ``run_configurator_window``) calls
     :func:`colleague.chain.apply_config_window` at the SAME sanctioned
     window right after this returns.
     """
     if cortex_config is None:
-        return ConfiguratorReviewResult(degraded=True, degraded_reason="no cortex dial resolvable")
+        reason = "no cortex dial resolvable"
+        stream.append(EVENT_KIND_DEGRADED, origin=Origin.CORTEX.value, reason=reason)
+        return ConfiguratorReviewResult(degraded=True, degraded_reason=reason)
 
     from colleague import registry
 
@@ -482,7 +526,9 @@ def review_and_queue(
         simple = robust_simple_complete(complete)
         raw = simple(_SYSTEM_PROMPT, _build_user_prompt(review_input, catalog))
     except Exception as exc:  # pragma: no cover - exercised via a raising fake engine
-        return ConfiguratorReviewResult(degraded=True, degraded_reason=str(exc))
+        reason = str(exc)
+        stream.append(EVENT_KIND_DEGRADED, origin=Origin.CORTEX.value, reason=reason)
+        return ConfiguratorReviewResult(degraded=True, degraded_reason=reason)
 
     changes, error = _parse_changes(raw)
     if changes is None:

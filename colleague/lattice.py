@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
+
 # ---------------------------------------------------------------------------
 # Target and Origin enums
 # ---------------------------------------------------------------------------
@@ -119,6 +121,9 @@ _FORBIDDEN_KEYS = frozenset(
 #: is a malformed unit and refuses whole.
 _KNOWLEDGE_TARGETS = frozenset({Target.WORKER_KNOWLEDGE, Target.SENSES_KNOWLEDGE})
 
+#: The targets whose changes carry ``content`` (a strategist section string).
+_STRATEGIST_TARGETS = frozenset({Target.WORKER_PROMPT_STRATEGIST, Target.SENSES_PROMPT_STRATEGIST})
+
 
 # ---------------------------------------------------------------------------
 # ChangeUnit — the typed change record
@@ -150,6 +155,7 @@ class ChangeUnit:
     origin: Origin
     tool_ids: list[str] = field(default_factory=list)
     knowledge_entries: list[dict[str, Any]] = field(default_factory=list)
+    content: str = ""
     extra_fields: Optional[dict[str, Any]] = None
 
 
@@ -318,14 +324,16 @@ def _check_extra_key_refusal(unit: ChangeUnit) -> Optional[Verdict]:
     return Verdict(
         False,
         f"refused: extra keys on change unit {extra_keys!r} "
-        f"(only target, origin, tool_ids, knowledge_entries are valid)",
+        f"(only target, origin, tool_ids, knowledge_entries, content are valid)",
     )
 
 
 def _check_field_target_shape(unit: ChangeUnit) -> Optional[Verdict]:
     """Check 4: a field on a target it does not belong to is a malformed
     unit — ``tool_ids`` rides only ``worker.tools``, ``knowledge_entries``
-    rides only the ``*.knowledge`` targets. Refuse whole, never ignore."""
+    rides only the ``*.knowledge`` targets, ``content`` rides only the
+    ``*.prompt.strategist`` targets.  An empty ``tool_ids`` on ``worker.tools``
+    is also refused (empty narrowing). Refuse whole, never ignore."""
     if unit.tool_ids and unit.target is not Target.WORKER_TOOLS:
         return Verdict(
             False,
@@ -338,6 +346,26 @@ def _check_field_target_shape(unit: ChangeUnit) -> Optional[Verdict]:
             f"refused: knowledge_entries are only valid on "
             f"{sorted(t.value for t in _KNOWLEDGE_TARGETS)!r}, "
             f"not {unit.target.value!r}",
+        )
+    if unit.content and unit.target not in _STRATEGIST_TARGETS:
+        return Verdict(
+            False,
+            f"refused: content is only valid on "
+            f"{sorted(t.value for t in _STRATEGIST_TARGETS)!r}, "
+            f"not {unit.target.value!r}",
+        )
+    if unit.content and len(unit.content.strip()) > STRATEGIST_SECTION_MAX_CHARS:
+        return Verdict(
+            False,
+            f"refused: content length ({len(unit.content.strip())}) exceeds "
+            f"the {STRATEGIST_SECTION_MAX_CHARS}-char cap "
+            f"on {unit.target.value!r}",
+        )
+    if not unit.tool_ids and unit.target is Target.WORKER_TOOLS:
+        return Verdict(
+            False,
+            f"refused: empty tool_ids on {unit.target.value!r} "
+            f"(worker.tools requires a non-empty tool_ids narrowing)",
         )
     return None
 

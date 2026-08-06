@@ -27,12 +27,19 @@ import os
 import signal
 import sys
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
 from colleague import background, flight, media, registry, rig, worktrees
-from colleague.artifact import artifact_dir, failed_result, find_artifact, read_chain_view, write
+from colleague.artifact import (
+    artifact_dir,
+    failed_result,
+    find_artifact,
+    read_chain_view,
+    update_config_events,
+    write,
+)
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands._presence_sink import (
     ack_packet_for_task,
@@ -418,6 +425,50 @@ def _preserve_non_ok_wip(
         result.branch = branch_name(task.id, task.instruction)
 
 
+def _finalize_run_outcome(
+    *,
+    result: TaskResult,
+    read_only_role: bool,
+    work_repo: Path,
+    task: Task,
+    baseline_untracked: list[str],
+    open_pr: bool,
+    base: str,
+    telemetry: Telemetry,
+    base_sha: str | None,
+    worktree_path: str | None,
+    chain: "ChainEpisodeOptions | None",
+) -> None:
+    """Land the run's outcome: handoff on OK, else preserve non-OK isolated WIP.
+
+    A read-only role (explorer/reviewer/planner/validator) never triggers the
+    handoff sweep — there is nothing to sweep, and a read-only handoff would
+    silently revert the operator's own uncommitted WIP (Qodo, PR #245). A
+    non-OK isolated exit instead preserves the model's WIP on
+    ``colleague/<id>`` (#222) via :func:`_preserve_non_ok_wip`. Extracted
+    from :func:`execute_work` to keep its cognitive complexity under the
+    S3776 ceiling (the :func:`_moded_config` precedent).
+    """
+    if result.status == OK and not read_only_role:
+        _handoff_result(
+            repo=work_repo,
+            task=task,
+            result=result,
+            baseline_untracked=baseline_untracked,
+            open_pr=open_pr,
+            base=base,
+            telemetry=telemetry,
+            base_sha=base_sha,
+        )
+    elif result.status != OK:
+        # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
+        # on OK, so preserve the model's WIP on colleague/<id> before teardown.
+        # A no-op when not isolated (worktree_path is None). A chained
+        # episode additionally records its WIP branch on the result
+        # (Qodo, PR #345 — see _preserve_non_ok_wip).
+        _preserve_non_ok_wip(worktree_path, result, task, chained=chain is not None)
+
+
 def _engine_failure_error(
     exc: Exception,
     *,
@@ -593,6 +644,287 @@ class DisplayOptions:
 _READ_ONLY_MODES = frozenset({"explore", "review"})
 
 
+# ---------------------------------------------------------------------------
+# Config-plane arming (change-content consumption lane, plan task t9 —
+# spec docs/specs/2026-08-06-change-content-consumption-lane.md, c5/h5/c28/h22)
+# ---------------------------------------------------------------------------
+#
+# The three-tier design lets cortex CONFIGURE the worker episode (a narrowed
+# tool set, a bounded strategist note, extra knowledge) via
+# colleague/configlifecycle.py + colleague/configurator.py — both complete
+# and tested, but nothing in either CLI or session front ever constructed a
+# lifecycle or called colleague.chain.run_configurator_window (d3). This
+# section is that missing caller: arming lives HERE (execute_work /
+# execute_work_chain), never in cmd_work's argv parsing, so both the CLI and
+# the session palette (which calls these two functions directly) inherit it
+# identically. All imports below are LAZY — a run that never arms three-tier
+# (config.worker is None, the default) never pays for the config-plane
+# machinery's import graph, mirroring colleague/chain.py's own lazy
+# colleague.configurator import.
+
+
+@dataclass
+class _ConfigPlaneState:
+    """Bookkeeping for ONE top-level task's config plane.
+
+    Bundles the :class:`~colleague.configlifecycle.EpisodeConfigLifecycle`
+    every engine consumes via ``config.config_lifecycle`` (attached at
+    construction, so the loop/engines see it from the very first dispatch),
+    the configurator's own :class:`~colleague.configevents.ConfigEventStream`
+    (a SEPARATE audit trail — see :func:`_combined_config_events`), the
+    :class:`~colleague.lattice.CapabilityCatalog` resolved once and reused by
+    every window this task runs, and the APPLIED
+    :class:`~colleague.lattice.ChangeUnit` objects accumulated across every
+    window so far (q5 — the only way an applied strategist unit's verbatim
+    content can ride the folded artifact, since neither the lifecycle's own
+    event nor :class:`~colleague.configlifecycle.ConfigApplication` carries
+    it).
+
+    Constructed EXACTLY ONCE per top-level task (h22: "one
+    ``EpisodeConfigLifecycle`` instance belongs to exactly one TOP-LEVEL
+    task") — a standalone (non-chained) :func:`execute_work` call builds its
+    own via :func:`_arm_config_plane`; an armed ``--until-done`` chain is
+    itself ONE top-level task, so :func:`execute_work_chain` builds ONE and
+    threads it to every episode via ``ChainEpisodeOptions.config_plane``
+    rather than each episode building its own (which would violate h22 and
+    lose the prior episodes' event history).
+    """
+
+    lifecycle: "object"
+    stream: "object"
+    catalog: "object"
+    applied_units: list = field(default_factory=list)
+
+
+def _build_capability_catalog(config: EngineConfig, repo_path: str) -> "object":
+    """The run's actually-resolved tool surface, derived the SAME way the
+    engines derive it (``colleague/engines/mock.py``/``vllm_openai.py``:
+    ``resolve_role(config, task.repo_path)`` then ``curate_schemas(role)``)
+    — the :class:`~colleague.lattice.CapabilityCatalog` contract: "built
+    ONLY from a caller-supplied resolved tool allow-list", never minted by
+    the lattice itself.
+
+    ``deepthink`` stays at :func:`~colleague.tools.curate_schemas`'s default
+    ``False``: deepthink is absent in three-tier mode (an architecture
+    invariant — three-tier and dual-model deepthink are mutually exclusive
+    escalation surfaces), so the offered surface here never includes the
+    deepthink tool schema.
+    """
+    from colleague.lattice import CapabilityCatalog
+    from colleague.loop import resolve_role
+    from colleague.tools import curate_schemas
+
+    role = resolve_role(config, repo_path)
+    schemas = curate_schemas(role)
+    tool_ids = tuple(s["function"]["name"] for s in schemas)
+    return CapabilityCatalog(tool_ids=tool_ids)
+
+
+def _accumulate_applied(state: "_ConfigPlaneState", window_result: "object") -> None:
+    """Fold ONE window's applied :class:`~colleague.lattice.ChangeUnit`
+    objects onto *state* (q5) — the ACCUMULATED list :func:`_combined_config_events`
+    later matches positionally against every "applied" event the lifecycle
+    ever recorded, across every window this top-level task has run.
+
+    A no-op unless the window actually reviewed AND applied something: an
+    unarmed configurator (``reviewed=False``), a degraded review, or a
+    healthy ``{"changes": []}`` reply each apply nothing, so there is
+    nothing to accumulate — mirrors
+    :func:`colleague.configurator.record_applied`'s own precondition
+    (``review.verified`` is exactly what *application* drained, for the ONE
+    sanctioned review-then-apply call sequence
+    :func:`colleague.chain.run_configurator_window` makes).
+    """
+    if not window_result.reviewed or window_result.application is None:
+        return
+    if window_result.application.applied_count == 0:
+        return
+    state.applied_units.extend(window_result.review.verified)
+
+
+def _arm_config_plane(
+    config: EngineConfig, *, repo: Path, task: Task, engine_name: str
+) -> "_ConfigPlaneState | None":
+    """Construct the config plane and run its ``WINDOW_BEFORE_EPISODE_1``
+    window — a strict no-op (returns ``None``) unless three-tier is armed
+    (``config.worker is not None``: config.py's own resolution already made
+    the worker role MANDATORY-if-armed, c25/h21, so this reads arming from
+    the RESOLVED config rather than re-deriving it from the lobes gateway).
+
+    The ONE construction site for a top-level task's lifecycle (h22): a
+    standalone (non-chained) :func:`execute_work` call reaches this
+    directly, before its own single dispatch; an armed ``--until-done``
+    chain reaches it exactly once, from :func:`execute_work_chain`, before
+    its FIRST episode dispatches — later episodes thread the SAME state via
+    ``ChainEpisodeOptions.config_plane`` instead of calling this again.
+
+    The lifecycle is attached to ``config.config_lifecycle`` BEFORE the
+    window runs, so it is live (loop/engines will consume it) regardless of
+    whether the configurator itself is armed. The configurator's OWN opt-in
+    flag (:func:`colleague.configurator.configurator_enabled` — a SEPARATE
+    default-off flag from ``three_tier`` itself) is resolved fresh here and
+    passed as ``armed=`` to :func:`colleague.chain.run_configurator_window`,
+    which is called UNCONDITIONALLY once three-tier is armed but is itself a
+    strict no-op (``reviewed=False``, zero completions issued) when the
+    configurator is off (acceptance criterion 2) — so the lifecycle is
+    always constructed once three-tier is armed, independent of the
+    configurator's own arming.
+
+    The catalog is resolved from *repo* (the OPERATOR repo, not a per-episode
+    isolated worktree) — deliberately symmetric with
+    :func:`execute_work_chain`'s own arming call, which necessarily runs
+    BEFORE any per-episode isolation exists. In practice this is the SAME
+    tree an isolated episode's worktree checks out (role override files, if
+    any, travel with the commit), so the resolved tool surface does not
+    differ from what the engine itself later resolves off the isolated
+    ``task.repo_path`` — documented here rather than left implicit.
+    """
+    if config.worker is None:
+        return None
+    from colleague import chain as chainmod
+    from colleague.configevents import ConfigEventStream
+    from colleague.configlifecycle import EpisodeConfigLifecycle
+    from colleague.configurator import configurator_enabled
+    from colleague.reviewinput import assemble_before_episode
+
+    catalog = _build_capability_catalog(config, str(repo))
+    lifecycle = EpisodeConfigLifecycle(catalog=catalog)
+    stream = ConfigEventStream()
+    config.config_lifecycle = lifecycle
+    state = _ConfigPlaneState(lifecycle=lifecycle, stream=stream, catalog=catalog)
+
+    window_result = chainmod.run_configurator_window(
+        lifecycle,
+        chainmod.WINDOW_BEFORE_EPISODE_1,
+        armed=configurator_enabled(repo_path=repo),
+        review_input=assemble_before_episode(task),
+        catalog=catalog,
+        stream=stream,
+        config=config,
+        engine_name=engine_name,
+    )
+    _accumulate_applied(state, window_result)
+    return state
+
+
+def _run_between_episodes_window(
+    state: "_ConfigPlaneState",
+    *,
+    repo: Path,
+    task: Task,
+    result: TaskResult,
+    config: EngineConfig,
+    engine_name: str,
+) -> None:
+    """Run the config plane's ``WINDOW_BETWEEN_EPISODES`` window (t9) — the
+    other of the two sanctioned windows (:data:`colleague.chain.
+    WINDOW_BEFORE_EPISODE_1` is the ONE :func:`_arm_config_plane` runs).
+
+    Called from :func:`execute_work_chain`'s go-verdict path — after
+    :func:`_chain_should_start_next` decides episode N+1 may dispatch, before
+    it actually does — with *task*/*result* the JUST-FINISHED episode's own
+    (:func:`colleague.reviewinput.assemble_between_episodes` composes the
+    review digest from its terminal facts). A no-op call site guard lives in
+    the caller (``if config_plane is not None``); this function itself
+    always runs its window once reached, same as :func:`_arm_config_plane`.
+    """
+    from colleague import chain as chainmod
+    from colleague.configurator import configurator_enabled
+    from colleague.reviewinput import assemble_between_episodes
+
+    window_result = chainmod.run_configurator_window(
+        state.lifecycle,
+        chainmod.WINDOW_BETWEEN_EPISODES,
+        armed=configurator_enabled(repo_path=repo),
+        review_input=assemble_between_episodes(task, result),
+        catalog=state.catalog,
+        stream=state.stream,
+        config=config,
+        engine_name=engine_name,
+    )
+    _accumulate_applied(state, window_result)
+
+
+def _combined_config_events(state: "_ConfigPlaneState") -> list:
+    """Fold the config plane's two append-only records into ONE durable trail
+    — never double-counted (spec requirement: "pick ONE source of truth for
+    overlapping kinds").
+
+    The CONFIGURATOR STREAM is the source of truth for the whole review
+    cycle — proposed / verified / refused / applied / degraded — because it
+    is the only record that sees EVERY refusal shape (a malformed reply or
+    a change entry that fails to build refuses BEFORE ``lifecycle.propose``
+    is ever called, so the lifecycle's own trail is silent about it — Qodo
+    #369 review, thread 1) and because it records the cycle in true causal
+    order (proposed -> verified -> applied per unit; the previous
+    lifecycle-first construction appended every "verified" after every
+    "applied" — thread 2). Stream events pass through
+    :func:`colleague.contract.map_configlifecycle_events` for the
+    class-selective applied-content enrichment (q5, via
+    *state.applied_units* — the stream's applied events are 1:1 and
+    same-order with the accumulated applied units) and reason preservation.
+
+    The LIFECYCLE contributes ONLY its "boundary" events (mapped onto
+    ``EVENT_KIND_BASELINE`` — an episode-boundary marker the stream has no
+    equivalent of, recorded once per ``run()`` exit), appended after the
+    cycle trail. For a single-episode run this IS chronological (the
+    boundary fires at run exit, after the one window); on a chain the
+    per-window interleave is approximated — each boundary event carries its
+    own boundary index and effective-config digest, which is what anchors
+    it to a config state, not its list position (documented approximation,
+    deliberate).
+
+    ``seq`` is renumbered across the COMBINED list — a monotonic index into
+    what ``TaskResult.config_events`` actually carries, never trusted from
+    either source's own internal numbering.
+    """
+    from dataclasses import replace as _replace
+
+    from colleague.contract import map_configlifecycle_events
+
+    cycle = map_configlifecycle_events(state.stream.replay(), applied_units=state.applied_units)
+    boundaries = map_configlifecycle_events(
+        [e for e in state.lifecycle.events() if getattr(e, "kind", "") == "boundary"]
+    )
+    combined = cycle + boundaries
+    return [_replace(event, seq=i) for i, event in enumerate(combined)]
+
+
+def _fold_config_plane(
+    state: "_ConfigPlaneState", *, repo: Path, task_id: str, result: TaskResult
+) -> None:
+    """The cumulative fold (q2): land the combined config events on *result*
+    AND rewrite the ALREADY-PERSISTED artifact — the ONE place both copies
+    are kept in sync (acceptance criterion 3), mirroring
+    :func:`colleague.artifact.update_config_events`'s own docstring ("the
+    loop writes a work item's artifact exactly once, at run end ... the
+    config-plane fold happens AFTER that").
+
+    Crash-window honesty (acceptance criterion 3, stated here and pinned by
+    a test): by the time this function runs, :func:`colleague.artifact.write`
+    has ALREADY durably persisted *result*'s base shape (steps, usage,
+    status, branch, everything) — this function only ever ADDS the
+    ``config_events``/``config_digest`` keys via a REWRITE
+    (:func:`colleague.artifact.update_config_events`). A process killed
+    between ``result.config_events = events`` below and that rewrite
+    finishing therefore loses AT MOST the events THIS window alone
+    contributed — every EARLIER window's fold already landed durably on a
+    PRIOR call to this same function (one per episode), so the loss is
+    bounded to "the last window", never the whole audit trail.
+    """
+    from colleague.contract import config_digest_for
+
+    events = _combined_config_events(state)
+    result.config_events = events
+    # ``config_digest`` is its OWN TaskResult field (not auto-derived by
+    # to_dict()) — recomputed here from *events* alone, the same way
+    # colleague.artifact.update_config_events recomputes it for the on-disk
+    # copy, so the in-memory result and the rewritten artifact never
+    # independently drift (both derive it from config_digest_for(events)).
+    result.config_digest = config_digest_for(events)
+    update_config_events(repo, task_id, events)
+
+
 @dataclass(frozen=True)
 class ChainEpisodeOptions:
     """Per-episode chain-dispatch knobs (indefinite-run t5) — the S107-safe
@@ -615,6 +947,15 @@ class ChainEpisodeOptions:
     #: (indefinite-run follow-up, issue #335, decision c22). Read by the NEXT
     #: task's gate-skip guard — dormant plumbing here.
     prior_changed: tuple[str, ...] = ()
+    #: The whole top-level task's shared config-plane state (change-content
+    #: consumption lane, plan task t9 — h22). Constructed ONCE by
+    #: :func:`execute_work_chain` when three-tier is armed and threaded to
+    #: EVERY episode, so each episode's fold sees the SAME
+    #: lifecycle/stream/accumulated-applied-units. ``None`` for an unarmed
+    #: chain (byte-identical) — a standalone (non-chained) call to
+    #: :func:`execute_work` never reads this field; it arms its OWN state via
+    #: :func:`_arm_config_plane` instead.
+    config_plane: "_ConfigPlaneState | None" = None
 
 
 def _arm_chain_dispatch(config: EngineConfig, chain: "ChainEpisodeOptions | None") -> str | None:
@@ -669,6 +1010,30 @@ def _build_run_presence(
         )
         return presence, presence is not None
     return None, False
+
+
+def _resolve_config_plane(
+    chain: "ChainEpisodeOptions | None",
+    config: EngineConfig,
+    *,
+    repo: Path,
+    task: Task,
+    engine_name: str,
+) -> "_ConfigPlaneState | None":
+    """Resolve THIS call's config-plane state (change-content consumption
+    lane, plan task t9 — h22): a chained episode reuses the state
+    :func:`execute_work_chain` already constructed once at arming (one
+    lifecycle per top-level task); a standalone (non-chained) call arms its
+    OWN state here, before its single dispatch. Both stay ``None`` — a
+    strict no-op — unless three-tier is armed (``config.worker is not
+    None``). Extracted from :func:`execute_work` to keep its cognitive
+    complexity under the S3776 ceiling (the :func:`_moded_config` precedent).
+    """
+    if chain is not None:
+        return chain.config_plane
+    if config.worker is not None:
+        return _arm_config_plane(config, repo=repo, task=task, engine_name=engine_name)
+    return None
 
 
 def execute_work(
@@ -782,6 +1147,17 @@ def execute_work(
         raise CliError(
             EXIT_USER_ERROR, str(exc), "list engines with: colleague backends list"
         ) from exc
+
+    # Config-plane arming (change-content consumption lane, t9): a chained
+    # episode's state was already constructed ONCE by execute_work_chain
+    # (h22 — one lifecycle per top-level task, and an armed chain IS one) and
+    # rides `chain.config_plane`; a standalone (non-chained) call arms its
+    # OWN state here, before the first (only) dispatch. Both are a strict
+    # no-op (`config_plane` stays None) unless three-tier is armed
+    # (config.worker is not None) — byte-identical to today either way.
+    config_plane = _resolve_config_plane(
+        chain, config, repo=repo, task=task, engine_name=engine_name
+    )
 
     # A read-only role (explorer/reviewer/planner/validator) provably writes
     # nothing, so it (a) bypasses the dirty-tree guard — there is no handoff sweep
@@ -941,24 +1317,19 @@ def execute_work(
             if presence is not None:
                 fold_presence_snapshot(result, presence, fold_chat=presence_foreground)
 
-            if result.status == OK and not read_only_role:
-                _handoff_result(
-                    repo=work_repo,
-                    task=task,
-                    result=result,
-                    baseline_untracked=baseline_untracked,
-                    open_pr=open_pr,
-                    base=base,
-                    telemetry=telemetry,
-                    base_sha=base_sha,
-                )
-            elif result.status != OK:
-                # Cooperative stop / non-OK isolated exit (#222): the handoff only runs
-                # on OK, so preserve the model's WIP on colleague/<id> before teardown.
-                # A no-op when not isolated (worktree_path is None). A chained
-                # episode additionally records its WIP branch on the result
-                # (Qodo, PR #345 — see _preserve_non_ok_wip).
-                _preserve_non_ok_wip(worktree_path, result, task, chained=chain is not None)
+            _finalize_run_outcome(
+                result=result,
+                read_only_role=read_only_role,
+                work_repo=work_repo,
+                task=task,
+                baseline_untracked=baseline_untracked,
+                open_pr=open_pr,
+                base=base,
+                telemetry=telemetry,
+                base_sha=base_sha,
+                worktree_path=worktree_path,
+                chain=chain,
+            )
 
             work_span.set(
                 status=result.status,
@@ -982,6 +1353,14 @@ def execute_work(
             if chain is not None:
                 result.chain = ChainView.accumulate(chain.prior_view, result)
             artifact_path = write(result, artifact_dir(repo))
+            # The cumulative config-plane fold (t9, acceptance criterion 3):
+            # AFTER the base artifact is durably written, land the combined
+            # config events on `result` AND rewrite the just-written artifact
+            # so the two copies never drift (see _fold_config_plane's own
+            # docstring for the crash-window honesty this ordering buys).
+            # A strict no-op (config_plane is None) unless three-tier armed.
+            if config_plane is not None:
+                _fold_config_plane(config_plane, repo=repo, task_id=result.task_id, result=result)
             # Record this as the repo's most recent work item so `colleague feedback
             # last` resolves to it. Best-effort: a pointer write must never break
             # a successful work item.
@@ -1561,6 +1940,15 @@ def execute_work_chain(
     # Lazy import: the chain path is opt-in; keep work's import graph flat.
     from colleague import chain as chainmod
 
+    # Config-plane arming (change-content consumption lane, t9): ONE
+    # lifecycle for the WHOLE chain (h22 — an armed --until-done chain is
+    # itself one top-level task), constructed + its WINDOW_BEFORE_EPISODE_1
+    # run BEFORE episode 1 ever dispatches, then threaded to every episode
+    # via ChainEpisodeOptions.config_plane below (never re-armed mid-chain).
+    # A strict no-op (config_plane stays None) unless three-tier is armed
+    # (config.worker is not None) — byte-identical to today either way.
+    config_plane = _arm_config_plane(config, repo=repo, task=task, engine_name=engine_name)
+
     # --continue + --until-done: resume the cut run's chain accounting when it
     # carried a view (an ordinary cut run yields None → fresh accounting).
     prior_view = read_chain_view(repo, continued_from) if continued_from else None
@@ -1592,6 +1980,7 @@ def execute_work_chain(
                 base_ref=prior_branch,
                 prior_view=prior_view,
                 prior_changed=tuple(sorted(changed_so_far)),
+                config_plane=config_plane,
             ),
         )
         prior_view = result.chain
@@ -1612,6 +2001,20 @@ def execute_work_chain(
         )
         if seed is None:
             break
+        # Config-plane between-episode window (t9): the go-verdict path —
+        # decided to continue, not yet dispatched episode N+1. Reviews the
+        # JUST-FINISHED episode's terminal facts (episode_task/result, still
+        # unreassigned at this point in the loop). A no-op unless three-tier
+        # is armed (config_plane is None).
+        if config_plane is not None:
+            _run_between_episodes_window(
+                config_plane,
+                repo=repo,
+                task=episode_task,
+                result=result,
+                config=config,
+                engine_name=engine_name,
+            )
         emit_diagnostic(
             f"chain: episode {state.episode_count} ({result.task_id}) exit "
             f"{verdict.reason!r} — continuing (episode {state.episode_count + 1})"

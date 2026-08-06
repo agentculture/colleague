@@ -41,6 +41,14 @@ if TYPE_CHECKING:
     # only, never executed at runtime.
     from colleague.cli._errors import CliError
 
+    # Annotation-only (change-content consumption lane, plan task t3): types
+    # ``config_lifecycle`` below. No runtime import — the attachment is read
+    # defensively via getattr (colleague/loop.py:2934 already does this
+    # forward-compatibly), and any object exposing the same read surface
+    # (a frozen child view, a future adapter) is accepted, never just this
+    # concrete class.
+    from colleague.configlifecycle import EpisodeConfigLifecycle
+
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
 _DEFAULT_BASE_URL = "http://localhost:8001/v1"
@@ -2343,6 +2351,20 @@ class EngineConfig:
     # silent cortex-as-actor). See :class:`WorkerConfig` and
     # :func:`_resolve_worker`.
     worker: Optional[WorkerConfig] = None
+    # The episode config-lifecycle attachment (change-content consumption
+    # lane, plan task t3). ``None`` (the default) = no config plane armed,
+    # byte-identical to today — the pre-existing state, since nothing has
+    # ever set this field before this task. A runtime-only object set
+    # imperatively by the work front once three-tier is armed (a later
+    # task), never resolved from env/file — excluded from eq/repr/to_dict
+    # like ``role``/``memory_root`` above. Typed here only to make a seam
+    # ``colleague/loop.py`` already reads via
+    # ``getattr(config, "config_lifecycle", None)`` (line 2934,
+    # forward-compatible before this field existed) explicit; both engines'
+    # ``work()`` read it the same way at episode-schema-resolution time.
+    config_lifecycle: "Optional[EpisodeConfigLifecycle]" = field(
+        default=None, compare=False, repr=False
+    )
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by

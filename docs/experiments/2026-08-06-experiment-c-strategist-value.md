@@ -11,10 +11,10 @@ fixing.
 run; the Results section is appended after, unedited.
 
 **Honest scope limit (deviation d2 / issue #366).** The change-content
-consumption lane is not wired in v1, so this gate measures **detection,
-false-intervention, and cost** — NOT downstream task-outcome improvement,
-which is deferred to the #366 follow-up. #364's fuller design (repo-A/repo-B
-live tasks with outcome deltas) becomes possible only after #366.
+consumption lane was not wired when this gate ran, so this gate measures
+**detection, false-intervention, and cost** — NOT downstream task-outcome
+improvement. The lane is now wired (t8–t12), so #364's fuller design
+(repo-A/repo-B live tasks with outcome deltas) is possible.
 
 ## Design
 
@@ -68,8 +68,11 @@ while the corrective CONTENT was substantively right ("This is a Python
 package using uv … Do NOT use Gradle commands or look for src/main/java").
 Refuse-whole worked as designed; the obvious v1.1 improvement — the
 configurator auto-stamping entry-level origins (they are host-known, the
-model's claim adds nothing) — is folded into the #366 follow-up rather than
-patched post-hoc into a measured run. Consistent with the pre-registration,
-the strategist REMAINS opt-in and off by default: the off-default test stays
-until a verdict on a build with the origin-stamping fix repeats this result
-end-to-end (proposed → verified → applied).
+model's claim adds nothing) — landed in the #366 follow-up
+(`tests/test_configurator.py::test_entry_lacking_origin_validates_post_stamp`,
+`tests/test_configurator.py::test_entry_level_model_supplied_origin_is_discarded_and_restamped`).
+Consistent with the pre-registration, the strategist REMAINS opt-in and off
+by default: the off-default test stays until a verdict on a build with the
+origin-stamping fix repeats this result end-to-end (proposed → verified →
+applied). That repeat verdict lands with its own experiment record, not as a
+post-hoc amendment to this one.

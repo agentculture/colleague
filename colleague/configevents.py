@@ -55,10 +55,21 @@ EVENT_KIND_REFUSED = "refused"
 EVENT_KIND_VERIFIED = "verified"
 EVENT_KIND_APPLIED = "applied"
 EVENT_KIND_REVERTED = "reverted"
+#: A configurator review that never usefully reached the cortex model (no
+#: dial resolvable, a dead endpoint, a request error) — the #363
+#: armed-is-not-alive lesson applied to this producer: visible on the stream
+#: (and therefore the artifact/feed), never silent. Deliberately distinct
+#: from ``"refused"`` — a refusal means cortex answered but the answer (or
+#: one entry in it) was invalid; ``"degraded"`` means the review never
+#: usefully happened at all. A healthy ``{"changes": []}`` reply (nothing to
+#: change this window) appends NEITHER kind — it is not a degradation.
+EVENT_KIND_DEGRADED = "degraded"
 
 #: Every valid :class:`ConfigEvent` ``kind`` value, in the fixed reading order
 #: used throughout this module and the docs — importable so a caller/test can
-#: assert exhaustiveness without hand-listing the six strings again.
+#: assert exhaustiveness without hand-listing the seven strings again.
+#: ``"degraded"`` is appended at the END (never re-ordered into the middle)
+#: so existing digests/ordering pins over the first six kinds stay stable.
 EVENT_KINDS: tuple[str, ...] = (
     EVENT_KIND_BASELINE,
     EVENT_KIND_PROPOSED,
@@ -66,6 +77,7 @@ EVENT_KINDS: tuple[str, ...] = (
     EVENT_KIND_VERIFIED,
     EVENT_KIND_APPLIED,
     EVENT_KIND_REVERTED,
+    EVENT_KIND_DEGRADED,
 )
 
 #: The kinds that count as "progress" for :func:`liveness_advanced` —

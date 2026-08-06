@@ -54,7 +54,10 @@ minds. The architecture, part by part:
 - **Three-tier execution** — worker acts / senses relays / cortex configures,
   resolved BY ROLE NAME from the lobes gateway (worker role), opt-in via config;
   byte-identical when unconfigured; deepthink absent in three-tier mode;
-  the configurator a further opt-in (default off); NEVER a routing policy.
+  the configurator a further opt-in (default off); the consumption lane is
+  wired end-to-end (lattice content, lifecycle folds, prompt seam, tool
+  narrowing, work front, subagent snapshot, flight seat) — see
+  `three-tier.md` § Honest limits for pinning tests; NEVER a routing policy.
   Doc: `three-tier.md`.
 - **Media input** — images/audio ride to a multimodal main model;
   delivery **verified** onto `TaskResult.media`.

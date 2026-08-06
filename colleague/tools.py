@@ -42,7 +42,7 @@ import os
 import shlex
 import subprocess  # nosec B404 - running model-issued commands is the point (trusted, D2)
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -589,6 +589,65 @@ def curate_schemas(role: "Role | str | None", *, deepthink: bool = False) -> lis
     if deepthink and (allow is None or DEEPTHINK in allow):
         curated = curated + [DEEPTHINK_SCHEMA]
     return curated
+
+
+def narrow_role_by_tool_set(
+    role: "Role | str | None", tool_set: tuple[str, ...] = ()
+) -> "Role | str | None":
+    """Compose *role*'s curated surface with a config-lifecycle ``tool_set`` narrowing.
+
+    The change-content consumption lane (plan task t3, spec c8/h8): when a
+    cortex-applied ``worker.tools`` proposal narrows the episode's
+    ``EpisodeConfigSnapshot.tool_set`` (``colleague/configlifecycle.py``), the
+    value this function returns is handed to BOTH :func:`curate_schemas` (the
+    offered-schema half of the existing role mechanism) and
+    :class:`ToolExecutor`'s existing ``allowlist=`` seam (the refusal half) —
+    the SAME composed value threads through both, so the two halves can never
+    diverge and no second refusal mechanism is ever needed. Both call sites
+    keep writing ``allowlist=role`` / ``curate_schemas(role, ...)`` — *role*
+    is simply this function's return value instead of the raw resolved role.
+
+    ``tool_set`` empty/default — the snapshot's not-narrowed value (c26 made
+    narrow-to-nothing unrepresentable at the lattice: an empty ``tool_ids``
+    list refuses whole before it can ever reach a snapshot) — returns *role*
+    unchanged, byte-identical to today on both engines.
+
+    Non-empty narrows the role-curated surface down to its INTERSECTION with
+    ``tool_set``: a ``tool_set`` entry outside *role*'s surface adds nothing
+    (the ceiling is always the role, never the narrowing — narrowing only
+    ever removes tools, never adds one the role itself withholds). *role*
+    ``None`` (the pre-role "full surface" default) narrows straight to
+    ``tool_set`` (full surface intersect tool_set == tool_set): the returned
+    synthetic :class:`Role` is non-read-only (``None`` meant unrestricted,
+    never read-only) — :data:`SCHEMAS`'s own silent-unknown-name skip
+    (:func:`curate_schemas`) and :class:`ToolExecutor`'s exact-name check do
+    the rest, so an unresolvable name in ``tool_set`` is simply never
+    offered/callable, never an error here.
+    """
+    if not tool_set:
+        return role
+    from colleague.roles import BUILTIN_ROLES, Role
+
+    keep = set(tool_set)
+    if role is None:
+        return Role(
+            name="narrowed",
+            prompt_fragment="",
+            tool_allowlist=tuple(tool_set),
+            skill_subset=None,
+            read_only=False,
+        )
+    if isinstance(role, str):
+        role_obj = BUILTIN_ROLES.get(role)
+        if role_obj is None:
+            raise ValueError(f"unknown role '{role}'")
+        role = role_obj
+    if isinstance(role, Role):
+        narrowed_allowlist = tuple(t for t in role.tool_allowlist if t in keep)
+        return replace(role, tool_allowlist=narrowed_allowlist)
+    raise TypeError(
+        f"narrow_role_by_tool_set expects a Role, role name, or None, got {type(role).__name__}"
+    )
 
 
 #: Column width for the ``cat -n`` style line-number prefix (matches GNU

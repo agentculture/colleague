@@ -147,22 +147,35 @@ class FlightSession:
         with open(feed_path(self.repo_path, self.task_id), "a") as f:
             f.write(json.dumps(record) + "\n")
 
-    def append_run_start(self, goal: str | None, max_steps: int) -> None:
+    def append_run_start(self, goal: str | None, max_steps: int, seat: str = "cortex") -> None:
         """Mark that the run began — a liveness signal BEFORE the first step (#308).
 
         A reasoning cortex can spend minutes on its first completion with no tool
         call, so the feed would otherwise be empty and ``colleague talk`` / senses
         could only answer "I don't know". This run-start marker lets senses say
-        "cortex started, working on <goal>" immediately.
+        "<seat> started, working on <goal>" immediately.
+
+        ``seat`` names the acting seat for this record (t2, change-content
+        consumption lane spec, covers c9/h9): the default ``"cortex"`` renders
+        the pre-t2 line byte-identically — the legacy two-tier floor a caller
+        that never passes ``seat`` still gets. A caller passes ``"worker"``
+        when three-tier execution resolved a worker seat as the acting
+        bounded-tool-loop actor (``colleague.loop.run``'s ``seat`` parameter,
+        threaded there from each engine's resolved ``config.worker``). This
+        method only renders whatever label it is given — the resolution
+        decision (which seat actually acted) lives at the call site, not here.
+        The label rides both the human-readable ``intent`` text and a
+        structured ``seat`` key on the record, so a consumer can match on
+        either.
         """
         goal_txt = (goal or "").strip()
-        intent = "cortex started" + (f": {goal_txt}" if goal_txt else "")
+        intent = f"{seat} started" + (f": {goal_txt}" if goal_txt else "")
         intent += f" (0/{max_steps} steps)"
         self._append_marker(
             "run-start",
             step_index=0,
             intent=intent,
-            extra={"goal": goal_txt or None, "max_steps": max_steps},
+            extra={"goal": goal_txt or None, "max_steps": max_steps, "seat": seat},
         )
 
     def append_heartbeat(self, phase: str, elapsed: float, step_index: int, max_steps: int) -> None:

@@ -191,17 +191,28 @@ remains opt-in and off by default.
 
 ## Honest limits
 
-### Deviation d2 / issue #366 — the change-content consumption lane is NOT wired
+### Deviation d2 / issue #366 — the WIRED consumption lane
 
-The configurator can **detect** mismatches and **propose** typed corrective
-units, but the **content of those proposals does not yet reach the next
-episode's composed prompt or tool schema**. Applied changes are real at the
-lifecycle, digest, and artifact level — the event stream records them, the
-lattice validates them, the artifact shows them — but the worker's next
-episode does not receive the proposal's content as context.
+The change-content consumption lane is **wired end to end**. Applied
+configuration changes reach the worker's next episode through the composed
+prompt and tool schema. The pinning tests that prove each segment:
 
-`compose_strategist_section` exists and is tested, but is **unconnected** in
-the current wiring. The gap is tracked as issue #366.
+- **ChangeUnit.content** — strategist-targets-only validation, 4000-char cap,
+  empty-narrowing refusal (`tests/test_lattice.py`)
+- **Lifecycle folds** — verbatim text with REPLACE semantics
+  (`tests/test_configlifecycle.py`)
+- **Configurator auto-stamps** — entry origins, content key, visible degraded
+  events (`tests/test_configurator.py`, `tests/test_configevents.py`)
+- **Prompt seam** — `Engine.system_prompt` composes the strategist section
+  (`tests/test_engine_strategist_seam.py`)
+- **Tool narrowing** — schema + executor intersection with the role ceiling
+  (`tests/test_tool_narrowing.py`)
+- **Work front** — lifecycle + windows + folds `config_events` onto
+  `TaskResult` and the persisted artifact (`tests/test_work_config_plane.py`)
+- **Subagent children** — consume a frozen snapshot of the config lifecycle
+  (`tests/test_subagent_config_snapshot.py`)
+- **Flight run-start** — names the acting seat
+  (`tests/test_flight_heartbeat.py`)
 
 ### The strategist ships opt-in and OFF
 
@@ -209,8 +220,15 @@ The configurator is default **off**. Three-tier mode ships the worker and
 senses tiers active (when armed), but the cortex configurator is dormant
 until explicitly enabled. This is deliberate: the origin-stamping refusal
 nuance from experiment C shows the lattice validation is stricter than the
-model's output, and the content lane gap means proposals that pass validation
-do not yet reach the worker.
+model's output.
+
+### Strategist VALUE is unproven until the NEBULA benchmark arm
+
+The content lane is wired, but whether the strategist *improves* task outcomes
+remains unmeasured. The NEBULA RUN benchmark arm (issue #366: the identical
+ship-game prompt re-run configurator-live against the recorded pre-#366
+baseline) is the gate for a value claim. Until that arm runs, the
+strategist's value is conditional on the benchmark — not proven.
 
 ### Deepthink is absent in three-tier mode
 
@@ -219,6 +237,14 @@ available. The worker acts, senses relays, and the cortex (if armed)
 configures — but there is no dual-model judgment escalation. This is a
 deliberate boundary: three-tier mode and dual-model mode are distinct
 configurations, not layered features.
+
+### Known gap: engine-failure artifact path performs no config-plane fold
+
+When the engine fails mid-episode, the failure artifact path does not fold
+in-flight window events onto the persisted artifact. The config lifecycle
+snapshot is episode-immutable, so events that occur between the last
+sanctioned window and the failure are not persisted. This is a known gap,
+not a regression.
 
 ## Legacy vs three-tier distinction
 

@@ -144,7 +144,13 @@ def test_apply_window_before_episode_1_applies_queue_and_moves_digest() -> None:
 
 def test_apply_window_between_episodes_applies_queue_and_moves_digest() -> None:
     lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
-    lifecycle.propose(_strategist_change())
+    lifecycle.propose(
+        ChangeUnit(
+            target=Target.WORKER_PROMPT_STRATEGIST,
+            origin=Origin.CORTEX,
+            content="Strategy text",
+        )
+    )
     before = lifecycle.effective_digest()
 
     application = lifecycle.apply_window(WINDOW_BETWEEN_EPISODES)
@@ -152,7 +158,7 @@ def test_apply_window_between_episodes_applies_queue_and_moves_digest() -> None:
     assert application.window == WINDOW_BETWEEN_EPISODES
     assert application.digest_before == before
     assert application.digest_after != before
-    assert lifecycle.snapshot.strategist_sections == ("cortex#1",)
+    assert lifecycle.snapshot.strategist_sections == ("Strategy text",)
 
 
 def test_apply_window_with_empty_queue_is_a_recorded_noop() -> None:
@@ -380,3 +386,132 @@ def test_events_returns_a_defensive_copy() -> None:
     events = lifecycle.events()
     events.clear()
     assert len(lifecycle.events()) == 1
+
+
+# ===========================================================================
+# t5 — real-text strategist folding (replaces opaque markers)
+# ===========================================================================
+
+
+def test_strategist_applies_verbatim_stripped_content_not_marker() -> None:
+    """Criterion 1: applied strategist unit's verbatim stripped content lands
+    in snapshot.strategist_sections — no more origin#N markers."""
+    lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
+    change = ChangeUnit(
+        target=Target.WORKER_PROMPT_STRATEGIST,
+        origin=Origin.CORTEX,
+        content="  Real strategy text here  ",
+    )
+    lifecycle.propose(change)
+    lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
+
+    snap = lifecycle.snapshot
+    assert snap.strategist_sections == ("Real strategy text here",)
+    # No origin#N marker should appear
+    for section in snap.strategist_sections:
+        assert "#" not in section
+
+
+def test_strategist_digest_moves_once_per_applied_proposal() -> None:
+    """Criterion 1: the digest moves exactly once per applied proposal."""
+    lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
+    before = lifecycle.effective_digest()
+
+    change = ChangeUnit(
+        target=Target.WORKER_PROMPT_STRATEGIST,
+        origin=Origin.CORTEX,
+        content="Strategy content",
+    )
+    lifecycle.propose(change)
+    # Digest unchanged while queued
+    assert lifecycle.effective_digest() == before
+
+    lifecycle.apply_window(WINDOW_BETWEEN_EPISODES)
+    after = lifecycle.effective_digest()
+    assert after != before
+
+
+def test_second_strategist_application_replaces_leaving_one_note() -> None:
+    """Criterion 2: a second strategist application across a later window
+    leaves exactly ONE current note (the later one)."""
+    lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
+
+    # First strategist proposal
+    lifecycle.propose(
+        ChangeUnit(
+            target=Target.WORKER_PROMPT_STRATEGIST,
+            origin=Origin.CORTEX,
+            content="First strategy",
+        )
+    )
+    lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
+    assert lifecycle.snapshot.strategist_sections == ("First strategy",)
+
+    # Second strategist proposal in a later window
+    lifecycle.propose(
+        ChangeUnit(
+            target=Target.WORKER_PROMPT_STRATEGIST,
+            origin=Origin.CORTEX,
+            content="Second strategy",
+        )
+    )
+    lifecycle.apply_window(WINDOW_BETWEEN_EPISODES)
+
+    # Only the later one remains — replace, not append
+    assert lifecycle.snapshot.strategist_sections == ("Second strategy",)
+    assert len(lifecycle.snapshot.strategist_sections) == 1
+
+
+def test_strategist_at_content_cap_applies_without_raising() -> None:
+    """Criterion 2: a unit at the content cap applies without raising."""
+    from colleague.layers import STRATEGIST_SECTION_MAX_CHARS
+
+    lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file"]))
+    max_content = "x" * STRATEGIST_SECTION_MAX_CHARS
+    change = ChangeUnit(
+        target=Target.WORKER_PROMPT_STRATEGIST,
+        origin=Origin.CORTEX,
+        content=max_content,
+    )
+    verdict = lifecycle.propose(change)
+    assert verdict.allowed is True
+
+    lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
+    assert lifecycle.snapshot.strategist_sections == (max_content,)
+
+
+def test_worker_tools_second_application_replaces_narrowed_set() -> None:
+    """Criterion 3: a second worker.tools application REPLACES the narrowed
+    set — narrow-then-replace widens back up to (never past) the role-curated
+    ceiling in the consuming intersect."""
+    lifecycle = EpisodeConfigLifecycle(catalog=_catalog(["read_file", "write_file", "edit_file"]))
+
+    # First narrowing
+    lifecycle.propose(_tools_change(["read_file"]))
+    lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
+    assert lifecycle.snapshot.tool_set == ("read_file",)
+
+    # Second application replaces (widens back)
+    lifecycle.propose(_tools_change(["read_file", "write_file"]))
+    lifecycle.apply_window(WINDOW_BETWEEN_EPISODES)
+
+    # The second set replaces the first — not appended
+    assert lifecycle.snapshot.tool_set == ("read_file", "write_file")
+
+
+def test_worker_tools_replace_via_narrow_role_by_tool_set() -> None:
+    """Criterion 3: narrow-then-replace widens back up to (never past) the
+    role-curated ceiling — verified through narrow_role_by_tool_set."""
+    from colleague.tools import narrow_role_by_tool_set
+
+    # Start with a full role (None = full surface)
+    role = narrow_role_by_tool_set(None, tool_set=("read_file",))
+    assert role is not None
+    assert "read_file" in role.tool_allowlist
+    assert "write_file" not in role.tool_allowlist
+
+    # Replace with a wider tool_set — widens back up
+    role_wider = narrow_role_by_tool_set(None, tool_set=("read_file", "write_file"))
+    assert role_wider is not None
+    assert "read_file" in role_wider.tool_allowlist
+    assert "write_file" in role_wider.tool_allowlist
