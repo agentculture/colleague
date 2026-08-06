@@ -155,6 +155,10 @@ def _probe_checks(repo_path=None) -> list[dict]:
     served: list[str] | None = None
     try:
         request = urllib.request.Request(url, method="GET")
+        # An authed rig 401s an anonymous /models GET and this probe would
+        # skip (live-proven 2026-08-06) — send the resolved key when present.
+        if config.api_key:
+            request.add_header("Authorization", f"Bearer {config.api_key}")
         with urllib.request.urlopen(  # nosec B310 - operator-configured endpoint
             request, timeout=_PROBE_TIMEOUT
         ) as response:

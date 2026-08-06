@@ -1384,6 +1384,7 @@ def _refresh_stale_model_pin(
     file_model: str | None,
     lobes_gateway_url: str | None,
     lobes_roles: object,
+    api_key: str = "",
 ) -> "tuple[str, ModelRefreshWarning | None]":
     """Same-role stale-pin refresh AT RESOLUTION TIME (plan task t9, spec
     c10/c11, honesty h7/h8): a main-model id pinned via flag/env/config.json
@@ -1436,7 +1437,7 @@ def _refresh_stale_model_pin(
     # monkeypatch it).
     from colleague import lobes as _lobes
 
-    served_ids = _lobes.fetch_served_model_ids(lobes_gateway_url)
+    served_ids = _lobes.fetch_served_model_ids(lobes_gateway_url, api_key=api_key)
     if served_ids is None or resolved_model in served_ids:
         return resolved_model, None
     cortex_model = (getattr(lobes_roles.cortex, "model", "") or "").strip()
@@ -2881,7 +2882,12 @@ class EngineConfig:
         model_refresh_warning: ModelRefreshWarning | None = None
         if resolved_worker is None:
             resolved_model, model_refresh_warning = _refresh_stale_model_pin(
-                resolved_model, model, file_model, lobes_gateway_url, lobes_roles
+                resolved_model,
+                model,
+                file_model,
+                lobes_gateway_url,
+                lobes_roles,
+                api_key=resolved_api_key,
             )
         resolved_context_budget_tokens = int(
             _pick(

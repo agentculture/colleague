@@ -474,7 +474,7 @@ def emit_model_refresh_warning(warning: ModelRefreshWarning) -> None:
 
 
 def fetch_served_model_ids(
-    gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT
+    gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT, api_key: str = ""
 ) -> "list[str] | None":
     """GET ``{gateway_url}/v1/models`` and return the served model ids.
 
@@ -499,6 +499,13 @@ def fetch_served_model_ids(
     try:
         url = gateway_url.rstrip("/") + _MODELS_PATH
         request = urllib.request.Request(url, method="GET")
+        # The gateway's /v1/* surface may demand Bearer auth (same-origin
+        # key hygiene, v1.51.0); an unauthenticated fetch 401s and silently
+        # degrades this rung to "no refresh" — live-proven 2026-08-06 (t12
+        # proof B: only the call-time rung fired). Attach the key when the
+        # caller resolved one.
+        if api_key:
+            request.add_header("Authorization", f"Bearer {api_key}")
         with urllib.request.urlopen(  # nosec B310 - scheme validated above
             request, timeout=timeout
         ) as response:
