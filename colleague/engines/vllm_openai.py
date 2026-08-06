@@ -39,7 +39,7 @@ from colleague.loop import (
     run,
 )
 from colleague.senses import make_senses_run
-from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas
+from colleague.tools import SCHEMAS, ToolExecutor, curate_schemas, narrow_role_by_tool_set
 
 # The one spelling of the wire content-type, referenced by every JSON POST
 # below (chat completions, the SSE stream variant, and /tokenize) — S1192.
@@ -806,6 +806,22 @@ class VllmOpenAIEngine(Engine):
         # ContextControls (all-engines rule); ``None`` for a config without senses
         # keeps the senses bridge dormant (byte-identical).
         senses_run = make_senses_run(config, self.name)
+        # Change-content consumption lane (t3, spec c8/h8): an applied
+        # worker.tools narrowing on the attached config-lifecycle intersects the
+        # role-curated surface. Read the attachment's snapshot DEFENSIVELY — the
+        # real EpisodeConfigLifecycle exposes ``snapshot`` as a read-only
+        # property (already-evaluated, not callable), while a future frozen
+        # child view (r2/t10) may expose a ``snapshot()`` METHOD instead — so
+        # this neither assumes nor requires either shape. No lifecycle, or a
+        # snapshot with the default/empty ``tool_set`` (c26: () means
+        # not-narrowed), leaves ``role`` untouched: byte-identical to today.
+        lifecycle = getattr(config, "config_lifecycle", None)
+        tool_set: tuple[str, ...] = ()
+        if lifecycle is not None:
+            snapshot_attr = getattr(lifecycle, "snapshot", None)
+            snapshot = snapshot_attr() if callable(snapshot_attr) else snapshot_attr
+            tool_set = getattr(snapshot, "tool_set", ()) or ()
+        role = narrow_role_by_tool_set(role, tool_set)
         offered_tools = curate_schemas(role, deepthink=dt_run is not None)
         # Acting-seat label for the flight run-start marker (t2,
         # change-content-consumption-lane spec, covers c9/h9): mirrors the
@@ -826,7 +842,10 @@ class VllmOpenAIEngine(Engine):
             # The engine builds the repo-confined executor so the config-derived
             # output cap (and subagent spawn) ride the existing ``executor`` seam
             # — keeps ``run()`` from growing another parameter (all-engines rule).
-            # ``allowlist=role`` makes the executor REFUSE any tool the role withholds.
+            # ``allowlist=role`` makes the executor REFUSE any tool the role
+            # withholds — ``role`` here is already tool_set-narrowed above, so
+            # this is the SAME single allowlist seam a narrowed-away tool is
+            # refused through, never a second refusal mechanism.
             executor=ToolExecutor(
                 task.repo_path,
                 spawn=config.subagent_spawn,

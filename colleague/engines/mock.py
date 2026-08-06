@@ -26,7 +26,7 @@ from colleague.loop import (
     run,
 )
 from colleague.senses import make_senses_run
-from colleague.tools import ToolExecutor
+from colleague.tools import ToolExecutor, narrow_role_by_tool_set
 
 #: Where the mock writes its marker file (relative to the repo root).
 OUTPUT_FILE = "colleague-mock.md"
@@ -141,6 +141,27 @@ class MockEngine(Engine):
         # senses-armed run records a degraded no-op — the same c13 ladder as
         # deepthink-on-mock. ``None`` for a config without senses (byte-identical).
         senses_run = make_senses_run(config, self.name)
+        # Change-content consumption lane (t3, spec c8/h8): an applied
+        # worker.tools narrowing on the attached config-lifecycle intersects the
+        # role-curated surface — identically to the live backend (all-engines
+        # rule), even though the mock's scripted ``complete`` carries no wire
+        # schema: the executor's ``allowlist`` stays the ONE enforcement point
+        # for the mock, so narrowing must reach it the same way it reaches the
+        # live backend's offered schema. Read the attachment's snapshot
+        # DEFENSIVELY — the real EpisodeConfigLifecycle exposes ``snapshot`` as
+        # a read-only property (already-evaluated, not callable), while a
+        # future frozen child view (r2/t10) may expose a ``snapshot()`` METHOD
+        # instead — so this neither assumes nor requires either shape. No
+        # lifecycle, or a snapshot with the default/empty ``tool_set`` (c26: ()
+        # means not-narrowed), leaves ``role`` untouched: byte-identical to
+        # today.
+        lifecycle = getattr(config, "config_lifecycle", None)
+        tool_set: tuple[str, ...] = ()
+        if lifecycle is not None:
+            snapshot_attr = getattr(lifecycle, "snapshot", None)
+            snapshot = snapshot_attr() if callable(snapshot_attr) else snapshot_attr
+            tool_set = getattr(snapshot, "tool_set", ()) or ()
+        role = narrow_role_by_tool_set(role, tool_set)
         # Token-delta seam (task t3): stream synthetic word-chunk deltas of
         # each scripted turn's content when armed. Wrapping the completed
         # `_script(task)` callable — rather than threading on_delta into
@@ -171,7 +192,10 @@ class MockEngine(Engine):
             # The engine builds the repo-confined executor so the config-derived
             # output cap (and subagent spawn) ride the existing ``executor`` seam
             # — keeps ``run()`` from growing another parameter (all-engines rule).
-            # ``allowlist=role`` makes the executor REFUSE any tool the role withholds.
+            # ``allowlist=role`` makes the executor REFUSE any tool the role
+            # withholds — ``role`` here is already tool_set-narrowed above, so
+            # this is the SAME single allowlist seam a narrowed-away tool is
+            # refused through, never a second refusal mechanism.
             executor=ToolExecutor(
                 task.repo_path,
                 spawn=config.subagent_spawn,
