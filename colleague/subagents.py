@@ -73,6 +73,7 @@ from colleague.config import (
     EngineConfig,
     effective_concurrency,
 )
+from colleague.configlifecycle import EpisodeConfigSnapshot
 from colleague.contract import ERROR, OK, SubResult, Task, Usage
 from colleague.roles import is_read_only
 
@@ -102,6 +103,116 @@ class ChildSpec:
     parent_task_id: Optional[str] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class FrozenChildConfigLifecycle:
+    """An immutable, read-only view of a parent's config plane, for ONE child.
+
+    Change-content consumption lane (plan task t10, spec c35/h28): a spawned
+    child never receives the parent's REAL
+    :class:`~colleague.configlifecycle.EpisodeConfigLifecycle` — children
+    never propose changes and never observe turns on the top-level task's
+    config plane, only the top-level ``run()`` loop does that (the r2 rule,
+    extended). Instead this frozen adapter QUACKS LIKE the lifecycle's READ
+    surface, exactly as far as the two engine consumers reach into it:
+
+    - ``snapshot`` — a **property** (not a method). ``colleague/engine.py``'s
+      ``system_prompt`` (t7) reads it ONLY via
+      ``getattr(lifecycle, "snapshot", None)`` and then
+      ``.strategist_sections`` off the result — never calling it. A
+      method-only ``snapshot()`` would silently lose the strategist note at
+      that seam. ``colleague/engines/{mock,vllm_openai}.py`` (t3) read the
+      SAME attribute defensively via a ``callable()`` check, so a property
+      satisfies both: the attribute access already yields the (non-callable)
+      :class:`~colleague.configlifecycle.EpisodeConfigSnapshot`.
+    - ``child_snapshot()`` — a method returning the SAME frozen snapshot, so
+      a grandchild's own spawn (this child delegating further) re-derives
+      the identical snapshot again, one level deeper — grandchildren inherit
+      exactly like a depth-1 child (acceptance criterion 1).
+
+    Nothing else: no ``propose``/``apply_window`` (a child can never queue or
+    apply a config change). ``observe_turn``/``end_episode`` no-ops ARE
+    present, out of technical necessity rather than the read surface itself:
+    ``colleague/loop.py`` calls both unconditionally on ANY attached
+    ``config.config_lifecycle`` object once per completed turn / on every
+    loop exit — a bare read-only stub without them would raise
+    ``AttributeError`` on the child's OWN first turn. Both are honest no-ops:
+    they touch no parent state (there is none held here) and never mutate
+    this frozen adapter.
+
+    A frozen dataclass over an already-frozen
+    :class:`~colleague.configlifecycle.EpisodeConfigSnapshot` — immutable end
+    to end, so it is safe to read from a ``ThreadPoolExecutor`` worker thread
+    (``colleague/subagents.py`` is one of the two sanctioned threading
+    modules, ``batch_spawn`` at width > 1) with no lock needed.
+    """
+
+    frozen_snapshot: EpisodeConfigSnapshot
+
+    @property
+    def snapshot(self) -> EpisodeConfigSnapshot:
+        """The frozen snapshot — read as a PROPERTY (t3's callable() check and
+        t7's plain getattr both resolve it correctly this way)."""
+        return self.frozen_snapshot
+
+    def child_snapshot(self) -> EpisodeConfigSnapshot:
+        """The SAME frozen snapshot, for a grandchild's own spawn to inherit."""
+        return self.frozen_snapshot
+
+    def observe_turn(self) -> str:
+        """No-op: a child never records turn digests on the parent's plane.
+
+        ``colleague/loop.py`` calls this once per completed model turn on ANY
+        attached ``config_lifecycle``, unconditionally — this answers it
+        without raising, and without touching any parent state (there is
+        none reachable from here). Returns the frozen snapshot's own digest
+        (an honest, read-only answer) though nothing records it.
+        """
+        return self.frozen_snapshot.digest()
+
+    def end_episode(self) -> int:
+        """No-op: a child's own episode boundary is not the parent's.
+
+        ``colleague/loop.py`` calls this once on every loop exit, on ANY
+        attached ``config_lifecycle`` — this answers it without raising and
+        without advancing any parent boundary count (there is none reachable
+        from here). Always returns 0.
+        """
+        return 0
+
+
+def _child_config_lifecycle(
+    parent_config: EngineConfig,
+) -> Optional[FrozenChildConfigLifecycle]:
+    """Derive the frozen adapter a spawned child inherits — never the real thing.
+
+    ``parent_config.config_lifecycle`` may be the REAL
+    :class:`~colleague.configlifecycle.EpisodeConfigLifecycle` (a top-level
+    task's own attachment) or already a :class:`FrozenChildConfigLifecycle`
+    (this parent is itself a child — a grandchild spawn). Both expose
+    ``child_snapshot()``, preferred here over the ``snapshot`` property: it
+    is the lifecycle's OWN "what does a spawned child inherit" answer — the
+    r2 rule ("never a queued-but-unapplied proposal") lives there, so reading
+    it (rather than reimplementing the rule against ``snapshot`` here) keeps
+    a future third attachment shape honest by construction. ``snapshot`` is
+    the fallback for an attachment that has it but not ``child_snapshot``.
+
+    Returns ``None`` when nothing is attached (three-tier unarmed, or armed
+    with no lifecycle constructed) — the caller leaves the child's own
+    ``config_lifecycle`` at ``None``, byte-identical to today.
+    """
+    lifecycle = getattr(parent_config, "config_lifecycle", None)
+    if lifecycle is None:
+        return None
+    child_snapshot_fn = getattr(lifecycle, "child_snapshot", None)
+    if callable(child_snapshot_fn):
+        snapshot = child_snapshot_fn()
+    else:
+        snapshot = getattr(lifecycle, "snapshot", None)
+    if snapshot is None:
+        return None
+    return FrozenChildConfigLifecycle(snapshot)
+
+
 #: A spawn callback: ``spawn(instruction, engine=None, model=None, role=None)
 #: -> SubResult``. Bound to a repo/parent-config/parent-engine/depth/budget by
 #: :func:`make_spawn` and assigned to ``EngineConfig.subagent_spawn`` so the loop
@@ -117,6 +228,7 @@ BatchSpawnFn = Callable[..., List[SubResult]]
 
 __all__ = [
     "ChildSpec",
+    "FrozenChildConfigLifecycle",
     "SpawnFn",
     "BatchSpawnFn",
     "SubagentError",
@@ -340,12 +452,24 @@ def run_subagent(
     # fill-line chain consumers (budget-exhausted handoff instruction, the
     # unrepairable-compaction finish-with-handoff route) inside a child nobody
     # chains.
+    #
+    # ``config_lifecycle`` is ALSO reset UNCONDITIONALLY (plan t10, spec
+    # c35/h28): the parent's attachment — the REAL
+    # ``EpisodeConfigLifecycle`` at the top level, or an inherited
+    # ``FrozenChildConfigLifecycle`` one level down — is never handed to a
+    # child as-is; a naive ``dataclasses.replace`` would otherwise copy the
+    # mutable real object straight onto the child, letting it (or something
+    # holding its config) reach ``propose``/``apply_window``, which the r2
+    # rule (children never propose, never observe turns) forbids. Always
+    # explicitly set — even to ``None`` when the parent carries no
+    # attachment — so a child's inherited value is never an accidental copy.
     replace_kwargs: dict = {
         "model": (model or parent_config.model),
         "role": role,
         "chain_episode": False,
         "chain_prior_changed": (),
         "until_done": False,
+        "config_lifecycle": _child_config_lifecycle(parent_config),
     }
     if spec.max_steps is not None:
         replace_kwargs["max_steps"] = spec.max_steps
