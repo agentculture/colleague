@@ -424,3 +424,78 @@ def test_drive_survives_a_stale_pin_via_the_full_loop(
 
     assert result.status == OK
     assert result.summary == "done via refreshed id"
+
+
+# ---------------------------------------------------------------------------
+# refresh_seat gating (d5, issue 375) — the refresh acts for the MAIN seat only
+# ---------------------------------------------------------------------------
+
+
+def test_complete_disarmed_seat_404_surfaces_unchanged_no_lobes_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replaced-config seat (refresh_seat=None) never refreshes — the 404
+    surfaces into that lane's own degrade path and lobes is never queried."""
+    lobes_called = {"n": 0}
+
+    def fake_urlopen(request: object, timeout: float = 0):  # noqa: ANN001
+        if request.data is None:  # a GET — would be the lobes lookup
+            lobes_called["n"] += 1
+            raise AssertionError("lobes must not be queried for a disarmed seat")
+        payload = json.loads(request.data.decode("utf-8"))
+        raise _model_not_found_error(request.full_url, payload["model"])
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    cfg = EngineConfig.resolve(base_url="http://x/v1", model=_STALE_ID)
+    object.__setattr__(cfg, "lobes_gateway_url", "http://gw")  # armed gateway
+    object.__setattr__(cfg, "refresh_seat", None)  # ...but a disarmed seat
+
+    complete = VllmOpenAIEngine()._make_complete(cfg, tools=[])
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        complete([{"role": "user", "content": "hi"}])
+
+    assert _STALE_ID in str(exc.value)
+    assert lobes_called["n"] == 0
+    assert cfg.model_refresh_warnings == ()
+
+
+def test_deepthink_twin_disarms_the_refresh_seat() -> None:
+    from colleague.config import DeepthinkConfig
+    from colleague.deepthink import deepthink_engine_config
+
+    cfg = EngineConfig.resolve(base_url="http://x/v1", model="main/model")
+    assert cfg.refresh_seat == "main"
+    object.__setattr__(
+        cfg,
+        "deepthink",
+        DeepthinkConfig(
+            model="muse/model",
+            base_url="http://x/v1",
+            api_key="",
+            context_budget=1000,
+        ),
+    )
+    dt_cfg = deepthink_engine_config(cfg)
+    assert dt_cfg is not None
+    assert dt_cfg.refresh_seat is None
+
+
+def test_senses_twin_disarms_the_refresh_seat() -> None:
+    from colleague.config import SensesConfig
+    from colleague.senses import senses_engine_config
+
+    cfg = EngineConfig.resolve(base_url="http://x/v1", model="main/model")
+    object.__setattr__(
+        cfg,
+        "senses",
+        SensesConfig(
+            model="senses/model",
+            base_url="http://x/v1",
+            api_key="",
+            context_budget=1000,
+        ),
+    )
+    s_cfg = senses_engine_config(cfg)
+    assert s_cfg is not None
+    assert s_cfg.refresh_seat is None

@@ -84,6 +84,7 @@ def deepthink_engine_config(config: EngineConfig) -> Optional[EngineConfig]:
         dataclasses.replace(
             config,
             model=dt.model,
+            refresh_seat=None,
             base_url=dt.base_url,
             api_key=dt.api_key,
             context_budget_tokens=dt.context_budget,

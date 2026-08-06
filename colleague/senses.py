@@ -268,6 +268,7 @@ def senses_engine_config(
         dataclasses.replace(
             config,
             model=sc.model,
+            refresh_seat=None,
             base_url=sc.base_url,
             api_key=sc.api_key,
             context_budget_tokens=sc.context_budget,

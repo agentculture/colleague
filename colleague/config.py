@@ -2583,6 +2583,17 @@ class EngineConfig:
         default=(), compare=False, repr=False
     )
 
+    # Which seat the call-time stale-pin refresh may act for (d5, issue 375):
+    # ``"main"`` — the default — arms the vLLM engine's 404 catch for the
+    # acting MAIN seat only (the c8/c11 scoping). The replaced-config twins
+    # (``deepthink_engine_config`` / ``senses_engine_config``) set ``None``
+    # so a deepthink/senses 404 surfaces unchanged into that lane's own
+    # degrade path instead of being silently retried on the main seat's
+    # model (the muse->cortex cross-role event this field exists to stop).
+    # Runtime-only plumbing like the fields above — excluded from
+    # eq/repr/to_dict.
+    refresh_seat: Optional[str] = field(default="main", compare=False, repr=False)
+
     # Chain-episode dispatch marker (indefinite-run follow-up, issue #335 /
     # decision c22): ``True`` exactly when THIS dispatch is one episode of an
     # armed ``--until-done`` chain (``execute_work`` sets it per-call from the

@@ -861,6 +861,11 @@ class VllmOpenAIEngine(Engine):
                 # retry, never a second catch (a repeat 404 propagates
                 # unguarded below — legible via _raise_legible_http_error's
                 # existing body-folding, exactly as before this task).
+                if config.refresh_seat is None:
+                    # A replaced-config seat (deepthink/senses) — its 404
+                    # belongs to that lane's own degrade path, never a
+                    # main-seat refresh (d5, issue 375).
+                    raise
                 refreshed_id = _same_role_call_time_refresh(config, role_name, exc)
                 if refreshed_id is None:
                     raise
