@@ -53,7 +53,34 @@ def _tmp_repo(root: Path, name: str) -> Path:
         ["git", "config", "user.name", "proof"],
     ):
         subprocess.run(cmd, cwd=repo, check=True)
-    (repo / "README.md").write_text("live proof scratch repo\n")
+    (repo / "README.md").write_text(
+        "# live proof scratch repo\n\nA tiny python package used by the "
+        "session-streaming live proofs.\n"
+    )
+    # A non-trivial tree: the zero-step markup collapse (issue 346) correlates
+    # with minimal context, and an empty scratch repo is exactly that. Real
+    # dispatches run against real repos — mirror that here.
+    pkg = repo / "greetlib"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text('"""greetlib — proof scratch package."""\n')
+    (pkg / "core.py").write_text(
+        "def greet(name: str) -> str:\n"
+        '    """Return a plain greeting."""\n'
+        '    return f"hello {name}"\n'
+    )
+    (pkg / "cli.py").write_text(
+        "import sys\n\nfrom greetlib.core import greet\n\n\n"
+        "def main() -> int:\n"
+        "    print(greet(sys.argv[1] if len(sys.argv) > 1 else 'world'))\n"
+        "    return 0\n"
+    )
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_core.py").write_text(
+        "from greetlib.core import greet\n\n\n"
+        "def test_greet() -> None:\n"
+        "    assert greet('x') == 'hello x'\n"
+    )
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
     return repo
@@ -186,7 +213,17 @@ def proof_b(root: Path) -> dict:
             "run",
             "colleague",
             "work",
-            "create a file named hello.txt containing the single word hi",
+            (
+                "This scratch repo needs a tiny greeting module. Create a new "
+                "file hello.txt at the repo root containing exactly the single "
+                "word hi on one line. Then read the file back to verify its "
+                "content, and finish with a one-sentence summary naming the "
+                "file you created. Do not modify README.md or any other file; "
+                "hello.txt is the only change. (The brief is deliberately "
+                "sized like a real dispatch — minimal one-line briefs trigger "
+                "the known zero-step markup collapse, issue 346, which is not "
+                "what this proof measures.)"
+            ),
             "--repo",
             str(repo),
             "--engine",
