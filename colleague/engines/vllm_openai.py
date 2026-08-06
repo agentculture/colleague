@@ -807,6 +807,14 @@ class VllmOpenAIEngine(Engine):
         # keeps the senses bridge dormant (byte-identical).
         senses_run = make_senses_run(config, self.name)
         offered_tools = curate_schemas(role, deepthink=dt_run is not None)
+        # Acting-seat label for the flight run-start marker (t2,
+        # change-content-consumption-lane spec, covers c9/h9): mirrors the
+        # mock engine's identical wiring (all-engines rule) — a resolved
+        # ``config.worker`` is the front's own armed signal for three-tier
+        # execution, so its presence, not a separate flag, names the acting
+        # seat. ``None`` (unarmed, the default) keeps the legacy "cortex"
+        # label, byte-identical to every prior release.
+        seat = "worker" if config.worker is not None else "cortex"
         return run(
             self._make_complete(config, tools=offered_tools),
             task,
@@ -814,6 +822,7 @@ class VllmOpenAIEngine(Engine):
             system_prompt=self.system_prompt(task, config),
             model=config.model,
             progress=config.progress,
+            seat=seat,
             # The engine builds the repo-confined executor so the config-derived
             # output cap (and subagent spawn) ride the existing ``executor`` seam
             # — keeps ``run()`` from growing another parameter (all-engines rule).
