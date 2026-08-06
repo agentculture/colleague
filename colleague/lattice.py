@@ -324,7 +324,7 @@ def _check_extra_key_refusal(unit: ChangeUnit) -> Optional[Verdict]:
     return Verdict(
         False,
         f"refused: extra keys on change unit {extra_keys!r} "
-        f"(only target, origin, tool_ids, knowledge_entries are valid)",
+        f"(only target, origin, tool_ids, knowledge_entries, content are valid)",
     )
 
 
