@@ -1662,7 +1662,6 @@ class TaskResult:
             "command": self.command,
             "not_finished": self.not_finished,
             "stopped_without_finish": self.stopped_without_finish,
-            "warnings": list(self.warnings),
         }
         # destination and announcement are OMITTED (not emitted as null) when
         # None.  This preserves byte-identical output for the no-destination
@@ -1670,6 +1669,11 @@ class TaskResult:
         # today (honesty conditions c8/h8).  This intentionally deviates from
         # the convention used by command/pr_url/etc. which always emit their
         # key even as null; only these two new keys get omit-when-None treatment.
+        # warnings (t11) likewise omits-when-empty: a run with no stale-pin
+        # refresh serializes byte-identical to the pre-feature shape; a run
+        # WITH one carries the greppable key (h21).
+        if self.warnings:
+            d["warnings"] = list(self.warnings)
         if self.destination is not None:
             d["destination"] = self.destination
         if self.announcement is not None:

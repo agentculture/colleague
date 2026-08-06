@@ -238,6 +238,7 @@ class TestNoFinishResultFidelity:
             "affected_tests_report",
             "not_finished",
             "stopped_without_finish",
+            "warnings",
             "role",
             "mode",
             "acceptance_outcomes",

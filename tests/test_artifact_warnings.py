@@ -62,7 +62,9 @@ def test_no_warnings_roundtrip_empty_list(tmp_path: Path):
     artifact_dir = tmp_path / ".colleague"
     artifact_dir.mkdir()
 
-    write(result, artifact_dir)
+    path = write(result, artifact_dir)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert "warnings" not in raw  # omit-when-empty: pre-feature byte-identity
     read = read_artifact(tmp_path, "t11-test")
     assert read is not None
     assert read.warnings == []
