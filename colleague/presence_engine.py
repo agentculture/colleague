@@ -39,6 +39,7 @@ from colleague.senses_loop import (
     BOUNDARY_CADENCE_TICK,
     BOUNDARY_OPERATOR_INPUT,
     NARRATION_LABEL,
+    WORKER_NARRATION_LABEL,
     LoopTurn,
     SensesLoopDriver,
     SensesMoveExecutor,
@@ -306,8 +307,15 @@ class PresenceEngine:
             # rendered here and stored nowhere (the driver never absorbed it, and
             # the tts ``narrate`` seam is deliberately NOT fired for it — voice
             # narrating a per-boundary stream description would be noise, and the
-            # voice lane's cadence is the presence lines').
-            self._io.render(f"{NARRATION_LABEL} {narration}")
+            # voice lane's cadence is the presence lines'). In three-tier mode
+            # (ssv t7, c13/h10) the acting seat is the WORKER, so the beat is
+            # describing worker activity — the label swaps to the subconscious
+            # one, selected HERE at render time from the config's three-tier
+            # state (mirroring the ``→ worker:`` relay target below); neither
+            # label ever enters a model-bound prompt, and the selection changes
+            # nothing about routing or authority.
+            label = WORKER_NARRATION_LABEL if self._three_tier else NARRATION_LABEL
+            self._io.render(f"{label} {narration}")
         if turn.injection is not None:
             relay = str(turn.injection.get("text") or "").strip()
             if relay:
