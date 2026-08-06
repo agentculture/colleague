@@ -340,3 +340,26 @@ class TestCheckShape:
         except Exception as exc:  # pragma: no cover
             pytest.fail(f"probe_checks() raised unexpectedly: {exc}")
         assert isinstance(result, list)
+
+
+def test_probe_url_appends_models_to_the_v1_bearing_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """base_url already carries /v1 — the probe must append only /models.
+
+    Pins the livecheck.probe_endpoint / three_tier._worker_dialable URL
+    convention; a /v1/models suffix here would double the segment
+    (http://host:8001/v1/v1/models) and 404 on every real provider.
+    """
+    monkeypatch.setenv("COLLEAGUE_MODEL", "served/model")
+    seen: list[str] = []
+
+    def _capture(request: object, **_kwargs: object) -> _FakeResponse:
+        seen.append(getattr(request, "full_url", str(request)))
+        return _models_response(["served/model"])
+
+    monkeypatch.setattr("urllib.request.urlopen", _capture)
+    probe_checks()
+    assert len(seen) == 1
+    assert seen[0].endswith("/models")
+    assert "/v1/v1/" not in seen[0]

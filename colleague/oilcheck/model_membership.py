@@ -147,7 +147,10 @@ def _probe_checks(repo_path=None) -> list[dict]:
     model_id, source = _resolve_model_source(repo_path)
     config = EngineConfig.resolve(repo_path=repo_path, discover_lobes=False)
     base_url = config.base_url
-    url = base_url.rstrip("/") + "/v1/models"
+    # base_url already carries the /v1 suffix (e.g. http://host:8001/v1) —
+    # append only /models, exactly like livecheck.probe_endpoint and
+    # three_tier._worker_dialable. "/v1/models" here would double the segment.
+    url = base_url.rstrip("/") + "/models"
 
     served: list[str] | None = None
     try:
