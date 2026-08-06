@@ -109,7 +109,7 @@ def test_absent_config_file_uses_defaults(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     cfg = EngineConfig.resolve(repo_path=tmp_path)
     assert cfg.base_url == "http://localhost:8001/v1"
-    assert cfg.model == "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+    assert cfg.model == "unsloth/Qwen3.6-27B-NVFP4"
     assert cfg.api_key == "EMPTY"
 
 

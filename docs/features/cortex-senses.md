@@ -246,7 +246,7 @@ The split maps each mind to what it is actually good at on the reference
 
 | Role | Model | Context | Notes |
 |---|---|---|---|
-| **cortex** | `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` | **131072** (128K) | `ready`+`loaded` true, `forbidden_responsibilities: []` — the only lobe that can tool-call |
+| **cortex** | `unsloth/Qwen3.6-27B-NVFP4` | **131072** (128K) | `ready`+`loaded` true, `forbidden_responsibilities: []` — the only lobe that can tool-call |
 | **senses** | `coolthor/gemma-4-12B-it-NVFP4A16` | **32768** (32K) | `ready`+`loaded` true, `mtp: true` (multimodal, MTP-fast), `responsibilities: [intake, normalize_input, classify_intent, prepare_context_packet, speak_back]`, `forbidden_responsibilities: [final_decision, repo_action, security_decision]` |
 
 Qwen 27B is the only rig lobe that can drive the bounded tool loop — Gemma4's

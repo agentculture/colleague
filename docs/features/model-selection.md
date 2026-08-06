@@ -23,7 +23,7 @@ each field independently: an explicit flag value wins if given, else the first
 
 | Field | Flag | Environment (checked in order) | Default |
 |-------|------|--------------------------------|---------|
-| model | `--model` | `COLLEAGUE_MODEL` | `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` |
+| model | `--model` | `COLLEAGUE_MODEL` | `unsloth/Qwen3.6-27B-NVFP4` |
 | base_url | `--base-url` | `COLLEAGUE_BASE_URL`, `OPENAI_BASE_URL` | `http://localhost:8001/v1` |
 | api_key | `--api-key` | `COLLEAGUE_API_KEY`, `OPENAI_API_KEY` | `EMPTY` |
 
@@ -76,7 +76,7 @@ no-op — it never raises.
 ```json
 {
   "base_url": "http://localhost:8001/v1",
-  "model": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+  "model": "unsloth/Qwen3.6-27B-NVFP4"
 }
 ```
 

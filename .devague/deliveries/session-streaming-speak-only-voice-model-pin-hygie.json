@@ -1,0 +1,28 @@
+{
+  "plan_slug": "session-streaming-speak-only-voice-model-pin-hygie",
+  "schema_version": 1,
+  "created": "2026-08-06T15:06:38Z",
+  "updated": "2026-08-06T15:16:17Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t9 call-time refresh warning names 'call-time-404' as its source instead of re-deriving the original pinning layer (flag/env/config.json) \u2014 the engine's complete() scope has no repo_path/env snapshot to re-derive it from; resolution-time attribution is exact",
+      "task_ref": "t9",
+      "reason": "re-threading the resolution-time source through EngineConfig would special-case three-tier (worker seat has no pin rung); the honest simpler label names HOW staleness was detected",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
+    },
+    {
+      "id": "d2",
+      "what": "the builtin _DEFAULT_MODEL in colleague/config.py:66 is itself the stale 'sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP' id \u2014 discovered during t10 integration; no plan task covers refreshing it, yet it is the repo-side half of 'fix the models issues' (a bare vllm-openai run without env/config/lobes 404s out of the box)",
+      "task_ref": "t10",
+      "reason": "updating it to the currently served cortex id (unsloth/Qwen3.6-27B-NVFP4) touches 14 references across 8 test files \u2014 done as an integrator commit within this arc",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    }
+  ]
+}

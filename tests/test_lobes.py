@@ -36,7 +36,7 @@ from colleague.lobes import RoleInfo, embed_env, ready_kind, resolve_role_base_u
 REAL_CAPABILITIES_PAYLOAD: dict[str, object] = {
     "cortex": {
         "role": "cortex",
-        "model": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP",
+        "model": "unsloth/Qwen3.6-27B-NVFP4",
         "runtime": "vllm",
         "endpoint": "http://localhost:8000",
         "path": "/v1/chat/completions",
@@ -188,7 +188,7 @@ MUSE_ROLE_PAYLOAD: dict[str, object] = {
 
 WORKER_ROLE_PAYLOAD: dict[str, object] = {
     "role": "worker",
-    "model": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP",
+    "model": "unsloth/Qwen3.6-27B-NVFP4",
     "runtime": "vllm",
     "endpoint": "http://localhost:8000",
     "path": "/v1/chat/completions",
@@ -273,7 +273,7 @@ def test_resolve_roles_returns_cortex_and_senses_from_the_real_shape() -> None:
         result = resolve_roles(url)
 
     assert result is not None
-    assert result.cortex.model == "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+    assert result.cortex.model == "unsloth/Qwen3.6-27B-NVFP4"
     assert result.senses.model == "coolthor/gemma-4-12B-it-NVFP4A16"
     assert result.cortex.context == 131072
     assert result.senses.context == 32768
@@ -307,7 +307,7 @@ def test_resolve_roles_hardcodes_no_model_id() -> None:
     import colleague.lobes as lobes_module
 
     source = __import__("inspect").getsource(lobes_module)
-    assert "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP" not in source
+    assert "unsloth/Qwen3.6-27B-NVFP4" not in source
     assert "coolthor/gemma-4-12B-it-NVFP4A16" not in source
 
 
@@ -436,7 +436,7 @@ def test_resolve_roles_parses_worker_role_when_present() -> None:
 
     assert result is not None
     assert result.worker is not None
-    assert result.worker.model == "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+    assert result.worker.model == "unsloth/Qwen3.6-27B-NVFP4"
     assert result.worker.endpoint == "http://localhost:8000"
     assert result.worker.path == "/v1/chat/completions"
     assert result.worker.context == 131072
