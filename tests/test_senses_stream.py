@@ -23,7 +23,6 @@ import pytest
 
 from colleague.senses_stream import EnvelopeError, EnvelopeStream
 
-
 # ---------------------------------------------------------------------------
 # Live-probed chunk sequence (2026-08-06) — fence-wrapped envelope
 # ---------------------------------------------------------------------------
@@ -47,9 +46,7 @@ _LIVE_CHUNKS = [
 ]
 
 #: The expected concatenated display output — the rainbow sentence only.
-_EXPECTED_RAINBOW = (
-    "A rainbow is a meteorological phenomenon caused by the reflection of light."
-)
+_EXPECTED_RAINBOW = "A rainbow is a meteorological phenomenon caused by the reflection of light."
 
 
 class TestLiveProbeChunks:
@@ -134,8 +131,7 @@ class TestUnfencedEnvelope:
         """Same envelope without the fence wrapper."""
         chunks = [
             '{"move": "direct_answer", "text": "A rainbow is a meteorological',
-            " phenomenon caused by the reflection of light."
-            '"}',
+            " phenomenon caused by the reflection of light." '"}',
         ]
         stream = EnvelopeStream()
         deltas: list[str] = []
@@ -213,15 +209,11 @@ class TestJsonEscapes:
         """A mix of \\\" \\n \\\\ \\uXXXX all decoded correctly."""
         stream = EnvelopeStream()
         deltas: list[str] = []
-        deltas.append(
-            stream.feed(
-                '{"text": "say \\"hi\\nthere\\\\" with \\\\ and \\u2603"}'
-            )
-        )
+        deltas.append(stream.feed('{"text": "quote \\" nl \\n bs \\\\ snow \\u2603"}'))
         deltas.append(stream.finish())
 
         output = "".join(deltas)
-        assert output == 'say "hi\nthere\\" with \\ and ☃'
+        assert output == 'quote " nl \n bs \\ snow ☃'
 
 
 # ---------------------------------------------------------------------------
@@ -244,11 +236,7 @@ class TestSkipKeysBeforeText:
     def test_multiple_keys_before_text_skipped(self) -> None:
         stream = EnvelopeStream()
         deltas: list[str] = []
-        deltas.append(
-            stream.feed(
-                '{"a": "x", "b": "y", "move": "z", "text": "value"}'
-            )
-        )
+        deltas.append(stream.feed('{"a": "x", "b": "y", "move": "z", "text": "value"}'))
         deltas.append(stream.finish())
 
         output = "".join(deltas)
@@ -315,16 +303,29 @@ class TestEnvelopeError:
 
         assert exc_info.value.accumulated == ""
 
-    def test_fence_opened_never_closed_raises(self) -> None:
-        """A fence opened but never closed raises EnvelopeError."""
+    def test_fence_opened_never_closed_tolerated_when_envelope_complete(self) -> None:
+        """A COMPLETE envelope whose closing fence never arrives extracts fine.
+
+        A model routinely stops right after ``}`` (max-tokens, EOS) without
+        emitting the closing fence; erroring here would force the caller to
+        re-render text it already streamed. Only an incomplete ENVELOPE is an
+        error — a missing close fence after a closed envelope is not.
+        """
+        stream = EnvelopeStream()
+        deltas = [stream.feed("```json\n"), stream.feed('{"text": "hello"}')]
+        deltas.append(stream.finish())
+        assert "".join(deltas) == "hello"
+
+    def test_fence_opened_envelope_incomplete_raises(self) -> None:
+        """A fence opened with an INCOMPLETE envelope still raises."""
         stream = EnvelopeStream()
         stream.feed("```json\n")
-        stream.feed('{"text": "hello"}')
+        stream.feed('{"text": "hel')
 
         with pytest.raises(EnvelopeError) as exc_info:
             stream.finish()
 
-        assert exc_info.value.accumulated == '```json\n{"text": "hello"}'
+        assert exc_info.value.accumulated == '```json\n{"text": "hel'
 
     def test_envelope_error_is_exception(self) -> None:
         """EnvelopeError is a proper Exception subclass."""
