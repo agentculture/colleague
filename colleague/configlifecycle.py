@@ -26,13 +26,11 @@ Scope: this lifecycle tracks the WORKER seat's three configurable surfaces —
 ``worker.tools`` / ``worker.prompt.strategist`` / ``worker.knowledge`` (the
 lattice's ``Target`` enum also carries two ``senses.*`` targets, which are a
 different consumer's concern and are refused here, not silently dropped).
-The snapshot is deliberately OPAQUE: this module does not compose real prompt
-text or resolve a real tool schema — that stays layers.py's (t5) and
-roles.py/tools.py's job. A queued unit's effect on the snapshot is a
-canonical, deterministic marker sufficient to prove the timing contract
-(digest changes ONLY at a sanctioned window) — a later task (t11, the actual
-cortex configurator) is what will make those markers carry real prompt/tool
-content end to end.
+The snapshot folds real text for strategist sections (t5) and replaces the
+tool-set tuple for worker.tools — it does not compose a full prompt or
+resolve a real tool schema (that stays layers.py's and roles.py/tools.py's
+job). A queued unit's effect on the snapshot is deterministic and sufficient
+to prove the timing contract (digest changes ONLY at a sanctioned window).
 
 What lands durably is deliberately NOT this module's job either: t7
 (contract.py/artifact.py) owns serializing a config event stream onto
@@ -90,14 +88,16 @@ class ConfigLifecycleError(Exception):
 
 @dataclass(frozen=True)
 class EpisodeConfigSnapshot:
-    """One episode's resolved, immutable configuration — opaque and digestible.
+    """One episode's resolved, immutable configuration — digestible.
 
     Three tuples mirror the three worker-seat lattice targets:
-    ``strategist_sections`` (opaque per-application markers — the composed
-    prompt TEXT is layers.py's concern, out of scope here), ``tool_set`` (the
-    narrowed tool id set), and ``knowledge_entries`` (canonical JSON strings,
-    one per applied knowledge entry). Frozen: a proposal never mutates a
-    snapshot in place, it produces a NEW one (see :func:`_apply_change`).
+    ``strategist_sections`` (real stripped text, one current note per
+    applied strategist proposal — the composed prompt TEXT is layers.py's
+    concern), ``tool_set`` (the narrowed tool id set, replaced by each
+    applied worker.tools proposal), and ``knowledge_entries`` (canonical
+    JSON strings, appended per applied knowledge entry). Frozen: a
+    proposal never mutates a snapshot in place, it produces a NEW one
+    (see :func:`_apply_change`).
     """
 
     strategist_sections: tuple[str, ...] = ()
@@ -181,16 +181,15 @@ def _apply_change(snapshot: EpisodeConfigSnapshot, change: ChangeUnit) -> Episod
             replace(snapshot, knowledge_entries=snapshot.knowledge_entries + added),
         )
     if change.target is Target.WORKER_PROMPT_STRATEGIST:
-        # Opaque marker (see the module docstring): a real strategist SECTION's
-        # composed text is layers.py's (t5) concern; what this module must prove
-        # is only that the digest moves exactly once per applied proposal, and
-        # only at a sanctioned window.
-        marker = f"{change.origin.value}#{len(snapshot.strategist_sections) + 1}"
+        # Real-text fold (t5): the verbatim stripped content REPLACES the
+        # previous strategist_sections tuple — one current note, not a
+        # growing list of opaque markers. The digest moves exactly once
+        # per applied proposal, only at a sanctioned window.
         return cast(
             EpisodeConfigSnapshot,
             replace(
                 snapshot,
-                strategist_sections=snapshot.strategist_sections + (marker,),
+                strategist_sections=(change.content.strip(),),
             ),
         )
     # Unreachable: propose() refuses every non-worker target before queuing.
