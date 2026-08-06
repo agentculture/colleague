@@ -79,6 +79,14 @@ minds. The architecture, part by part:
 - **Talking to one teammate (senses front door)** — senses answers non-repo turns
   FIRST via a **deterministic** classifier (`colleague/frontdoor.py`,
   ambiguous→cortex); anything touching the repo → cortex, the ONLY repo actor. Doc: `talking-to-one-teammate.md`.
+- **Session streaming + narration + speak-only + pin hygiene** — senses replies
+  stream into the conversation (`colleague/senses_stream.py` extractor, owned-line
+  transient paints, containment); cortex/worker activity narrates at boundary
+  beats as `<<higher self thought>>` / `<subconscious thought/actions>`
+  (display-only, NEVER model context); `--speak`//`speak` speaks replies while
+  the operator types (default off, mic gate untouched); a stale model pin
+  same-role-refreshes loudly (main seat only) onto `TaskResult.warnings` + a
+  doctor membership probe. Doc: `session-streaming-voice.md`.
 - **Memory (best-colleague R1)** — recall-before / remember-after every run (eidetic) onto `TaskResult.memory`; triple-gated; isolated runs target the OPERATOR repo. Doc: `memory.md`.
 - **Finish recovery + grounded reads (R2)** — the loop recovers
   literal-markup/thin/meta finishes (#248/#231) onto `TaskResult.finish_recovered`;
