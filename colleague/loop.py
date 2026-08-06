@@ -4282,6 +4282,7 @@ def run(
     policy: Policy | None = None,
     spawns: Spawns | None = None,
     context: ContextControls | None = None,
+    seat: str = "cortex",
 ) -> TaskResult:
     """Drive ``complete`` against ``task`` until finish or the ``max_steps`` budget.
 
@@ -4345,6 +4346,18 @@ def run(
     finalized onto the result with ``status=error`` and re-raised as
     :class:`WorkAborted` carrying that result, so the work path can write a
     non-empty artifact + trace before surfacing the error (#37).
+
+    ``seat`` names the acting seat for the flight run-start marker (#308) —
+    forwarded verbatim to :meth:`~colleague.flight.FlightSession.append_run_start`
+    and nowhere else (t2, change-content-consumption-lane spec, covers c9/h9).
+    The default ``"cortex"`` keeps every caller that does not pass ``seat``
+    byte-identical to the pre-t2 line. Each engine's ``work()`` resolves which
+    seat actually acts (``"worker"`` when three-tier execution resolved
+    ``config.worker``) and passes the label here — ``run()`` never inspects
+    ``config`` itself (it is not a parameter), so the resolution decision
+    stays entirely at the call site; this only threads the already-resolved
+    label through to the one emit call. The turn loop itself is untouched
+    (h11): no other code path reads or branches on ``seat``.
     """
     _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
     # hooks/telemetry/policy each default from the repo (or the environment, for
@@ -4473,14 +4486,18 @@ def run(
     start_monotonic = time.monotonic()
 
     # #308 liveness: a run-start marker on the flight feed BEFORE the first
-    # completion, so a pilot / senses can say "cortex started, working on <goal>"
+    # completion, so a pilot / senses can say "<seat> started, working on <goal>"
     # instead of "I don't know" during a slow first turn. Record the monotonic
     # start so ``_emit_phase`` can stamp each heartbeat's elapsed. Strict no-op
-    # (and no feed line) when this is not a watchable flight.
+    # (and no feed line) when this is not a watchable flight. ``seat`` (t2,
+    # change-content-consumption-lane spec, c9/h9) names the acting seat —
+    # already resolved by the caller (``run()``'s own docstring); this call is
+    # the ONE place that value is used, keeping the rest of the turn loop
+    # untouched (h11).
     if ctx.flight is not None:
         ctx._flight_started_monotonic.append(start_monotonic)
         with suppress(Exception):
-            ctx.flight.append_run_start(goal=task.goal, max_steps=max_steps)
+            ctx.flight.append_run_start(goal=task.goal, max_steps=max_steps, seat=seat)
 
     # The engine call (`complete`) may raise mid-loop. Catch it here so the
     # partial work accumulated on `result` is preserved rather than discarded

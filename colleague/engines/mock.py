@@ -151,6 +151,15 @@ class MockEngine(Engine):
         complete = _script(task)
         if config.on_delta is not None:
             complete = _with_synthetic_deltas(complete, config.on_delta)
+        # Acting-seat label for the flight run-start marker (t2,
+        # change-content-consumption-lane spec, covers c9/h9): a resolved
+        # ``config.worker`` is the front's own armed signal for three-tier
+        # execution (config.py's ``_resolve_worker`` never leaves it set
+        # without a live worker role), so its presence — not a separate flag
+        # — is what names the acting seat. ``None`` (unarmed, the default)
+        # keeps the legacy "cortex" label, byte-identical to every prior
+        # release.
+        seat = "worker" if config.worker is not None else "cortex"
         return run(
             complete,
             task,
@@ -158,6 +167,7 @@ class MockEngine(Engine):
             system_prompt=self.system_prompt(task, config),
             model=config.model,
             progress=config.progress,
+            seat=seat,
             # The engine builds the repo-confined executor so the config-derived
             # output cap (and subagent spawn) ride the existing ``executor`` seam
             # — keeps ``run()`` from growing another parameter (all-engines rule).
