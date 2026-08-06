@@ -140,6 +140,21 @@ _FIDELITY_CLAUSE = (
     "knowledge never replaces it."
 )
 
+#: Per-surface display-streaming envelope keys (d4/#374, ssv task t3). Senses
+#: reply envelopes are key-inconsistent across surfaces: the coordination
+#: loop's moves carry ``"text"`` (:class:`~colleague.senses_stream.
+#: EnvelopeStream`'s default), while :func:`run_senses_frontdoor` and
+#: :func:`run_senses_talk` both reply ``{"answer": ...}`` (each parses with
+#: ``required_key="answer"`` below), and :func:`run_senses_speakback` replies
+#: are BARE PROSE — no envelope at all, so a speak-back caller arms a raw
+#: pass-through ``on_delta`` (the raw deltas ARE the display text), never the
+#: extractor. These constants bind each surface's STREAMING field to the SAME
+#: key its parser requires, in this one module, so the two can never drift —
+#: arming the wrong key would never raise, it would just silently never
+#: stream (the extractor withholds everything and fails only at ``finish()``).
+FRONTDOOR_STREAM_FIELD = "answer"
+TALK_STREAM_FIELD = "answer"
+
 #: Fixed invocation-point labels recorded on each :class:`SensesRecord`.
 INTAKE_POINT = "senses-intake"
 SPEAKBACK_POINT = "senses-speakback"

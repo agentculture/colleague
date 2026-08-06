@@ -70,7 +70,7 @@ from colleague.artifact import write as _write_artifact
 from colleague.attribution import cortex_working_line, senses_line
 from colleague.cli._banner import emit_banner
 from colleague.cli._commands import work as _work_mod
-from colleague.cli._commands._input_line import OwnedInputLine
+from colleague.cli._commands._input_line import OwnedInputLine, transient_paint
 from colleague.cli._commands._session_input import CYCLE_MODE, supports_raw_mode
 from colleague.cli._commands._tui_sink import fold_phase
 from colleague.cli._commands.work import _resolve_chain_arming
@@ -110,7 +110,10 @@ from colleague.presence import (
 )
 from colleague.presence_engine import PresenceEngine, PresenceIO, build_presence_executor
 from colleague.senses import (
+    FRONTDOOR_STREAM_FIELD,
+    TALK_STREAM_FIELD,
     UPDATE_POINT,
+    make_senses_display_delta,
     run_senses_intake,
     run_senses_speakback,
     run_senses_talk,
@@ -513,6 +516,83 @@ class _WorkSink:
 
     def close(self) -> None:  # called by execute_work on every exit path
         return None
+
+
+def _stdout_is_tty() -> bool:
+    """Whether stdout is a genuine terminal (module-level so tests can seam it).
+
+    Gates the UNOWNED live-TTY paint path in :meth:`_Session._senses_stream_sink`:
+    a ``--tui``-forced ANSI session piped somewhere must still arm nothing —
+    a transient paint into a pipe would change piped output (h12)."""
+    try:
+        return bool(sys.stdout.isatty())
+    except Exception:  # noqa: BLE001 - a stdout without isatty is not a TTY
+        return False
+
+
+class _SensesStreamPainter:
+    """Throttled in-place painter for ONE growing ``senses: …`` line (ssv t3).
+
+    The conversation-surface twin of the cockpit's status DeltaTail: display
+    deltas (decoded by :func:`colleague.senses.make_senses_display_delta`, or
+    fed raw for speak-back's bare-prose replies) fold through the SAME pure
+    machinery — :func:`fold_delta` / :func:`should_repaint_delta` /
+    :func:`mark_delta_rendered`, the count-based cadence, the sanitized
+    single-line window — but paint the CONVERSATION surface instead of the
+    status line: a transient row repaint (:func:`transient_paint` — CR +
+    erase-line + text, NO newline) sized to the terminal row, on exactly the
+    row the reply's final whole-line render will overwrite. The FINAL rendered
+    line never comes from here — the existing blocking-path code prints it
+    (``_log`` + ``print_above`` / the full-frame redraw), erasing the last
+    transient paint in place — so a declined extractor or a mid-stream failure
+    simply means fewer (or zero) paints and the turn renders whole at the end
+    exactly as today (full containment is task t5).
+
+    All writes are MAIN-THREAD (``on_delta`` fires inside the blocking senses
+    completion's streamed read loop) and go through the owned-line seam: with
+    the owned input line armed, the paint is its lock-protected
+    :meth:`OwnedInputLine.stream_paint` (never interleaves with the reader
+    thread's echo); otherwise (a front-door / speak-back turn on the genuine
+    live colour TTY, where no work line owns the bottom row) the same
+    :func:`transient_paint` sequence writes to stdout directly. Build a FRESH
+    painter per senses turn (per :meth:`_Session._senses_stream_sink` call) —
+    the fold state is per-reply, exactly like the extractor it feeds from.
+
+    Never raises into the engine's read loop: the paint body is suppressed
+    (mirroring ``_emit_delta``'s raising-sink convention), and the fold path
+    is pure computation. Never touches ``sess.state`` — no status fold, no
+    conversation line, no step count (the #206 invariant; the cockpit
+    DeltaTail's CORTEX-delta → STATUS behavior is untouched by construction).
+    """
+
+    def __init__(self, session: "_Session") -> None:
+        self._session = session
+        self._tail = DeltaTail()
+        #: Paints performed — the AC1 measurement seam (>= 2 on a real PTY).
+        self.paints = 0
+
+    def on_display_delta(self, piece: str) -> None:
+        """Fold ONE display delta; repaint at the cockpit's own cadence."""
+        # Size the trailing window to the terminal row (label + margin off),
+        # so the line genuinely GROWS until the row fills, then keeps the
+        # freshest tail — the same trailing-window rule as the status stream,
+        # sized to this surface. Floor of 16 keeps a degenerate width sane.
+        width = max(16, detect_width() - len(senses_line("")) - 2)
+        self._tail = fold_delta(self._tail, piece, width=width)
+        if not should_repaint_delta(self._tail):
+            return
+        self._tail = mark_delta_rendered(self._tail)
+        self._paint(senses_line(self._tail.text))
+
+    def _paint(self, text: str) -> None:
+        with contextlib.suppress(Exception):  # a raising sink never breaks the run
+            line = self._session._owned_line
+            if line is not None:
+                line.stream_paint(text)
+            else:
+                sys.stdout.write(transient_paint(text))
+                sys.stdout.flush()
+            self.paints += 1
 
 
 def _default_plan(*, repo: Path, engine_name: str, request: str, config: EngineConfig) -> str:
@@ -1846,13 +1926,19 @@ class _Session:
 
     # ── cortex/senses split (t8) ─────────────────────────────────────────────
 
-    def _senses_engine(self):
+    def _senses_engine(self, *, on_delta: Optional[Callable[[str], None]] = None):
         """Return ``(senses_config, engine)`` for a senses call, or ``None``.
 
         ``None`` when no senses model is resolved (byte-identical) or the engine
         cannot be loaded — the caller then proceeds cortex-only. Both intake and
-        speak-back go through this one seam."""
-        senses_config = senses_engine_config(self.config)
+        speak-back go through this one seam.
+
+        ``on_delta`` (ssv t3) arms display streaming for THIS call's completion
+        (forwarded verbatim to :func:`senses_engine_config`, which never
+        inherits the parent's sink — t2). Default ``None`` keeps every caller
+        that doesn't name it — intake, clarify, proactive updates, the
+        presence-engine build — on the blocking path, byte-identical."""
+        senses_config = senses_engine_config(self.config, on_delta=on_delta)
         if senses_config is None:
             return None
         try:
@@ -1860,6 +1946,25 @@ class _Session:
         except Exception:  # noqa: BLE001 - an unloadable engine → proceed cortex-only
             return None
         return senses_config, engine
+
+    def _senses_stream_sink(self) -> Optional[_SensesStreamPainter]:
+        """The ssv-t3 arming decision, in ONE place: a fresh painter — senses
+        display streaming arms — ONLY on a live colour-TTY conversation
+        surface. Two qualifying shapes: the owned input line is armed (a
+        mid-run talk turn — paints ride its lock-protected ``stream_paint``),
+        or the genuine live ANSI loop is between prompts on a real stdout TTY
+        (a front-door / speak-back turn — paints write the same transient
+        sequence to stdout). Everything else — piped, ``--json``, the
+        Markdown tier, a scripted/direct-construction session — returns
+        ``None``: ``on_delta`` stays unarmed, the engine takes its blocking
+        path, and output stays byte-identical to today (h12)."""
+        if self.view != "ansi" or self.json_mode:
+            return None
+        if self._owned_line is not None:
+            return _SensesStreamPainter(self)
+        if self._live and _stdout_is_tty():
+            return _SensesStreamPainter(self)
+        return None
 
     def _prepare_senses(self, task: Task, is_free_text: bool):
         """Run senses intake for a free-text work line; return ``(mode, record)``.
@@ -1922,7 +2027,25 @@ class _Session:
         # engine for it, and record the route even if the engine can't load.
         if classify_frontdoor(text) == CORTEX:
             return cortex_frontdoor_outcome()
-        pair = self._senses_engine()
+        # Display streaming (ssv t3): on a live colour TTY the direct answer
+        # renders as ONE growing `senses:` line while it generates. The
+        # front-door reply carries its text under "answer" (the same key
+        # run_senses_frontdoor's parser requires — FRONTDOOR_STREAM_FIELD
+        # binds them), decoded incrementally by the t2 extractor adapter.
+        painter = self._senses_stream_sink()
+        # Kwarg passed ONLY when armed (the _dispatch_work lineage_kwargs
+        # idiom): the unarmed path keeps the exact zero-arg call shape strict
+        # test doubles already pin.
+        stream_kwargs = (
+            {
+                "on_delta": make_senses_display_delta(
+                    painter.on_display_delta, field=FRONTDOOR_STREAM_FIELD
+                )
+            }
+            if painter is not None
+            else {}
+        )
+        pair = self._senses_engine(**stream_kwargs)
         if pair is None:
             return None
         senses_config, engine = pair
@@ -2467,7 +2590,25 @@ class _Session:
             if self.view == "ansi":
                 self.emit()
             return
-        pair = self._senses_engine()
+        # Display streaming (ssv t3): a mid-run talk reply grows in place above
+        # the owned input line while it generates (the talk reply carries its
+        # text under "answer" — TALK_STREAM_FIELD binds the streaming key to
+        # run_senses_talk's own required_key). The final rendered line still
+        # comes from the unchanged whole-reply path below (`_log` + emit),
+        # which erases the last transient paint in place.
+        painter = self._senses_stream_sink()
+        # Kwarg passed ONLY when armed (the _dispatch_work lineage_kwargs
+        # idiom) — the unarmed path keeps the exact zero-arg call shape.
+        stream_kwargs = (
+            {
+                "on_delta": make_senses_display_delta(
+                    painter.on_display_delta, field=TALK_STREAM_FIELD
+                )
+            }
+            if painter is not None
+            else {}
+        )
+        pair = self._senses_engine(**stream_kwargs)
         if pair is None:
             return
         senses_config, engine = pair
@@ -2780,7 +2921,17 @@ class _Session:
         The raw cortex summary on ``result.summary`` is never mutated (the artifact
         keeps it, acceptance 1); only the displayed line is shaped."""
         shaped, speakback_record = None, None
-        pair = self._senses_engine()
+        # Display streaming (ssv t3): speak-back replies are BARE PROSE — no
+        # JSON envelope — so the raw deltas ARE the display text: arm the
+        # painter's sink directly (a raw pass-through), never the extractor.
+        # The owned line is already disarmed here (work-item exit), so paints
+        # take the live-TTY stdout path; the shaped whole-line render below is
+        # unchanged either way.
+        painter = self._senses_stream_sink()
+        # Kwarg passed ONLY when armed — the unarmed path keeps the exact
+        # zero-arg call shape strict test doubles already pin.
+        stream_kwargs = {"on_delta": painter.on_display_delta} if painter is not None else {}
+        pair = self._senses_engine(**stream_kwargs)
         if pair is not None:
             senses_config, engine = pair
             shaped, speakback_record = run_senses_speakback(
