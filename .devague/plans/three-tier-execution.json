@@ -1,0 +1,706 @@
+{
+  "slug": "three-tier-execution",
+  "title": "three-tier execution",
+  "frame_slug": "three-tier-execution",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-05T19:41:06Z",
+  "updated": "2026-08-05T19:48:25Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague gains an opt-in three-tier execution mode: senses relays the worker's answer faithfully, the worker drives the bounded tool loop, and cortex configures what the other seats run under \u2014 resolved by role name from the lobes gateway, byte-identical when unconfigured (#364, design brief #363)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "a live three-seat session on the rig (cortex+worker+senses all ready) records the worker acting, senses relaying with the worker's answer verbatim-present, and cortex proposing at least one verified config change applied between episodes \u2014 recorded in docs/live-testing.md; the same commands with no three-tier config behave byte-identically, proven by test",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "three-tier is the EIGHTH sanctioned router-exclusion increment: a FIXED enumerated surface (three seats resolved by role name \u2014 worker/cortex/senses \u2014 never model-name parsing, never an automatic task->model routing policy), opt-in behind an explicit mode/config block, entering CLAUDE.md's v1 scope line via this re-spec",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "CLAUDE.md's v1 scope line gains increment (8) with the FIXED-surface wording (three roles by name, opt-in, no automatic task->model routing decision anywhere in the diff) \u2014 the router stays excluded and the spec records the distinction honestly",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "lobes.py gains optional 'worker' role resolution alongside cortex/senses/stt/tts/embedder/muse \u2014 the live gateway already advertises worker (unsloth/Qwen3.6-35B-A3B-NVFP4, ready:true); explicit three-tier mode must refuse loudly, never silently substitute cortex-as-actor, when worker is missing or undialable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "lobes.py resolves worker as an OPTIONAL role (absence is never an error for legacy runs); explicit three-tier mode with worker missing or undialable exits with a loud, tested refusal \u2014 no code path substitutes cortex as actor silently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "finish_reason propagates through ModelResponse (loop.py:370 has no such field today; vllm_openai.py:363 consumes finish_reason for SSE stream termination only and drops it) \u2014 truncated / stopped / timeout / empty / deliberate completion become distinguishable states, recorded per seat; delivery step 1 before any experiment is trusted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "finish_reason rides ModelResponse end-to-end from the vLLM SSE accumulator; truncated / stopped / timeout / empty / deliberate are distinguishable states with tests; the artifact records truncation per seat; __COLLEAGUE_NO_RESULT_PRODUCED__ is never counted as a completed answer",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "senses relay fidelity becomes structural IN the existing lane (senses.py): a worker answer, when present, stays visible verbatim in the displayed response; knowledge-block entries are labeled optional background answered AFTER the current result; fidelity failure triggers raw-answer fallback + a recorded degradation \u2014 new health counters beyond transport (verbatim-presence, unrelated-knowledge repetition, fallback, truncation)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "with a worker answer present the displayed response contains it verbatim (structural test, not prompt hope); fidelity failure triggers raw-answer fallback plus a recorded degradation; the embodiment 6/6 failure shape is a committed regression test; ContextPacket.original and tools=[] pins remain untouched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "the authority ceiling: cortex's capability catalog derives from the task's already-resolved effective authority (mode + role + schema curation + operator policy); cortex may narrow the worker's tool set, never add beyond the resolved allow-list; worker cannot alter its own tools/prompt/knowledge/authority \u2014 owners are roles.py, engine schema curation, and the tool executor in loop.py/tools.py",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the capability catalog is derived ONLY from the task's resolved effective authority (no from-executor constructor, no minting); a cortex change selecting an id outside the ceiling refuses the WHOLE unit with a recorded refusal, tested; the worker's schema exposes no self-modification surface",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "cortex-authored prompt changes touch ONLY a bounded, named, task-local strategist section composed through layers.py's existing system-prompt path (system_prompt_for/compose_role_prompt); base prompt, AGENTS layers, role prompts, skills, and operator text stay immutable; the change lattice refuses the WHOLE unit on unknown/extra/forbidden keys, never strips-and-retains",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "diffing the composed system prompt between a baseline and a cortex-configured run touches exactly ONE named task-local strategist section; base prompt, AGENTS layers, role prompts, skills, and operator text are pinned unchanged by test; unknown/extra/forbidden keys refuse the whole unit, never strip-and-retain",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "the episode boundary is the configuration boundary: resolved configuration is immutable for a whole episode (system prompt / knowledge / tool surface never rewritten between model turns); with --until-done chaining armed (chain.py), changes apply only between episodes; a no-tool episode end still counts as a boundary (embodiment T1 regression: a tool-step boundary rule leaves the tier dead with armed:true); configuration is discarded at top-level task end",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the effective-config digest is constant across every model turn within an episode (tested); a mid-episode proposal applies only in the next between-episode window; a no-tool episode end still increments the boundary counter (the T1 regression, tested); config is discarded at top-level task end",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "the task artifact carries an append-only configuration event stream + derived effective-config digest on TaskResult (artifact.py/contract.py are the owners) \u2014 proposed/refused/verified/applied/reverted all recorded; liveness is an advancing counter, never 'armed==true'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "TaskResult carries an append-only config event stream whose replay reproduces the effective-config digest; proposed/refused/verified/applied/reverted are all recorded; a tier is reported alive only when a progress counter advanced \u2014 armed alone never reports health",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "three pre-registered promotion gates run through the existing experiment noun (colleague/experiment.py, landed in #291): A senses-fidelity (domain-mismatch regression from the failed 6/6 live session), B worker-vs-acting-cortex on colleague's real surface, C strategist value on a misconfigured-actor script; the strategist stays opt-in and OFF until C returns a supporting verdict (three independent negatives stand today); no default flip before all three verdicts are committed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "experiments A (senses fidelity), B (worker vs acting cortex), C (strategist value on a misconfigured actor) exist as pre-registered runs through the experiment noun with committed results; a test holds the strategist opt-in and OFF until C's supporting verdict is committed; no default flips before all three verdicts land",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "with no three-tier configuration, behavior and serialized artifacts stay byte-identical \u2014 the same gate every prior increment shipped under (cortex-only byte-identical, no-muse byte-identical)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "the no-config path is proven byte-identical by test on BOTH backends (mock + vllm-openai, the all-engines rule): same behavior, same serialized artifacts \u2014 the identical gate cortex-only and no-muse shipped under",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "deepthink/muse is ABSENT from three-tier mode (offering it makes the design four-tier and restores an advisory-prose path into the worker); legacy mode keeps the muse->deepthink discovery rung unchanged (config.py _muse_deepthink_fallback); no global renames of existing flags, artifact fields, or public contracts during the experiment",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "a muse advert present alongside three-tier configuration arms NOTHING (tested \u2014 no DeepthinkConfig constructed in three-tier mode); every legacy deepthink test stays untouched and green; no flag, artifact field, or public contract is renamed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "boundary",
+      "text": "operator-owned controls are immutable to cortex: policy.py approvals (checksum/token gate), hooks.json, command approvals, task roles, mode gates, and handoff policy; there is NO generic strategist-writable 'permissions' target in v1 \u2014 colleague's permission-like surfaces keep their distinct owners",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the change-lattice target enum contains no operator-owned surface (approvals, hooks, command approvals, task roles, mode gates, handoff policy); a unit naming one refuses WHOLE with a recorded refusal, tested; policy.py is unreachable from cortex",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "the colleague operator running work/drive/session against a lobes rig advertising all three seats (today: thor serves cortex unsloth/Qwen3.6-27B-NVFP4 + worker unsloth/Qwen3.6-35B-A3B-NVFP4, orin serves senses unsloth/gemma-4-12B-it-qat-w4a16, all ready:true); the unchanged secondary audience is every consumer WITHOUT three-tier configuration \u2014 legacy operators, agent callers, --json/piped fronts, the resident \u2014 who must observe zero change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "every consumer without three-tier configuration observes ZERO change \u2014 proven byte-identical by test, the same gate the presence and cortex-senses arcs used; the three-seat rig facts are recorded as of 2026-08-05 and re-probed before the live proof",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "before_state",
+      "text": "today cortex both acts and is the only mind (worker unknown to lobes.py); senses relays but the matched embodiment live session showed relay fidelity FAIL 6/6 (knowledge recited over the current answer) while attribution held 6/6; truncation is invisible (ModelResponse has no finish_reason \u2014 5/6 actor turns silently truncated at 16000); a strategist measured negative 3x with nothing to fix",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "each pre-change gap cites a real record: embodiment 0.14.0 docs/live-test-results (relay fidelity 0/6, attribution 6/6, 5/6 truncations, strategist negatives x3) and colleague code as explored (loop.py:370 no finish_reason, lobes.py no worker role)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "why_it_matters",
+      "text": "it is an authority split, not three sizes of the same job: the actor never learns a strategist exists (configuration changes, not advisory prose it may ignore), the voice structurally cannot claim work it did not do or suppress the worker's answer, and every promotion is gated on pre-registered committed evidence \u2014 unawareness replaces persuasion, counters replace 'armed==true'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "the worker's conversation contains zero cortex-authored advisory prose and its completion seam is never wrapped by a strategist model \u2014 both pinned by test; senses attribution is measured, not assumed, in experiment A",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "after_state",
+      "text": "an operator with three-tier configuration runs the same work/drive/session verbs: the worker drives the bounded tool loop, senses relays with the worker's answer present verbatim (raw-answer fallback on fidelity failure), cortex may only propose task-local configuration applied between episodes under the resolved authority ceiling; the artifact records the config event stream, per-seat finish state, and advancing liveness counters; without the configuration nothing anywhere changes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "one recorded live session demonstrates every after-state guarantee against its artifact: worker acted, senses preserved the answer verbatim (or a recorded fallback fired), cortex changes applied only between episodes, counters advanced, per-seat finish states recorded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "structural gate: with no three-tier config the suite proves 0 behavioral or artifact diff; explicit three-tier mode with worker missing/undialable refuses loudly in 100% of cases (never silent cortex-as-actor); truncated vs deliberate completion is distinguishable in 100% of vLLM turns via finish_reason",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "the byte-identical suite, the loud-refusal test, and the finish_reason state tests all run in CI and gate the PR \u2014 0 diff, 100% refusal, 100% distinguishable are test assertions, not prose claims",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "success_signal",
+      "text": "fidelity gate: in the committed domain-mismatch regression (the embodiment 6/6 failure shape) the worker's answer is visible in 6/6 turns (raw-answer fallback counts, and each fallback records a degradation), unrelated knowledge replaces the current answer in 0/6, and attribution holds in 6/6; the strategist stays off until experiment C commits a supporting verdict (>= 1 verified beneficial intervention on the misconfigured-actor script, 0 on the control)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "experiment A runs pre-registered through the experiment noun with the embodiment failure shape as fixture and its result committed; the strategist-off default is held by a test until experiment C commits a supporting verdict",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "attribution honesty extends to seats: in three-tier mode every operator-facing surface that names the actor \u2014 attribution.py's CORTEX_STATUS_LABEL ('cortex \u25b8 working\u2026'), livecheck's 'cortex is working' narration, cockpit/TAUI states, presence lines \u2014 names the WORKER as the acting seat; no surface may claim cortex is working when the worker acts (the voice that cannot claim work it did not do applies to colleague's own labels)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "a three-tier live run's transcript/cockpit contains zero 'cortex \u25b8 working\u2026' lines while the worker acts (worker-attributed lines appear instead); a legacy run's lines are byte-identical to today's \u2014 both pinned by test",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "the worker seat's dial inherits the #347/#348 same-origin api-key hygiene verbatim: the main key is forwarded only when the worker's dial target shares the main endpoint's origin; a cross-origin worker gets the withheld-key default plus the withheld-key notice \u2014 never a silently forwarded Bearer token",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "the cross-origin worker test proves the main Bearer token never appears in a request to a host only a wire payload advertised; the same-origin case inherits exactly as deepthink/senses do today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "v1 cortex review is SYNCHRONOUS: proposals are computed before episode 1 and in the between-episode window of the chain driver, on the calling thread \u2014 no new thread, no concurrent-with-episode review; test_boundary.py's sanctioned thread list (subagents.py + _input_line.py) is untouched",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "the merged three-tier diff introduces no new threading/concurrent.futures import (boundary suite unmodified and green); cortex proposal latency is bounded and recorded in the between-episode window",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "doctor gains a three-tier readiness group: worker role advertised + dialable + structured-tool-calling probe passes + served model id matches the advert \u2014 so the #363 \u00a77 stale-model-id deafness (role discovery fine, explicit dial 404s, mesh agents healthy-looking and deaf) fails LOUD at the operator's health check",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "doctor --probe against a rig with a mismatched worker model id reports the exact failing id ([FAIL] naming it), exits 1, while role discovery alone still passes \u2014 the trap case is a committed test",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Propagate finish_reason end-to-end (unconditional observability)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "ModelResponse carries finish_reason; the vLLM SSE accumulator's value reaches it instead of being dropped at stream termination",
+        "truncated / stopped / timeout / empty / deliberate are distinguishable states with tests; __COLLEAGUE_NO_RESULT_PRODUCED__ never counts as a completed answer",
+        "the artifact records per-seat finish state + truncation on EVERY run, unconfigured included (decision c30); mock emits the same fields (all-engines rule)"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "h4"
+      ],
+      "instruction": "loop.py:370 ModelResponse gains finish_reason (default empty); vllm_openai.py already reads finish_reason near line 363 for stream termination \u2014 carry the value out of the accumulator. New artifact fields are additive, no renames (c12). mock sets deliberate finishes so test_e2e_mock shape stays green."
+    },
+    {
+      "id": "t2",
+      "summary": "Structural senses relay fidelity in the existing lane",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with a worker answer present the displayed response contains it verbatim \u2014 structural containment test, not prompt hope",
+        "fidelity failure triggers raw-answer fallback and records a degradation; counters land: verbatim-presence, unrelated-knowledge repetition, fallback, truncation",
+        "the embodiment 6/6 domain-mismatch failure shape is a committed regression test; ContextPacket.original and tools=[] pins untouched"
+      ],
+      "deps": [],
+      "covers": [
+        "c5",
+        "h5"
+      ],
+      "instruction": "senses.py + senses_loop.py/senses_moves.py only. Compose the grounding clause ('you can see only the status block you are given') and the fidelity clause (answer the current message from the current result first; background knowledge never replaces it) into every prompt-bearing senses surface; knowledge entries labeled optional background, placed before current content."
+    },
+    {
+      "id": "t3",
+      "summary": "Worker role resolution, loud refusal, same-origin key hygiene",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "lobes.py resolves worker as an OPTIONAL role; absence never errors a legacy run",
+        "explicit three-tier config with worker missing or undialable exits with a loud refusal naming the gap \u2014 no silent cortex-as-actor, tested on both fronts",
+        "a cross-origin worker dial never receives the main Bearer token (withheld default + notice); same-origin inherits \u2014 mirroring the deepthink/senses hygiene tests"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3",
+        "c25",
+        "h21"
+      ],
+      "instruction": "Add worker to lobes.py's optional roles (existing RoleInfo parse). config.py grows the explicit three-tier mode block \u2014 role NAMES only, never model-name parsing. Reuse _same_origin for the key rule. The refusal fires at resolution time, before any episode starts."
+    },
+    {
+      "id": "t4",
+      "summary": "Typed change lattice + authority ceiling (refuse-whole)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a typed change unit exists with exactly the targets worker.tools / worker.prompt.strategist / worker.knowledge / senses.prompt.strategist / senses.knowledge and origins host/cortex/worker; every knowledge entry names its origin",
+        "the capability catalog derives ONLY from the task's resolved effective authority (no constructor mints from the executor); a change selecting an id outside the ceiling refuses the WHOLE unit with a recorded refusal",
+        "unknown/extra/forbidden keys refuse whole, never strip-and-retain; no operator-owned surface (approvals, hooks, command approvals, task roles, mode gates, handoff) is a valid target \u2014 tested"
+      ],
+      "deps": [],
+      "covers": [
+        "c6",
+        "h6",
+        "c13",
+        "h13"
+      ],
+      "instruction": "New module colleague/lattice.py: pure data + validation, no I/O, no subprocess. The catalog input is the resolved tool allow-list the loop already computes through roles.py + engine schema curation. worker may write only senses.knowledge (origin-stamped)."
+    },
+    {
+      "id": "t5",
+      "summary": "Bounded task-local strategist prompt section via layers",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "baseline vs cortex-configured composed prompt differs in exactly ONE named task-local strategist section; base prompt, AGENTS layers, role prompts, skills, and operator text pinned unchanged by test"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c7",
+        "h7"
+      ],
+      "instruction": "Compose through layers.py's existing path (system_prompt_for / compose_role_prompt) \u2014 injected once on Engine.system_prompt(), exact-path isolation preserved. The section is named, bounded, and absent renders nothing."
+    },
+    {
+      "id": "t6",
+      "summary": "Episode-boundary config lifecycle (synchronous review window)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the effective-config digest is constant across every model turn within an episode; a mid-episode proposal applies only at the next between-episode window; config discarded at top-level task end",
+        "a no-tool episode end increments the boundary counter \u2014 the T1 regression, tested",
+        "the diff adds no threading/concurrent.futures import anywhere; tests/test_boundary.py unmodified and green; proposal latency bounded + recorded"
+      ],
+      "deps": [
+        "t4",
+        "t1"
+      ],
+      "covers": [
+        "c8",
+        "h8",
+        "c26",
+        "h22"
+      ],
+      "instruction": "chain.py's between-episode window (plus before episode 1) is the ONLY application point; review runs synchronously on the calling thread. Default for children: subagents spawned inside an episode inherit the episode's resolved immutable config (risk r2). The loop seam edits live here \u2014 t8 must not touch loop.py."
+    },
+    {
+      "id": "t7",
+      "summary": "Append-only config event stream on the artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "TaskResult carries the config event stream (proposed/refused/verified/applied/reverted) + effective-config digest; replaying events ALONE reproduces the digest \u2014 the baseline is itself an event (the T8 trap)",
+        "liveness counters advance in a live run; no surface reports tier health from armed alone"
+      ],
+      "deps": [
+        "t4",
+        "t1"
+      ],
+      "covers": [
+        "c9",
+        "h9"
+      ],
+      "instruction": "contract.py + artifact.py own this; additive fields only, no second durable store. Digest = deterministic hash over the replayed event sequence."
+    },
+    {
+      "id": "t8",
+      "summary": "Opt-in worker-as-actor resolution (strategist absent, deepthink absent)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with three-tier config the worker drives the tool loop and cortex does not act; a muse advert present alongside three-tier config constructs no DeepthinkConfig \u2014 tested",
+        "every legacy deepthink test stays untouched and green; no flag, artifact field, or public contract renamed"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c12",
+        "h12"
+      ],
+      "instruction": "Delivery step 4: ship worker-as-actor BEFORE any configurator exists. config.py resolution + engines wiring only \u2014 the loop seam belongs to t6; do not touch loop.py here."
+    },
+    {
+      "id": "t9",
+      "summary": "Seat-aware attribution: no cortex label on the worker's work",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a three-tier run renders worker-attributed status lines \u2014 zero cortex-working lines while the worker acts",
+        "a legacy run's lines are byte-identical to today's \u2014 pinned by test"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c24",
+        "h20"
+      ],
+      "instruction": "attribution.py's CORTEX_STATUS_LABEL becomes seat-aware; livecheck.py:544 narration follows; sweep cockpit/TAUI/presence for actor-naming strings. Legacy path renders the exact current strings."
+    },
+    {
+      "id": "t10",
+      "summary": "Doctor three-tier readiness group",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "doctor reports worker advertised + dialable + tool-calling probe + served-model-id-matches-advert; a mismatched id FAILs naming the exact id and exits 1 while role discovery alone still passes \u2014 committed test"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c27",
+        "h23"
+      ],
+      "instruction": "Extend the doctor rubric; the network checks ride --probe like provider_reachable. This kills the #363 section-7 deafness class (healthy-looking mesh agents on a stale model id)."
+    },
+    {
+      "id": "t11",
+      "summary": "Opt-in cortex configurator through the lattice",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "cortex proposes typed change units only; the worker's conversation contains zero cortex-authored advisory prose and its completion seam is never wrapped by a strategist model \u2014 pinned by test",
+        "proposals verify then apply only at sanctioned windows; refusals recorded on the event stream; the configurator is opt-in and off by default"
+      ],
+      "deps": [
+        "t5",
+        "t6",
+        "t7",
+        "t8"
+      ],
+      "covers": [
+        "c19",
+        "h16"
+      ],
+      "instruction": "Delivery step 7, LAST of the build tasks by design. Cortex consumes episode summaries/snapshots, emits lattice units; nothing cortex-authored reaches the worker's message history."
+    },
+    {
+      "id": "t12",
+      "summary": "Re-pin the structural gates: byte-identical, loud refusal, finish-state CI",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the byte-identical suite (mock + vllm-openai) asserts no-config behavior + existing-field identity AND presence of the new finish fields \u2014 scoped per decision c30",
+        "the three-tier-without-worker refusal test runs on both fronts; finish-state, refusal, and byte-identical tests all run in the default CI pytest job"
+      ],
+      "deps": [
+        "t1",
+        "t3",
+        "t8"
+      ],
+      "covers": [
+        "c11",
+        "h11",
+        "c17",
+        "h14",
+        "c21",
+        "h18"
+      ],
+      "instruction": "Tests + CI wiring only \u2014 no production code. This is the audience pin (c17/h14): legacy operators, agent callers, --json/piped fronts, resident all observe zero change."
+    },
+    {
+      "id": "t13",
+      "summary": "Experiment A: senses fidelity gate (pre-registered, committed)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "runs through the experiment noun with the embodiment failure shape as fixture; result committed; measures verbatim-visibility 6/6, unrelated-knowledge replacement 0/6, attribution 6/6, plus fallbacks, latency, truncation"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c22",
+        "h19",
+        "c10"
+      ],
+      "instruction": "Matched domain-mismatch design from #364: seed senses knowledge with repeated domain-A facts, ask domain-B questions, provide a good worker answer; measure whether the current question is addressed and the worker answer stays visible."
+    },
+    {
+      "id": "t14",
+      "summary": "Experiment B: worker promotion, live performs-better (c23 gate)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pre-registered live comparison worker vs acting cortex on colleague's real surface: completion rate, tool-protocol failures, truncation/empty rate, latency, tokens, operator-graded quality; result committed",
+        "per operator decision c23 the live performs-better verdict lands BEFORE the delivery summary and the cicd PR leg"
+      ],
+      "deps": [
+        "t12",
+        "t8"
+      ],
+      "covers": [
+        "c10"
+      ],
+      "instruction": "The probes retired protocol risk (c28 native tool_calls; c29 window 262144). Tune max_tokens from measured truncation (risk r1) before the scored runs. Real tasks: multi-step read/edit/test/finish with gates and handoff."
+    },
+    {
+      "id": "t15",
+      "summary": "Experiment C: strategist value + off-by-default pin",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pre-registered misconfigured-actor experiment (repo-A conventions, repo-B task, correctly configured control) through the experiment noun; result committed; counts detection, proposed/verified/applied changes, later outcome, false interventions, latency, tokens",
+        "a test holds the strategist opt-in and OFF until a supporting verdict is committed \u2014 the three standing negatives keep it off otherwise"
+      ],
+      "deps": [
+        "t11"
+      ],
+      "covers": [
+        "c10",
+        "h10"
+      ],
+      "instruction": "This is the experiment that does not exist yet in either repo (#363 section 5's caveat): give the strategist something real to fix. A negative verdict ships the arc anyway \u2014 worker + senses tiers stand alone."
+    },
+    {
+      "id": "t16",
+      "summary": "Docs: eighth increment record + legacy/three-tier distinction",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "CLAUDE.md's v1 scope line gains increment (8) with FIXED-surface wording; docs/features/three-tier.md lands; cortex-senses/deepthink/senses feature docs gain the legacy vs three-tier distinction (cortex-only keeps its legacy meaning); the c30 convention change is recorded the way #313 and WorkStats were",
+        "before-state citations name the real records: embodiment 0.14.0 live-test-results + colleague code facts (loop.py:370, lobes.py)"
+      ],
+      "deps": [
+        "t8",
+        "t11"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c18",
+        "h15"
+      ],
+      "instruction": "Also record the non-goals honestly: nothing imported from embodiment (#358 separate), no multi-gateway merging, no durable cross-task promotion, retrieval lane still parked."
+    },
+    {
+      "id": "t17",
+      "summary": "Live three-seat proof + arc wrap",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "one recorded live session on the rig demonstrates: worker acted, senses preserved the answer verbatim (or a recorded fallback fired), a cortex change applied between episodes, counters advanced, per-seat finish states recorded \u2014 in docs/live-testing.md",
+        "the same commands without three-tier config behave byte-identically (t12 suite re-run at wrap); rig facts re-probed before the proof"
+      ],
+      "deps": [
+        "t9",
+        "t10",
+        "t13",
+        "t14",
+        "t15",
+        "t16"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c20",
+        "h17"
+      ],
+      "instruction": "The wrap order per c23: this live proof + experiment B's performs-better verdict land, THEN /summarize-delivery, THEN the cicd PR."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "the worker's max_tokens truncation budget is untuned (window measured 262144, but the embodiment session truncated 5/6 turns at 16000) \u2014 tune from t1's finish_reason data before experiment B's scored runs",
+      "kind": "unknown_nonblocking",
+      "task_id": "t14",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "subagent children spawned inside a worker-driven episode: default is inherit the episode's resolved immutable config (frame park v2) \u2014 revisit only if the T1/T8 tests surface a conflict",
+      "kind": "unknown_nonblocking",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "experiment A may return a negative fidelity verdict on gemma-4-12B (the embodiment session precedent) \u2014 the raw-answer fallback is the shipped floor; a negative verdict blocks only free-form senses rewriting, not the arc",
+      "kind": "unknown_nonblocking",
+      "task_id": "t13",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "experiment C may repeat the three standing strategist negatives \u2014 the strategist then stays off and the arc ships worker + senses tiers alone; this outcome is acceptable and pre-declared",
+      "kind": "unknown_nonblocking",
+      "task_id": "t15",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "same-wave file-overlap hazard: t6 owns the loop.py seam and t8 owns config.py/engines wiring \u2014 both instructions scope ownership explicitly; the workforce merge gate re-runs tests per merge to catch any crossing",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

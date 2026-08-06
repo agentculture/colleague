@@ -138,12 +138,14 @@ class PresenceEngine:
         io: PresenceIO,
         cadence: Optional[UpdateCadence] = None,
         history_provider: "Optional[Callable[[], Optional[list[dict[str, str]]]]]" = None,
+        three_tier: bool = False,
     ) -> None:
         self._driver = driver
         self._io = io
         self._cadence = cadence if cadence is not None else UpdateCadence()
         self._history_provider = history_provider
         self._packet: Optional[ContextPacket] = None
+        self._three_tier = three_tier
 
         # Cadence bookkeeping (step/phase-based — no clock).
         self._last_update_step = 0
@@ -285,7 +287,8 @@ class PresenceEngine:
         if turn.injection is not None:
             relay = str(turn.injection.get("text") or "").strip()
             if relay:
-                self._io.render(f"→ cortex: {relay}")
+                target = "worker" if self._three_tier else "cortex"
+                self._io.render(f"→ {target}: {relay}")
 
     def _narrate(self, text: str) -> None:
         """Best-effort tts narration of one rendered presence line (task t12).

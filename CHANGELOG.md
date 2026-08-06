@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.53.0] - 2026-08-06
+
+### Added
+
+- Three-tier execution mode (eighth sanctioned increment, #364): worker acts / senses relays / cortex configures — opt-in via config.json `three_tier` or `COLLEAGUE_THREE_TIER`, byte-identical when unconfigured
+- `worker` role resolution from the lobes gateway with loud refusal when armed-but-unresolvable, plus same-origin api-key hygiene (lobes.py, config.py)
+- `finish_reason` end-to-end: `ModelResponse.finish_reason`, the five-state classifier (`colleague/finishstate.py`), and always-on per-seat `TaskResult.finish_states` (decision c30 — unconditional observability)
+- Typed change lattice + authority ceiling (`colleague/lattice.py`): refuse-whole ChangeUnits, host-declared CapabilityCatalog that cannot mint ids, worker may write only senses.knowledge
+- Episode-boundary config lifecycle (`colleague/configlifecycle.py`): immutable per-episode snapshots, sanctioned before-episode-1/between-episodes windows, the T1 no-tool boundary counter
+- Append-only config event stream on the artifact (`colleague/configevents.py`): baseline-as-event (T8), digest from replay alone, liveness by counters never armed
+- Opt-in cortex configurator (`colleague/configurator.py`, default OFF): typed units only, structurally pinned to never touch the worker's history or wrap the acting seam
+- Bounded task-local strategist prompt section via layers.py (`compose_strategist_section`)
+- Seat-aware attribution: `worker ▸ working…` when the worker acts; legacy lines byte-identical (attribution.py, livecheck.py, presence surfaces)
+- Doctor three-tier readiness group (oilcheck): worker advertised/dialable/tool-calling/id-matches-advert — the #363 §7 stale-model-id deafness fails loud
+- Structural senses relay fidelity (senses.py): verbatim worker-answer containment, raw-answer fallback with recorded degradation, four SensesRecord counters, the embodiment 6/6 domain-mismatch regression
+- Three pre-registered promotion gates with committed verdicts under docs/experiments/: A senses fidelity SUPPORTING (6/6 visible, 0/6 replacement), B worker promotion PROMOTES (4/4 vs 0/4, the c23 live performs-better gate), C strategist value SUPPORTING (4/4 detection, 0/4 false intervention)
+- Named structural-gate suite tests/test_three_tier_gates.py (byte-identical, loud refusal, finish-state distinguishability, CI presence)
+- docs/features/three-tier.md + the eighth-increment record in CLAUDE.md; live three-seat proof recorded in docs/live-testing.md
+
+### Changed
+
+- In three-tier mode the acting dial becomes the worker's own and deepthink is never constructed; legacy resolution byte-identical (config.py)
+
 ## [1.52.1] - 2026-07-23
 
 ### Added

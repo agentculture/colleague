@@ -52,6 +52,20 @@ Two families ship here:
    no sibling globbing) — matching the established skills/hooks overlay
    convention.  :func:`colleague.roles.load_role` reads these overlays.
 
+4. **Task-local strategist section** (plan ``three-tier-execution`` t5) —
+   :func:`compose_strategist_section` renders an optional, task-local,
+   cortex- or host-authored note as ONE named, bounded markdown section
+   (heading :data:`STRATEGIST_SECTION_HEADING`).  :func:`system_prompt_for`
+   and :func:`compose_role_prompt` both accept it via the
+   ``strategist_section``/``strategist_seat`` keyword-only parameters and
+   append it through the SAME composition path documented above — no second
+   assembly path.  ``None``/empty text renders nothing (byte-identical to a
+   call that omits the parameter).  This module does not decide *who*
+   supplies the text or *when* it is composed (that is a later task, e.g. an
+   opt-in cortex configurator writing through the ``colleague.lattice``
+   ``worker.prompt.strategist`` / ``senses.prompt.strategist`` targets) — it
+   only provides the bounded rendering primitive.
+
 MCP layering is intentionally **not** built here — a live MCP client (transport,
 tool discovery, tool-call routing) needs its own spec (see ``CLAUDE.md`` scope
 notes); colleague does not read ``mcp.json`` today. Only stdlib is used.
@@ -501,6 +515,86 @@ def compose_skills(
     return f"{body}\n\n{note}" if body else note
 
 
+# --- Task-local strategist section (plan three-tier-execution, t5) ----------
+
+#: The two seats a strategist section can target — the same vocabulary the t4
+#: lattice's ``Target.WORKER_PROMPT_STRATEGIST`` / ``Target.SENSES_PROMPT_STRATEGIST``
+#: name (``"worker.prompt.strategist"`` / ``"senses.prompt.strategist"``).  This
+#: module deliberately does not import :mod:`colleague.lattice` — the seat
+#: vocabulary is duplicated as plain strings so ``layers.py`` stays a pure,
+#: standalone composition module; :func:`compose_strategist_section` validates
+#: against this pair so a caller cannot pass an unrelated string (e.g. a raw
+#: lattice target dotted-string, or ``"cortex"``, an *origin* not a *seat*).
+STRATEGIST_SEAT_WORKER = "worker"
+STRATEGIST_SEAT_SENSES = "senses"
+_STRATEGIST_SEATS = (STRATEGIST_SEAT_WORKER, STRATEGIST_SEAT_SENSES)
+
+#: Heading for the composed task-local strategist section — the exact example
+#: from the t5 design notes. Fixed regardless of *seat*: each seat gets its
+#: own composed system prompt via its own separate system_prompt_for /
+#: compose_role_prompt call (once for the worker's model, once for senses'),
+#: so no single composed prompt ever needs to disambiguate between seats
+#: internally — ``strategist_seat`` exists purely to validate the caller's
+#: intent, not to alter the rendered text.
+STRATEGIST_SECTION_HEADING = "## Strategist (task-local)"
+
+#: Size cap (characters, post-strip) for a strategist section's raw text.
+#: Chosen as a generous-but-bounded budget for a task-local note — comparable
+#: in order of magnitude to a single AGENTS overlay file, well inside typical
+#: context budgets, yet small enough that a runaway or adversarial cortex
+#: proposal cannot balloon the composed prompt. An oversize section is a
+#: caller/producer error, not something to silently truncate: truncating could
+#: cut a strategist instruction mid-sentence and change its meaning in a way
+#: nobody asked for. So composition REFUSES LOUDLY — it raises
+#: :class:`StrategistSectionTooLarge` (a caller-must-handle error) rather than
+#: emitting a clipped section or silently downgrading to ``None``.
+STRATEGIST_SECTION_MAX_CHARS = 4000
+
+
+class StrategistSectionTooLarge(ValueError):
+    """Raised when a strategist section's stripped text exceeds
+    :data:`STRATEGIST_SECTION_MAX_CHARS`.
+
+    A :class:`ValueError` subclass (so a caller that only catches
+    ``ValueError`` still catches this) — never emitted as a truncated
+    section, per :data:`STRATEGIST_SECTION_MAX_CHARS`'s docstring.
+    """
+
+
+def compose_strategist_section(text: str | None, seat: str) -> str | None:
+    """Render *text* as ONE named, bounded, task-local strategist section.
+
+    *seat* must be :data:`STRATEGIST_SEAT_WORKER` or
+    :data:`STRATEGIST_SEAT_SENSES`; an unrecognized seat raises
+    :class:`ValueError` unconditionally — even when *text* is empty — because
+    a bad seat is always a caller bug, not a data-dependent condition.
+
+    ``None`` or whitespace-only *text* renders **nothing** (returns ``None``)
+    — the "absent renders nothing" floor: composing with no strategist text
+    is byte-identical to a call that never mentions the feature.
+
+    A non-empty *text* longer than :data:`STRATEGIST_SECTION_MAX_CHARS`
+    (after stripping) raises :class:`StrategistSectionTooLarge` — refused
+    loudly, never silently truncated.
+
+    Otherwise returns ``f"{STRATEGIST_SECTION_HEADING}\\n\\n{stripped text}"``.
+    """
+    if seat not in _STRATEGIST_SEATS:
+        raise ValueError(f"unknown strategist seat {seat!r}; expected one of {_STRATEGIST_SEATS}")
+    if text is None:
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    if len(stripped) > STRATEGIST_SECTION_MAX_CHARS:
+        raise StrategistSectionTooLarge(
+            f"strategist section for seat {seat!r} is {len(stripped)} chars, "
+            f"exceeding the {STRATEGIST_SECTION_MAX_CHARS}-char cap "
+            "(refused whole, never silently truncated)"
+        )
+    return f"{STRATEGIST_SECTION_HEADING}\n\n{stripped}"
+
+
 # --- Composition ------------------------------------------------------------
 
 
@@ -512,17 +606,27 @@ def system_prompt_for(
     base: str,
     skills_token_cap: int | None = None,
     count_tokens: Callable[[str], int] | None = None,
+    strategist_section: str | None = None,
+    strategist_seat: str = STRATEGIST_SEAT_WORKER,
 ) -> str | None:
-    """Compose the system prompt for *model*: ``base`` + AGENTS + skills catalog.
+    """Compose the system prompt for *model*: ``base`` + AGENTS + strategist + skills.
 
     Order is general -> specific: the engine's ``base`` default first, then the
-    composed AGENTS layers, then the skills catalog. Returns ``None`` when there
-    are no AGENTS layers and no skills, so the caller keeps its own default and
-    behavior is byte-identical to a layer-free run.
+    composed AGENTS layers, then the optional task-local strategist section
+    (see :func:`compose_strategist_section`), then the skills catalog. Returns
+    ``None`` when there are no AGENTS layers, no strategist section, and no
+    skills, so the caller keeps its own default and behavior is byte-identical
+    to a layer-free run.
 
     ``skills_token_cap`` / ``count_tokens`` pass straight through to
     :func:`compose_skills` (see its docstring for cap resolution); omitting
     both is byte-identical to today.
+
+    ``strategist_section`` / ``strategist_seat`` pass straight through to
+    :func:`compose_strategist_section`; omitting ``strategist_section`` (or
+    passing ``None``) is byte-identical to a call that predates this
+    parameter — the ``strategist_seat`` default is only ever consulted when
+    ``strategist_section`` is non-empty.
     """
     agents_text = compose_agents(resolve_agents(repo_path, model, user_home=user_home))
     skills_text = compose_skills(
@@ -530,9 +634,10 @@ def system_prompt_for(
         token_cap=skills_token_cap,
         count_tokens=count_tokens,
     )
-    if not agents_text and not skills_text:
+    strategist_text = compose_strategist_section(strategist_section, strategist_seat)
+    if not agents_text and not strategist_text and not skills_text:
         return None
-    return "\n\n".join(part for part in (base, agents_text, skills_text) if part)
+    return "\n\n".join(part for part in (base, agents_text, strategist_text, skills_text) if part)
 
 
 # --- Role-aware composition -------------------------------------------------
@@ -575,17 +680,22 @@ def compose_role_prompt(
     base: str,
     skills_token_cap: int | None = None,
     count_tokens: Callable[[str], int] | None = None,
+    strategist_section: str | None = None,
+    strategist_seat: str = STRATEGIST_SEAT_WORKER,
 ) -> str | None:
     """Compose the system prompt for *model* with an optional *role*.
 
     Reuses the existing prompt-assembly path (resolve_agents → compose_agents,
     resolve_skills → compose_skills).  The role's ``prompt_fragment`` composes
-    after AGENTS layers, and the role's ``skill_subset`` filters the skills
-    catalog.  Composition order (fixed, documented)::
+    after AGENTS layers, the optional task-local strategist section (see
+    :func:`compose_strategist_section`) composes after that, and the role's
+    ``skill_subset`` filters the skills catalog.  Composition order (fixed,
+    documented)::
 
         base (engine default)
         AGENTS layers (general -> specific)
         role prompt_fragment (when non-empty)
+        task-local strategist section (when non-empty)
         skills catalog (filtered by role.skill_subset, then token-capped)
 
     Skills are filtered to the role's subset FIRST, then the (optional) token
@@ -600,9 +710,15 @@ def compose_role_prompt(
     :func:`compose_skills` (see its docstring for cap resolution); omitting
     both is byte-identical to today.
 
+    ``strategist_section`` / ``strategist_seat`` pass straight through to
+    :func:`compose_strategist_section` (see its docstring — including the
+    unknown-role fallback branch below, so every path threads the same two
+    parameters); omitting ``strategist_section`` (or passing ``None``) is
+    byte-identical to a call that predates this parameter.
+
     Returns ``None`` when there is nothing to add beyond the engine's ``base``
-    (no AGENTS layers, no skills, and an empty role fragment), so behaviour is
-    byte-identical to a layer-free run.
+    (no AGENTS layers, no skills, no strategist section, and an empty role
+    fragment), so behaviour is byte-identical to a layer-free run.
     """
     from colleague.roles import load_role as _load_role
 
@@ -617,6 +733,8 @@ def compose_role_prompt(
                 base=base,
                 skills_token_cap=skills_token_cap,
                 count_tokens=count_tokens,
+                strategist_section=strategist_section,
+                strategist_seat=strategist_seat,
             )
 
     agents_text = compose_agents(resolve_agents(repo_path, model, user_home=user_home))
@@ -624,12 +742,15 @@ def compose_role_prompt(
     filtered = _filter_skills(all_skills, role.skill_subset)
     skills_text = compose_skills(filtered, token_cap=skills_token_cap, count_tokens=count_tokens)
     role_fragment = role.prompt_fragment
+    strategist_text = compose_strategist_section(strategist_section, strategist_seat)
 
     parts = [base]
     if agents_text:
         parts.append(agents_text)
     if role_fragment:
         parts.append(role_fragment)
+    if strategist_text:
+        parts.append(strategist_text)
     if skills_text:
         parts.append(skills_text)
 

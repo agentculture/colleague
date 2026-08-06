@@ -27,11 +27,19 @@ import os
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Collection, Mapping, Optional
+from typing import TYPE_CHECKING, Callable, Collection, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from colleague import configdir
 from colleague.fillline import DEFAULT_COMPACTION_CAP
+
+if TYPE_CHECKING:
+    # Annotation-only (three-tier-execution arc, plan task t3): the real
+    # import stays LAZY inside :func:`_worker_refusal` (keeps config's
+    # module-level import graph unchanged, the ``colleague.lobes`` lazy-import
+    # precedent) — this satisfies the forward-reference type checker/linter
+    # only, never executed at runtime.
+    from colleague.cli._errors import CliError
 
 # vLLM ignores the key, but the OpenAI wire format wants a non-empty string.
 _DEFAULT_API_KEY = "EMPTY"
@@ -237,6 +245,19 @@ _DEFAULT_SENSES_CONTEXT_BUDGET = 24000
 # proportionally — never the raw window (which leaves no completion headroom).
 _SENSES_DEFAULT_WINDOW = 32768
 
+# Three-tier execution arming (three-tier-execution arc, plan task t3).
+# EXPLICIT config block: ``COLLEAGUE_THREE_TIER`` env > a ``three_tier`` key
+# in .colleague/config.json (bool, or an object whose presence — absent an
+# explicit ``{"enabled": false}`` — itself means armed, the ``lobes``
+# bare-string-or-object precedent) > default-OFF. Default OFF (never
+# ambient) is the SAME opt-in stance ``until_done`` takes (decision c21): an
+# execution-mode change needs explicit operator intent, never an accident of
+# an armed lobes gateway alone. When armed, resolution REQUIRES a ready
+# ``worker`` role from lobes — see :func:`_resolve_worker` — and refuses
+# loudly rather than ever falling back to cortex silently acting as the
+# worker (c25/h21).
+_DEFAULT_THREE_TIER_ENABLED = False
+
 # Engine SELECTION default (distinct from the provider config below — mock
 # ignores provider config entirely). The default is the real bundled engine,
 # never the no-op ``mock`` contract reference: a bare ``drive``/``session`` must
@@ -257,6 +278,12 @@ _CONFIG_KEYS = frozenset({"base_url", "api_key", "model"})
 _DEEPTHINK_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
 # Recognised keys inside the NESTED "senses" section of .colleague/config.json.
 _SENSES_CONFIG_KEYS = frozenset({"model", "base_url", "api_key", "context_budget", "multimodal"})
+# Recognised key inside the NESTED "worker" section of .colleague/config.json
+# (three-tier-execution arc, plan task t3). Unlike deepthink/senses/voice,
+# worker carries NO declared model/base_url — the worker seat is resolved
+# ONLY via lobes role-NAME discovery (never model-name parsing, the t3
+# design boundary); the only recognised key is the key-hygiene override.
+_WORKER_CONFIG_KEYS = frozenset({"api_key"})
 
 _VOICE_CONFIG_KEYS = frozenset({"stt_model", "tts_model", "base_url", "api_key"})
 # Recognised keys inside the NESTED "realtime" section of .colleague/config.json
@@ -507,6 +534,56 @@ def _load_realtime_overrides(repo_path: str | Path) -> dict[str, str]:
         key: str(value)
         for key, value in section.items()
         if key in _REALTIME_CONFIG_KEYS and value is not None
+    }
+
+
+def _load_three_tier_override(repo_path: str | Path) -> str | None:
+    """Read the ``three_tier`` key from .colleague/config.json as a raw string
+    (three-tier-execution arc, plan task t3).
+
+    Accepts either a bare boolean (``{"three_tier": true}``) or a nested
+    object (``{"three_tier": {"enabled": true}}`` — the object's own
+    presence, absent an explicit ``"enabled": false``, is itself treated as
+    armed — the same bare-string-or-object tolerance :func:`_load_lobes_override`
+    applies to the ``lobes`` key). Returns the stringified boolean value, or
+    ``None`` when the key is absent; never raises. Reads via
+    :func:`_merged_config_json` (the at-home per-key merge, #339): a
+    repo-level file that omits the key falls through to a user-level default.
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get("three_tier")
+    if section is None:
+        return None
+    if isinstance(section, dict):
+        # Preserve the RAW value so _parse_bool downstream handles string
+        # booleans — bool("false") is True, which would arm three-tier on an
+        # explicit {"enabled": "false"} disable (Qodo #367 review, thread 4).
+        return str(section.get("enabled", True))
+    return str(section)
+
+
+def _load_worker_overrides(repo_path: str | Path) -> dict[str, str]:
+    """Read the NESTED ``worker`` section of .colleague/config.json, per-key merged
+    (three-tier-execution arc, plan task t3).
+
+    Mirrors :func:`_load_senses_overrides`'s extraction shape but the
+    recognised key set is deliberately narrow (:data:`_WORKER_CONFIG_KEYS` —
+    ``api_key`` only): unlike deepthink/senses/voice, worker carries no
+    declared model/base_url — the worker seat is resolved ONLY via lobes
+    role-NAME discovery (:func:`_resolve_worker`), never model-name parsing
+    (the t3 design boundary). No file defining ``worker``, or an
+    absent/non-dict ``worker`` section wherever it IS defined, yields an
+    empty dict and never raises. Merge granularity is the top-level
+    ``worker`` key itself — see :func:`_merged_config_json`.
+    """
+    data = _merged_config_json(repo_path)
+    section = data.get("worker")
+    if not isinstance(section, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in section.items()
+        if key in _WORKER_CONFIG_KEYS and value is not None
     }
 
 
@@ -915,6 +992,125 @@ def _voice_from_lobes_roles(roles: object, gateway_url: str, api_key: str) -> "V
         stt_base_url=stt_base_url,
         tts_base_url=tts_base_url,
         api_key=api_key,
+    )
+
+
+def _worker_refusal(message: str, remediation: str) -> "CliError":
+    """Build the loud three-tier worker refusal (c25/h21), lazily importing
+    :class:`~colleague.cli._errors.CliError` (the same lazy-import stance
+    :func:`_resolve_lobes_rung` takes for ``colleague.lobes`` — keeps
+    ``config``'s module-level import graph unchanged).
+
+    This is the ONE refusal path in this module: every other lobes-fed rung
+    (deepthink/senses/voice/realtime) degrades to ``None`` on any resolution
+    failure, but an EXPLICITLY armed three-tier config makes the worker role
+    MANDATORY — see :func:`_resolve_worker`.
+    """
+    from colleague.cli._errors import EXIT_USER_ERROR, CliError
+
+    return CliError(EXIT_USER_ERROR, message, remediation)
+
+
+def _resolve_worker(
+    three_tier: bool,
+    lobes_roles: object,
+    lobes_gateway_url: str | None,
+    declared_lobes_url: str | None,
+    main_base_url: str,
+    main_api_key: str,
+    file_worker: dict[str, str],
+) -> "WorkerConfig | None":
+    """Resolve the three-tier worker seat — REQUIRED when three-tier is armed
+    (three-tier-execution arc, plan task t3; covers c3/h3/c25/h21).
+
+    **Not armed (default): a strict no-op.** Returns ``None`` immediately
+    without even inspecting ``lobes_roles.worker`` — an advertised worker
+    role is read and discarded exactly like ``reranker``, byte-identical to
+    today (acceptance criterion 3 of task t3).
+
+    **Armed: the worker role is MANDATORY, never a silent fallback.** Unlike
+    every other lobes-fed rung, which degrades to ``None`` on any resolution
+    failure, an EXPLICITLY armed three-tier config raises
+    :class:`~colleague.cli._errors.CliError` (via :func:`_worker_refusal`)
+    naming exactly what is missing — no lobes gateway configured, an
+    unreachable gateway, or the gateway advertising no READY worker role —
+    rather than ever falling back to cortex silently acting as the worker.
+    The refusal fires HERE, at resolution time (``EngineConfig.resolve()``),
+    before any episode starts — both ``work`` and ``session`` call
+    ``resolve()`` before dispatching any work, so the refusal is uniform
+    across both CLI fronts.
+
+    There is deliberately NO declared-worker-model rung (unlike
+    deepthink/senses/voice): the worker seat is resolved ONLY by ROLE NAME
+    from the lobes gateway — colleague never parses a model name to decide
+    who the worker is (the t3 design boundary, "role NAMES only, never
+    model-name parsing").
+
+    *declared_lobes_url* is the RAW, no-network operator declaration
+    (:func:`resolve_lobes_gateway_url`) — distinct from *lobes_gateway_url*,
+    which :func:`_resolve_lobes_rung` already collapses to ``None`` on EITHER
+    "nothing declared" OR "declared but unreachable/malformed" (every other
+    lobes-fed rung treats those two states identically — they both just fall
+    through to the next precedence rung). The refusal here tells them apart
+    so the message names the real gap: "no gateway configured" vs "gateway
+    `<url>` unreachable".
+
+    **api_key hygiene** mirrors :func:`_senses_lobes_fallback` /
+    :func:`_deepthink_lobes_fallback` (colleague#347/#348): an explicit
+    ``COLLEAGUE_WORKER_API_KEY`` env or config.json ``worker.api_key`` —
+    usable even though there is no declared worker model, since presence is
+    keyed on the ARMED three-tier block instead — always wins. Otherwise the
+    MAIN key is inherited only when the worker's resolved dial target shares
+    the main endpoint's origin (:func:`_same_origin`); a cross-origin worker
+    gets the withheld :data:`_DEFAULT_API_KEY` default instead, so the main
+    Bearer token is never forwarded to a host a wire payload advertised — the
+    SAME withheld-default mechanism the deepthink/senses/voice rungs already
+    use (there is no separate notice function; the withheld default IS the
+    mechanism, exactly as documented in ``docs/features/cortex-senses.md``'s
+    api_key hygiene section). A wrong/absent key degrades visibly at the
+    worker dial site (a later task), never fails resolution here.
+    """
+    if not three_tier:
+        return None
+    if declared_lobes_url is None:
+        raise _worker_refusal(
+            "three-tier execution is armed (three_tier) but no lobes gateway is "
+            "configured — the worker role can only be discovered from a lobes "
+            "gateway",
+            "set COLLEAGUE_LOBES_URL or a 'lobes' section in .colleague/config.json "
+            "to a gateway advertising a ready worker role, or unset three_tier",
+        )
+    if lobes_gateway_url is None or lobes_roles is None:
+        raise _worker_refusal(
+            f"three-tier execution is armed (three_tier) but the lobes gateway "
+            f"{declared_lobes_url!r} is unreachable — the worker role could not be "
+            "resolved",
+            "check the lobes gateway is running and reachable, or unset three_tier",
+        )
+    worker_role = getattr(lobes_roles, "worker", None)
+    if worker_role is None or not getattr(worker_role, "ready", False):
+        raise _worker_refusal(
+            f"three-tier execution is armed (three_tier) but the lobes gateway "
+            f"{lobes_gateway_url!r} advertises no ready worker role",
+            "arm a ready worker role on the lobes gateway, or unset three_tier",
+        )
+    worker_base_url = _role_dial_base_url(worker_role, lobes_gateway_url)
+    explicit_key = _pick(
+        None,
+        "COLLEAGUE_WORKER_API_KEY",
+        default=file_worker.get("api_key", ""),
+    )
+    if explicit_key:
+        api_key = explicit_key
+    elif _same_origin(worker_base_url, main_base_url):
+        api_key = main_api_key
+    else:
+        api_key = _DEFAULT_API_KEY
+    return WorkerConfig(
+        model=worker_role.model,
+        base_url=worker_base_url,
+        api_key=api_key,
+        context=int(getattr(worker_role, "context", 0) or 0),
     )
 
 
@@ -1340,6 +1536,24 @@ def _resolve_memory_enabled(file_value: str | None) -> bool:
     if file_value is not None:
         return _parse_bool(file_value)
     return _DEFAULT_MEMORY_ENABLED
+
+
+def _resolve_three_tier_enabled(file_value: str | None) -> bool:
+    """Resolve the three-tier execution arming flag: env ``COLLEAGUE_THREE_TIER``
+    > config.json ``three_tier`` > default-OFF (three-tier-execution arc,
+    plan task t3).
+
+    Default-OFF, never ambient — the ``until_done`` precedent (decision c21):
+    an execution-mode change needs explicit operator intent. No CLI flag in
+    this task (kept off the ``resolve()`` signature, the ``_resolve_lint_enabled``
+    S107-ceiling precedent) — a later task may add one.
+    """
+    env = os.environ.get("COLLEAGUE_THREE_TIER")
+    if env is not None and env.strip() != "":
+        return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_THREE_TIER_ENABLED
 
 
 def _load_affected_tests_overrides(
@@ -1889,6 +2103,40 @@ class SensesConfig:
 
 
 @dataclass(frozen=True)
+class WorkerConfig:
+    """A resolved worker (three-tier bounded-tool-loop actor) dial target.
+
+    Three-tier-execution arc (plan task t3). Present on
+    :attr:`EngineConfig.worker` ONLY when three-tier execution is EXPLICITLY
+    armed (the ``three_tier`` config/env block — see
+    :func:`_resolve_three_tier_enabled`) AND the lobes gateway advertises a
+    ready ``worker`` role — resolution REQUIRES the role; unlike
+    :class:`DeepthinkConfig`/:class:`SensesConfig` there is NO
+    env/config.json-declared worker *model* (role NAMES only, never
+    model-name parsing — the t3 design boundary, see :func:`_resolve_worker`).
+    An armed-but-unresolvable worker raises a loud refusal instead of ever
+    degrading to ``None`` and falling back to cortex silently acting as the
+    worker (c25/h21) — the opposite stance every other lobes-fed rung takes.
+
+    ``base_url``/``api_key`` mirror the dial-target shape of every sibling
+    config (:func:`_role_dial_base_url` / the #347/#348 same-origin key
+    hygiene rule). ``context`` is the role's OWN advertised window, read
+    verbatim off the wire (never scaled/derived — unlike
+    deepthink/senses' ``context_budget``, since this task performs
+    RESOLUTION ONLY; nothing yet consumes this field to window a prompt).
+
+    RESOLUTION ONLY in this task — nothing in the loop consumes this field
+    yet; a later task (t8) wires the worker into the bounded tool loop as the
+    acting seat.
+    """
+
+    model: str
+    base_url: str
+    api_key: str
+    context: int
+
+
+@dataclass(frozen=True)
 class VoiceConfig:
     """A resolved voice (stt/tts) escalation target.
 
@@ -2083,6 +2331,18 @@ class EngineConfig:
     # byte-identical to today. See :class:`RealtimeConfig`,
     # :func:`_resolve_realtime`, and :func:`_realtime_lobes_fallback`.
     realtime: Optional[RealtimeConfig] = None
+    # Three-tier execution arming (three-tier-execution arc, plan task t3).
+    # ``False`` (the default) = today's byte-identical behavior — a worker
+    # advert is read and discarded exactly like reranker, never resolved.
+    # See :func:`_resolve_three_tier_enabled`.
+    three_tier: bool = False
+    # Worker (three-tier bounded-tool-loop actor) dial target. ``None`` =
+    # three-tier not armed, byte-identical to today. RESOLUTION ONLY when
+    # present: an armed run with an unresolvable worker raises a loud
+    # refusal instead of ever leaving this ``None`` with three_tier True (no
+    # silent cortex-as-actor). See :class:`WorkerConfig` and
+    # :func:`_resolve_worker`.
+    worker: Optional[WorkerConfig] = None
 
     # A runtime-only per-step progress sink ``(step_index, tool, target, ok)``
     # the loop fires per tool call (#38). Set by the CLI work path, not by
@@ -2259,6 +2519,8 @@ class EngineConfig:
         file_senses: dict[str, str] = {}
         file_voice: dict[str, str] = {}
         file_realtime: dict[str, str] = {}
+        file_three_tier: str | None = None
+        file_worker: dict[str, str] = {}
         if repo_path is not None:
             file_cfg = load_config_file(repo_path)
             file_lint, file_lint_retries = _load_lint_overrides(repo_path)
@@ -2276,6 +2538,8 @@ class EngineConfig:
             file_senses = _load_senses_overrides(repo_path)
             file_voice = _load_voice_overrides(repo_path)
             file_realtime = _load_realtime_overrides(repo_path)
+            file_three_tier = _load_three_tier_override(repo_path)
+            file_worker = _load_worker_overrides(repo_path)
 
         file_base_url: str | None = file_cfg.get("base_url")
         file_api_key: str | None = file_cfg.get("api_key")
@@ -2385,6 +2649,40 @@ class EngineConfig:
                 file_realtime,
                 resolved_voice,
             )
+        # Three-tier execution arming + worker seat resolution
+        # (three-tier-execution arc, plan task t3; covers c3/h3/c25/h21).
+        # ``resolved_three_tier`` gates whether the worker role is even
+        # consulted — NOT armed is a strict no-op (an advertised worker role
+        # is read and discarded exactly like reranker, byte-identical to
+        # today). ARMED makes the worker role MANDATORY: :func:`_resolve_worker`
+        # raises a loud, naming refusal (never falls back to cortex silently
+        # acting) rather than ever returning with three_tier True and worker
+        # None — the refusal fires HERE, at resolution time, before any
+        # episode starts.
+        resolved_three_tier = _resolve_three_tier_enabled(file_three_tier)
+        resolved_worker = _resolve_worker(
+            resolved_three_tier,
+            lobes_roles,
+            lobes_gateway_url,
+            resolve_lobes_gateway_url(repo_path),
+            resolved_base_url,
+            resolved_api_key,
+            file_worker,
+        )
+        # Deepthink absent in three-tier mode (plan task t8; covers c12/h12).
+        # Once three_tier is armed, no DeepthinkConfig is EVER constructed —
+        # neither a DECLARED (env/config.json) deepthink nor one discovered
+        # from the lobes muse role above (``resolved_deepthink`` may already
+        # hold either) survives. Three-tier's own strong-reasoning seat is
+        # the worker itself (arc summary: "strategist absent, deepthink
+        # absent") — forcing this HERE, before the reviewer-default backfill
+        # just below reads ``resolved_deepthink``, means that backfill (t7)
+        # also sees no deepthink to borrow a reviewer model from, staying
+        # consistent with deepthink's total absence. Legacy (three_tier
+        # False) is completely untouched: resolved_deepthink keeps whatever
+        # _resolve_deepthink/_deepthink_lobes_fallback already computed above.
+        if resolved_three_tier:
+            resolved_deepthink = None
         # Test-integrity reviewer model (#203) — env > CONVERTIBLE fallback >
         # default (empty), then backfilled from the deepthink model when
         # unconfigured and same-endpoint (t7, spec c10(d)).
@@ -2409,15 +2707,51 @@ class EngineConfig:
         else:
             model_default = _DEFAULT_MODEL
 
+        resolved_model = _pick(
+            model,
+            "COLLEAGUE_MODEL",
+            "CONVERTIBLE_MODEL",
+            default=model_default,
+        )
+        resolved_context_budget_tokens = int(
+            _pick(
+                _str(ov.context_budget_tokens),
+                "COLLEAGUE_CONTEXT_BUDGET",
+                "CONVERTIBLE_CONTEXT_BUDGET",
+                default=str(_DEFAULT_CONTEXT_BUDGET),
+            )
+        )
+        # Worker-as-actor wiring (three-tier-execution arc, plan task t8;
+        # covers c12/h12). Once three_tier is ARMED and the worker seat
+        # resolved above, the ACTING dial — model/base_url/api_key/
+        # context_budget_tokens, exactly what the vllm-openai engine drives
+        # the bounded tool loop with — becomes the WORKER's own resolution,
+        # never cortex's ("the worker drives the tool loop and cortex does
+        # not act"). cortex's own resolved base_url/api_key/model (the
+        # ``resolved_*`` locals above) still feed the senses/voice/deepthink
+        # default-to-main rungs UNCHANGED — this override happens only here,
+        # at the very end of resolution, so it can never leak backwards into
+        # another rung's "defaults to the main endpoint" precedent.
+        # ``resolved_worker`` is guaranteed non-None whenever
+        # ``resolved_three_tier`` is True (a broken worker already raised a
+        # loud refusal above, via :func:`_resolve_worker`), so this is a
+        # plain presence check, never a second refusal path. The loop itself
+        # (colleague/loop.py) is UNTOUCHED by this task — it simply drives
+        # whatever ``EngineConfig`` hands back, exactly as it always has.
+        acting_model = resolved_model
+        acting_base_url = resolved_base_url
+        acting_api_key = resolved_api_key
+        acting_context_budget_tokens = resolved_context_budget_tokens
+        if resolved_worker is not None:
+            acting_model = resolved_worker.model
+            acting_base_url = resolved_worker.base_url
+            acting_api_key = resolved_worker.api_key
+            acting_context_budget_tokens = resolved_worker.context
+
         return cls(
-            base_url=resolved_base_url,
-            api_key=resolved_api_key,
-            model=_pick(
-                model,
-                "COLLEAGUE_MODEL",
-                "CONVERTIBLE_MODEL",
-                default=model_default,
-            ),
+            base_url=acting_base_url,
+            api_key=acting_api_key,
+            model=acting_model,
             max_steps=int(
                 _pick(
                     _str(max_steps),
@@ -2442,14 +2776,7 @@ class EngineConfig:
                     default=str(_DEFAULT_TIMEOUT),
                 )
             ),
-            context_budget_tokens=int(
-                _pick(
-                    _str(ov.context_budget_tokens),
-                    "COLLEAGUE_CONTEXT_BUDGET",
-                    "CONVERTIBLE_CONTEXT_BUDGET",
-                    default=str(_DEFAULT_CONTEXT_BUDGET),
-                )
-            ),
+            context_budget_tokens=acting_context_budget_tokens,
             max_output_chars=int(
                 _pick(
                     _str(ov.max_output_chars),
@@ -2653,6 +2980,16 @@ class EngineConfig:
             # config.json `realtime` section > lobes discovery (stt's
             # realtime_vad_session responsibility) > absent (None).
             realtime=resolved_realtime,
+            # Three-tier execution arming (three-tier-execution arc, plan task
+            # t3) — env `COLLEAGUE_THREE_TIER` > config.json `three_tier` >
+            # default-OFF.
+            three_tier=resolved_three_tier,
+            # Worker (three-tier bounded-tool-loop actor) dial target — None
+            # when three_tier is not armed (byte-identical to today); when
+            # armed, resolution above already raised a loud refusal on any
+            # gap, so a returned config never carries three_tier True with
+            # worker None.
+            worker=resolved_worker,
             # Embedder env overrides (S2, task t19) — {} when lobes is
             # unarmed/unreachable or the gateway doesn't advertise an embedder
             # (see :func:`_resolve_lobes_rung` / :func:`colleague.lobes.embed_env`).
@@ -2694,6 +3031,7 @@ class EngineConfig:
             "affected_tests_depth": self.affected_tests_depth,
             "affected_tests_max_files": self.affected_tests_max_files,
             "compaction_cap": self.compaction_cap,
+            "three_tier": self.three_tier,
         }
         # Dual-model deepthink (t1): present ONLY when configured, so a
         # single-model snapshot is byte-identical to today (omit-when-None,
@@ -2735,6 +3073,16 @@ class EngineConfig:
             data["realtime"] = {
                 "available": self.realtime.available,
                 "ws_url": self.realtime.ws_url,
+            }
+        # Worker (three-tier bounded-tool-loop actor, three-tier-execution
+        # arc): present ONLY when three-tier resolved a worker (omit-when-None,
+        # same convention as deepthink/senses/voice/realtime above). The
+        # worker api_key is absent from the sub-dict, never included.
+        if self.worker is not None:
+            data["worker"] = {
+                "model": self.worker.model,
+                "base_url": self.worker.base_url,
+                "context": self.worker.context,
             }
         return data
 

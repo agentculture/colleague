@@ -180,6 +180,37 @@ MUSE_ROLE_PAYLOAD: dict[str, object] = {
 
 
 # ---------------------------------------------------------------------------
+# The ``worker`` role payload (three-tier-execution arc, plan task t3). Kept
+# separate from REAL_CAPABILITIES_PAYLOAD (which stays pinned to its own
+# "six roles" docstring) so worker's present/absent/malformed tests below
+# don't perturb the existing suite — mirrors MUSE_ROLE_PAYLOAD field-for-field.
+# ---------------------------------------------------------------------------
+
+WORKER_ROLE_PAYLOAD: dict[str, object] = {
+    "role": "worker",
+    "model": "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP",
+    "runtime": "vllm",
+    "endpoint": "http://localhost:8000",
+    "path": "/v1/chat/completions",
+    "context": 131072,
+    "quant": "modelopt",
+    "mtp": True,
+    "responsibilities": [
+        "reasoning",
+        "tool_use",
+        "code_repo_actions",
+    ],
+    "forbidden_responsibilities": [],
+    "ready": True,
+    "loaded": True,
+    # Unparsed-on-purpose (t3 instruction, mirrors muse): a future task's territory.
+    "feasible": True,
+    "hosted_by": "spark:8000",
+    "proxied": False,
+}
+
+
+# ---------------------------------------------------------------------------
 # A tiny in-process HTTP server (stdlib http.server) so tests exercise the
 # real urllib transport, not a monkeypatched stand-in, for the shape-parsing
 # scenarios. Timeout/connection-refused scenarios use a real dead port
@@ -390,6 +421,116 @@ def test_resolve_roles_tolerates_muse_unknown_wire_fields() -> None:
 
 
 # ---------------------------------------------------------------------------
+# worker (three-tier-execution arc, plan task t3): an OPTIONAL role, resolved
+# with the exact same present/absent/malformed contract as muse — its absence
+# or malformed shape never fails resolve_roles, which stays mandatory only
+# for cortex/senses. A legacy run that never advertises/consults worker is
+# byte-identical (t3 acceptance criterion 1).
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_roles_parses_worker_role_when_present() -> None:
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": WORKER_ROLE_PAYLOAD}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+
+    assert result is not None
+    assert result.worker is not None
+    assert result.worker.model == "sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP"
+    assert result.worker.endpoint == "http://localhost:8000"
+    assert result.worker.path == "/v1/chat/completions"
+    assert result.worker.context == 131072
+    assert result.worker.ready is True
+    assert result.worker.responsibilities == (
+        "reasoning",
+        "tool_use",
+        "code_repo_actions",
+    )
+    assert result.worker.forbidden_responsibilities == ()
+
+
+def test_resolve_roles_keeps_worker_none_when_absent() -> None:
+    """The six-role REAL_CAPABILITIES_PAYLOAD carries no worker key at all —
+    absence never fails resolution, and a legacy run never even sees the
+    field (byte-identical — t3 acceptance criterion 1)."""
+    with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.worker is None
+
+
+def test_resolve_roles_keeps_worker_none_on_malformed_payload() -> None:
+    """A worker dict present but missing an expected field degrades worker to
+    None without failing the whole resolution (like a malformed muse)."""
+    broken_worker = dict(WORKER_ROLE_PAYLOAD)
+    del broken_worker["context"]
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": broken_worker}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.worker is None
+
+
+def test_resolve_roles_keeps_worker_none_when_not_a_dict() -> None:
+    """A worker value that isn't even a dict (e.g. a bare string) degrades to
+    None, never raises, never fails resolution."""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": "not-a-dict"}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.worker is None
+
+
+def test_resolve_roles_tolerates_worker_unknown_wire_fields() -> None:
+    """RoleInfo stays a tolerant superset reader (t3 instruction, mirrors
+    muse): the live worker payload's new, deliberately-unparsed fields
+    (feasible, hosted_by, proxied) must not break parsing nor leak onto
+    RoleInfo."""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": WORKER_ROLE_PAYLOAD}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.worker is not None
+    assert not hasattr(result.worker, "feasible")
+    assert not hasattr(result.worker, "hosted_by")
+    assert not hasattr(result.worker, "proxied")
+    assert not hasattr(result.worker, "loaded")
+
+
+def test_resolve_role_base_url_uses_worker_own_endpoint_when_present() -> None:
+    """worker dials its OWN advertised endpoint, not the gateway origin used
+    to serve /capabilities — the identical per-role dial contract every
+    other resolved role gets."""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": WORKER_ROLE_PAYLOAD}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.worker is not None
+    assert resolve_role_base_url(result.worker, url) == "http://localhost:8000"
+
+
+def test_resolve_role_base_url_falls_back_to_gateway_origin_for_worker_when_endpoint_empty() -> (
+    None
+):
+    """An unwired worker (empty endpoint) falls back to the gateway origin —
+    same documented fallback as every other role."""
+    worker = dict(WORKER_ROLE_PAYLOAD)
+    worker["endpoint"] = ""
+    payload = {**REAL_CAPABILITIES_PAYLOAD, "worker": worker}
+    with _serving(_payload_bytes(payload)) as url:
+        result = resolve_roles(url)
+    assert result is not None
+    assert result.worker is not None
+    assert resolve_role_base_url(result.worker, url) == url
+
+
+def test_ready_kind_is_config_proxy_for_worker() -> None:
+    """worker's ``ready`` is a CONFIG PROXY, same as cortex/senses/muse —
+    gateway-local bookkeeping, never a liveness probe."""
+    assert ready_kind("worker") == "config-proxy"
+
+
+# ---------------------------------------------------------------------------
 # Degradation — every failure mode returns None, never raises
 # ---------------------------------------------------------------------------
 
@@ -524,7 +665,8 @@ def test_resolve_role_base_url_uses_each_roles_own_endpoint_when_present() -> No
     assert resolve_role_base_url(result.cortex, url) == "http://localhost:8000"
     assert resolve_role_base_url(result.senses, url) == "http://localhost:8000"
     # stt/tts report a genuinely distinct origin (the realtime bridge).
-    assert result.stt is not None and result.tts is not None
+    assert result.stt is not None
+    assert result.tts is not None
     assert resolve_role_base_url(result.stt, url) == "http://realtime:8080"
     assert resolve_role_base_url(result.tts, url) == "http://realtime:8080"
 
@@ -536,7 +678,8 @@ def test_resolve_role_base_url_falls_back_to_gateway_origin_when_endpoint_empty(
     payload["stt"]["endpoint"] = ""
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.stt is not None
+    assert result is not None
+    assert result.stt is not None
     assert resolve_role_base_url(result.stt, url) == url
 
 
@@ -547,7 +690,8 @@ def test_resolve_role_base_url_uses_muse_own_endpoint_when_present() -> None:
     payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": MUSE_ROLE_PAYLOAD}
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.muse is not None
+    assert result is not None
+    assert result.muse is not None
     assert resolve_role_base_url(result.muse, url) == "http://localhost:8001"
 
 
@@ -559,7 +703,8 @@ def test_resolve_role_base_url_falls_back_to_gateway_origin_for_muse_when_endpoi
     payload = {**REAL_CAPABILITIES_PAYLOAD, "muse": muse}
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.muse is not None
+    assert result is not None
+    assert result.muse is not None
     assert resolve_role_base_url(result.muse, url) == url
 
 
@@ -631,7 +776,8 @@ def test_ready_kind_is_config_proxy_for_muse() -> None:
 def test_embed_env_builds_eidetic_and_coherence_vars_from_resolved_embedder() -> None:
     with _serving(_payload_bytes(REAL_CAPABILITIES_PAYLOAD)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is not None
+    assert result is not None
+    assert result.embedder is not None
 
     env = embed_env(result, url)
 
@@ -656,7 +802,8 @@ def test_embed_env_falls_back_to_gateway_origin_when_endpoint_empty() -> None:
     payload["embedder"]["endpoint"] = ""
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is not None
+    assert result is not None
+    assert result.embedder is not None
 
     env = embed_env(result, url)
     assert env["EIDETIC_EMBED_URL"] == url + "/v1"
@@ -670,7 +817,8 @@ def test_embed_env_keeps_bare_relay_for_pathless_or_bare_embeddings_path() -> No
     payload["embedder"]["path"] = "/embeddings"
     with _serving(_payload_bytes(payload)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is not None
+    assert result is not None
+    assert result.embedder is not None
 
     env = embed_env(result, url)
     assert env["COHERENCE_EMBED_URL"] == "http://localhost:8000"
@@ -680,7 +828,8 @@ def test_embed_env_is_empty_when_no_embedder_resolved() -> None:
     partial = {k: v for k, v in REAL_CAPABILITIES_PAYLOAD.items() if k != "embedder"}
     with _serving(_payload_bytes(partial)) as url:
         result = resolve_roles(url)
-    assert result is not None and result.embedder is None
+    assert result is not None
+    assert result.embedder is None
 
     assert embed_env(result, url) == {}
 

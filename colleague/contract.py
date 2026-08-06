@@ -17,6 +17,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from colleague.configevents import ConfigEvent
+
 if TYPE_CHECKING:
     from colleague.affectedtests import AffectedTestsReport
     from colleague.testintegrity import TestIntegrityReport
@@ -46,6 +48,74 @@ DECISION_OBSERVE = "observe"
 # normal output the model could legitimately emit it as its last substantive
 # content and a caller would misclassify a real result as the empty case.
 NO_RESULT_PRODUCED = "__COLLEAGUE_NO_RESULT_PRODUCED__"
+
+# Five distinguishable finish states (plan task t1, covers c4/h4/c30) — the
+# loop's OWN classification of how one seat's work concluded, independent of
+# any one backend's raw wire vocabulary (a vLLM ``finish_reason`` of
+# ``"stop"``/``"tool_calls"``/``"length"``/... is the wire-level signal these
+# are normalized FROM; see :func:`colleague.finishstate.classify_finish_state`
+# for the mapping). ``FINISH_EMPTY`` is the one state guaranteed to apply
+# whenever ``summary == NO_RESULT_PRODUCED`` — the sentinel must never be
+# reported as ``FINISH_DELIBERATE`` (a completed answer).
+FINISH_DELIBERATE = "deliberate"
+FINISH_TRUNCATED = "truncated"
+FINISH_STOPPED = "stopped"
+FINISH_TIMEOUT = "timeout"
+FINISH_EMPTY = "empty"
+
+#: Every valid :class:`FinishRecord` ``state`` value, in the fixed reading
+#: order used above — importable so a caller/test can assert exhaustiveness
+#: without hand-listing the five strings again.
+FINISH_STATES = (FINISH_DELIBERATE, FINISH_TRUNCATED, FINISH_STOPPED, FINISH_TIMEOUT, FINISH_EMPTY)
+
+
+@dataclass
+class FinishRecord:
+    """One seat's finish-state classification for a work item (t1, c4/h4/c30).
+
+    ``seat`` distinguishes WHICH acting mind produced this record — today
+    always ``"main"`` (the single acting mind's own turns, driven by
+    :func:`colleague.loop.run`) or ``"senses"`` (a senses-lane completion, see
+    :class:`SensesRecord`) — a free-form string (not a closed enum) so a
+    future seat (e.g. the three-tier ``worker``) can be distinguished without
+    a shape change (see docs/plans/2026-08-05-three-tier-execution.md task
+    t1's "per-seat" design note).
+
+    ``finish_reason`` is the raw value a backend's wire format reported for
+    the LAST completion on this seat (``""`` when the backend/engine never
+    reports the field — the mock engine's deliberate finishes still set a
+    representative value; a degraded/tools-off seat like ``senses`` has none
+    to report and stays ``""``). ``state`` is the loop's classification onto
+    one of the five :data:`FINISH_STATES` — the single normalized source of
+    truth a caller should branch on, never re-derived by re-inspecting
+    ``finish_reason`` (one raw wire value can mean different things on
+    different backends). ``truncated`` is ``True`` iff
+    ``state == FINISH_TRUNCATED``, kept as its own boolean (not re-derived at
+    read time) so a caller filtering on truncation alone need not know the
+    full state vocabulary.
+    """
+
+    seat: str
+    finish_reason: str = ""
+    state: str = FINISH_DELIBERATE
+    truncated: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "seat": self.seat,
+            "finish_reason": self.finish_reason,
+            "state": self.state,
+            "truncated": self.truncated,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "FinishRecord":
+        return cls(
+            seat=str(data.get("seat", "")),
+            finish_reason=str(data.get("finish_reason", "")),
+            state=str(data.get("state", FINISH_DELIBERATE)),
+            truncated=bool(data.get("truncated", False)),
+        )
 
 
 @dataclass
@@ -646,20 +716,69 @@ class SensesRecord:
         ``True`` iff the senses call fell back / never completed against the
         senses model (a dead endpoint, request error, or overflow) instead of
         actually completing. Default ``False``.
+    verbatim_presence:
+        ``True`` iff this record's presented text was checked against an
+        acting-mind ("worker") answer and was found to CONTAIN it verbatim —
+        the structural containment guarantee (three-tier-execution arc, task
+        t2). Additive: ``False`` by default, and a record produced from a
+        call that carried no worker answer to check leaves this at its
+        default. See :func:`colleague.senses._enforce_fidelity`.
+    knowledge_repetition:
+        ``True`` iff, on a fidelity failure, the presented text was found to
+        verbatim-reproduce a meaningful chunk of background/"knowledge"
+        content (rolling history, curated facts) instead of the current
+        worker answer — the structural signature of the embodiment failure
+        this field is named for ("senses recited its knowledge block instead
+        of relaying the current answer"). Only ever set alongside
+        ``fallback=True``. Default ``False``.
+    fallback:
+        ``True`` iff a fidelity failure (the presented text did NOT contain
+        the worker answer verbatim) forced the caller to fall back to
+        presenting the raw worker answer instead of the model's shaped
+        reply. A fallback always also sets ``degraded=True`` — a fidelity
+        failure IS a degradation, even though the completion itself may have
+        succeeded. Default ``False``.
+    truncated:
+        ``True`` iff the prompt sent for this invocation had to be
+        truncated to fit the senses model's own send budget (the existing
+        :data:`colleague.senses._TRUNCATION_NOTE` windowing marker was
+        applied). Default ``False``.
+
+    ``verbatim_presence``/``knowledge_repetition``/``fallback``/``truncated``
+    are OMITTED from :meth:`to_dict` while at their ``False`` default, so a
+    record from before this field existed — or one that never exercised
+    fidelity-tracking — serializes to the exact pre-existing
+    ``{point, latency, tokens, degraded}`` shape (the same
+    omit-when-default convention as :attr:`ContextPacket.ack`).
     """
 
     point: str
     latency: Optional[float] = None
     tokens: Optional[int] = None
     degraded: bool = False
+    verbatim_presence: bool = False
+    knowledge_repetition: bool = False
+    fallback: bool = False
+    truncated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "point": self.point,
             "latency": self.latency,
             "tokens": self.tokens,
             "degraded": self.degraded,
         }
+        # Additive counters (task t2): omitted while False so a pre-arc /
+        # fidelity-inactive record stays byte-identical to the old 4-key shape.
+        if self.verbatim_presence:
+            d["verbatim_presence"] = True
+        if self.knowledge_repetition:
+            d["knowledge_repetition"] = True
+        if self.fallback:
+            d["fallback"] = True
+        if self.truncated:
+            d["truncated"] = True
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SensesRecord":
@@ -669,7 +788,9 @@ class SensesRecord:
         cannot be parsed as ``float``/``int`` falls back to ``None`` rather than
         raising and aborting the whole ``TaskResult.from_dict`` call — exactly
         as :meth:`DeepthinkCall.from_dict` handles ``duration``/``tokens``.
-        ``point``/``degraded`` still survive from the rest of the entry.
+        ``point``/``degraded`` still survive from the rest of the entry. The
+        four fidelity counters default to ``False`` when absent — tolerant of
+        a legacy artifact recorded before this field existed.
         """
         raw_latency = data.get("latency")
         raw_tokens = data.get("tokens")
@@ -686,6 +807,10 @@ class SensesRecord:
             latency=latency,
             tokens=tokens,
             degraded=bool(data.get("degraded", False)),
+            verbatim_presence=bool(data.get("verbatim_presence", False)),
+            knowledge_repetition=bool(data.get("knowledge_repetition", False)),
+            fallback=bool(data.get("fallback", False)),
+            truncated=bool(data.get("truncated", False)),
         )
 
 
@@ -1288,6 +1413,19 @@ class TaskResult:
     cost — and, with a feedback record, its ROI — readable from the artifact.
     Unlike destination/sub_results this key is ALWAYS serialized (it is never
     empty for a real drive); the e2e shape test pins it on every backend."""
+    finish_states: list[FinishRecord] = field(default_factory=list)
+    """Per-seat finish-state + truncation record for this work item (plan task
+    t1, covers c4/h4, decision c30) — a :class:`FinishRecord` per seat that
+    completed at least one turn (today: ``"main"`` always, plus ``"senses"``
+    when a cortex/senses split ran). Like ``stats``, this key is ALWAYS
+    serialized on EVERY run — unconfigured runs included (decision c30: the
+    one sanctioned unconditional artifact addition, a recorded convention
+    change exactly like always-on ``WorkStats`` and #313's ``incompletion``
+    detector) — never omit-when-None/empty, so a caller can always read
+    ``result.finish_states[0].state`` without a presence check. Populated by
+    the loop (:func:`colleague.loop.run`) on every exit path, including the
+    aborted (:class:`WorkAborted`) path, so even a crashed/timed-out partial
+    artifact carries an honest finish state."""
     artifacts_path: Optional[str] = None
     error: Optional[str] = None
     branch: Optional[str] = None
@@ -1467,6 +1605,27 @@ class TaskResult:
     numbers, never merged. Set by the chain dispatch loop, not by the
     engine/loop. Like ``continued_from``, the serialized key is OMITTED (not
     null) when ``None``, so a non-chained run serializes byte-identically."""
+    config_events: list[ConfigEvent] = field(default_factory=list)
+    """The append-only config event stream for this work item (plan task t7,
+    covers c9/h9) — the ordered ``baseline``/``proposed``/``refused``/
+    ``verified``/``applied``/``reverted`` moves recorded by
+    :mod:`colleague.configevents`. BASELINE IS AN EVENT KIND (the T8 trap): a
+    seeded starting config must appear here as an ordinary event, never as an
+    invisible constructor default, because ``config_digest`` is a pure
+    function of THIS list alone (see :func:`colleague.configevents.effective_digest`).
+    Empty when no config-event activity occurred (today's common case — the
+    t11 configurator that populates this in earnest is a later task). Like
+    ``sub_results``, the serialized key is OMITTED (not an empty list) when
+    this list is empty, so a run with no recorded config events serializes
+    byte-identically to today's artifact."""
+    config_digest: Optional[str] = None
+    """The deterministic sha256 digest of ``config_events``
+    (:func:`colleague.configevents.effective_digest`), recomputed from the
+    REPLAYED event sequence alone — no ambient state. ``None`` when
+    ``config_events`` is empty (nothing to digest). Like
+    ``continued_from``/``chain``, the serialized key is OMITTED (not null)
+    when ``None``, so a run with no config-event activity serializes
+    byte-identically to today's artifact."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1477,6 +1636,9 @@ class TaskResult:
             "steps": [s.to_dict() for s in self.steps],
             "usage": self.usage.to_dict(),
             "stats": self.stats.to_dict(),
+            # ALWAYS serialized, like "stats" above — decision c30 (t1): the one
+            # sanctioned unconditional artifact addition, never omit-when-empty.
+            "finish_states": [f.to_dict() for f in self.finish_states],
             "artifacts_path": self.artifacts_path,
             "error": self.error,
             "branch": self.branch,
@@ -1585,6 +1747,14 @@ class TaskResult:
         # run serializes byte-identically (no extra key).
         if self.chain is not None:
             extra["chain"] = self.chain.to_dict()
+        # config_events/config_digest get the same omit-when-empty/None
+        # treatment as sub_results/continued_from (plan task t7): a run with
+        # no recorded config-event activity serializes byte-identically to
+        # today's artifact (no extra keys).
+        if self.config_events:
+            extra["config_events"] = [e.to_dict() for e in self.config_events]
+        if self.config_digest is not None:
+            extra["config_digest"] = self.config_digest
         return extra
 
     @classmethod
@@ -1597,6 +1767,11 @@ class TaskResult:
             steps=[Step.from_dict(s) for s in data.get("steps", [])],
             usage=Usage.from_dict(data.get("usage", {})),
             stats=WorkStats.from_dict(data.get("stats", {})),
+            finish_states=[
+                FinishRecord.from_dict(f)
+                for f in data.get("finish_states", [])
+                if isinstance(f, dict)
+            ],
             artifacts_path=data.get("artifacts_path"),
             error=data.get("error"),
             branch=data.get("branch"),
@@ -1660,6 +1835,8 @@ class TaskResult:
             chain=(
                 ChainView.from_dict(data["chain"]) if isinstance(data.get("chain"), dict) else None
             ),
+            config_events=_coerce_config_events(data.get("config_events")),
+            config_digest=data.get("config_digest"),
         )
 
 
@@ -1760,6 +1937,27 @@ def _coerce_deepthink_calls(
             continue
         calls.append(DeepthinkCall.from_dict(entry))
     return calls
+
+
+def _coerce_config_events(raw: Optional[list[Any]]) -> list[ConfigEvent]:
+    """Coerce a raw ``config_events`` payload read back from an artifact.
+
+    ``None``/absent in, ``[]`` out (no config-event activity — the common
+    case, matching ``sub_results``'s own default-empty-list stance rather
+    than ``deepthink``'s default-``None`` stance, since ``config_events`` is
+    itself list-shaped and omit-when-**empty**, not omit-when-None). A
+    malformed (non-dict) entry is dropped rather than raising, matching the
+    codebase's best-effort stance on optional structured payloads read back
+    from JSON (see :func:`_coerce_deepthink_calls`).
+    """
+    if not raw:
+        return []
+    events: list[ConfigEvent] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        events.append(ConfigEvent.from_dict(entry))
+    return events
 
 
 # ── lazy import helper (avoids circular import at module level) ─────────

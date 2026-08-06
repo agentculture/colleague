@@ -31,7 +31,7 @@ artifact from a plain `colleague work "<task>"` with none of the optional
 features active is byte-for-byte the same shape it always was, no matter how
 many optional features colleague has grown.
 
-### Always-on top-level keys (15)
+### Always-on top-level keys (16)
 
 Present on every artifact, regardless of which features fired.
 
@@ -44,6 +44,7 @@ Present on every artifact, regardless of which features fired.
 | `steps` | Step[] | The full tool-call trace — see [`step`](#step-steps-item). |
 | `usage` | Usage | Exact API-reported token accounting — see [`usage`](#usage-usage--sub_resultsusage). |
 | `stats` | WorkStats | Always-on cost/shape statistics — see [`stats`](#workstats-stats). |
+| `finish_states` | FinishRecord[] | Always-on per-seat finish/truncation state (decision c30) — see [`finish_record`](#finishrecord-finish_states-item). |
 | `artifacts_path` | string \| null | Absolute path to this artifact's own JSON file. |
 | `error` | string \| null | Set only when `status == "error"`. |
 | `branch` | string \| null | The git handoff branch, or `null` when the run stayed local. |
@@ -53,7 +54,7 @@ Present on every artifact, regardless of which features fired.
 | `not_finished` | boolean | `true` iff the step budget was exhausted without a `finish` call (and without an abort). |
 | `stopped_without_finish` | boolean | `true` iff the run ended on a no-tool-call turn and never called `finish`, even after the nudge. |
 
-### Optional (omit-when-absent) top-level keys (16)
+### Optional (omit-when-absent) top-level keys (19)
 
 Each key below is **entirely absent** from the JSON — not present as `null` —
 when the corresponding feature never fired for this work item. `sub_results`
@@ -79,6 +80,8 @@ serialized as `[]`).
 | `memory` | dict | The eidetic memory recall/remember cycle ran — see [`memory`](#memory-dict). |
 | `media` | dict | The task carried attachments and their delivery was classified — see [`media`](#media-dict). |
 | `senses` | SensesBlock | A cortex/senses split (or live-presence talk lane) ran — see [`senses`](#sensesblock-senses). |
+| `config_events` | ConfigEvent[] | At least one config event (baseline/proposed/refused/verified/applied/reverted) was recorded — see [`config_event`](#configevent-config_events-item). |
+| `config_digest` | string | `config_events` is non-empty — the deterministic digest over that replayed sequence, see [`config_event`](#configevent-config_events-item). |
 
 ### The maximal key set (drift-tested)
 
@@ -99,10 +102,13 @@ capacity_warning
 changed_files
 command
 coherence_report
+config_digest
+config_events
 deepthink
 destination
 error
 finish_recovered
+finish_states
 hook_firings
 lint_report
 media
@@ -152,6 +158,35 @@ tool_counts
 ```
 
 `tool_counts` is a `{tool_name: count}` map, not a fixed key set.
+
+#### `FinishRecord` (`finish_states[]` item)
+
+Always-on, per-seat finish-state + truncation record (`colleague/contract.py`
+`FinishRecord`; plan task t1, decision c30 — the one sanctioned unconditional
+artifact addition since this contract froze, exactly like `stats`/WorkStats
+itself: never omit-when-empty, present on every artifact including an
+unconfigured run). `seat` is a free-form string, not a closed enum — today
+always `"main"` (the acting mind's own turns), plus `"senses"` when a
+cortex/senses split ran.
+
+<!-- contract:keys:finish_record -->
+```text
+finish_reason
+seat
+state
+truncated
+```
+
+`state` is one of `"deliberate"` \| `"truncated"` \| `"stopped"` \|
+`"timeout"` \| `"empty"` (`colleague.contract.FINISH_STATES`) —
+`colleague/finishstate.py`'s `classify_finish_state` maps the loop's own
+terminal outcome plus the raw backend `finish_reason` onto these five states;
+`"empty"` is the state guaranteed whenever the work item's `summary` is the
+`NO_RESULT_PRODUCED` sentinel — it never reports `"deliberate"`. `truncated`
+is `true` iff `state == "truncated"`. `finish_reason` is the raw
+backend-reported value for the seat's LAST completion (e.g. `"stop"` \|
+`"tool_calls"` \| `"length"`), or `""` when the backend/engine never reports
+one (e.g. the `"senses"` seat, which has no raw wire value of its own).
 
 #### `Usage` (`usage` / `sub_results[].usage`)
 
@@ -320,6 +355,40 @@ tokens
 
 `tokens` / `duration` are `null` when not measured (e.g. a degraded call that
 never reached the wire).
+
+#### `ConfigEvent` (`config_events[]` item)
+
+One entry in the append-only config event stream (plan task t7, covers
+c9/h9; `colleague/configevents.py`) — the audit trail a three-tier cortex
+configurator (a later task) proposes/refuses/verifies/applies/reverts
+changes onto. `kind` is one of `"baseline"` \| `"proposed"` \| `"refused"` \|
+`"verified"` \| `"applied"` \| `"reverted"`. **`"baseline"` is itself an event
+kind** — a seeded starting config must be recorded as an ordinary event, not
+an invisible constructor default, because `config_digest` is a deterministic
+sha256 computed from the REPLAYED `config_events` sequence **alone** (no
+ambient state); a starting config that never became an explicit `baseline`
+event can never be reconstructed from, or verified against, the digest (the
+"T8 trap" the acceptance criteria name). `target`/`origin` are free-form
+strings (e.g. `target="worker.tools"`, `origin="cortex"` — matching
+`colleague.lattice.Target`/`Origin` string values when a configurator
+populates them, though this stream is not itself coupled to that enum).
+`reason` is populated for a `"refused"` event and empty otherwise by
+convention. `seq` is a monotonically increasing position in the stream,
+assigned by `colleague.configevents.ConfigEventStream.append`.
+
+<!-- contract:keys:config_event -->
+```text
+kind
+origin
+reason
+seq
+target
+```
+
+`config_events` is `[]`/omitted when a work item recorded no config-event
+activity — today's common case, since the stream is populated by
+`colleague.configevents` but nothing in the runtime writes to it yet this
+wave. `config_digest` is `null`/omitted alongside it.
 
 #### `memory` (dict)
 
@@ -539,6 +608,7 @@ steps
 | New optional (omit-when-absent) key in the artifact/feedback/export shape | minor bump |
 | Removed/renamed key, changed type, changed exit-code meaning | major bump (this contract's version, above) |
 | New `colleague feedback` verb / new export flag | minor bump |
+| New always-on (never omit-when-absent) top-level key | minor bump — a rare, deliberately RECORDED convention change (the same class of change as `stats`/WorkStats becoming always-on, and #313's `incompletion`); `finish_states` (decision c30) is the first since this contract froze at version `1`. |
 
 A consumer that shells out to `colleague` and parses its JSON should pin a
 package version and re-validate this document on upgrade — exactly the

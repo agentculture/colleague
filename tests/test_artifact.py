@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from colleague.artifact import failed_result, find_artifact, read_request, write
+from colleague.configevents import ConfigEvent, effective_digest
 from colleague.contract import ERROR, OK, HookFiring, Step, Task, TaskResult, Usage, WorkStats
 from colleague.loop import ModelResponse, ToolCall, run
 
@@ -261,3 +262,53 @@ def test_artifact_omits_destination_and_announcement_when_none(tmp_path: Path) -
     payload = json.loads(path.read_text())
     assert "destination" not in payload
     assert "announcement" not in payload
+
+
+# ---------------------------------------------------------------------------
+# t7: config_events / config_digest round-trip through write() → JSON reload
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_round_trips_config_events_and_digest(tmp_path: Path) -> None:
+    """A result carrying a config event stream writes + reloads losslessly —
+    artifact.py needs no schema change of its own; TaskResult just rides
+    through write/read (plan task t7)."""
+    events = [
+        ConfigEvent(kind="baseline", target="worker.tools", origin="host", seq=0),
+        ConfigEvent(kind="proposed", target="worker.tools", origin="cortex", seq=1),
+        ConfigEvent(
+            kind="refused", target="worker.tools", origin="cortex", reason="ceiling", seq=2
+        ),
+    ]
+    digest = effective_digest(events)
+    result = TaskResult(
+        task_id="cfg-art1",
+        status=OK,
+        summary="config event stream test",
+        config_events=events,
+        config_digest=digest,
+    )
+    path = write(result, tmp_path / ".colleague")
+    payload = json.loads(path.read_text())
+
+    assert payload["config_digest"] == digest
+    assert len(payload["config_events"]) == 3
+    assert [e["kind"] for e in payload["config_events"]] == ["baseline", "proposed", "refused"]
+
+    reloaded = TaskResult.from_dict(payload)
+    assert reloaded.config_events == events
+    assert reloaded.config_digest == digest
+    # Replaying the events read back off the artifact ALONE reproduces the
+    # digest also read back off the same artifact — the T8 trap holds
+    # end-to-end through a real write/read cycle, not just in memory.
+    assert effective_digest(reloaded.config_events) == reloaded.config_digest
+
+
+def test_artifact_omits_config_events_and_digest_when_empty(tmp_path: Path) -> None:
+    """A work item with no config-event activity writes byte-identically to
+    today's artifact shape — neither key appears."""
+    result = TaskResult(task_id="nocfg-art1", status=OK, summary="plain drive")
+    path = write(result, tmp_path / ".colleague")
+    payload = json.loads(path.read_text())
+    assert "config_events" not in payload
+    assert "config_digest" not in payload

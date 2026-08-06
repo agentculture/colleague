@@ -239,7 +239,12 @@ def build_watch_presence(
         initial_rung=RUNG_LOOP,
     )
     cadence: UpdateCadence = cadence_from_env(os.environ)
-    return PresenceEngine(driver=driver, io=io, cadence=cadence)
+    return PresenceEngine(
+        driver=driver,
+        io=io,
+        cadence=cadence,
+        three_tier=getattr(config, "three_tier", False),
+    )
 
 
 def build_foreground_presence(
@@ -313,7 +318,12 @@ def build_foreground_presence(
         initial_rung=RUNG_LOOP,
     )
     cadence: UpdateCadence = cadence_from_env(os.environ)
-    presence = PresenceEngine(driver=driver, io=io, cadence=cadence)
+    presence = PresenceEngine(
+        driver=driver,
+        io=io,
+        cadence=cadence,
+        three_tier=getattr(config, "three_tier", False),
+    )
     # Shared with the progress sink so it can feed real cortex progress in (a
     # watched run reads the flight plane instead, so it has no buffer).
     presence.feed_buffer = feed  # type: ignore[attr-defined]

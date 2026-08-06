@@ -57,6 +57,7 @@ _PRE_SENSES_TASKRESULT_KEYS = {
     "steps",
     "usage",
     "stats",
+    "finish_states",
     "artifacts_path",
     "error",
     "branch",
@@ -239,7 +240,8 @@ def test_senses_armed_mock_run_pins_full_senses_block_shape(tmp_path: Path) -> N
     assert set(block.keys()) == {"mode", "packet", "records"}
     assert block["mode"] == "split"
     assert block["packet"] is None  # no context packet, only the bridge record
-    assert isinstance(block["records"], list) and len(block["records"]) == 1
+    assert isinstance(block["records"], list)
+    assert len(block["records"]) == 1
 
     record = block["records"][0]
     assert set(record.keys()) == {"point", "latency", "tokens", "degraded"}
@@ -247,7 +249,8 @@ def test_senses_armed_mock_run_pins_full_senses_block_shape(tmp_path: Path) -> N
     # The mock degrade is a RECORDED no-op — the same shape a live fill would use.
     assert record["degraded"] is True
     assert record["tokens"] is None
-    assert isinstance(record["latency"], float) and record["latency"] >= 0.0
+    assert isinstance(record["latency"], float)
+    assert record["latency"] >= 0.0
 
     # The block round-trips through from_dict → to_dict identically (artifact
     # read-back is faithful).
@@ -295,7 +298,8 @@ def test_senses_record_shape_identical_across_mock_and_vllm(
     vllm_text, vllm_record = vllm_run("describe the image", parts)
 
     # Both degraded to a recorded no-op — never raised, never fabricated content.
-    assert mock_text is None and vllm_text is None
+    assert mock_text is None
+    assert vllm_text is None
     for record in (mock_record, vllm_record):
         assert record.degraded is True
         assert record.tokens is None

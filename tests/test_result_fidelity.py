@@ -54,7 +54,8 @@ def test_no_result_produced_does_not_contain_step_count():
     assert "completed" not in NO_RESULT_PRODUCED
     # Collision-resistant: machine-oriented affixes, not natural prose the model
     # could plausibly emit as its own last substantive content.
-    assert NO_RESULT_PRODUCED.startswith("__") and NO_RESULT_PRODUCED.endswith("__")
+    assert NO_RESULT_PRODUCED.startswith("__")
+    assert NO_RESULT_PRODUCED.endswith("__")
     assert " " not in NO_RESULT_PRODUCED
 
 
@@ -219,6 +220,7 @@ class TestNoFinishResultFidelity:
             "steps",
             "usage",
             "stats",
+            "finish_states",
             "artifacts_path",
             "error",
             "branch",
@@ -248,6 +250,8 @@ class TestNoFinishResultFidelity:
             "continued_from",  # continue lineage (#167)
             "chain",  # chain-of-episodes accounting (indefinite-run c20)
             "gates_deferred",  # structured gate-deferral marker (#341)
+            "config_events",  # append-only config event stream (plan task t7, c9/h9)
+            "config_digest",  # deterministic digest over config_events (plan task t7)
         }
         actual_fields = {f.name for f in dc_fields(result)}
         assert actual_fields == expected_fields

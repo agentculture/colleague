@@ -525,6 +525,7 @@ def run_presence_narration_check(repo: str | Path, *, model: str | None = None) 
     synthesis degrades (the reference rig's tts proxy currently 502s; see
     :func:`classify_presence_narration_check`).
     """
+    from colleague.attribution import acting_seat_label
     from colleague.voice import build_presence_narrator
 
     repo_path = str(repo)
@@ -541,7 +542,8 @@ def run_presence_narration_check(repo: str | Path, *, model: str | None = None) 
     with tempfile.TemporaryDirectory() as tmp_dir:
         narrate = build_presence_narrator(voice_config, tmp_dir)
         assert narrate is not None  # a tts_model was just confirmed present
-        narrate("colleague: cortex is working on your request now.")
+        seat = acting_seat_label(three_tier=getattr(config, "three_tier", False))
+        narrate(f"colleague: {seat}")
         wav_path = Path(tmp_dir) / "presence-0001.wav"
         narrated = wav_path.is_file() and wav_path.stat().st_size > 0
     status, detail = classify_presence_narration_check(narrated)

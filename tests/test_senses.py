@@ -275,7 +275,8 @@ class TestIntakeAck:
         assert packet is not None
         assert packet.ack is not None
         assert len(packet.ack) <= 500
-        assert not packet.ack.startswith(" ") and not packet.ack.endswith(" ")
+        assert not packet.ack.startswith(" ")
+        assert not packet.ack.endswith(" ")
         assert packet.ack == "x" * 500
 
     def test_non_string_ack_is_ignored(self) -> None:
@@ -307,7 +308,8 @@ class TestIntakeDegrades:
         assert record.degraded is True
         assert record.point == INTAKE_POINT
         assert record.tokens is None
-        assert record.latency is not None and record.latency >= 0
+        assert record.latency is not None
+        assert record.latency >= 0
 
     def test_bad_json_degrades_to_none(self) -> None:
         fake = _FakeEngine(
@@ -337,7 +339,8 @@ class TestIntakeDegrades:
         assert packet is None
         assert record.degraded is True
         assert record.point == INTAKE_POINT
-        assert record.latency is not None and record.latency >= 0
+        assert record.latency is not None
+        assert record.latency >= 0
 
     def test_degraded_intake_never_carries_an_ack(self) -> None:
         """No ack from anywhere on a degraded intake (talking-to-one, task t1).
@@ -435,7 +438,8 @@ class TestRuntimeFactRecords:
 
         assert isinstance(record, SensesRecord)
         assert record.tokens == 24  # 11 + 13, exact — never estimated
-        assert record.latency is not None and record.latency >= 0
+        assert record.latency is not None
+        assert record.latency >= 0
         assert record.degraded is False
 
     def test_record_shape_has_no_quality_field(self) -> None:
@@ -609,7 +613,8 @@ class TestSensesUpdate:
         assert result["update"] is None
         assert result["degraded"] is True
         assert result["tokens"] is None
-        assert result["latency"] is not None and result["latency"] >= 0
+        assert result["latency"] is not None
+        assert result["latency"] >= 0
 
     def test_empty_content_degrades(self) -> None:
         """Empty content from the model degrades gracefully."""
@@ -793,8 +798,11 @@ class TestSensesHistory:
         ]
         fake = _FakeEngine()
         # Room for the system prompt + "do it" comfortably, but not enough
-        # left over for all three history entries.
-        budget = 1800
+        # left over for all three history entries. (Budget sized generously
+        # above the system prompt's own length — task t2 composed the
+        # grounding + fidelity clauses into it, and relabeled the folded
+        # history block "Optional background (...)" — both grew it.)
+        budget = 2200
         config = _senses_config(context_budget_tokens=budget)
 
         packet, record = run_senses_intake("do it", config, fake, history=history)

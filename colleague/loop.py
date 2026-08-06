@@ -48,6 +48,7 @@ from colleague import affectedtests as _affectedtests
 from colleague import autosplit as _autosplit
 from colleague import backpressure
 from colleague import coherence as _coherencemod
+from colleague import configlifecycle as _configlifecycle
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
@@ -68,11 +69,15 @@ from colleague.contract import (
     DECISION_DENY,
     DECISION_REWRITE,
     ERROR,
+    FINISH_DELIBERATE,
+    FINISH_EMPTY,
+    FINISH_TRUNCATED,
     INCOMPLETE,
     NO_RESULT_PRODUCED,
     OK,
     CapacityDecision,
     ContextPacket,
+    FinishRecord,
     HookFiring,
     SensesBlock,
     SensesRecord,
@@ -80,6 +85,7 @@ from colleague.contract import (
     Task,
     TaskResult,
 )
+from colleague.finishstate import classify_finish_state
 from colleague.hooks import HookConfig, HookDecision, hook_approval_verdict, load_hooks, run_hook
 from colleague.incompletion import classify_incompletion
 from colleague.neighbours import NeighbourManager
@@ -376,6 +382,17 @@ class ModelResponse:
     to a file, so the loop measures it as the "thought" portion of a work item
     (char/byte lengths in :class:`~colleague.contract.WorkStats`). Empty for
     servers/models that do not emit a reasoning field.
+
+    ``finish_reason`` is the raw backend-reported reason THIS turn's completion
+    ended (OpenAI-compatible ``choices[0].finish_reason``, e.g. ``"stop"`` /
+    ``"tool_calls"`` / ``"length"`` / ``"content_filter"``), carried out of the
+    vLLM adapter's blocking AND streaming SSE paths unchanged (plan task t1,
+    covers c4/h4) — previously read only to detect SSE stream termination and
+    then dropped. ``""`` for a backend/engine that never reports the field (the
+    mock engine still sets a representative deliberate value). The loop's own
+    per-work-item classification onto the five ``FINISH_*`` states
+    (:mod:`colleague.finishstate`) reads the LAST turn's value via a private
+    tracking cell, never re-derives it from ``content``/``tool_calls``.
     """
 
     content: str = ""
@@ -383,6 +400,7 @@ class ModelResponse:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     reasoning: str = ""
+    finish_reason: str = ""
 
 
 # A ``complete`` performs one model turn given the running message list.
@@ -615,6 +633,13 @@ class _Work:
     # mutable list[str] (single element) so the frozen ``_Work`` dataclass can
     # still update it through the binding.
     _last_substantive: list[str] = field(default_factory=list)
+    # Last ``resp.finish_reason`` seen across ALL turns (plan task t1, covers
+    # c4/h4) — updated unconditionally on every ``_account_turn`` call
+    # (including a "" value), mirroring the ``_last_substantive`` mutable-cell
+    # pattern above so the frozen ``_Work`` dataclass can still update it
+    # through the binding. Read by ``_finalize_finish_states`` at every exit
+    # path to classify the "main" seat's terminal ``FINISH_*`` state.
+    _last_finish_reason: list[str] = field(default_factory=list)
     # auto-compact-on-finish (t3): the model-authored summary produced by the last
     # fill-line compaction, kept on a dedicated cell so a later stall cannot
     # overwrite it (unlike ``_last_substantive``); used as the FALLBACK clean summary
@@ -795,6 +820,20 @@ class _Work:
     affectedtests_depth: int = 3
     affectedtests_max_files: int = 20
     affectedtests_override: "str | None" = None
+    # Episode-boundary config lifecycle (three-tier-execution plan task t6,
+    # decisions c8/h8/c26/h22): the WORKER episode's
+    # ``configlifecycle.EpisodeConfigLifecycle``, threaded from
+    # ``ContextControls.config_lifecycle``. The loop is a READ-ONLY consumer:
+    # ``_work_loop`` calls ``observe_turn()`` once per completed model turn
+    # (proving the effective-config digest is pinned constant within the
+    # episode — nothing here ever calls ``apply_window``, which is reachable
+    # ONLY through ``colleague.chain.apply_config_window`` at a sanctioned
+    # window), and ``run()`` calls ``end_episode()`` exactly once, on EVERY
+    # exit path (the T1 regression fix: a no-tool episode end counts as a
+    # boundary exactly like a tool-driven one). ``None`` (the default — a
+    # direct ``run`` caller, or a config object predating this field via
+    # ``getattr``) is a strict no-op: byte-identical to the pre-t6 loop.
+    config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = None
 
 
 def _apply_finish(result: TaskResult, outcome: ToolOutcome) -> None:
@@ -1869,6 +1908,10 @@ def _account_turn(ctx: _Work, resp: ModelResponse) -> None:
     ctx.telemetry.on_generated(reasoning=resp.reasoning, answer=resp.content)
     if resp.content:
         ctx._last_substantive[:] = [resp.content]
+    # Track the LAST turn's raw finish_reason (t1, c4/h4) — unconditional
+    # (even a "" value overwrites), matching the wire's own semantics of "the
+    # last completion's own reason", not merely the last non-empty one.
+    ctx._last_finish_reason[:] = [resp.finish_reason]
 
 
 def _handle_no_tool_turn(ctx: _Work, resp: ModelResponse, nudges: int) -> tuple[int, str | None]:
@@ -2066,6 +2109,71 @@ def _apply_outcome_flags(result: TaskResult, outcome: str, last_sub: str) -> Non
             "(see incompletion)."
         )
         result.summary = f"{note} {last_sub}".strip() if last_sub else note
+
+
+def _senses_finish_record(senses: "SensesBlock | None") -> "FinishRecord | None":
+    """Derive the "senses" seat's :class:`FinishRecord`, or ``None`` (t1, c4/h4/c30).
+
+    :class:`SensesRecord` carries no raw wire ``finish_reason`` — senses.py's
+    completion call sites never thread one through (unlike the main loop's
+    ``ModelResponse``) — so ``degraded`` is the honest, already-existing proxy:
+    a degraded senses call fell back / never completed against the senses
+    model (dead endpoint, request error, overflow), the same "nothing usable
+    produced" fact ``FINISH_EMPTY`` represents elsewhere; a clean completion is
+    ``FINISH_DELIBERATE`` (the tools-off senses lane has no
+    truncation/stop/timeout concept of its own today — a finer classification
+    is future work for whichever task enriches ``SensesRecord`` itself, not
+    this one). Returns ``None`` when no senses config ran (``senses`` is
+    ``None`` or carries zero records), so an unconfigured/cortex-only run's
+    ``finish_states`` carries only the "main" seat.
+    """
+    if senses is None or not senses.records:
+        return None
+    degraded = senses.records[-1].degraded
+    state = FINISH_EMPTY if degraded else FINISH_DELIBERATE
+    return FinishRecord(seat="senses", finish_reason="", state=state, truncated=False)
+
+
+def _finalize_finish_states(
+    ctx: "_Work", outcome: str, *, aborted: Exception | None = None
+) -> None:
+    """Populate ``result.finish_states`` — ALWAYS-on, every exit path (t1, c4/h4/c30).
+
+    Called from TWO places in :func:`run`: the aborted (:class:`WorkAborted`)
+    path (right before it raises, ``aborted`` set) and the normal exit path
+    (after :func:`_resolve_terminal_summary` has finalized ``result.summary``,
+    ``aborted`` left ``None``) — mirroring how ``stats``/``WorkStats`` is
+    finalized on every exit (#106). The "main" seat is always recorded from
+    the last-tracked ``ctx._last_finish_reason``; a "senses" seat record is
+    appended too when :func:`_senses_finish_record` finds one.
+
+    A real ``timeout`` classification (:func:`colleague.context.classify_degradable`
+    on ``str(aborted)``) takes precedence even on the aborted path; any other
+    abort (a non-timeout engine exception, or a degradation give-up at the
+    floor) maps to ``FINISH_EMPTY`` — ``result.summary`` on that path is
+    already a diagnostic fallback note, never a real deliverable.
+    """
+    timed_out = aborted is not None and classify_degradable(str(aborted)) == "timeout"
+    main_finish_reason = ctx._last_finish_reason[0] if ctx._last_finish_reason else ""
+    main_state = classify_finish_state(
+        summary=ctx.result.summary,
+        finish_reason=main_finish_reason,
+        outcome=outcome,
+        timed_out=timed_out,
+        aborted=aborted is not None,
+    )
+    finish_states = [
+        FinishRecord(
+            seat="main",
+            finish_reason=main_finish_reason,
+            state=main_state,
+            truncated=main_state == FINISH_TRUNCATED,
+        )
+    ]
+    senses_record = _senses_finish_record(ctx.result.senses)
+    if senses_record is not None:
+        finish_states.append(senses_record)
+    ctx.result.finish_states = finish_states
 
 
 # Bounded eidetic-CLI wait for the two in-loop memory calls (t2): a recall/remember
@@ -2392,6 +2500,29 @@ def _resolve_reading_budget(context: "ContextControls", max_steps: int) -> int:
     return max_steps
 
 
+def _complete_turn_or_retry(ctx: _Work, complete: CompleteFn) -> ModelResponse | None:
+    """Call ``complete`` for this turn, or signal "retry without accounting".
+
+    Thin wrapper around :func:`_complete_with_degradation` that folds in the
+    reactive-auto-split give-up handling: on an EXHAUSTED degradable error that
+    :func:`_handle_degradable_exhaustion` turns into ONE injected split
+    recommendation, returns ``None`` so the caller's ``continue`` re-enters the
+    loop without accounting a turn; any other error re-raises unchanged
+    (byte-identical to the pre-feature loop). Extracted from :func:`_work_loop`
+    to keep its cognitive complexity within budget (SonarCloud S3776).
+    """
+    try:
+        return _complete_with_degradation(ctx, complete)
+    except Exception as exc:  # noqa: BLE001
+        # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
+        # #154) — inject ONE recommendation and continue BEFORE the error would
+        # reach run()'s abort+escalate path; otherwise re-raise unchanged so
+        # escalation remains the fallback (byte-identical to the pre-feature loop).
+        if _handle_degradable_exhaustion(ctx, exc):
+            return None
+        raise
+
+
 def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
     """Run the bounded turn loop; return how it ended (one of the ``_EXIT_*`` constants).
 
@@ -2445,18 +2576,18 @@ def _work_loop(ctx: _Work, complete: CompleteFn, max_steps: int) -> str:
         # rather than keep reading serially. No-op when dormant / already offered /
         # under the distinct-folders threshold.
         _maybe_offer_review_fanout(ctx)
-        try:
-            resp = _complete_with_degradation(ctx, complete)
-        except Exception as exc:  # noqa: BLE001
-            # An EXHAUSTED degradable error may trigger the reactive auto-split (#151,
-            # #154) — inject ONE recommendation and continue BEFORE the error would
-            # reach run()'s abort+escalate path; otherwise re-raise unchanged so
-            # escalation remains the fallback (byte-identical to the pre-feature loop).
-            if _handle_degradable_exhaustion(ctx, exc):
-                continue
-            raise
+        resp = _complete_turn_or_retry(ctx, complete)
+        if resp is None:
+            continue
         _account_turn(ctx, resp)
         last_prompt_tokens = resp.prompt_tokens
+        # Episode-boundary config lifecycle loop seam (t6): record the pinned
+        # effective-config digest for THIS completed model turn. A strict
+        # no-op without a lifecycle; when present, every recorded digest
+        # within one ``run()`` call is identical by construction — nothing
+        # between two ``observe_turn()`` calls ever mutates the snapshot.
+        if ctx.config_lifecycle is not None:
+            ctx.config_lifecycle.observe_turn()
         # Delivered-vs-dropped verification (t9, decision c25): classify the
         # task's attachments from the FIRST media-bearing completion's
         # token-contribution signal; a strict no-op afterwards and for
@@ -2697,6 +2828,20 @@ class ContextControls:
     # load-bearing — byte-identical when empty.
     senses_model: str = ""
     lobes_gateway: str = ""
+    # Episode-boundary config lifecycle (three-tier-execution plan task t6,
+    # decisions c8/h8/c26/h22): the WORKER episode's
+    # ``configlifecycle.EpisodeConfigLifecycle`` — queues cortex-authored
+    # lattice proposals and applies them ONLY at the two sanctioned windows
+    # (``colleague/chain.py``'s ``apply_config_window``, before episode 1 /
+    # between episodes), never mid-episode. ``None`` (the default) is a
+    # strict no-op: no digest tracking, no boundary counting, byte-identical
+    # to the pre-t6 loop. Not yet forwarded by ``EngineConfig`` (that is a
+    # later task's wiring, e.g. t11's cortex configurator) — ``from_config``
+    # reads it via ``getattr`` so a config object predating this field stays
+    # byte-identical, exactly like ``chain_prior_changed`` above.
+    config_lifecycle: "_configlifecycle.EpisodeConfigLifecycle | None" = field(
+        default=None, compare=False, repr=False
+    )
 
     @classmethod
     def from_config(
@@ -2781,6 +2926,12 @@ class ContextControls:
                 else ""
             ),
             lobes_gateway=getattr(config, "lobes_gateway_url", None) or "",
+            # Episode-boundary config lifecycle (t6): forward-compatible via
+            # getattr — no EngineConfig field exists yet (a later task, e.g.
+            # t11's cortex configurator, adds one), so today every backend
+            # reads back ``None`` and stays byte-identical (the
+            # ``chain_prior_changed`` precedent above).
+            config_lifecycle=getattr(config, "config_lifecycle", None),
         )
 
 
@@ -4097,6 +4248,26 @@ def _resolve_runtime_defaults(
     )
 
 
+def _resolve_run_collaborators(
+    spawns: Spawns | None,
+    context: ContextControls | None,
+    executor: ToolExecutor | None,
+    task: Task,
+) -> tuple[Spawns, ContextControls, ToolExecutor]:
+    """Default the three run-scoped collaborators (spawns/context/executor) when a
+    caller didn't inject them. Kept out of ``run()`` so the per-field ``or``
+    defaults don't inflate its cognitive complexity (mirrors
+    ``_resolve_runtime_defaults``). Byte-identical to the inline defaulting:
+    ``executor`` defaults to one confined to ``task.repo_path`` and wired to the
+    resolved ``spawns``."""
+    _spawns = spawns or Spawns()
+    _context = context or ContextControls()
+    _executor = executor or ToolExecutor(
+        task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
+    )
+    return _spawns, _context, _executor
+
+
 def run(
     complete: CompleteFn,
     task: Task,
@@ -4175,11 +4346,7 @@ def run(
     :class:`WorkAborted` carrying that result, so the work path can write a
     non-empty artifact + trace before surfacing the error (#37).
     """
-    _spawns = spawns or Spawns()
-    _context = context or ContextControls()
-    executor = executor or ToolExecutor(
-        task.repo_path, spawn=_spawns.single, batch_spawn=_spawns.batch
-    )
+    _spawns, _context, executor = _resolve_run_collaborators(spawns, context, executor, task)
     # hooks/telemetry/policy each default from the repo (or the environment, for
     # telemetry) when not injected — see _resolve_runtime_defaults for the
     # per-field contract (byte-identical to the prior inline defaulting).
@@ -4259,6 +4426,7 @@ def run(
         testintegrity_enabled=bool(_context.testintegrity),
         testintegrity_fix_retries=_context.testintegrity_fix_retries,
         testintegrity_reviewer_model=_context.testintegrity_reviewer_model,
+        config_lifecycle=_context.config_lifecycle,
         **_affectedtests_controls(_context),
     )
 
@@ -4330,6 +4498,15 @@ def run(
         aborted = exc
         result.status = ERROR
         result.error = f"{type(exc).__name__}: {exc}"
+
+    # Episode-boundary config lifecycle (t6, decisions c8/h8/c26/h22): mark ONE
+    # boundary — on EVERY loop exit (model finish / no-tool stop / budget /
+    # pilot-stop / tool-protocol-broken / an aborted engine raise above), never
+    # gated on which ``_EXIT_*`` reason ended the episode. This is the T1
+    # regression fix: a prior tool-step-only boundary rule would silently skip
+    # the no-tool-call stop path. A strict no-op without a lifecycle threaded in.
+    if ctx.config_lifecycle is not None:
+        ctx.config_lifecycle.end_episode()
 
     # finish — once, on every loop exit (model finish / empty turn / budget / error).
     # Observe-only this increment; requeue/re-drive is out of scope.
@@ -4414,6 +4591,10 @@ def run(
             or _last_sub
             or (f"aborted after {len(result.steps)} step(s): {result.error}")
         )
+        # Per-seat finish state (t1, c4/h4/c30) — ALWAYS-on, even the aborted
+        # path, so a crashed/timed-out partial artifact still carries an
+        # honest finish state (mirrors the stats finalization discipline).
+        _finalize_finish_states(ctx, outcome, aborted=aborted)
         # Escalation seam — aborted path (#106 t3): best-effort, observe-only.
         # A timeout / context-overflow / engine error is a limit worth escalating.
         # Wrapped in suppress so any escalation failure never masks the work item result.
@@ -4444,6 +4625,11 @@ def run(
     # _resolve_terminal_summary — extracted so run() stays under the S3776 threshold
     # and so synthesis runs BEFORE the compaction fallback (the stale-summary fix).
     _resolve_terminal_summary(ctx, outcome, complete, _last_sub)
+
+    # Per-seat finish state (t1, c4/h4/c30) — ALWAYS-on; runs AFTER summary
+    # resolution so a NO_RESULT_PRODUCED sentinel assigned by the fallback
+    # chain above is visible to the classifier.
+    _finalize_finish_states(ctx, outcome)
 
     # Honest-incompletion (colleague#313): flag a run that produced no expected
     # deliverable — after summary resolution so it composes with finish_recovered.

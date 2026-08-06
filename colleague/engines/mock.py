@@ -82,6 +82,12 @@ def _script(task: Task) -> CompleteFn:
     # non-zero and engine-agnostic (the mock is the contract reference, h5): the
     # e2e shape test compares key shape, and these give the mock the same
     # reasoning_*/answer_* fields a real reasoning model produces.
+    #
+    # ``finish_reason="stop"`` on every turn (plan task t1, covers c4/h4): the
+    # mock never calls a real wire, so it sets a representative DELIBERATE
+    # value itself — a scripted engine choosing to act/finish, never truncated
+    # by a token cap — so `result.finish_states` stays populated with the same
+    # shape a live backend produces (test_e2e_mock.py's shape parity).
     turns = [
         ModelResponse(
             content="writing the marker file",
@@ -91,6 +97,7 @@ def _script(task: Task) -> CompleteFn:
             ],
             prompt_tokens=1,
             completion_tokens=1,
+            finish_reason="stop",
         ),
         ModelResponse(
             content="done",
@@ -98,6 +105,7 @@ def _script(task: Task) -> CompleteFn:
             tool_calls=[ToolCall("mock-2", "finish", {"summary": f"mock wrote {OUTPUT_FILE}"})],
             prompt_tokens=1,
             completion_tokens=1,
+            finish_reason="stop",
         ),
     ]
     state = {"i": 0}
