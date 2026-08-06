@@ -111,6 +111,17 @@ _TERMINAL_MOVES = frozenset(
 #: display vocabulary only.
 NARRATION_LABEL = "<<higher self thought>>"
 
+#: The three-tier sibling of :data:`NARRATION_LABEL` (ssv t7, c13/h10). In
+#: three-tier mode the acting seat is the WORKER (worker acts / senses relays /
+#: cortex configures), so a ``narrate`` move describes worker activity — the
+#: presence engine picks this label over the higher-self one at RENDER time,
+#: from the config's three-tier state, mirroring its ``→ worker:`` relay-target
+#: selection. Same discipline as NARRATION_LABEL (c14/h11): this literal must
+#: NEVER be fed into any model-bound prompt or stored on any artifact-bound
+#: record — display vocabulary only. Choosing it changes NOTHING about routing
+#: or authority: narrate stays terminal + display-only either way.
+WORKER_NARRATION_LABEL = "<subconscious thought/actions>"
+
 #: Honest fixed acknowledgment when a dispatch move authored no operator-facing
 #: ``ack`` — mirrors the session's ``_ACK_DISPATCH_NOTICE`` (never a fabricated
 #: understanding, exactly the talking-to-one arc's honesty rail).
