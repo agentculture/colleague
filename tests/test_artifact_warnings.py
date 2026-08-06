@@ -6,7 +6,6 @@ artifact JSON written before this field loads with warnings == []).
 """
 
 import json
-import tempfile
 from pathlib import Path
 
 from colleague.artifact import read_artifact, write
@@ -63,7 +62,7 @@ def test_no_warnings_roundtrip_empty_list(tmp_path: Path):
     artifact_dir = tmp_path / ".colleague"
     artifact_dir.mkdir()
 
-    path = write(result, artifact_dir)
+    write(result, artifact_dir)
     read = read_artifact(tmp_path, "t11-test")
     assert read is not None
     assert read.warnings == []
