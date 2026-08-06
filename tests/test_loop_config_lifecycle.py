@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from colleague.configlifecycle import (
+    WINDOW_BEFORE_EPISODE_1,
     WINDOW_BETWEEN_EPISODES,
     EpisodeConfigLifecycle,
 )
@@ -117,6 +118,79 @@ def test_single_turn_episode_still_observes_the_pinned_digest(tmp_path: Path) ->
     )
     assert result.summary == "nothing to do here"
     assert lifecycle.turn_digests() == [lifecycle.effective_digest()]
+
+
+# ===========================================================================
+# 1b. Acceptance criterion 1 (plan task t11): digest constancy holds with a
+# REAL APPLIED note — not just an empty/default snapshot.
+#
+# The tests above (test_digest_pinned_constant_across_multiple_model_turns,
+# test_single_turn_episode_still_observes_the_pinned_digest) already prove
+# the digest-constancy MECHANISM itself: that mechanism predates this arc
+# (plan task t6, landed independently of any real content). What is NEW here
+# — and what the t11 instruction's acceptance criterion 1 names explicitly
+# ("test_loop_config_lifecycle.py proves mid-episode digest constancy with a
+# real applied note") — is that the FROZEN snapshot the digest is computed
+# over now carries REAL, verbatim applied strategist text instead of an
+# opaque origin#N marker, and the constancy claim is re-proven over THAT
+# snapshot, not an empty one.
+#
+# Pre-arc gap (h17, failing-first): before plan task t5 landed (commit
+# c194616, "merge t6" — the tree immediately before t5's real-text fold),
+# EpisodeConfigLifecycle._apply_change's WORKER_PROMPT_STRATEGIST branch
+# folded an OPAQUE marker (f"{origin}#{n}", e.g. "cortex#1") — never
+# change.content. Verified directly: with colleague/configlifecycle.py
+# checked out at c194616 (git show c194616:colleague/configlifecycle.py),
+# this test's own assertion ``lifecycle.snapshot.strategist_sections ==
+# (note,)`` fails immediately (the snapshot instead carries ``("cortex#1",)``
+# — the note text is nowhere in it). Restored to the current tree after
+# verification (no production file was left modified).
+# ===========================================================================
+
+
+def test_digest_pinned_constant_across_turns_with_a_real_applied_strategist_note(
+    tmp_path: Path,
+) -> None:
+    lifecycle = _lifecycle()
+    note = "focus on the auth module before anything else"
+    verdict = lifecycle.propose(
+        ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content=note)
+    )
+    assert verdict.allowed is True
+    application = lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
+    assert application.applied_count == 1
+
+    # The note is REAL, verbatim text on the now-effective snapshot — not an
+    # opaque marker (the exact fact that fails on the pre-t5 tree, see the
+    # section docstring above).
+    assert lifecycle.snapshot.strategist_sections == (note,)
+    digest_with_real_content = lifecycle.effective_digest()
+
+    task = Task.new(str(tmp_path), "survey the repo")
+    result = run(
+        scripted(
+            [
+                ModelResponse(tool_calls=[ToolCall("1", "list_dir", {"path": "."})]),
+                ModelResponse(tool_calls=[ToolCall("2", "list_dir", {"path": "."})]),
+                ModelResponse(tool_calls=[ToolCall("3", "finish", {"summary": "ok"})]),
+            ]
+        ),
+        task,
+        max_steps=10,
+        context=ContextControls(config_lifecycle=lifecycle),
+    )
+
+    assert result.status == OK
+    digests = lifecycle.turn_digests()
+    assert len(digests) == 3  # one per completed model turn
+    # The digest incorporating REAL applied content never moves again
+    # mid-episode — the SAME constancy claim the empty-snapshot tests above
+    # prove, now re-proven over a snapshot that actually carries text.
+    assert all(d == digest_with_real_content for d in digests)
+    assert lifecycle.effective_digest() == digest_with_real_content
+    # And the note itself is still exactly what was applied — nothing about
+    # running the episode ever mutates the snapshot's content.
+    assert lifecycle.snapshot.strategist_sections == (note,)
 
 
 # ===========================================================================

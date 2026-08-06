@@ -31,8 +31,20 @@ import ast
 import inspect
 from pathlib import Path
 
+import pytest
+
 import colleague.configurator as configurator_module
+import colleague.engines.mock as mock_engine_module
 import colleague.loop as loop_module
+from colleague.config import EngineConfig
+from colleague.configlifecycle import (
+    WINDOW_BEFORE_EPISODE_1,
+    EpisodeConfigLifecycle,
+)
+from colleague.contract import OK, Task
+from colleague.lattice import CapabilityCatalog, ChangeUnit, Origin, Target
+from colleague.layers import STRATEGIST_SECTION_HEADING
+from colleague.loop import ModelResponse, ToolCall
 
 _CONFIGURATOR_SRC = Path(configurator_module.__file__)
 _LOOP_SRC = Path(loop_module.__file__)
@@ -222,3 +234,99 @@ class TestActingCompletionSeamNeverWrapped:
             "import subprocess",
         ):
             assert forbidden not in source, f"colleague/configurator.py must not use {forbidden!r}"
+
+
+# ---------------------------------------------------------------------------
+# Pin 1c — structural pin RE-PROVEN WITH CONTENT FLOWING (plan task t11,
+# acceptance criterion 1): the two pins above hold purely structurally (AST
+# shape), true regardless of whether any cortex content ever exists. This
+# section adds the BEHAVIORAL companion using a REAL applied strategist
+# note: the composed system prompt must be the ONLY carrier of that text
+# anywhere in the worker's actual message history, not merely "no function
+# accepts a history-shaped parameter".
+#
+# Pre-arc gap this closes (h17, failing-first): before plan task t7 landed
+# (commit 5d9c363, "merge t5" — the tree immediately before t7's prompt-
+# consumption seam), colleague/engine.py's system_prompt() never read
+# config.config_lifecycle at all — no strategist_section was ever composed
+# regardless of what a lifecycle's snapshot carried. Verified directly: with
+# colleague/engine.py checked out at 5d9c363 (git show 5d9c363:colleague/
+# engine.py), MockEngine().work() below produces a system message with NO
+# STRATEGIST_SECTION_HEADING and NO trace of ``note`` anywhere — the first
+# assertion in test_applied_content_appears_only_in_the_composed_system_message
+# (``STRATEGIST_SECTION_HEADING in system_content``) fails immediately on
+# that tree. Restored to the current tree after verification (no production
+# file was left modified).
+# ---------------------------------------------------------------------------
+
+
+class TestContentFlowsOnlyThroughTheComposedSystemPrompt:
+    def test_applied_content_appears_only_in_the_composed_system_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL applied worker.prompt.strategist note (not a fake/stub
+        snapshot) drives ``MockEngine().work()`` end to end — the exact
+        production path (``colleague/engine.py``'s ``system_prompt()``, t7)
+        that turns an applied snapshot into prompt text. Across every model
+        turn in the episode: the note (and its heading) appear in message
+        index 0 (the system message) and NOWHERE else in that turn's full
+        message list — the composed system prompt is the ONLY carrier, even
+        with content genuinely flowing (never a stub/no-op snapshot, unlike
+        Pin 1a/1b above which hold vacuously true for an empty one too).
+        """
+        lifecycle = EpisodeConfigLifecycle(
+            catalog=CapabilityCatalog(tool_ids=("list_dir", "finish"))
+        )
+        note = "focus review on the auth module before anything else"
+        verdict = lifecycle.propose(
+            ChangeUnit(target=Target.WORKER_PROMPT_STRATEGIST, origin=Origin.CORTEX, content=note)
+        )
+        assert verdict.allowed is True
+        application = lifecycle.apply_window(WINDOW_BEFORE_EPISODE_1)
+        assert application.applied_count == 1
+        assert lifecycle.snapshot.strategist_sections == (note,)
+
+        config = EngineConfig.resolve()
+        config.config_lifecycle = lifecycle
+
+        seen_messages: list[list[dict]] = []
+
+        def fake_script(task: Task):
+            state = {"n": 0}
+
+            def complete(messages: list[dict]) -> ModelResponse:
+                state["n"] += 1
+                seen_messages.append([dict(m) for m in messages])
+                if state["n"] >= 2:
+                    return ModelResponse(
+                        tool_calls=[ToolCall(str(state["n"]), "finish", {"summary": "ok"})]
+                    )
+                return ModelResponse(
+                    tool_calls=[ToolCall(str(state["n"]), "list_dir", {"path": "."})]
+                )
+
+            return complete
+
+        monkeypatch.setattr(mock_engine_module, "_script", fake_script)
+
+        task = Task.new(str(tmp_path), "survey the repo", engine="mock")
+        result = mock_engine_module.MockEngine().work(task, config)
+
+        assert result.status == OK
+        assert len(seen_messages) == 2, "expected exactly two scripted model turns"
+
+        for messages in seen_messages:
+            assert messages[0]["role"] == "system"
+            system_content = str(messages[0]["content"])
+            assert STRATEGIST_SECTION_HEADING in system_content
+            assert note in system_content
+            # The ONE-carrier claim: no OTHER message in this turn's growing
+            # history (user turn 1, or any prior assistant/tool exchange by
+            # turn 2) carries the note or its heading.
+            for other in messages[1:]:
+                other_content = str(other.get("content", ""))
+                assert note not in other_content, (
+                    "cortex-authored strategist text leaked into a non-system "
+                    f"message: {other!r}"
+                )
+                assert STRATEGIST_SECTION_HEADING not in other_content
