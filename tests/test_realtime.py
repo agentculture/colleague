@@ -105,6 +105,18 @@ def test_play_wav_bytes_without_extra_degrades_to_false(capsys, monkeypatch):
     assert err.count("colleague:") == 1
 
 
+def test_play_wav_bytes_local_without_extra_degrades_to_false(capsys, monkeypatch):
+    """Task t8 (speak-only lane): play_wav_bytes_local takes NO session at
+    all (there is no gate to touch), and degrades identically to
+    play_wav_bytes on a missing [voice] extra — one honest notice, no raise."""
+    _block_voice_extra(monkeypatch)
+    ok = realtime.play_wav_bytes_local(b"RIFF....WAVEdata")
+    assert ok is False
+    err = capsys.readouterr().err
+    assert "colleague[voice]" in err
+    assert err.count("colleague:") == 1
+
+
 class _HandshakeFailureWS:
     """A dialled socket whose handshake ``send`` fails — records how (and with
     which kwargs) ``open_session``'s failure path closes it."""
