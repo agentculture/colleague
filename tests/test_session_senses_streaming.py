@@ -467,7 +467,7 @@ class TestCockpitDeltaTailUntouched:
             assert "generating" not in sess.state.status.message  # throttle intact
             sink.on_delta("zz")
             assert "generating" in sess.state.status.message  # folds onto STATUS
-            assert sess.state.conversation == ()  # never the conversation feed
+            assert list(sess.state.conversation) == []  # never the conversation feed
             # And the senses painter never wrote the status surface.
             status_before = sess.state.status
             painter.on_display_delta("senses side " * 10)
