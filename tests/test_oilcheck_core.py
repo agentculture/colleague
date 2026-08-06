@@ -185,6 +185,7 @@ def test_check_groups_registered_in_order() -> None:
         engines,
         environment,
         identity,
+        model_membership,
         organs,
         otel,
         provider,
@@ -202,6 +203,7 @@ def test_check_groups_registered_in_order() -> None:
         environment.checks,
         stale_refs.checks,
         organs.checks,
+        model_membership.checks,
         three_tier.checks,
     ]
 
