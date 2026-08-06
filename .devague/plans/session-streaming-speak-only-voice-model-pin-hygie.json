@@ -1,0 +1,588 @@
+{
+  "slug": "session-streaming-speak-only-voice-model-pin-hygie",
+  "title": "session streaming + speak-only voice + model-pin hygiene",
+  "frame_slug": "session-streaming-speak-only-voice-model-pin-hygie",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-06T14:29:46Z",
+  "updated": "2026-08-06T14:37:57Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "colleague session streams senses replies into the conversation, can speak while you type, and a stale model pin fails loud instead of killing the run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "every piece (streaming, speak-only, narration, stale-pin refresh) lands inside the existing conventions \u2014 no new daemon/socket, threads stay on the sanctioned list, tests/test_boundary.py green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "senses replies stream token-by-token into the conversation stream as a growing 'senses:' line \u2014 front-door direct answers, talk-lane replies, and speak-back all included; the SSE seam already exists (engines/vllm_openai.py _make_complete streams iff config.on_delta is armed)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "streaming never changes WHAT senses says: the delivered reply equals the concatenation of streamed deltas (modulo JSON-envelope extraction) \u2014 provable by running the same turn streamed vs blocking",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "the session renders incremental senses text on the conversation surface above the owned input line (the print_above cursor already exists); today's DeltaTail folds deltas into the cockpit STATUS line only \u2014 that tail stays, conversation streaming is additive",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "incremental rendering never corrupts the owned input line or the cockpit status tail; off a colour TTY (piped/--json) the session output stays byte-identical to today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "a speak-only voice lane: a session toggle (e.g. /speak or --speak) that TTS-speaks senses conversation lines while the operator only types \u2014 voice.py synthesize + session _speak_reply already exist (today gated to voice-originated turns) and the rig tts role is ready (ResembleAI/chatterbox), so this is a gating change, not new plumbing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "with speak-only on and /voice off, no code path constructs a voice session, opens the mic, or calls stt \u2014 TTS synthesis is the only voice.py entry point reached",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "c27 stands untouched: speak-only mode never arms the mic or stt \u2014 the mic stays hot only on explicit /voice or --voice; half-duplex mute (lobes d1) is a mic-lane concern irrelevant to speak-only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "the mic-arming gate is untouched: only --voice or /voice can create a voice/realtime session; the speak-only toggle cannot, by construction",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "a model preflight: doctor (and/or a pre-run check) verifies the configured MAIN model id is in the provider's /v1/models list and names the config source that pinned it (CONVERTIBLE_MODEL/COLLEAGUE_MODEL env vs config.json vs lobes discovery) \u2014 oilcheck/three_tier.py already does exactly this membership check for the worker role; the main-model path has none",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "the preflight degrades gracefully: a provider without /v1/models, or unreachable, yields a warning/skip never a hard failure \u2014 retargeting any OpenAI-compatible server stays a config change (the vLLM-adapter carve-out rule)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "no routing policy (v1 scope line): model resolution stays declared/discovered-by-role; the model-pin fix is diagnostics + hygiene, never an automatic task-to-model fallback",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "after the stale-pin refresh lands, model resolution inputs are still exactly {flag, env, config.json, lobes role discovery} \u2014 no code path reads task content to pick a model",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "stale-pin refresh (q2): a pinned model id the provider no longer serves is STALE CONFIG, not a reason to die \u2014 with lobes armed, colleague resolves the SAME role's currently-discovered id and proceeds, loudly (a recorded warning names the stale pin, its source, and the refreshed id); not a fallback and never a routing decision: the intended target (the role) never changed, only its id rotated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "the refresh fires ONLY when the provider explicitly reports the pinned id unserved (404 model_not_found, or absence from /v1/models), stays within the SAME role, and records a warning naming the stale id + its source + the refreshed id; with lobes unarmed or the role advertising no model, the original error surfaces unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "cortex's live output streams to the user as senses-described '<<higher self thought>>' lines in the conversation stream \u2014 keeps a long cortex turn visibly alive instead of 'working\u2026' silence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "narration is senses-AUTHORED description of the cortex stream, labeled '<<higher self thought>>' \u2014 never raw cortex deltas relabeled; the user can always tell narration from senses' own conversational replies",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "in three-tier mode, worker activity surfaces the same way as senses-described '<subconscious thought/actions>' lines in the conversation stream",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "worker narration exists only in three-tier mode; a session without three_tier configured renders byte-identical output",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "boundary",
+      "text": "the narration lane is user-display ONLY: '<<higher self thought>>' / '<subconscious thought/actions>' lines never enter any model's context \u2014 not senses' own history, not cortex's, not the worker's; presentation, never feedback",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "machine-checkable: a test on a narrated run asserts zero narration lines in every model-bound messages array",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "audience",
+      "text": "the colleague session operator \u2014 the human typing at the 'colleague \u276f' prompt on a colour TTY \u2014 plus the rig operator whose model roster rotates underneath pinned ids",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "nothing in this arc changes bare work/--json/piped output \u2014 the session colour TTY is the only surface that gains behavior (the recorded off-TTY senses-lines break stays the sole exception)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "after_state",
+      "text": "the operator reads senses' reply as it generates, optionally hears it spoken while only typing, watches cortex/worker activity narrated in-conversation as it happens, and a rotated rig model id never kills a run \u2014 the pin refreshes loudly and work proceeds",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "the after-state holds with senses armed on a colour TTY; with senses unarmed the session degrades to today's behavior, not to a broken hybrid",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "why_it_matters",
+      "text": "today the session feels dead while working ('cortex \u25b8 working\u2026' then silence) and dies outright on a stale model id \u2014 the 2026-08-06 live transcript shows both; a conversational teammate must feel alive during the wait and survive model rotation without operator surgery",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "the transcript is representative, not a one-off: both failure modes reproduce on demand today (verified 2026-08-06 \u2014 whole-reply senses paints; stale CONVERTIBLE_MODEL 404s every cortex run)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "success_signal",
+      "text": "in a live session: a senses reply shows >= 2 incremental paints (not one whole-reply paint) with first token < 2s after transport TTFT; with a stale pinned model id + lobes armed, work exits 0 with a recorded stale-pin warning (today: HTTP 404 death); with speak-only on, a senses reply yields exactly 1 TTS playback and 0 stt/mic calls",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "latency numbers are rig-relative (measured: TTFT 0.28s local / 5.31s proxied); the durable signal is incremental paints, exit codes, and call counts \u2014 not absolute seconds",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "session cortex turns run STREAMED so each SSE chunk resets the read-timeout window \u2014 a long generation no longer dies to COLLEAGUE_TIMEOUT mid-turn (urllib's timeout is per-read; _raise_legible_timeout is already shared by blocking + streaming paths) \u2014 this is the 'stream cortex to avoid timeout' rationale made mechanical",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "streamed and blocking cortex turns produce identical TaskResult shape and token accounting (usage from the final include_usage chunk; zeros when the server sends none \u2014 same as blocking)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "TTS decoupling: _speak_reply is gated on a live voice session and play_wav_bytes takes that session to hold the half-duplex gate \u2014 speak-only needs a playback path WITHOUT a voice session (no mic means no half-duplex gate to hold), and typing stays live during playback (the input reader thread keeps the owned line responsive)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "with speak-only on, playback runs with NO voice session object in existence; a synth or playback failure leaves the rendered text byte-identical (the existing degrade-never-raise contract)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "boundary",
+      "text": "speak-only is per-session opt-in, default OFF \u2014 audio out is a side channel (office speakers); mirrors c27's spirit on the speaker side",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "no config default, profile, or mode flips speak-only on without an explicit per-session opt-in (flag or slash toggle)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "narration cadence rides EXISTING tool-call/phase boundaries (the senses_loop boundary beats) \u2014 a senses narration completion never runs inside cortex's on_delta callback (it would stall the stream read) and never spawns a thread outside the sanctioned list; between boundaries, liveness comes from the delta tail",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "no senses completion is issued between tool-call/phase boundaries during a cortex turn; tests/test_boundary.py's thread confinement stays green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "streaming containment: incremental-extraction failure or mid-stream death degrades THAT turn to a whole/partial reply render with a legible marker \u2014 the reply text is never lost (the engine already tracks stream completeness via the accumulator's finish_reason)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "a test kills the stream mid-reply and asserts the partial text renders with a marker and the session continues \u2014 no exception escapes to the operator",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "the stale-pin refresh warning lands in the run ARTIFACT (WorkStats/warnings), not only stderr \u2014 background one-shots and chained episodes surface it after the fact",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "a background run with a stale pin produces an artifact whose warnings name the stale id, source, and refreshed id \u2014 greppable without a TTY",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Fence-tolerant incremental JSON-envelope extractor",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "given the live-probed chunk sequence (fence-wrapped envelope, chunk boundaries splitting mid-key) the extractor emits exactly the text-field characters and withholds the closing quote/brace/fence",
+        "malformed / unfenced / non-JSON input raises a typed extraction error without losing accumulated text; a plain unfenced JSON envelope also extracts"
+      ],
+      "deps": [],
+      "covers": [],
+      "instruction": "new stdlib-only module colleague/senses_stream.py: a small state machine over streamed chunks; build test-first in tests/test_senses_stream.py with a fixture copied verbatim from the 2026-08-06 probe chunks; no third-party imports"
+    },
+    {
+      "id": "t2",
+      "summary": "Streamed senses completions deliver identical text",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a senses direct-answer/talk/speak-back turn run streamed delivers final text identical to the blocking path on the same transcript (test both against a mock SSE server)",
+        "senses_engine_config no longer silently inherits the parent on_delta \u2014 senses streaming is armed explicitly, only when the session surface wants it; token accounting unchanged (usage verbatim)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c2",
+        "h2"
+      ],
+      "instruction": "wire senses on_delta through the engine's existing streamed path (engines/vllm_openai.py _make_complete streams iff config.on_delta armed); feed deltas through the t1 extractor; clear inherited on_delta in senses.py senses_engine_config (replace(..., on_delta=None)) unless explicitly armed"
+    },
+    {
+      "id": "t3",
+      "summary": "Conversation-surface incremental rendering above the owned line",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "on a real PTY a senses reply produces >= 2 paints of a growing senses: line above the owned input line; the cockpit DeltaTail status behavior is unchanged",
+        "a piped / --json session stays byte-identical to baseline (golden test)"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c4",
+        "h3",
+        "h12"
+      ],
+      "instruction": "render via the existing print_above delta cursor seam in session.py/_input_line.py; reuse should_repaint_delta throttling; all terminal writes stay on the main thread through the owned-line seam; per the fake-streams lesson test on a real os.pipe/PTY, never StringIO"
+    },
+    {
+      "id": "t4",
+      "summary": "Session cortex turns run streamed (per-read timeout reset)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a mocked slow stream whose total generation exceeds the request timeout completes when streamed (per-read timeout resets); blocking baseline still times out",
+        "TaskResult shape and usage identical streamed vs blocking (extend the existing equivalence test); bare non-TTY work output unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c19",
+        "h16"
+      ],
+      "instruction": "extend _arm_delta_stream / wants_delta_stream in cli/_commands/work.py + the session sink so session cortex turns arm on_delta; no new flags; usage stays verbatim from the final include_usage chunk"
+    },
+    {
+      "id": "t5",
+      "summary": "Streaming containment: partial render + marker, reply never lost",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test kills the mock stream mid-reply: the partial text renders with a legible marker line, the session continues to the next prompt, no traceback escapes",
+        "a typed extraction error degrades that turn to the whole-reply blocking render \u2014 the reply text is never lost"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c25",
+        "h20"
+      ],
+      "instruction": "catch at the turn seam in session.py; reuse the stream accumulator's finish_reason completeness signal; marker line style matches existing error: lines"
+    },
+    {
+      "id": "t6",
+      "summary": "Cortex narration: senses-authored higher-self lines at boundaries",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "during a mocked cortex run, '<<higher self thought>>' senses-authored lines appear at tool-call/phase boundaries ONLY \u2014 a test asserts no senses completion is issued between boundaries",
+        "a narrated run's artifact and every model-bound messages array contain zero narration lines (the h11 test); narration input is windowed against senses' own budget; senses unarmed renders byte-identical"
+      ],
+      "deps": [
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c12",
+        "c14",
+        "c23",
+        "h9",
+        "h11",
+        "h19"
+      ],
+      "instruction": "add a narration move to senses_moves.py fed by a windowed cortex-delta buffer captured in the on_delta callback (buffering there is fine \u2014 never a completion); render through the same feed-line surface as presence lines; label verbatim '<<higher self thought>>'"
+    },
+    {
+      "id": "t7",
+      "summary": "Worker narration: subconscious lines in three-tier mode",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "in a mocked three-tier session, worker steps yield '<subconscious thought/actions>' senses-described lines; with three_tier unconfigured the session renders byte-identical (golden test)",
+        "the actual relay wiring point (lattice content lane / flight seat) is verified and named in the PR description before code lands \u2014 the challenge pass did not read it"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c13",
+        "h10"
+      ],
+      "instruction": "FIRST read the three-tier relay internals and record the wiring point (risk r2); then reuse t6's narration move with the worker label; keep the authority boundary \u2014 narration never becomes a routing or authority change"
+    },
+    {
+      "id": "t8",
+      "summary": "Speak-only lane: /speak toggle + voice-session-free playback",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a /speak toggle and --speak flag exist, default OFF; a test asserts no config default, profile, or mode flips speak-only on (h18)",
+        "with speak-only on and /voice off: zero voice-session objects constructed, zero stt calls, exactly one synthesize+playback per senses reply (call-count test); only --voice or /voice can construct a voice session (h5)",
+        "playback takes no voice session; a synth or playback failure leaves the rendered text byte-identical; typing stays live during playback on a real PTY"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c6",
+        "c7",
+        "c21",
+        "c22",
+        "h4",
+        "h5",
+        "h17",
+        "h18"
+      ],
+      "instruction": "split the half-duplex-gate concern out of play_wav_bytes: a session-free playback function for speak-only; gate _speak_reply on (voice session present) OR (speak-only on); speak the RENDERED reply text after the turn completes \u2014 replies-only per risk r1 unless the user resolves q4 to narration-aloud"
+    },
+    {
+      "id": "t9",
+      "summary": "Same-role stale-pin refresh at resolution + call time",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pinned id absent from /v1/models (or a call-time 404 model_not_found) with lobes armed: the run proceeds on the SAME role's discovered id and the warning names the stale id, its source layer, and the refreshed id",
+        "with lobes unarmed, or the role advertising no model, the original error surfaces unchanged; a valid pin resolves byte-identically",
+        "the refresh never crosses roles and never reads task content \u2014 a test enumerates the resolution inputs as exactly flag/env/config.json/role-discovery (h7)"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "c11",
+        "h7",
+        "h8"
+      ],
+      "instruction": "implement at resolution time in the config/lobes layer plus a once-only call-time 404 catch in engines/vllm_openai.py performing the same refresh; source attribution reuses the flag > env > config.json > discovery precedence to name which layer pinned the stale id"
+    },
+    {
+      "id": "t10",
+      "summary": "Doctor model-membership preflight",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "doctor warns when the configured main model is not in the provider /v1/models list, naming the pinning source; a provider without /v1/models or unreachable yields skip/info, never a hard failure (h6)",
+        "the check follows the oilcheck/three_tier.py membership-check pattern and respects the doctor --probe network gating"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h6"
+      ],
+      "instruction": "add the check to the oilcheck provider/usage group mirroring three_tier.py's model-id match; unit tests with fake /v1/models payloads (present, absent, endpoint missing, 401)"
+    },
+    {
+      "id": "t11",
+      "summary": "Refresh warning rides the run artifact",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a background/one-shot run with a stale pin writes an artifact whose warnings name the stale id, source, and refreshed id \u2014 greppable with no TTY (h21)",
+        "the artifact schema change is additive: pre-existing artifacts still load without error"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c26",
+        "h21"
+      ],
+      "instruction": "surface via WorkStats/warnings on TaskResult into artifact.py; test with a tmp-repo background run against a mocked provider (tmp-repo git tests need cwd-scoped identity)"
+    },
+    {
+      "id": "t12",
+      "summary": "Live rig proof: the transcript scenario end-to-end",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a scripted PTY session against the live rig replays the 2026-08-06 transcript scenario: the senses reply shows >= 2 incremental paints; a stale-pin run (bogus pinned id, lobes armed) exits 0 with the recorded refresh warning; a speak-only run yields exactly 1 TTS playback and 0 stt calls",
+        "tests/test_boundary.py stays green (h1: no new daemon/socket/thread outside the sanctioned list); recorded numbers are rig-relative (h15); with senses unarmed the session degrades to today's behavior and the proof records the degrade honestly (h13)"
+      ],
+      "deps": [
+        "t7",
+        "t8",
+        "t11"
+      ],
+      "covers": [
+        "c1",
+        "c16",
+        "c17",
+        "c18",
+        "h1",
+        "h13",
+        "h14",
+        "h15"
+      ],
+      "instruction": "extend the livecheck proof-runners (or a scripts/ proof) reusing the transcript's exact prompts; record paint counts, exit codes, and call counts \u2014 not absolute seconds; a degraded lane is recorded as SKIP/degrade, never faked PASS"
+    },
+    {
+      "id": "t13",
+      "summary": "Feature doc, CLAUDE.md bullet, version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/features/ gains the arc's doc (streaming, narration labels, speak-only default-off, stale-pin refresh, honest limits incl. the off-TTY h12 invariant) linked from a new CLAUDE.md architecture bullet per the trim discipline",
+        "the version is bumped with a CHANGELOG entry so the version-check CI job passes"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c15"
+      ],
+      "instruction": "follow the bullet + pointer-doc pattern; update the senses-live-presence / realtime-speech bullets where the speak lane touches them; name the q4 resolution (replies-only default) explicitly"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "q4 is open: speak-only is built replies-only by default; the user may resolve it to also speak narration lines \u2014 t8's gating is written so the change is a one-line scope widen",
+      "kind": "unknown_nonblocking",
+      "task_id": "t8",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "three-tier relay internals (lattice content lane, flight seat) were not read during the challenge pass \u2014 t7 verifies the wiring point first; a mismatch becomes a /deviate, not silent drift",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "proxied senses TTFT measured 5.31s via the orin hop \u2014 streaming shows life immediately but first-paint latency is rig-bound, not colleague-fixable",
+      "kind": "unknown_nonblocking",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "real-PTY paint assertions can flake in CI (gates-flake precedent #239) \u2014 t3/t8 tests may need bounded retries or CI-skip discipline with the live proof as the backstop",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}
