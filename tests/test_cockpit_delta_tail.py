@@ -1,9 +1,16 @@
-"""Cockpit live generation tail (feels-alive arc, task t6).
+"""Cockpit live generation tail (feels-alive arc, task t6; session arming
+extended to every render tier by task t4/ssv, covers c19/h16).
 
 Arms + renders the runtime's optional token-delta seam (``EngineConfig.on_delta``,
-``colleague/config.py``, landed by task t3) on the TWO genuinely live-rendering
-cockpit surfaces — the interactive ``session``'s own sink (``_WorkSink``) and
-``colleague work --tui``'s auto-built ``CockpitProgressSink`` — and NOWHERE else.
+``colleague/config.py``, landed by task t3): on the standalone ``colleague work
+--tui`` cockpit only when it is genuinely live-rendering, and — since t4/ssv —
+on EVERY interactive ``session`` cortex turn regardless of render tier, because
+arming has a second job beyond live display: it flips the engine onto its
+per-read-timeout-resetting streamed request path (``vllm_openai._make_complete``,
+keyed on ``config.on_delta is not None``). A session's dynamic ANSI tier still
+owns the only VISIBLE redraw; a piped/``--json``/Markdown session now streams
+(for the timeout reset) but still never redraws into a frame nobody looks at —
+its own output stays byte-identical to before t4/ssv.
 
 Four layers, outside-in:
 
@@ -13,11 +20,11 @@ Four layers, outside-in:
 * ``CockpitProgressSink.on_delta`` (``colleague/cli/_commands/_tui_sink.py``) —
   the standalone ``work --tui`` cockpit;
 * ``_WorkSink.on_delta`` (``colleague/cli/_commands/session.py``) — the
-  interactive session's own sink, gated on its dynamic ANSI tier
-  (``wants_delta_stream``) so a piped/``--json``/Markdown session never streams
-  into a frame nobody redraws;
+  interactive session's own sink; ``wants_delta_stream`` is now True on every
+  session view tier (t4/ssv), with the visible redraw still gated on the
+  dynamic ANSI tier inside ``on_delta``/``__call__`` themselves;
 * the arming site itself, ``execute_work`` (``colleague/cli/_commands/work.py``),
-  which sets ``config.on_delta`` iff a live cockpit sink is actually in play.
+  which sets ``config.on_delta`` iff the cockpit sink in play wants it.
 
 Mirrors the existing ``fold_phase``/#206 test conventions (``tests/test_tui_sink.py``,
 ``tests/test_session.py``) throughout: a delta must never advance
@@ -29,6 +36,7 @@ enhancement (the same invariant ``fold_phase`` pins for a phase notice).
 from __future__ import annotations
 
 import io
+import json
 import math
 import subprocess
 from pathlib import Path
@@ -310,9 +318,16 @@ def _session_like(view: str) -> SimpleNamespace:
 
 
 class TestWorkSinkOnDelta:
-    def test_wants_delta_stream_true_only_on_ansi_tier(self) -> None:
+    def test_wants_delta_stream_true_on_every_session_view_tier(self) -> None:
+        """Task t4 (ssv, c19/h16): a session cortex turn arms ``on_delta``
+        regardless of its render tier — the seam's SECOND job (flipping the
+        engine onto its per-chunk-read, timeout-resetting streamed path,
+        ``colleague/engines/vllm_openai.py``'s ``_make_complete``) matters
+        just as much off the dynamic ANSI tier as on it. The VISIBLE redraw
+        stays ANSI-only inside ``on_delta``/``__call__`` (unchanged) — this
+        property only decides whether the seam is armed at all."""
         assert _WorkSink(_session_like("ansi")).wants_delta_stream is True
-        assert _WorkSink(_session_like("markdown")).wants_delta_stream is False
+        assert _WorkSink(_session_like("markdown")).wants_delta_stream is True
 
     def test_wants_delta_stream_false_for_a_bare_holder(self) -> None:
         """A holder with no ``view`` attribute at all degrades to False — never
@@ -440,9 +455,12 @@ class TestExecuteWorkArmsOnDelta:
         assert config.on_delta is not None
         assert config.on_delta == sink.on_delta
 
-    def test_session_markdown_sink_never_arms_it(
+    def test_session_markdown_sink_also_arms_it(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        """Task t4 (ssv): a session's Markdown/piped tier now arms on_delta
+        too (the per-read timeout reset), superseding the pre-t4 contract —
+        only the VISIBLE redraw stays ANSI-gated, inside on_delta itself."""
         repo = _git_repo(tmp_path)
         config = EngineConfig.resolve()
         task = Task.new(str(repo), "do a small thing")
@@ -456,7 +474,8 @@ class TestExecuteWorkArmsOnDelta:
             config=config,
             display=DisplayOptions(sink=sink),
         )
-        assert config.on_delta is None
+        assert config.on_delta is not None
+        assert config.on_delta == sink.on_delta
 
     def test_deltas_never_appear_in_tui_events_stream(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -544,10 +563,28 @@ class TestEndToEndMockDeltasThroughRealSinks:
         assert calls
         assert "".join(calls) == "writing the marker filedone"
 
-    def test_session_markdown_tier_never_streams_deltas(
+    def test_session_markdown_tier_now_arms_deltas_but_never_redraws_them(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        repo = _git_repo(tmp_path)
+        """Task t4 (ssv): the Markdown/piped session tier ARMS on_delta now
+        (the engine really does take the streamed, timeout-resetting path —
+        superseding the old "never streams" contract), but the seam is still
+        display-only there: the frame nobody redraws mid-run stays byte-
+        identical, proven below by diffing against the pre-t4 (never-armed)
+        output for the SAME scripted instruction run against a FRESH,
+        otherwise-identical repo (a repo run twice would itself diverge —
+        the second run sees an already-graded feedback record, an extra
+        commit, etc. — so the control needs its own clean repo, not a
+        replay of the first one — same basename both times, since the
+        rendered frame's repo line names the directory — AND a fixed task id
+        monkeypatched onto ``uuid.uuid4``, since the rendered branch name
+        embeds it too)."""
+        import uuid as _uuid_mod
+
+        fixed_id = _uuid_mod.UUID("12345678-1234-5678-1234-567812345678")
+        monkeypatch.setattr(_uuid_mod, "uuid4", lambda: fixed_id)
+
+        repo = _git_repo(tmp_path / "armed" / "repo")
         calls: list[str] = []
         original_on_delta = session_mod._WorkSink.on_delta
 
@@ -557,14 +594,117 @@ class TestEndToEndMockDeltasThroughRealSinks:
 
         monkeypatch.setattr(session_mod._WorkSink, "on_delta", _spy)
 
+        out = _CollectingOut()
         rc = run_session(
             _make_args(repo),
             input_fn=_scripted(["do a small thing", "q"]),
-            out=_CollectingOut(),
+            out=out,
             _color=False,
         )
         assert rc == 0
-        assert calls == []
+        # The seam really did arm and stream (the new behavior) ...
+        assert calls  # sanity: the seam really armed
+        assert "".join(calls) == "writing the marker filedone"
+        # ... yet the Markdown tier's own output is untouched: re-run the
+        # IDENTICAL scripted session with wants_delta_stream forced back to
+        # its pre-t4 value (False) and diff the two transcripts byte for
+        # byte — this is the "bare non-TTY work output unchanged" pin at the
+        # session layer.
+        baseline_repo = _git_repo(tmp_path / "baseline" / "repo")
+        with monkeypatch.context() as m:
+            m.setattr(
+                session_mod._WorkSink,
+                "wants_delta_stream",
+                property(lambda self: False),
+            )
+            baseline_out = _CollectingOut()
+            rc_baseline = run_session(
+                _make_args(baseline_repo),
+                input_fn=_scripted(["do a small thing", "q"]),
+                out=baseline_out,
+                _color=False,
+            )
+        assert rc_baseline == 0
+        assert out.text() == baseline_out.text()
+
+    def test_session_task_result_identical_streamed_ansi_vs_streamed_markdown(
+        self, tmp_path: Path
+    ) -> None:
+        """Task t4 acceptance (2): extends ``test_delta_seam.py``'s "armed run
+        == unarmed run" equivalence invariant to the session layer — now that
+        BOTH session tiers arm ``on_delta`` (ansi visibly, markdown only for
+        the timeout reset), the resulting ``TaskResult`` must still be
+        byte-identical (mod wall-clock fields) between them, and identical to
+        a bare (non-session) ``execute_work`` call over the SAME instruction —
+        streaming stays a display/transport-only concern end to end."""
+        from colleague.contract import TaskResult
+
+        def _normalized(data: dict) -> dict:
+            data = json.loads(json.dumps(data))  # deep copy via round-trip
+            data["stats"]["started_at"] = ""
+            data["stats"]["duration_seconds"] = 0.0
+            # Path/id-derived fields legitimately differ: each capture dispatches
+            # to its OWN repo (a fresh task id + artifact path + branch name),
+            # not the SAME work item run twice.
+            data["task_id"] = ""
+            data["artifacts_path"] = ""
+            data["branch"] = ""
+            return data
+
+        def _capture(view: str) -> TaskResult:
+            repo = _git_repo(tmp_path / view)
+            captured: list[TaskResult] = []
+
+            def _capturing_work(
+                *,
+                repo: Path,
+                engine_name: str,
+                task: Task,
+                open_pr: bool,
+                base: str,
+                config: EngineConfig,
+                allow_dirty: bool = False,
+                command_name: str | None = None,
+                tui: bool | None = None,
+                tui_events: str | None = None,
+                display: object = None,
+                mode: str | None = None,
+            ) -> tuple[TaskResult, Path]:
+                result, art_path = execute_work(
+                    repo=repo,
+                    engine_name=engine_name,
+                    task=task,
+                    open_pr=open_pr,
+                    base=base,
+                    config=config,
+                    allow_dirty=allow_dirty,
+                    command_name=command_name,
+                    display=display or DisplayOptions(tui=tui, tui_events=tui_events),
+                    mode=mode,
+                )
+                captured.append(result)
+                return result, art_path
+
+            rc = run_session(
+                _make_args(repo),
+                input_fn=_scripted(["do a small thing", "q"]),
+                out=_CollectingOut(),
+                _work_fn=_capturing_work,
+                _color=(view == "ansi"),
+            )
+            assert rc == 0
+            assert len(captured) == 1
+            return captured[0]
+
+        ansi_result = _capture("ansi")
+        markdown_result = _capture("markdown")
+
+        assert _normalized(ansi_result.to_dict()) == _normalized(markdown_result.to_dict())
+        assert ansi_result.stats.step_count == markdown_result.stats.step_count
+        # Usage travels verbatim from the mock engine either way — never
+        # estimated, never affected by which tier armed the seam.
+        assert ansi_result.usage.prompt_tokens == markdown_result.usage.prompt_tokens
+        assert ansi_result.usage.completion_tokens == markdown_result.usage.completion_tokens
 
 
 # ---------------------------------------------------------------------------

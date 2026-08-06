@@ -587,25 +587,37 @@ def _announce_flight(task: Task, repo: Path, progress_sink: "CockpitProgressSink
 
 
 def _arm_delta_stream(config: EngineConfig, cockpit_sink: object) -> None:
-    """Arm the token-delta seam on a genuinely live-rendering cockpit sink (t6).
+    """Arm the token-delta seam on a cockpit sink that wants it (t6, extended t4/ssv).
 
     Live generation tail (feels-alive arc): arms the runtime's optional
-    token-delta seam (`EngineConfig.on_delta`, task t3) on the two live
-    cockpit surfaces ONLY. *cockpit_sink* is non-None exactly when
-    `build_progress` built or was HANDED a rendering cockpit (the same
-    `cockpit_active` gate the visual redraw uses — an explicit `--tui` or an
-    auto-detected colour TTY). `wants_delta_stream` lets the session's own
-    `_WorkSink` additionally decline when its dynamic ANSI tier isn't the one
-    drawing (a piped/`--json`/Markdown session still builds a `_WorkSink` for
-    bookkeeping but must never stream deltas into a frame nobody redraws).
+    token-delta seam (`EngineConfig.on_delta`, task t3). *cockpit_sink* is
+    non-None on two shapes: the standalone `work --tui`/auto-detected-colour-TTY
+    cockpit (`build_progress`'s `cockpit_active` gate — a genuinely
+    live-rendering surface, `CockpitProgressSink`), and the interactive
+    session's own bookkeeping sink (`_WorkSink`), built for EVERY session work
+    item regardless of render tier. `wants_delta_stream` is what each sink
+    kind decides for itself: `CockpitProgressSink` is always True (it only
+    exists when live rendering is already on); `_WorkSink` is ALSO always
+    True (task t4/ssv, c19/h16) — a session cortex turn arms the seam on
+    every tier, not only its dynamic ANSI one, because arming has a second
+    job besides display: it flips the engine onto its per-read-timeout-
+    resetting streamed request path (`config.on_delta is not None` is the
+    ONLY blocking-vs-streaming decision, `vllm_openai._make_complete`), which
+    a long turn on a slow model needs regardless of whether anything redraws.
+    The VISIBLE redraw stays ANSI-only, decided entirely inside `_WorkSink`
+    itself (`on_delta`/`__call__`'s own `sess.view == "ansi"` checks) — a
+    piped/`--json`/Markdown session still never streams into a frame nobody
+    redraws, it just also gets the timeout-reset benefit now. No new CLI
+    flag: this is a resolution change, not an opt-in.
     The default is OPT-OUT (`getattr(..., False)`): both live cockpit sinks
-    declare the property explicitly (`CockpitProgressSink` always True,
-    `_WorkSink` tier-gated), while an EXTERNAL caller-supplied sink that never
-    heard of deltas stays unarmed (an opt-in default crashed such callers on
-    the missing `on_delta` attribute). Every other path — bare non-TTY `work`,
-    `--no-tui`, `--tui-events` alone — passes ``None``, so `config.on_delta`
-    keeps its byte-identical default. Extracted from :func:`execute_work` to
-    keep its cognitive complexity under the S3776 threshold.
+    declare the property explicitly, while an EXTERNAL caller-supplied sink
+    that never heard of deltas stays unarmed (an opt-in default crashed such
+    callers on the missing `on_delta` attribute). Every other path — bare
+    non-TTY `work`, `--no-tui`, `--tui-events` alone, i.e. `cockpit_sink is
+    None` — passes ``None``, so `config.on_delta` keeps its byte-identical
+    default; this path is untouched by t4/ssv. Extracted from
+    :func:`execute_work` to keep its cognitive complexity under the S3776
+    threshold.
 
     The reset is UNCONDITIONAL (mirroring how ``config.progress`` is
     overwritten every run): any long-lived caller that reuses one
