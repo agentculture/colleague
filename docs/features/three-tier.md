@@ -225,9 +225,10 @@ model's output.
 ### Strategist VALUE is unproven until the NEBULA benchmark arm
 
 The content lane is wired, but whether the strategist *improves* task outcomes
-remains unmeasured. The NEBULA benchmark arm (issue #364's repo-A/repo-B live
-tasks with outcome deltas) is the gate for a value claim. Until that arm runs,
-the strategist's value is conditional on the benchmark — not proven.
+remains unmeasured. The NEBULA RUN benchmark arm (issue #366: the identical
+ship-game prompt re-run configurator-live against the recorded pre-#366
+baseline) is the gate for a value claim. Until that arm runs, the
+strategist's value is conditional on the benchmark — not proven.
 
 ### Deepthink is absent in three-tier mode
 
