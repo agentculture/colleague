@@ -31,6 +31,7 @@ from colleague.senses_moves import (
     MOVE_CLARIFY,
     MOVE_DISPATCH_TO_CORTEX,
     MOVE_GUIDE_CORTEX,
+    MOVE_NARRATE,
     MOVE_READ_FLIGHT,
     MOVE_REPLY_TO_OPERATOR,
     MOVE_SCHEMA,
@@ -57,8 +58,9 @@ def test_moves_enumerated_in_exactly_one_place() -> None:
         MOVE_REPLY_TO_OPERATOR,
         MOVE_CLARIFY,
         MOVE_WAIT,
+        MOVE_NARRATE,
     }
-    assert len(MOVES) == 6
+    assert len(MOVES) == 7
 
 
 def test_moves_instruction_names_every_move_and_nothing_else() -> None:
@@ -89,6 +91,7 @@ class _RecordingExecutor:
             reply_to_operator=self._record("reply_to_operator"),
             clarify=self._record("clarify"),
             wait=self._record("wait"),
+            narrate=self._record("narrate"),
         )
 
     def _record(self, name: str):
@@ -159,6 +162,20 @@ def test_executor_wait_defaults_to_a_clean_no_op_without_a_bound_callback() -> N
     assert result.move == MOVE_WAIT
 
 
+def test_executor_narrate_defaults_to_a_clean_no_op_without_a_bound_callback() -> None:
+    """`narrate` is presentation the ENGINE renders from the turn — like
+    `wait`, it needs no caller-supplied behavior, so an executor built before
+    the narration arc (no `narrate=` bound) still executes it cleanly instead
+    of refusing (which would kill narration on every unrebuilt front)."""
+    executor = SensesMoveExecutor()
+
+    result = executor.execute({"move": MOVE_NARRATE, "text": "cortex is editing loop.py"})
+
+    assert result.refused is False
+    assert result.degraded is False
+    assert result.move == MOVE_NARRATE
+
+
 # ---------------------------------------------------------------------------
 # 1c — each enumerated move, when bound, dispatches to the right callback
 # with the right positional argument(s) and returns a clean MoveResult.
@@ -190,6 +207,11 @@ def test_executor_wait_defaults_to_a_clean_no_op_without_a_bound_callback() -> N
             ("which file?",),
         ),
         ({"move": MOVE_WAIT}, "wait", ()),
+        (
+            {"move": MOVE_NARRATE, "text": "cortex is combing the failing tests"},
+            "narrate",
+            ("cortex is combing the failing tests",),
+        ),
     ],
 )
 def test_executor_dispatches_each_enumerated_move_to_its_own_callback(
@@ -390,6 +412,21 @@ def test_parse_move_recovers_a_move_wrapped_in_prose() -> None:
 
     assert parsed["move"] == "reply_to_operator"
     assert parsed["text"] == "on it"
+
+
+def test_parse_move_recovers_a_narrate_move_from_the_prompted_json_envelope() -> None:
+    """The narration move (ssv t6) parses from the same prompted-JSON envelope
+    every other move rides — plain and fence-wrapped (the served-model shape)."""
+    raw = '{"move": "narrate", "text": "cortex is threading the delta buffer in"}'
+
+    parsed = parse_move(raw)
+
+    assert parsed == {"move": MOVE_NARRATE, "text": "cortex is threading the delta buffer in"}
+
+    fenced = '```json\n{"move": "narrate", "text": "cortex just opened loop.py"}\n```'
+    parsed_fenced = parse_move(fenced)
+    assert parsed_fenced["move"] == MOVE_NARRATE
+    assert parsed_fenced["text"] == "cortex just opened loop.py"
 
 
 def test_parse_move_repairs_a_truncated_but_recoverable_object() -> None:
