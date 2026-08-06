@@ -29,6 +29,7 @@
   - honesty: an armed run's final artifact carries `config_events` whose `effective_digest` matches the stream digest; an unarmed run's artifact omits the key entirely (omit-when-empty holds); round-trips through `from_dict`
 - prompt consumption rides the ONE base-class assembly path: Engine.`system_prompt` (engine.py:140, called by both mock and vllm-openai) threads the applied snapshot's strategist text into layers.`system_prompt_for`'s EXISTING `strategist_section`/`strategist_seat` kwargs — all-engines by construction
   - honesty: mock and vllm-openai compose the SAME strategist section from the same snapshot (all-engines test on the shared base-class path); an empty/absent section composes a byte-identical prompt to today
+  - honesty: the consumer passes RAW strategist text — `system_prompt_for` composes internally, so passing an already-composed section silently double-heads (probe-verified): the wiring pins exactly ONE strategist heading in the final prompt, and a strategist-only composition still carries the engine base (the #363 T3 trap, probe-verified avoided)
 - an applied worker.tools narrowing INTERSECTS the role-curated surface on BOTH halves of the existing mechanism — the `curate_schemas` offered list (`vllm_openai.py`:809) and the ToolExecutor allowlist — narrowing only ever removes, never adds (the authority ceiling)
   - honesty: narrowing is intersect-only on both halves: a `tool_set` entry outside the role-curated surface can never ADD a schema or pass the executor; a narrowed-away tool refuses at the executor with the same refusal shape role withholding uses
 - flight.py `append_run_start` (line 159) stops hardcoding cortex-started: the run-start line names the seat that actually acts (worker in three-tier mode) — closing the t9 attribution miss the NEBULA baseline run caught on the flight-feed surface
@@ -41,6 +42,20 @@
   - honesty: the flipped docs claim only what a cited test or the benchmark record proves; the strategist-ships-opt-in-and-OFF statement survives verbatim (defaults unchanged this arc)
 - an empty `tool_ids` list on a worker.tools unit refuses whole at the lattice — a narrowing that selects nothing is malformed; () stays the snapshot's unset/no-narrowing default, so ambiguity between narrow-to-nothing and not-narrowed never exists
   - honesty: an empty-`tool_ids` worker.tools unit refuses at `validate_change` with a reason naming the empty narrowing; the snapshot default () keeps meaning not-narrowed everywhere it is read
+- the review-input assembly is SPECIFIED: before-episode-1 composes the digest from the task's instruction + goal/acceptance; between-episodes from the just-finished episode's terminal facts (summary, exit reason, steps, changed files, gate outcomes) — always a compact TEXT digest, never a message-history list (structural pin 1 upheld at the assembler too)
+  - honesty: the assembler is a pure function over TaskResult/Task fields with a size bound; no field of the worker's conversation history appears in its output (pinned alongside the existing structural pins)
+- the PERSISTED artifact carries the folded `config_events`: the front updates the on-disk artifact after folding (the loop already wrote it at run end), `read_artifact` round-trips the events, and --continue reads them from disk
+  - honesty: a chained run killed between fold and artifact-update loses at most the LAST window's events (crash-window stated honestly); a clean run's disk artifact and in-memory result carry identical `config_events`
+- successive worker.tools proposals REPLACE the narrowed set (the existing `_apply_change` replace semantics, now stated): the ceiling is always the role-curated surface, so recovery from an over-aggressive narrowing is possible at any later window — never a ratchet that can strand the worker
+  - honesty: a second worker.tools application on top of a narrower first one WIDENS back up to (never past) the role-curated ceiling — pinned by a test exercising narrow-then-replace
+- strategist accumulation is bounded by REPLACE semantics: a later worker.prompt.strategist proposal replaces the current note (symmetric with tools-replace) — the composed section can never exceed `STRATEGIST_SECTION_MAX_CHARS` by accumulation, and `compose_strategist_section`'s over-cap raise is structurally unreachable from validated units
+  - honesty: two strategist applications across two windows leave exactly ONE current note (the later), the composed prompt carries exactly ONE strategist heading, and a unit whose content is at the cap composes without raising
+- a degraded configurator review is VISIBLE, never silent: both degraded early-returns in `review_and_queue` (no cortex dial resolvable; completion exception) record onto the stream/artifact and surface on the feed — the #363 armed-is-not-alive lesson applied to the new front wiring
+  - honesty: an armed run with an unreachable cortex dial produces a visible degraded record (stream/artifact/feed) AND zero proposed/applied events — distinguishable from a healthy nothing-to-change window ({"changes": \[\]}), which is NOT degraded
+- a subagent spawned mid-episode consumes the inherited `child_snapshot` both ways: its curated tool schema intersects the applied `tool_set` (role allowlist AND narrowing, on offered schemas + executor alike) and its composed prompt carries the current strategist note; queued-but-unapplied proposals never reach a child (the r2 rule, now consumed rather than merely returned)
+  - honesty: a child spawned under a narrowing cannot call a narrowed-away tool (offered schema and executor both refuse, pinned by test); a child spawned with no narrowing applied is byte-identical to today; grandchildren at depth>1 inherit the same way
+- TaskResult and the persisted artifact record each APPLIED strategist unit's content verbatim (bounded by the lattice cap); refused records keep reason-only; an unarmed run's artifact shape is unchanged
+  - honesty: an artifact round-trip preserves applied content byte-for-byte; content appears only on applied records; the omit-when-empty stance on unarmed runs holds
 
 ## Honesty conditions
 
@@ -52,6 +67,7 @@
 - the before-state is pinned failing-first: each lane's new test demonstrably fails against the pre-arc tree before the wiring lands
 - the value claim stays conditional until measured: the arc claims wiring + measurability, never that the strategist improves outcomes — that verdict belongs to the benchmark comparison
 - the signal counts only verified+applied+CONSUMED changes (stream evidence AND prompt/schema evidence together), never proposals or detections alone
+- the containment claims are each pinned: over-cap refuses whole, the section renders under the heading in every engine's composed prompt, and an unarmed run has no code path by which cortex text reaches any prompt
 
 ## Success signals
 
@@ -61,6 +77,7 @@
 
 - colleague/loop.py's turn loop stays untouched by the content lane: consumption happens at ENGINE RESOLUTION (system prompt + offered tools resolve at work() start), and the existing ContextControls.`config_lifecycle` seam (`observe_turn`/`end_episode`, threaded via getattr at loop.py:2934) already suffices
 - colleague/chain.py's decision layer needs no change: `run_configurator_window` + `apply_config_window` are complete and tested — the d3 gap is exactly that no front calls them
+- content containment is by construction, not heuristics: bounded (4000), rendered ONLY under the named task-local strategist heading (never interleaved as raw instructions), and flowing only when the operator armed the configurator — NO content-text scan is attempted (a heuristic scan would fake assurance); the forbidden-KEY scan stays exactly as-is
 
 ## Non-goals
 
@@ -105,9 +122,30 @@
   - seeds: `c15`
 - `s16` — `colleague/config.py (three-tier arming, t8)`: `_resolve_three_tier_enabled` + worker-role resolution + doctor-visible failure reasons exist; `configurator_enabled`() resolves env > `three_tier`.configurator > OFF — the front reads config.worker as the armed signal; EngineConfig carries no `config_lifecycle` field (the loop getattr is forward-compatible)
   - seeds: `c5`
+- `s17` — `challenge pass / probe: layers.system_prompt_for strategist composition`: T3 (#363) avoided: a strategist-only composition still carries the engine base (probe-verified); the param takes RAW text and composes internally — passing a composed section silently double-heads; applied sections ACCUMULATE in the snapshot while the composer takes one string and RAISES past the cap
+  - seeds: `c30`, `c7`
+- `s18` — `challenge pass / observability lens: configurator.review_and_queue degraded paths`: both degraded early-returns (no dial, lines 469-470; completion exception, 484-485) append NOTHING to the stream — an armed-but-dead configurator is invisible: reviewed=True, degraded=True, zero events, no error anywhere (the #363 armed-is-not-alive trap reproduced in the new module)
+  - seeds: `c31`
+- `s19` — `challenge pass / adjacent-systems lens: subagents.py + configlifecycle.child_snapshot`: `child_snapshot` (r2 inherit default) exists and is NEVER read by subagents.py — an applied worker.tools narrowing does not reach a child today, so child spawn is a narrowing bypass unless decided otherwise (q4)
+  - seeds: `c29`
+- `s20` — `challenge pass / failure-mode lens: artifact persistence timing`: the loop persists the artifact at run end; a front-side fold AFTER `execute_work` returns must update the on-disk artifact or --continue and the benchmark read stale events
+  - seeds: `c28`
+- `s21` — `challenge pass / concurrency lens: configlifecycle threading`: clean pass: the module imports no threading primitive, the loop observes on the main thread only, children never hold the lifecycle, worktree admin has its own fcntl serialization — residual risk only if a future front drives windows concurrently
+- `s22` — `challenge pass / adjacent-systems lens: oilcheck/three_tier.py + doctor`: oilcheck mirrors THREE-TIER arming (`_three_tier_armed`) but not CONFIGURATOR arming; consistent as long as the front reads arming via config.py resolution — a configurator readiness line is parked (v2), not a spec change
+- `s23` — `challenge pass / security lens: cross-tier authored text`: the c19 escalation signal that made this pass rigorous: cortex-authored free text enters the acting seat's system prompt for the first time — containment stance recorded as c32 (bounded + named section + opt-in, no heuristic scan)
+  - seeds: `c32`
+- `s24` — `challenge pass / adjudication: subagents.py joins the touched surfaces (q4)`: operator chose consumed child inheritance over the stated-limit option — subagents.py child schema/prompt resolution must read `child_snapshot`; the spawn bypass closes this arc
+  - seeds: `c35`
 
 ## Decisions
 
 - q1 resolved: the before-episode-1 configurator window arms on ALL armed runs (three-tier + configurator enabled), plain work included; chains additionally get the between-episode window — one up-front cortex review per armed run is the accepted cost
 - q2 resolved: the `config_events` fold is CUMULATIVE — each episode's TaskResult.`config_events` carries the stream as known at its finalize, post-episode window events land on the NEXT episode's record, the final episode carries the complete audit
 - q3 resolved: the fold MAPS configlifecycle's internal events into configevents.ConfigEvent — the two classes stay distinct; configevents remains the durable vocabulary; no churn in the landed t6/t7 modules
+- q4 resolved: child inheritance is WIRED this arc — subagents.py joins the touched surfaces; the r2 inherit default becomes consumed inheritance, closing the spawn bypass
+- q5 resolved: the artifact carries applied strategist content VERBATIM (bounded) — auditability and live-benchmark consumption evidence from the artifact alone
+
+## Open parks
+
+- [unknown_nonblocking] per-window cortex review latency on a serializing rig (one extra completion per armed window) — unmeasured until the benchmark arm runs
+- [unknown_nonblocking] whether oilcheck/doctor should grow a configurator-armed readiness line (oilcheck/`three_tier.py` mirrors three-tier arming today, not configurator arming) — candidate plan-side task, not a spec change

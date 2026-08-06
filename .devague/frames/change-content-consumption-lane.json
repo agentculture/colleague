@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-06T04:19:13Z",
-  "updated": "2026-08-06T04:52:49Z",
+  "updated": "2026-08-06T05:01:21Z",
   "claims": [
     {
       "id": "c1",
@@ -130,6 +130,12 @@
         {
           "id": "h7",
           "text": "mock and vllm-openai compose the SAME strategist section from the same snapshot (all-engines test on the shared base-class path); an empty/absent section composes a byte-identical prompt to today",
+          "status": "confirmed",
+          "instruction": ""
+        },
+        {
+          "id": "h27",
+          "text": "the consumer passes RAW strategist text \u2014 system_prompt_for composes internally, so passing an already-composed section silently double-heads (probe-verified): the wiring pins exactly ONE strategist heading in the final prompt, and a strategist-only composition still carries the engine base (the #363 T3 trap, probe-verified avoided)",
           "status": "confirmed",
           "instruction": ""
         }
@@ -457,9 +463,204 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "the review-input assembly is SPECIFIED: before-episode-1 composes the digest from the task's instruction + goal/acceptance; between-episodes from the just-finished episode's terminal facts (summary, exit reason, steps, changed files, gate outcomes) \u2014 always a compact TEXT digest, never a message-history list (structural pin 1 upheld at the assembler too)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "the assembler is a pure function over TaskResult/Task fields with a size bound; no field of the worker's conversation history appears in its output (pinned alongside the existing structural pins)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "the PERSISTED artifact carries the folded config_events: the front updates the on-disk artifact after folding (the loop already wrote it at run end), read_artifact round-trips the events, and --continue reads them from disk",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "a chained run killed between fold and artifact-update loses at most the LAST window's events (crash-window stated honestly); a clean run's disk artifact and in-memory result carry identical config_events",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "successive worker.tools proposals REPLACE the narrowed set (the existing _apply_change replace semantics, now stated): the ceiling is always the role-curated surface, so recovery from an over-aggressive narrowing is possible at any later window \u2014 never a ratchet that can strand the worker",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "a second worker.tools application on top of a narrower first one WIDENS back up to (never past) the role-curated ceiling \u2014 pinned by a test exercising narrow-then-replace",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "strategist accumulation is bounded by REPLACE semantics: a later worker.prompt.strategist proposal replaces the current note (symmetric with tools-replace) \u2014 the composed section can never exceed STRATEGIST_SECTION_MAX_CHARS by accumulation, and compose_strategist_section's over-cap raise is structurally unreachable from validated units",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "two strategist applications across two windows leave exactly ONE current note (the later), the composed prompt carries exactly ONE strategist heading, and a unit whose content is at the cap composes without raising",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "a degraded configurator review is VISIBLE, never silent: both degraded early-returns in review_and_queue (no cortex dial resolvable; completion exception) record onto the stream/artifact and surface on the feed \u2014 the #363 armed-is-not-alive lesson applied to the new front wiring",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "an armed run with an unreachable cortex dial produces a visible degraded record (stream/artifact/feed) AND zero proposed/applied events \u2014 distinguishable from a healthy nothing-to-change window ({\"changes\": []}), which is NOT degraded",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "boundary",
+      "text": "content containment is by construction, not heuristics: bounded (4000), rendered ONLY under the named task-local strategist heading (never interleaved as raw instructions), and flowing only when the operator armed the configurator \u2014 NO content-text scan is attempted (a heuristic scan would fake assurance); the forbidden-KEY scan stays exactly as-is",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "the containment claims are each pinned: over-cap refuses whole, the section renders under the heading in every engine's composed prompt, and an unarmed run has no code path by which cortex text reaches any prompt",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c33",
+      "kind": "decision",
+      "text": "q4 resolved: child inheritance is WIRED this arc \u2014 subagents.py joins the touched surfaces; the r2 inherit default becomes consumed inheritance, closing the spawn bypass",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c34",
+      "kind": "decision",
+      "text": "q5 resolved: the artifact carries applied strategist content VERBATIM (bounded) \u2014 auditability and live-benchmark consumption evidence from the artifact alone",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "a subagent spawned mid-episode consumes the inherited child_snapshot both ways: its curated tool schema intersects the applied tool_set (role allowlist AND narrowing, on offered schemas + executor alike) and its composed prompt carries the current strategist note; queued-but-unapplied proposals never reach a child (the r2 rule, now consumed rather than merely returned)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "a child spawned under a narrowing cannot call a narrowed-away tool (offered schema and executor both refuse, pinned by test); a child spawned with no narrowing applied is byte-identical to today; grandchildren at depth>1 inherit the same way",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "TaskResult and the persisted artifact record each APPLIED strategist unit's content verbatim (bounded by the lattice cap); refused records keep reason-only; an unarmed run's artifact shape is unchanged",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "an artifact round-trip preserves applied content byte-for-byte; content appears only on applied records; the omit-when-empty stance on unarmed runs holds",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
-  "open_vagueness": [],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "per-window cortex review latency on a serializing rig (one extra completion per armed window) \u2014 unmeasured until the benchmark arm runs",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "whether oilcheck/doctor should grow a configurator-armed readiness line (oilcheck/three_tier.py mirrors three-tier arming today, not configurator arming) \u2014 candidate plan-side task, not a spec change",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
   "scope_entries": [
     {
       "id": "s1",
@@ -591,6 +792,67 @@
       "finding": "_resolve_three_tier_enabled + worker-role resolution + doctor-visible failure reasons exist; configurator_enabled() resolves env > three_tier.configurator > OFF \u2014 the front reads config.worker as the armed signal; EngineConfig carries no config_lifecycle field (the loop getattr is forward-compatible)",
       "seeds": [
         "c5"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / probe: layers.system_prompt_for strategist composition",
+      "finding": "T3 (#363) avoided: a strategist-only composition still carries the engine base (probe-verified); the param takes RAW text and composes internally \u2014 passing a composed section silently double-heads; applied sections ACCUMULATE in the snapshot while the composer takes one string and RAISES past the cap",
+      "seeds": [
+        "c30",
+        "c7"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / observability lens: configurator.review_and_queue degraded paths",
+      "finding": "both degraded early-returns (no dial, lines 469-470; completion exception, 484-485) append NOTHING to the stream \u2014 an armed-but-dead configurator is invisible: reviewed=True, degraded=True, zero events, no error anywhere (the #363 armed-is-not-alive trap reproduced in the new module)",
+      "seeds": [
+        "c31"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / adjacent-systems lens: subagents.py + configlifecycle.child_snapshot",
+      "finding": "child_snapshot (r2 inherit default) exists and is NEVER read by subagents.py \u2014 an applied worker.tools narrowing does not reach a child today, so child spawn is a narrowing bypass unless decided otherwise (q4)",
+      "seeds": [
+        "c29"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / failure-mode lens: artifact persistence timing",
+      "finding": "the loop persists the artifact at run end; a front-side fold AFTER execute_work returns must update the on-disk artifact or --continue and the benchmark read stale events",
+      "seeds": [
+        "c28"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "challenge pass / concurrency lens: configlifecycle threading",
+      "finding": "clean pass: the module imports no threading primitive, the loop observes on the main thread only, children never hold the lifecycle, worktree admin has its own fcntl serialization \u2014 residual risk only if a future front drives windows concurrently",
+      "seeds": []
+    },
+    {
+      "id": "s22",
+      "surface": "challenge pass / adjacent-systems lens: oilcheck/three_tier.py + doctor",
+      "finding": "oilcheck mirrors THREE-TIER arming (_three_tier_armed) but not CONFIGURATOR arming; consistent as long as the front reads arming via config.py resolution \u2014 a configurator readiness line is parked (v2), not a spec change",
+      "seeds": []
+    },
+    {
+      "id": "s23",
+      "surface": "challenge pass / security lens: cross-tier authored text",
+      "finding": "the c19 escalation signal that made this pass rigorous: cortex-authored free text enters the acting seat's system prompt for the first time \u2014 containment stance recorded as c32 (bounded + named section + opt-in, no heuristic scan)",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "challenge pass / adjudication: subagents.py joins the touched surfaces (q4)",
+      "finding": "operator chose consumed child inheritance over the stated-limit option \u2014 subagents.py child schema/prompt resolution must read child_snapshot; the spawn bypass closes this arc",
+      "seeds": [
+        "c35"
       ]
     }
   ],
