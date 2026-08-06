@@ -85,6 +85,7 @@ one consumer.
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -92,6 +93,12 @@ from urllib.parse import urlsplit
 
 #: The one endpoint this module ever calls.
 _CAPABILITIES_PATH = "/capabilities"
+
+#: The OpenAI-compatible served-model-list endpoint (same-role stale-pin
+#: refresh, plan task t9) — the gateway's OWN aggregate roster, mirroring
+#: ``colleague/oilcheck/three_tier.py``'s ``_worker_model_match`` precedent
+#: (``gateway_url.rstrip("/") + "/v1/models"``), never a per-role endpoint.
+_MODELS_PATH = "/v1/models"
 
 #: Bound a stalled gateway so a caller never hangs indefinitely on a dead rig.
 _DEFAULT_TIMEOUT = 5.0
@@ -387,3 +394,132 @@ def ready_kind(role_name: str) -> str:
     surfacing ``ready`` to an operator.
     """
     return "live-probed" if role_name in _LIVE_PROBED_READY_ROLES else "config-proxy"
+
+
+# ---------------------------------------------------------------------------
+# Same-role stale-pin refresh (spec c10/c11, honesty h7/h8, plan task t9).
+#
+# A model id pinned via flag/env/config.json (or, at call time, simply the id
+# ``EngineConfig`` last resolved) that the provider no longer serves is STALE
+# CONFIG, not a reason to die: the intended target — the ROLE — never
+# changed, only its served id rotated. Both consumers below (the resolution
+# rung in ``colleague/config.py`` and the call-time 404 catch in
+# ``colleague/engines/vllm_openai.py``) build the SAME
+# :class:`ModelRefreshWarning` shape and emit it through
+# :func:`emit_model_refresh_warning`, so a downstream consumer (plan task
+# t11 — the run artifact) has exactly one record shape to read regardless of
+# which rung caught the staleness. This is a REFRESH, never a fallback: it
+# never crosses roles, and it never inspects task content — see
+# ``colleague/config.py``'s ``_model_pin_source``/``_refresh_stale_model_pin``
+# for the resolution-time rung's exactly-four resolution inputs (h7).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ModelRefreshWarning:
+    """One same-role stale-pin refresh record (spec c11, honesty h8).
+
+    ``role`` is the lobes role name the refresh stayed within (``"cortex"``
+    or ``"worker"`` — never a role other than the one that was actually
+    pinned/driving, "never crosses roles"). ``stale_id`` is the id the
+    provider no longer serves; ``source`` names the layer that pinned it at
+    resolution time (``"flag"``, ``"COLLEAGUE_MODEL"``, ``"CONVERTIBLE_MODEL"``,
+    or ``"config.json"``) or, for a call-time refresh, the literal string
+    ``"call-time-404"`` (the live 404 IS the detection source there — call
+    time has no cheap access to which resolution-time layer originally
+    supplied the id, and the design only requires call time to fire "only
+    when lobes is armed and the role advertises a model", never that it
+    re-derive the original pin's layer). ``refreshed_id`` is the SAME role's
+    currently-discovered id substituted in. ``point`` is ``"resolution"`` or
+    ``"call"`` — which rung caught the staleness.
+    """
+
+    role: str
+    stale_id: str
+    source: str
+    refreshed_id: str
+    point: str
+
+    def message(self) -> str:
+        """The one human-legible line both rungs print to stderr (and a later
+        task, t11, folds into the run artifact verbatim)."""
+        return (
+            f"colleague: model pin refresh ({self.point}) — {self.role} model "
+            f"{self.stale_id!r} (pinned via {self.source}) is no longer served; "
+            f"refreshed to {self.refreshed_id!r} from the lobes gateway's {self.role} "
+            "role discovery"
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "role": self.role,
+            "stale_id": self.stale_id,
+            "source": self.source,
+            "refreshed_id": self.refreshed_id,
+            "point": self.point,
+        }
+
+
+def emit_model_refresh_warning(warning: ModelRefreshWarning) -> None:
+    """Print *warning*'s message to stderr — the ONE notice both the
+    resolution-time and call-time refresh rungs emit (mirrors
+    :func:`colleague.config._emit_lobes_unreachable_notice`'s stderr-notice
+    convention). Never raises: a closed/broken stderr must never break the
+    refresh it is merely announcing.
+    """
+    try:
+        print(warning.message(), file=sys.stderr)
+    except OSError:  # nosec B110 - diagnostic only; never mask a working refresh
+        pass
+
+
+def fetch_served_model_ids(
+    gateway_url: str, *, timeout: float = _DEFAULT_TIMEOUT
+) -> "list[str] | None":
+    """GET ``{gateway_url}/v1/models`` and return the served model ids.
+
+    The resolution-time half of the same-role stale-pin refresh (plan task
+    t9): a membership check against the gateway's OWN aggregate roster
+    (mirrors ``colleague/oilcheck/three_tier.py``'s ``_worker_model_match``
+    precedent exactly, including the endpoint shape).
+
+    Returns ``None`` — "the membership check could not run" — on ANY
+    failure: an unsupported scheme, an unreachable gateway, a connect/read
+    timeout, a non-200 status (this covers a bare 401, matching the spec's
+    "endpoint missing/unreachable/401 means NO refresh" rule), malformed/
+    invalid JSON, a non-dict top-level body, or an unparseable ``{"data":
+    [...]}`` shape. The caller (:mod:`colleague.config`) treats ``None``
+    as "leave the pin untouched" — the SAME degrade-never-hard-fail stance
+    :func:`resolve_roles` takes, and deliberately distinct from an empty-but
+    -successfully-fetched list (``[]``), which IS a valid "nothing served"
+    membership result. Never raises.
+    """
+    if urlsplit(gateway_url).scheme not in _ALLOWED_SCHEMES:
+        return None
+    try:
+        url = gateway_url.rstrip("/") + _MODELS_PATH
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(  # nosec B310 - scheme validated above
+            request, timeout=timeout
+        ) as response:
+            status = getattr(response, "status", 200)
+            if status != 200:
+                return None
+            raw_body = response.read()
+        payload = json.loads(raw_body.decode("utf-8"))
+    # Degrade-to-None is the whole contract of this function: any failure
+    # (network, JSON, shape) here folds into the caller's "can't run the
+    # check, so no refresh" branch.
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return None
+    return [
+        entry["id"]
+        for entry in data
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    ]
