@@ -87,7 +87,16 @@ minds. The architecture, part by part:
   the operator types (default off, mic gate untouched); a stale model pin
   same-role-refreshes loudly (main seat only) onto `TaskResult.warnings` + a
   doctor membership probe. Doc: `session-streaming-voice.md`.
-- **Memory (best-colleague R1)** — recall-before / remember-after every run (eidetic) onto `TaskResult.memory`; triple-gated; isolated runs target the OPERATOR repo. Doc: `memory.md`.
+- **Memory (best-colleague R1)** — recall-before / remember-after every run (eidetic) onto `TaskResult.memory`; triple-gated; isolated runs target the OPERATOR repo. Rung 1 folds the failure substance verbatim (#379); **rung 2** distills a schema-validated cause→lesson→next-delta (author BY ROLE: deepthink/muse > armed-lobes main > rung-1 floor; a detached bounded child, `distill: detached`, alive-counters on the artifact + doctor). Doc: `memory.md`.
+- **Self-learning (strive + code-lessons)** — the necessity loop `colleague strive`
+  (four enforced phases, hypothesis ledger refuse-whole, novelty stall recorded
+  honestly, measure approval-gated in the episode worktree, real per-attempt
+  episodes via `Engine.work` on `sub/strive-<goal-slug>`); repo-anchored
+  code-lessons from the integrator-correction diff (`colleague/correction.py`,
+  tip SHA vs squash commit, honest no-diff) + the seamless auto-trigger lane
+  (grade-time + work-start, observable, never blocks the grade); cortex-authored
+  feedback carries provenance and stays OUT of `feedback export` by default.
+  Doc: `self-learning.md`.
 - **Finish recovery + grounded reads (R2)** — the loop recovers
   literal-markup/thin/meta finishes (#248/#231) onto `TaskResult.finish_recovered`;
   `read_file` is `cat -n` grounded (#240). Doc: `work-and-loop.md`.
@@ -236,9 +245,15 @@ senses relays / cortex configures — THREE declared roles with FIXED authority
 boundary, resolved BY ROLE NAME from `lobes`; opt-in via `config.json`
 `three_tier` or `COLLEAGUE_THREE_TIER`; byte-identical when unconfigured;
 deepthink absent in three-tier mode; the configurator a further opt-in, default
-off; NEVER an automatic task-to-model routing policy).
+off; NEVER an automatic task-to-model routing policy); (9) **the self-learning
+increment** (spec `docs/specs/2026-08-07-self-learning-arc.md`): rung-2 lesson
+distillation on a FIXED author precedence (deepthink/muse > armed-lobes main >
+none — a resolution rung, not a router), the `strive` bounded mode (an
+operator-invoked verb with its own retry policy; `chain.CONTINUABLE_REASONS`
+pinned unchanged), and the code-lesson/auto-trigger lane — each surface
+enumerated, byte-identical when unarmed.
 
-Anything beyond those eight is still the excluded router; document the distinction
+Anything beyond those nine is still the excluded router; document the distinction
 honestly. **Still explicitly OUT**, each parked pending its own re-spec: the
 **retrieval-consumption lane of #277** (`embedder`/`reranker` roles are
 discoverable in the lobes `/capabilities` contract but colleague consumes only
@@ -290,8 +305,11 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   sanctioned subprocess consumers: `hooks.py`, `tools.py`, `handoff.py`,
   `neighbours.py`, `culture.py`, `devague.py`, `worktrees.py`, `lint.py`,
   `resident/steward.py`, `affectedtests.py`, `background.py` (the one-shot detach —
-  `Popen(start_new_session=True)`, no `.wait()`/`.poll()`), `memory.py`, and
-  `livecheck.py`. Threads (`concurrent.futures`) stay confined to
+  `Popen(start_new_session=True)`, no `.wait()`/`.poll()`), `memory.py`,
+  `livecheck.py`, `coherence.py`, `experiment.py` (allow-list exactly `sloth`),
+  `strive.py` (the operator-supplied measure command, approval-gated like
+  `run_command`), and `correction.py` (git/gh for the integrator-correction
+  diff). Threads (`concurrent.futures`) stay confined to
   `colleague/subagents.py` and `colleague/cli/_commands/_input_line.py` (the
   session's colour-TTY reader thread; any failure degrades to cooked-mode). Every
   shell-out targets an operator-installed CLI via explicit allow-listing; none opens

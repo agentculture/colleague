@@ -311,3 +311,104 @@ def test_record_ordinary_item_keeps_single_record_shape(
     assert rc == 0
     rec = json.loads(capsys.readouterr().out)
     assert "chain" not in rec and "chain_episodes" not in rec
+
+
+# ---------------------------------------------------------------------------
+# t3: `feedback record --author` — operator vs cortex records side by side
+# ---------------------------------------------------------------------------
+
+
+def test_record_author_defaults_to_operator(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = main(["feedback", "record", "d10", "--rating", "4", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    rec = json.loads(capsys.readouterr().out)
+    # omit-when-default (matching the pre-author persisted shape) OR explicit "operator" — either
+    # way the caller reads the default author back as "operator".
+    assert rec.get("author", "operator") == "operator"
+
+
+def test_record_author_cortex_round_trips(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = main(
+        [
+            "feedback",
+            "record",
+            "d11",
+            "--rating",
+            "5",
+            "--author",
+            "cortex",
+            "--repo",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert rec["author"] == "cortex"
+
+    rc = main(["feedback", "show", "d11", "--author", "cortex", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["rating"] == 5
+    assert shown["author"] == "cortex"
+
+
+def test_record_operator_and_cortex_coexist_via_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A cortex-authored record never overwrites the operator's — both readable
+    via `feedback show`."""
+    rc = main(["feedback", "record", "d12", "--rating", "3", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    capsys.readouterr()
+    rc = main(
+        [
+            "feedback",
+            "record",
+            "d12",
+            "--rating",
+            "5",
+            "--author",
+            "cortex",
+            "--repo",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = main(["feedback", "show", "d12", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    op = json.loads(capsys.readouterr().out)
+    assert op["rating"] == 3  # the operator record is untouched by the cortex write
+
+    rc = main(["feedback", "show", "d12", "--author", "cortex", "--repo", str(tmp_path), "--json"])
+    assert rc == 0
+    cx = json.loads(capsys.readouterr().out)
+    assert cx["rating"] == 5
+    assert cx["author"] == "cortex"
+
+
+def test_record_invalid_author_is_user_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = main(
+        [
+            "feedback",
+            "record",
+            "d13",
+            "--rating",
+            "3",
+            "--author",
+            "bogus",
+            "--repo",
+            str(tmp_path),
+        ]
+    )
+    assert rc != 0
+    assert "error:" in capsys.readouterr().err

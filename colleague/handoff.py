@@ -35,6 +35,11 @@ class HandoffResult:
     pr_url: str | None = None
     changed_files: list[str] = field(default_factory=list)
     note: str = ""
+    tip_sha: str | None = None
+    """The work branch's tip commit SHA once ``committed`` is True (plan task
+    t5, covers c5), or ``None`` when no commit landed. Read straight off the
+    branch ref (:func:`_branch_tip_sha`) — valid before or after
+    :func:`_restore_ref` switches the operator's checkout away from it."""
 
 
 def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -129,6 +134,17 @@ def current_ref(repo: Path) -> str | None:
 
 #: Back-compat alias for the historical private name (internal callers).
 _current_ref = current_ref
+
+
+def _branch_tip_sha(repo: Path, branch: str) -> str | None:
+    """The tip commit SHA of *branch*, or ``None`` when git can't answer.
+
+    Reads the ref directly (``rev-parse <branch>``) rather than ``HEAD``, so it
+    is safe to call either while still checked out on ``branch`` (the normal
+    handoff path, before :func:`_restore_ref` runs) or after the checkout has
+    moved on (the branch ref itself doesn't change either way)."""
+    proc = _git(repo, "rev-parse", "-q", branch, check=False)
+    return proc.stdout.strip() or None
 
 
 def _restore_ref(repo: Path, ref: str | None) -> None:
@@ -264,6 +280,7 @@ def handoff(
         commit_args += ["-m", body]
     _commit_on_branch(repo, branch, commit_args, original_ref)
     result.committed = True
+    result.tip_sha = _branch_tip_sha(repo, branch)
 
     if not should_open_pr(repo, open_pr):
         result.note = _with_ignored(
@@ -325,6 +342,7 @@ def _finish_self_committed(
     _git(repo, "checkout", "-B", branch)
     result = HandoffResult(branch=branch)
     result.committed = True
+    result.tip_sha = _branch_tip_sha(repo, branch)
     result.changed_files = _committed_paths(repo, base_sha)
     subject = _commit_subject(instruction, task_id)
     if not should_open_pr(repo, open_pr):
@@ -543,7 +561,7 @@ def chain_handoff_finalize(
     behaves identically with or without it.
     """
     repo = Path(repo_path).resolve()
-    result = HandoffResult(branch=branch, committed=True)
+    result = HandoffResult(branch=branch, committed=True, tip_sha=_branch_tip_sha(repo, branch))
     if not should_open_pr(repo, open_pr):
         result.note = "chain final: local branches only (--no-pr, no remote, or gh unavailable)"
         return result

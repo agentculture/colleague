@@ -323,3 +323,108 @@ def test_export_tool_lands_in_registry() -> None:
 def test_explain_feedback_export_reads_doc() -> None:
     code, out, _ = _run(["explain", "feedback", "export"])
     assert code == 0 and "export" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# c30/h25: flywheel exclusion filter — cortex-authored records out by default
+# ---------------------------------------------------------------------------
+
+
+def test_export_excludes_cortex_authored_by_default(tmp_path: Path) -> None:
+    """A work item graded by cortex is excluded from export by default.
+
+    WHY: a model grading its own work must not train itself (flywheel risk).
+    """
+    _record_work_item(
+        tmp_path, "cortex-graded", "self-graded task", started_at="2026-01-01T00:00:00+00:00"
+    )
+    fb.write_feedback(tmp_path, "cortex-graded", rating=5, author=fb.CORTEX_AUTHOR)
+
+    rows = fb.export_work_items(tmp_path)
+    assert rows == []
+
+
+def test_export_includes_cortex_with_opt_in(tmp_path: Path) -> None:
+    """Cortex-authored records are included when explicitly requested."""
+    _record_work_item(
+        tmp_path, "cortex-graded", "self-graded task", started_at="2026-01-01T00:00:00+00:00"
+    )
+    fb.write_feedback(tmp_path, "cortex-graded", rating=5, author=fb.CORTEX_AUTHOR)
+
+    rows = fb.export_work_items(tmp_path, include_cortex_authored=True)
+    assert len(rows) == 1
+    assert rows[0]["task_id"] == "cortex-graded"
+    assert rows[0]["rating"] == 5
+
+
+def test_export_prefers_operator_over_cortex(tmp_path: Path) -> None:
+    """When both operator and cortex grades exist, the operator grade is used."""
+    _record_work_item(tmp_path, "both", "dual-graded task", started_at="2026-01-01T00:00:00+00:00")
+    fb.write_feedback(tmp_path, "both", rating=3, author=fb.DEFAULT_AUTHOR)
+    fb.write_feedback(tmp_path, "both", rating=5, author=fb.CORTEX_AUTHOR)
+
+    rows = fb.export_work_items(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["rating"] == 3  # operator's grade, not cortex's
+
+    rows_cortex = fb.export_work_items(tmp_path, include_cortex_authored=True)
+    assert len(rows_cortex) == 1
+    assert rows_cortex[0]["rating"] == 3  # still operator's (operator takes precedence)
+
+
+def test_export_mixed_authors_with_opt_in(tmp_path: Path) -> None:
+    """Export with mixed author types: operator-only by default, all with opt-in."""
+    _record_work_item(
+        tmp_path, "op-only", "operator graded", started_at="2026-01-01T00:00:00+00:00"
+    )
+    _record_work_item(tmp_path, "ctx-only", "cortex graded", started_at="2026-01-02T00:00:00+00:00")
+    fb.write_feedback(tmp_path, "op-only", rating=4, author=fb.DEFAULT_AUTHOR)
+    fb.write_feedback(tmp_path, "ctx-only", rating=5, author=fb.CORTEX_AUTHOR)
+
+    # Default: operator only
+    rows = fb.export_work_items(tmp_path)
+    assert [r["task_id"] for r in rows] == ["op-only"]
+
+    # Opt-in: both
+    rows_all = fb.export_work_items(tmp_path, include_cortex_authored=True)
+    assert {r["task_id"] for r in rows_all} == {"op-only", "ctx-only"}
+
+
+def test_cli_export_include_cortex_authored_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The --include-cortex-authored CLI flag includes cortex records."""
+    _record_work_item(tmp_path, "ctx", "cortex task", started_at="2026-01-01T00:00:00+00:00")
+    fb.write_feedback(tmp_path, "ctx", rating=5, author=fb.CORTEX_AUTHOR)
+
+    # Default: excluded
+    rc = main(["feedback", "export", "--repo", str(tmp_path)])
+    assert rc == 0
+    assert _jsonl_lines(capsys.readouterr().out) == []
+
+    # With flag: included
+    rc = main(["feedback", "export", "--include-cortex-authored", "--repo", str(tmp_path)])
+    assert rc == 0
+    lines = _jsonl_lines(capsys.readouterr().out)
+    assert len(lines) == 1
+    assert lines[0]["task_id"] == "ctx"
+
+
+def test_rendered_cli_export_include_cortex_authored(tmp_path: Path) -> None:
+    """The rendered CLI also supports --include-cortex-authored."""
+    _record_work_item(tmp_path, "ctx", "cortex task", started_at="2026-01-01T00:00:00+00:00")
+    fb.write_feedback(tmp_path, "ctx", rating=5, author=fb.CORTEX_AUTHOR)
+
+    # Default: excluded
+    code, out, _ = _run(["feedback", "export", "--repo", str(tmp_path), "--json"])
+    assert code == 0
+    assert json.loads(out) == []
+
+    # With flag: included
+    code, out, _ = _run(
+        ["feedback", "export", "--include-cortex-authored", "--repo", str(tmp_path), "--json"]
+    )
+    assert code == 0
+    rows = json.loads(out)
+    assert len(rows) == 1
+    assert rows[0]["task_id"] == "ctx"

@@ -1,0 +1,18 @@
+{
+  "plan_slug": "self-learning-arc",
+  "schema_version": 1,
+  "created": "2026-08-07T09:09:53Z",
+  "updated": "2026-08-07T09:09:53Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t3 reassigned colleague(35B)->sonnet after two thor 503 mid-run deaths; remaining colleague dispatches pinned to the local 27B until thor proves stable",
+      "task_ref": "t3",
+      "reason": "the peer hosting the 35B (thor) went 503 mid-run twice (attempt 1 step 9, attempt 2 step 14), both attempts zero-write; the approved split assigned t3 to colleague on the 35B",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    }
+  ]
+}

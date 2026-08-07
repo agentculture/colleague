@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -139,3 +140,96 @@ def test_valid_uuid_hex_id_is_accepted(tmp_path: Path) -> None:
     fb = feedback.write_feedback(tmp_path, "9f2c1ab0e4d1", rating=5)
     assert fb.task_id == "9f2c1ab0e4d1"
     assert feedback.read_feedback(tmp_path, "9f2c1ab0e4d1") == fb
+
+
+# ---------------------------------------------------------------------------
+# t3: author provenance — operator vs cortex records coexist per task_id (c17/h14)
+# ---------------------------------------------------------------------------
+
+
+def test_write_feedback_defaults_to_operator_author(tmp_path: Path) -> None:
+    rec = feedback.write_feedback(tmp_path, "d", rating=4)
+    assert rec.author == "operator"
+    # The default author keeps the pre-author, un-suffixed filename (back-compat).
+    assert (tmp_path / ".colleague" / "d.feedback.json").is_file()
+
+
+def test_operator_default_to_dict_omits_author_key() -> None:
+    """The default-author shape stays byte-identical to the pre-author contract
+    (docs/contract.md's pinned `feedback` key block) — author is omit-when-default,
+    the same convention already used for `chain`."""
+    record = Feedback(task_id="t1", rating=4)
+    assert "author" not in record.to_dict()
+
+
+def test_cortex_author_to_dict_includes_author_key() -> None:
+    record = Feedback(task_id="t1", rating=4, author="cortex")
+    assert record.to_dict()["author"] == "cortex"
+
+
+def test_legacy_record_without_author_key_loads_as_operator(tmp_path: Path) -> None:
+    """A pre-existing on-disk record with no 'author' key must still load — back-compat."""
+    adir = tmp_path / ".colleague"
+    adir.mkdir()
+    (adir / "legacy.feedback.json").write_text(
+        json.dumps(
+            {
+                "task_id": "legacy",
+                "rating": 3,
+                "notes": "",
+                "by": "",
+                "at": "2026-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = feedback.read_feedback(tmp_path, "legacy")
+    assert loaded is not None
+    assert loaded.author == "operator"
+
+
+def test_cortex_record_lands_beside_operator_record_never_overwriting(tmp_path: Path) -> None:
+    feedback.write_feedback(tmp_path, "shared", rating=2, notes="operator take")
+    feedback.write_feedback(tmp_path, "shared", rating=5, notes="cortex take", author="cortex")
+
+    op = feedback.read_feedback(tmp_path, "shared")
+    cx = feedback.read_feedback(tmp_path, "shared", author="cortex")
+    assert op is not None
+    assert op.rating == 2
+    assert op.notes == "operator take"
+    assert op.author == "operator"
+    assert cx is not None
+    assert cx.rating == 5
+    assert cx.notes == "cortex take"
+    assert cx.author == "cortex"
+    # Two sibling files — writing the cortex record never touched the operator's.
+    assert (tmp_path / ".colleague" / "shared.feedback.json").is_file()
+    assert (tmp_path / ".colleague" / "shared.cortex.feedback.json").is_file()
+
+
+def test_same_author_rewrite_still_overwrites(tmp_path: Path) -> None:
+    """Idempotent regrade: same task_id + same author overwrites (today's semantics)."""
+    feedback.write_feedback(tmp_path, "d", rating=2, author="cortex")
+    feedback.write_feedback(tmp_path, "d", rating=5, author="cortex")
+    loaded = feedback.read_feedback(tmp_path, "d", author="cortex")
+    assert loaded is not None
+    assert loaded.rating == 5
+
+
+def test_invalid_author_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(FeedbackError):
+        feedback.write_feedback(tmp_path, "d", rating=3, author="bogus")
+    with pytest.raises(FeedbackError):
+        feedback.read_feedback(tmp_path, "d", author="bogus")
+
+
+def test_list_work_items_excludes_every_author_feedback_record(tmp_path: Path) -> None:
+    """Both the default-author and the author-suffixed feedback file are skipped
+    (the `.feedback.json` suffix check applies regardless of author)."""
+    _record_drive(tmp_path, "d1", "the one drive", started_at="2026-06-05T08:00:00+00:00")
+    feedback.write_feedback(tmp_path, "d1", rating=5)
+    feedback.write_feedback(tmp_path, "d1", rating=4, author="cortex")
+    rows = feedback.list_work_items(tmp_path)
+    assert len(rows) == 1
+    assert rows[0].task_id == "d1"
+    assert rows[0].rating == 5  # list_work_items grades off the default (operator) record

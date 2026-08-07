@@ -34,6 +34,8 @@ is byte-identical to before this task.
 
 from __future__ import annotations
 
+import enum
+import hashlib
 import json
 import os
 import shutil
@@ -49,6 +51,17 @@ ALLOWED_VERBS: frozenset[str] = frozenset({"recall", "remember"})
 
 #: Bound a runaway CLI so it cannot stall the loop indefinitely.
 _TIMEOUT_SECONDS = 300
+
+#: Cap on free text riding the eidetic argv (defense-in-depth: argv is
+#: shell-free by construction, but model/operator text is still bounded and
+#: stripped of control characters before it reaches an OS command).
+_CLI_TEXT_CAP = 2000
+
+
+def _bound_cli_text(text: str, cap: int = _CLI_TEXT_CAP) -> str:
+    """Bound + de-control free text before it rides the eidetic argv."""
+    cleaned = "".join(ch for ch in str(text) if ch >= " " or ch in "\n\t")
+    return cleaned[:cap]
 
 
 def recall(
@@ -84,7 +97,7 @@ def recall(
     argv = [
         "eidetic",
         "recall",
-        query,
+        _bound_cli_text(query),
         "--json",
         "--top-k",
         str(top_k),
@@ -95,7 +108,8 @@ def recall(
     ]
 
     try:
-        proc = subprocess.run(  # nosec B603 - allow-listed verb, no shell, trusted env (D2)
+        proc = subprocess.run(  # nosec B603 # NOSONAR - argv list, no shell; free text
+            # is bounded+de-controlled (_bound_cli_text) before it rides the argv (S8705)
             argv,
             cwd=str(root_path),
             capture_output=True,
@@ -156,7 +170,8 @@ def remember(
     ]
 
     try:
-        proc = subprocess.run(  # nosec B603 - allow-listed verb, no shell, trusted env (D2)
+        proc = subprocess.run(  # nosec B603 # NOSONAR - argv list, no shell; free text
+            # is bounded+de-controlled (_bound_cli_text) before it rides the argv (S8705)
             argv,
             cwd=str(root_path),
             capture_output=True,
@@ -177,6 +192,60 @@ def remember(
 RECALL_BLOCK_CAP = 4000
 
 
+#: Cap on each folded report field in the lesson text, in characters.
+_REPORT_FIELD_CAP = 200
+
+
+def _fold_lint(report: "Any") -> str:
+    """Fold a LintReport into one bounded sentence."""
+    parts = []
+    for item in getattr(report, "fixed", None) or []:
+        parts.append(str(item)[:_REPORT_FIELD_CAP])
+    for item in getattr(report, "residual", None) or []:
+        parts.append(str(item)[:_REPORT_FIELD_CAP])
+    for item in getattr(report, "skipped", None) or []:
+        parts.append(str(item)[:_REPORT_FIELD_CAP])
+    if not parts:
+        return ""
+    joined = "; ".join(parts)
+    return "Lint: " + joined[:_REPORT_FIELD_CAP] + "."
+
+
+def _fold_test_integrity(report: "Any") -> str:
+    """Fold a TestIntegrityReport into one bounded sentence."""
+    findings = getattr(report, "findings", None) or []
+    if not findings:
+        return ""
+    parts = []
+    for f in findings:
+        sym = str(getattr(f, "symbol", "?"))[:_REPORT_FIELD_CAP]
+        kind = str(getattr(f, "kind", "?"))
+        tf = str(getattr(f, "test_file", "?"))[:_REPORT_FIELD_CAP]
+        imf = str(getattr(f, "impl_file", "?"))[:_REPORT_FIELD_CAP]
+        parts.append(f"{sym} ({kind}): {tf} ↔ {imf}")
+    return "Test integrity: " + "; ".join(parts) + "."
+
+
+def _fold_affected_tests(report: "Any") -> str:
+    """Fold an AffectedTestsReport into one bounded sentence."""
+    status = str(getattr(report, "status", "?"))
+    selected = getattr(report, "selected", None) or []
+    total = getattr(report, "total", 0)
+    passed = getattr(report, "passed", None)
+    failed = getattr(report, "failed", None)
+    counts = []
+    if passed is not None:
+        counts.append(f"{passed} passed")
+    if failed is not None:
+        counts.append(f"{failed} failed")
+    tail = ", ".join(counts) or status
+    cap_note = f" (capped from {total})" if getattr(report, "capped", False) else ""
+    files = ", ".join(str(s)[:_REPORT_FIELD_CAP] for s in selected[:5])
+    if len(selected) > 5:
+        files += f" +{len(selected) - 5} more"
+    return f"Affected tests: {status} — {len(selected)} file(s){cap_note}: {tail} ({files})."
+
+
 def compose_lesson_text(result: "Any", request_head: str = "") -> str:
     """Compose the remember-after lesson text from a finished result (#379 rung 1).
 
@@ -188,6 +257,9 @@ def compose_lesson_text(result: "Any", request_head: str = "") -> str:
     this record learns WHAT failed and what to do differently, not just
     step counts. An ok run without substance stays byte-compatible with the
     pre-#379 stub shape.
+
+    Rung 1.5: lint_report, test_integrity_report, and affected_tests_report
+    are each folded into the lesson text, bounded per field.
     """
     stats = result.stats
     tools = ", ".join(f"{k}={v}" for k, v in sorted(stats.tool_counts.items()))
@@ -223,6 +295,16 @@ def compose_lesson_text(result: "Any", request_head: str = "") -> str:
             f"{w.get('stale_id', '?')} (via {w.get('source', '?')}) -> "
             f"{w.get('refreshed_id', '?')}."
         )
+    # Rung 1.5: fold pre-finish gate reports
+    lint = getattr(result, "lint_report", None)
+    if lint is not None:
+        text += " " + _fold_lint(lint)
+    ti = getattr(result, "test_integrity_report", None)
+    if ti is not None:
+        text += " " + _fold_test_integrity(ti)
+    at = getattr(result, "affected_tests_report", None)
+    if at is not None:
+        text += " " + _fold_affected_tests(at)
     return text
 
 
@@ -253,4 +335,63 @@ def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> di
         "type": "work-lesson",
         "text": text,
         "metadata": dict(metadata),
+    }
+
+
+# ── code-lesson record type (plan t8, spec c4/h4) ──────────────────────────
+
+
+class Confidence(enum.Enum):
+    """Bounded confidence levels for code-lesson records.
+
+    Honest default is low — a single observation is not proof.
+    Values are floats in [0.0, 1.0] for JSON serialization.
+    """
+
+    low = 0.1
+    medium = 0.5
+    high = 0.9
+
+
+def build_code_lesson_record(
+    area: str,
+    convention: str,
+    evidence: str,
+    *,
+    confidence: Confidence | float = Confidence.low,
+) -> dict[str, Any]:
+    """Shape one code-lesson record (id/type/area/convention/evidence/confidence).
+
+    Pure function — no subprocess, no store access. A store-less repo remains
+    a zero-subprocess no-op (the triple gate is untouched).
+
+    The id is derived from the content (area + convention + evidence) so
+    identical lessons upsert in place, and the ``code-lesson-`` prefix
+    guarantees no collision with ``work-lesson-<task_id>`` ids.
+
+    Evidence is verbatim substance: a lint-fix line, a failing-test name,
+    a diff hunk — not a summary or interpretation.
+
+    Confidence defaults to ``Confidence.low`` (honest default: one
+    observation is not proof).
+    """
+    # Resolve confidence to a float value.
+    if isinstance(confidence, Confidence):
+        confidence_value: float = confidence.value
+    else:
+        confidence_value = float(confidence)
+
+    # Deterministic id from content — idempotent upsert, no collision with
+    # work-lesson-<task_id> (different prefix).
+    content = f"{area}\x00{convention}\x00{evidence}"
+    digest = hashlib.sha256(content.encode()).hexdigest()[:12]
+    record_id = f"code-lesson-{digest}"
+
+    return {
+        "id": record_id,
+        "type": "code-lesson",
+        "area": area,
+        "convention": convention,
+        "evidence": evidence,
+        "confidence": confidence_value,
     }

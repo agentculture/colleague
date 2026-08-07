@@ -1149,6 +1149,25 @@ are applied at the running loop's next turn boundary.
     colleague flight overview
 """
 
+_STRIVE = """\
+# colleague strive
+
+The necessity loop (self-learning arc, plan t13/t14): bounded, operator-invoked
+attempts toward a goal with an EXECUTABLE ground-truth measure. Per attempt the
+harness enforces four phases — recall, delta declaration (recorded BEFORE
+execution; an attempt that cannot name a delta or new hypothesis is recorded as
+exactly that), execute + measure, lesson-grade remember. The per-goal hypothesis
+ledger (schema-enforced records, refuse-whole on unknown keys) is the novelty
+detector; K consecutive refuted-recombinations = a recorded novelty stall, never
+fabricated progress. The measure command routes through the approval gate exactly
+like run_command (a policy gate, not a sandbox) and runs in the episode worktree.
+chain.CONTINUABLE_REASONS stays exactly {budget-exhausted}: strive's retry policy
+lives in colleague/strive.py, never in the work/drive chain.
+
+Usage: `colleague strive run "<goal>" --attempts N --measure "<cmd>" [--json]`,
+`colleague strive overview`.
+"""
+
 _EXPERIMENT = """\
 # colleague experiment
 
@@ -1467,6 +1486,9 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("flight", "stop"): _FLIGHT,
     ("flight", "list"): _FLIGHT,
     ("flight", "overview"): _FLIGHT,
+    ("strive",): _STRIVE,
+    ("strive", "run"): _STRIVE,
+    ("strive", "overview"): _STRIVE,
     ("experiment",): _EXPERIMENT,
     ("experiment", "start"): _EXPERIMENT,
     ("experiment", "status"): _EXPERIMENT,

@@ -182,6 +182,11 @@ _DEFAULT_COHERENCE_ENABLED = True
 # CLI is installed, so a store-less repo is a strict no-op regardless.
 _DEFAULT_MEMORY_ENABLED = True
 
+# Rung-2 lesson distillation (self-learning t9). Default-ON but effective only
+# when the runtime resolves a distillation author (t10); without one the loop
+# stays at the rung-1 floor, so default-ON never adds a model call by itself.
+_DEFAULT_MEMORY_DISTILL = True
+
 # Affected-tests gate (#213). Default-ON with an opt-out: after the loop the
 # runtime selects and runs only the tests whose import chain reaches the changed
 # files (bounded-depth transitive reverse-import selection). Disable with
@@ -1671,6 +1676,32 @@ def _load_memory_override(repo_path: str | Path) -> str | None:
     return None if value is None else str(value)
 
 
+def _load_memory_distill_override(repo_path: str | Path) -> str | None:
+    """Read the ``memory_distill`` key from .colleague/config.json as a raw string.
+
+    Mirrors :func:`_load_memory_override` (same merged-read, same never-raises
+    contract) for the rung-2 distillation kill switch (t9, spec c29/h24).
+    """
+    data = _merged_config_json(repo_path)
+    value = data.get("memory_distill")
+    return None if value is None else str(value)
+
+
+def _resolve_memory_distill(file_value: str | None) -> bool:
+    """Resolve the rung-2 distillation knob (t9): env ``COLLEAGUE_MEMORY_DISTILL``
+    > config.json ``{"memory_distill": ...}`` > default-on.
+
+    Independent of the memory gate by design (spec c29): disarming distillation
+    must never cost the rung-1 record or recall-before.
+    """
+    env = os.environ.get("COLLEAGUE_MEMORY_DISTILL")
+    if env is not None and env.strip() != "":
+        return _parse_bool(env)
+    if file_value is not None:
+        return _parse_bool(file_value)
+    return _DEFAULT_MEMORY_DISTILL
+
+
 def _resolve_memory_enabled(file_value: str | None) -> bool:
     """Resolve memory-informed-runtime enablement (spec R1 / plan t2):
     env ``COLLEAGUE_MEMORY`` > config.json ``{"memory": ...}`` > default-on.
@@ -2432,6 +2463,7 @@ class EngineConfig:
     lint: bool = _DEFAULT_LINT_ENABLED
     coherence: bool = _DEFAULT_COHERENCE_ENABLED
     memory: bool = _DEFAULT_MEMORY_ENABLED
+    memory_distill: bool = _DEFAULT_MEMORY_DISTILL
     # Flight plane armed by default (#307): work/drive/session default watch ON.
     # The work path resolves the effective value against the --watch/--no-watch
     # flags post-resolve; session default-arms from this. env COLLEAGUE_WATCH >
@@ -2697,6 +2729,7 @@ class EngineConfig:
         file_watch: str | None = None
         file_coherence: str | None = None
         file_memory: str | None = None
+        file_memory_distill: str | None = None
         file_lint_retries: str | None = None
         file_ti: str | None = None
         file_ti_retries: str | None = None
@@ -2719,6 +2752,7 @@ class EngineConfig:
             file_watch = _load_watch_override(repo_path)
             file_coherence = _load_coherence_override(repo_path)
             file_memory = _load_memory_override(repo_path)
+            file_memory_distill = _load_memory_distill_override(repo_path)
             file_ti, file_ti_retries = _load_testintegrity_overrides(repo_path)
             file_at, file_at_retries, file_at_depth, file_at_max_files = (
                 _load_affected_tests_overrides(repo_path)
@@ -3083,6 +3117,7 @@ class EngineConfig:
             watch=_resolve_watch_enabled(file_watch),
             coherence=_resolve_coherence_enabled(file_coherence),
             memory=_resolve_memory_enabled(file_memory),
+            memory_distill=_resolve_memory_distill(file_memory_distill),
             lint_fix_retries=_try_int(
                 _pick(
                     None,

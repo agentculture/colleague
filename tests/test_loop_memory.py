@@ -433,3 +433,258 @@ def test_lesson_text_ok_run_stays_compact_and_stub_compatible() -> None:
     assert text.startswith("Work item t379 finished ok")
     assert "Incompletion:" not in text
     assert "Error:" not in text
+
+
+# ── rung 1.5: fold lint / test-integrity / affected-tests reports (#379) ──
+
+
+def test_lesson_text_folds_lint_report() -> None:
+    """A result carrying lint_report folds it into the lesson text, bounded per field."""
+    from colleague.contract import LintReport
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(
+        lint_report=LintReport(
+            fixed=["black reformatted 2 file(s)"],
+            residual=["flake8 F811 colleague/x.py:10"],
+            skipped=["ruff: not installed"],
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "Lint:" in text
+    assert "black reformatted 2 file(s)" in text
+    assert "flake8 F811 colleague/x.py:10" in text
+    assert "ruff: not installed" in text
+
+
+def test_lesson_text_folds_test_integrity_report() -> None:
+    """A result carrying test_integrity_report folds it into the lesson text, bounded per field."""
+    from colleague.memory import compose_lesson_text
+    from colleague.testintegrity import MirrorFinding, TestIntegrityReport
+
+    result = _result_for_lesson(
+        test_integrity_report=TestIntegrityReport(
+            findings=[
+                MirrorFinding(
+                    symbol="FAKE_MIRROR",
+                    kind="attribute",
+                    test_file="tests/test_foo.py",
+                    impl_file="colleague/foo.py",
+                )
+            ]
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "Test integrity:" in text
+    assert "FAKE_MIRROR" in text
+    assert "tests/test_foo.py" in text
+    assert "colleague/foo.py" in text
+
+
+def test_lesson_text_folds_affected_tests_report() -> None:
+    """A result carrying affected_tests_report folds it into the lesson text, bounded per field."""
+    from colleague.affectedtests import AffectedTestsReport
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(
+        affected_tests_report=AffectedTestsReport(
+            status="failed",
+            selected=["tests/test_foo.py"],
+            total=1,
+            capped=False,
+            passed=0,
+            failed=1,
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "Affected tests:" in text
+    assert "failed" in text
+    assert "tests/test_foo.py" in text
+    assert "1 failed" in text
+
+
+def test_lesson_text_no_reports_is_byte_identical() -> None:
+    """A result without lint/test_integrity/affected_tests reports produces
+    byte-identical lesson text to the current rung-1 shape, same upsert id."""
+    from colleague.memory import build_lesson_record, compose_lesson_text
+
+    result = _result_for_lesson(status="ok", summary="did the thing")
+    text = compose_lesson_text(result)
+    # Should be identical to the stub shape — no new prefixes
+    assert text.startswith("Work item t379 finished ok")
+    assert "Incompletion:" not in text
+    assert "Error:" not in text
+    assert "Lint:" not in text
+    assert "Test integrity:" not in text
+    assert "Affected tests:" not in text
+    # Same upsert id
+    record = build_lesson_record(result.task_id, text, {})
+    assert record["id"] == f"work-lesson-{result.task_id}"
+
+
+def test_lesson_text_lint_report_bounded_per_field() -> None:
+    """Each lint_report field is bounded (200-char cap) — no runaway text."""
+    from colleague.contract import LintReport
+    from colleague.memory import compose_lesson_text
+
+    long_item = "X" * 300
+    result = _result_for_lesson(
+        lint_report=LintReport(
+            fixed=[long_item, long_item],
+            residual=[long_item],
+            skipped=[],
+        )
+    )
+    text = compose_lesson_text(result)
+    # The joined+cap per field must not exceed 200 chars
+    lint_section = text[text.index("Lint:") :].split(".")[0]
+    assert len(lint_section) <= 200 + len("Lint: ") + 1  # section + prefix + trailing dot
+
+
+def test_lesson_text_all_three_reports_together() -> None:
+    """A result carrying all three reports folds each into the lesson text."""
+    from colleague.affectedtests import AffectedTestsReport
+    from colleague.contract import LintReport
+    from colleague.memory import compose_lesson_text
+    from colleague.testintegrity import MirrorFinding, TestIntegrityReport
+
+    result = _result_for_lesson(
+        lint_report=LintReport(fixed=["black reformatted 1 file(s)"], residual=[], skipped=[]),
+        test_integrity_report=TestIntegrityReport(
+            findings=[
+                MirrorFinding(
+                    symbol="MIRROR_SYM",
+                    kind="dict_key",
+                    test_file="tests/test_bar.py",
+                    impl_file="colleague/bar.py",
+                )
+            ]
+        ),
+        affected_tests_report=AffectedTestsReport(
+            status="passed",
+            selected=["tests/test_bar.py"],
+            total=1,
+            capped=False,
+            passed=1,
+            failed=0,
+        ),
+    )
+    text = compose_lesson_text(result)
+    assert "Lint:" in text
+    assert "Test integrity:" in text
+    assert "Affected tests:" in text
+    assert "black reformatted 1 file(s)" in text
+    assert "MIRROR_SYM" in text
+    assert "tests/test_bar.py" in text
+    assert "passed" in text
+
+
+# ── Rung 2: the distillation seam (t9 — spec c2/h2, c28/h23, c29/h24) ────────
+
+
+def _armed_distill_run(repo, distill_fn, *, memory_distill=True, task_text="fold the retry"):
+    task = Task.new(str(repo), task_text)
+    result = run(
+        scripted([_FINISH]),
+        task,
+        max_steps=5,
+        context=ContextControls(memory=True, memory_distill=memory_distill, distill_fn=distill_fn),
+    )
+    return task, result
+
+
+def _remembered_record(log: Path) -> dict:
+    remember_calls = [c for c in _calls(log) if c[0] == "remember"]
+    assert len(remember_calls) == 1
+    return json.loads(remember_calls[0][1])
+
+
+def test_distill_valid_lesson_folds_into_record(repo: Path, eidetic_log: Path) -> None:
+    raw = (
+        '{"cause": "wrong file", "lesson": "check imports first", "next_delta": "grep before edit"}'
+    )
+    task, result = _armed_distill_run(repo, lambda res, head: raw)
+    record = _remembered_record(eidetic_log)
+    assert "Lesson (origin=model)" in record["text"]
+    assert "check imports first" in record["text"]
+    assert record["metadata"]["distill"] == "validated"
+    assert result.memory["distill_attempts"] == 1
+    assert result.memory["distill_validated"] == 1
+
+
+def test_distill_garbage_completion_records_marker_not_lesson(
+    repo: Path, eidetic_log: Path
+) -> None:
+    task, result = _armed_distill_run(repo, lambda res, head: "sorry, no idea at all")
+    record = _remembered_record(eidetic_log)
+    assert "Lesson (origin=model)" not in record["text"]
+    assert record["metadata"]["distill"] == "no-lesson-extracted"
+    assert result.memory["distill_attempts"] == 1
+    assert result.memory["distill_validated"] == 0
+
+
+def test_distill_schema_invalid_lesson_refused_whole(repo: Path, eidetic_log: Path) -> None:
+    raw = '{"cause": "x", "lesson": "y", "next_delta": "z", "extra": "smuggled"}'
+    task, result = _armed_distill_run(repo, lambda res, head: raw)
+    record = _remembered_record(eidetic_log)
+    assert "Lesson (origin=model)" not in record["text"]
+    assert "smuggled" not in record["text"]
+    assert result.memory["distill_validated"] == 0
+
+
+def test_distill_seam_raising_counts_attempt_never_breaks_run(
+    repo: Path, eidetic_log: Path
+) -> None:
+    def boom(res, head):
+        raise RuntimeError("distillation child died")
+
+    task, result = _armed_distill_run(repo, boom)
+    assert result.status == OK
+    assert result.memory["lesson_recorded"] is True
+    assert result.memory["distill_attempts"] == 1
+    assert result.memory["distill_validated"] == 0
+
+
+def test_distill_knob_off_is_byte_identical_rung1(repo: Path, eidetic_log: Path) -> None:
+    calls = {"n": 0}
+
+    def seam(res, head):
+        calls["n"] += 1
+        return '{"cause": "a", "lesson": "b", "next_delta": "c"}'
+
+    task, result = _armed_distill_run(repo, seam, memory_distill=False)
+    assert calls["n"] == 0
+    record = _remembered_record(eidetic_log)
+    assert "Lesson (origin=model)" not in record["text"]
+    assert "distill" not in record["metadata"]
+    assert set(result.memory) == {"query", "recalled", "injected_chars", "lesson_recorded"}
+
+
+def test_no_distill_fn_is_byte_identical_rung1(repo: Path, eidetic_log: Path) -> None:
+    task = Task.new(str(repo), "no seam present")
+    result = run(scripted([_FINISH]), task, max_steps=5, context=ContextControls(memory=True))
+    record = _remembered_record(eidetic_log)
+    assert "distill" not in record["metadata"]
+    assert set(result.memory) == {"query", "recalled", "injected_chars", "lesson_recorded"}
+
+
+def test_parse_lesson_json_tolerant_extraction() -> None:
+    from colleague.lessons import parse_lesson_json
+
+    fenced = 'Here it is:\n```json\n{"cause": "a", "lesson": "b", "next_delta": "c"}\n```\ndone'
+    assert parse_lesson_json(fenced) == {"cause": "a", "lesson": "b", "next_delta": "c"}
+    assert parse_lesson_json("no json here") is None
+    assert parse_lesson_json('{"truncated": ') is None
+
+
+def test_memory_distill_config_resolution(tmp_path: Path, monkeypatch) -> None:
+    from colleague.config import EngineConfig
+
+    monkeypatch.delenv("COLLEAGUE_MEMORY_DISTILL", raising=False)
+    assert EngineConfig().resolve(repo_path=str(tmp_path)).memory_distill is True
+    monkeypatch.setenv("COLLEAGUE_MEMORY_DISTILL", "0")
+    assert EngineConfig().resolve(repo_path=str(tmp_path)).memory_distill is False
+    monkeypatch.delenv("COLLEAGUE_MEMORY_DISTILL", raising=False)
+    (tmp_path / ".colleague").mkdir(exist_ok=True)
+    (tmp_path / ".colleague" / "config.json").write_text('{"memory_distill": false}')
+    assert EngineConfig().resolve(repo_path=str(tmp_path)).memory_distill is False

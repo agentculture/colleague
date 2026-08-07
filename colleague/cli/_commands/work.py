@@ -54,7 +54,7 @@ from colleague.cli._output import emit_diagnostic, emit_result
 from colleague.commands import CommandError, expand_command
 from colleague.config import EngineConfig, apply_mode_profile, resolve_engine
 from colleague.contract import INCOMPLETE, OK, ChainView, Task, TaskResult
-from colleague.feedback import set_last_work
+from colleague.feedback import capture_uncaptured_predecessor, set_last_work
 from colleague.handoff import (
     HandoffError,
     branch_name,
@@ -163,6 +163,7 @@ def _handoff_result(
             return
         result.branch = outcome.branch
         result.pr_url = outcome.pr_url
+        result.tip_sha = outcome.tip_sha
         if not result.changed_files:
             result.changed_files = outcome.changed_files
         handoff_span.set(
@@ -1143,6 +1144,19 @@ def execute_work(
     """
     display = display or DisplayOptions()
     tui, tui_events, progress_sink = display.tui, display.tui_events, display.sink
+    # Work-start auto-trigger (self-learning t12 AC3, c18/h15): colleague's own
+    # action — this work item starting — is a trigger too, not just a grade.
+    # Best-effort, read-only-first (find_uncaptured_predecessor never shells
+    # out; only a REAL candidate reaches the gh/git-touching capture step),
+    # and fully swallowed: a detection/capture failure here must never keep
+    # THIS work item from starting. Targets the OPERATOR repo (`repo`, not an
+    # isolation worktree that gets reaped) so the predecessor's own artifact
+    # and sidecar are the real, durable ones. Outcome lands observably on the
+    # predecessor's own correction-capture sidecar (colleague.feedback
+    # .read_correction_capture) — nothing about THIS work item's artifact
+    # changes.
+    with suppress(Exception):
+        capture_uncaptured_predecessor(repo)
     # Mode-profile layer (t3 / R1 / #254): fill profile defaults for knobs the
     # operator left untouched, BEFORE anything reads the config (extracted to
     # _moded_config for the S3776 budget). One code path for every entry door.
@@ -1657,6 +1671,8 @@ def _chain_finalize(
     result.branch = outcome.branch
     if outcome.pr_url:
         result.pr_url = outcome.pr_url
+    if outcome.tip_sha:
+        result.tip_sha = outcome.tip_sha
     if outcome.note:
         emit_diagnostic(f"chain handoff: {outcome.note}")
     artifact_path = write(result, artifact_dir(repo))
