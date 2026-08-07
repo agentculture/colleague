@@ -17,6 +17,7 @@ Covers: c4, h4
 from __future__ import annotations
 
 import enum
+
 from colleague.memory import Confidence, build_code_lesson_record
 
 # ---------------------------------------------------------------------------
