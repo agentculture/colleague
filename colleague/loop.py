@@ -2251,26 +2251,12 @@ def _maybe_remember_lesson(ctx: _Work) -> None:
     if not _memory_armed(ctx):
         return
     result = ctx.result
-    stats = result.stats
     instruction = (ctx.task.instruction or "").strip()
     request_head = instruction.splitlines()[0][:120] if instruction else ""
-    tools = ", ".join(f"{k}={v}" for k, v in sorted(stats.tool_counts.items()))
-    text = (
-        f"Work item {result.task_id} finished {result.status} on request: "
-        f"{request_head}. steps={stats.step_count}, tools=({tools}), "
-        f"files_changed={len(result.changed_files)}."
-    )
-    signals = []
-    if result.finish_recovered:
-        signals.append(f"finish_recovered={result.finish_recovered}")
-    if result.capacity_warning:
-        signals.append("capacity_warning")
-    if result.not_finished:
-        signals.append("step budget exhausted")
-    if result.stopped_without_finish:
-        signals.append("stopped without finish")
-    if signals:
-        text += " Signals: " + "; ".join(signals) + "."
+    # Lesson-grade composition (#379 rung 1) lives in colleague/memory.py —
+    # the failure substance (incompletion, error, refresh warnings) rides
+    # the record deterministically.
+    text = _memorymod.compose_lesson_text(result, request_head)
     record = _memorymod.build_lesson_record(
         result.task_id,
         text,
