@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.56.0] - 2026-08-07
+
+### Added
+
+- Distillation lesson schema + strict validator (`colleague/lessons.py`): a
+  fixed-schema `{cause, lesson, next_delta}` validator that refuses the **whole**
+  lesson on any violation (missing key, extra key, empty string, over-length,
+  non-string value, non-dict input) — never stripping invalid fields and keeping
+  the rest. An invalid distillation yields the honest `no-lesson-extracted`
+  marker, never a partial or repaired lesson. Pure stdlib, no I/O, no subprocess.
+
 ## [1.55.1] - 2026-08-07
 
 ### Fixed
