@@ -5,9 +5,15 @@ Work statistics (:class:`~colleague.contract.WorkStats`) say what a work item
 agent — compute the ROI of asking colleague to do a task and decide whether
 to do it again (and on which engine).
 
-A work item is identified by its ``task_id``. Feedback is a **single record per
-work item** (re-grading overwrites — decision c16), persisted as
-``<task_id>.feedback.json`` beside the work item's artifact in
+A work item is identified by its ``task_id``. Feedback is recorded **per
+(task_id, author)** pair — re-grading the SAME author overwrites (decision c16),
+but a DIFFERENT author's record for the same work item lands beside it rather
+than overwriting it (c17/h14: author provenance). ``author`` defaults to
+``"operator"`` (a human grade) and persists at ``<task_id>.feedback.json`` —
+byte-identical to the pre-author on-disk shape, so a legacy record with no
+``author`` key still loads (as ``"operator"``). A non-default author (today,
+only ``"cortex"`` — a self-grade) persists at
+``<task_id>.<author>.feedback.json``, beside the work item's artifact in
 :func:`~colleague.artifact.artifact_dir`. A per-repo *last-work pointer*
 (``last_work``) lets a caller grade the most recent work item without quoting its
 id (``feedback ... last``).
@@ -43,6 +49,15 @@ LAST_DRIVE_FILENAME = "last_drive"
 MIN_RATING = 1
 MAX_RATING = 5
 
+#: The human operator's grade — the default author, and the only author the
+#: pre-author on-disk shape ever recorded (back-compat).
+DEFAULT_AUTHOR = "operator"
+#: A self-grade the acting mind records for its own work item (c17/h14). Lands
+#: beside an operator record for the same task_id rather than overwriting it.
+CORTEX_AUTHOR = "cortex"
+#: The full sanctioned author vocabulary — anything else is refused.
+ALLOWED_AUTHORS = (DEFAULT_AUTHOR, CORTEX_AUTHOR)
+
 #: A work item id must be a single safe path segment. Real ids are uuid hex, but the
 #: CLI accepts an arbitrary ``ref`` (``resolve_task_id`` passes explicit refs
 #: through unchanged), so the id is validated before it is joined into a filename.
@@ -70,6 +85,35 @@ def _validate_task_id(task_id: str) -> str:
     return task_id
 
 
+def _validate_author(author: str) -> str:
+    """Reject an author outside the sanctioned set (c17/h14).
+
+    Only ``"operator"`` (a human grade) and ``"cortex"`` (a self-grade the
+    acting mind records for its own work item) are recognised — anything else
+    raises :class:`FeedbackError`, mirroring :func:`_validate_task_id`'s
+    convention.
+    """
+    if author not in ALLOWED_AUTHORS:
+        raise FeedbackError(
+            f"invalid author {author!r}: expected one of {', '.join(ALLOWED_AUTHORS)}"
+        )
+    return author
+
+
+def _feedback_filename(task_id: str, author: str) -> str:
+    """The on-disk feedback filename for one ``(task_id, author)`` pair.
+
+    The default author (``"operator"``) keeps the pre-author bare filename
+    (``<task_id>.feedback.json``) — byte-identical back-compat for both a
+    legacy record already on disk and a caller that never mentions authors. A
+    non-default author lands in a sibling file (``<task_id>.<author>.feedback.json``)
+    so the two coexist rather than overwrite each other.
+    """
+    if author == DEFAULT_AUTHOR:
+        return f"{task_id}.feedback.json"
+    return f"{task_id}.{author}.feedback.json"
+
+
 def _now_iso() -> str:
     """Current UTC time as an ISO-8601 string."""
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -77,11 +121,13 @@ def _now_iso() -> str:
 
 @dataclass
 class Feedback:
-    """One quality grade for a work item (single record per ``task_id``).
+    """One quality grade for a work item (single record per ``(task_id, author)``).
 
     When ``chain`` is ``True``, this record was written as part of a
     chain-aware grade (:func:`grade_chain`) that walked the
-    ``continued_from`` lineage.
+    ``continued_from`` lineage. ``author`` (c17/h14) distinguishes WHO graded —
+    ``"operator"`` (default) or ``"cortex"`` — so a cortex self-grade can coexist
+    beside an operator's grade for the same work item instead of overwriting it.
     """
 
     task_id: str
@@ -90,11 +136,13 @@ class Feedback:
     by: str = ""
     at: str = ""
     chain: bool = False
+    author: str = DEFAULT_AUTHOR
 
     def to_dict(self) -> dict[str, Any]:
-        # ``chain`` is omit-when-False: an ordinary (non-chain) grade keeps the
-        # exact persisted shape the contract doc pins (test_contract_doc.py) —
-        # only chain-graded records carry the marker.
+        # ``chain``/``author`` are omit-when-default: an ordinary operator grade
+        # keeps the exact persisted shape the contract doc pins
+        # (test_contract_doc.py) — only a chain-graded or non-operator record
+        # carries the extra key.
         data: dict[str, Any] = {
             "task_id": self.task_id,
             "rating": self.rating,
@@ -104,6 +152,8 @@ class Feedback:
         }
         if self.chain:
             data["chain"] = True
+        if self.author != DEFAULT_AUTHOR:
+            data["author"] = self.author
         return data
 
     @classmethod
@@ -115,31 +165,40 @@ class Feedback:
             by=str(data.get("by", "")),
             at=str(data.get("at", "")),
             chain=bool(data.get("chain", False)),
+            # A legacy record has no "author" key at all — reads back as the
+            # default "operator" (back-compat pinned by a test).
+            author=str(data.get("author") or DEFAULT_AUTHOR),
         )
 
 
-def feedback_path(repo_path: str | Path, task_id: str) -> Path:
-    """The feedback-record WRITE path for ``task_id`` (beside the work-item artifact).
+def feedback_path(repo_path: str | Path, task_id: str, author: str = DEFAULT_AUTHOR) -> Path:
+    """The feedback-record WRITE path for ``(task_id, author)`` (beside the artifact).
 
     ``task_id`` is validated as a single safe path segment first — this is the
     single chokepoint that protects both :func:`write_feedback` and
-    :func:`read_feedback` from path traversal via a user-supplied ref. Writes
-    always target the new ``.colleague/`` dir; reads fall back to the legacy dir
-    via :func:`feedback_read_path`.
+    :func:`read_feedback` from path traversal via a user-supplied ref.
+    ``author`` is validated against :data:`ALLOWED_AUTHORS`. Writes always
+    target the new ``.colleague/`` dir; reads fall back to the legacy dir via
+    :func:`feedback_read_path`.
     """
-    return artifact_dir(repo_path) / f"{_validate_task_id(task_id)}.feedback.json"
+    safe_id = _validate_task_id(task_id)
+    safe_author = _validate_author(author)
+    return artifact_dir(repo_path) / _feedback_filename(safe_id, safe_author)
 
 
-def feedback_read_path(repo_path: str | Path, task_id: str) -> Path:
-    """The feedback-record path to READ for ``task_id``: new dir, then legacy.
+def feedback_read_path(repo_path: str | Path, task_id: str, author: str = DEFAULT_AUTHOR) -> Path:
+    """The feedback-record path to READ for ``(task_id, author)``: new dir, then legacy.
 
     Returns the first existing record across ``.colleague/`` then ``.convertible/``
     (back-compat); if neither exists, returns the new-dir path so the caller's
     ``is_file()`` check resolves to the canonical "no feedback yet" location.
-    The ``task_id`` is validated (traversal guard) before being joined.
+    ``task_id``/``author`` are validated (traversal guard / sanctioned set)
+    before being joined.
     """
     safe_id = _validate_task_id(task_id)
-    candidates = [d / f"{safe_id}.feedback.json" for d in artifact_read_dirs(repo_path)]
+    safe_author = _validate_author(author)
+    filename = _feedback_filename(safe_id, safe_author)
+    candidates = [d / filename for d in artifact_read_dirs(repo_path)]
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -209,12 +268,16 @@ def write_feedback(
     notes: str = "",
     by: str = "",
     at: str | None = None,
+    author: str = DEFAULT_AUTHOR,
 ) -> Feedback:
-    """Write (overwriting) the feedback record for ``task_id``; return it.
+    """Write (overwriting) the feedback record for ``(task_id, author)``; return it.
 
     ``rating`` must be an integer in ``[MIN_RATING, MAX_RATING]`` — anything else
-    raises :class:`FeedbackError`. A second write for the same ``task_id``
-    overwrites the first (single record per work item, decision c16).
+    raises :class:`FeedbackError`. ``author`` must be one of
+    :data:`ALLOWED_AUTHORS` — anything else likewise raises
+    :class:`FeedbackError`. A second write for the SAME ``(task_id, author)``
+    overwrites the first (idempotent regrade, decision c16); a DIFFERENT
+    author's write for the same ``task_id`` lands beside it instead (c17/h14).
     """
     # bool is an int subclass — reject it explicitly so True/False aren't ratings.
     if (
@@ -223,8 +286,11 @@ def write_feedback(
         or not (MIN_RATING <= rating <= MAX_RATING)
     ):
         raise FeedbackError(f"rating must be an integer {MIN_RATING}-{MAX_RATING}, got {rating!r}")
-    record = Feedback(task_id=task_id, rating=rating, notes=notes, by=by, at=at or _now_iso())
-    path = feedback_path(repo_path, task_id)
+    author = _validate_author(author)
+    record = Feedback(
+        task_id=task_id, rating=rating, notes=notes, by=by, at=at or _now_iso(), author=author
+    )
+    path = feedback_path(repo_path, task_id, author=author)
     path.parent.mkdir(parents=True, exist_ok=True)
     ensure_self_ignored(path.parent)
     path.write_text(
@@ -241,6 +307,7 @@ def grade_chain(
     notes: str = "",
     by: str = "",
     at: str | None = None,
+    author: str = DEFAULT_AUTHOR,
 ) -> list[Feedback]:
     """Grade every episode in a ``continued_from`` chain, starting from ``task_id``.
 
@@ -252,7 +319,8 @@ def grade_chain(
     Returns the list of :class:`Feedback` records written, ordered from the
     tail (``task_id``) back through the chain.  Each record carries
     ``chain=True`` so callers can distinguish chain-graded records from
-    standalone grades.
+    standalone grades. ``author`` (c17/h14) is applied to every episode in the
+    chain, same as ``rating``/``notes``/``by``.
     """
     records: list[Feedback] = []
     visited: set[str] = set()
@@ -276,10 +344,11 @@ def grade_chain(
             notes=notes,
             by=by,
             at=at,
+            author=author,
         )
         record.chain = True
         # Re-write with the chain marker so the persisted record carries it.
-        path = feedback_path(repo_path, current_id)
+        path = feedback_path(repo_path, current_id, author=author)
         path.write_text(
             json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
@@ -299,14 +368,18 @@ def grade_chain(
     return records
 
 
-def read_feedback(repo_path: str | Path, task_id: str) -> Optional[Feedback]:
-    """Read the feedback record for ``task_id``, or ``None`` when none exists.
+def read_feedback(
+    repo_path: str | Path, task_id: str, author: str = DEFAULT_AUTHOR
+) -> Optional[Feedback]:
+    """Read the ``author``'s feedback record for ``task_id``, or ``None`` when none exists.
 
     A missing file is a clean no-op (returns ``None``) — "no feedback yet" is a
-    state, not an error. A present-but-corrupt file raises :class:`FeedbackError`.
-    Reads the new ``.colleague/`` dir first, then the legacy ``.convertible/`` dir.
+    state, not an error. A present-but-corrupt file raises :class:`FeedbackError`,
+    as does an ``author`` outside :data:`ALLOWED_AUTHORS`. Reads the new
+    ``.colleague/`` dir first, then the legacy ``.convertible/`` dir. ``author``
+    defaults to ``"operator"`` — the same record every pre-author caller reads.
     """
-    path = feedback_read_path(repo_path, task_id)
+    path = feedback_read_path(repo_path, task_id, author=author)
     if not path.is_file():
         return None
     try:

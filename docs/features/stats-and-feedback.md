@@ -62,13 +62,24 @@ captures `message.reasoning` (and `reasoning_content` as an alias) into
 
 ## Part B — the feedback loop
 
-`colleague/feedback.py` is a stdlib JSON store. A **single record per work item**
-(re-grading overwrites) lives at `.colleague/<task_id>.feedback.json` beside
-the artifact:
+`colleague/feedback.py` is a stdlib JSON store. A **single record per
+`(work item, author)` pair** (re-grading the SAME author overwrites) lives at
+`.colleague/<task_id>.feedback.json` beside the artifact:
 
 ```json
 {"task_id": "9f2c1ab0", "rating": 4, "notes": "correct but verbose", "by": "ori", "at": "2026-05-31T..."}
 ```
+
+**Author provenance (c17/h14).** `author` defaults to `"operator"` (a human
+grade) and is omitted from the persisted shape at that default — byte-identical
+to the pre-author record above, so a legacy on-disk record with no `author` key
+still loads as `"operator"`. The only other sanctioned author is `"cortex"` (a
+self-grade the acting mind records for its own work item); its record lands at
+the sibling file `.colleague/<task_id>.cortex.feedback.json` — **beside** the
+operator's record, never overwriting it. `feedback record --author cortex` /
+`feedback show --author cortex` write/read that sibling. `--by` (who, a free-text
+name) and `--author` (operator vs. cortex, the grade's provenance) are
+independent fields.
 
 A per-repo `last_work` pointer (written by `execute_work` after each work item)
 lets you grade the most recent work item without quoting its id. An ungraded work item
@@ -96,15 +107,18 @@ scheme doesn't matter.
 ```bash
 colleague feedback record last --rating 4 --notes "correct but verbose"
 colleague feedback record 9f2c1ab0 --rating 5 --repo . --json
+colleague feedback record 9f2c1ab0 --rating 4 --author cortex --repo .  # a self-grade, beside the operator's
 colleague feedback show last --repo .
+colleague feedback show 9f2c1ab0 --author cortex --repo .  # read the cortex record, not the operator's
 colleague feedback list --repo .          # every work item by request + grade
 colleague feedback overview
 ```
 
 `record`/`show` take a work item id or the literal `last`. `list` takes neither —
 it lists every work item. `--rating` must be an integer 1–5. `--by` defaults to
-colleague's resolved identity. Results go to stdout, diagnostics to stderr;
-every verb supports `--json`.
+colleague's resolved identity; `--author` defaults to `operator` (the other
+sanctioned value is `cortex`, c17/h14) and is refused outside that set. Results
+go to stdout, diagnostics to stderr; every verb supports `--json`.
 
 ### From the `ask-colleague` skill
 
@@ -138,8 +152,11 @@ artifact plus its feedback record, with no external data.
 - **No tokenizer** → no reasoning/written *token* counts; chars/bytes only.
 - **Tokens are verbatim** from the model's `usage`; a server that reports nothing
   yields zeros (colleague does not fabricate them).
-- Feedback is a **single record** per work item (re-grade overwrites). A multi-grader
-  append-log is a possible follow-up, not built.
+- Feedback is a **single record per `(work item, author)` pair** (re-grade of the
+  SAME author overwrites). Only two sanctioned authors exist today
+  (`operator`/`cortex`, c17/h14) — a full multi-grader append-log (arbitrary
+  named graders, a history per work item) is a possible follow-up, not built.
+  `feedback export`'s filtering is not yet author-aware (a separate follow-up).
 - Stats are **per top-level work item**; a subagent's cost stays in its own
   `SubResult.usage` (nested-only, matching the existing usage rule). Rolling
   sub-results into a parent total is a parked follow-up.
