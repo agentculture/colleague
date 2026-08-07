@@ -1,0 +1,533 @@
+{
+  "slug": "prove-self-learning-387",
+  "title": "prove self-learning (#387)",
+  "frame_slug": "prove-self-learning-387",
+  "schema_version": 4,
+  "status": "exported",
+  "created": "2026-08-07T17:57:01Z",
+  "updated": "2026-08-07T18:00:18Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Colleague provably learns: the self-taught warm-vs-cold and the #378 correction-diff ablation both ran in a healthy session, and the results \u2014 supporting or falsifying \u2014 are recorded in the live-testing ledger and close the two unverified delivery claims",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Both experiments actually ran in a healthy session window \u2014 the spec is falsified if either arm was simulated, hand-seeded, or run under a #346 zero-step collapse",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "Precondition gate: ONE clean baseline run on a step-executing backend before either arm starts \u2014 the live lobes /capabilities probe (2026-08-07) shows the 35B worker role (unsloth/Qwen3.6-35B-A3B-NVFP4) ready=true, the backend issue #387 names; a #346 zero-step collapse in the baseline aborts the session (unattributable), never gets explained around",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The baseline artifact shows steps > 0 and a substantive non-meta finish on the 35B worker BEFORE either arm starts; a collapsed baseline aborts the session",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Experiment 1 (self-taught warm-vs-cold): fail -> rung-2 self-distill (nothing hand-seeded; the arc's own pipeline authors the lesson) -> rerun the SAME task in the same repo -> compare steps/tokens/outcome via the always-on WorkStats, mirroring the h3/h14 methodology in docs/features/memory.md (which measured 5x fewer steps with a HAND-seeded lesson) including its honest-cold footnote discipline",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The warm arm's lesson was authored by the rung-2 pipeline from the failed run's own record \u2014 store record origin=model + the distill.json done marker prove it; nothing hand-seeded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Experiment 2 (#378 correction-diff ablation) runs exactly the row-32 recipe: one repo, N sequential REAL tasks, learning ON vs OFF with COLLEAGUE_MEMORY=0 as the OFF arm (gate verified live at colleague/config.py:1705 _resolve_memory_enabled, reading COLLEAGUE_MEMORY/CONVERTIBLE_MEMORY), integrator-correction-diff lines per task (colleague/correction.py) as the primary metric",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Both arms run the IDENTICAL task list with only COLLEAGUE_MEMORY differing; correction-diff lines are counted by the same colleague/correction.py capture on every task in both arms",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Acceptance recording: both arms' artifacts + WorkStats + a ledger row land in docs/live-testing.md rows 32/33, and the two 'unverified' delivery claims in docs/deliveries/2026-08-07-self-learning-arc.md (learning-ON-reduces-corrections #378; recall-reduces-strive-attempts #377) flip to verified-or-falsified \u2014 equal-or-worse outcomes are recorded as FALSIFYING the memory link, never explained away",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Rows 32/33 + the delivery-claim flips land in the SAME PR as the arm artifacts; an equal-or-worse result lands in FALSIFYING wording, never softened",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Do NOT re-prove what CI and row 31 already carry: transmission (tests/test_e2e_selflearning.py::test_second_run_recalls_first_runs_lesson_verbatim, verbatim first-turn recall) and live lesson production (ledger row 31, four-round probe, anti-fabrication held) \u2014 issue #387 lists both under 'what is already proven'",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The session's ledger additions cite the existing row-31/CI evidence instead of re-running it \u2014 zero rig hours spent re-proving transmission or lesson production",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "boundary",
+      "text": "The instruments stay unchanged: no production code changes to memory.py/distill.py/correction.py/strive.py/artifact.py during the proof \u2014 a pipeline-blocking defect discovered mid-proof may be fixed and recorded (the t17 probe precedent: 3 defects found+fixed live), but never a change that shapes the metric itself",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The proof PR's diff touches docs + experiment records/scripts only; any pipeline-blocking instrument fix is a separately-recorded commit naming the defect (t17 precedent)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The #378 ablation workload is the 'Transformer' game build: a 2D Prince-of-Persia-style classic platformer with a robot hero \u2014 three.js + nodejs, browser-run, stunning graphics, lives, sword, puzzles, doors \u2014 agent-accessible AND human-beautiful; its task list, run as N sequential real tasks per arm, IS the ablation's task list (q1)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The game's task list exists as its own committed plan BEFORE the arms start; every task is real repo work (the game runs in a browser at each step's acceptance), gradeable via feedback",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Work dispatches in every arm go to the worker role (35B) \u2014 worker always works, for speed; cortex deep-thinks, gives feedback, configures, and designs worker/senses improvements (q2) \u2014 so the behavioral delta is attributed to what the WORKER learns, and lesson/feedback authorship sits with cortex",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Every work-arm artifact's WorkStats names the 35B worker as the executing model; lesson/feedback records name cortex (or the operator) as author \u2014 both verifiable from the artifacts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Workload 1 (enabling, colleague repo): the playwright arm \u2014 colleague gains a browser-driving/verification capability so it can actually run and test the game it builds; per the v1 scope line this is a NEW tool surface + a new sanctioned-subprocess consumer, so it needs its own scope/spec leg (re-spec, ninth-increment discipline) and is sequenced BEFORE the game workload",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The playwright arm lands via its own scope/spec/plan cycle with tests/test_boundary.py's allow-list updated deliberately \u2014 never as an unreviewed side effect of the game arc",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "The operator + the colleague development loop itself: the proof's consumers are issue #387, the two unverified claims in docs/deliveries/2026-08-07-self-learning-arc.md, and every future arc deciding whether memory stays armed by default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The spec names its consumers concretely (#387, the delivery doc's claims table) rather than a generic audience",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "after_state",
+      "text": "Colleague's learning claim is evidence-backed either way: ledger rows 32/33 carry measured arms, the delivery claims flip to verified-or-falsified, #387 closes \u2014 and a falsifying outcome is a first-class result, not a failure to explain away",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "#387 closes ONLY when both arms' evidence is committed \u2014 never on recipes or intentions alone",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "why_it_matters",
+      "text": "An unproven learning loop is dead weight: every run pays recall/remember cost on faith; only a measured behavioral delta justifies default-armed memory \u2014 and a falsification is equally actionable (disarm, or fix the link)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A falsifying outcome triggers a recorded decision about the memory default (keep / disarm / fix), not silence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "success_signal",
+      "text": "Experiment 1: steps_warm < steps_cold AND tokens_warm < tokens_cold on the same task with a self-taught lesson (the hand-seeded precedent measured 5x fewer steps / 5.5x fewer tokens); Experiment 2: mean correction-diff lines per task ON < OFF across the identical N-task list. Equal-or-worse on either = recorded as FALSIFYING the memory link",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "All compared numbers are read verbatim from artifact WorkStats and correction-capture sidecars \u2014 no estimation, no hand-computation, no dropped runs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "Every ablation task in BOTH arms lands via a real PR with a squash merge and integrator corrections committed before merge: maybe_capture_correction requires pr_url AND tip_sha from the artifact (probe: colleague/feedback.py:784-830); a no-PR task yields outcome=skipped and NO metric for that task",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Every counted task's capture sidecar shows outcome=fired in both arms; a skipped capture removes that task from BOTH arms' metric and is recorded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "The two ablation arms run in SEPARATE fresh repos with SEPARATE stores: memory.remember is UNGATED (colleague/memory.py:133 \u2014 the memory gate is loop-side ctx.memory_enabled, colleague/loop.py:2199), so the grade-time correction capture stores code-lessons even under COLLEAGUE_MEMORY=0; OFF-arm purity therefore means NO RECALL (loop-gated), and store separation keeps OFF-arm writes from ever reaching the ON arm",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The OFF arm's N artifacts show zero memory.recalled blocks \u2014 checked, not assumed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Experiment 1's warm rerun is gated three ways: (a) the detached distill child's marker reads status=done (the row-31 round-2 artifact race), (b) a store probe shows the distilled lesson present, (c) post-run, the warm artifact's memory.recalled block contains that lesson (h7 diagnosability) \u2014 any miss ABORTS/invalidates the comparison; a vacuous warm arm is never compared",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "An aborted warm arm is recorded as aborted \u2014 never quietly rerun until the numbers look right",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Both experiment-1 runs start from the IDENTICAL repo state \u2014 same base commit SHA, each in a fresh isolation worktree; the failed run's worktree/branch must not leak into the rerun; only the store differs between the runs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "Both experiment-1 artifacts record the same base commit SHA \u2014 verifiable from the artifacts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Measured runs are serialized on a quiet rig: one work loop at a time, no concurrent rig consumers (no senses/voice sessions, no other colleague loops, no training jobs) during either arm; each run's record notes the rig-quiet condition",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "Each measured run's record names the rig-quiet status; a contaminated run is invalidated and rerun, never averaged in",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Both arms' repos are scaffolded IDENTICALLY: same .colleague/approvals.json tokens (node/npm/webglass \u2014 the game tasks need run_command through the approval gate), same hooks/templates, same task briefs + acceptance criteria, same immediate-grading discipline (the grade-time trigger fires the capture); the ONLY difference is COLLEAGUE_MEMORY",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "A scaffolding diff of the two arm repos (excluding the COLLEAGUE_MEMORY setting) is empty at arm start \u2014 captured as evidence",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Integrator corrections are rule-bound and pre-committed: correct each task ONLY to its pre-committed acceptance criteria (no opportunistic polish), diff measured mechanically by colleague/correction.py; the integrator's arm-awareness is an acknowledged validity threat mitigated by the written rule, not denied",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "The correction-rules text is committed BEFORE arm 1 task 1 and its SHA is unchanged at experiment end",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "t1: Preconditions + one clean baseline run on the 35B worker",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Baseline artifact shows steps > 0, a substantive non-meta finish, and WorkStats naming the 35B worker model",
+        "Rig-quiet condition (no other loops/sessions/jobs) verified and recorded alongside the baseline; a #346-style zero-step collapse aborts the session with the abort recorded"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c29",
+        "h20"
+      ],
+      "instruction": "Pin the model explicitly (COLLEAGUE_MODEL=unsloth/Qwen3.6-35B-A3B-NVFP4 or the lobes worker role via three_tier config); run one real small task in a throwaway repo; check rig quiet first (no senses/voice sessions, no other colleague loops, no training jobs); keep the artifact \u2014 it is the healthy-backend evidence every later run cites"
+    },
+    {
+      "id": "t2",
+      "summary": "t2: Verify the webglass usable-bar (the 7 items of webglass-cli#9) and pin consumption to run_command",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "All seven acceptance items from webglass-cli#9 pass against a local fixture page: localhost open, console/page-error evidence (a throwing page yields error text, a clean page yields an explicitly empty list), selector-scoped extract, action press key sequence, screenshot-to-file, session reattach across one-shot CLI calls, --json/stdout-stderr/exit-code contract",
+        "Colleague-side consumption in this proof is run_command through the approval gate only \u2014 zero colleague code diff; the colleague-native webglass tool is recorded as a future own-cycle arc"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h8"
+      ],
+      "instruction": "webglass committed the seven items to its M0-M2 slice (ack on webglass-cli#9); build a tiny fixture page (one that logs keydowns + one that throws on load) in scratch space and drive each verb; if any load-bearing item (1-4 of #9) fails, post on the #9 thread and HOLD the game arms \u2014 degrade only per that thread's agreement"
+    },
+    {
+      "id": "t3",
+      "summary": "t3: Experiment-1 setup \u2014 throwaway operator repo, fail-cold task, cortex-pinned distill author",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A throwaway repo (the run's operator repo) committed at a recorded base SHA; the experiment task brief committed; the store verified cold (no task-specific lesson)",
+        "The distillation author resolves to the SERVED cortex model \u2014 verified via config/distill resolution output, never the unserved muse"
+      ],
+      "deps": [],
+      "covers": [
+        "c28"
+      ],
+      "instruction": "Construct a hidden-fact repo-spelunking task in the h3/h14 fixture style (docs/features/memory.md), sized past the cold step budget so the cold run reliably fails; pin the distill author per the row-31 round-4 recipe; if the cold run later succeeds unexpectedly, record the discard honestly and adjust (assumption c27)"
+    },
+    {
+      "id": "t4",
+      "summary": "t4: Experiment-1 execution \u2014 cold fail, distill, gated warm rerun, WorkStats comparison",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Cold run artifact recorded (steps > 0, failed/incomplete); the detached distill child's marker reads status=done; a store probe shows the lesson with origin=model",
+        "Warm rerun starts from the same base SHA in a fresh isolation worktree; its artifact's memory.recalled contains the distilled lesson; any gate miss ABORTS with the abort recorded as aborted",
+        "steps/tokens cold-vs-warm read verbatim from the two artifacts' WorkStats into the comparison record; equal-or-worse recorded as FALSIFYING"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c3",
+        "h3",
+        "c26",
+        "h17",
+        "h19"
+      ],
+      "instruction": "Sequence strictly: cold run -> wait on distill.json (bounded, the row-31 round-2 race) -> eidetic store probe -> warm run -> verify recall in the artifact -> compare; both artifacts must record the same base commit SHA; nothing is hand-seeded at any point"
+    },
+    {
+      "id": "t5",
+      "summary": "t5: Author the Transformer game plan + pre-commit the integrator correction rules",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The game repo's own committed plan exists BEFORE the arms: N tasks, each with acceptance criteria under which the game runs in a browser at that step (three.js + nodejs, robot hero, lives, sword, puzzles, doors, an agent-readable state element, human-beautiful visuals)",
+        "The correction-rules doc (correct ONLY to each task's pre-committed acceptance criteria, no opportunistic polish) is committed BEFORE arm 1 task 1 and its SHA recorded"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h9",
+        "c31",
+        "h22"
+      ],
+      "instruction": "Author the game plan as its own devague frame/plan in a game template repo; size tasks for the worker model (small, one-PR-each, browser-verifiable via webglass); target N in the 6-10 range; every task brief names its webglass verification step; the rules doc is the h22 evidence \u2014 hash it"
+    },
+    {
+      "id": "t6",
+      "summary": "t6: Scaffold the two arm repos identically from the game template",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Two fresh repos cloned from the SAME template commit with SEPARATE .eidetic stores; a scaffolding diff excluding the COLLEAGUE_MEMORY setting is EMPTY and captured as evidence",
+        "Both repos carry identical .colleague/approvals.json (node/npm/webglass run_command tokens), hooks/templates, task briefs and acceptance criteria"
+      ],
+      "deps": [
+        "t2",
+        "t5"
+      ],
+      "covers": [
+        "c25",
+        "c30",
+        "h21"
+      ],
+      "instruction": "memory.remember is UNGATED (memory.py:133) so store separation is what keeps OFF-arm writes from ever reaching the ON arm \u2014 never share a repo or store between arms; capture the diff output as the h21 evidence before any task runs"
+    },
+    {
+      "id": "t7",
+      "summary": "t7: Run the ON arm first \u2014 N game tasks, learning armed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "N tasks run sequentially on the worker model with memory armed; every task lands via a real PR with squash merge, rule-bound integrator corrections committed before merge, and an immediate grade; every capture sidecar shows outcome=fired (a skip is recorded and removes that task from BOTH arms' metric)",
+        "Every artifact's WorkStats names the 35B worker; lesson/feedback authorship shows cortex (or operator); rig-quiet recorded per run"
+      ],
+      "deps": [
+        "t1",
+        "t6"
+      ],
+      "covers": [
+        "c13",
+        "h10",
+        "c23",
+        "h15"
+      ],
+      "instruction": "ON arm runs FIRST (decision c32 \u2014 conservative: integrator familiarity accrues to the OFF arm); serialize one loop at a time; grade each task immediately so the grade-time trigger fires the correction capture; the code-lessons stored between tasks ARE the learning lane under measurement \u2014 do not prune the store mid-arm"
+    },
+    {
+      "id": "t8",
+      "summary": "t8: Run the OFF arm \u2014 the identical task list with COLLEAGUE_MEMORY=0",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The IDENTICAL task list runs in the OFF repo with COLLEAGUE_MEMORY=0; the same PR + squash-merge + rule-bound correction + immediate-grade discipline applies to every task",
+        "Zero memory.recalled blocks across all N OFF-arm artifacts \u2014 checked from the artifacts, not assumed"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c4",
+        "h4",
+        "h16"
+      ],
+      "instruction": "Same worker model, same briefs, same integrator rules doc (verify its SHA unchanged); the OFF arm's store WILL still receive lesson writes from grade-time capture (ungated remember) \u2014 that is expected and harmless under store separation; what must be zero is RECALL"
+    },
+    {
+      "id": "t9",
+      "summary": "t9: Metrics, adjudication, recording \u2014 rows 32/33, delivery-claim flips, close #387",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Correction-diff lines per task tabulated verbatim from both arms' capture sidecars; experiment-1 steps/tokens tabulated verbatim from WorkStats; mean ON vs OFF compared; equal-or-worse on either experiment lands in FALSIFYING wording, never softened",
+        "docs/live-testing.md rows 32/33 updated and the two unverified delivery claims in docs/deliveries/2026-08-07-self-learning-arc.md flipped to verified-or-falsified, in the SAME PR as the arm artifacts; row 33 recorded honestly as run or still-recipe per NEBULA availability; the ledger cites row-31/CI evidence for transmission and lesson production instead of re-running them",
+        "The proof PR's diff touches docs + experiment records only (any instrument fix is a separately-recorded commit naming its defect); a falsifying outcome triggers a recorded memory-default decision (keep/disarm/fix); #387 closes only on this committed evidence"
+      ],
+      "deps": [
+        "t4",
+        "t8"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c5",
+        "h5",
+        "c6",
+        "h6",
+        "c7",
+        "h7",
+        "c17",
+        "h11",
+        "c18",
+        "h12",
+        "c19",
+        "h13",
+        "c20",
+        "h14"
+      ],
+      "instruction": "This is the accountability task: read every number from artifacts/sidecars verbatim (h14); the healthy-session condition h1 is certified here from the baseline + per-run rig-quiet records; sign the ledger rows with the artifact paths so a reviewer can re-derive every cell"
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "webglass M0-M2 slice timing: the seven usable-bar items are committed but not yet delivered; t2 is the gate \u2014 if a load-bearing item (1-4 of webglass-cli#9) is late, the game arms hold and the session runs experiment 1 + records the hold honestly",
+      "kind": "unknown_nonblocking",
+      "task_id": "t2",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "NEBULA row 33 (the #377 strive ablation) runs only if the benchmark repo + rig hours materialize; otherwise it stays a recorded recipe and its delivery claim stays honestly unverified",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Statistical power at small N: a near-tie is weak evidence either way; raw per-task numbers are recorded so a larger-N rerun can extend the series",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "Warm-run duration confound (server warm-up/KV cache): duration is reported but never load-bearing; steps/tokens are the primary metrics",
+      "kind": "unknown_nonblocking",
+      "task_id": "t4",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "The 35B worker has never collapsed but N sequential runs are unproven at this volume; a mid-arm zero-step collapse invalidates that run per h20 (invalidated and rerun, never averaged)",
+      "kind": "unknown_nonblocking",
+      "task_id": "t7",
+      "resolved": false,
+      "resolution": ""
+    }
+  ]
+}

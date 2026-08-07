@@ -123,11 +123,20 @@ def recall(
     stdout = proc.stdout or ""
     try:
         results = json.loads(stdout)
-        if isinstance(results, list):
-            return results
-        return []
     except ValueError:
         return []
+    if isinstance(results, list):
+        return results
+    if isinstance(results, dict):
+        # eidetic >= 0.13 wraps results in an envelope:
+        # {"query": ..., "mode": ..., "truncated": ..., "items": [...]}.
+        # Accept both shapes so recall keeps working across the CLI's
+        # output-contract change (caught live in the #387 proof session:
+        # every armed run silently recorded recalled=0).
+        items = results.get("items")
+        if isinstance(items, list):
+            return items
+    return []
 
 
 def remember(

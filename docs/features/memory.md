@@ -80,6 +80,20 @@ means no task-specific lesson, not zero recall — eidetic merges the operator's
 leg too; it contained nothing about the task and the cold run's 10 steps show
 it. Both artifacts carry the full `memory` block for audit.
 
+**The self-taught counterpoint (2026-08-07, #387 exp-1 — FALSIFYING).** The
+same design rerun with a lesson the pipeline authored *itself* (cold fail →
+rung-2 distill → warm rerun, nothing hand-seeded; live-testing row 34): the
+distilled lesson was genuinely diagnostic but *process-level* ("all steps
+went to tracing; transition to execution early"), and with it verifiably in
+context the warm run's step trace was **identical** to the cold run's —
+equal turns, no deliverable either way. Together the two measurements bound
+the claim honestly: an **answer-level** lesson transforms a rerun (5×); a
+**process-level** lesson, at least at a tight step cap and one repetition,
+does not. Lesson *specificity* — whether distillation captures what was
+*learned about the task* rather than what was *learned about budgeting* —
+is the operative variable, and the arc's recorded next-delta (#388 is the
+validator-side start).
+
 ## Honest limits
 
 - The lesson record is deterministic run-facts (status/steps/signals), not a
