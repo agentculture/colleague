@@ -429,17 +429,34 @@ def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> 
 
 
 def _find_artifact(repo_path: str | Path, task_id: str) -> Path | None:
-    """Locate the run artifact for *task_id* (never the trace sidecars)."""
+    """Locate the run artifact for *task_id*, never a sidecar (Qodo #386).
+
+    The artifact dir holds same-stem siblings — ``<id>.feedback.json``,
+    ``<id>.<author>.feedback.json``, ``<id>.distill.json``,
+    ``<id>-correction-capture.json``, ``<id>.*.trace.jsonl`` — so name
+    exclusion alone is fragile. A candidate must also be artifact-SHAPED:
+    a JSON object whose ``task_id`` matches. Ambiguity resolves to the
+    lexicographically first match (deterministic).
+    """
     base = Path(repo_path) / ".colleague"
-    candidates = [
-        p
-        for p in base.glob(f"{task_id}*.json")
-        if not p.name.endswith(".trace.jsonl")
-        and ".trace" not in p.name
-        and "-correction-capture" not in p.name
-        and ".distill" not in p.name
-    ]
-    return min(candidates) if candidates else None
+    candidates = []
+    for p in sorted(base.glob(f"{task_id}.*.json")):
+        name = p.name
+        if (
+            ".trace" in name
+            or "-correction-capture" in name
+            or name.endswith(".distill.json")
+            or ".feedback." in name
+            or name.endswith(".feedback.json")
+        ):
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("task_id") == task_id:
+            candidates.append(p)
+    return candidates[0] if candidates else None
 
 
 def _compose_child_prompt(artifact: dict[str, Any]) -> str:

@@ -579,3 +579,39 @@ class TestDistillIntegration:
         author = distill.resolve_distill_author(config, roles)
         assert author is not None
         assert author.model == "muse-m"
+
+
+# ---------------------------------------------------------------------------
+# Qodo #386 regression: the child never reads a sidecar as the artifact
+# ---------------------------------------------------------------------------
+
+
+class TestFindArtifactSidecars:
+    def test_feedback_sidecar_never_selected(self, tmp_path: Path) -> None:
+        """`<id>.feedback.json` sorts before the artifact but must never win
+        (Qodo #386 bug 4: the broad glob + lexicographic pick could read a
+        feedback record as the run artifact)."""
+        adir = tmp_path / ".colleague"
+        adir.mkdir()
+        (adir / "abc123.feedback.json").write_text(
+            json.dumps({"task_id": "abc123", "rating": 5}), encoding="utf-8"
+        )
+        (adir / "abc123.cortex.feedback.json").write_text(
+            json.dumps({"task_id": "abc123", "rating": 3, "author": "cortex"}),
+            encoding="utf-8",
+        )
+        artifact = adir / "abc123.some-task-slug.json"
+        artifact.write_text(
+            json.dumps({"task_id": "abc123", "status": "ok", "summary": "s"}),
+            encoding="utf-8",
+        )
+        found = distill._find_artifact(tmp_path, "abc123")
+        assert found == artifact
+
+    def test_no_artifact_only_sidecars_yields_none(self, tmp_path: Path) -> None:
+        adir = tmp_path / ".colleague"
+        adir.mkdir()
+        (adir / "abc123.feedback.json").write_text(
+            json.dumps({"task_id": "abc123", "rating": 5}), encoding="utf-8"
+        )
+        assert distill._find_artifact(tmp_path, "abc123") is None

@@ -398,3 +398,57 @@ class TestDataclassShapes:
     def test_correction_diff_is_alias(self) -> None:
         """CorrectionDiff is an alias for CorrectionRecord (back-compat)."""
         assert CorrectionDiff is CorrectionRecord
+
+
+# ---------------------------------------------------------------------------
+# Qodo #386 regression: nested paths survive diff parsing intact
+# ---------------------------------------------------------------------------
+
+
+def test_parse_diff_output_keeps_nested_paths() -> None:
+    """A file under a directory keeps its FULL relative path (Qodo #386 bug 3:
+    the old ---/+++ split truncated to a basename and dropped nested files)."""
+    from colleague.correction import _parse_diff_output
+
+    diff_text = (
+        "diff --git a/colleague/loop.py b/colleague/loop.py\n"
+        "index 111..222 100644\n"
+        "--- a/colleague/loop.py\n"
+        "+++ b/colleague/loop.py\n"
+        "@@ -1,2 +1,2 @@\n"
+        "-old line\n"
+        "+new line\n"
+        "diff --git a/top.py b/top.py\n"
+        "index 333..444 100644\n"
+        "--- a/top.py\n"
+        "+++ b/top.py\n"
+        "@@ -5,1 +5,1 @@\n"
+        "-a\n"
+        "+b\n"
+    )
+    hunks = _parse_diff_output(diff_text, ["colleague/loop.py", "top.py"])
+    assert set(hunks) == {"colleague/loop.py", "top.py"}
+    assert "+new line" in hunks["colleague/loop.py"]
+    assert "@@ -1,2 +1,2 @@" in hunks["colleague/loop.py"]
+    assert "+b" in hunks["top.py"]
+
+
+def test_parse_diff_output_scopes_to_requested_files() -> None:
+    from colleague.correction import _parse_diff_output
+
+    diff_text = (
+        "diff --git a/pkg/wanted.py b/pkg/wanted.py\n"
+        "--- a/pkg/wanted.py\n"
+        "+++ b/pkg/wanted.py\n"
+        "@@ -1 +1 @@\n"
+        "-x\n"
+        "+y\n"
+        "diff --git a/pkg/unwanted.py b/pkg/unwanted.py\n"
+        "--- a/pkg/unwanted.py\n"
+        "+++ b/pkg/unwanted.py\n"
+        "@@ -1 +1 @@\n"
+        "-p\n"
+        "+q\n"
+    )
+    hunks = _parse_diff_output(diff_text, ["pkg/wanted.py"])
+    assert set(hunks) == {"pkg/wanted.py"}

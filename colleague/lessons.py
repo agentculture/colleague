@@ -68,7 +68,7 @@ class LessonValidationError(Exception):
 
 def _is_non_empty_string(value: object) -> bool:
     """Return ``True`` if *value* is a non-empty, non-whitespace string."""
-    return isinstance(value, str) and value.strip()
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _check_required_keys(lesson: dict[str, object]) -> list[str]:

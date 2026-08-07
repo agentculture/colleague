@@ -305,8 +305,11 @@ Mirror of culture's all-backends rule: contract behavior (task fields, result sh
   sanctioned subprocess consumers: `hooks.py`, `tools.py`, `handoff.py`,
   `neighbours.py`, `culture.py`, `devague.py`, `worktrees.py`, `lint.py`,
   `resident/steward.py`, `affectedtests.py`, `background.py` (the one-shot detach —
-  `Popen(start_new_session=True)`, no `.wait()`/`.poll()`), `memory.py`, and
-  `livecheck.py`. Threads (`concurrent.futures`) stay confined to
+  `Popen(start_new_session=True)`, no `.wait()`/`.poll()`), `memory.py`,
+  `livecheck.py`, `coherence.py`, `experiment.py` (allow-list exactly `sloth`),
+  `strive.py` (the operator-supplied measure command, approval-gated like
+  `run_command`), and `correction.py` (git/gh for the integrator-correction
+  diff). Threads (`concurrent.futures`) stay confined to
   `colleague/subagents.py` and `colleague/cli/_commands/_input_line.py` (the
   session's colour-TTY reader thread; any failure degrades to cooked-mode). Every
   shell-out targets an operator-installed CLI via explicit allow-listing; none opens

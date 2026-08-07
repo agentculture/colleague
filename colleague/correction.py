@@ -200,44 +200,40 @@ def _git_diff_scoped(
 def _parse_diff_output(diff_text: str, requested_files: list[str]) -> dict[str, str]:
     """Parse unified diff output into per-file hunks.
 
-    Splits the diff on ``--- a/`` / ``+++ b/`` boundaries to isolate each
-    file's hunk text.  Only files in ``requested_files`` are included.
+    Splits on the ``diff --git a/<path> b/<path>`` file boundary — the one
+    header git emits exactly once per file — keeping each file's FULL relative
+    path (Qodo #386: the original ``---``/``+++`` split truncated nested paths
+    to a basename and flushed twice per file, silently dropping every file
+    under a directory). Only files in ``requested_files`` are included; the
+    header lines stay in the hunk text (they are the evidence).
     """
     result: dict[str, str] = {}
     if not diff_text.strip():
         return result
 
-    # Parse unified diff: each file section starts with "--- a/<path>" / "+++ b/<path>"
-    # We track file boundaries and collect hunks per file.
-    lines = diff_text.splitlines(keepends=True)
+    requested = set(requested_files)
     current_file: str | None = None
     current_hunk: list[str] = []
 
     def _flush() -> None:
-        nonlocal current_file, current_hunk
-        if current_file and current_hunk and current_file in requested_files:
+        if current_file and current_hunk and current_file in requested:
             result[current_file] = "".join(current_hunk)
-        current_file = None
-        current_hunk = []
 
-    for line in lines:
+    for line in diff_text.splitlines(keepends=True):
         stripped = line.rstrip("\n")
-        # Detect file header: "--- a/path" or "+++ b/path"
-        if stripped.startswith("--- a/") or stripped.startswith("+++ b/"):
-            # If we were tracking a file, flush it
-            if current_file is not None:
-                _flush()
-            # Extract the path (after "--- a/" or "+++ b/")
-            path = stripped.split("/", 2)[-1] if "/" in stripped[6:] else stripped[6:]
-            current_file = path
-            current_hunk = [line]
+        if stripped.startswith("diff --git "):
+            _flush()
+            current_file = None
+            current_hunk = []
+            marker = " b/"
+            idx = stripped.rfind(marker)
+            if idx != -1:
+                current_file = stripped[idx + len(marker) :]
+                current_hunk = [line]
         elif current_file is not None:
             current_hunk.append(line)
-        # Lines before any file header (e.g. binary file notices) are ignored
 
-    # Flush the last file
-    if current_file is not None:
-        _flush()
+    _flush()
 
     return result
 
