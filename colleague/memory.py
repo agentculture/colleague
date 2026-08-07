@@ -34,6 +34,8 @@ is byte-identical to before this task.
 
 from __future__ import annotations
 
+import enum
+import hashlib
 import json
 import os
 import shutil
@@ -320,4 +322,63 @@ def build_lesson_record(task_id: str, text: str, metadata: dict[str, Any]) -> di
         "type": "work-lesson",
         "text": text,
         "metadata": dict(metadata),
+    }
+
+
+# ── code-lesson record type (plan t8, spec c4/h4) ──────────────────────────
+
+
+class Confidence(enum.Enum):
+    """Bounded confidence levels for code-lesson records.
+
+    Honest default is low — a single observation is not proof.
+    Values are floats in [0.0, 1.0] for JSON serialization.
+    """
+
+    low = 0.1
+    medium = 0.5
+    high = 0.9
+
+
+def build_code_lesson_record(
+    area: str,
+    convention: str,
+    evidence: str,
+    *,
+    confidence: Confidence | float = Confidence.low,
+) -> dict[str, Any]:
+    """Shape one code-lesson record (id/type/area/convention/evidence/confidence).
+
+    Pure function — no subprocess, no store access. A store-less repo remains
+    a zero-subprocess no-op (the triple gate is untouched).
+
+    The id is derived from the content (area + convention + evidence) so
+    identical lessons upsert in place, and the ``code-lesson-`` prefix
+    guarantees no collision with ``work-lesson-<task_id>`` ids.
+
+    Evidence is verbatim substance: a lint-fix line, a failing-test name,
+    a diff hunk — not a summary or interpretation.
+
+    Confidence defaults to ``Confidence.low`` (honest default: one
+    observation is not proof).
+    """
+    # Resolve confidence to a float value.
+    if isinstance(confidence, Confidence):
+        confidence_value: float = confidence.value
+    else:
+        confidence_value = float(confidence)
+
+    # Deterministic id from content — idempotent upsert, no collision with
+    # work-lesson-<task_id> (different prefix).
+    content = f"{area}\x00{convention}\x00{evidence}"
+    digest = hashlib.sha256(content.encode()).hexdigest()[:12]
+    record_id = f"code-lesson-{digest}"
+
+    return {
+        "id": record_id,
+        "type": "code-lesson",
+        "area": area,
+        "convention": convention,
+        "evidence": evidence,
+        "confidence": confidence_value,
     }
