@@ -518,7 +518,11 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   operator-supplied measure command once per attempt to
 #                   score it (bounded, timeout-capped; routed through the
 #                   approval gate like run_command); subprocess is the
-#                   transport, no daemon, no polling loop
+#                   transport, no daemon, no polling
+#   correction.py    — the correction-diff capture module (self-learning t7):
+#                   resolves squash merge commits via `gh pr view --json` and
+#                   computes `git diff <tip>..<merge> -- <files>`; subprocess
+#                   is the transport, no daemon, no polling loop
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -537,6 +541,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/livecheck.py",
         "colleague/experiment.py",
         "colleague/strive.py",
+        "colleague/correction.py",
     }
 )
 
