@@ -52,6 +52,17 @@ ALLOWED_VERBS: frozenset[str] = frozenset({"recall", "remember"})
 #: Bound a runaway CLI so it cannot stall the loop indefinitely.
 _TIMEOUT_SECONDS = 300
 
+#: Cap on free text riding the eidetic argv (defense-in-depth: argv is
+#: shell-free by construction, but model/operator text is still bounded and
+#: stripped of control characters before it reaches an OS command).
+_CLI_TEXT_CAP = 2000
+
+
+def _bound_cli_text(text: str, cap: int = _CLI_TEXT_CAP) -> str:
+    """Bound + de-control free text before it rides the eidetic argv."""
+    cleaned = "".join(ch for ch in str(text) if ch >= " " or ch in "\n\t")
+    return cleaned[:cap]
+
 
 def recall(
     repo_path: str | Path,
@@ -86,7 +97,7 @@ def recall(
     argv = [
         "eidetic",
         "recall",
-        query,
+        _bound_cli_text(query),
         "--json",
         "--top-k",
         str(top_k),

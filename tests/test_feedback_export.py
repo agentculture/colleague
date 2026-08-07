@@ -417,7 +417,8 @@ def test_rendered_cli_export_include_cortex_authored(tmp_path: Path) -> None:
 
     # Default: excluded
     code, out, _ = _run(["feedback", "export", "--repo", str(tmp_path), "--json"])
-    assert code == 0 and json.loads(out) == []
+    assert code == 0
+    assert json.loads(out) == []
 
     # With flag: included
     code, out, _ = _run(

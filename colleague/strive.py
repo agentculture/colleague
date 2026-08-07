@@ -82,8 +82,20 @@ class HypothesisLedger:
     entries: list[dict[str, Any]] = field(default_factory=list)
 
     def _path(self, goal: str) -> Path:
+        """The ledger file for *goal* — validated to stay INSIDE the ledger dir.
+
+        The goal is operator input; the slug is re-validated against a strict
+        allow-list and the resolved path is containment-checked so no goal
+        string can name a path outside ``ledger_dir`` (Sonar S2083).
+        """
         slug = _slug(goal)
-        return Path(self.ledger_dir) / f"{slug}.json"
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug):
+            raise ValueError(f"goal yields an unusable ledger slug: {slug!r}")
+        base = Path(self.ledger_dir).resolve()
+        path = (base / f"{slug}.json").resolve()
+        if base not in path.parents:
+            raise ValueError("ledger path escapes the ledger dir")
+        return path
 
     def load(self, goal: str) -> None:
         """Load persisted entries for *goal* from disk."""
@@ -251,6 +263,19 @@ def _run_measure_cmd(
         return -1, str(exc), False
 
 
+def _classify_measure(returncode: int, output: str, denied: bool) -> tuple[float, str, str]:
+    """Turn one measure invocation into (score, supported|refuted, cause)."""
+    if denied:
+        return 0.0, "refuted", f"measure denied by policy: {output}"
+    score = _extract_score(returncode, output)
+    supported = returncode == 0 and score > 0
+    return (
+        score,
+        "supported" if supported else "refuted",
+        f"measure returned {returncode}: {output[:100]}",
+    )
+
+
 def drive_strive(
     *,
     goal: str,
@@ -360,22 +385,7 @@ def drive_strive(
         # Run the measure command — routed through the policy gate, in the
         # episode worktree cwd.
         returncode, output, denied = _run_measure_cmd(measure_cmd, policy=policy, cwd=worktree_path)
-
-        # Determine score and result.
-        if denied:
-            score = 0.0
-            test_result = "refuted"
-            cause = f"measure denied by policy: {output}"
-        else:
-            score = _extract_score(returncode, output)
-            # A failing measure command is refuted.
-            if returncode != 0:
-                test_result = "refuted"
-            elif score > 0:
-                test_result = "supported"
-            else:
-                test_result = "refuted"
-            cause = f"measure returned {returncode}: {output[:100]}"
+        score, test_result, cause = _classify_measure(returncode, output, denied)
 
         # Update the declaration entry in place with the actual result.
         entry["score"] = score

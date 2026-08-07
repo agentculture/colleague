@@ -197,6 +197,12 @@ def _git_diff_scoped(
         return None
 
 
+def _header_path(stripped: str) -> str | None:
+    """The b-side path from one ``diff --git a/<p> b/<p>`` header line."""
+    idx = stripped.rfind(" b/")
+    return stripped[idx + 3 :] if idx != -1 else None
+
+
 def _parse_diff_output(diff_text: str, requested_files: list[str]) -> dict[str, str]:
     """Parse unified diff output into per-file hunks.
 
@@ -223,13 +229,8 @@ def _parse_diff_output(diff_text: str, requested_files: list[str]) -> dict[str, 
         stripped = line.rstrip("\n")
         if stripped.startswith("diff --git "):
             _flush()
-            current_file = None
-            current_hunk = []
-            marker = " b/"
-            idx = stripped.rfind(marker)
-            if idx != -1:
-                current_file = stripped[idx + len(marker) :]
-                current_hunk = [line]
+            current_file = _header_path(stripped)
+            current_hunk = [line] if current_file else []
         elif current_file is not None:
             current_hunk.append(line)
 

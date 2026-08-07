@@ -554,6 +554,38 @@ def _read_work_stats_slim(repo_path: str | Path, task_id: str) -> dict[str, int]
     }
 
 
+def _select_export_record(
+    repo_path: str | Path, task_id: str, include_cortex_authored: bool
+) -> Optional[Feedback]:
+    """The record an export row grades by: operator first, cortex only on opt-in.
+
+    Operator always takes precedence — the human's judgment is the
+    authoritative grade for the ROI ledger (c30/h25).
+    """
+    op_record = _work_feedback_record(repo_path, task_id, author=DEFAULT_AUTHOR)
+    if op_record is not None:
+        return op_record
+    if include_cortex_authored:
+        return _work_feedback_record(repo_path, task_id, author=CORTEX_AUTHOR)
+    return None
+
+
+def _export_row_included(
+    record: Feedback,
+    item: Any,
+    min_rating: Optional[int],
+    since_dt: Optional[datetime.datetime],
+) -> bool:
+    """Apply the min-rating and since filters to one candidate row."""
+    if min_rating is not None and min_rating > 0 and record.rating < min_rating:
+        return False
+    if since_dt is not None:
+        started = parse_since(item.started_at) if item.started_at else None
+        if started is None or started < since_dt:
+            return False
+    return True
+
+
 def export_work_items(
     repo_path: str | Path,
     *,
@@ -587,25 +619,9 @@ def export_work_items(
     since_dt = parse_since(since) if since else None
     rows: list[dict[str, Any]] = []
     for item in list_work_items(repo_path):
-        # Determine which author's record to use.
-        # Operator always takes precedence (the human's judgment is the
-        # authoritative grade for the ROI ledger).
-        op_record = _work_feedback_record(repo_path, item.task_id, author=DEFAULT_AUTHOR)
-        ctx_record: Optional[Feedback] = None
-        if include_cortex_authored:
-            ctx_record = _work_feedback_record(repo_path, item.task_id, author=CORTEX_AUTHOR)
-
-        record = op_record if op_record is not None else ctx_record
-        if record is None:
-            continue  # no feedback record at all — skip
-
-        # Apply filters using the selected record's rating.
-        if min_rating is not None and min_rating > 0 and record.rating < min_rating:
+        record = _select_export_record(repo_path, item.task_id, include_cortex_authored)
+        if record is None or not _export_row_included(record, item, min_rating, since_dt):
             continue
-        if since_dt is not None:
-            started = parse_since(item.started_at) if item.started_at else None
-            if started is None or started < since_dt:
-                continue
 
         rows.append(
             {

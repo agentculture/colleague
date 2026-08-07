@@ -195,9 +195,13 @@ def test_cortex_record_lands_beside_operator_record_never_overwriting(tmp_path: 
     op = feedback.read_feedback(tmp_path, "shared")
     cx = feedback.read_feedback(tmp_path, "shared", author="cortex")
     assert op is not None
-    assert op.rating == 2 and op.notes == "operator take" and op.author == "operator"
+    assert op.rating == 2
+    assert op.notes == "operator take"
+    assert op.author == "operator"
     assert cx is not None
-    assert cx.rating == 5 and cx.notes == "cortex take" and cx.author == "cortex"
+    assert cx.rating == 5
+    assert cx.notes == "cortex take"
+    assert cx.author == "cortex"
     # Two sibling files — writing the cortex record never touched the operator's.
     assert (tmp_path / ".colleague" / "shared.feedback.json").is_file()
     assert (tmp_path / ".colleague" / "shared.cortex.feedback.json").is_file()
@@ -208,7 +212,8 @@ def test_same_author_rewrite_still_overwrites(tmp_path: Path) -> None:
     feedback.write_feedback(tmp_path, "d", rating=2, author="cortex")
     feedback.write_feedback(tmp_path, "d", rating=5, author="cortex")
     loaded = feedback.read_feedback(tmp_path, "d", author="cortex")
-    assert loaded is not None and loaded.rating == 5
+    assert loaded is not None
+    assert loaded.rating == 5
 
 
 def test_invalid_author_is_rejected(tmp_path: Path) -> None:
@@ -225,5 +230,6 @@ def test_list_work_items_excludes_every_author_feedback_record(tmp_path: Path) -
     feedback.write_feedback(tmp_path, "d1", rating=5)
     feedback.write_feedback(tmp_path, "d1", rating=4, author="cortex")
     rows = feedback.list_work_items(tmp_path)
-    assert len(rows) == 1 and rows[0].task_id == "d1"
+    assert len(rows) == 1
+    assert rows[0].task_id == "d1"
     assert rows[0].rating == 5  # list_work_items grades off the default (operator) record

@@ -100,7 +100,7 @@ def _fake_eidetic_raises(bin_dir: Path, log: Path) -> None:
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
 
 
-@pytest.fixture()
+@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     (tmp_path / ".eidetic" / "memory").mkdir(parents=True)
     return tmp_path

@@ -353,7 +353,8 @@ def test_record_author_cortex_round_trips(
     rc = main(["feedback", "show", "d11", "--author", "cortex", "--repo", str(tmp_path), "--json"])
     assert rc == 0
     shown = json.loads(capsys.readouterr().out)
-    assert shown["rating"] == 5 and shown["author"] == "cortex"
+    assert shown["rating"] == 5
+    assert shown["author"] == "cortex"
 
 
 def test_record_operator_and_cortex_coexist_via_cli(
@@ -389,7 +390,8 @@ def test_record_operator_and_cortex_coexist_via_cli(
     rc = main(["feedback", "show", "d12", "--author", "cortex", "--repo", str(tmp_path), "--json"])
     assert rc == 0
     cx = json.loads(capsys.readouterr().out)
-    assert cx["rating"] == 5 and cx["author"] == "cortex"
+    assert cx["rating"] == 5
+    assert cx["author"] == "cortex"
 
 
 def test_record_invalid_author_is_user_error(

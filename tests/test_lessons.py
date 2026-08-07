@@ -14,6 +14,7 @@ Covers the lesson-validation in :mod:`colleague.lessons`:
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 
 import pytest
@@ -293,7 +294,7 @@ def test_verdict_is_frozen_dataclass() -> None:
     assert v.allowed is True
     assert v.reason == ""
     # Frozen: cannot mutate.
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         v.allowed = False  # type: ignore[misc]
 
 

@@ -105,6 +105,54 @@ def _check_non_string_values(lesson: dict[str, object]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _refuse_missing_keys(lesson: dict[str, object]) -> LessonVerdict | None:
+    missing = _check_required_keys(lesson)
+    if not missing:
+        return None
+    return LessonVerdict(False, f"no lesson extracted: missing required key(s) {missing!r}")
+
+
+def _refuse_extra_keys(lesson: dict[str, object]) -> LessonVerdict | None:
+    extra = _check_extra_keys(lesson)
+    if not extra:
+        return None
+    return LessonVerdict(
+        False,
+        f"no lesson extracted: extra key(s) {extra!r} not allowed (only cause, lesson, next_delta)",
+    )
+
+
+def _refuse_non_string_values(lesson: dict[str, object]) -> LessonVerdict | None:
+    non_string = _check_non_string_values(lesson)
+    if not non_string:
+        return None
+    return LessonVerdict(
+        False,
+        f"no lesson extracted: key(s) {non_string!r} must be strings, "
+        f"not {type(lesson[non_string[0]]).__name__}",
+    )
+
+
+def _refuse_empty_strings(lesson: dict[str, object]) -> LessonVerdict | None:
+    empty = _check_empty_strings(lesson)
+    if not empty:
+        return None
+    return LessonVerdict(
+        False,
+        f"no lesson extracted: key(s) {empty!r} must be non-empty (non-whitespace) strings",
+    )
+
+
+def _refuse_over_length(lesson: dict[str, object]) -> LessonVerdict | None:
+    over = _check_over_length(lesson)
+    if not over:
+        return None
+    return LessonVerdict(
+        False,
+        f"no lesson extracted: key(s) {over!r} exceed the {MAX_FIELD_LENGTH}-char length cap",
+    )
+
+
 def validate_lesson(lesson: object) -> LessonVerdict:
     """Validate a distillation lesson against the fixed schema.
 
@@ -120,56 +168,24 @@ def validate_lesson(lesson: object) -> LessonVerdict:
     When validation fails the caller records the honest
     ``no-lesson-extracted`` marker instead of a partial or repaired lesson.
     """
-    # ── Check 1: must be a dict ────────────────────────────────────────
     if not isinstance(lesson, dict):
         return LessonVerdict(
             False,
-            "no lesson extracted: input is not a JSON object " f"(got {type(lesson).__name__})",
+            f"no lesson extracted: input is not a JSON object (got {type(lesson).__name__})",
         )
 
-    # ── Check 2: required keys present ─────────────────────────────────
-    missing = _check_required_keys(lesson)
-    if missing:
-        return LessonVerdict(
-            False,
-            f"no lesson extracted: missing required key(s) {missing!r}",
-        )
-
-    # ── Check 3: no extra keys ─────────────────────────────────────────
-    extra = _check_extra_keys(lesson)
-    if extra:
-        return LessonVerdict(
-            False,
-            f"no lesson extracted: extra key(s) {extra!r} not allowed "
-            f"(only cause, lesson, next_delta)",
-        )
-
-    # ── Check 4: all values must be strings ────────────────────────────
-    non_string = _check_non_string_values(lesson)
-    if non_string:
-        return LessonVerdict(
-            False,
-            f"no lesson extracted: key(s) {non_string!r} must be strings, "
-            f"not {type(lesson[non_string[0]]).__name__}",
-        )
-
-    # ── Check 5: no empty / whitespace-only strings ────────────────────
-    empty = _check_empty_strings(lesson)
-    if empty:
-        return LessonVerdict(
-            False,
-            f"no lesson extracted: key(s) {empty!r} must be non-empty " f"(non-whitespace) strings",
-        )
-
-    # ── Check 6: no over-length strings ────────────────────────────────
-    over = _check_over_length(lesson)
-    if over:
-        return LessonVerdict(
-            False,
-            f"no lesson extracted: key(s) {over!r} exceed the "
-            f"{MAX_FIELD_LENGTH}-char length cap",
-        )
-
+    # The check pipeline: first refusal wins. Lazy on purpose — a later
+    # checker's message may assume the earlier checks passed.
+    for refuse in (
+        _refuse_missing_keys,
+        _refuse_extra_keys,
+        _refuse_non_string_values,
+        _refuse_empty_strings,
+        _refuse_over_length,
+    ):
+        verdict = refuse(lesson)
+        if verdict is not None:
+            return verdict
     return LessonVerdict(True)
 
 

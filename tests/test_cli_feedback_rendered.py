@@ -106,7 +106,8 @@ def test_record_author_cortex_dual_rendered(tmp_path):
     )
     assert code == 0
     rec = json.loads(out)
-    assert rec["author"] == "cortex" and rec["rating"] == 5
+    assert rec["author"] == "cortex"
+    assert rec["rating"] == 5
 
 
 def test_feedback_tools_land_in_registry():
