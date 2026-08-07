@@ -223,9 +223,11 @@ class TestDetachDistillChild:
             )
 
             argv = mock_spawn.call_args[0][1]
-            # The child should re-invoke the colleague CLI
+            # The child re-invokes the module entry `python -m colleague.distill`
+            # (the t17 live probe caught the original `-m colleague distill`
+            # argv pointing at a CLI verb that never existed — a dead child).
             assert argv[0] == sys.executable
-            assert "-m" in argv and "colleague" in argv
+            assert "-m" in argv and "colleague.distill" in argv
 
 
 # ===========================================================================

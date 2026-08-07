@@ -227,8 +227,7 @@ def _build_child_argv(
     return [
         sys.executable,
         "-m",
-        "colleague",
-        "distill",
+        "colleague.distill",
         "--repo",
         str(Path(repo_path).resolve()),
         "--task-id",
@@ -388,3 +387,138 @@ def resolve_distill_author_from_config(config: Any) -> DistillAuthor | None:
                 api_key=getattr(config, "api_key", "") or "",
             )
     return None
+
+
+# ---------------------------------------------------------------------------
+# The child entry (t17 finisher) — `python -m colleague.distill`
+# ---------------------------------------------------------------------------
+#
+# The live probe caught the detach pointing at a CLI verb that never existed
+# (the #363 armed-not-alive class, for real): the scaffolding above had no
+# child main and no completion call. This is that child. It is NOT an operator
+# verb — it never registers on the CLI; the only caller is
+# :func:`detach_distill_child`'s one-shot detach.
+
+
+def _openai_completion(model: str, base_url: str, api_key: str, prompt: str) -> str:
+    """ONE bounded chat completion over urllib (the vLLM-adapter convention)."""
+    import urllib.request
+
+    url = base_url.rstrip("/") + "/chat/completions"
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1600,
+            "temperature": 0,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key or 'x'}",
+        },
+    )
+    with urllib.request.urlopen(
+        req, timeout=180
+    ) as resp:  # nosec B310 - operator-configured http(s) endpoint
+        data = json.loads(resp.read().decode("utf-8"))
+    msg = ((data.get("choices") or [{}])[0].get("message")) or {}
+    return (msg.get("content") or "") + (
+        "\n" + msg.get("reasoning", "") if msg.get("reasoning") else ""
+    )
+
+
+def _find_artifact(repo_path: str | Path, task_id: str) -> Path | None:
+    """Locate the run artifact for *task_id* (never the trace sidecars)."""
+    base = Path(repo_path) / ".colleague"
+    candidates = [
+        p
+        for p in base.glob(f"{task_id}*.json")
+        if not p.name.endswith(".trace.jsonl")
+        and ".trace" not in p.name
+        and "-correction-capture" not in p.name
+        and ".distill" not in p.name
+    ]
+    return sorted(candidates)[0] if candidates else None
+
+
+def _compose_child_prompt(artifact: dict[str, Any]) -> str:
+    """Build the distillation ask from the persisted run facts alone."""
+    stats = artifact.get("stats") or {}
+    inc = artifact.get("incompletion") or {}
+    parts = [
+        "You are distilling ONE lesson from a finished coding-agent work item.",
+        f"Status: {artifact.get('status')}. Steps: {stats.get('step_count')}.",
+        f"Request: {str(artifact.get('request', ''))[:300]}",
+    ]
+    if inc:
+        parts.append(
+            f"Incompletion: {inc.get('reason')} — evidence: {str(inc.get('evidence'))[:300]}"
+        )
+    if artifact.get("error"):
+        parts.append(f"Error: {str(artifact.get('error'))[:200]}")
+    if artifact.get("summary"):
+        parts.append(f"Final summary: {str(artifact.get('summary'))[:300]}")
+    parts.append(
+        "Reply with ONLY a JSON object, exactly these keys, each a non-empty "
+        'string under 1000 chars: {"cause": "why it went the way it did", '
+        '"lesson": "what to know next time", "next_delta": "what to do '
+        'differently"}. No other keys, no prose around the JSON, no '
+        "thinking out loud — start your reply with '{'."
+    )
+    return "\n".join(parts)
+
+
+def child_main(argv: list[str] | None = None) -> int:
+    """The detached distillation child: read artifact → ONE completion →
+    validate-then-upsert → outcome marker. Exit 0 always (outcomes ride the
+    marker, never the exit code — the parent never waits anyway)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="colleague-distill-child")
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--task-id", required=True)
+    parser.add_argument("--model", required=True)
+    args = parser.parse_args(argv)
+
+    # The child spawns at remember time, but the parent persists the artifact
+    # only after the run returns — a bounded wait (c31's window) bridges the
+    # race the t17 live probe caught (round 2: child ran, found nothing,
+    # exited silently). 30 tries x 2s = a 60s ceiling, then give up honestly
+    # (the artifact-side attempt counter keeps doctor loud either way).
+    artifact_path = None
+    for _ in range(30):
+        artifact_path = _find_artifact(args.repo, args.task_id)
+        if artifact_path is not None:
+            break
+        time.sleep(2)
+    marker = outcome_marker_path(artifact_path) if artifact_path else None
+    if artifact_path is None or marker is None:
+        return 0  # nothing to distill against; nothing to mark
+    write_outcome_marker(marker, status="pending", pid=os.getpid())
+    try:
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        raw = _openai_completion(
+            args.model,
+            os.environ.get("COLLEAGUE_DISTILL_BASE_URL", ""),
+            os.environ.get("COLLEAGUE_DISTILL_API_KEY", ""),
+            _compose_child_prompt(artifact),
+        )
+        parsed = lessons.parse_lesson_json(raw)
+        verdict = lessons.validate_lesson(parsed if parsed is not None else raw)
+        if parsed is not None and verdict.allowed:
+            lesson = {k: str(parsed[k]) for k in ("cause", "lesson", "next_delta")}
+            upsert_lesson(args.repo, args.task_id, lesson)
+            write_outcome_marker(marker, status="done", lesson=lesson)
+        else:
+            write_outcome_marker(marker, status="failed", reason=verdict.reason)
+    except Exception as exc:  # the marker IS the honest failure channel
+        write_outcome_marker(marker, status="dead", reason=str(exc)[:300])
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - the detached child entry
+    raise SystemExit(child_main())
