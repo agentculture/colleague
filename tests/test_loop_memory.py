@@ -368,3 +368,68 @@ def test_eidetic_only_changes_do_not_read_as_dirty(tmp_path: Path) -> None:
     # Real operator WIP on a tracked file: still dirty (#149 unchanged).
     (tmp_path / "code.py").write_text("x = 2\n")
     assert working_tree_dirty(tmp_path) is True
+
+
+# ── lesson-grade remember-after, rung 1 (#379) ──────────────────────────────
+
+
+def _result_for_lesson(**kw):
+    from colleague.contract import TaskResult
+
+    base = dict(task_id="t379", status="incomplete", summary="")
+    base.update(kw)
+    return TaskResult(**base)
+
+
+def test_lesson_text_carries_incompletion_substance() -> None:
+    """#379 rung 1: a failed run's lesson names WHAT failed — the structured
+    incompletion {reason, evidence, recommendation} — not just step counts."""
+    from colleague.contract import IncompletionRecord
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(
+        incompletion=IncompletionRecord(
+            reason="no-progress-zero-steps",
+            evidence="finished outcome='stopped' with 0 changed file(s) over 0 step(s)",
+            recommendation="check backend tool-calling or escalate to another model",
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "no-progress-zero-steps" in text
+    assert "0 changed file(s)" in text
+    assert "escalate to another model" in text
+
+
+def test_lesson_text_carries_error_and_refresh_warnings() -> None:
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(
+        status="failed",
+        error="HTTP Error 404: model_not_found",
+        warnings=[
+            {
+                "role": "cortex",
+                "stale_id": "old/model",
+                "source": "CONVERTIBLE_MODEL",
+                "refreshed_id": "new/model",
+                "point": "resolution",
+            }
+        ],
+    )
+    text = compose_lesson_text(result)
+    assert "HTTP Error 404" in text
+    assert "old/model" in text
+    assert "CONVERTIBLE_MODEL" in text
+    assert "new/model" in text
+
+
+def test_lesson_text_ok_run_stays_compact_and_stub_compatible() -> None:
+    """An ok run without failure substance keeps the existing telemetry shape
+    (prefix unchanged — recall consumers parse it)."""
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(status="ok", summary="did the thing")
+    text = compose_lesson_text(result)
+    assert text.startswith("Work item t379 finished ok")
+    assert "Incompletion:" not in text
+    assert "Error:" not in text

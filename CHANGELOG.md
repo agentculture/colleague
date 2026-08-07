@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1] - 2026-08-07
+
+### Fixed
+
+- Lesson-grade remember-after, rung 1 (#379): the memory gate's post-run
+  record now folds in the failure substance the result already carries —
+  the #313 incompletion record (reason, evidence, recommendation), the
+  error string, and stale-pin refresh warnings — so a future run's recall
+  learns WHAT failed instead of step counts alone. Composition extracted
+  to `colleague.memory.compose_lesson_text` (deterministic, no model turn);
+  ok-run records stay stub-compatible.
+
 ## [1.55.0] - 2026-08-06
 
 ### Added

@@ -177,6 +177,55 @@ def remember(
 RECALL_BLOCK_CAP = 4000
 
 
+def compose_lesson_text(result: "Any", request_head: str = "") -> str:
+    """Compose the remember-after lesson text from a finished result (#379 rung 1).
+
+    Deterministic — no model turn. Beyond the always-present telemetry
+    prefix (stub-compatible: recall consumers parse it), a run that carries
+    FAILURE SUBSTANCE gets it folded in verbatim, bounded per field: the
+    #313 incompletion record (reason, evidence, recommendation), the error
+    string, and any stale-pin refresh warnings — so a future run recalling
+    this record learns WHAT failed and what to do differently, not just
+    step counts. An ok run without substance stays byte-compatible with the
+    pre-#379 stub shape.
+    """
+    stats = result.stats
+    tools = ", ".join(f"{k}={v}" for k, v in sorted(stats.tool_counts.items()))
+    text = (
+        f"Work item {result.task_id} finished {result.status} on request: "
+        f"{request_head}. steps={stats.step_count}, tools=({tools}), "
+        f"files_changed={len(result.changed_files)}."
+    )
+    signals = []
+    if result.finish_recovered:
+        signals.append(f"finish_recovered={result.finish_recovered}")
+    if result.capacity_warning:
+        signals.append("capacity_warning")
+    if result.not_finished:
+        signals.append("step budget exhausted")
+    if result.stopped_without_finish:
+        signals.append("stopped without finish")
+    if signals:
+        text += " Signals: " + "; ".join(signals) + "."
+    inc = getattr(result, "incompletion", None)
+    if inc is not None:
+        text += (
+            f" Incompletion: {str(inc.reason)[:120]} — "
+            f"evidence: {str(inc.evidence)[:200]}; "
+            f"recommendation: {str(inc.recommendation)[:200]}."
+        )
+    error = getattr(result, "error", None)
+    if error:
+        text += f" Error: {str(error)[:200]}."
+    for w in getattr(result, "warnings", None) or []:
+        text += (
+            f" Model-pin refresh ({w.get('point', '?')}): "
+            f"{w.get('stale_id', '?')} (via {w.get('source', '?')}) -> "
+            f"{w.get('refreshed_id', '?')}."
+        )
+    return text
+
+
 def build_recall_block(records: list[dict[str, Any]], *, cap_chars: int = RECALL_BLOCK_CAP) -> str:
     """Render recalled records as one advisory context block, capped.
 
