@@ -111,6 +111,16 @@ def test_drive_in_git_repo_creates_branch(
     payload = json.loads(capsys.readouterr().out)
     assert payload["branch"].startswith("colleague/")
     assert payload["pr_url"] is None  # --no-pr never pushes
+    # plan task t5 (c5): a successful handoff records the branch tip commit SHA
+    # onto the artifact — read independently by ref to prove it's the real tip.
+    branch_tip = subprocess.run(
+        ["git", "rev-parse", payload["branch"]],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert payload["tip_sha"] == branch_tip
 
 
 def test_drive_hands_off_run_command_edits(

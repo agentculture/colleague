@@ -1641,6 +1641,16 @@ class TaskResult:
     ``continued_from``/``chain``, the serialized key is OMITTED (not null)
     when ``None``, so a run with no config-event activity serializes
     byte-identically to today's artifact."""
+    tip_sha: Optional[str] = None
+    """The ``colleague/<id>`` work branch's tip commit SHA after a successful
+    handoff (plan task t5, covers c5), or ``None`` when the handoff produced no
+    commit (nothing to hand off, gating off, or the handoff didn't run — e.g. a
+    read-only role). Populated by the CLI handoff
+    (:func:`colleague.cli._commands.work._handoff_result`) from
+    :attr:`colleague.handoff.HandoffResult.tip_sha`. Like
+    ``config_digest``/``continued_from``, the serialized key is OMITTED (not
+    null) when ``None``, so a commit-less run serializes byte-identically to
+    the pre-``tip_sha`` artifact shape."""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -1775,6 +1785,11 @@ class TaskResult:
             extra["config_events"] = [e.to_dict() for e in self.config_events]
         if self.config_digest is not None:
             extra["config_digest"] = self.config_digest
+        # tip_sha gets the same omit-when-None treatment (plan task t5, covers c5):
+        # a run whose handoff produced no commit serializes byte-identically to
+        # the pre-tip_sha artifact (no extra key).
+        if self.tip_sha is not None:
+            extra["tip_sha"] = self.tip_sha
         return extra
 
     @classmethod
@@ -1857,6 +1872,7 @@ class TaskResult:
             ),
             config_events=_coerce_config_events(data.get("config_events")),
             config_digest=data.get("config_digest"),
+            tip_sha=data.get("tip_sha"),
             warnings=list(data.get("warnings", [])),
         )
 

@@ -511,7 +511,13 @@ def test_fillline_rearms_per_crossing_in_one_dispatch(
 
 #: The pre-feature artifact key set for a clean mock work item — the SAME pin
 #: tests/test_e2e_mock.py guards (the artifact JSON is exactly
-#: ``TaskResult.to_dict()``, see colleague/artifact.py::write).
+#: ``TaskResult.to_dict()``, see colleague/artifact.py::write), PLUS
+#: ``tip_sha``: unlike ``tests/test_e2e_mock.py``'s pin (which calls the mock
+#: engine directly, bypassing the CLI handoff), this test drives the real
+#: ``main(["work", ...])`` path in a real git repo, so the handoff really lands
+#: a commit and ``tip_sha`` is legitimately populated (plan task t5, c5) — a
+#: baseline handoff key like ``branch``/``pr_url``, not a chain/indefinite-run
+#: arc key.
 _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
     {
         "task_id",
@@ -530,6 +536,7 @@ _PRE_FEATURE_ARTIFACT_KEYS = frozenset(
         "command",
         "not_finished",
         "stopped_without_finish",
+        "tip_sha",
     }
 )
 

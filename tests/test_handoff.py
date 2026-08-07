@@ -138,6 +138,45 @@ def test_handoff_reports_changed_files(tmp_path: Path) -> None:
     assert "new.txt" in result.changed_files
 
 
+def test_handoff_populates_tip_sha_with_branch_tip(tmp_path: Path) -> None:
+    """The handoff records the work branch's tip commit SHA (plan task t5, c5) —
+    not HEAD (which is restored to the operator's original ref by the time the
+    caller inspects the result)."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "feature.txt").write_text("new work\n")
+
+    result = handoff(repo, "shatask", instruction="add feature", open_pr=False)
+
+    assert result.committed is True
+    assert result.tip_sha is not None
+    assert len(result.tip_sha) == 40  # a full git SHA-1 hex digest
+    # The recorded tip_sha is exactly the drive branch's tip commit — read
+    # independently by ref, proving it isn't just an echo of the (now-restored)
+    # operator HEAD.
+    branch_tip = subprocess.run(
+        ["git", "rev-parse", result.branch],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert result.tip_sha == branch_tip
+    # And it is NOT the operator's (restored) HEAD, which never advanced.
+    assert result.tip_sha != _head_sha(repo)
+
+
+def test_handoff_no_changes_tip_sha_is_none(tmp_path: Path) -> None:
+    """A no-op handoff (nothing to hand off) leaves tip_sha unset — mirrors
+    branch/committed staying at their no-op defaults."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+
+    result = handoff(repo, "nochange2", open_pr=True)
+    assert result.committed is False
+    assert result.tip_sha is None
+
+
 # These read the *drive branch* commit by ref, not HEAD: since C2 returns the
 # operator to their original branch after committing, HEAD is no longer the drive
 # commit. Callers pass `colleague/<task_id>`.
