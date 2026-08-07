@@ -82,6 +82,33 @@ def test_feedback_list_rendered(tmp_path):
     assert code == 0 and "no work items" in out
 
 
+def test_record_author_cortex_dual_rendered(tmp_path):
+    """t3: the `--author` flag derives cleanly from the registry tool signature
+    (no explicit Flag() entry needed, same as `--by`)."""
+    code, out, _ = _run(
+        [
+            "feedback",
+            "record",
+            "d1",
+            "--rating",
+            "5",
+            "--author",
+            "cortex",
+            "--repo",
+            str(tmp_path),
+        ]
+    )
+    assert code == 0
+    assert "author: cortex" in out
+
+    code, out, _ = _run(
+        ["feedback", "show", "d1", "--author", "cortex", "--repo", str(tmp_path), "--json"]
+    )
+    assert code == 0
+    rec = json.loads(out)
+    assert rec["author"] == "cortex" and rec["rating"] == 5
+
+
 def test_feedback_tools_land_in_registry():
     """The group's verbs are real registry tools (so MCP/learn enumerate them too)."""
     app = build_app()

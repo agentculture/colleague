@@ -55,8 +55,10 @@ def _feedback_sections() -> list[dict[str, object]]:
         {
             "title": "Verbs",
             "items": [
-                "feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]",
-                "feedback show <id|last> [--repo P] [--json] — read a work item's feedback",
+                "feedback record <id|last> --rating N [--notes ...] [--by ...] "
+                "[--author operator|cortex] [--repo P]",
+                "feedback show <id|last> [--author operator|cortex] [--repo P] [--json] — "
+                "read a work item's feedback",
                 "feedback list [--repo P] [--json] — every work item by request + grade",
                 "feedback export [--min-rating N] [--since ISO-DATE] [--format jsonl] "
                 "[--repo P] — one JSONL line per GRADED work item (the ROI ledger)",
@@ -66,7 +68,10 @@ def _feedback_sections() -> list[dict[str, object]]:
         {
             "title": "Storage",
             "items": [
-                "<repo>/.colleague/<task_id>.feedback.json — the single record",
+                "<repo>/.colleague/<task_id>.feedback.json — the operator record (default author)",
+                "<repo>/.colleague/<task_id>.<author>.feedback.json — a non-default author's "
+                "record (e.g. cortex), coexisting beside the operator's rather than "
+                "overwriting it",
                 "<repo>/.colleague/last_work — pointer resolving 'last'",
                 "An ungraded work item reads back as 'no feedback yet' (not an error)",
             ],
@@ -79,6 +84,7 @@ def _render(record: Feedback) -> str:
         [
             f"task:   {record.task_id}",
             f"rating: {record.rating}/{fb.MAX_RATING}",
+            f"author: {record.author}",
             f"by:     {record.by or '(unknown)'}",
             f"at:     {record.at}",
             f"notes:  {record.notes}",
@@ -137,12 +143,21 @@ def _overview() -> object:
     )
 
 
+def _feedback_error_hint(exc: FeedbackError) -> str:
+    """A detail hint for a :class:`FeedbackError`, discriminating rating- vs
+    author-shaped failures (both surface through the same try/except)."""
+    if "author" in str(exc):
+        return f"--author must be one of {', '.join(fb.ALLOWED_AUTHORS)}"
+    return f"--rating must be {fb.MIN_RATING}-{fb.MAX_RATING}"
+
+
 def _record(
     ref: str,
     rating: int = 0,
     notes: str = "",
     by: str = "",
     repo: str = ".",
+    author: str = fb.DEFAULT_AUTHOR,
 ) -> object:
     # `rating` defaults to 0 (out of the valid 1-5 range), so omitting --rating
     # surfaces the same "rating must be 1-5" FeedbackError as an explicit 0 —
@@ -154,7 +169,9 @@ def _record(
     # Don't attribute a grade to a silent anonymous author: when neither an
     # explicit ``--by`` nor a repo identity resolves, say so (stderr, never the
     # result) and point at the two fixes. ``by`` is stored as ``""`` (text mode
-    # renders that as ``(unknown)``).
+    # renders that as ``(unknown)``). NOTE: `by` is WHO within an author (e.g.
+    # "ori"); `author` is the grade's PROVENANCE (operator|cortex, c17/h14) —
+    # the two are independent.
     if not by and resolved is None:
         emit_diagnostic(
             "feedback: no identity resolved for this repo; the grade's 'by' will "
@@ -165,11 +182,12 @@ def _record(
     # tail of a ``continued_from`` chain, one record call stamps EVERY episode
     # (grade_chain walks the lineage with a visited-set; cycle/missing-artifact
     # terminate cleanly). A lineage-less work item keeps today's single-record
-    # path and persisted shape byte-identical.
+    # path and persisted shape byte-identical. ``author`` applies to every
+    # episode, same as ``rating``/``notes``/``by``.
     try:
         if _continued_from(repo_path, task_id) is not None:
             records = fb.grade_chain(
-                repo_path, task_id, rating=rating, notes=notes or "", by=by_val
+                repo_path, task_id, rating=rating, notes=notes or "", by=by_val, author=author
             )
             payload = records[0].to_dict()
             payload["chain_episodes"] = [r.task_id for r in records]
@@ -180,11 +198,11 @@ def _record(
                 + ")"
             )
             return rendered(payload, text)
-        record = fb.write_feedback(repo_path, task_id, rating=rating, notes=notes or "", by=by_val)
+        record = fb.write_feedback(
+            repo_path, task_id, rating=rating, notes=notes or "", by=by_val, author=author
+        )
     except FeedbackError as exc:
-        raise CliError(
-            EXIT_USER_ERROR, str(exc), f"--rating must be {fb.MIN_RATING}-{fb.MAX_RATING}"
-        ) from exc
+        raise CliError(EXIT_USER_ERROR, str(exc), _feedback_error_hint(exc)) from exc
     return rendered(record.to_dict(), _render(record))
 
 
@@ -210,13 +228,18 @@ def _continued_from(repo_path: Path, task_id: str) -> str | None:
     return None
 
 
-def _show(ref: str, repo: str = ".") -> object:
+def _show(ref: str, repo: str = ".", author: str = fb.DEFAULT_AUTHOR) -> object:
     repo_path = Path(repo).expanduser()
     task_id = _resolve(repo_path, ref)
     try:
-        record = fb.read_feedback(repo_path, task_id)
+        record = fb.read_feedback(repo_path, task_id, author=author)
     except FeedbackError as exc:
-        raise CliError(EXIT_USER_ERROR, str(exc), "the feedback file may be corrupt") from exc
+        hint = (
+            f"--author must be one of {', '.join(fb.ALLOWED_AUTHORS)}"
+            if "invalid author" in str(exc)
+            else "the feedback file may be corrupt"
+        )
+        raise CliError(EXIT_USER_ERROR, str(exc), hint) from exc
     # Ungraded is a clean state, not an error — both paths exit 0.
     if record is None:
         return rendered({"task_id": task_id, "feedback": None}, f"no feedback yet for {task_id}")
@@ -280,17 +303,19 @@ def register_into(app) -> None:
         _record,
         name="record",
         description="Record a 1-5 rating + notes for a work item.",
-        doc="# feedback record <id|last> --rating N [--notes ...] [--by ...] [--repo P]\n"
+        doc="# feedback record <id|last> --rating N [--notes ...] [--by ...] "
+        "[--author operator|cortex] [--repo P]\n"
         "Record a single 1-5 quality rating (+ notes) for a finished work item. "
-        "Re-grading overwrites. Reference by task-id or 'last'.",
+        "Re-grading the SAME author overwrites; a DIFFERENT author's record for the "
+        "same work item lands beside it instead (c17/h14). Reference by task-id or 'last'.",
     )
     g.tool(
         _show,
         name="show",
         description="Show a work item's feedback record.",
-        doc="# feedback show <id|last> [--repo P] [--json]\n"
-        "Read back a work item's feedback. An ungraded work item reads as "
-        "'no feedback yet' (not an error).",
+        doc="# feedback show <id|last> [--author operator|cortex] [--repo P] [--json]\n"
+        "Read back a work item's feedback for the given author (default operator). "
+        "An ungraded work item reads as 'no feedback yet' (not an error).",
     )
     g.tool(
         _list_items,
@@ -334,14 +359,24 @@ def cmd_feedback_overview(args: argparse.Namespace) -> int:
 
 def cmd_feedback_record(args: argparse.Namespace) -> int:
     emit_result(
-        _record(args.ref, args.rating, args.notes, args.by, args.repo),
+        _record(
+            args.ref,
+            args.rating,
+            args.notes,
+            args.by,
+            args.repo,
+            getattr(args, "author", fb.DEFAULT_AUTHOR),
+        ),
         json_mode=bool(getattr(args, "json", False)),
     )
     return 0
 
 
 def cmd_feedback_show(args: argparse.Namespace) -> int:
-    emit_result(_show(args.ref, args.repo), json_mode=bool(getattr(args, "json", False)))
+    emit_result(
+        _show(args.ref, args.repo, getattr(args, "author", fb.DEFAULT_AUTHOR)),
+        json_mode=bool(getattr(args, "json", False)),
+    )
     return 0
 
 
@@ -385,12 +420,24 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     rec.add_argument("--notes", default="", help="Free-text feedback notes.")
     rec.add_argument("--by", default="", help="Who is grading (default: resolved identity).")
+    rec.add_argument(
+        "--author",
+        default=fb.DEFAULT_AUTHOR,
+        help=f"Grade provenance ({'|'.join(fb.ALLOWED_AUTHORS)}; default: {fb.DEFAULT_AUTHOR}). "
+        "A different author's record for the same work item coexists rather than overwrites.",
+    )
     _add_repo(rec)
     rec.add_argument("--json", action="store_true", help=JSON_HELP)
     rec.set_defaults(func=cmd_feedback_record)
 
     sh = noun_sub.add_parser("show", help="Show a work item's feedback record.")
     sh.add_argument("ref", help="Work-item task-id, or 'last' for the most recent work item.")
+    sh.add_argument(
+        "--author",
+        default=fb.DEFAULT_AUTHOR,
+        help=f"Grade provenance to read ({'|'.join(fb.ALLOWED_AUTHORS)}; default: "
+        f"{fb.DEFAULT_AUTHOR}).",
+    )
     _add_repo(sh)
     sh.add_argument("--json", action="store_true", help=JSON_HELP)
     sh.set_defaults(func=cmd_feedback_show)
