@@ -5,6 +5,8 @@ The model call is an injected callable, so these run with no network.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from colleague.plan.cli_driver import (
@@ -151,6 +153,62 @@ def test_make_propose_claims_tolerates_bad_second_chunk() -> None:
     # bad JSON, so it is tolerated (no crash) and no honesty is recovered.
     assert call_count >= 2
     assert honesty == []
+
+
+def test_make_propose_claims_total_failure_persists_raw_capture(tmp_path: Path) -> None:
+    """A TOTAL claim-parse failure (#376) persists the raw model text under the
+    plan artifact dir (``<repo_path>/.colleague/plan/``, mirroring
+    :mod:`colleague.plan.checkpoint`) before raising, so a model-format
+    mismatch is diagnosable after the fact -- and the error names where the
+    capture landed."""
+
+    def simple(system: str, user: str) -> str:
+        return "not json at all, the model rambled instead"
+
+    propose = make_propose_claims(simple, repo_path=str(tmp_path), plan_id="myplan")
+    with pytest.raises(ValueError) as exc_info:
+        propose("build a thing")
+
+    capture_path = tmp_path / ".colleague" / "plan" / "myplan-claims-raw-capture.txt"
+    assert capture_path.is_file()
+    assert "not json at all, the model rambled instead" in capture_path.read_text(encoding="utf-8")
+    # The error names where the capture landed.
+    assert str(capture_path) in str(exc_info.value)
+
+
+def test_make_propose_claims_success_writes_no_capture(tmp_path: Path) -> None:
+    """A SUCCESSFUL parse never writes a raw capture -- capture is reserved for
+    the total-failure diagnostic path, not a byproduct of every call."""
+    call_count = 0
+
+    def simple(system: str, user: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return (
+                '{"claims": [{"id": "c1", "kind": "announcement", "text": "ships"}], "honesty": []}'
+            )
+        return '{"claims": [], "honesty": []}'
+
+    propose = make_propose_claims(simple, repo_path=str(tmp_path), plan_id="myplan")
+    claims, _honesty = propose("build a thing")
+    assert [c.id for c in claims] == ["c1"]
+    assert not (tmp_path / ".colleague" / "plan").exists()
+
+
+def test_make_propose_claims_total_failure_message_stays_stable(tmp_path: Path) -> None:
+    """The original ValueError text is preserved verbatim (existing callers may
+    match on it, e.g. the CLI's ``the backend returned an unusable plan
+    proposal: {exc}`` wrapper) -- the capture location is appended, never
+    substituted for it."""
+
+    def simple(system: str, user: str) -> str:
+        return "garbage"
+
+    propose = make_propose_claims(simple, repo_path=str(tmp_path))
+    with pytest.raises(ValueError) as exc_info:
+        propose("build a thing")
+    assert str(exc_info.value).startswith("no claims could be parsed from the model output")
 
 
 def test_parse_plan_items_acceptance_string_not_split_into_chars() -> None:

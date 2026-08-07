@@ -316,7 +316,7 @@ def run_plan_request(
         try:
             return run_plan_mode(
                 request,
-                propose_claims=make_propose_claims(simple),
+                propose_claims=make_propose_claims(simple, repo_path=str(repo), plan_id=plan_id),
                 decide=decide,
                 propose_plan_items=make_propose_plan_items(simple),
                 batch_spawn=batch_spawn,
