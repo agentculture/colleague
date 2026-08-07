@@ -1378,6 +1378,39 @@ def _model_pin_source(model_arg: str | None, file_model: str | None) -> str | No
     return None
 
 
+def _resolution_time_refresh(
+    resolved_model: str,
+    model_arg: str | None,
+    file_model: str | None,
+    lobes_gateway_url: str | None,
+    lobes_roles: object,
+    resolved_api_key: str,
+    *,
+    three_tier_armed: bool,
+) -> "tuple[str, ModelRefreshWarning | None]":
+    """The resolution-time stale-pin refresh rung, gate included (S3776
+    extraction from ``resolve()``; plan task t9, spec c10/c11, h7/h8).
+
+    Skipped entirely when three-tier is armed: the worker, not cortex, is
+    the ACTING seat there, so a cortex pin refresh would be inert work
+    against a role that never drives — never a network call this rung has
+    no use for. The wire-format placeholder key is NOT a credential:
+    sending "Bearer EMPTY" can turn an otherwise-OK anonymous /v1/models
+    fetch into a 401 on a strict gateway and silently skip this rung
+    (Qodo review, PR #381) — the placeholder translates to no header.
+    """
+    if three_tier_armed:
+        return resolved_model, None
+    return _refresh_stale_model_pin(
+        resolved_model,
+        model_arg,
+        file_model,
+        lobes_gateway_url,
+        lobes_roles,
+        api_key=("" if resolved_api_key == _DEFAULT_API_KEY else resolved_api_key),
+    )
+
+
 def _refresh_stale_model_pin(
     resolved_model: str,
     model_arg: str | None,
@@ -2872,27 +2905,15 @@ class EngineConfig:
             "CONVERTIBLE_MODEL",
             default=model_default,
         )
-        # Same-role stale-pin refresh AT RESOLUTION TIME (plan task t9, spec
-        # c10/c11, honesty h7/h8) — see :func:`_refresh_stale_model_pin` for
-        # the full gate. Skipped entirely when three-tier is armed
-        # (``resolved_worker is not None``): the worker, not cortex, is the
-        # ACTING seat there (the override just below), so a cortex pin
-        # refresh would be inert work against a role that never drives —
-        # never a network call this rung has no use for.
-        model_refresh_warning: ModelRefreshWarning | None = None
-        if resolved_worker is None:
-            resolved_model, model_refresh_warning = _refresh_stale_model_pin(
-                resolved_model,
-                model,
-                file_model,
-                lobes_gateway_url,
-                lobes_roles,
-                # The wire-format placeholder is NOT a credential: sending
-                # "Bearer EMPTY" can turn an otherwise-OK anonymous
-                # /v1/models fetch into a 401 on a strict gateway and
-                # silently skip this rung (Qodo review, PR #381).
-                api_key=("" if resolved_api_key == _DEFAULT_API_KEY else resolved_api_key),
-            )
+        resolved_model, model_refresh_warning = _resolution_time_refresh(
+            resolved_model,
+            model,
+            file_model,
+            lobes_gateway_url,
+            lobes_roles,
+            resolved_api_key,
+            three_tier_armed=resolved_worker is not None,
+        )
         resolved_context_budget_tokens = int(
             _pick(
                 _str(ov.context_budget_tokens),
