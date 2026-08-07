@@ -2,7 +2,7 @@
   "plan_slug": "session-streaming-speak-only-voice-model-pin-hygie",
   "schema_version": 1,
   "created": "2026-08-06T15:06:38Z",
-  "updated": "2026-08-06T16:02:45Z",
+  "updated": "2026-08-07T03:44:13Z",
   "deviations": [
     {
       "id": "d1",
@@ -53,6 +53,26 @@
       "origin": "llm",
       "status": "proposed",
       "classification": "risky"
+    },
+    {
+      "id": "d6",
+      "what": "t14's planning vehicle changed: 'colleague plan run' walled on BOTH minds \u2014 the 35B worker's proposal output failed claim-parsing ('no claims could be parsed'), and the 27B (plan-mode's tuned target) ran past a 10-minute window without reaching its first checkpoint; pivot to Colleague authoring docs/BUILD-PLAN.md via its healthy 35B tool loop, operator-gated as the split plan",
+      "task_ref": "t14",
+      "reason": "the essence of t14 (Colleague authors ideas/design/plan/code; operator guides + gates) is preserved \u2014 only the CLI vehicle changed; deepthink muse-fallback degrade worked correctly during the attempt",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable"
+    },
+    {
+      "id": "d7",
+      "what": "t14's Colleague-authored 20-task build plan had no integration/composition task: all 20 gated green as modules while TickLoop's phases stayed b2-era stubs \u2014 the assembled game emitted empty observations and never terminated (found by the real bot-pairing proof, 3.6M hollow ticks). b21 (integration) added and dispatched to Colleague",
+      "task_ref": "t14",
+      "reason": "unit gates prove modules, not composition; the end-to-end task (b20) proved determinism of the HOLLOW loop \u2014 behavior-level e2e was missing from the plan's acceptance ladder",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "needs-follow-up"
     }
   ]
 }
