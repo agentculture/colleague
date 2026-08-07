@@ -125,15 +125,16 @@ def _strive_run(
         )
     finally:
         # Preserve whatever the attempts produced on the branch, then reap the
-        # worktree — the branch is the durable episode record.
+        # worktree — the branch is the durable episode record. Best-effort,
+        # but never silent: a failed preserve/reap lands on stderr.
         try:
             worktrees.commit_all(wt_path, f"strive: attempts toward {goal!r}")
-        except Exception:
-            pass
+        except Exception as exc:
+            emit_diagnostic(f"strive: preserving the episode branch failed: {exc}")
         try:
             worktrees.worktree_remove(repo, child_id, delete_branch=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            emit_diagnostic(f"strive: reaping the episode worktree failed: {exc}")
     return result
 
 

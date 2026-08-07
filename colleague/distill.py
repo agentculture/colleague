@@ -23,6 +23,7 @@ sanctioned-consumer list to include this module.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -333,7 +334,7 @@ def make_distill_fn(
 
         Returns ``None`` (the raw text is written by the child, not returned).
         """
-        try:
+        with contextlib.suppress(Exception):  # never block the run
             detach_distill_child(
                 repo_path=repo_path,
                 task_id=result.task_id,
@@ -341,8 +342,6 @@ def make_distill_fn(
                 author_base_url=author_base_url or "",
                 author_api_key=author_api_key or "",
             )
-        except Exception:
-            pass  # never block the run
         return None
 
     # The loop's remember seam distinguishes a detached (child-owned) outcome

@@ -52,9 +52,9 @@ from colleague import configlifecycle as _configlifecycle
 from colleague import escalation as _escalation
 from colleague import fillline as _fillline
 from colleague import flight as flightmod
+from colleague import lessons as _lessonsmod
 from colleague import lint as _lint
 from colleague import media
-from colleague import lessons as _lessonsmod
 from colleague import memory as _memorymod
 from colleague import testintegrity as _testintegrity
 from colleague.capacity import assess_capacity

@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 from colleague import background, distill
 
 # ---------------------------------------------------------------------------
