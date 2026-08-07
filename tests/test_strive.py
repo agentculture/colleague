@@ -21,6 +21,7 @@ from colleague.strive import (
     DEFAULT_NOVELTY_STALL_K,
     HypothesisLedger,
     StriveAttempt,
+    _ledger_filename,
     _slug,
     drive_strive,
 )
@@ -120,8 +121,7 @@ def test_ledger_persists_to_json(tmp_path: Path):
     goal = "make it faster"
     ledger = _make_ledger(tmp_path)
     ledger.record(_make_record())
-    slug = _slug(goal)
-    path = tmp_path / "strive" / f"{slug}.json"
+    path = tmp_path / "strive" / _ledger_filename(goal)
     assert path.exists()
     data = json.loads(path.read_text())
     assert data[0]["goal"] == goal
@@ -291,8 +291,7 @@ def test_drive_strive_records_delta_before_dispatch(tmp_path: Path):
 
         def __call__(self, goal, attempt, delta, hypothesis):
             # At dispatch time, check the ledger already has the delta recorded
-            slug = _slug(goal)
-            ledger_path = tmp_path / "strive" / f"{slug}.json"
+            ledger_path = tmp_path / "strive" / _ledger_filename(goal)
             if ledger_path.exists():
                 data = json.loads(ledger_path.read_text())
                 self.seen_ledger = data
@@ -322,8 +321,7 @@ def test_drive_strive_persists_ledger(tmp_path: Path):
         ledger_dir=str(tmp_path / "strive"),
     )
 
-    slug = _slug(goal)
-    path = tmp_path / "strive" / f"{slug}.json"
+    path = tmp_path / "strive" / _ledger_filename(goal)
     assert path.exists()
     data = json.loads(path.read_text())
     assert len(data) == 2

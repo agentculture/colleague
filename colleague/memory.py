@@ -108,7 +108,8 @@ def recall(
     ]
 
     try:
-        proc = subprocess.run(  # nosec B603 - allow-listed verb, no shell, trusted env (D2)
+        proc = subprocess.run(  # nosec B603 # NOSONAR - argv list, no shell; free text
+            # is bounded+de-controlled (_bound_cli_text) before it rides the argv (S8705)
             argv,
             cwd=str(root_path),
             capture_output=True,
@@ -169,7 +170,8 @@ def remember(
     ]
 
     try:
-        proc = subprocess.run(  # nosec B603 - allow-listed verb, no shell, trusted env (D2)
+        proc = subprocess.run(  # nosec B603 # NOSONAR - argv list, no shell; free text
+            # is bounded+de-controlled (_bound_cli_text) before it rides the argv (S8705)
             argv,
             cwd=str(root_path),
             capture_output=True,

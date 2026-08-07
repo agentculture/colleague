@@ -28,7 +28,7 @@ def _strive_sections() -> list[dict[str, object]]:
             "items": [
                 "Drives bounded attempts toward a goal via hypothesis-ledger iteration",
                 "Each attempt declares a delta BEFORE execution — no fabricated progress",
-                "Schema-enforced ledger records persist to .colleague/strive/<goal>.json",
+                "Schema-enforced ledger records persist to .colleague/strive/<goal-hash>.json",
                 "K consecutive refuted-recombinations = recorded novelty stall",
                 "chain.CONTINUABLE_REASONS stays {budget-exhausted}; retry policy lives here",
             ],

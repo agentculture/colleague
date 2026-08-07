@@ -9,7 +9,8 @@ Each attempt declares a delta (the planned change) and a hypothesis (the
 expected outcome) BEFORE dispatch. An attempt with no delta or new hypothesis
 is recorded as exactly that — no fabricated progress.
 
-The ledger persists to ``.colleague/strive/<goal-slug>.json`` as a list of
+The ledger persists to ``.colleague/strive/<goal-hash>.json`` (hex digest
+filenames — entries carry the goal verbatim) as a list of
 schema-checked dicts. K consecutive attempts whose normalized hypothesis
 exactly matches a refuted prior hypothesis = a recorded novelty stall.
 
@@ -18,6 +19,7 @@ Covers: c6, h6, c8, h8
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -70,7 +72,8 @@ class HypothesisLedger:
     """Persistent, schema-enforced hypothesis ledger.
 
     Records are stored as dicts with exactly the keys in :data:`_LEADER_KEYS`.
-    The ledger persists to ``<ledger_dir>/<goal-slug>.json``.
+    The ledger persists to ``<ledger_dir>/<goal-hash>.json`` (a hex digest
+    of the goal — S2083: no goal text in the path; entries carry the goal).
 
     Parameters
     ----------
@@ -82,20 +85,14 @@ class HypothesisLedger:
     entries: list[dict[str, Any]] = field(default_factory=list)
 
     def _path(self, goal: str) -> Path:
-        """The ledger file for *goal* — validated to stay INSIDE the ledger dir.
+        """The ledger file for *goal* — content-addressed, never goal-derived text.
 
-        The goal is operator input; the slug is re-validated against a strict
-        allow-list and the resolved path is containment-checked so no goal
-        string can name a path outside ``ledger_dir`` (Sonar S2083).
+        The filename is a hex digest of the goal (S2083: no user-controlled
+        text ever reaches the filesystem path), so any goal string maps to a
+        safe constant-alphabet name. Every ledger ENTRY carries the goal
+        verbatim, so the mapping stays readable from the file itself.
         """
-        slug = _slug(goal)
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug):
-            raise ValueError(f"goal yields an unusable ledger slug: {slug!r}")
-        base = Path(self.ledger_dir).resolve()
-        path = (base / f"{slug}.json").resolve()
-        if base not in path.parents:
-            raise ValueError("ledger path escapes the ledger dir")
-        return path
+        return Path(self.ledger_dir) / _ledger_filename(goal)
 
     def load(self, goal: str) -> None:
         """Load persisted entries for *goal* from disk."""
@@ -175,6 +172,11 @@ class HypothesisLedger:
             if _normalize(entry["hypothesis"]) != norm:
                 return False
         return True
+
+
+def _ledger_filename(goal: str) -> str:
+    """The content-addressed ledger filename for *goal* (hex digest + .json)."""
+    return hashlib.sha256(goal.encode("utf-8")).hexdigest()[:16] + ".json"
 
 
 def _slug(goal: str) -> str:

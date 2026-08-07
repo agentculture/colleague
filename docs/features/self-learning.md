@@ -21,7 +21,7 @@ next run can recall.
 
 ## Honest limits
 
-- Strive's ledger is local (`.colleague/strive/<goal-slug>.json`), not yet
+- Strive's ledger is local (`.colleague/strive/<goal-hash>.json`), not yet
   eidetic-synced. The ledger persists per-goal as a JSON list of
   schema-checked dicts; cross-repo sharing is a future lane.
 - Novelty detection v1 uses normalized exact match (`_normalize` — lowercase,

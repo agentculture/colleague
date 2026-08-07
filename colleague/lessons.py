@@ -207,29 +207,44 @@ def parse_lesson_json(text: object) -> dict | None:
         return None
     start = text.find("{")
     while start != -1:
-        depth = 0
-        in_str = False
-        esc = False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if in_str:
-                if esc:
-                    esc = False
-                elif ch == "\\":
-                    esc = True
-                elif ch == '"':
-                    in_str = False
-            elif ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        obj = json.loads(text[start : i + 1])
-                    except ValueError:
-                        break
-                    return obj if isinstance(obj, dict) else None
+        end = _balanced_object_end(text, start)
+        if end is not None:
+            obj = _try_load_object(text[start : end + 1])
+            if obj is not None:
+                return obj
         start = text.find("{", start + 1)
     return None
+
+
+def _balanced_object_end(text: str, start: int) -> int | None:
+    """The index of the ``}`` closing the object opened at *start*, or None."""
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _try_load_object(candidate: str) -> dict | None:
+    """Parse *candidate* as JSON; a non-dict or invalid payload is ``None``."""
+    try:
+        obj = json.loads(candidate)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
