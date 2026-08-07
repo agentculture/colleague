@@ -163,6 +163,7 @@ def _handoff_result(
             return
         result.branch = outcome.branch
         result.pr_url = outcome.pr_url
+        result.tip_sha = outcome.tip_sha
         if not result.changed_files:
             result.changed_files = outcome.changed_files
         handoff_span.set(
@@ -1657,6 +1658,8 @@ def _chain_finalize(
     result.branch = outcome.branch
     if outcome.pr_url:
         result.pr_url = outcome.pr_url
+    if outcome.tip_sha:
+        result.tip_sha = outcome.tip_sha
     if outcome.note:
         emit_diagnostic(f"chain handoff: {outcome.note}")
     artifact_path = write(result, artifact_dir(repo))
