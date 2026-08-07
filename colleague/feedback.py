@@ -542,30 +542,12 @@ def _read_work_stats_slim(repo_path: str | Path, task_id: str) -> dict[str, int]
     }
 
 
-def _export_row_excluded(
-    item: WorkSummary,
-    *,
-    min_rating: Optional[int],
-    since_dt: Optional[datetime.datetime],
-) -> bool:
-    """True if this work item is filtered OUT of the export (ungraded / below
-    min_rating / before `since` / unparseable timestamp under an active filter)."""
-    if item.rating is None:
-        return True  # ungraded — excluded from the ROI ledger
-    if min_rating is not None and min_rating > 0 and item.rating < min_rating:
-        return True
-    if since_dt is not None:
-        started = parse_since(item.started_at) if item.started_at else None
-        if started is None or started < since_dt:
-            return True
-    return False
-
-
 def export_work_items(
     repo_path: str | Path,
     *,
     min_rating: Optional[int] = None,
     since: Optional[str] = None,
+    include_cortex_authored: bool = False,
 ) -> list[dict[str, Any]]:
     """Every **graded** work item, newest-first, as one export-line dict each.
 
@@ -581,31 +563,58 @@ def export_work_items(
     on or after it are kept. A row whose ``started_at`` cannot be parsed is
     excluded when a ``since`` filter is active (conservative — an
     unparseable timestamp can't be proven to satisfy the filter).
+
+    **Author filter (c30/h25 — flywheel exclusion):** by default only
+    operator-authored feedback records are exported. Cortex-authored records
+    (a model grading its own work) are excluded because a model grading its
+    own work must not train itself — the feedback export feeds the learning
+    loop, and including self-grades would create a feedback flywheel where
+    the model reinforces its own biases. Use ``include_cortex_authored=True``
+    to opt in explicitly when you need the full picture.
     """
     since_dt = parse_since(since) if since else None
     rows: list[dict[str, Any]] = []
     for item in list_work_items(repo_path):
-        if _export_row_excluded(item, min_rating=min_rating, since_dt=since_dt):
+        # Determine which author's record to use.
+        # Operator always takes precedence (the human's judgment is the
+        # authoritative grade for the ROI ledger).
+        op_record = _work_feedback_record(repo_path, item.task_id, author=DEFAULT_AUTHOR)
+        ctx_record: Optional[Feedback] = None
+        if include_cortex_authored:
+            ctx_record = _work_feedback_record(repo_path, item.task_id, author=CORTEX_AUTHOR)
+
+        record = op_record if op_record is not None else ctx_record
+        if record is None:
+            continue  # no feedback record at all — skip
+
+        # Apply filters using the selected record's rating.
+        if min_rating is not None and min_rating > 0 and record.rating < min_rating:
             continue
-        record = _work_feedback_record(repo_path, item.task_id)
+        if since_dt is not None:
+            started = parse_since(item.started_at) if item.started_at else None
+            if started is None or started < since_dt:
+                continue
+
         rows.append(
             {
                 "task_id": item.task_id,
                 "request": item.request,
                 "summary": item.summary,
-                "rating": item.rating,
-                "notes": record.notes if record is not None else "",
+                "rating": record.rating,
+                "notes": record.notes,
                 "status": item.status,
-                "at": record.at if record is not None else "",
+                "at": record.at,
                 "stats": _read_work_stats_slim(repo_path, item.task_id),
             }
         )
     return rows
 
 
-def _work_feedback_record(repo_path: str | Path, task_id: str) -> Optional[Feedback]:
-    """The feedback record for ``task_id``, or ``None`` (corrupt/missing -> None)."""
+def _work_feedback_record(
+    repo_path: str | Path, task_id: str, *, author: str = DEFAULT_AUTHOR
+) -> Optional[Feedback]:
+    """The feedback record for ``task_id`` from the given ``author``, or ``None``."""
     try:
-        return read_feedback(repo_path, task_id)
+        return read_feedback(repo_path, task_id, author=author)
     except FeedbackError:
         return None
