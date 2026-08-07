@@ -113,6 +113,7 @@ def make_check(
 # must already be bound on the package when these run. (identity imports it; the
 # stubs do not yet, but the spec tells siblings to — keep the order.)
 from colleague.oilcheck import (  # noqa: E402 - must follow make_check (see above).
+    distillation,
     engines,
     environment,
     identity,
@@ -143,6 +144,7 @@ CHECK_GROUPS: List[CheckGroup] = [
     organs.checks,
     model_membership.checks,
     three_tier.checks,
+    distillation.checks,
 ]
 
 #: Check-groups whose ``checks()`` accepts a ``repo_path=`` kwarg (they read
