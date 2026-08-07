@@ -199,7 +199,8 @@ def test_narration_is_senses_authored_from_the_excerpt_not_a_relabel() -> None:
     io.feed_delta(raw)
     engine.on_progress_boundary(step_count=2)
     narrations = _narration_lines(io.rendered)
-    assert narrations and raw not in narrations[0]
+    assert narrations
+    assert raw not in narrations[0]
     assert _NARRATE_TEXT in narrations[0]
 
 
@@ -284,8 +285,10 @@ def test_narrate_turn_is_display_only_no_chat_no_injection_record_kept() -> None
     )
     assert len(turns) == 1
     assert turns[0].narration == _NARRATE_TEXT
-    assert turns[0].chat_entry is None and turns[0].injection is None
-    assert driver.chat == [] and driver.injections == []
+    assert turns[0].chat_entry is None
+    assert turns[0].injection is None
+    assert driver.chat == []
+    assert driver.injections == []
     assert any(r.point == f"{SENSES_LOOP_POINT_PREFIX}narrate" for r in driver.records)
 
 
@@ -316,7 +319,8 @@ def test_narrate_without_a_live_excerpt_degrades_to_record_only() -> None:
     turns = driver.process_boundary(BoundaryContext(kind=BOUNDARY_CADENCE_TICK, feed_tail="…"))
     assert turns[0].narration is None
     assert rendered == []
-    assert driver.chat == [] and driver.injections == []
+    assert driver.chat == []
+    assert driver.injections == []
     assert any(r.point == f"{SENSES_LOOP_POINT_PREFIX}narrate" for r in driver.records)
 
 
@@ -449,7 +453,8 @@ def test_session_presence_engine_threads_excerpt_and_renders_narration(
     sess._finalize_split_run(result, None)
     assert NARRATION_LABEL not in json.dumps(result.to_dict())
     written = list(artifact_dir(tmp_path).glob("*.json"))
-    assert written and all(NARRATION_LABEL not in p.read_text() for p in written)
+    assert written
+    assert all(NARRATION_LABEL not in p.read_text() for p in written)
 
 
 def test_unarmed_session_is_byte_identical_with_the_narration_seam_disabled(

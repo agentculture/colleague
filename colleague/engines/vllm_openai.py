@@ -785,6 +785,42 @@ class VllmOpenAIEngine(Engine):
 
         return counter
 
+    @staticmethod
+    def _build_chat_payload(
+        config: EngineConfig,
+        messages: "list[dict[str, Any]]",
+        offered_tools: "list[dict[str, Any]]",
+    ) -> "tuple[dict[str, Any], bool]":
+        """Build one chat-completions payload (+ whether it streams).
+
+        Extracted from ``_make_complete``'s closure (SonarCloud S3776); every
+        rule is unchanged: an EMPTY offered-tools list omits BOTH "tools" and
+        "tool_choice" (the honest tools-off invariant the deepthink seam
+        relies on); an armed ``on_delta`` adds the SSE keys, unarmed adds
+        neither (byte-identical pre-streaming body).
+        """
+        payload: dict[str, Any] = {
+            "model": config.model,
+            "messages": messages,
+            "temperature": config.temperature,
+        }
+        if offered_tools:
+            payload["tools"] = offered_tools
+            payload["tool_choice"] = "auto"
+        streaming = config.on_delta is not None
+        if streaming:
+            payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
+        if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
+            # Best-effort: a diagnostic dump must NEVER break a work item (#184).
+            try:
+                sys.stderr.write(
+                    "colleague: outgoing request payload:\n" + json.dumps(payload, indent=2) + "\n"
+                )
+            except OSError:  # nosec B110 - diagnostic only; never mask the real work
+                pass
+        return payload, streaming
+
     def _make_complete(
         self, config: EngineConfig, tools: list[dict[str, Any]] | None = None
     ) -> CompleteFn:
@@ -801,46 +837,7 @@ class VllmOpenAIEngine(Engine):
         role_name = "worker" if config.worker is not None else "cortex"
 
         def complete(messages: list[dict[str, Any]]) -> ModelResponse:
-            payload: dict[str, Any] = {
-                "model": config.model,
-                "messages": messages,
-                "temperature": config.temperature,
-            }
-            # An EMPTY offered-tools list is the honest "tools-off" invariant (the
-            # deepthink seam relies on this, colleague/deepthink.py task t2): omit
-            # BOTH "tools" and "tool_choice" from the payload entirely rather than
-            # sending an empty tools array, which some servers 400 on and which is
-            # not honestly "no tools" anyway. ``None`` never reaches here — it was
-            # already resolved to the full SCHEMAS above — so a caller that omits
-            # ``tools`` (e.g. plan mode) stays byte-identical to before this change.
-            if offered_tools:
-                payload["tools"] = offered_tools
-                payload["tool_choice"] = "auto"
-            # Token-delta seam (feels-alive arc, task t4): an armed on_delta
-            # switches the request to an incrementally-consumed SSE stream, so
-            # each content/reasoning chunk reaches the sink as it arrives
-            # instead of only after the full completion lands (the served
-            # Qwen spends its long silent time in reasoning — this is the
-            # silence the seam fixes). Unarmed (``config.on_delta is None``,
-            # the default) adds NEITHER key — byte-identical to the
-            # pre-streaming request body.
-            streaming = config.on_delta is not None
-            if streaming:
-                payload["stream"] = True
-                payload["stream_options"] = {"include_usage": True}
-            if os.environ.get("COLLEAGUE_DUMP_REQUEST"):
-                # Best-effort: a diagnostic dump must NEVER break a work item — a
-                # closed/broken stderr (e.g. `2>/dev/null`, a dead pipe) raises
-                # BrokenPipeError/OSError, which would otherwise abort before the
-                # POST even runs (#184).
-                try:
-                    sys.stderr.write(
-                        "colleague: outgoing request payload:\n"
-                        + json.dumps(payload, indent=2)
-                        + "\n"
-                    )
-                except OSError:  # nosec B110 - diagnostic only; never mask the real work
-                    pass
+            payload, streaming = self._build_chat_payload(config, messages, offered_tools)
 
             def _invoke() -> ModelResponse:
                 if streaming:

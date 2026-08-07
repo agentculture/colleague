@@ -442,6 +442,26 @@ class SensesLoopDriver:
         except Exception:
             return None, time.monotonic() - start, None, True, False
 
+    @staticmethod
+    def _boundary_steering(boundary: BoundaryContext) -> str:
+        """Boundary-aware steering preamble (surfaced by the live rig proof):
+        at a cadence tick / feed change the operator did NOT speak and cortex
+        is ALREADY working the dispatched task — senses must narrate progress,
+        never re-dispatch (a smaller senses model otherwise re-picks
+        dispatch_to_cortex every boundary and the operator only ever hears
+        the dispatch notice instead of real progress)."""
+        if boundary.kind == BOUNDARY_OPERATOR_INPUT:
+            return (
+                "The operator just spoke. If this is a new task, dispatch it to cortex; "
+                "if it is a question or guidance about the running work, reply or guide."
+            )
+        return (
+            "Cortex is ALREADY working on the dispatched task (no new operator message). "
+            "Narrate its current progress to the operator with reply_to_operator, grounded "
+            "in the recent feed below — or wait if nothing new has happened. Do NOT dispatch "
+            "again and do NOT invent progress."
+        )
+
     def _build_prompt(
         self,
         boundary: BoundaryContext,
@@ -451,25 +471,7 @@ class SensesLoopDriver:
         counter = self._count_tokens if self._count_tokens is not None else count_tokens_chars
         budget = self._senses_config.context_budget_tokens  # type: ignore[union-attr]
 
-        parts: "list[str]" = []
-        # Boundary-aware steering (surfaced by the live rig proof): at a cadence
-        # tick / feed change the operator did NOT speak and cortex is ALREADY
-        # working the dispatched task — so senses must narrate progress, never
-        # re-dispatch. Without this, a smaller senses model re-picks
-        # dispatch_to_cortex every boundary and the operator only ever hears the
-        # dispatch notice instead of real progress.
-        if boundary.kind == BOUNDARY_OPERATOR_INPUT:
-            parts.append(
-                "The operator just spoke. If this is a new task, dispatch it to cortex; "
-                "if it is a question or guidance about the running work, reply or guide."
-            )
-        else:
-            parts.append(
-                "Cortex is ALREADY working on the dispatched task (no new operator message). "
-                "Narrate its current progress to the operator with reply_to_operator, grounded "
-                "in the recent feed below — or wait if nothing new has happened. Do NOT dispatch "
-                "again and do NOT invent progress."
-            )
+        parts: "list[str]" = [self._boundary_steering(boundary)]
         if boundary.operator_input:
             parts.append(f"Operator's live message (verbatim): {boundary.operator_input}")
         pkt = boundary.packet
@@ -570,29 +572,50 @@ class SensesLoopDriver:
         if result.refused:
             return LoopTurn(move=move, record=record, refused=True)
 
-        chat_entry: "Optional[dict[str, Any]]" = None
-        injection: "Optional[dict[str, Any]]" = None
-        narration: "Optional[str]" = None
+        chat_entry, injection, narration = self._move_effects(
+            move, move_obj, boundary, history, record, at
+        )
+        return LoopTurn(
+            move=move,
+            record=record,
+            chat_entry=chat_entry,
+            injection=injection,
+            outcome=result.outcome,
+            degraded=record.degraded,
+            narration=narration,
+        )
 
+    def _move_effects(
+        self,
+        move: str,
+        move_obj: "dict[str, Any]",
+        boundary: BoundaryContext,
+        history: "Optional[list[dict[str, str]]]",
+        record: SensesRecord,
+        at: float,
+    ) -> "tuple[Optional[dict[str, Any]], Optional[dict[str, Any]], Optional[str]]":
+        """The operator-facing effects of one move (S3776 extraction of
+        ``_build_turn``'s ladder): ``(chat_entry, injection, narration)``.
+        ``MOVE_READ_FLIGHT`` / ``MOVE_WAIT`` -> record only, all three None."""
         if move == MOVE_DISPATCH_TO_CORTEX:
             raw_ack = str(move_obj.get("ack") or "").strip()
             ack = raw_ack or _DISPATCH_ACK_NOTICE
-            chat_entry = {"kind": "ack", "text": ack, "fixed": not raw_ack, "at": at}
-        elif move == MOVE_REPLY_TO_OPERATOR:
+            return {"kind": "ack", "text": ack, "fixed": not raw_ack, "at": at}, None, None
+        if move == MOVE_REPLY_TO_OPERATOR:
             text = str(move_obj.get("text") or "").strip()
             # Structural relay fidelity (task t2): when the boundary carries a
             # worker answer, the DISPLAYED text must contain it verbatim —
             # enforced here in code, never left to the prompt alone.
             text = self._apply_fidelity(text, boundary, history, record)
-            # kind omitted → implied "talk" (t3 mapping), the flight-talk shape.
-            chat_entry = {"message": boundary.operator_input or "", "answer": text, "at": at}
-        elif move == MOVE_CLARIFY:
+            # kind omitted -> implied "talk" (t3 mapping), the flight-talk shape.
+            return {"message": boundary.operator_input or "", "answer": text, "at": at}, None, None
+        if move == MOVE_CLARIFY:
             question = str(move_obj.get("question") or "").strip()
-            chat_entry = {"kind": "clarify", "role": "senses", "text": question, "at": at}
-        elif move == MOVE_GUIDE_CORTEX:
+            return {"kind": "clarify", "role": "senses", "text": question, "at": at}, None, None
+        if move == MOVE_GUIDE_CORTEX:
             guidance = str(move_obj.get("guidance") or "").strip()
-            injection = {"text": guidance, "at": at, "source": "senses-loop"}
-        elif move == MOVE_NARRATE:
+            return None, {"text": guidance, "at": at, "source": "senses-loop"}, None
+        if move == MOVE_NARRATE:
             # Cortex narration (ssv t6, c12/c14/h9): senses-AUTHORED description
             # of the acting mind's live output — USER-DISPLAY ONLY, carried on
             # ``LoopTurn.narration`` which ``_absorb`` deliberately never stores:
@@ -604,18 +627,8 @@ class SensesLoopDriver:
             # leak a narration line into an artifact-bound channel (h11).
             text = str(move_obj.get("text") or "").strip()
             if text and str(boundary.delta_tail or "").strip():
-                narration = text
-        # MOVE_READ_FLIGHT / MOVE_WAIT → record only, no operator-facing entry.
-
-        return LoopTurn(
-            move=move,
-            record=record,
-            chat_entry=chat_entry,
-            injection=injection,
-            outcome=result.outcome,
-            degraded=record.degraded,
-            narration=narration,
-        )
+                return None, None, text
+        return None, None, None
 
     def _apply_fidelity(
         self,

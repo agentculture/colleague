@@ -353,7 +353,8 @@ class TestArmingDecision:
         """A direct-construction / scripted ANSI session (not the genuine live
         loop, no owned line) stays byte-identical — nothing arms."""
         sess, _o, _e = _session(tmp_path)
-        assert sess._live is False and sess._owned_line is None
+        assert sess._live is False
+        assert sess._owned_line is None
         calls = _spy_arming(monkeypatch)
         monkeypatch.setattr(session_mod, "run_senses_talk", lambda m, **k: _talk_record())
         sess._talk_active = True

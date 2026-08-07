@@ -225,10 +225,14 @@ def test_narrate_stays_terminal_and_cannot_dispatch_or_guide_in_three_tier() -> 
     ]
     # ... but NOTHING routing- or authority-shaped happened: no dispatch, no
     # guidance injection, no chat entry, no injection dict on the turn.
-    assert dispatched == [] and guided == []
-    assert len(turns) == 1 and turns[0].move == MOVE_NARRATE
-    assert turns[0].chat_entry is None and turns[0].injection is None
-    assert driver.injections == [] and driver.chat == []
+    assert dispatched == []
+    assert guided == []
+    assert len(turns) == 1
+    assert turns[0].move == MOVE_NARRATE
+    assert turns[0].chat_entry is None
+    assert turns[0].injection is None
+    assert driver.injections == []
+    assert driver.chat == []
     # Narrate concludes the boundary — terminal, exactly one completion, so a
     # narrate turn can never chain into a dispatch/guide on the same boundary.
     assert MOVE_NARRATE in _TERMINAL_MOVES
@@ -293,12 +297,14 @@ def test_three_tier_session_worker_steps_yield_subconscious_lines(
     result = TaskResult(task_id="t-artifact-3t", status=OK, summary="done")
     sess._finalize_split_run(result, None)
     blob = json.dumps(result.to_dict())
-    assert NARRATION_LABEL not in blob and WORKER_NARRATION_LABEL not in blob
+    assert NARRATION_LABEL not in blob
+    assert WORKER_NARRATION_LABEL not in blob
     written = list(artifact_dir(tmp_path).glob("*.json"))
     assert written
     for path in written:
         text = path.read_text()
-        assert NARRATION_LABEL not in text and WORKER_NARRATION_LABEL not in text
+        assert NARRATION_LABEL not in text
+        assert WORKER_NARRATION_LABEL not in text
 
 
 def test_unconfigured_session_renders_higher_self_and_never_subconscious(

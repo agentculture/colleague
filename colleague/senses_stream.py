@@ -144,67 +144,72 @@ class EnvelopeStream:
         if not self._reason:
             self._reason = reason
 
-    def _step(self, ch: str, out: list[str]) -> None:  # noqa: C901
+    def _step(self, ch: str, out: list[str]) -> None:
+        """Dispatch one character to the current state's handler.
+
+        The per-state handlers keep each state's logic small (SonarCloud
+        S3776); ``_TEXT``/``_VALUE_START`` need the *out* sink, the rest
+        take only the character.
+        """
         state = self._state
         if state == _FAILED:
             return
-        if state == _PRE:
-            if ch in _WS:
-                return
-            if ch == "`":
-                self._backtick_run = 1
-                self._state = _FENCE_OPEN
-                return
-            if ch == "{":
-                self._enter_object()
-                return
-            self._fail(f"expected an envelope, got {ch!r}")
-        elif state == _FENCE_OPEN:
-            # Consume the rest of the ``` marker + language tag up to EOL.
-            if ch == "\n":
-                self._backtick_run = 0
-                self._state = _JSON_START
-            return
-        elif state == _JSON_START:
-            if ch in _WS:
-                return
-            if ch == "{":
-                self._enter_object()
-                return
-            self._fail(f"expected '{{' after the fence, got {ch!r}")
-        elif state == _SCAN:
-            self._scan(ch)
-        elif state == _KEY:
-            self._read_key(ch)
-        elif state == _POST_KEY:
-            if ch in _WS:
-                return
-            if ch == ":":
-                self._state = _VALUE_START
-                return
-            self._fail(f"expected ':' after a key, got {ch!r}")
-        elif state == _VALUE_START:
+        if state == _VALUE_START:
             self._begin_value(ch, out)
         elif state == _TEXT:
             self._read_text(ch, out)
-        elif state == _STRING:
-            self._read_string(ch)
-        elif state == _SCALAR:
-            self._read_scalar(ch)
-        elif state == _DONE:
-            if ch in _WS:
-                return
-            if ch == "`":
-                self._backtick_run += 1
-                if self._backtick_run >= 3:
-                    self._backtick_run = 0
-                    self._state = _POST_FENCE
-                return
-            self._fail(f"trailing content after the envelope: {ch!r}")
-        elif state == _POST_FENCE:
-            if ch in _WS:
-                return
-            self._fail(f"trailing content after the closing fence: {ch!r}")
+        else:
+            self._HANDLERS[state](self, ch)
+
+    def _st_pre(self, ch: str) -> None:
+        if ch in _WS:
+            return
+        if ch == "`":
+            self._backtick_run = 1
+            self._state = _FENCE_OPEN
+            return
+        if ch == "{":
+            self._enter_object()
+            return
+        self._fail(f"expected an envelope, got {ch!r}")
+
+    def _st_fence_open(self, ch: str) -> None:
+        # Consume the rest of the ``` marker + language tag up to EOL.
+        if ch == "\n":
+            self._backtick_run = 0
+            self._state = _JSON_START
+
+    def _st_json_start(self, ch: str) -> None:
+        if ch in _WS:
+            return
+        if ch == "{":
+            self._enter_object()
+            return
+        self._fail(f"expected '{{' after the fence, got {ch!r}")
+
+    def _st_post_key(self, ch: str) -> None:
+        if ch in _WS:
+            return
+        if ch == ":":
+            self._state = _VALUE_START
+            return
+        self._fail(f"expected ':' after a key, got {ch!r}")
+
+    def _st_done(self, ch: str) -> None:
+        if ch in _WS:
+            return
+        if ch == "`":
+            self._backtick_run += 1
+            if self._backtick_run >= 3:
+                self._backtick_run = 0
+                self._state = _POST_FENCE
+            return
+        self._fail(f"trailing content after the envelope: {ch!r}")
+
+    def _st_post_fence(self, ch: str) -> None:
+        if ch in _WS:
+            return
+        self._fail(f"trailing content after the closing fence: {ch!r}")
 
     def _enter_object(self) -> None:
         self._depth = 1
@@ -216,18 +221,25 @@ class EnvelopeStream:
         if ch in _WS or ch == ",":
             return
         if self._depth == 1 and not self._container:
-            if ch == '"':
-                self._key = []
-                self._in_key_escape = False
-                self._state = _KEY
-                return
-            if ch == "}":
-                self._depth = 0
-                self._state = _DONE
-                return
-            self._fail(f"expected a key or '}}', got {ch!r}")
+            self._scan_envelope_body(ch)
+        else:
+            self._scan_skipped_container(ch)
+
+    def _scan_envelope_body(self, ch: str) -> None:
+        """Depth-1 scanning: keys and the envelope's closing brace."""
+        if ch == '"':
+            self._key = []
+            self._in_key_escape = False
+            self._state = _KEY
             return
-        # Inside a skipped nested container.
+        if ch == "}":
+            self._depth = 0
+            self._state = _DONE
+            return
+        self._fail(f"expected a key or '}}', got {ch!r}")
+
+    def _scan_skipped_container(self, ch: str) -> None:
+        """Skipping a nested container's content with structure awareness."""
         if ch == '"':
             self._state = _STRING
             return
@@ -238,14 +250,9 @@ class EnvelopeStream:
             opener = self._container.pop() if self._container else ""
             if (opener, ch) not in (("{", "}"), ("[", "]")):
                 self._fail(f"mismatched container close {ch!r}")
-                return
-            if not self._container:
-                self._state = _SCAN
             return
-        if ch == ":":
-            return
-        # A scalar character inside the container — consumed as skip.
-        return
+        # ':' separators and scalar characters inside the container are
+        # consumed as skip.
 
     def _read_key(self, ch: str) -> None:
         if self._in_key_escape:
@@ -344,3 +351,17 @@ class EnvelopeStream:
             return
         if ch == "]":
             self._scan(ch)
+
+    #: State-dispatch table (S3776): every no-sink state's handler.
+    _HANDLERS = {
+        _PRE: _st_pre,
+        _FENCE_OPEN: _st_fence_open,
+        _JSON_START: _st_json_start,
+        _SCAN: _scan,
+        _KEY: _read_key,
+        _POST_KEY: _st_post_key,
+        _STRING: _read_string,
+        _SCALAR: _read_scalar,
+        _DONE: _st_done,
+        _POST_FENCE: _st_post_fence,
+    }

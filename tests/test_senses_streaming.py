@@ -341,7 +341,8 @@ class TestStreamedRunSensesTalkMatchesBlocking:
                 make_complete=engine.make_complete,
             )
 
-        assert streamed is not None and blocking is not None
+        assert streamed is not None
+        assert blocking is not None
         assert streamed["degraded"] is False
         assert blocking["degraded"] is False
         assert (
@@ -349,7 +350,8 @@ class TestStreamedRunSensesTalkMatchesBlocking:
             == blocking["answer"]
             == "cortex is currently editing colleague/config.py."
         )
-        assert streamed["relay"] is False and blocking["relay"] is False
+        assert streamed["relay"] is False
+        assert blocking["relay"] is False
         expected_tokens = _USAGE["prompt_tokens"] + _USAGE["completion_tokens"]
         assert streamed["tokens"] == blocking["tokens"] == expected_tokens
         # No "text" key on the wire: the extractor stays silent, never raises.
