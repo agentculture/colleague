@@ -123,6 +123,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from colleague.cli._commands import roles as _roles_group
     from colleague.cli._commands import session as _session_cmd
     from colleague.cli._commands import skills as _skills_group
+    from colleague.cli._commands import strive as _strive_cmd
     from colleague.cli._commands import telemetry as _telemetry_group
     from colleague.cli._commands import tui as _tui_cmd
     from colleague.cli._commands import whoami as _whoami_cmd
@@ -174,6 +175,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _skills_group.register(sub)
     # Typed subagent roles: prompt + curated tools + skills per role (read-only roles).
     _roles_group.register(sub)
+    # Bounded-attempt hypothesis-driven iteration (plan t13).
+    _strive_cmd.register(sub)
     # Telemetry: OpenTelemetry traces + metrics (opt-in, optional [otel] extra).
     _telemetry_group.register(sub)
     # Cortex/senses arc: inspect the lobes gateway armed state + resolved roles.

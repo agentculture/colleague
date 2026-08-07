@@ -514,6 +514,11 @@ def test_background_module_confined_to_one_shot_detach() -> None:
 #                   the ONE-SHOT detach transport for start (mirroring
 #                   background.py) plus the short synchronous calls for
 #                   status/summarize
+#   strive.py        — the necessity loop (self-learning t13/t14): runs the
+#                   operator-supplied measure command once per attempt to
+#                   score it (bounded, timeout-capped; routed through the
+#                   approval gate like run_command); subprocess is the
+#                   transport, no daemon, no polling loop
 _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
     {
         "colleague/hooks.py",
@@ -531,6 +536,7 @@ _SUBPROCESS_ALLOWED: frozenset[str] = frozenset(
         "colleague/coherence.py",
         "colleague/livecheck.py",
         "colleague/experiment.py",
+        "colleague/strive.py",
     }
 )
 
