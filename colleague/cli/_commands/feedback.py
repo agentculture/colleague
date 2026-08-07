@@ -260,6 +260,7 @@ def _export(
     since: str = "",
     format: str = "jsonl",
     repo: str = ".",
+    include_cortex_authored: bool = False,
 ) -> object:
     """Export every GRADED work item as one JSONL line each (the ROI ledger).
 
@@ -268,6 +269,11 @@ def _export(
     default) IS the JSONL: one compact JSON object per line, newline
     terminated, nothing else on stdout. ``--json`` renders the same rows as
     a single JSON array for parity with the other list-shaped verbs.
+
+    By default only operator-authored records are exported. Cortex-authored
+    records (a model grading its own work) are excluded to prevent a feedback
+    flywheel — a model grading its own work must not train itself. Use
+    ``--include-cortex-authored`` to opt in explicitly.
     """
     if format not in _SUPPORTED_EXPORT_FORMATS:
         raise CliError(
@@ -283,7 +289,12 @@ def _export(
             "e.g. --since 2026-07-01 or --since 2026-07-01T00:00:00+00:00",
         )
     repo_path = Path(repo).expanduser()
-    rows = fb.export_work_items(repo_path, min_rating=min_rating or None, since=since_arg)
+    rows = fb.export_work_items(
+        repo_path,
+        min_rating=min_rating or None,
+        since=since_arg,
+        include_cortex_authored=include_cortex_authored,
+    )
     lines = [json.dumps(row, ensure_ascii=False) for row in rows]
     text = ("\n".join(lines) + "\n") if lines else ""
     return rendered(rows, text)
@@ -329,9 +340,12 @@ def register_into(app) -> None:
         name="export",
         description="Export graded work items as JSONL (the ROI ledger).",
         doc="# feedback export [--min-rating N] [--since ISO-DATE] [--format jsonl] "
-        "[--repo P]\nOne JSON line per GRADED work item, newest first; an ungraded "
-        "work item is excluded entirely. See docs/contract.md for the exact line "
-        "shape. An empty/all-ungraded store exits 0 with no output lines.",
+        "[--include-cortex-authored] [--repo P]\nOne JSON line per GRADED work item, "
+        "newest first; an ungraded work item is excluded entirely. By default only "
+        "operator-authored records are exported (cortex self-grades are excluded to "
+        "prevent a feedback flywheel — a model grading its own work must not train "
+        "itself). Use --include-cortex-authored to opt in. See docs/contract.md for "
+        "the exact line shape. An empty/all-ungraded store exits 0 with no output lines.",
         # `min_rating` needs an explicit Flag so the CLI-facing option is the
         # hyphenated `--min-rating` (a Python identifier can't contain a hyphen);
         # `--since`/`--format` derive directly from their param names.
@@ -342,6 +356,14 @@ def register_into(app) -> None:
                 dest="min_rating",
                 default=0,
                 help="Only include work items rated at least N (1-5).",
+            ),
+            Flag(
+                names=("--include-cortex-authored",),
+                action="store_true",
+                dest="include_cortex_authored",
+                default=False,
+                help="Include cortex-authored records (excluded by default so a "
+                "model grading its own work cannot train itself).",
             ),
         ),
     )
@@ -387,7 +409,13 @@ def cmd_feedback_list(args: argparse.Namespace) -> int:
 
 def cmd_feedback_export(args: argparse.Namespace) -> int:
     emit_result(
-        _export(args.min_rating, args.since, args.format, args.repo),
+        _export(
+            args.min_rating,
+            args.since,
+            args.format,
+            args.repo,
+            getattr(args, "include_cortex_authored", False),
+        ),
         json_mode=bool(getattr(args, "json", False)),
     )
     return 0
@@ -463,6 +491,13 @@ def register(sub: argparse._SubParsersAction) -> None:
         dest="format",
         default="jsonl",
         help="Export line format (only 'jsonl' is supported in v1).",
+    )
+    ex.add_argument(
+        "--include-cortex-authored",
+        dest="include_cortex_authored",
+        action="store_true",
+        default=False,
+        help="Include cortex-authored (self-grade) records. Default: excluded (flywheel risk).",
     )
     _add_repo(ex)
     ex.add_argument("--json", action="store_true", help=JSON_HELP)
