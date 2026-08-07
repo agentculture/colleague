@@ -4,7 +4,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-08-07T15:34:27Z",
-  "updated": "2026-08-07T16:02:54Z",
+  "updated": "2026-08-07T17:52:42Z",
   "claims": [
     {
       "id": "c1",
@@ -355,12 +355,218 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "Operator 2026-08-07: assume webglass-cli IS implemented (being handled now in its own repo) \u2014 the proof plans against a working operator-installed webglass CLI; colleague's concrete needs (localhost policy, console/page-error evidence, selector extract, action press, screenshot, session reuse, agent-first contract) are communicated as webglass-cli#9 with acceptance criteria; items 1-4 there are load-bearing, the rest degradable",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "Every ablation task in BOTH arms lands via a real PR with a squash merge and integrator corrections committed before merge: maybe_capture_correction requires pr_url AND tip_sha from the artifact (probe: colleague/feedback.py:784-830); a no-PR task yields outcome=skipped and NO metric for that task",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "Every counted task's capture sidecar shows outcome=fired in both arms; a skipped capture removes that task from BOTH arms' metric and is recorded",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "webglass folded colleague#9 in (operator, 2026-08-07): all seven acceptance items adopted verbatim into the M0-M2 slice as fixture-based M2 tests; action press pulled forward from M5 for declared apps-under-test; sessions reattach across one-shot CLI subprocess invocations; console/page-error evidence is a first-class observation surface; CLI-shell-out-only consumption recorded as a webglass decision (library provider deferred in webglass#8) \u2014 acknowledged on #9, pull-forward note on #8",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "The two ablation arms run in SEPARATE fresh repos with SEPARATE stores: memory.remember is UNGATED (colleague/memory.py:133 \u2014 the memory gate is loop-side ctx.memory_enabled, colleague/loop.py:2199), so the grade-time correction capture stores code-lessons even under COLLEAGUE_MEMORY=0; OFF-arm purity therefore means NO RECALL (loop-gated), and store separation keeps OFF-arm writes from ever reaching the ON arm",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The OFF arm's N artifacts show zero memory.recalled blocks \u2014 checked, not assumed",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Experiment 1's warm rerun is gated three ways: (a) the detached distill child's marker reads status=done (the row-31 round-2 artifact race), (b) a store probe shows the distilled lesson present, (c) post-run, the warm artifact's memory.recalled block contains that lesson (h7 diagnosability) \u2014 any miss ABORTS/invalidates the comparison; a vacuous warm arm is never compared",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "An aborted warm arm is recorded as aborted \u2014 never quietly rerun until the numbers look right",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "assumption",
+      "text": "Experiment 1 needs a task that reliably FAILS cold yet is winnable warm \u2014 the spec is silent on construction; candidate shape: a hidden-fact repo-spelunking task in the h3/h14 fixture style, sized past the cold step budget; a run-1 unexpected success means select/adjust and record the discarded attempt honestly, never silently swap",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "A discarded too-easy task is recorded in the ledger with its artifact \u2014 never silently swapped for a harder one",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Both experiment-1 runs start from the IDENTICAL repo state \u2014 same base commit SHA, each in a fresh isolation worktree; the failed run's worktree/branch must not leak into the rerun; only the store differs between the runs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "Both experiment-1 artifacts record the same base commit SHA \u2014 verifiable from the artifacts",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Measured runs are serialized on a quiet rig: one work loop at a time, no concurrent rig consumers (no senses/voice sessions, no other colleague loops, no training jobs) during either arm; each run's record notes the rig-quiet condition",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "Each measured run's record names the rig-quiet status; a contaminated run is invalidated and rerun, never averaged in",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "Both arms' repos are scaffolded IDENTICALLY: same .colleague/approvals.json tokens (node/npm/webglass \u2014 the game tasks need run_command through the approval gate), same hooks/templates, same task briefs + acceptance criteria, same immediate-grading discipline (the grade-time trigger fires the capture); the ONLY difference is COLLEAGUE_MEMORY",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "A scaffolding diff of the two arm repos (excluding the COLLEAGUE_MEMORY setting) is empty at arm start \u2014 captured as evidence",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Integrator corrections are rule-bound and pre-committed: correct each task ONLY to its pre-committed acceptance criteria (no opportunistic polish), diff measured mechanically by colleague/correction.py; the integrator's arm-awareness is an acknowledged validity threat mitigated by the written rule, not denied",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "The correction-rules text is committed BEFORE arm 1 task 1 and its SHA is unchanged at experiment end",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "decision",
+      "text": "Arm order: ON first, then OFF (q3) \u2014 the conservative ordering; integrator-familiarity advantage, if any, accrues to the OFF arm",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
     {
       "id": "v1",
       "text": "NEBULA benchmark repo availability + remaining rig hours this session \u2014 not discoverable from the colleague repo; determines whether row 33 runs now or stays a recorded recipe",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Statistical power at small N: the operator's bar records equal-or-worse as falsifying, but a near-tie at small N is weak evidence in either direction \u2014 the raw per-task numbers are recorded so a future larger-N rerun can extend the series",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Warm-run duration confound: server warm-up/KV-cache makes the second run's DURATION incomparable; steps/tokens are the primary metrics and are contention-robust \u2014 duration is reported but never load-bearing",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -456,6 +662,76 @@
       "seeds": [
         "c21"
       ]
+    },
+    {
+      "id": "s12",
+      "surface": "webglass-cli#9 (filed this session)",
+      "finding": "the consumer requirements are now a tracked artifact on the supplier repo \u2014 the proof's webglass dependency is pinned to an issue with acceptance criteria instead of an assumption in colleague's head",
+      "seeds": [
+        "c22"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / adjacent-systems lens: colleague/feedback.py maybe_capture_correction",
+      "finding": "the metric instrument's preconditions read live: pr_url + tip_sha both required, honest skipped/failed outcomes, idempotent re-fire short-circuit \u2014 the ablation recipe must therefore include per-task PR + merge or the metric never exists",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "webglass-cli#9 acknowledgment (operator relay)",
+      "finding": "the supplier dependency is no longer an assumption: the seven load-bearing items are a committed M0-M2 slice with fixture tests mirroring colleague's acceptance criteria",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "challenge pass / adjacent-systems lens: colleague/memory.py remember + colleague/loop.py memory gate",
+      "finding": "the OFF switch gates the loop's recall/remember, NOT the feedback-lane remember \u2014 read live at memory.py:133 (no gate) and loop.py:2199 (ctx.memory_enabled); the naive one-repo-two-arms reading of the row-32 recipe would contaminate",
+      "seeds": [
+        "c25"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "challenge pass / failure-mode lens: distill detached child (ledger row 31 round 2) + memory.md h7 recall-diagnosability",
+      "finding": "the pipeline's own history documents the race and the diagnosable-recall block; the spec's experiment-1 text assumed the sequence without gating it",
+      "seeds": [
+        "c26"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "challenge pass / unstated-assumptions + operations lenses: exported spec experiment-1 section + the serializing GPU",
+      "finding": "the spec fixed WHAT to measure but not the run-state hygiene (identical HEAD, fresh worktrees) nor the rig-quiet condition; steps/tokens are contention-robust but duration is not, and a contaminated run must be invalidated, not averaged",
+      "seeds": [
+        "c28",
+        "c29"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "challenge pass / overlooked-actors lens: the integrator as a measurement actor",
+      "finding": "the metric IS the integrator's own output (correction-diff lines), and the integrator knows which arm is which \u2014 an unexamined bias channel in the spec; mitigation is a pre-committed correction rule, with the residual acknowledged",
+      "seeds": [
+        "c30",
+        "c31"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "challenge pass / security lens: proof-session surfaces",
+      "finding": "clean pass \u2014 the proof adds no colleague code or attack surface; webglass rides run_command through the existing approval gate (policy gate, not sandbox, per the documented gap); no new sanctioned subprocess, no new tool; residual risk unchanged from baseline",
+      "seeds": []
+    },
+    {
+      "id": "s20",
+      "surface": "challenge pass / reversibility lens: durable mutations of the proof",
+      "finding": "clean pass \u2014 all execution happens in throwaway repos/worktrees + colleague/* branches; the durable mutations are docs (ledger rows, delivery-claim flips) and eidetic records in throwaway stores, all PR-reviewed; nothing hard-to-reverse",
+      "seeds": []
     }
   ],
   "lapses": []
