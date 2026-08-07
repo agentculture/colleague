@@ -433,3 +433,147 @@ def test_lesson_text_ok_run_stays_compact_and_stub_compatible() -> None:
     assert text.startswith("Work item t379 finished ok")
     assert "Incompletion:" not in text
     assert "Error:" not in text
+
+
+# ── rung 1.5: fold lint / test-integrity / affected-tests reports (#379) ──
+
+
+def test_lesson_text_folds_lint_report() -> None:
+    """A result carrying lint_report folds it into the lesson text, bounded per field."""
+    from colleague.contract import LintReport
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(
+        lint_report=LintReport(
+            fixed=["black reformatted 2 file(s)"],
+            residual=["flake8 F811 colleague/x.py:10"],
+            skipped=["ruff: not installed"],
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "Lint:" in text
+    assert "black reformatted 2 file(s)" in text
+    assert "flake8 F811 colleague/x.py:10" in text
+    assert "ruff: not installed" in text
+
+
+def test_lesson_text_folds_test_integrity_report() -> None:
+    """A result carrying test_integrity_report folds it into the lesson text, bounded per field."""
+    from colleague.memory import compose_lesson_text
+    from colleague.testintegrity import MirrorFinding, TestIntegrityReport
+
+    result = _result_for_lesson(
+        test_integrity_report=TestIntegrityReport(
+            findings=[
+                MirrorFinding(
+                    symbol="FAKE_MIRROR",
+                    kind="attribute",
+                    test_file="tests/test_foo.py",
+                    impl_file="colleague/foo.py",
+                )
+            ]
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "Test integrity:" in text
+    assert "FAKE_MIRROR" in text
+    assert "tests/test_foo.py" in text
+    assert "colleague/foo.py" in text
+
+
+def test_lesson_text_folds_affected_tests_report() -> None:
+    """A result carrying affected_tests_report folds it into the lesson text, bounded per field."""
+    from colleague.affectedtests import AffectedTestsReport
+    from colleague.memory import compose_lesson_text
+
+    result = _result_for_lesson(
+        affected_tests_report=AffectedTestsReport(
+            status="failed",
+            selected=["tests/test_foo.py"],
+            total=1,
+            capped=False,
+            passed=0,
+            failed=1,
+        )
+    )
+    text = compose_lesson_text(result)
+    assert "Affected tests:" in text
+    assert "failed" in text
+    assert "tests/test_foo.py" in text
+    assert "1 failed" in text
+
+
+def test_lesson_text_no_reports_is_byte_identical() -> None:
+    """A result without lint/test_integrity/affected_tests reports produces
+    byte-identical lesson text to the current rung-1 shape, same upsert id."""
+    from colleague.memory import build_lesson_record, compose_lesson_text
+
+    result = _result_for_lesson(status="ok", summary="did the thing")
+    text = compose_lesson_text(result)
+    # Should be identical to the stub shape — no new prefixes
+    assert text.startswith("Work item t379 finished ok")
+    assert "Incompletion:" not in text
+    assert "Error:" not in text
+    assert "Lint:" not in text
+    assert "Test integrity:" not in text
+    assert "Affected tests:" not in text
+    # Same upsert id
+    record = build_lesson_record(result.task_id, text, {})
+    assert record["id"] == f"work-lesson-{result.task_id}"
+
+
+def test_lesson_text_lint_report_bounded_per_field() -> None:
+    """Each lint_report field is bounded (200-char cap) — no runaway text."""
+    from colleague.contract import LintReport
+    from colleague.memory import compose_lesson_text
+
+    long_item = "X" * 300
+    result = _result_for_lesson(
+        lint_report=LintReport(
+            fixed=[long_item, long_item],
+            residual=[long_item],
+            skipped=[],
+        )
+    )
+    text = compose_lesson_text(result)
+    # The joined+cap per field must not exceed 200 chars
+    lint_section = text[text.index("Lint:") :].split(".")[0]
+    assert len(lint_section) <= 200 + len("Lint: ") + 1  # section + prefix + trailing dot
+
+
+def test_lesson_text_all_three_reports_together() -> None:
+    """A result carrying all three reports folds each into the lesson text."""
+    from colleague.affectedtests import AffectedTestsReport
+    from colleague.contract import LintReport
+    from colleague.memory import compose_lesson_text
+    from colleague.testintegrity import MirrorFinding, TestIntegrityReport
+
+    result = _result_for_lesson(
+        lint_report=LintReport(fixed=["black reformatted 1 file(s)"], residual=[], skipped=[]),
+        test_integrity_report=TestIntegrityReport(
+            findings=[
+                MirrorFinding(
+                    symbol="MIRROR_SYM",
+                    kind="dict_key",
+                    test_file="tests/test_bar.py",
+                    impl_file="colleague/bar.py",
+                )
+            ]
+        ),
+        affected_tests_report=AffectedTestsReport(
+            status="passed",
+            selected=["tests/test_bar.py"],
+            total=1,
+            capped=False,
+            passed=1,
+            failed=0,
+        ),
+    )
+    text = compose_lesson_text(result)
+    assert "Lint:" in text
+    assert "Test integrity:" in text
+    assert "Affected tests:" in text
+    assert "black reformatted 1 file(s)" in text
+    assert "MIRROR_SYM" in text
+    assert "tests/test_bar.py" in text
+    assert "passed" in text

@@ -177,6 +177,60 @@ def remember(
 RECALL_BLOCK_CAP = 4000
 
 
+#: Cap on each folded report field in the lesson text, in characters.
+_REPORT_FIELD_CAP = 200
+
+
+def _fold_lint(report: "Any") -> str:
+    """Fold a LintReport into one bounded sentence."""
+    parts = []
+    for item in getattr(report, "fixed", None) or []:
+        parts.append(str(item)[:_REPORT_FIELD_CAP])
+    for item in getattr(report, "residual", None) or []:
+        parts.append(str(item)[:_REPORT_FIELD_CAP])
+    for item in getattr(report, "skipped", None) or []:
+        parts.append(str(item)[:_REPORT_FIELD_CAP])
+    if not parts:
+        return ""
+    joined = "; ".join(parts)
+    return "Lint: " + joined[:_REPORT_FIELD_CAP] + "."
+
+
+def _fold_test_integrity(report: "Any") -> str:
+    """Fold a TestIntegrityReport into one bounded sentence."""
+    findings = getattr(report, "findings", None) or []
+    if not findings:
+        return ""
+    parts = []
+    for f in findings:
+        sym = str(getattr(f, "symbol", "?"))[:_REPORT_FIELD_CAP]
+        kind = str(getattr(f, "kind", "?"))
+        tf = str(getattr(f, "test_file", "?"))[:_REPORT_FIELD_CAP]
+        imf = str(getattr(f, "impl_file", "?"))[:_REPORT_FIELD_CAP]
+        parts.append(f"{sym} ({kind}): {tf} ↔ {imf}")
+    return "Test integrity: " + "; ".join(parts) + "."
+
+
+def _fold_affected_tests(report: "Any") -> str:
+    """Fold an AffectedTestsReport into one bounded sentence."""
+    status = str(getattr(report, "status", "?"))
+    selected = getattr(report, "selected", None) or []
+    total = getattr(report, "total", 0)
+    passed = getattr(report, "passed", None)
+    failed = getattr(report, "failed", None)
+    counts = []
+    if passed is not None:
+        counts.append(f"{passed} passed")
+    if failed is not None:
+        counts.append(f"{failed} failed")
+    tail = ", ".join(counts) or status
+    cap_note = f" (capped from {total})" if getattr(report, "capped", False) else ""
+    files = ", ".join(str(s)[:_REPORT_FIELD_CAP] for s in selected[:5])
+    if len(selected) > 5:
+        files += f" +{len(selected) - 5} more"
+    return f"Affected tests: {status} — {len(selected)} file(s){cap_note}: {tail} ({files})."
+
+
 def compose_lesson_text(result: "Any", request_head: str = "") -> str:
     """Compose the remember-after lesson text from a finished result (#379 rung 1).
 
@@ -188,6 +242,9 @@ def compose_lesson_text(result: "Any", request_head: str = "") -> str:
     this record learns WHAT failed and what to do differently, not just
     step counts. An ok run without substance stays byte-compatible with the
     pre-#379 stub shape.
+
+    Rung 1.5: lint_report, test_integrity_report, and affected_tests_report
+    are each folded into the lesson text, bounded per field.
     """
     stats = result.stats
     tools = ", ".join(f"{k}={v}" for k, v in sorted(stats.tool_counts.items()))
@@ -223,6 +280,16 @@ def compose_lesson_text(result: "Any", request_head: str = "") -> str:
             f"{w.get('stale_id', '?')} (via {w.get('source', '?')}) -> "
             f"{w.get('refreshed_id', '?')}."
         )
+    # Rung 1.5: fold pre-finish gate reports
+    lint = getattr(result, "lint_report", None)
+    if lint is not None:
+        text += " " + _fold_lint(lint)
+    ti = getattr(result, "test_integrity_report", None)
+    if ti is not None:
+        text += " " + _fold_test_integrity(ti)
+    at = getattr(result, "affected_tests_report", None)
+    if at is not None:
+        text += " " + _fold_affected_tests(at)
     return text
 
 
