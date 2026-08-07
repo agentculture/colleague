@@ -33,11 +33,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from colleague import correction
+from colleague import memory as memorymod
 from colleague.artifact import (
     artifact_dir,
     artifact_read_dirs,
     ensure_self_ignored,
     find_artifact,
+    read_artifact,
 )
 
 #: Per-repo pointer file (in the artifact dir) naming the most recent work item.
@@ -296,6 +299,14 @@ def write_feedback(
     path.write_text(
         json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    # Grade-time auto-trigger (self-learning t12, c18/h15): when the graded
+    # work item's own artifact carries BOTH pr_url and tip_sha, attempt a
+    # correction-diff capture now. The grade above has ALREADY landed on
+    # disk — maybe_capture_correction is a strict best-effort call that never
+    # raises (its own try/except absorbs everything), so this can only ever
+    # ADD an observable capture outcome, never take the grade away (AC2,
+    # pinned by test_auto_trigger.py's test_capture_failure_never_blocks_the_grade).
+    maybe_capture_correction(repo_path, task_id)
     return record
 
 
@@ -420,10 +431,11 @@ class WorkSummary:
 def _load_work_artifact(path: Path) -> Optional[dict[str, Any]]:
     """Parse a result-artifact JSON file, or ``None`` to skip it.
 
-    Skips feedback records (``*.feedback.json``) and any unreadable/corrupt file —
+    Skips feedback records (``*.feedback.json``), correction-capture sidecars
+    (``*-correction-capture.json``, t12), and any unreadable/corrupt file —
     :func:`list_work_items` is best-effort and must never raise on a stray file.
     """
-    if path.name.endswith(".feedback.json"):
+    if path.name.endswith(".feedback.json") or path.name.endswith(_CAPTURE_SUFFIX):
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -618,3 +630,231 @@ def _work_feedback_record(
         return read_feedback(repo_path, task_id, author=author)
     except FeedbackError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Seamless auto-trigger lane (plan t12, covers c18/h15) — the ROI loop closes
+# the loop on itself: a graded/merged work item's own correction (what an
+# operator or a follow-up run fixed) becomes a code-lesson, WITHOUT an
+# operator having to remember to ask for it.
+#
+# ONE shared best-effort primitive (`maybe_capture_correction`) fires from TWO
+# triggers:
+#   1. grade time — wired into `write_feedback` above.
+#   2. work-start — `capture_uncaptured_predecessor` (built on the pure-ish
+#      `find_uncaptured_predecessor` detector), wired into
+#      `colleague.cli._commands.work.execute_work`.
+#
+# Both triggers share the SAME honesty contract: ANY missing fact, or ANY
+# exception raised anywhere in the correction/memory machinery, yields an
+# observable non-raising outcome — "fired" / "skipped" / "failed", with a
+# `reason` — persisted as a sidecar JSON file beside the work item's own
+# artifact (`<task_id>-correction-capture.json`, read back via
+# `read_correction_capture`). A capture failure can only ever ADD that
+# sidecar; it never blocks or undoes the action that triggered it (a grade,
+# or the next work item starting) — c18's pinned behavior.
+# ---------------------------------------------------------------------------
+
+#: Outcome vocabulary for a correction-capture attempt (t12).
+CAPTURE_FIRED = "fired"
+CAPTURE_SKIPPED = "skipped"
+CAPTURE_FAILED = "failed"
+
+#: The sidecar filename suffix. Deliberately a HYPHEN (not the dot every real
+#: artifact/feedback filename uses right after the task id) so
+#: :func:`colleague.artifact.find_artifact`'s ``<task_id>.*.json`` glob can
+#: never mistake this sidecar for the work item's own result artifact.
+_CAPTURE_SUFFIX = "-correction-capture.json"
+
+
+def _capture_filename(task_id: str) -> str:
+    return f"{task_id}{_CAPTURE_SUFFIX}"
+
+
+def correction_capture_path(repo_path: str | Path, task_id: str) -> Path:
+    """The correction-capture sidecar WRITE path for ``task_id`` (t12).
+
+    ``task_id`` is validated the same way :func:`feedback_path` validates its
+    own (traversal guard) — this sidecar lives beside the work item's
+    artifact and feedback record in :func:`~colleague.artifact.artifact_dir`.
+    """
+    safe_id = _validate_task_id(task_id)
+    return artifact_dir(repo_path) / _capture_filename(safe_id)
+
+
+def read_correction_capture(repo_path: str | Path, task_id: str) -> Optional[dict[str, Any]]:
+    """Read back ``task_id``'s correction-capture outcome, or ``None`` if none exists.
+
+    Best-effort read across the new dir then the legacy dir (mirrors
+    :func:`feedback_read_path`): a missing or corrupt sidecar is a clean
+    ``None``, never an error — "no capture attempted yet" is a state, not a
+    failure.
+    """
+    if task_id in (".", "..") or not _SAFE_TASK_ID.match(task_id or ""):
+        return None  # a tolerant traversal guard — read-only, never raises
+    filename = _capture_filename(task_id)
+    for directory in artifact_read_dirs(repo_path):
+        path = directory / filename
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+    return None
+
+
+def _write_correction_capture(repo_path: str | Path, task_id: str, outcome: dict[str, Any]) -> None:
+    """Persist a correction-capture outcome; best-effort (never raises).
+
+    Two narrow, typed except clauses (matching the ``ensure_self_ignored``/
+    ``_reap_dangling_last_work`` convention elsewhere in this module) rather
+    than a bare ``except Exception: pass`` — a bad/unsafe ``task_id`` raises
+    :class:`FeedbackError` from :func:`correction_capture_path`; an unwritable
+    dir raises :class:`OSError`. Either way, persisting the outcome is itself
+    best-effort — it must never be the thing that raises.
+    """
+    try:
+        path = correction_capture_path(repo_path, task_id)
+    except FeedbackError:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_self_ignored(path.parent)
+        path.write_text(json.dumps(outcome, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def maybe_capture_correction(repo_path: str | Path, task_id: str) -> dict[str, Any]:
+    """Best-effort correction-diff capture for one work item (t12, c18/h15).
+
+    Reads ``task_id``'s own artifact; when it carries BOTH ``pr_url`` and
+    ``tip_sha`` (the two facts :func:`colleague.correction.capture_correction_diff`
+    needs beyond ``changed_files``, itself always present on the artifact),
+    resolves the PR's squash-merge commit
+    (:func:`colleague.correction.resolve_merge_commit`) and captures the
+    scoped diff (:func:`colleague.correction.capture_correction_diff`). Each
+    resulting hunk becomes one code-lesson
+    (:func:`colleague.correction.build_code_lesson` +
+    :func:`colleague.memory.build_code_lesson_record`) stored via
+    :func:`colleague.memory.remember`.
+
+    **Idempotent short-circuit:** when a PRIOR call already recorded a FIRED
+    outcome for this ``task_id``, that record is returned unchanged — no
+    re-resolution, no re-diff, no re-remember (a re-grade of an already
+    correction-captured work item is a cheap no-op).
+
+    **Never raises.** ANY missing fact yields an honest ``"skipped"`` outcome
+    naming the missing fact; ANY exception anywhere in the correction/memory
+    call chain yields a ``"failed"`` outcome naming the exception — this
+    function's own try/except is the honesty boundary: a capture failure can
+    only ever be recorded, never propagated (c18's pinned "the grade must
+    always land" behavior). The outcome is both returned AND persisted as a
+    sidecar (:func:`_write_correction_capture`) so a caller that only wants
+    the side effect (the grade-time / work-start triggers) doesn't need the
+    return value, and a test can read it back independently.
+    """
+    outcome: dict[str, Any] = {
+        "task_id": task_id,
+        "outcome": CAPTURE_SKIPPED,
+        "reason": "",
+        "hunks_captured": 0,
+        "lessons_stored": 0,
+        "at": _now_iso(),
+    }
+    try:
+        existing = read_correction_capture(repo_path, task_id)
+        if existing is not None and existing.get("outcome") == CAPTURE_FIRED:
+            return existing  # already captured — idempotent short-circuit, no re-fire
+
+        result = read_artifact(repo_path, task_id)
+        if result is None:
+            outcome["reason"] = "no artifact found for this work item"
+        elif not result.pr_url:
+            outcome["reason"] = "artifact carries no pr_url (no PR opened / not handed off)"
+        elif not result.tip_sha:
+            outcome["reason"] = "artifact carries no tip_sha (handoff produced no commit)"
+        else:
+            changed_files = list(result.changed_files or [])
+            merge_sha = correction.resolve_merge_commit(repo_path, result.pr_url)
+            diff_record = correction.capture_correction_diff(
+                repo_path, result.tip_sha, merge_sha, changed_files
+            )
+            if not diff_record.ok:
+                outcome["reason"] = diff_record.note or "correction diff unavailable"
+            else:
+                stored = 0
+                for hunk in diff_record.hunks.values():
+                    lesson = correction.build_code_lesson(hunk)
+                    lesson_record = memorymod.build_code_lesson_record(
+                        area=lesson.area or lesson.file_path,
+                        convention=lesson.convention or f"correction on {lesson.file_path}",
+                        evidence=lesson.evidence,
+                        confidence=memorymod.Confidence.low,
+                    )
+                    if memorymod.remember(repo_path, lesson_record):
+                        stored += 1
+                outcome["outcome"] = CAPTURE_FIRED
+                outcome["hunks_captured"] = len(diff_record.hunks)
+                outcome["lessons_stored"] = stored
+                outcome["reason"] = (
+                    f"captured {len(diff_record.hunks)} hunk(s), stored {stored} lesson(s)"
+                )
+    except Exception as exc:  # noqa: BLE001 - a capture failure must never block/fail the grade
+        outcome["outcome"] = CAPTURE_FAILED
+        outcome["reason"] = f"correction capture failed: {exc}"
+
+    _write_correction_capture(repo_path, task_id, outcome)
+    return outcome
+
+
+def find_uncaptured_predecessor(repo_path: str | Path) -> Optional[str]:
+    """The repo's most recent work item's ``task_id``, IF it looks like an
+    uncaptured merged predecessor — or ``None`` (t12 AC3).
+
+    Read-only detection, no subprocess: reads the ``last_work`` pointer and
+    that work item's own artifact — the actual merge-commit lookup (which
+    DOES shell out) happens only inside :func:`maybe_capture_correction`,
+    called separately by :func:`capture_uncaptured_predecessor` once this
+    function has said there is something worth attempting.
+
+    Returns the task_id when the last work item's artifact carries BOTH
+    ``pr_url`` and ``tip_sha`` (a plausible merge candidate) AND no PRIOR
+    capture attempt for it already recorded a FIRED outcome. A prior
+    ``"skipped"``/``"failed"`` attempt still counts as uncaptured — worth
+    retrying later (e.g. the PR may have merged since, or ``gh`` may now be
+    reachable) — only a FIRED capture is considered done. Returns ``None``
+    when there is no last-work pointer, its artifact is missing either fact,
+    or it was already captured.
+    """
+    task_id = get_last_work(repo_path)
+    if not task_id:
+        return None
+    result = read_artifact(repo_path, task_id)
+    if result is None or not result.pr_url or not result.tip_sha:
+        return None
+    existing = read_correction_capture(repo_path, task_id)
+    if existing is not None and existing.get("outcome") == CAPTURE_FIRED:
+        return None
+    return task_id
+
+
+def capture_uncaptured_predecessor(repo_path: str | Path) -> Optional[dict[str, Any]]:
+    """Colleague's own action as trigger (t12 AC3): if the repo's last work
+    item looks like an uncaptured merged predecessor
+    (:func:`find_uncaptured_predecessor`), capture it now.
+
+    Meant to be called best-effort at the START of the NEXT work item (see
+    ``colleague.cli._commands.work.execute_work``) — the moment colleague
+    itself notices a predecessor nobody ever graded-and-captured. Returns the
+    capture outcome dict, or ``None`` when there was no predecessor to
+    capture (the common case — every caller must treat ``None`` as "nothing
+    to do", never as a failure). Inherits :func:`maybe_capture_correction`'s
+    own never-raises contract, so a caller can invoke this unguarded.
+    """
+    task_id = find_uncaptured_predecessor(repo_path)
+    if task_id is None:
+        return None
+    return maybe_capture_correction(repo_path, task_id)
